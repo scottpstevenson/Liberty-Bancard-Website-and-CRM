@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, ArrowRight } from "lucide-react";
+import { Plus, ArrowRight, Sparkles, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { Task } from "@shared/schema";
 
@@ -119,6 +119,20 @@ export default function Tasks() {
     },
   });
 
+  const generateTasksMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/ai/generate-tasks");
+      return res.json();
+    },
+    onSuccess: (data: { generated: number }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      toast({ title: `AI generated ${data.generated} new tasks`, description: "Tasks created based on stalling deals, SLA breaches, and cold leads." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "AI task generation failed", description: err.message, variant: "destructive" });
+    },
+  });
+
   const handleCreateTask = () => {
     if (!newTask.title) {
       toast({ title: "Title is required", variant: "destructive" });
@@ -174,6 +188,16 @@ export default function Tasks() {
               ))}
             </SelectContent>
           </Select>
+          <Button
+            variant="outline"
+            data-testid="button-ai-generate-tasks"
+            className="gap-2"
+            onClick={() => generateTasksMutation.mutate()}
+            disabled={generateTasksMutation.isPending}
+          >
+            {generateTasksMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+            AI Generate Tasks
+          </Button>
           <Dialog open={createOpen} onOpenChange={setCreateOpen}>
             <DialogTrigger asChild>
               <Button data-testid="button-new-task" className="gap-2">

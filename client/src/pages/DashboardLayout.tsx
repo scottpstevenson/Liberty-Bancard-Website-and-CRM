@@ -27,6 +27,7 @@ import {
   Send,
   BarChart2,
   Mail,
+  PieChart,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -61,6 +62,7 @@ const menuItems = [
   { icon: FileQuestion, label: "RFIs", href: "/dashboard/rfis" },
   { icon: BarChart3, label: "Automation", href: "/dashboard/automation" },
   { icon: Settings, label: "GHL Settings", href: "/dashboard/ghl-settings" },
+  { icon: PieChart, label: "Reporting", href: "/dashboard/reporting" },
 ];
 
 const leadGenItems = [

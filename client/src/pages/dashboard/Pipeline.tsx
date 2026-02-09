@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Plus, Calendar } from "lucide-react";
+import { Plus, Calendar, Sparkles, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { Deal, Contact } from "@shared/schema";
 import { SALES_STAGES, OFFER_PATHS } from "@shared/schema";
@@ -95,6 +95,24 @@ export default function Pipeline() {
     },
   });
 
+  const autoProgressMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/ai/auto-progress-deals");
+      return res.json();
+    },
+    onSuccess: (data: { progressed: number; progressions: Array<{ dealId: number; from: string; to: string; reason: string }> }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/deals"] });
+      if (data.progressed === 0) {
+        toast({ title: "No deals to advance", description: "All deals are at the correct stage based on their data." });
+      } else {
+        toast({ title: `AI advanced ${data.progressed} deal${data.progressed > 1 ? "s" : ""}`, description: data.progressions.map(p => `Deal #${p.dealId}: ${p.from} → ${p.to}`).join(", ") });
+      }
+    },
+    onError: (err: Error) => {
+      toast({ title: "Auto-progression failed", description: err.message, variant: "destructive" });
+    },
+  });
+
   const contactsMap = new Map<number, Contact>();
   contacts?.forEach((c) => contactsMap.set(c.id, c));
 
@@ -160,14 +178,25 @@ export default function Pipeline() {
     <div className="space-y-6" data-testid="pipeline-page">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <h2 className="text-2xl font-bold" data-testid="text-pipeline-title">Sales Pipeline</h2>
-        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-          <DialogTrigger asChild>
-            <Button data-testid="button-new-deal" className="gap-2">
-              <Plus className="w-4 h-4" />
-              New Deal
-            </Button>
-          </DialogTrigger>
-          <DialogContent data-testid="dialog-create-deal">
+        <div className="flex items-center gap-3 flex-wrap">
+          <Button
+            variant="outline"
+            data-testid="button-ai-auto-progress"
+            className="gap-2"
+            onClick={() => autoProgressMutation.mutate()}
+            disabled={autoProgressMutation.isPending}
+          >
+            {autoProgressMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+            AI Auto-Progress
+          </Button>
+          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+            <DialogTrigger asChild>
+              <Button data-testid="button-new-deal" className="gap-2">
+                <Plus className="w-4 h-4" />
+                New Deal
+              </Button>
+            </DialogTrigger>
+            <DialogContent data-testid="dialog-create-deal">
             <DialogHeader>
               <DialogTitle>Create New Deal</DialogTitle>
             </DialogHeader>
@@ -237,6 +266,7 @@ export default function Pipeline() {
             </div>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       <ScrollArea className="w-full" data-testid="pipeline-board">

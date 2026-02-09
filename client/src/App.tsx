@@ -47,6 +47,7 @@ import Prospects from "@/pages/dashboard/Prospects";
 import ProspectImport from "@/pages/dashboard/ProspectImport";
 import Campaigns from "@/pages/dashboard/Campaigns";
 import OutreachAnalytics from "@/pages/dashboard/OutreachAnalytics";
+import Reporting from "@/pages/dashboard/Reporting";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { user, isLoading } = useAuth();
@@ -158,6 +159,9 @@ function Router() {
       </Route>
       <Route path="/dashboard/outreach-analytics">
         <ProtectedRoute component={OutreachAnalytics} />
+      </Route>
+      <Route path="/dashboard/reporting">
+        <ProtectedRoute component={Reporting} />
       </Route>
 
       <Route component={NotFound} />

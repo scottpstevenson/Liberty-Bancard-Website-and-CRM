@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, AlertTriangle } from "lucide-react";
+import { Plus, AlertTriangle, Sparkles, Loader2, ChevronDown, ChevronRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { Ticket, Contact } from "@shared/schema";
 import { TICKET_CATEGORIES, SUPPORT_STAGES } from "@shared/schema";
@@ -52,6 +52,7 @@ export default function Tickets() {
   const [editStatus, setEditStatus] = useState("");
   const [editAssignedTo, setEditAssignedTo] = useState("");
   const [editNotes, setEditNotes] = useState("");
+  const [aiResult, setAiResult] = useState<{category: string; priority: string; suggestedResponse: string; tags: string[]; estimatedResolutionHours: number} | null>(null);
 
   const { data: tickets, isLoading } = useQuery<Ticket[]>({
     queryKey: ["/api/tickets"],
@@ -103,6 +104,21 @@ export default function Tickets() {
     },
   });
 
+  const classifyMutation = useMutation({
+    mutationFn: async (ticketId: number) => {
+      const res = await apiRequest("POST", "/api/ai/classify-ticket", { ticketId });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setAiResult(data);
+      queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
+      toast({ title: "Ticket classified by AI", description: `Category: ${data.category}, Priority: ${data.priority}` });
+    },
+    onError: (err: Error) => {
+      toast({ title: "AI classification failed", description: err.message, variant: "destructive" });
+    },
+  });
+
   const handleCreateTicket = () => {
     if (!newTicket.subject || !newTicket.description) {
       toast({ title: "Subject and description are required", variant: "destructive" });
@@ -141,6 +157,7 @@ export default function Tickets() {
     setEditStatus(ticket.status || "New Ticket");
     setEditAssignedTo(ticket.assignedTo || "");
     setEditNotes("");
+    setAiResult(null);
     setDetailOpen(true);
   };
 
@@ -335,6 +352,38 @@ export default function Tickets() {
                   SLA Breached
                 </Badge>
               )}
+
+              <div className="border-t pt-3 space-y-3">
+                <Button
+                  variant="outline"
+                  className="gap-2 w-full"
+                  onClick={() => classifyMutation.mutate(selectedTicket.id)}
+                  disabled={classifyMutation.isPending}
+                  data-testid="button-ai-classify-ticket"
+                >
+                  {classifyMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                  AI Classify & Suggest Response
+                </Button>
+                {aiResult && (
+                  <Card>
+                    <CardContent className="p-3 space-y-2">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <span className="text-sm font-medium">AI Analysis</span>
+                        <Badge variant="outline" className="text-xs no-default-hover-elevate">{aiResult.estimatedResolutionHours}h est.</Badge>
+                      </div>
+                      <div className="flex gap-1 flex-wrap">
+                        {aiResult.tags.map(tag => (
+                          <Badge key={tag} variant="secondary" className="text-xs no-default-hover-elevate">{tag}</Badge>
+                        ))}
+                      </div>
+                      <div className="text-sm text-muted-foreground bg-muted/50 p-2 rounded-md">
+                        <div className="font-medium text-xs mb-1">Suggested Response:</div>
+                        {aiResult.suggestedResponse}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
 
               <div className="space-y-2">
                 <Label>Status</Label>

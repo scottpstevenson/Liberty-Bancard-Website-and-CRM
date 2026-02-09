@@ -10,7 +10,8 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Calendar } from "lucide-react";
+import { Calendar, Sparkles, Loader2, Package, Truck, CheckCircle2, Circle, Clock } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import type { Deal, Contact } from "@shared/schema";
 import { ONBOARDING_STAGES } from "@shared/schema";
@@ -35,12 +36,23 @@ export default function Onboarding() {
   const [editStage, setEditStage] = useState("");
   const [editNotes, setEditNotes] = useState("");
   const [editGoLiveDate, setEditGoLiveDate] = useState("");
+  const [editTerminalRec, setEditTerminalRec] = useState("");
+  const [editTerminalStatus, setEditTerminalStatus] = useState("");
 
   const { data: deals, isLoading: dealsLoading } = useQuery<Deal[]>({
     queryKey: ["/api/deals", { pipeline: "onboarding" }],
     queryFn: async () => {
       const res = await fetch("/api/deals?pipeline=onboarding", { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch deals");
+      return res.json();
+    },
+  });
+
+  const { data: onboardingStatuses } = useQuery<Array<{dealId: number; contactId: number | null; stage: string; progress: number; milestones: Array<{name: string; done: boolean}>; pendingTasks: number; nextStep: string; updatedAt: string | null}>>({
+    queryKey: ["/api/ai/onboarding-status"],
+    queryFn: async () => {
+      const res = await fetch("/api/ai/onboarding-status", { credentials: "include" });
+      if (!res.ok) return [];
       return res.json();
     },
   });
@@ -91,6 +103,8 @@ export default function Onboarding() {
     if (editStage && editStage !== selectedDeal.stage) updates.stage = editStage;
     if (editNotes !== (selectedDeal.notes || "")) updates.notes = editNotes;
     if (editGoLiveDate) updates.goLiveDate = new Date(editGoLiveDate).toISOString();
+    if (editTerminalRec !== (selectedDeal.terminalRecommendation || "")) updates.terminalRecommendation = editTerminalRec;
+    if (editTerminalStatus !== (selectedDeal.terminalStatus || "")) updates.terminalStatus = editTerminalStatus;
     if (Object.keys(updates).length === 0) {
       setDetailOpen(false);
       return;
@@ -103,6 +117,8 @@ export default function Onboarding() {
     setEditStage(deal.stage);
     setEditNotes(deal.notes || "");
     setEditGoLiveDate(deal.goLiveDate ? new Date(deal.goLiveDate).toISOString().slice(0, 16) : "");
+    setEditTerminalRec(deal.terminalRecommendation || "");
+    setEditTerminalStatus(deal.terminalStatus || "");
     setDetailOpen(true);
   };
 
@@ -171,6 +187,36 @@ export default function Onboarding() {
                             {deal.offerPath}
                           </Badge>
                         )}
+                        {(() => {
+                          const status = onboardingStatuses?.find(s => s.dealId === deal.id);
+                          return status ? (
+                            <div className="space-y-1.5 pt-1 border-t mt-2" data-testid={`onboarding-progress-${deal.id}`}>
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-xs text-muted-foreground">{status.progress}%</span>
+                                {status.pendingTasks > 0 && (
+                                  <Badge variant="outline" className="text-xs no-default-hover-elevate no-default-active-elevate">
+                                    {status.pendingTasks} tasks
+                                  </Badge>
+                                )}
+                              </div>
+                              <Progress value={status.progress} className="h-1.5" />
+                              <div className="text-xs text-muted-foreground flex items-center gap-1">
+                                <Clock className="w-3 h-3" />
+                                {status.nextStep}
+                              </div>
+                            </div>
+                          ) : null;
+                        })()}
+                        {deal.terminalStatus && (
+                          <Badge
+                            variant="outline"
+                            className="text-xs no-default-hover-elevate no-default-active-elevate mt-1"
+                            data-testid={`badge-terminal-${deal.id}`}
+                          >
+                            <Package className="w-3 h-3 mr-1" />
+                            {deal.terminalStatus}
+                          </Badge>
+                        )}
                       </CardContent>
                     </Card>
                   ))}
@@ -222,6 +268,86 @@ export default function Onboarding() {
                   </div>
                 </div>
               </div>
+
+              {selectedDeal.pipeline === "onboarding" && (
+                <div className="border-t pt-3 space-y-3">
+                  <h4 className="text-sm font-medium">Terminal & Shipping</h4>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <span className="text-muted-foreground">Terminal</span>
+                      <div className="font-medium" data-testid="text-terminal-recommendation">
+                        {selectedDeal.terminalRecommendation || "Not set"}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Status</span>
+                      <div className="font-medium" data-testid="text-terminal-status">
+                        {selectedDeal.terminalStatus || "Not ordered"}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Terminal Recommendation</Label>
+                    <Select value={editTerminalRec} onValueChange={setEditTerminalRec}>
+                      <SelectTrigger data-testid="select-terminal-recommendation">
+                        <SelectValue placeholder="Select terminal" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Clover Flex">Clover Flex</SelectItem>
+                        <SelectItem value="Clover Mini">Clover Mini</SelectItem>
+                        <SelectItem value="Clover Station">Clover Station</SelectItem>
+                        <SelectItem value="Dejavoo Z11">Dejavoo Z11</SelectItem>
+                        <SelectItem value="PAX A920">PAX A920</SelectItem>
+                        <SelectItem value="Virtual Terminal">Virtual Terminal</SelectItem>
+                        <SelectItem value="Gateway Only">Gateway Only</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Shipping Status</Label>
+                    <Select value={editTerminalStatus} onValueChange={setEditTerminalStatus}>
+                      <SelectTrigger data-testid="select-terminal-status">
+                        <SelectValue placeholder="Select status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Not Ordered">Not Ordered</SelectItem>
+                        <SelectItem value="Ordered">Ordered</SelectItem>
+                        <SelectItem value="Shipped">Shipped</SelectItem>
+                        <SelectItem value="In Transit">In Transit</SelectItem>
+                        <SelectItem value="Delivered">Delivered</SelectItem>
+                        <SelectItem value="Installed">Installed</SelectItem>
+                        <SelectItem value="N/A - Virtual">N/A - Virtual</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              )}
+
+              {(() => {
+                const status = onboardingStatuses?.find(s => s.dealId === selectedDeal.id);
+                return status ? (
+                  <div className="border-t pt-3 space-y-2">
+                    <h4 className="text-sm font-medium">Onboarding Milestones</h4>
+                    <Progress value={status.progress} className="h-2" />
+                    <div className="space-y-1">
+                      {status.milestones.map((m, i) => (
+                        <div key={i} className="flex items-center gap-2 text-sm" data-testid={`milestone-${i}`}>
+                          {m.done ? (
+                            <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
+                          ) : (
+                            <Circle className="w-4 h-4 text-muted-foreground shrink-0" />
+                          )}
+                          <span className={m.done ? "text-muted-foreground line-through" : ""}>{m.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="text-sm bg-muted/50 p-2 rounded-md flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-primary shrink-0" />
+                      <span>Next: {status.nextStep}</span>
+                    </div>
+                  </div>
+                ) : null;
+              })()}
 
               <div className="space-y-2">
                 <Label>Stage</Label>

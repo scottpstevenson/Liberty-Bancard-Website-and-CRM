@@ -260,6 +260,72 @@ async function checkWaitingWorkflows() {
 }
 
 let slaInterval: NodeJS.Timeout | null = null;
+let cycleCount = 0;
+const AI_OPS_EVERY_N_CYCLES = 6;
+
+async function runScheduledAiOps() {
+  try {
+    const allDeals = await storage.getDeals();
+    const allTasks = await storage.getTasks();
+    const allTickets = await storage.getTickets();
+    const allContacts = await storage.getContacts();
+
+    const now = new Date();
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const threeDaysAgo = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
+    const existingTaskTitles = new Set(allTasks.map(t => t.title));
+
+    const salesDeals = allDeals.filter(d => d.pipeline === "sales" && d.stage !== "Closed Won" && d.stage !== "Closed Lost");
+    let tasksGenerated = 0;
+
+    for (const deal of salesDeals) {
+      if (deal.updatedAt && new Date(deal.updatedAt) < sevenDaysAgo) {
+        const title = `Follow up on stalling Deal #${deal.id}`;
+        if (!existingTaskTitles.has(title)) {
+          await storage.createTask({ title, description: `Deal #${deal.id} (${deal.stage}) has had no activity for 7+ days.`, priority: "high", dueDate: new Date(now.getTime() + 24 * 60 * 60 * 1000) });
+          existingTaskTitles.add(title);
+          tasksGenerated++;
+          if (tasksGenerated >= 5) break;
+        }
+      }
+    }
+
+    const newLeads = allContacts.filter(c => c.status === "new" && c.createdAt && new Date(c.createdAt) < threeDaysAgo);
+    for (const lead of newLeads.slice(0, 3)) {
+      const title = `Contact new lead: ${lead.firstName} ${lead.lastName}`;
+      if (!existingTaskTitles.has(title)) {
+        await storage.createTask({ title, description: `${lead.firstName} ${lead.lastName} has been a new lead for 3+ days.`, priority: "high", dueDate: new Date(now.getTime() + 24 * 60 * 60 * 1000) });
+        tasksGenerated++;
+      }
+    }
+
+    const stageOrder = ["New Lead", "Statement Collected", "Under Review", "Proposal Sent", "Negotiation", "Verbal Commit", "Closed Won"];
+    let dealsProgressed = 0;
+    for (const deal of salesDeals) {
+      const currentIndex = stageOrder.indexOf(deal.stage);
+      if (currentIndex < 0) continue;
+      let shouldAdvance = false;
+      let reason = "";
+      if (deal.stage === "New Lead" && deal.lastStatementReviewDate) { shouldAdvance = true; reason = "Statement received"; }
+      if (deal.stage === "Statement Collected" && deal.recommendedPath) { shouldAdvance = true; reason = "Review completed"; }
+      if (deal.stage === "Under Review" && deal.effectiveRate) { shouldAdvance = true; reason = "Analysis complete"; }
+
+      if (shouldAdvance && currentIndex + 1 < stageOrder.length) {
+        const nextStage = stageOrder[currentIndex + 1];
+        await storage.updateDeal(deal.id, { stage: nextStage });
+        await storage.createAuditLog({ action: "deal_auto_progressed", entityType: "deal", entityId: deal.id, details: { from: deal.stage, to: nextStage, reason, source: "scheduled" } });
+        dealsProgressed++;
+      }
+    }
+
+    if (tasksGenerated > 0 || dealsProgressed > 0) {
+      await storage.createAuditLog({ action: "scheduled_ai_ops", entityType: "system", details: { tasksGenerated, dealsProgressed, timestamp: now.toISOString() } });
+      console.log(`Scheduled AI ops: ${tasksGenerated} tasks generated, ${dealsProgressed} deals progressed`);
+    }
+  } catch (err) {
+    console.error("Scheduled AI operations error:", err);
+  }
+}
 
 export function startSlaWorker() {
   if (slaInterval) return;
@@ -267,6 +333,10 @@ export function startSlaWorker() {
   slaInterval = setInterval(async () => {
     await runSlaCheck();
     await checkWaitingWorkflows();
+    cycleCount++;
+    if (cycleCount % AI_OPS_EVERY_N_CYCLES === 0) {
+      await runScheduledAiOps();
+    }
   }, SLA_CHECK_INTERVAL_MS);
 
   setTimeout(async () => {

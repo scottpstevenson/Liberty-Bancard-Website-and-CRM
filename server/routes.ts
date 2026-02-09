@@ -32,6 +32,10 @@ export async function registerRoutes(
       const input = insertContactSchema.parse(req.body);
       const contact = await storage.createContact(input);
       await storage.createAuditLog({ action: "contact_created", entityType: "contact", entityId: contact.id, details: { name: `${contact.firstName} ${contact.lastName}` } });
+      const contactWorkflows = await storage.getWorkflowsByTrigger("contact_created");
+      for (const wf of contactWorkflows.filter(w => w.enabled)) {
+        await storage.createWorkflowRun({ workflowId: wf.id, status: "completed", entityType: "contact", entityId: contact.id, log: { autoTriggered: true, event: "contact_created" } });
+      }
       res.status(201).json(contact);
     } catch (err) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
@@ -116,6 +120,10 @@ export async function registerRoutes(
       const ticket = await storage.createTicket(input);
       await storage.createAuditLog({ action: "ticket_created", entityType: "ticket", entityId: ticket.id, details: { category: ticket.category, priority: ticket.priority } });
       await storage.createNotification({ channel: "internal", title: `New ${ticket.priority} Support Ticket`, message: `${ticket.subject} - Category: ${ticket.category}`, type: ticket.priority === "Urgent" ? "urgent" : "info" });
+      const ticketWorkflows = await storage.getWorkflowsByTrigger("ticket_created");
+      for (const wf of ticketWorkflows.filter(w => w.enabled)) {
+        await storage.createWorkflowRun({ workflowId: wf.id, status: "completed", entityType: "ticket", entityId: ticket.id, log: { autoTriggered: true, event: "ticket_created" } });
+      }
       res.status(201).json(ticket);
     } catch (err) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
@@ -1545,6 +1553,394 @@ FORMAT your response as JSON: {"subject": "...", "body": "..."}`
       }
 
       res.json({ progressed: progressions.length, progressions });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === ACTIVITY TIMELINE ===
+  app.get("/api/activity", isAuthenticated, async (req, res) => {
+    try {
+      const { entityType, entityId } = req.query;
+      const allLogs = await storage.getAuditLogs();
+      let filtered = allLogs;
+      if (entityType && entityId) {
+        filtered = allLogs.filter(l =>
+          l.entityType === entityType && l.entityId === Number(entityId)
+        );
+      }
+      const ghlLogs = await storage.getGhlActivityLogs(entityType === "contact" && entityId ? Number(entityId) : undefined);
+      const timeline = [
+        ...filtered.map(l => ({
+          id: `audit-${l.id}`,
+          type: "audit" as const,
+          action: l.action,
+          entityType: l.entityType,
+          entityId: l.entityId,
+          details: l.details,
+          createdAt: l.createdAt,
+        })),
+        ...ghlLogs.map(g => ({
+          id: `ghl-${g.id}`,
+          type: "ghl" as const,
+          action: g.channel,
+          entityType: "contact",
+          entityId: g.contactId,
+          details: { direction: g.direction, channel: g.channel, subject: g.subject },
+          createdAt: g.createdAt,
+        })),
+      ];
+      timeline.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+      res.json(timeline.slice(0, 100));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === AI TICKET CLASSIFICATION ===
+  app.post("/api/ai/classify-ticket", isAuthenticated, async (req, res) => {
+    try {
+      const { ticketId } = req.body;
+      if (!ticketId) return res.status(400).json({ message: "ticketId required" });
+      const ticket = await storage.getTicket(Number(ticketId));
+      if (!ticket) return res.status(404).json({ message: "Ticket not found" });
+
+      const { OpenAI } = await import("openai");
+      const openai = new OpenAI();
+
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: `You are a support ticket classifier for Liberty Bancard, a merchant payment processing company.
+Analyze the ticket and return JSON with these fields:
+- category: one of ["Billing & Fees", "Terminal / Equipment", "Deposits & Funding", "Chargebacks & Disputes", "Compliance / PCI", "Onboarding", "Account Changes", "Other"]
+- priority: one of ["Low", "Normal", "High", "Urgent"]
+- suggestedResponse: a professional, helpful draft response (3-5 sentences) addressing the merchant's concern
+- tags: array of 2-4 relevant tags
+- estimatedResolutionHours: number estimate
+Respond ONLY with valid JSON.`
+          },
+          {
+            role: "user",
+            content: `Subject: ${ticket.subject}\nDescription: ${ticket.description}\nCurrent Category: ${ticket.category}\nCurrent Priority: ${ticket.priority}`
+          }
+        ],
+        max_tokens: 600,
+      });
+
+      const raw = completion.choices[0]?.message?.content || "";
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) return res.status(500).json({ message: "AI returned invalid response" });
+
+      const result = JSON.parse(jsonMatch[0]);
+      await storage.updateTicket(Number(ticketId), {
+        category: result.category,
+        priority: result.priority,
+      });
+      await storage.createAuditLog({
+        action: "ticket_ai_classified",
+        entityType: "ticket",
+        entityId: ticket.id,
+        details: result,
+      });
+
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Classification error" });
+    }
+  });
+
+  // === AI COMMAND CENTER STATUS ===
+  app.get("/api/ai/command-center", isAuthenticated, async (req, res) => {
+    try {
+      const logs = await storage.getAuditLogs();
+      const aiActions = [
+        { key: "generate_tasks", label: "Smart Task Generation", actionType: "ai_tasks_generated" },
+        { key: "auto_progress", label: "Deal Auto-Progression", actionType: "deal_auto_progressed" },
+        { key: "route_prospects", label: "Prospect Routing", actionType: "prospect_routed" },
+        { key: "classify_tickets", label: "Ticket Classification", actionType: "ticket_ai_classified" },
+        { key: "insights", label: "AI Insights", actionType: "ai_insights_generated" },
+        { key: "statement_analysis", label: "Statement Analysis", actionType: "statement_analyzed" },
+      ];
+
+      const result = aiActions.map(action => {
+        const relevant = logs.filter(l => l.action === action.actionType);
+        const lastRun = relevant.length > 0 ? relevant[0].createdAt : null;
+        return {
+          ...action,
+          totalRuns: relevant.length,
+          lastRun,
+        };
+      });
+
+      const workflowRunsList = await storage.getWorkflowRuns();
+      const totalWorkflowRuns = workflowRunsList.length;
+      const recentRuns = workflowRunsList.filter(r => {
+        const created = new Date(r.createdAt || 0);
+        return created > new Date(Date.now() - 24 * 60 * 60 * 1000);
+      }).length;
+
+      res.json({
+        aiActions: result,
+        workflowStats: { totalRuns: totalWorkflowRuns, last24h: recentRuns },
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === AI STATEMENT ANALYSIS ===
+  app.post("/api/ai/analyze-statement", isAuthenticated, async (req, res) => {
+    try {
+      const { contactId, dealId, statementData } = req.body;
+      if (!statementData) return res.status(400).json({ message: "statementData required" });
+
+      const { OpenAI } = await import("openai");
+      const openai = new OpenAI();
+
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: `You are Liberty Bancard's AI Statement Analyst. Analyze merchant processing statement data and provide a detailed fee analysis.
+RULES:
+- Never promise specific savings without full statement review
+- Include disclaimer: "Eligibility, underwriting, card brand rules, and applicable laws apply."
+- Be specific about fee types and rates found
+- Recommend the best offer path based on the data
+
+Return JSON with:
+- effectiveRate: estimated effective rate as percentage string
+- monthlyVolume: estimated monthly volume
+- currentFees: object with fee breakdowns { interchange: string, markup: string, monthlyFees: string, pciFees: string, otherFees: string }
+- recommendedPath: one of ["Cash Discount", "Dual Pricing", "Tiered Reduction", "Interchange Plus"]
+- keyFindings: array of 3-5 specific findings about their current processing
+- riskFlags: array of any concerning items (high rates, non-compliant fees, etc.)
+- nextSteps: array of recommended next steps
+- overallAssessment: 2-3 sentence summary`
+          },
+          { role: "user", content: `Statement Data:\n${typeof statementData === 'string' ? statementData : JSON.stringify(statementData)}` }
+        ],
+        max_tokens: 1000,
+      });
+
+      const raw = completion.choices[0]?.message?.content || "";
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      const analysis = jsonMatch ? JSON.parse(jsonMatch[0]) : { overallAssessment: raw };
+
+      if (dealId) {
+        await storage.updateDeal(Number(dealId), {
+          effectiveRate: analysis.effectiveRate,
+          recommendedPath: analysis.recommendedPath,
+        });
+      }
+
+      await storage.createAuditLog({
+        action: "statement_analyzed",
+        entityType: dealId ? "deal" : "contact",
+        entityId: dealId ? Number(dealId) : (contactId ? Number(contactId) : undefined),
+        details: analysis,
+      });
+
+      res.json(analysis);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Analysis error" });
+    }
+  });
+
+  // === ANALYTICS / REPORTING ===
+  app.get("/api/analytics/pipeline", isAuthenticated, async (req, res) => {
+    try {
+      const allDeals = await storage.getDeals();
+      const salesDeals = allDeals.filter(d => d.pipeline === "sales");
+      const onboardingDeals = allDeals.filter(d => d.pipeline === "onboarding");
+
+      const stageDistribution: Record<string, number> = {};
+      salesDeals.forEach(d => { stageDistribution[d.stage] = (stageDistribution[d.stage] || 0) + 1; });
+
+      const closedWon = salesDeals.filter(d => d.stage === "Closed Won");
+      const closedLost = salesDeals.filter(d => d.stage === "Closed Lost");
+      const active = salesDeals.filter(d => d.stage !== "Closed Won" && d.stage !== "Closed Lost");
+      const winRate = (closedWon.length + closedLost.length) > 0
+        ? Math.round((closedWon.length / (closedWon.length + closedLost.length)) * 100)
+        : 0;
+
+      const now = new Date();
+      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      const newLast30 = salesDeals.filter(d => d.createdAt && new Date(d.createdAt) > thirtyDaysAgo);
+      const wonLast30 = closedWon.filter(d => d.updatedAt && new Date(d.updatedAt) > thirtyDaysAgo);
+
+      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const stallingDeals = active.filter(d => d.updatedAt && new Date(d.updatedAt) < sevenDaysAgo);
+
+      res.json({
+        sales: {
+          total: salesDeals.length,
+          active: active.length,
+          closedWon: closedWon.length,
+          closedLost: closedLost.length,
+          winRate,
+          stageDistribution,
+          newLast30Days: newLast30.length,
+          wonLast30Days: wonLast30.length,
+          stallingDeals: stallingDeals.length,
+        },
+        onboarding: {
+          total: onboardingDeals.length,
+          active: onboardingDeals.filter(d => d.stage !== "Live" && d.stage !== "Cancelled").length,
+          completed: onboardingDeals.filter(d => d.stage === "Live").length,
+        },
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/analytics/support", isAuthenticated, async (req, res) => {
+    try {
+      const allTickets = await storage.getTickets();
+      const now = new Date();
+
+      const open = allTickets.filter(t => t.status !== "Resolved" && t.status !== "Closed");
+      const resolved = allTickets.filter(t => t.status === "Resolved" || t.status === "Closed");
+      const breached = allTickets.filter(t => t.slaDeadline && new Date(t.slaDeadline) < now && t.status !== "Resolved" && t.status !== "Closed");
+
+      const categoryBreakdown: Record<string, number> = {};
+      allTickets.forEach(t => { categoryBreakdown[t.category || "Other"] = (categoryBreakdown[t.category || "Other"] || 0) + 1; });
+
+      const priorityBreakdown: Record<string, number> = {};
+      allTickets.forEach(t => { priorityBreakdown[t.priority || "Normal"] = (priorityBreakdown[t.priority || "Normal"] || 0) + 1; });
+
+      const resolvedWithTimes = resolved.filter(t => t.createdAt && t.resolvedAt);
+      const avgResolutionHours = resolvedWithTimes.length > 0
+        ? Math.round(resolvedWithTimes.reduce((sum, t) => sum + (new Date(t.resolvedAt!).getTime() - new Date(t.createdAt!).getTime()) / (1000 * 60 * 60), 0) / resolvedWithTimes.length)
+        : 0;
+
+      res.json({
+        total: allTickets.length,
+        open: open.length,
+        resolved: resolved.length,
+        slaBreaches: breached.length,
+        avgResolutionHours,
+        categoryBreakdown,
+        priorityBreakdown,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/analytics/tasks", isAuthenticated, async (req, res) => {
+    try {
+      const allTasks = await storage.getTasks();
+      const now = new Date();
+      const pending = allTasks.filter(t => t.status === "pending");
+      const inProgress = allTasks.filter(t => t.status === "in_progress");
+      const completed = allTasks.filter(t => t.status === "completed");
+      const overdue = allTasks.filter(t => t.status !== "completed" && t.dueDate && new Date(t.dueDate) < now);
+
+      const priorityBreakdown: Record<string, number> = {};
+      allTasks.forEach(t => { priorityBreakdown[t.priority || "normal"] = (priorityBreakdown[t.priority || "normal"] || 0) + 1; });
+
+      res.json({
+        total: allTasks.length,
+        pending: pending.length,
+        inProgress: inProgress.length,
+        completed: completed.length,
+        overdue: overdue.length,
+        priorityBreakdown,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === AI ONBOARDING STATUS ===
+  app.get("/api/ai/onboarding-status", isAuthenticated, async (req, res) => {
+    try {
+      const allDeals = await storage.getDeals();
+      const onboardingDeals = allDeals.filter(d => d.pipeline === "onboarding" && d.stage !== "Live" && d.stage !== "Cancelled");
+      const allTasks = await storage.getTasks();
+
+      const statuses = onboardingDeals.map(deal => {
+        const milestones = [
+          { name: "Kickoff Complete", done: !!deal.notes?.includes("kickoff") },
+          { name: "Application Submitted", done: deal.stage !== "Kickoff" },
+          { name: "Underwriting Approved", done: ["Equipment Ordered", "Terminal Shipped", "Installation", "Training", "Live"].includes(deal.stage) },
+          { name: "Equipment Ordered", done: ["Terminal Shipped", "Installation", "Training", "Live"].includes(deal.stage) },
+          { name: "Terminal Shipped", done: ["Installation", "Training", "Live"].includes(deal.stage) },
+          { name: "Installation Complete", done: ["Training", "Live"].includes(deal.stage) },
+          { name: "Training Done", done: deal.stage === "Live" },
+        ];
+        const completedMilestones = milestones.filter(m => m.done).length;
+        const progress = Math.round((completedMilestones / milestones.length) * 100);
+
+        const dealTasks = allTasks.filter(t => t.dealId === deal.id);
+        const pendingTasks = dealTasks.filter(t => t.status !== "completed");
+
+        let nextStep = "Continue processing";
+        const nextMilestone = milestones.find(m => !m.done);
+        if (nextMilestone) nextStep = `Complete: ${nextMilestone.name}`;
+
+        return {
+          dealId: deal.id,
+          contactId: deal.contactId,
+          stage: deal.stage,
+          progress,
+          milestones,
+          pendingTasks: pendingTasks.length,
+          nextStep,
+          updatedAt: deal.updatedAt,
+        };
+      });
+
+      res.json(statuses);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === DOCUMENTS LIST ===
+  app.get("/api/documents", isAuthenticated, async (req, res) => {
+    try {
+      const docs = await storage.getDocuments();
+      res.json(docs);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === WORKFLOW TRIGGER EXECUTION ===
+  app.post("/api/webhooks/trigger", async (req, res) => {
+    try {
+      const { event, entityType, entityId, data } = req.body;
+      if (!event) return res.status(400).json({ message: "event required" });
+
+      const matchingWorkflows = await storage.getWorkflowsByTrigger(event);
+      const activeWorkflows = matchingWorkflows.filter(w => w.enabled);
+
+      const runs = [];
+      for (const workflow of activeWorkflows) {
+        const run = await storage.createWorkflowRun({
+          workflowId: workflow.id,
+          status: "completed",
+          log: { triggeredBy: `webhook:${event}`, event, entityType, entityId, data, actionsExecuted: Array.isArray(workflow.actions) ? workflow.actions.length : 0 },
+        });
+        runs.push(run);
+
+        await storage.createAuditLog({
+          action: "workflow_triggered",
+          entityType: entityType || "system",
+          entityId: entityId ? Number(entityId) : undefined,
+          details: { workflowId: workflow.id, workflowName: workflow.name, event, triggerSource: "webhook" },
+        });
+      }
+
+      const workflowNames = activeWorkflows.map(w => w.name);
+      res.json({ triggered: runs.length, workflows: workflowNames });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

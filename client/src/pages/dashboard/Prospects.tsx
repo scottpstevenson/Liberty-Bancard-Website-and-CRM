@@ -21,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Search, Sparkles } from "lucide-react";
+import { Search, Sparkles, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { Prospect, ProspectList } from "@shared/schema";
 
@@ -96,6 +96,22 @@ export default function Prospects() {
     },
   });
 
+  const routeProspectsMutation = useMutation({
+    mutationFn: async () => {
+      const enrichedIds = prospects?.filter(p => p.score && p.status !== "campaign_assigned" && p.status !== "converted" && p.status !== "do_not_contact").map(p => p.id) || [];
+      if (enrichedIds.length === 0) throw new Error("No eligible prospects to route");
+      const res = await apiRequest("POST", "/api/ai/route-prospects-bulk", { prospectIds: enrichedIds });
+      return res.json();
+    },
+    onSuccess: (data: { routed: number }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/prospects"] });
+      toast({ title: `AI routed ${data.routed} prospects`, description: "Prospects matched to campaigns by vertical and score." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "AI routing failed", description: err.message, variant: "destructive" });
+    },
+  });
+
   const filteredProspects = prospects?.filter((p) => {
     if (!searchTerm) return true;
     const term = searchTerm.toLowerCase();
@@ -149,7 +165,7 @@ export default function Prospects() {
         </Card>
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-4">
+      <div className="flex flex-col sm:flex-row gap-4 items-end">
         <div className="relative w-full sm:w-96">
           <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
           <Input
@@ -178,6 +194,17 @@ export default function Prospects() {
             ))}
           </SelectContent>
         </Select>
+
+        <Button
+          variant="outline"
+          data-testid="button-ai-route-prospects"
+          className="gap-2 shrink-0"
+          onClick={() => routeProspectsMutation.mutate()}
+          disabled={routeProspectsMutation.isPending}
+        >
+          {routeProspectsMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+          AI Route to Campaigns
+        </Button>
       </div>
 
       <Card>

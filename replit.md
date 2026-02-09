@@ -139,3 +139,11 @@ contacts, deals, tickets, tasks, notifications, documents, auditLogs, workflows,
 - CSV bulk import with smart column mapping (30+ column aliases supported)
 - Dashboard pages: Prospects list, Import Prospects (drag-drop CSV), Campaigns builder, Outreach Analytics
 - Webhook endpoint for tracking opens, replies, bounces, unsubscribes
+- AI Automation: 10 AI action buttons wired across Tasks/Pipeline/Prospects pages, AI Command Center with run-all, scheduled background AI ops (every 30 min)
+- Activity Timeline on Contacts page: unified audit + GHL activity log per contact with icons, relative timestamps
+- AI Ticket Classification: auto-categorization with suggested responses on ticket creation
+- Onboarding Automation: 7-step milestone progress tracker, terminal shipping status workflow, AI next-step recommendations, progress bars
+- Reporting/Analytics dashboard: pipeline velocity, support performance, task analytics, stage distribution, KPI cards
+- AI Statement Analysis on upload page: fee analysis, program recommendations, key findings
+- Form-to-workflow triggers: all form submissions auto-trigger matching workflows, external webhook trigger endpoint
+- GET /api/activity endpoint for unified activity timeline (audit logs + GHL activity)

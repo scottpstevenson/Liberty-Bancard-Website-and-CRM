@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { SEO } from "@/components/SEO";
 import { useLocation, Link } from "wouter";
 import { z } from "zod";
@@ -8,8 +8,9 @@ import { useMutation } from "@tanstack/react-query";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -39,6 +40,7 @@ import {
   Loader2,
   CheckCircle2,
   ArrowRight,
+  Sparkles,
 } from "lucide-react";
 import terminalHero from "@assets/images/liberty-terminal-hero.png";
 import heroSecure from "@assets/images/hero-secure.jpg";
@@ -65,6 +67,11 @@ export default function UploadStatement() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const containerRef = useScrollReveal();
+  const [analysisResult, setAnalysisResult] = useState<any>(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analysisVolume, setAnalysisVolume] = useState("");
+  const [analysisRate, setAnalysisRate] = useState("");
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
 
   const params = new URLSearchParams(window.location.search);
   const preTerminal = params.get("terminal") === "yes";
@@ -126,6 +133,34 @@ export default function UploadStatement() {
 
   const onSubmit = (data: UploadFormData) => {
     submitMutation.mutate(data);
+  };
+
+  const handleAnalysis = async () => {
+    setAnalyzing(true);
+    setAnalysisError(null);
+    try {
+      const res = await fetch("/api/ai/analyze-statement", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          statementData: `Monthly volume: $${analysisVolume}, Current effective rate: ${analysisRate}%, Processor type: unknown`
+        }),
+      });
+      if (!res.ok) {
+        if (res.status === 401) {
+          throw new Error("Please log in to use the AI analysis feature.");
+        }
+        throw new Error("Analysis failed. Please try again.");
+      }
+      const data = await res.json();
+      setAnalysisResult(data);
+    } catch (err: any) {
+      console.error(err);
+      setAnalysisError(err.message || "Analysis failed. Please try again.");
+    } finally {
+      setAnalyzing(false);
+    }
   };
 
   const verticals = [
@@ -205,6 +240,7 @@ export default function UploadStatement() {
                 >
                   Submit Your Statement for Review
                 </h2>
+
                 <Form {...form}>
                   <form
                     onSubmit={form.handleSubmit(onSubmit)}
@@ -467,6 +503,76 @@ export default function UploadStatement() {
                     </Button>
                   </form>
                 </Form>
+              </CardContent>
+            </Card>
+
+            <Card className="mt-6" data-testid="card-ai-analysis">
+              <CardHeader>
+                <CardTitle className="text-lg">AI Statement Analysis</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Enter your monthly processing volume and current effective rate for an instant AI-powered analysis of your fees.
+                </p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Monthly Volume ($)</Label>
+                    <Input placeholder="e.g. 50000" data-testid="input-analysis-volume" value={analysisVolume} onChange={e => setAnalysisVolume(e.target.value)} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Current Effective Rate (%)</Label>
+                    <Input placeholder="e.g. 3.2" data-testid="input-analysis-rate" value={analysisRate} onChange={e => setAnalysisRate(e.target.value)} />
+                  </div>
+                </div>
+                <Button
+                  className="gap-2"
+                  onClick={handleAnalysis}
+                  disabled={analyzing || !analysisVolume}
+                  data-testid="button-analyze-statement"
+                >
+                  {analyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                  Analyze My Statement
+                </Button>
+                {analysisError && (
+                  <div className="text-sm text-destructive" data-testid="text-analysis-error">
+                    {analysisError}
+                  </div>
+                )}
+                {analysisResult && (
+                  <div className="space-y-3 border-t pt-4" data-testid="analysis-results">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <div className="text-xs text-muted-foreground">Effective Rate</div>
+                        <div className="text-lg font-bold" data-testid="text-effective-rate">{analysisResult.effectiveRate}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground">Recommended Program</div>
+                        <div className="text-lg font-bold" data-testid="text-recommended-path">{analysisResult.recommendedPath}</div>
+                      </div>
+                    </div>
+                    {analysisResult.keyFindings && (
+                      <div>
+                        <div className="text-sm font-medium mb-2">Key Findings</div>
+                        <ul className="space-y-1">
+                          {analysisResult.keyFindings.map((f: string, i: number) => (
+                            <li key={i} className="text-sm text-muted-foreground flex items-start gap-2">
+                              <CheckCircle2 className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                              {f}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {analysisResult.overallAssessment && (
+                      <div className="bg-muted/50 p-3 rounded-md">
+                        <div className="text-sm">{analysisResult.overallAssessment}</div>
+                      </div>
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      Eligibility, underwriting, card brand rules, and applicable laws apply.
+                    </p>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>

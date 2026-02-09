@@ -1,11 +1,223 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Loader2, Zap, Package, Workflow, ChevronDown, ChevronRight, Mail, MessageSquare, Clock, ListChecks, Bell, FileText, Tag, Shield, ArrowRight, ExternalLink } from "lucide-react";
+import { Loader2, Zap, Package, Workflow, ChevronDown, ChevronRight, Mail, MessageSquare, Clock, ListChecks, Bell, FileText, Tag, Shield, ArrowRight, ExternalLink, Sparkles, Play, BarChart3, Route, Ticket, Brain, FileSearch } from "lucide-react";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import type { CollateralPacket, Workflow as WorkflowType, MessageTemplate } from "@shared/schema";
+
+interface AIAction {
+  key: string;
+  label: string;
+  actionType: string;
+  totalRuns: number;
+  lastRun: string | null;
+}
+
+interface CommandCenterData {
+  aiActions: AIAction[];
+  workflowStats: { totalRuns: number; last24h: number };
+}
+
+function formatRelativeTime(dateStr: string | null): string {
+  if (!dateStr) return "Never";
+  const now = Date.now();
+  const then = new Date(dateStr).getTime();
+  const diffMs = now - then;
+  if (diffMs < 0) return "Just now";
+  const seconds = Math.floor(diffMs / 1000);
+  if (seconds < 60) return "Just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} minute${minutes !== 1 ? "s" : ""} ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours !== 1 ? "s" : ""} ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days} day${days !== 1 ? "s" : ""} ago`;
+  const months = Math.floor(days / 30);
+  return `${months} month${months !== 1 ? "s" : ""} ago`;
+}
+
+const AI_ACTION_ICONS: Record<string, typeof Sparkles> = {
+  generate_tasks: ListChecks,
+  auto_progress: BarChart3,
+  route_prospects: Route,
+  classify_tickets: Ticket,
+  insights: Brain,
+  statement_analysis: FileSearch,
+};
+
+const AI_ACTION_ENDPOINTS: Record<string, string | null> = {
+  generate_tasks: "/api/ai/generate-tasks",
+  auto_progress: "/api/ai/auto-progress-deals",
+  route_prospects: "/api/ai/route-prospects-bulk",
+  classify_tickets: null,
+  insights: "/api/ai/insights",
+  statement_analysis: null,
+};
+
+function AICommandCenter() {
+  const { toast } = useToast();
+  const [runningAction, setRunningAction] = useState<string | null>(null);
+  const [runningAll, setRunningAll] = useState(false);
+
+  const { data: commandCenter, isLoading: commandCenterLoading } = useQuery<CommandCenterData>({
+    queryKey: ["/api/ai/command-center"],
+  });
+
+  const runActionMutation = useMutation({
+    mutationFn: async (actionKey: string) => {
+      const endpoint = AI_ACTION_ENDPOINTS[actionKey];
+      if (!endpoint) return null;
+      const res = await apiRequest("POST", endpoint, actionKey === "route_prospects" ? {} : undefined);
+      return res.json();
+    },
+    onSuccess: (_data, actionKey) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/ai/command-center"] });
+      toast({
+        title: "AI Action Complete",
+        description: `Successfully ran ${commandCenter?.aiActions.find(a => a.key === actionKey)?.label || actionKey}`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Action Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleRunAction = async (actionKey: string) => {
+    setRunningAction(actionKey);
+    try {
+      await runActionMutation.mutateAsync(actionKey);
+    } finally {
+      setRunningAction(null);
+    }
+  };
+
+  const handleRunAll = async () => {
+    setRunningAll(true);
+    try {
+      await apiRequest("POST", "/api/ai/generate-tasks");
+      await apiRequest("POST", "/api/ai/auto-progress-deals");
+      queryClient.invalidateQueries({ queryKey: ["/api/ai/command-center"] });
+      toast({
+        title: "All AI Operations Complete",
+        description: "Successfully ran task generation and deal auto-progression.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Run All Failed",
+        description: error.message || "An error occurred",
+        variant: "destructive",
+      });
+    } finally {
+      setRunningAll(false);
+    }
+  };
+
+  if (commandCenterLoading) {
+    return (
+      <Card data-testid="card-ai-command-center">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Sparkles className="w-5 h-5" />
+            AI Command Center
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-center h-32">
+            <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const aiActions = commandCenter?.aiActions || [];
+  const workflowStats = commandCenter?.workflowStats || { totalRuns: 0, last24h: 0 };
+
+  return (
+    <Card data-testid="card-ai-command-center">
+      <CardHeader className="flex flex-row items-center justify-between gap-3 flex-wrap">
+        <CardTitle className="flex items-center gap-2">
+          <Sparkles className="w-5 h-5" />
+          AI Command Center
+        </CardTitle>
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="text-workflow-stats">
+            <Badge variant="secondary">{workflowStats.totalRuns} total runs</Badge>
+            <Badge variant="outline">{workflowStats.last24h} last 24h</Badge>
+          </div>
+          <Button
+            onClick={handleRunAll}
+            disabled={runningAll}
+            data-testid="button-run-all-ai"
+          >
+            {runningAll ? (
+              <Loader2 className="w-4 h-4 animate-spin mr-2" />
+            ) : (
+              <Play className="w-4 h-4 mr-2" />
+            )}
+            Run All AI Operations
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3" data-testid="ai-actions-grid">
+          {aiActions.map((action) => {
+            const Icon = AI_ACTION_ICONS[action.key] || Sparkles;
+            const endpoint = AI_ACTION_ENDPOINTS[action.key];
+            const isRunning = runningAction === action.key;
+            const noEndpoint = endpoint === null;
+
+            return (
+              <Card key={action.key} className="overflow-visible" data-testid={`card-ai-action-${action.key}`}>
+                <div className="p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                        <Icon className="w-4 h-4 text-primary" />
+                      </div>
+                      <span className="text-sm font-medium truncate">{action.label}</span>
+                    </div>
+                    {noEndpoint ? (
+                      <Badge variant="outline" className="shrink-0" data-testid={`badge-auto-${action.key}`}>
+                        {action.key === "classify_tickets" ? "Auto" : "On Upload"}
+                      </Badge>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleRunAction(action.key)}
+                        disabled={isRunning || runningAll}
+                        data-testid={`button-run-${action.key}`}
+                      >
+                        {isRunning ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          "Run Now"
+                        )}
+                      </Button>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                    <span data-testid={`text-runs-${action.key}`}>{action.totalRuns} runs</span>
+                    <span data-testid={`text-last-run-${action.key}`}>{formatRelativeTime(action.lastRun)}</span>
+                  </div>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 const ACTION_LABELS: Record<string, { label: string; icon: typeof Mail }> = {
   send_ghl_email: { label: "Send Email", icon: Mail },
@@ -386,6 +598,8 @@ export default function Automation() {
         </div>
         <p className="text-sm text-muted-foreground mt-1">View your workflows, message templates, and collateral packets</p>
       </div>
+
+      <AICommandCenter />
 
       <div>
         <div className="flex items-center gap-2 mb-4">
