@@ -73,11 +73,29 @@ export const deals = pgTable("deals", {
   effectiveRate: text("effective_rate"),
   totalVolume: text("total_volume"),
   totalFees: text("total_fees"),
+  avgTicket: text("avg_ticket"),
+  highestTicket: text("highest_ticket"),
+  estimatedGrossProfitBps: integer("estimated_gross_profit_bps"),
+  estimatedGrossProfitMonthly: text("estimated_gross_profit_monthly"),
+  estimatedNetProfitMonthly: text("estimated_net_profit_monthly"),
+  merchantTier: text("merchant_tier"),
+  riskTier: text("risk_tier"),
+  healthScore: text("health_score"),
+  churnRiskFlag: text("churn_risk_flag"),
   topCostDrivers: text("top_cost_drivers").array(),
   recommendedPath: text("recommended_path"),
   terminalRecommendation: text("terminal_recommendation"),
+  terminalStatus: text("terminal_status"),
   fundingNotes: text("funding_notes"),
+  expectedGoLiveDate: timestamp("expected_go_live_date"),
   goLiveDate: timestamp("go_live_date"),
+  lastStatementReviewDate: timestamp("last_statement_review_date"),
+  nextStatementReviewDate: timestamp("next_statement_review_date"),
+  onboardingStatusNotes: text("onboarding_status_notes"),
+  leadSource: text("lead_source"),
+  referredBy: text("referred_by"),
+  partnerType: text("partner_type"),
+  campaignName: text("campaign_name"),
   notes: text("notes"),
   closedAt: timestamp("closed_at"),
   createdAt: timestamp("created_at").defaultNow(),
@@ -303,6 +321,10 @@ export const WORKFLOW_TRIGGERS = [
   "contact_created",
   "deal_created",
   "ticket_sla_breach",
+  "deal_sla_breach",
+  "form_submitted",
+  "go_live_milestone",
+  "scheduled",
   "manual",
 ] as const;
 
@@ -310,7 +332,13 @@ export const WORKFLOW_ACTIONS = [
   "create_task",
   "send_notification",
   "update_deal",
+  "update_contact_tags",
   "create_audit_log",
+  "send_ghl_email",
+  "send_ghl_sms",
+  "send_packet",
+  "generate_proposal",
+  "request_review",
   "wait",
 ] as const;
 
@@ -369,4 +397,120 @@ export const TICKET_CATEGORIES = [
   "Chargeback/Dispute",
   "PCI",
   "Other",
+] as const;
+
+export const messageTemplates = pgTable("message_templates", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  category: text("category").notNull(),
+  channel: text("channel").notNull(),
+  subject: text("subject"),
+  body: text("body").notNull(),
+  mergeFields: text("merge_fields").array(),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertMessageTemplateSchema = createInsertSchema(messageTemplates).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type MessageTemplate = typeof messageTemplates.$inferSelect;
+export type InsertMessageTemplate = z.infer<typeof insertMessageTemplateSchema>;
+
+export const collateralPackets = pgTable("collateral_packets", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  offerPath: text("offer_path"),
+  vertical: text("vertical"),
+  tags: text("tags").array(),
+  pages: text("pages").array(),
+  description: text("description"),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertCollateralPacketSchema = createInsertSchema(collateralPackets).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type CollateralPacket = typeof collateralPackets.$inferSelect;
+export type InsertCollateralPacket = z.infer<typeof insertCollateralPacketSchema>;
+
+export const ghlActivityLog = pgTable("ghl_activity_log", {
+  id: serial("id").primaryKey(),
+  contactId: integer("contact_id").references(() => contacts.id),
+  dealId: integer("deal_id").references(() => deals.id),
+  direction: text("direction").notNull(),
+  channel: text("channel").notNull(),
+  templateId: integer("template_id"),
+  subject: text("subject"),
+  body: text("body"),
+  status: text("status").default("sent"),
+  ghlMessageId: text("ghl_message_id"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertGhlActivityLogSchema = createInsertSchema(ghlActivityLog).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type GhlActivityLog = typeof ghlActivityLog.$inferSelect;
+export type InsertGhlActivityLog = z.infer<typeof insertGhlActivityLogSchema>;
+
+export const slaConfigs = pgTable("sla_configs", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  entityType: text("entity_type").notNull(),
+  stage: text("stage"),
+  maxDurationMinutes: integer("max_duration_minutes").notNull(),
+  escalationAction: text("escalation_action").notNull(),
+  escalationConfig: jsonb("escalation_config"),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertSlaConfigSchema = createInsertSchema(slaConfigs).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type SlaConfig = typeof slaConfigs.$inferSelect;
+export type InsertSlaConfig = z.infer<typeof insertSlaConfigSchema>;
+
+export const MERCHANT_TIERS = [
+  "Starter",
+  "Growth",
+  "Enterprise",
+  "Strategic",
+] as const;
+
+export const RISK_TIERS = [
+  "Low",
+  "Medium",
+  "High",
+  "Review Required",
+] as const;
+
+export const TEMPLATE_CATEGORIES = [
+  "proposal",
+  "follow_up",
+  "onboarding",
+  "lifecycle",
+  "nurture",
+  "reactivation",
+  "review_request",
+  "support",
+  "case_study",
+] as const;
+
+export const GHL_CHANNELS = [
+  "email",
+  "sms",
 ] as const;

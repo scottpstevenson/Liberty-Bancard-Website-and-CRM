@@ -4,7 +4,8 @@ import { storage } from "./storage";
 import { setupAuth, registerAuthRoutes } from "./replit_integrations/auth";
 import { registerAudioRoutes } from "./replit_integrations/audio/routes";
 import { z } from "zod";
-import { insertContactSchema, insertDealSchema, insertTicketSchema, insertTaskSchema, insertCompanySchema, insertDocumentSchema, insertNotificationSchema, insertWorkflowSchema, insertRfiSchema } from "@shared/schema";
+import { insertContactSchema, insertDealSchema, insertTicketSchema, insertTaskSchema, insertCompanySchema, insertDocumentSchema, insertNotificationSchema, insertWorkflowSchema, insertRfiSchema, insertMessageTemplateSchema, insertCollateralPacketSchema, insertSlaConfigSchema } from "@shared/schema";
+import { isGhlConfigured, getGhlStatus, sendGhlEmail, sendGhlSms, sendTemplatedMessage, upsertGhlContact, handleGhlWebhook, getCalendarBookingUrl } from "./services/ghl";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -483,6 +484,19 @@ export async function registerRoutes(
       const actions = (wf.actions as any[]) || [];
       const logEntries: any[] = [{ step: 0, action: "started", timestamp: new Date().toISOString() }];
 
+      const entityType = req.body.entityType;
+      const entityId = req.body.entityId;
+
+      let contactId: number | undefined;
+      let dealId: number | undefined;
+      if (entityType === "deal" && entityId) {
+        dealId = entityId;
+        const deal = await storage.getDeal(dealId as number);
+        contactId = deal?.contactId || undefined;
+      } else if (entityType === "contact" && entityId) {
+        contactId = entityId;
+      }
+
       for (let i = 0; i < actions.length; i++) {
         const action = actions[i];
         try {
@@ -492,26 +506,147 @@ export async function registerRoutes(
               assignedTo: action.assignedTo || "Unassigned",
               priority: action.priority || "medium",
               dueDate: action.dueHours ? new Date(Date.now() + action.dueHours * 60 * 60 * 1000) : undefined,
-              dealId: req.body.entityType === "deal" ? req.body.entityId : undefined,
-              contactId: req.body.entityType === "contact" ? req.body.entityId : undefined,
+              dealId, contactId,
             });
             logEntries.push({ step: i + 1, action: "create_task", title: action.title, status: "completed", timestamp: new Date().toISOString() });
+
           } else if (action.type === "send_notification") {
             await storage.createNotification({
               channel: action.channel || "internal",
               title: action.title || `Workflow: ${wf.name}`,
               message: action.message || "Automated workflow notification",
               type: action.notificationType || "info",
+              metadata: { workflowId: wf.id, dealId, contactId },
             });
             logEntries.push({ step: i + 1, action: "send_notification", title: action.title, status: "completed", timestamp: new Date().toISOString() });
+
           } else if (action.type === "create_audit_log") {
             await storage.createAuditLog({
               action: action.logAction || "workflow_action",
-              entityType: req.body.entityType || "workflow",
-              entityId: req.body.entityId || run.id,
+              entityType: entityType || "workflow",
+              entityId: entityId || run.id,
               details: { workflow: wf.name, step: i + 1 },
             });
             logEntries.push({ step: i + 1, action: "create_audit_log", status: "completed", timestamp: new Date().toISOString() });
+
+          } else if (action.type === "update_deal" && dealId) {
+            const updates: any = {};
+            if (action.stage) updates.stage = action.stage;
+            if (action.notes) updates.notes = action.notes;
+            if (action.offerPath) updates.offerPath = action.offerPath;
+            if (action.owner) updates.owner = action.owner;
+            if (action.nextFollowUp) updates.nextFollowUp = new Date(Date.now() + (action.nextFollowUpHours || 24) * 60 * 60 * 1000);
+            await storage.updateDeal(dealId, updates);
+            logEntries.push({ step: i + 1, action: "update_deal", updates, status: "completed", timestamp: new Date().toISOString() });
+
+          } else if (action.type === "update_contact_tags" && contactId) {
+            const contact = await storage.getContact(contactId);
+            if (contact) {
+              const currentTags = contact.tags || [];
+              const addTags = action.addTags || [];
+              const removeTags = action.removeTags || [];
+              const newTags = Array.from(new Set([...currentTags, ...addTags])).filter(t => !removeTags.includes(t));
+              await storage.updateContact(contactId, { tags: newTags });
+            }
+            logEntries.push({ step: i + 1, action: "update_contact_tags", status: "completed", timestamp: new Date().toISOString() });
+
+          } else if (action.type === "send_ghl_email" && contactId) {
+            if (action.templateId) {
+              const result = await sendTemplatedMessage({ templateId: action.templateId, contactId, dealId });
+              logEntries.push({ step: i + 1, action: "send_ghl_email", templateId: action.templateId, status: result.success ? "completed" : "failed", error: result.error, timestamp: new Date().toISOString() });
+            } else {
+              const result = await sendGhlEmail({ contactId, dealId, subject: action.subject || "Liberty Bancard", body: action.body || "" });
+              logEntries.push({ step: i + 1, action: "send_ghl_email", status: result.success ? "completed" : "failed", error: result.error, timestamp: new Date().toISOString() });
+            }
+
+          } else if (action.type === "send_ghl_sms" && contactId) {
+            if (action.templateId) {
+              const result = await sendTemplatedMessage({ templateId: action.templateId, contactId, dealId });
+              logEntries.push({ step: i + 1, action: "send_ghl_sms", templateId: action.templateId, status: result.success ? "completed" : "failed", error: result.error, timestamp: new Date().toISOString() });
+            } else {
+              const result = await sendGhlSms({ contactId, dealId, body: action.body || "" });
+              logEntries.push({ step: i + 1, action: "send_ghl_sms", status: result.success ? "completed" : "failed", error: result.error, timestamp: new Date().toISOString() });
+            }
+
+          } else if (action.type === "send_packet" && contactId) {
+            const packets = await storage.getCollateralPackets();
+            let matchedPacket = packets.find(p => p.id === action.packetId);
+            if (!matchedPacket && dealId) {
+              const deal = await storage.getDeal(dealId);
+              matchedPacket = packets.find(p => p.offerPath === deal?.offerPath && p.isActive);
+            }
+            if (matchedPacket) {
+              const packetUrl = (matchedPacket.pages || []).map(p => `${process.env.REPLIT_DEV_DOMAIN ? 'https://' + process.env.REPLIT_DEV_DOMAIN : ''}/assets/${p}`).join(", ");
+              const result = await sendGhlEmail({
+                contactId,
+                dealId,
+                subject: `Your Custom Pricing Breakdown - ${matchedPacket.name}`,
+                body: `<p>Hi {{contact.firstName}},</p><p>Here is your personalized information packet: ${matchedPacket.name}</p><p>View your materials: ${packetUrl}</p><p>Questions? Reply to this email or call us directly.</p><p>Best,<br/>Liberty Bancard</p><p style="font-size:11px;color:#999;">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>`,
+              });
+              logEntries.push({ step: i + 1, action: "send_packet", packetName: matchedPacket.name, status: result.success ? "completed" : "failed", timestamp: new Date().toISOString() });
+            } else {
+              logEntries.push({ step: i + 1, action: "send_packet", status: "skipped", reason: "No matching packet found", timestamp: new Date().toISOString() });
+            }
+
+          } else if (action.type === "generate_proposal" && contactId && dealId) {
+            const deal = await storage.getDeal(dealId);
+            const contact = await storage.getContact(contactId);
+            if (deal && contact) {
+              const proposalBody = `<h2>Statement Analysis & Proposal</h2>
+<p>Dear ${contact.firstName},</p>
+<p>After reviewing your processing statement, here is what we found:</p>
+<ul>
+  <li><strong>Current Effective Rate:</strong> ${deal.effectiveRate || "Pending Review"}</li>
+  <li><strong>Monthly Volume:</strong> ${deal.totalVolume || "Pending Review"}</li>
+  <li><strong>Current Total Fees:</strong> ${deal.totalFees || "Pending Review"}</li>
+  <li><strong>Top Cost Drivers:</strong> ${(deal.topCostDrivers || []).join(", ") || "Pending Review"}</li>
+  <li><strong>Recommended Path:</strong> ${deal.recommendedPath || deal.offerPath || "Custom Pricing"}</li>
+  ${deal.terminalRecommendation ? `<li><strong>Terminal:</strong> ${deal.terminalRecommendation}</li>` : ""}
+</ul>
+<p><strong>Next Step:</strong> <a href="{{calendarLink}}">Book a 10-minute call</a> to walk through the numbers.</p>
+<p>Best,<br/>Liberty Bancard Team</p>
+<p style="font-size:11px;color:#999;">Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.</p>`;
+
+              const result = await sendGhlEmail({
+                contactId,
+                dealId,
+                subject: `Your Processing Analysis is Ready - ${contact.companyName || contact.firstName}`,
+                body: proposalBody,
+              });
+              if (deal.stage === "Review In Progress") {
+                await storage.updateDeal(dealId, { stage: "Proposal Sent" });
+              }
+              logEntries.push({ step: i + 1, action: "generate_proposal", status: result.success ? "completed" : "failed", timestamp: new Date().toISOString() });
+            }
+
+          } else if (action.type === "request_review" && contactId) {
+            const contact = await storage.getContact(contactId);
+            if (contact) {
+              const reviewBody = `<p>Hi ${contact.firstName},</p>
+<p>We hope your payment processing has been running smoothly since switching to Liberty Bancard!</p>
+<p>Would you mind leaving us a quick review? It only takes 30 seconds and helps other business owners find better processing.</p>
+<p><a href="${action.reviewUrl || "[REVIEW_URL]"}">Leave a Review</a></p>
+<p>Thank you for your business!</p>
+<p>Best,<br/>Liberty Bancard Team</p>`;
+              const result = await sendGhlEmail({
+                contactId,
+                dealId,
+                subject: "How's your experience with Liberty Bancard?",
+                body: reviewBody,
+              });
+              logEntries.push({ step: i + 1, action: "request_review", status: result.success ? "completed" : "failed", timestamp: new Date().toISOString() });
+            }
+
+          } else if (action.type === "wait") {
+            const waitMinutes = action.minutes || action.hours * 60 || 60;
+            logEntries.push({ step: i + 1, action: "wait", minutes: waitMinutes, status: "scheduled", timestamp: new Date().toISOString() });
+            await storage.updateWorkflowRun(run.id, {
+              status: "waiting",
+              currentStep: i + 1,
+              nextRunAt: new Date(Date.now() + waitMinutes * 60 * 1000),
+              log: logEntries,
+            });
+            return res.json({ success: true, runId: run.id, status: "waiting", nextRunAt: new Date(Date.now() + waitMinutes * 60 * 1000), steps: logEntries });
           }
         } catch (stepErr: any) {
           logEntries.push({ step: i + 1, action: action.type, status: "failed", error: stepErr.message, timestamp: new Date().toISOString() });
@@ -577,6 +712,217 @@ OUTPUT FORMAT:
       res.json({ response: completion.choices[0]?.message?.content || "No response generated." });
     } catch (err: any) {
       res.status(500).json({ message: err.message || "AI service error" });
+    }
+  });
+
+  // === GHL INTEGRATION ===
+  app.get("/api/ghl/status", async (req, res) => {
+    res.json(getGhlStatus());
+  });
+
+  app.post("/api/ghl/send-email", async (req, res) => {
+    try {
+      const { contactId, dealId, subject, body } = req.body;
+      if (!contactId || !subject || !body) return res.status(400).json({ message: "contactId, subject, and body required" });
+      const result = await sendGhlEmail({ contactId, dealId, subject, body });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/ghl/send-sms", async (req, res) => {
+    try {
+      const { contactId, dealId, body } = req.body;
+      if (!contactId || !body) return res.status(400).json({ message: "contactId and body required" });
+      const result = await sendGhlSms({ contactId, dealId, body });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/ghl/send-template", async (req, res) => {
+    try {
+      const { templateId, contactId, dealId, extraData } = req.body;
+      if (!templateId || !contactId) return res.status(400).json({ message: "templateId and contactId required" });
+      const result = await sendTemplatedMessage({ templateId, contactId, dealId, extraData });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/ghl/sync-contact", async (req, res) => {
+    try {
+      const { contactId } = req.body;
+      if (!contactId) return res.status(400).json({ message: "contactId required" });
+      const contact = await storage.getContact(contactId);
+      if (!contact) return res.status(404).json({ message: "Contact not found" });
+      const ghlId = await upsertGhlContact(contact);
+      res.json({ success: true, ghlContactId: ghlId });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/ghl/calendar-url", (req, res) => {
+    const url = getCalendarBookingUrl({
+      contactEmail: req.query.email as string,
+      contactName: req.query.name as string,
+      source: req.query.source as string,
+    });
+    res.json({ url });
+  });
+
+  app.get("/api/ghl/activity", async (req, res) => {
+    const contactId = req.query.contactId ? Number(req.query.contactId) : undefined;
+    const logs = await storage.getGhlActivityLogs(contactId);
+    res.json(logs);
+  });
+
+  app.post("/api/webhooks/ghl", async (req, res) => {
+    try {
+      await handleGhlWebhook(req.body);
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error("GHL webhook error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === MESSAGE TEMPLATES ===
+  app.get("/api/message-templates", async (req, res) => {
+    const category = req.query.category as string | undefined;
+    const templates = category
+      ? await storage.getMessageTemplatesByCategory(category)
+      : await storage.getMessageTemplates();
+    res.json(templates);
+  });
+
+  app.get("/api/message-templates/:id", async (req, res) => {
+    const template = await storage.getMessageTemplate(Number(req.params.id));
+    if (!template) return res.status(404).json({ message: "Not found" });
+    res.json(template);
+  });
+
+  app.post("/api/message-templates", async (req, res) => {
+    try {
+      const input = insertMessageTemplateSchema.parse(req.body);
+      const template = await storage.createMessageTemplate(input);
+      res.status(201).json(template);
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
+  });
+
+  app.put("/api/message-templates/:id", async (req, res) => {
+    const updated = await storage.updateMessageTemplate(Number(req.params.id), req.body);
+    if (!updated) return res.status(404).json({ message: "Not found" });
+    res.json(updated);
+  });
+
+  // === COLLATERAL PACKETS ===
+  app.get("/api/collateral-packets", async (req, res) => {
+    const packets = await storage.getCollateralPackets();
+    res.json(packets);
+  });
+
+  app.post("/api/collateral-packets", async (req, res) => {
+    try {
+      const input = insertCollateralPacketSchema.parse(req.body);
+      const packet = await storage.createCollateralPacket(input);
+      res.status(201).json(packet);
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
+  });
+
+  // === SLA CONFIGS ===
+  app.get("/api/sla-configs", async (req, res) => {
+    const configs = await storage.getSlaConfigs();
+    res.json(configs);
+  });
+
+  app.post("/api/sla-configs", async (req, res) => {
+    try {
+      const input = insertSlaConfigSchema.parse(req.body);
+      const config = await storage.createSlaConfig(input);
+      res.status(201).json(config);
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
+  });
+
+  app.put("/api/sla-configs/:id", async (req, res) => {
+    const updated = await storage.updateSlaConfig(Number(req.params.id), req.body);
+    if (!updated) return res.status(404).json({ message: "Not found" });
+    res.json(updated);
+  });
+
+  // === KPI DASHBOARD ===
+  app.get("/api/kpi/summary", async (req, res) => {
+    try {
+      const [allDeals, allTickets, allContacts, allTasks] = await Promise.all([
+        storage.getDeals(),
+        storage.getTickets(),
+        storage.getContacts(),
+        storage.getTasks(),
+      ]);
+
+      const now = new Date();
+      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+      const salesDeals = allDeals.filter(d => d.pipeline === "sales");
+      const onboardingDeals = allDeals.filter(d => d.pipeline === "onboarding");
+      const recentDeals = salesDeals.filter(d => d.createdAt && new Date(d.createdAt) >= thirtyDaysAgo);
+      const closedWon = salesDeals.filter(d => d.stage === "Closed Won" && d.closedAt && new Date(d.closedAt) >= thirtyDaysAgo);
+      const closedLost = salesDeals.filter(d => d.stage === "Closed Lost" && d.closedAt && new Date(d.closedAt) >= thirtyDaysAgo);
+
+      const openTickets = allTickets.filter(t => t.status !== "Resolved" && t.status !== "Closed");
+      const breachedTickets = allTickets.filter(t =>
+        t.slaDeadline && new Date(t.slaDeadline) < now && !t.resolvedAt && t.status !== "Resolved" && t.status !== "Closed"
+      );
+
+      const pendingTasks = allTasks.filter(t => t.status === "pending");
+      const overdueTasks = allTasks.filter(t => t.status === "pending" && t.dueDate && new Date(t.dueDate) < now);
+
+      const stagesCount: Record<string, number> = {};
+      salesDeals.forEach(d => { stagesCount[d.stage] = (stagesCount[d.stage] || 0) + 1; });
+
+      res.json({
+        pipeline: {
+          totalActive: salesDeals.filter(d => d.stage !== "Closed Won" && d.stage !== "Closed Lost").length,
+          closedWon30d: closedWon.length,
+          closedLost30d: closedLost.length,
+          conversionRate: recentDeals.length > 0 ? Math.round((closedWon.length / recentDeals.length) * 100) : 0,
+          stagesBreakdown: stagesCount,
+          newLeads7d: salesDeals.filter(d => d.createdAt && new Date(d.createdAt) >= sevenDaysAgo).length,
+        },
+        onboarding: {
+          active: onboardingDeals.filter(d => d.stage !== "Active (30 Days)").length,
+          live: onboardingDeals.filter(d => d.stage === "Live (First Batch)" || d.stage === "Active (7 Days)" || d.stage === "Active (30 Days)").length,
+        },
+        support: {
+          openTickets: openTickets.length,
+          breachedSla: breachedTickets.length,
+          avgResolutionHours: 0,
+        },
+        tasks: {
+          pending: pendingTasks.length,
+          overdue: overdueTasks.length,
+        },
+        contacts: {
+          total: allContacts.length,
+          new30d: allContacts.filter(c => c.createdAt && new Date(c.createdAt) >= thirtyDaysAgo).length,
+        },
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
     }
   });
 

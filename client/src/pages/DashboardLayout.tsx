@@ -17,6 +17,9 @@ import {
   Rocket,
   Zap,
   FileQuestion,
+  Settings,
+  BarChart3,
+  BookOpen,
 } from "lucide-react";
 import {
   Sidebar,
@@ -48,12 +51,15 @@ const menuItems = [
   { icon: MessageSquare, label: "AI Advisor", href: "/dashboard/chat" },
   { icon: Zap, label: "Workflows", href: "/dashboard/workflows" },
   { icon: FileQuestion, label: "RFIs", href: "/dashboard/rfis" },
+  { icon: BarChart3, label: "Automation", href: "/dashboard/automation" },
+  { icon: Settings, label: "GHL Settings", href: "/dashboard/ghl-settings" },
 ];
 
 const formItems = [
   { icon: PhoneCall, label: "Call Outcome", href: "/dashboard/call-outcome" },
   { icon: FileCheck, label: "Review Complete", href: "/dashboard/review-complete" },
   { icon: Rocket, label: "Onboarding Kickoff", href: "/dashboard/onboarding-kickoff" },
+  { icon: BookOpen, label: "Case Study Intake", href: "/dashboard/case-study-intake" },
 ];
 
 export function DashboardLayout({ children }: DashboardLayoutProps) {

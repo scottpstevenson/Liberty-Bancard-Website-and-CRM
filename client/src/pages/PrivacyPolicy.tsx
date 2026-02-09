@@ -1,3 +1,4 @@
+import { SEO } from "@/components/SEO";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { Mail, Phone } from "lucide-react";
@@ -5,6 +6,7 @@ import { Mail, Phone } from "lucide-react";
 export default function PrivacyPolicy() {
   return (
     <div className="min-h-screen flex flex-col font-body">
+      <SEO title="Privacy Policy" description="Liberty Bancard privacy policy. How we collect, use, and protect your information." path="/privacy-policy" />
       <Navbar />
       <main className="flex-grow pt-16">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-16">

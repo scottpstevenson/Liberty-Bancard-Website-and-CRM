@@ -1,6 +1,7 @@
 import { Switch, Route, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
+import { HelmetProvider } from 'react-helmet-async';
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/use-auth";
@@ -39,6 +40,9 @@ import ReviewComplete from "@/pages/dashboard/ReviewComplete";
 import OnboardingKickoff from "@/pages/dashboard/OnboardingKickoff";
 import Workflows from "@/pages/dashboard/Workflows";
 import RFIs from "@/pages/dashboard/RFIs";
+import CaseStudyIntake from "@/pages/dashboard/CaseStudyIntake";
+import GhlSettings from "@/pages/dashboard/GhlSettings";
+import Automation from "@/pages/dashboard/Automation";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { user, isLoading } = useAuth();
@@ -128,6 +132,15 @@ function Router() {
       <Route path="/dashboard/rfis">
         <ProtectedRoute component={RFIs} />
       </Route>
+      <Route path="/dashboard/case-study-intake">
+        <ProtectedRoute component={CaseStudyIntake} />
+      </Route>
+      <Route path="/dashboard/ghl-settings">
+        <ProtectedRoute component={GhlSettings} />
+      </Route>
+      <Route path="/dashboard/automation">
+        <ProtectedRoute component={Automation} />
+      </Route>
 
       <Route component={NotFound} />
     </Switch>
@@ -151,12 +164,14 @@ function PublicLayout() {
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <PublicLayout />
-      </TooltipProvider>
-    </QueryClientProvider>
+    <HelmetProvider>
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <Toaster />
+          <PublicLayout />
+        </TooltipProvider>
+      </QueryClientProvider>
+    </HelmetProvider>
   );
 }
 

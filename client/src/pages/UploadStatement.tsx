@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { SEO } from "@/components/SEO";
 import { useLocation, Link } from "wouter";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
@@ -147,6 +148,7 @@ export default function UploadStatement() {
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
+      <SEO title="Upload Your Processing Statement" description="Upload your merchant processing statement for a free, no-obligation rate analysis. See exactly where your fees are going." path="/upload-statement" />
       <Navbar />
 
       <main className="flex-grow pt-28 pb-16">

@@ -1,3 +1,4 @@
+import { SEO } from "@/components/SEO";
 import { useLocation } from "wouter";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
@@ -130,6 +131,7 @@ export default function Support() {
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
+      <SEO title="Support" description="Submit a support request to Liberty Bancard. We respond within 4 hours during business hours." path="/support" />
       <Navbar />
 
       <main className="flex-grow pt-28 pb-16">

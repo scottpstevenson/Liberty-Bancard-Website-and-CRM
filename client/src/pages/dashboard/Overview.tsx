@@ -1,123 +1,192 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useContacts } from "@/hooks/use-contacts";
-import { useTickets } from "@/hooks/use-tickets";
-import { Users, Ticket, DollarSign, TrendingUp } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+import { Badge } from "@/components/ui/badge";
+import { useQuery } from "@tanstack/react-query";
+import { Users, Ticket, TrendingUp, CheckCircle, AlertTriangle, Clock, Target, ArrowUpRight, Loader2 } from "lucide-react";
+import type { Contact, Deal } from "@shared/schema";
 
 export default function Overview() {
-  const { data: contacts } = useContacts();
-  const { data: tickets } = useTickets();
+  const { data: kpi, isLoading: kpiLoading, isError } = useQuery<{
+    pipeline: { totalActive: number; closedWon30d: number; closedLost30d: number; conversionRate: number; stagesBreakdown: Record<string, number>; newLeads7d: number };
+    onboarding: { active: number; live: number };
+    support: { openTickets: number; breachedSla: number };
+    tasks: { pending: number; overdue: number };
+    contacts: { total: number; new30d: number };
+  }>({ queryKey: ["/api/kpi/summary"] });
 
-  const totalContacts = contacts?.length || 0;
-  const activeTickets = tickets?.filter(t => t.status !== "Closed").length || 0;
-  
-  // Mock chart data
-  const data = [
-    { name: 'Jan', value: 400 },
-    { name: 'Feb', value: 300 },
-    { name: 'Mar', value: 600 },
-    { name: 'Apr', value: 800 },
-    { name: 'May', value: 500 },
-    { name: 'Jun', value: 900 },
-  ];
+  const { data: contacts } = useQuery<Contact[]>({ queryKey: ["/api/contacts"] });
+  const { data: deals } = useQuery<Deal[]>({ queryKey: ["/api/deals"] });
+
+  if (kpiLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <p className="text-muted-foreground">Unable to load dashboard data. Please try again.</p>
+      </div>
+    );
+  }
+
+  const recentContacts = contacts?.slice(0, 5) || [];
+  const activeDeals = deals?.filter((d: Deal) => d.pipeline === "sales" && d.stage !== "Closed Won" && d.stage !== "Closed Lost").slice(0, 5) || [];
 
   return (
     <div className="space-y-8">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total Leads</CardTitle>
-            <Users className="w-4 h-4 text-accent" />
+        <Card data-testid="card-kpi-pipeline">
+          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Active Pipeline</CardTitle>
+            <TrendingUp className="w-4 h-4 text-primary" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{totalContacts}</div>
-            <p className="text-xs text-muted-foreground mt-1">+20.1% from last month</p>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Active Tickets</CardTitle>
-            <Ticket className="w-4 h-4 text-orange-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{activeTickets}</div>
-            <p className="text-xs text-muted-foreground mt-1">3 high priority</p>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Revenue</CardTitle>
-            <DollarSign className="w-4 h-4 text-green-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">$45,231.89</div>
-            <p className="text-xs text-muted-foreground mt-1">+15% from last month</p>
+            <div className="text-2xl font-bold" data-testid="text-active-pipeline">{kpi?.pipeline.totalActive || 0}</div>
+            <p className="text-xs text-muted-foreground mt-1" data-testid="text-new-leads">{kpi?.pipeline.newLeads7d || 0} new leads this week</p>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Growth</CardTitle>
-            <TrendingUp className="w-4 h-4 text-purple-500" />
+        <Card data-testid="card-kpi-conversion">
+          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">30-Day Conversion</CardTitle>
+            <Target className="w-4 h-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">+12.5%</div>
-            <p className="text-xs text-muted-foreground mt-1">Year over Year</p>
+            <div className="text-2xl font-bold" data-testid="text-conversion-rate">{kpi?.pipeline.conversionRate || 0}%</div>
+            <p className="text-xs text-muted-foreground mt-1" data-testid="text-won-lost">{kpi?.pipeline.closedWon30d || 0} won / {kpi?.pipeline.closedLost30d || 0} lost</p>
+          </CardContent>
+        </Card>
+
+        <Card data-testid="card-kpi-support">
+          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Open Tickets</CardTitle>
+            <Ticket className="w-4 h-4 text-orange-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold" data-testid="text-open-tickets">{kpi?.support.openTickets || 0}</div>
+            {(kpi?.support.breachedSla || 0) > 0 ? (
+              <p className="text-xs text-destructive mt-1 flex items-center gap-1" data-testid="text-sla-breach">
+                <AlertTriangle className="w-3 h-3" />
+                {kpi?.support.breachedSla} SLA breaches
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground mt-1" data-testid="text-sla-ok">All within SLA</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card data-testid="card-kpi-tasks">
+          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Pending Tasks</CardTitle>
+            <Clock className="w-4 h-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold" data-testid="text-pending-tasks">{kpi?.tasks.pending || 0}</div>
+            {(kpi?.tasks.overdue || 0) > 0 ? (
+              <p className="text-xs text-destructive mt-1" data-testid="text-overdue-tasks">{kpi?.tasks.overdue} overdue</p>
+            ) : (
+              <p className="text-xs text-muted-foreground mt-1" data-testid="text-tasks-ok">None overdue</p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <Card data-testid="card-kpi-contacts">
+          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Total Contacts</CardTitle>
+            <Users className="w-4 h-4 text-primary" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold" data-testid="text-total-contacts">{kpi?.contacts.total || 0}</div>
+            <p className="text-xs text-muted-foreground mt-1">{kpi?.contacts.new30d || 0} added last 30 days</p>
+          </CardContent>
+        </Card>
+
+        <Card data-testid="card-kpi-onboarding">
+          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Onboarding</CardTitle>
+            <ArrowUpRight className="w-4 h-4 text-green-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold" data-testid="text-onboarding-active">{kpi?.onboarding.active || 0}</div>
+            <p className="text-xs text-muted-foreground mt-1">{kpi?.onboarding.live || 0} live merchants</p>
+          </CardContent>
+        </Card>
+
+        <Card data-testid="card-kpi-stages">
+          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Pipeline Stages</CardTitle>
+            <CheckCircle className="w-4 h-4 text-primary" />
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-1">
+              {kpi?.pipeline.stagesBreakdown && Object.keys(kpi.pipeline.stagesBreakdown).length > 0 ? (
+                Object.entries(kpi.pipeline.stagesBreakdown).map(([stage, count]) => (
+                  <Badge key={stage} variant="secondary" className="text-xs" data-testid={`badge-stage-${stage.toLowerCase().replace(/\s+/g, "-")}`}>
+                    {stage}: {count}
+                  </Badge>
+                ))
+              ) : (
+                <span className="text-xs text-muted-foreground">No active deals</span>
+              )}
+            </div>
           </CardContent>
         </Card>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <Card className="col-span-1">
+        <Card data-testid="card-recent-contacts">
           <CardHeader>
-            <CardTitle>Sales Velocity</CardTitle>
+            <CardTitle className="text-base">Recent Contacts</CardTitle>
           </CardHeader>
-          <CardContent className="h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                <XAxis dataKey="name" stroke="#6b7280" fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis stroke="#6b7280" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(value) => `$${value}`} />
-                <Tooltip 
-                  cursor={{ fill: '#f3f4f6' }}
-                  contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} 
-                />
-                <Bar dataKey="value" fill="hsl(221, 83%, 53%)" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+          <CardContent>
+            <div className="space-y-3">
+              {recentContacts.map((contact: Contact) => (
+                <div key={contact.id} className="flex items-center justify-between gap-3 p-3 rounded-md hover-elevate transition-colors" data-testid={`row-contact-${contact.id}`}>
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm shrink-0">
+                      {contact.firstName[0]}{contact.lastName[0]}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="font-medium text-sm truncate" data-testid={`text-contact-name-${contact.id}`}>{contact.firstName} {contact.lastName}</div>
+                      <div className="text-xs text-muted-foreground truncate">{contact.companyName || contact.email}</div>
+                    </div>
+                  </div>
+                  <Badge variant="secondary" className="shrink-0" data-testid={`badge-contact-status-${contact.id}`}>
+                    {contact.status}
+                  </Badge>
+                </div>
+              ))}
+              {recentContacts.length === 0 && (
+                <div className="text-center text-muted-foreground py-8" data-testid="text-no-contacts">No recent contacts</div>
+              )}
+            </div>
           </CardContent>
         </Card>
 
-        <Card className="col-span-1">
+        <Card data-testid="card-active-deals">
           <CardHeader>
-            <CardTitle>Recent Contacts</CardTitle>
+            <CardTitle className="text-base">Active Deals</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              {contacts?.slice(0, 5).map((contact) => (
-                <div key={contact.id} className="flex items-center justify-between p-3 rounded-lg hover:bg-muted/50 transition-colors">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold">
-                      {contact.firstName[0]}{contact.lastName[0]}
-                    </div>
-                    <div>
-                      <div className="font-medium text-sm">{contact.firstName} {contact.lastName}</div>
-                      <div className="text-xs text-muted-foreground">{contact.companyName}</div>
-                    </div>
+            <div className="space-y-3">
+              {activeDeals.map((deal: Deal) => (
+                <div key={deal.id} className="flex items-center justify-between gap-3 p-3 rounded-md hover-elevate transition-colors" data-testid={`row-deal-${deal.id}`}>
+                  <div className="min-w-0">
+                    <div className="font-medium text-sm" data-testid={`text-deal-id-${deal.id}`}>Deal #{deal.id}</div>
+                    <div className="text-xs text-muted-foreground">{deal.offerPath || "No offer path"}</div>
                   </div>
-                  <div className={`text-xs px-2 py-1 rounded-full font-medium ${
-                    contact.status === 'New' ? 'bg-blue-100 text-blue-700' : 
-                    contact.status === 'Qualified' ? 'bg-green-100 text-green-700' : 
-                    'bg-gray-100 text-gray-700'
-                  }`}>
-                    {contact.status}
-                  </div>
+                  <Badge variant="outline" className="shrink-0" data-testid={`badge-deal-stage-${deal.id}`}>
+                    {deal.stage}
+                  </Badge>
                 </div>
               ))}
-              {(!contacts || contacts.length === 0) && (
-                <div className="text-center text-muted-foreground py-8">No recent contacts</div>
+              {activeDeals.length === 0 && (
+                <div className="text-center text-muted-foreground py-8" data-testid="text-no-deals">No active deals</div>
               )}
             </div>
           </CardContent>

@@ -1,3 +1,4 @@
+import { SEO } from "@/components/SEO";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { Button } from "@/components/ui/button";
@@ -44,6 +45,7 @@ const beliefs = [
 export default function AboutContact() {
   return (
     <div className="min-h-screen flex flex-col">
+      <SEO title="About Us & Contact" description="Learn about Liberty Bancard's approach to merchant payment processing. Direct support, transparent pricing, no long-term contracts." path="/about-contact" />
       <Navbar />
 
       <main className="flex-grow pt-28">

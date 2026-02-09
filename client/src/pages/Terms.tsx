@@ -1,3 +1,4 @@
+import { SEO } from "@/components/SEO";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { Mail, Phone } from "lucide-react";
@@ -5,6 +6,7 @@ import { Mail, Phone } from "lucide-react";
 export default function Terms() {
   return (
     <div className="min-h-screen flex flex-col font-body">
+      <SEO title="Terms of Service" description="Liberty Bancard terms of service and conditions of use." path="/terms" />
       <Navbar />
       <main className="flex-grow pt-16">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-16">

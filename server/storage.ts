@@ -1,6 +1,7 @@
 import { db } from "./db";
 import {
   contacts, companies, deals, tickets, tasks, documents, auditLogs, notifications, workflowRuns, workflows, rfis,
+  messageTemplates, collateralPackets, ghlActivityLog, slaConfigs,
   type InsertContact, type UpdateContactRequest,
   type InsertCompany,
   type InsertDeal, type UpdateDealRequest,
@@ -12,8 +13,12 @@ import {
   type InsertWorkflow, type UpdateWorkflowRequest,
   type InsertWorkflowRun,
   type InsertRfi, type UpdateRfiRequest,
+  type InsertMessageTemplate, type MessageTemplate,
+  type InsertCollateralPacket,
+  type InsertGhlActivityLog,
+  type InsertSlaConfig,
 } from "@shared/schema";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and, lt, isNull, ne } from "drizzle-orm";
 
 export interface IStorage {
   getContacts(): Promise<typeof contacts.$inferSelect[]>;
@@ -65,6 +70,25 @@ export interface IStorage {
   getRfi(id: number): Promise<typeof rfis.$inferSelect | undefined>;
   createRfi(rfi: InsertRfi): Promise<typeof rfis.$inferSelect>;
   updateRfi(id: number, rfi: UpdateRfiRequest): Promise<typeof rfis.$inferSelect | undefined>;
+
+  getMessageTemplates(): Promise<typeof messageTemplates.$inferSelect[]>;
+  getMessageTemplate(id: number): Promise<typeof messageTemplates.$inferSelect | undefined>;
+  getMessageTemplatesByCategory(category: string): Promise<typeof messageTemplates.$inferSelect[]>;
+  createMessageTemplate(template: InsertMessageTemplate): Promise<typeof messageTemplates.$inferSelect>;
+  updateMessageTemplate(id: number, updates: Partial<InsertMessageTemplate>): Promise<typeof messageTemplates.$inferSelect | undefined>;
+
+  getCollateralPackets(): Promise<typeof collateralPackets.$inferSelect[]>;
+  createCollateralPacket(packet: InsertCollateralPacket): Promise<typeof collateralPackets.$inferSelect>;
+
+  getGhlActivityLogs(contactId?: number): Promise<typeof ghlActivityLog.$inferSelect[]>;
+  createGhlActivityLog(log: InsertGhlActivityLog): Promise<typeof ghlActivityLog.$inferSelect>;
+
+  getSlaConfigs(): Promise<typeof slaConfigs.$inferSelect[]>;
+  createSlaConfig(config: InsertSlaConfig): Promise<typeof slaConfigs.$inferSelect>;
+  updateSlaConfig(id: number, updates: Partial<InsertSlaConfig>): Promise<typeof slaConfigs.$inferSelect | undefined>;
+
+  getDealsStuckInStage(stage: string, maxMinutes: number): Promise<typeof deals.$inferSelect[]>;
+  getTicketsBreachingSla(): Promise<typeof tickets.$inferSelect[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -247,6 +271,85 @@ export class DatabaseStorage implements IStorage {
   async updateRfi(id: number, updates: UpdateRfiRequest) {
     const [updated] = await db.update(rfis).set({ ...updates, updatedAt: new Date() }).where(eq(rfis.id, id)).returning();
     return updated;
+  }
+
+  async getMessageTemplates() {
+    return await db.select().from(messageTemplates).orderBy(desc(messageTemplates.createdAt));
+  }
+
+  async getMessageTemplate(id: number) {
+    const [template] = await db.select().from(messageTemplates).where(eq(messageTemplates.id, id));
+    return template;
+  }
+
+  async getMessageTemplatesByCategory(category: string) {
+    return await db.select().from(messageTemplates).where(eq(messageTemplates.category, category));
+  }
+
+  async createMessageTemplate(template: InsertMessageTemplate) {
+    const [created] = await db.insert(messageTemplates).values(template).returning();
+    return created;
+  }
+
+  async updateMessageTemplate(id: number, updates: Partial<InsertMessageTemplate>) {
+    const [updated] = await db.update(messageTemplates).set({ ...updates, updatedAt: new Date() }).where(eq(messageTemplates.id, id)).returning();
+    return updated;
+  }
+
+  async getCollateralPackets() {
+    return await db.select().from(collateralPackets).orderBy(desc(collateralPackets.createdAt));
+  }
+
+  async createCollateralPacket(packet: InsertCollateralPacket) {
+    const [created] = await db.insert(collateralPackets).values(packet).returning();
+    return created;
+  }
+
+  async getGhlActivityLogs(contactId?: number) {
+    if (contactId) {
+      return await db.select().from(ghlActivityLog).where(eq(ghlActivityLog.contactId, contactId)).orderBy(desc(ghlActivityLog.createdAt));
+    }
+    return await db.select().from(ghlActivityLog).orderBy(desc(ghlActivityLog.createdAt));
+  }
+
+  async createGhlActivityLog(log: InsertGhlActivityLog) {
+    const [created] = await db.insert(ghlActivityLog).values(log).returning();
+    return created;
+  }
+
+  async getSlaConfigs() {
+    return await db.select().from(slaConfigs).orderBy(desc(slaConfigs.createdAt));
+  }
+
+  async createSlaConfig(config: InsertSlaConfig) {
+    const [created] = await db.insert(slaConfigs).values(config).returning();
+    return created;
+  }
+
+  async updateSlaConfig(id: number, updates: Partial<InsertSlaConfig>) {
+    const [updated] = await db.update(slaConfigs).set(updates).where(eq(slaConfigs.id, id)).returning();
+    return updated;
+  }
+
+  async getDealsStuckInStage(stage: string, maxMinutes: number) {
+    const cutoff = new Date(Date.now() - maxMinutes * 60 * 1000);
+    return await db.select().from(deals)
+      .where(and(
+        eq(deals.stage, stage),
+        lt(deals.updatedAt!, cutoff),
+        isNull(deals.closedAt)
+      ));
+  }
+
+  async getTicketsBreachingSla() {
+    const now = new Date();
+    return await db.select().from(tickets)
+      .where(and(
+        lt(tickets.slaDeadline!, now),
+        isNull(tickets.resolvedAt),
+        ne(tickets.status!, "Resolved"),
+        ne(tickets.status!, "Closed")
+      ));
   }
 }
 

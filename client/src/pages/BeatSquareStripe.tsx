@@ -1,3 +1,4 @@
+import { SEO } from "@/components/SEO";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { Button } from "@/components/ui/button";
@@ -73,6 +74,7 @@ const faqItems = [
 export default function BeatSquareStripe() {
   return (
     <div className="min-h-screen flex flex-col font-body">
+      <SEO title="Beat Square & Stripe Pricing" description="Compare Liberty Bancard's statement-based pricing against Square and Stripe flat-rate processing. Real numbers, no guesswork." path="/beat-square-stripe" />
       <Navbar />
 
       <main className="flex-grow pt-28">

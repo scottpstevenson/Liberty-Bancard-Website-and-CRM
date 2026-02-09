@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { SEO } from "@/components/SEO";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { Button } from "@/components/ui/button";
@@ -324,6 +325,7 @@ export default function GetStarted() {
 
   return (
     <div className="min-h-screen flex flex-col font-body">
+      <SEO title="Get Started - Free Statement Analysis" description="Answer a few questions and get a personalized processing recommendation. Free statement review, no obligation." path="/get-started" />
       <Navbar />
       <main className="flex-grow pt-28">
         <section className="bg-background py-16" data-testid="section-get-started">

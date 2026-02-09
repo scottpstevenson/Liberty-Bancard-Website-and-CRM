@@ -1,3 +1,4 @@
+import { SEO } from "@/components/SEO";
 import { useLocation, Link } from "wouter";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
@@ -106,6 +107,7 @@ export default function Estimate() {
 
   return (
     <div className="min-h-screen flex flex-col">
+      <SEO title="Quick Estimate Request" description="Get a quick processing cost estimate. Provide your monthly volume and current fees for a preliminary analysis." path="/estimate" />
       <Navbar />
 
       <main className="flex-grow pt-28">

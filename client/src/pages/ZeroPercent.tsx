@@ -1,3 +1,4 @@
+import { SEO } from "@/components/SEO";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { Button } from "@/components/ui/button";
@@ -88,6 +89,7 @@ const faqItems = [
 export default function ZeroPercent() {
   return (
     <div className="min-h-screen flex flex-col font-body">
+      <SEO title="0% Processing Program" description="Learn about compliant cash discount and surcharge programs. Eligibility depends on state law, card brand rules, and business model." path="/0-percent-processing" />
       <Navbar />
 
       <main className="flex-grow pt-28">

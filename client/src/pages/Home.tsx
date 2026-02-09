@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from "react";
+import { SEO } from "@/components/SEO";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { Button } from "@/components/ui/button";
@@ -152,6 +153,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen flex flex-col font-body">
+      <SEO title="Merchant Payment Processing" description="See exactly what you pay to accept cards. Liberty Bancard provides transparent, statement-based pricing for businesses. Upload your statement for a free analysis." path="/" />
       <Navbar />
 
       <main className="flex-grow pt-28">
