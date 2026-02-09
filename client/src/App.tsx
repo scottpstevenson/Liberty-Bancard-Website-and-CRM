@@ -92,9 +92,11 @@ function Router() {
       <Route path="/thanks-support" component={ThanksSupport} />
 
       {/* Asset Library & Packet Routes */}
-      <Route path="/assets/:rest*" component={AssetPage} />
+      <Route path="/assets/:a/:b" component={AssetPage} />
+      <Route path="/assets/:a" component={AssetPage} />
       <Route path="/assets" component={AssetPage} />
-      <Route path="/packet/:rest*" component={AssetPage} />
+      <Route path="/packet/:a/:b" component={AssetPage} />
+      <Route path="/packet/:a" component={AssetPage} />
       
       {/* Dashboard Routes */}
       <Route path="/dashboard">
