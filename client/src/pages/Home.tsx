@@ -51,6 +51,7 @@ import teamCollab from "@assets/images/team-collab.png";
 import terminalDevice from "@assets/images/liberty-terminal-hero.png";
 import terminalTap from "@assets/images/liberty-terminal-tap.png";
 import terminalAngle from "@assets/images/liberty-terminal-angle.png";
+import terminalStand from "@assets/images/liberty-terminal-stand.png";
 import dashboardPreview from "@assets/images/dashboard-preview.png";
 
 function useCountUp(end: number, duration: number = 2000, suffix: string = "") {
@@ -793,8 +794,9 @@ export default function Home() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <img src={terminalDevice} alt="Liberty Smart Terminal - front view" className="w-full rounded-md object-contain" data-testid="img-showcase-hero" />
-                <img src={terminalAngle} alt="Liberty Smart Terminal - angle view" className="w-full rounded-md object-contain" data-testid="img-showcase-angle" />
-                <img src={terminalTap} alt="Contactless tap payment on Liberty Smart Terminal" className="col-span-2 w-full rounded-md object-cover max-h-64" data-testid="img-showcase-tap" />
+                <img src={terminalStand} alt="Liberty Smart Terminal on countertop stand" className="w-full rounded-md object-contain" data-testid="img-showcase-stand" />
+                <img src={terminalAngle} alt="Liberty Smart Terminal with card reader" className="w-full rounded-md object-contain" data-testid="img-showcase-angle" />
+                <img src={terminalTap} alt="Contactless tap payment on Liberty Smart Terminal" className="w-full rounded-md object-cover" data-testid="img-showcase-tap" />
               </div>
             </div>
           </div>

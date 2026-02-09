@@ -27,6 +27,7 @@ import {
 import terminalHero from "@assets/images/liberty-terminal-hero.png";
 import terminalTap from "@assets/images/liberty-terminal-tap.png";
 import terminalAngle from "@assets/images/liberty-terminal-angle.png";
+import terminalStand from "@assets/images/liberty-terminal-stand.png";
 
 interface ContentPage {
   title: string;
@@ -230,8 +231,9 @@ const contentMap: Record<string, ContentPage> = {
     type: "standard",
     images: [
       { src: terminalHero, alt: "Liberty Smart Terminal - product view", caption: "Liberty Smart Terminal - countertop payment device" },
+      { src: terminalStand, alt: "Liberty Smart Terminal on countertop stand", caption: "Countertop stand for customer-facing checkout" },
       { src: terminalTap, alt: "Liberty Smart Terminal - contactless tap payment in use", caption: "Contactless tap payment - fast and secure" },
-      { src: terminalAngle, alt: "Liberty Smart Terminal - 3/4 angle view", caption: "Compact design with full payment acceptance" },
+      { src: terminalAngle, alt: "Liberty Smart Terminal with external card reader", caption: "Compact design with full payment acceptance" },
     ],
   },
 
