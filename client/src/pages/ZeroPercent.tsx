@@ -92,17 +92,19 @@ export default function ZeroPercent() {
 
       <main className="flex-grow pt-28">
         {/* Hero */}
-        <section className="bg-background py-20 lg:py-28" data-testid="section-zero-hero">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <section className="relative overflow-hidden" data-testid="section-zero-hero">
+          <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />
+          <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(circle at 30% 60%, rgba(56,189,248,0.4) 0%, transparent 50%)' }} />
+          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 lg:py-28">
             <div className="max-w-3xl">
               <h1
-                className="text-4xl md:text-5xl font-display font-bold text-foreground leading-tight mb-6"
+                className="text-4xl md:text-5xl font-display font-bold text-white leading-tight mb-6"
                 data-testid="text-zero-heading"
               >
-                "0% Processing" Has Rules. We Do It the Right Way.
+                "0% Processing" Has Rules. We Do It the <span className="text-sky-400">Right Way.</span>
               </h1>
               <p
-                className="text-lg text-muted-foreground mb-8 leading-relaxed"
+                className="text-lg text-white/70 mb-8 leading-relaxed"
                 data-testid="text-zero-subheadline"
               >
                 Eliminating fees requires the correct structure, disclosures, and
@@ -112,26 +114,26 @@ export default function ZeroPercent() {
               </p>
               <div className="flex flex-col sm:flex-row gap-4 flex-wrap">
                 <Link href="/upload-statement" data-testid="link-zero-primary-cta">
-                  <Button size="lg" className="gap-2">
+                  <Button size="lg" className="gap-2 bg-sky-500 border-sky-500 text-white">
                     <Upload className="w-4 h-4" />
                     Check Eligibility (Free Review)
                   </Button>
                 </Link>
                 <a href="#" data-testid="link-zero-secondary-cta">
-                  <Button size="lg" variant="outline" className="gap-2">
+                  <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
                     <Phone className="w-4 h-4" />
                     Talk to a Specialist
                   </Button>
                 </a>
               </div>
               <p
-                className="text-xs text-muted-foreground mt-4"
+                className="text-xs text-white/40 mt-4"
                 data-testid="text-zero-microcopy"
               >
                 Where permitted; rules vary by state and card brand.
               </p>
               <p
-                className="text-xs text-muted-foreground mt-2"
+                className="text-xs text-white/40 mt-2"
                 data-testid="text-zero-footnote"
               >
                 Eligibility, underwriting, card brand rules, and applicable laws
@@ -371,23 +373,24 @@ export default function ZeroPercent() {
         </section>
 
         {/* Final CTA */}
-        <section className="bg-muted py-20" data-testid="section-zero-final-cta">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+        <section className="relative overflow-hidden py-20" data-testid="section-zero-final-cta">
+          <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(221,83%,20%)] to-[hsl(222,47%,8%)]" />
+          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
             <h2
-              className="text-3xl md:text-4xl font-display font-bold text-foreground mb-6"
+              className="text-3xl md:text-4xl font-display font-bold text-white mb-6"
               data-testid="text-zero-final-cta-heading"
             >
               Want the Cleanest, Most Compliant Setup?
             </h2>
             <p
-              className="text-muted-foreground mb-8 max-w-2xl mx-auto"
+              className="text-white/60 mb-8 max-w-2xl mx-auto"
               data-testid="text-zero-final-cta-body"
             >
               Upload your statement and we'll recommend the best-fit program (or
               tell you if it isn't worth it).
             </p>
             <Link href="/upload-statement" data-testid="link-zero-final-cta">
-              <Button size="lg" className="gap-2">
+              <Button size="lg" className="gap-2 bg-sky-500 border-sky-500 text-white">
                 <Upload className="w-4 h-4" />
                 Upload Statement
               </Button>

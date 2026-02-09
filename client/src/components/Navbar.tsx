@@ -88,21 +88,19 @@ export function Navbar() {
                   {link.name}
                 </Link>
               ))}
-              {user && (
-                <Link
-                  href="/dashboard"
-                  className={cn(
-                    "text-sm font-medium transition-colors flex items-center gap-1.5",
-                    location === "/dashboard"
-                      ? "text-primary"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                  data-testid="link-nav-dashboard"
-                >
-                  <LayoutDashboard className="w-3.5 h-3.5" />
-                  Dashboard
-                </Link>
-              )}
+              <Link
+                href="/dashboard"
+                className={cn(
+                  "text-sm font-medium transition-colors flex items-center gap-1.5",
+                  location.startsWith("/dashboard")
+                    ? "text-primary"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+                data-testid="link-nav-dashboard"
+              >
+                <LayoutDashboard className="w-3.5 h-3.5" />
+                {user ? "Dashboard" : "Staff Login"}
+              </Link>
             </div>
 
             {/* Desktop CTAs */}
@@ -156,22 +154,20 @@ export function Navbar() {
                   {link.name}
                 </Link>
               ))}
-              {user && (
-                <Link
-                  href="/dashboard"
-                  className={cn(
-                    "px-3 py-2.5 rounded-md text-sm font-medium transition-colors flex items-center gap-2",
-                    location === "/dashboard"
-                      ? "text-primary bg-primary/5"
-                      : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                  )}
-                  onClick={() => setIsOpen(false)}
-                  data-testid="link-mobile-nav-dashboard"
-                >
-                  <LayoutDashboard className="w-4 h-4" />
-                  Dashboard
-                </Link>
-              )}
+              <Link
+                href="/dashboard"
+                className={cn(
+                  "px-3 py-2.5 rounded-md text-sm font-medium transition-colors flex items-center gap-2",
+                  location.startsWith("/dashboard")
+                    ? "text-primary bg-primary/5"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                )}
+                onClick={() => setIsOpen(false)}
+                data-testid="link-mobile-nav-dashboard"
+              >
+                <LayoutDashboard className="w-4 h-4" />
+                {user ? "Dashboard" : "Staff Login"}
+              </Link>
 
               <div className="h-px bg-border my-2" />
 

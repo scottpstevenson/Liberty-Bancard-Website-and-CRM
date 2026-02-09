@@ -77,50 +77,52 @@ export default function BeatSquareStripe() {
 
       <main className="flex-grow pt-28">
         {/* Hero - 2 column */}
-        <section className="bg-background py-20 lg:py-28" data-testid="section-beat-hero">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <section className="relative overflow-hidden" data-testid="section-beat-hero">
+          <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />
+          <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(circle at 80% 30%, rgba(56,189,248,0.4) 0%, transparent 50%)' }} />
+          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 lg:py-28">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
               <div>
                 <h1
-                  className="text-4xl md:text-5xl font-display font-bold text-foreground leading-tight mb-6"
+                  className="text-4xl md:text-5xl font-display font-bold text-white leading-tight mb-6"
                   data-testid="text-beat-heading"
                 >
-                  Flat-Rate Is Convenient - Until You See the All-In Cost.
+                  Flat-Rate Is Convenient - Until You See the <span className="text-sky-400">All-In Cost.</span>
                 </h1>
                 <p
-                  className="text-lg text-muted-foreground mb-8 leading-relaxed"
+                  className="text-lg text-white/70 mb-8 leading-relaxed"
                   data-testid="text-beat-subheadline"
                 >
                   Square/Stripe-style flat pricing can become expensive as volume grows. We run an apples-to-apples comparison using your statement and show the clearest path to reduce total cost - without guesswork.
                 </p>
                 <div className="flex flex-col sm:flex-row gap-4 flex-wrap mb-4">
                   <Link href="/upload-statement" data-testid="link-beat-primary-cta">
-                    <Button size="lg" className="gap-2">
+                    <Button size="lg" className="gap-2 bg-sky-500 border-sky-500 text-white">
                       <Upload className="w-4 h-4" />
                       Compare My Statement
                       <ArrowRight className="w-4 h-4" />
                     </Button>
                   </Link>
                   <a href="#" data-testid="link-beat-secondary-cta">
-                    <Button size="lg" variant="outline" className="gap-2">
+                    <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
                       Book a 10-Minute Call
                     </Button>
                   </a>
                 </div>
                 <p
-                  className="text-sm text-muted-foreground"
+                  className="text-sm text-white/50"
                   data-testid="text-beat-subtext"
                 >
                   No pressure. You keep the breakdown.
                 </p>
               </div>
               <div className="flex items-center justify-center">
-                <Card className="w-full max-w-md" data-testid="card-hero-visual">
+                <Card className="w-full max-w-md border border-white/10 bg-white/5 backdrop-blur-md shadow-2xl" data-testid="card-hero-visual">
                   <CardContent className="p-8 flex flex-col items-center gap-4">
-                    <div className="w-16 h-16 rounded-md bg-primary/10 flex items-center justify-center">
-                      <BarChart3 className="w-8 h-8 text-primary" />
+                    <div className="w-16 h-16 rounded-md bg-sky-500/20 flex items-center justify-center">
+                      <BarChart3 className="w-8 h-8 text-sky-400" />
                     </div>
-                    <p className="text-center text-muted-foreground text-sm">
+                    <p className="text-center text-white/60 text-sm">
                       We compare your current flat-rate costs against wholesale pricing structures using real statement data.
                     </p>
                   </CardContent>
@@ -372,30 +374,31 @@ export default function BeatSquareStripe() {
         </section>
 
         {/* Final CTA */}
-        <section className="bg-muted py-20" data-testid="section-beat-final-cta">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+        <section className="relative overflow-hidden py-20" data-testid="section-beat-final-cta">
+          <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(221,83%,20%)] to-[hsl(222,47%,8%)]" />
+          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
             <h2
-              className="text-3xl md:text-4xl font-display font-bold text-foreground mb-6"
+              className="text-3xl md:text-4xl font-display font-bold text-white mb-6"
               data-testid="text-beat-final-cta-heading"
             >
               Want the Truth in Writing?
             </h2>
             <p
-              className="text-muted-foreground mb-8 max-w-2xl mx-auto"
+              className="text-white/60 mb-8 max-w-2xl mx-auto"
               data-testid="text-beat-final-cta-description"
             >
               Upload your statement. We'll show your real cost and your clearest options.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center flex-wrap">
               <Link href="/upload-statement" data-testid="link-beat-final-compare">
-                <Button size="lg" className="gap-2">
+                <Button size="lg" className="gap-2 bg-sky-500 border-sky-500 text-white">
                   <Upload className="w-4 h-4" />
                   Compare My Statement
                   <ArrowRight className="w-4 h-4" />
                 </Button>
               </Link>
               <a href="#" data-testid="link-beat-final-call">
-                <Button size="lg" variant="outline" className="gap-2">
+                <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
                   Book a 10-Minute Call
                 </Button>
               </a>

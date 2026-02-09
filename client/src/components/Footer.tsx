@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { Phone, Mail, Calendar } from "lucide-react";
+import { Phone, Mail, Calendar, LayoutDashboard } from "lucide-react";
 import logoWhite from "@assets/logo-white.png";
 
 export function Footer() {
@@ -13,6 +13,13 @@ export function Footer() {
     { label: "Get Started", href: "/get-started" },
   ];
 
+  const platformLinks = [
+    { label: "Staff Login / Dashboard", href: "/dashboard" },
+    { label: "Sales Pipeline", href: "/dashboard/pipeline" },
+    { label: "Support Tickets", href: "/dashboard/tickets" },
+    { label: "AI Advisors", href: "/dashboard/chat" },
+  ];
+
   const legalLinks = [
     { label: "Privacy Policy", href: "/privacy-policy" },
     { label: "Terms", href: "/terms" },
@@ -21,7 +28,7 @@ export function Footer() {
   return (
     <footer className="bg-primary text-primary-foreground pt-16 pb-8" data-testid="footer">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12 mb-12">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-12 mb-12">
           <div>
             <Link href="/" data-testid="link-footer-logo">
               <img src={logoWhite} alt="Liberty Bancard" className="h-10 w-auto mb-4" />
@@ -39,6 +46,23 @@ export function Footer() {
                   <Link
                     href={link.href}
                     className="text-primary-foreground/70 text-sm hover:text-primary-foreground transition-colors"
+                    data-testid={`link-footer-${link.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                  >
+                    {link.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div>
+            <h4 className="font-semibold text-lg mb-4" data-testid="text-footer-platform-heading">Platform</h4>
+            <ul className="space-y-3">
+              {platformLinks.map((link) => (
+                <li key={link.href}>
+                  <Link
+                    href={link.href}
+                    className="text-primary-foreground/70 text-sm hover:text-primary-foreground transition-colors flex items-center gap-1.5"
                     data-testid={`link-footer-${link.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
                   >
                     {link.label}
