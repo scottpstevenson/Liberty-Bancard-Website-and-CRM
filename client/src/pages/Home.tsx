@@ -45,6 +45,10 @@ import {
   CheckCircle,
 } from "lucide-react";
 import logoBlue from "@assets/logo-blue.png";
+import heroBg from "@assets/images/hero-bg.png";
+import teamCollab from "@assets/images/team-collab.png";
+import terminalDevice from "@assets/images/terminal-device.png";
+import dashboardPreview from "@assets/images/dashboard-preview.png";
 
 function useCountUp(end: number, duration: number = 2000, suffix: string = "") {
   const [count, setCount] = useState(0);
@@ -169,47 +173,51 @@ export default function Home() {
         </section>
 
         {/* SECTION 2: Hero */}
-        <section className="bg-background py-20 lg:py-28" data-testid="section-hero">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <section className="relative overflow-hidden" data-testid="section-hero">
+          <div className="absolute inset-0">
+            <img src={heroBg} alt="" className="w-full h-full object-cover" />
+            <div className="absolute inset-0 bg-gradient-to-r from-[hsl(222,47%,8%)/0.92] via-[hsl(222,47%,8%)/0.85] to-[hsl(222,47%,8%)/0.7]" />
+          </div>
+          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 lg:py-36">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
               <div>
-                <div className="inline-flex items-center gap-2 bg-primary/5 text-primary text-sm font-medium px-3 py-1.5 rounded-md mb-6" data-testid="text-hero-badge">
+                <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-sm text-white/90 text-sm font-medium px-3 py-1.5 rounded-md mb-6 border border-white/10" data-testid="text-hero-badge">
                   <TrendingDown className="w-4 h-4" />
                   Free statement review. Keep the breakdown even if you don't switch.
                 </div>
-                <h1 className="text-4xl md:text-5xl lg:text-6xl font-display font-bold text-foreground leading-tight mb-6" data-testid="text-hero-heading">
-                  You're Not Paying a "Rate."<br />You're Paying a <span className="text-primary">Markup</span> You've Never Seen.
+                <h1 className="text-4xl md:text-5xl lg:text-6xl font-display font-bold text-white leading-tight mb-6" data-testid="text-hero-heading">
+                  You're Not Paying a "Rate."<br />You're Paying a <span className="text-sky-400">Markup</span> You've Never Seen.
                 </h1>
-                <p className="text-lg text-muted-foreground mb-4 leading-relaxed" data-testid="text-hero-subheadline">
+                <p className="text-lg text-white/70 mb-4 leading-relaxed" data-testid="text-hero-subheadline">
                   Your processor quoted you a rate. But your actual cost is buried in interchange downgrades, monthly add-ons, PCI fees, and batch charges you've never been shown.
                 </p>
-                <p className="text-lg text-muted-foreground mb-8 leading-relaxed font-medium" data-testid="text-hero-subheadline-2">
+                <p className="text-lg text-white/80 mb-8 leading-relaxed font-medium" data-testid="text-hero-subheadline-2">
                   We pull it apart line-by-line and show you exactly where your money goes.
                 </p>
                 <div className="flex flex-col sm:flex-row gap-4 flex-wrap">
                   <Link href="/upload-statement" data-testid="link-hero-upload">
-                    <Button size="lg" className="gap-2">
+                    <Button size="lg" className="gap-2 bg-sky-500 border-sky-500 text-white">
                       <Upload className="w-4 h-4" />
                       Upload Statement - Free Review
                     </Button>
                   </Link>
                   <Link href="/get-started" data-testid="link-hero-quiz">
-                    <Button size="lg" variant="outline" className="gap-2">
+                    <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
                       Not Sure Where to Start?
                       <ArrowRight className="w-4 h-4" />
                     </Button>
                   </Link>
                 </div>
-                <p className="text-xs text-muted-foreground mt-4 max-w-md" data-testid="text-hero-microcopy">
+                <p className="text-xs text-white/40 mt-4 max-w-md" data-testid="text-hero-microcopy">
                   PDF or photo. 30 seconds. Redact account numbers if you want - we only need totals + fee lines.
                 </p>
               </div>
 
               <div className="relative flex items-center justify-center" data-testid="hero-visual">
                 <div className="w-full max-w-sm">
-                  <Card className="border-2">
+                  <Card className="border border-white/10 bg-white/5 backdrop-blur-md shadow-2xl">
                     <CardContent className="p-6 space-y-4">
-                      <div className="text-sm font-medium text-muted-foreground uppercase tracking-wider">What a review reveals</div>
+                      <div className="text-sm font-medium text-white/60 uppercase tracking-wider">What a review reveals</div>
                       <div className="space-y-3">
                         {[
                           { label: "Your real effective rate", value: "3.47%", flag: true },
@@ -217,13 +225,13 @@ export default function Home() {
                           { label: "Interchange downgrades", value: "23% of volume", flag: true },
                           { label: "Potential annual reduction*", value: "$4,200+", flag: false },
                         ].map((item, i) => (
-                          <div key={i} className="flex items-center justify-between py-2 border-b border-border last:border-0">
-                            <span className="text-sm text-foreground">{item.label}</span>
-                            <span className={`text-sm font-semibold ${item.flag ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}>{item.value}</span>
+                          <div key={i} className="flex items-center justify-between py-2 border-b border-white/10 last:border-0">
+                            <span className="text-sm text-white/80">{item.label}</span>
+                            <span className={`text-sm font-semibold ${item.flag ? "text-red-400" : "text-emerald-400"}`}>{item.value}</span>
                           </div>
                         ))}
                       </div>
-                      <p className="text-[10px] text-muted-foreground">*Illustrative example. Actual results depend on statement review. No savings claims without review.</p>
+                      <p className="text-[10px] text-white/30">*Illustrative example. Actual results depend on statement review. No savings claims without review.</p>
                     </CardContent>
                   </Card>
                 </div>
@@ -262,24 +270,52 @@ export default function Home() {
         </section>
 
         {/* SECTION 3.5: By the Numbers */}
-        <section className="bg-background py-16" data-testid="section-stats">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <section className="relative overflow-hidden py-20" data-testid="section-stats">
+          <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />
+          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <h2 className="text-2xl md:text-3xl font-display font-bold text-white text-center mb-12" data-testid="text-stats-heading">
+              Liberty Bancard by the Numbers
+            </h2>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 text-center">
-              <div ref={stat1.ref} data-testid="stat-years">
-                <div className="text-4xl md:text-5xl font-display font-bold text-primary mb-2">{stat1.display}</div>
-                <div className="text-sm font-medium text-foreground">Years in Business</div>
-                <div className="text-xs text-muted-foreground mt-1">South Florida roots, nationwide reach</div>
+              <div ref={stat1.ref} className="p-6" data-testid="stat-years">
+                <div className="text-5xl md:text-6xl font-display font-bold text-sky-400 mb-2">{stat1.display}</div>
+                <div className="text-sm font-medium text-white">Years in Business</div>
+                <div className="text-xs text-white/50 mt-1">South Florida roots, nationwide reach</div>
               </div>
-              <div ref={stat2.ref} data-testid="stat-merchants">
-                <div className="text-4xl md:text-5xl font-display font-bold text-primary mb-2">{stat2.display}</div>
-                <div className="text-sm font-medium text-foreground">Merchants Served</div>
-                <div className="text-xs text-muted-foreground mt-1">Across every major vertical</div>
+              <div ref={stat2.ref} className="p-6 border-y sm:border-y-0 sm:border-x border-white/10" data-testid="stat-merchants">
+                <div className="text-5xl md:text-6xl font-display font-bold text-sky-400 mb-2">{stat2.display}</div>
+                <div className="text-sm font-medium text-white">Merchants Served</div>
+                <div className="text-xs text-white/50 mt-1">Across every major vertical</div>
               </div>
-              <div ref={stat3.ref} data-testid="stat-retention">
-                <div className="text-4xl md:text-5xl font-display font-bold text-primary mb-2">{stat3.display}</div>
-                <div className="text-sm font-medium text-foreground">Retention Rate</div>
-                <div className="text-xs text-muted-foreground mt-1">Merchants stay because the math works</div>
+              <div ref={stat3.ref} className="p-6" data-testid="stat-retention">
+                <div className="text-5xl md:text-6xl font-display font-bold text-sky-400 mb-2">{stat3.display}</div>
+                <div className="text-sm font-medium text-white">Retention Rate</div>
+                <div className="text-xs text-white/50 mt-1">Merchants stay because the math works</div>
               </div>
+            </div>
+          </div>
+        </section>
+
+        {/* SECTION 3.7: Trusted By / Partners */}
+        <section className="bg-background border-y border-border py-12" data-testid="section-partners">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <p className="text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-8">
+              Processing Infrastructure & Compliance
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-8 items-center justify-items-center">
+              {[
+                { name: "Visa", icon: BadgeCheck },
+                { name: "Mastercard", icon: BadgeCheck },
+                { name: "Discover", icon: BadgeCheck },
+                { name: "Amex", icon: BadgeCheck },
+                { name: "PCI DSS", icon: ShieldCheck },
+                { name: "EMV Chip", icon: ShieldCheck },
+              ].map((partner, i) => (
+                <div key={i} className="flex flex-col items-center gap-2 opacity-60" data-testid={`partner-logo-${i}`}>
+                  <partner.icon className="w-8 h-8 text-muted-foreground" />
+                  <span className="text-xs font-medium text-muted-foreground">{partner.name}</span>
+                </div>
+              ))}
             </div>
           </div>
         </section>
@@ -366,8 +402,44 @@ export default function Home() {
           </div>
         </section>
 
+        {/* SECTION 5.5: Onboarding Timeline */}
+        <section className="bg-background py-16" data-testid="section-timeline">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <h3 className="text-center text-lg font-display font-bold text-foreground mb-2" data-testid="text-timeline-heading">
+              What Happens After You Say Yes
+            </h3>
+            <p className="text-center text-sm text-muted-foreground mb-10 max-w-lg mx-auto">
+              From upload to live processing in as little as 48 hours. Here's the timeline.*
+            </p>
+            <div className="relative">
+              <div className="hidden md:block absolute top-6 left-0 right-0 h-0.5 bg-border" />
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
+                {[
+                  { day: "Day 0", title: "Upload", desc: "Statement uploaded, review begins" },
+                  { day: "Day 1", title: "Review", desc: "Line-item breakdown delivered" },
+                  { day: "Day 1-2", title: "Decision", desc: "You review options, ask questions" },
+                  { day: "Day 2-3", title: "Setup", desc: "Terminal shipped, account configured" },
+                  { day: "Day 3-5", title: "Live", desc: "Processing live, first batch settles" },
+                ].map((step, i) => (
+                  <div key={i} className="relative flex flex-col items-center text-center" data-testid={`timeline-step-${i}`}>
+                    <div className="w-12 h-12 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-sm font-bold mb-3 relative z-10">
+                      {i + 1}
+                    </div>
+                    <span className="text-xs font-semibold text-primary mb-1">{step.day}</span>
+                    <span className="text-sm font-medium text-foreground mb-0.5">{step.title}</span>
+                    <span className="text-xs text-muted-foreground">{step.desc}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <p className="text-center text-[10px] text-muted-foreground mt-8">
+              *Timeline is illustrative. Actual timelines depend on underwriting, equipment availability, and merchant response time. Eligibility, underwriting, card brand rules, and applicable laws apply.
+            </p>
+          </div>
+        </section>
+
         {/* SECTION 6: Enhanced Rate Calculator */}
-        <section className="bg-background py-20" data-testid="section-calculator">
+        <section className="bg-muted/30 py-20" data-testid="section-calculator">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-start">
               <div>
@@ -572,12 +644,15 @@ export default function Home() {
                 </CardFooter>
               </Card>
 
-              <Card data-testid="card-terminal">
+              <Card className="relative overflow-visible" data-testid="card-terminal">
                 <CardHeader className="gap-1">
                   <CardTitle className="text-lg">Liberty Smart Terminal</CardTitle>
                   <CardDescription>Dejavoo QD4. Modern checkout with guided onboarding and support.</CardDescription>
                 </CardHeader>
                 <CardContent>
+                  <div className="rounded-md overflow-hidden mb-3">
+                    <img src={terminalDevice} alt="Liberty Smart Terminal" className="w-full h-32 object-cover" />
+                  </div>
                   <ul className="space-y-2 text-sm text-muted-foreground">
                     <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Tap, dip, swipe, manual key</li>
                     <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Free for qualifying merchants*</li>
@@ -600,8 +675,53 @@ export default function Home() {
           </div>
         </section>
 
+        {/* SECTION 7.5: Platform Preview */}
+        <section className="bg-background py-20" data-testid="section-platform-preview">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+              <div>
+                <div className="inline-flex items-center gap-2 bg-sky-50 dark:bg-sky-950/30 text-sky-600 dark:text-sky-400 text-xs font-semibold px-3 py-1 rounded-md mb-4">
+                  INTERNAL PLATFORM
+                </div>
+                <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-platform-heading">
+                  Your Entire Operation. One Dashboard.
+                </h2>
+                <p className="text-muted-foreground mb-6 leading-relaxed">
+                  Liberty's internal CRM and ops platform gives your team a real-time view of every lead, deal, ticket, and onboarding - with AI advisors for 7 departments built in.
+                </p>
+                <div className="space-y-3 mb-6">
+                  {[
+                    "Sales pipeline + onboarding Kanban boards",
+                    "AI advisors for Sales, Support, Compliance, and more",
+                    "Automated lead capture from all public forms",
+                    "SLA tracking and ticket management",
+                    "Notification center + task assignment",
+                  ].map((item, i) => (
+                    <div key={i} className="flex items-center gap-2 text-sm text-foreground">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                      {item}
+                    </div>
+                  ))}
+                </div>
+                <Link href="/dashboard" data-testid="link-platform-dashboard">
+                  <Button className="gap-2">
+                    Open Dashboard
+                    <ArrowRight className="w-4 h-4" />
+                  </Button>
+                </Link>
+              </div>
+              <div className="relative">
+                <div className="rounded-md overflow-hidden shadow-2xl border border-border">
+                  <img src={dashboardPreview} alt="Liberty Bancard Dashboard" className="w-full h-auto" data-testid="img-platform-preview" />
+                </div>
+                <div className="absolute -bottom-4 -right-4 -z-10 w-full h-full rounded-md bg-gradient-to-br from-sky-500/20 to-primary/20" />
+              </div>
+            </div>
+          </div>
+        </section>
+
         {/* SECTION 8: Vertical Credibility */}
-        <section className="bg-background py-20" data-testid="section-verticals">
+        <section className="bg-muted/30 py-20" data-testid="section-verticals">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="text-center mb-12">
               <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-verticals-heading">
@@ -705,17 +825,21 @@ export default function Home() {
         </section>
 
         {/* SECTION 10: Trust / Risk Reversal */}
-        <section className="bg-background py-20" data-testid="section-risk-reversal">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <section className="relative overflow-hidden py-20" data-testid="section-risk-reversal">
+          <div className="absolute inset-0">
+            <img src={teamCollab} alt="" className="w-full h-full object-cover" />
+            <div className="absolute inset-0 bg-gradient-to-r from-[hsl(222,47%,8%)/0.92] via-[hsl(222,47%,8%)/0.88] to-[hsl(222,47%,8%)/0.80]" />
+          </div>
+          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="max-w-3xl mx-auto text-center">
-              <ShieldCheck className="w-14 h-14 text-primary mx-auto mb-6" />
-              <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-6" data-testid="text-risk-reversal-heading">
+              <ShieldCheck className="w-14 h-14 text-sky-400 mx-auto mb-6" />
+              <h2 className="text-3xl md:text-4xl font-display font-bold text-white mb-6" data-testid="text-risk-reversal-heading">
                 Proof First. Pressure Never.
               </h2>
-              <p className="text-lg text-muted-foreground leading-relaxed mb-4" data-testid="text-risk-reversal-body-1">
+              <p className="text-lg text-white/70 leading-relaxed mb-4" data-testid="text-risk-reversal-body-1">
                 We don't ask you to sign anything to get a statement review. We don't lock you into a contract to see your numbers. And if we can't find a meaningful improvement, we'll tell you.
               </p>
-              <p className="text-muted-foreground leading-relaxed mb-8" data-testid="text-risk-reversal-body-2">
+              <p className="text-white/60 leading-relaxed mb-8" data-testid="text-risk-reversal-body-2">
                 You keep the line-item breakdown either way. Use it to negotiate with your current processor, share it with your accountant, or just understand what you're paying for the first time.
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-8">
@@ -725,13 +849,40 @@ export default function Home() {
                   { icon: Scale, label: "Zero obligation" },
                 ].map((item, i) => (
                   <div key={i} className="flex flex-col items-center gap-2" data-testid={`trust-signal-${i}`}>
-                    <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
-                      <item.icon className="w-6 h-6 text-primary" />
+                    <div className="w-12 h-12 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center">
+                      <item.icon className="w-6 h-6 text-sky-400" />
                     </div>
-                    <span className="text-sm font-medium text-foreground">{item.label}</span>
+                    <span className="text-sm font-medium text-white">{item.label}</span>
                   </div>
                 ))}
               </div>
+            </div>
+          </div>
+        </section>
+
+        {/* SECTION 10.5: Security & Compliance Trust Badges */}
+        <section className="bg-background py-16" data-testid="section-security-badges">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <h3 className="text-center text-lg font-display font-bold text-foreground mb-8" data-testid="text-security-heading">
+              Security & Compliance Standards
+            </h3>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+              {[
+                { icon: ShieldCheck, label: "PCI DSS Compliant", desc: "Level 1 payment data security" },
+                { icon: BadgeCheck, label: "EMV Certified", desc: "Chip-card technology standard" },
+                { icon: ShieldCheck, label: "End-to-End Encryption", desc: "All transaction data encrypted" },
+                { icon: BadgeCheck, label: "Tokenization", desc: "Card data replaced with secure tokens" },
+              ].map((badge, i) => (
+                <Card key={i} className="text-center" data-testid={`security-badge-${i}`}>
+                  <CardContent className="p-4 flex flex-col items-center gap-2">
+                    <div className="w-10 h-10 rounded-full bg-emerald-50 dark:bg-emerald-950/30 flex items-center justify-center">
+                      <badge.icon className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                    </div>
+                    <span className="text-sm font-medium text-foreground">{badge.label}</span>
+                    <span className="text-xs text-muted-foreground">{badge.desc}</span>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
           </div>
         </section>
@@ -865,29 +1016,31 @@ export default function Home() {
         </section>
 
         {/* SECTION 12: Final CTA */}
-        <section className="bg-primary text-primary-foreground py-20" data-testid="section-final-cta">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-            <h2 className="text-3xl md:text-4xl font-display font-bold mb-4" data-testid="text-final-cta-heading">
+        <section className="relative overflow-hidden py-24" data-testid="section-final-cta">
+          <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(221,83%,20%)] to-[hsl(222,47%,8%)]" />
+          <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(circle at 20% 50%, rgba(56,189,248,0.3) 0%, transparent 50%), radial-gradient(circle at 80% 50%, rgba(56,189,248,0.2) 0%, transparent 50%)' }} />
+          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+            <h2 className="text-3xl md:text-4xl font-display font-bold text-white mb-4" data-testid="text-final-cta-heading">
               Your Statement Tells the Truth. Let's Read It Together.
             </h2>
-            <p className="text-primary-foreground/70 mb-8 max-w-xl mx-auto">
+            <p className="text-white/60 mb-8 max-w-xl mx-auto">
               30 seconds to upload. Same-day review. You keep the breakdown no matter what.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center flex-wrap">
               <Link href="/upload-statement" data-testid="link-final-upload">
-                <Button size="lg" variant="secondary" className="gap-2">
+                <Button size="lg" className="gap-2 bg-sky-500 border-sky-500 text-white">
                   <Upload className="w-4 h-4" />
                   Upload My Statement
                 </Button>
               </Link>
               <Link href="/get-started" data-testid="link-final-quiz">
-                <Button size="lg" variant="outline" className="gap-2 bg-transparent border-primary-foreground/30 text-primary-foreground">
+                <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
                   Take the 60-Second Quiz
                   <ArrowRight className="w-4 h-4" />
                 </Button>
               </Link>
             </div>
-            <p className="text-xs text-primary-foreground/50 mt-6" data-testid="text-final-cta-microcopy">
+            <p className="text-xs text-white/40 mt-6" data-testid="text-final-cta-microcopy">
               Eligibility, underwriting, card brand rules, and applicable laws apply.
             </p>
           </div>
