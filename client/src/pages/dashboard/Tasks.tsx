@@ -304,8 +304,8 @@ export default function Tasks() {
         </div>
       </div>
 
-      <div className="border rounded-md" data-testid="tasks-table">
-        <Table>
+      <div className="border rounded-md overflow-x-auto" data-testid="tasks-table">
+        <Table className="min-w-[600px]">
           <TableHeader>
             <TableRow>
               <TableHead>Title</TableHead>

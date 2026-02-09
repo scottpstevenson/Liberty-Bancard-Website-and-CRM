@@ -24,19 +24,19 @@ export function Navbar() {
       {/* Top Bar */}
       <div className="bg-primary text-primary-foreground">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-end items-center h-8 gap-4 text-xs">
+          <div className="flex justify-end items-center h-8 gap-2 sm:gap-4 text-xs">
             <a
               href="tel:9542668214"
               className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
               data-testid="link-phone"
             >
               <Phone className="w-3 h-3" />
-              <span>Call/Text 954-266-8214</span>
+              <span className="hidden xs:inline">Call/Text</span> <span>954-266-8214</span>
             </a>
-            <span className="opacity-60">|</span>
+            <span className="opacity-60 hidden sm:inline">|</span>
             <a
               href="mailto:support@libertybancard.com"
-              className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
+              className="hidden sm:flex items-center gap-1.5 hover:opacity-80 transition-opacity"
               data-testid="link-email"
             >
               <Mail className="w-3 h-3" />

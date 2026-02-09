@@ -251,8 +251,8 @@ export default function Tickets() {
       </div>
 
       <Card>
-        <CardContent className="p-0">
-          <Table data-testid="table-tickets">
+        <CardContent className="p-0 overflow-x-auto">
+          <Table data-testid="table-tickets" className="min-w-[700px]">
             <TableHeader>
               <TableRow>
                 <TableHead>ID</TableHead>

@@ -422,7 +422,7 @@ export default function Home() {
             </p>
             <div className="relative">
               <div className="hidden md:block absolute top-6 left-0 right-0 h-0.5 bg-border" />
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4 sm:gap-6">
                 {[
                   { day: "Day 0", title: "Upload", desc: "Statement uploaded, review begins" },
                   { day: "Day 1", title: "Review", desc: "Line-item breakdown delivered" },
@@ -500,7 +500,7 @@ export default function Home() {
                     <label className="text-sm font-medium text-foreground mb-1.5 block">
                       Your Industry
                     </label>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                       {Object.entries(INDUSTRY_BENCHMARKS).map(([key, val]) => (
                         <button
                           key={key}
