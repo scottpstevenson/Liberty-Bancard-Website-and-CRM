@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { setupAuth, registerAuthRoutes } from "./replit_integrations/auth";
+import { setupAuth, registerAuthRoutes, isAuthenticated } from "./replit_integrations/auth";
 import { registerAudioRoutes } from "./replit_integrations/audio/routes";
 import { z } from "zod";
 import { insertContactSchema, insertDealSchema, insertTicketSchema, insertTaskSchema, insertCompanySchema, insertDocumentSchema, insertNotificationSchema, insertWorkflowSchema, insertRfiSchema, insertMessageTemplateSchema, insertCollateralPacketSchema, insertSlaConfigSchema, insertProspectSchema, insertProspectListSchema, insertEnrichmentJobSchema, insertCampaignSchema, insertCampaignStepSchema, insertOutboundMessageSchema } from "@shared/schema";
@@ -673,7 +673,7 @@ export async function registerRoutes(
   });
 
   // === AI ADVISOR ===
-  app.post("/api/ai/chat", async (req, res) => {
+  app.post("/api/ai/chat", isAuthenticated, async (req, res) => {
     try {
       const { department, messages } = req.body;
       const basePrompt = `ROLE: Liberty Bancard AI Advisor - ${department || "General"}
@@ -1205,6 +1205,346 @@ OUTPUT FORMAT:
       }
 
       res.json({ message: "Webhook processed" });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === AI DASHBOARD COPILOT ===
+  app.post("/api/ai/insights", isAuthenticated, async (req, res) => {
+    try {
+      const [allDeals, allTickets, allContacts, allTasks, allProspects] = await Promise.all([
+        storage.getDeals(),
+        storage.getTickets(),
+        storage.getContacts(),
+        storage.getTasks(),
+        storage.getProspects(),
+      ]);
+
+      const now = new Date();
+      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const salesDeals = allDeals.filter(d => d.pipeline === "sales");
+      const activeDeals = salesDeals.filter(d => d.stage !== "Closed Won" && d.stage !== "Closed Lost");
+      const stallingDeals = activeDeals.filter(d => d.updatedAt && new Date(d.updatedAt) < sevenDaysAgo);
+      const openTickets = allTickets.filter(t => t.status !== "Resolved" && t.status !== "Closed");
+      const breachedTickets = allTickets.filter(t => t.slaDeadline && new Date(t.slaDeadline) < now && !t.resolvedAt && t.status !== "Resolved" && t.status !== "Closed");
+      const overdueTasks = allTasks.filter(t => t.status === "pending" && t.dueDate && new Date(t.dueDate) < now);
+      const hotProspects = allProspects.filter(p => p.score === "hot" && p.status !== "converted");
+
+      const dataContext = `CURRENT BUSINESS STATE:
+- Active sales deals: ${activeDeals.length}
+- Stalling deals (no activity 7+ days): ${stallingDeals.length}${stallingDeals.length > 0 ? ` (IDs: ${stallingDeals.slice(0, 5).map(d => d.id).join(", ")})` : ""}
+- Open support tickets: ${openTickets.length}
+- SLA breaches: ${breachedTickets.length}
+- Overdue tasks: ${overdueTasks.length}
+- Hot prospects not yet converted: ${hotProspects.length}
+- Total contacts: ${allContacts.length}
+- Pipeline stages: ${JSON.stringify(Object.fromEntries(activeDeals.reduce((acc, d) => { acc.set(d.stage, (acc.get(d.stage) || 0) + 1); return acc; }, new Map())))}
+- Deal stages with most stalling: ${JSON.stringify(Object.fromEntries(stallingDeals.reduce((acc, d) => { acc.set(d.stage, (acc.get(d.stage) || 0) + 1); return acc; }, new Map())))}`;
+
+      const { OpenAI } = await import("openai");
+      const openai = new OpenAI();
+
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: `You are the Liberty Bancard AI Operations Copilot. Analyze the current business metrics and provide actionable insights.
+RULES:
+- Be specific and data-driven. Reference actual numbers.
+- Prioritize urgent items (SLA breaches, stalling deals, overdue tasks).
+- Give 3-5 insights, each with a clear action recommendation.
+- Use short, punchy language. No filler.
+- Never promise savings or make compliance-unsafe claims.
+- Format each insight as: **Title** followed by 1-2 sentences with action.
+- End with a single "Priority Action" that is the most important thing to do right now.`
+          },
+          { role: "user", content: dataContext }
+        ],
+        max_tokens: 800,
+      });
+
+      res.json({ insights: completion.choices[0]?.message?.content || "No insights available." });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "AI insights error" });
+    }
+  });
+
+  // === AI EMAIL COMPOSER ===
+  app.post("/api/ai/compose-email", isAuthenticated, async (req, res) => {
+    try {
+      const { contactId, prospectId, context, tone } = req.body;
+
+      let recipientData = "";
+      if (contactId) {
+        const contact = await storage.getContact(Number(contactId));
+        if (contact) recipientData = `Recipient: ${contact.firstName} ${contact.lastName}, Company: ${contact.companyName || "N/A"}, Email: ${contact.email}, Status: ${contact.status}, Vertical: ${contact.vertical || "N/A"}`;
+      } else if (prospectId) {
+        const prospect = await storage.getProspect(Number(prospectId));
+        if (prospect) recipientData = `Prospect: ${prospect.companyName}, Contact: ${prospect.ownerFirstName || ""} ${prospect.ownerLastName || ""}, Email: ${prospect.email || "N/A"}, Vertical: ${prospect.vertical || "N/A"}, Score: ${prospect.score || "N/A"}, Website: ${prospect.website || "N/A"}`;
+      }
+
+      const { OpenAI } = await import("openai");
+      const openai = new OpenAI();
+
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: `You are Liberty Bancard's AI Email Composer. Draft a professional outreach email.
+RULES:
+- Tone: ${tone || "consultative and professional"}
+- Never promise savings without statement review
+- Include this disclaimer at the bottom: "Eligibility, underwriting, card brand rules, and applicable laws apply."
+- Keep subject line under 60 characters
+- Email body should be 3-5 short paragraphs
+- Be value-first: lead with what you can do for them
+- End with a clear call-to-action (book a call or reply)
+FORMAT your response as JSON: {"subject": "...", "body": "..."}`
+          },
+          { role: "user", content: `${recipientData}\n\nAdditional context: ${context || "General outreach for payment processing services."}` }
+        ],
+        max_tokens: 800,
+      });
+
+      const raw = completion.choices[0]?.message?.content || "";
+      try {
+        const jsonMatch = raw.match(/\{[\s\S]*\}/);
+        const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : { subject: "Liberty Bancard - Let's Talk Processing", body: raw };
+        res.json(parsed);
+      } catch {
+        res.json({ subject: "Liberty Bancard - Let's Talk Processing", body: raw });
+      }
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Email compose error" });
+    }
+  });
+
+  // === UNIVERSAL SMART SEARCH ===
+  app.get("/api/search", isAuthenticated, async (req, res) => {
+    try {
+      const q = (req.query.q as string || "").toLowerCase().trim();
+      if (!q || q.length < 2) return res.json({ results: [] });
+
+      const [contacts, deals, tickets, tasks, prospects] = await Promise.all([
+        storage.getContacts(),
+        storage.getDeals(),
+        storage.getTickets(),
+        storage.getTasks(),
+        storage.getProspects(),
+      ]);
+
+      const results: Array<{ type: string; id: number; title: string; subtitle: string; href: string }> = [];
+
+      contacts.forEach(c => {
+        const searchStr = `${c.firstName} ${c.lastName} ${c.email} ${c.companyName || ""} ${c.phone || ""}`.toLowerCase();
+        if (searchStr.includes(q)) results.push({ type: "contact", id: c.id, title: `${c.firstName} ${c.lastName}`, subtitle: c.companyName || c.email, href: "/dashboard/contacts" });
+      });
+
+      deals.forEach(d => {
+        const searchStr = `${d.offerPath || ""} ${d.stage} ${d.pipeline} deal #${d.id}`.toLowerCase();
+        if (searchStr.includes(q)) results.push({ type: "deal", id: d.id, title: `Deal #${d.id}`, subtitle: `${d.stage} - ${d.offerPath || d.pipeline}`, href: "/dashboard/pipeline" });
+      });
+
+      tickets.forEach(t => {
+        const searchStr = `${t.subject} ${t.category || ""} ${t.status}`.toLowerCase();
+        if (searchStr.includes(q)) results.push({ type: "ticket", id: t.id, title: t.subject, subtitle: `${t.status} - ${t.category || "General"}`, href: "/dashboard/tickets" });
+      });
+
+      tasks.forEach(t => {
+        const searchStr = `${t.title} ${t.description || ""} ${t.status}`.toLowerCase();
+        if (searchStr.includes(q)) results.push({ type: "task", id: t.id, title: t.title, subtitle: t.status || "pending", href: "/dashboard/tasks" });
+      });
+
+      prospects.forEach(p => {
+        const searchStr = `${p.companyName || ""} ${p.ownerFirstName || ""} ${p.ownerLastName || ""} ${p.email || ""} ${p.vertical || ""}`.toLowerCase();
+        if (searchStr.includes(q)) results.push({ type: "prospect", id: p.id, title: p.companyName || "Unknown", subtitle: `${p.vertical || "Unknown"} - ${p.score || "unscored"}`, href: "/dashboard/prospects" });
+      });
+
+      res.json({ results: results.slice(0, 20) });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === AUTO-LEAD ROUTING ===
+  app.post("/api/ai/route-prospect", isAuthenticated, async (req, res) => {
+    try {
+      const { prospectId } = req.body;
+      if (!prospectId) return res.status(400).json({ message: "prospectId required" });
+
+      const prospect = await storage.getProspect(Number(prospectId));
+      if (!prospect) return res.status(404).json({ message: "Prospect not found" });
+
+      const campaigns = await storage.getCampaigns();
+      const activeCampaigns = campaigns.filter(c => c.name.startsWith("SDR-"));
+
+      let bestCampaign = activeCampaigns[0];
+      const vert = (prospect.vertical || "").toLowerCase();
+
+      for (const camp of activeCampaigns) {
+        const campVerticals = (camp.targetVerticals || []).join(" ").toLowerCase();
+        const campName = camp.name.toLowerCase();
+        if (campVerticals.includes(vert) || campName.includes(vert)) {
+          bestCampaign = camp;
+          break;
+        }
+        if (vert.includes("restaurant") && campName.includes("restaurant")) { bestCampaign = camp; break; }
+        if ((vert.includes("medical") || vert.includes("dental") || vert.includes("healthcare")) && campName.includes("medical")) { bestCampaign = camp; break; }
+        if ((vert.includes("retail") || vert.includes("ecommerce")) && campName.includes("retail")) { bestCampaign = camp; break; }
+        if ((vert.includes("salon") || vert.includes("spa") || vert.includes("beauty")) && campName.includes("salon")) { bestCampaign = camp; break; }
+        if ((vert.includes("auto") || vert.includes("trades")) && campName.includes("auto")) { bestCampaign = camp; break; }
+        if ((vert.includes("professional") || vert.includes("legal") || vert.includes("accounting")) && campName.includes("professional")) { bestCampaign = camp; break; }
+      }
+
+      if (!bestCampaign) {
+        bestCampaign = activeCampaigns.find(c => c.name.includes("Statement Review")) || activeCampaigns[0];
+      }
+
+      await storage.updateProspect(Number(prospectId), { status: "campaign_assigned" });
+
+      res.json({ campaignId: bestCampaign?.id, campaignName: bestCampaign?.name, prospectId: prospect.id });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Routing error" });
+    }
+  });
+
+  app.post("/api/ai/route-prospects-bulk", isAuthenticated, async (req, res) => {
+    try {
+      const { prospectIds } = req.body;
+      if (!prospectIds || !Array.isArray(prospectIds)) return res.status(400).json({ message: "prospectIds array required" });
+
+      const campaigns = await storage.getCampaigns();
+      const sdrCampaigns = campaigns.filter(c => c.name.startsWith("SDR-"));
+      const results: Array<{ prospectId: number; campaignId: number; campaignName: string }> = [];
+
+      for (const pid of prospectIds.slice(0, 100)) {
+        const prospect = await storage.getProspect(Number(pid));
+        if (!prospect) continue;
+
+        const vert = (prospect.vertical || "").toLowerCase();
+        let matched = sdrCampaigns.find(c => {
+          const name = c.name.toLowerCase();
+          const verts = (c.targetVerticals || []).join(" ").toLowerCase();
+          return verts.includes(vert) || name.includes(vert);
+        });
+        if (!matched) matched = sdrCampaigns.find(c => c.name.includes("Statement Review")) || sdrCampaigns[0];
+
+        if (matched) {
+          await storage.updateProspect(Number(pid), { status: "campaign_assigned" });
+          results.push({ prospectId: prospect.id, campaignId: matched.id, campaignName: matched.name });
+        }
+      }
+
+      res.json({ routed: results.length, results });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === AI SMART TASK GENERATOR ===
+  app.post("/api/ai/generate-tasks", isAuthenticated, async (req, res) => {
+    try {
+      const [allDeals, allTickets, allTasks, allContacts] = await Promise.all([
+        storage.getDeals(),
+        storage.getTickets(),
+        storage.getTasks(),
+        storage.getContacts(),
+      ]);
+
+      const now = new Date();
+      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const threeDaysAgo = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
+
+      const newTasks: Array<{ title: string; description: string; priority: string; dueDate: Date; relatedType: string; relatedId: number }> = [];
+      const existingTaskTitles = new Set(allTasks.map(t => t.title));
+
+      const salesDeals = allDeals.filter(d => d.pipeline === "sales" && d.stage !== "Closed Won" && d.stage !== "Closed Lost");
+      for (const deal of salesDeals) {
+        if (deal.updatedAt && new Date(deal.updatedAt) < sevenDaysAgo) {
+          const title = `Follow up on stalling Deal #${deal.id}`;
+          if (!existingTaskTitles.has(title)) {
+            newTasks.push({ title, description: `Deal #${deal.id} (${deal.stage}) has had no activity for 7+ days. Reach out to re-engage.`, priority: "high", dueDate: new Date(now.getTime() + 24 * 60 * 60 * 1000), relatedType: "deal", relatedId: deal.id });
+          }
+        }
+      }
+
+      const openTickets = allTickets.filter(t => t.status !== "Resolved" && t.status !== "Closed");
+      for (const ticket of openTickets) {
+        if (ticket.slaDeadline && new Date(ticket.slaDeadline) < now) {
+          const title = `Urgent: SLA breached on ticket "${ticket.subject}"`;
+          if (!existingTaskTitles.has(title)) {
+            newTasks.push({ title, description: `Ticket #${ticket.id} "${ticket.subject}" has breached its SLA deadline. Immediate action required.`, priority: "urgent", dueDate: now, relatedType: "ticket", relatedId: ticket.id });
+          }
+        }
+      }
+
+      const newLeads = allContacts.filter(c => c.status === "new" && c.createdAt && new Date(c.createdAt) < threeDaysAgo);
+      for (const lead of newLeads) {
+        const title = `Contact new lead: ${lead.firstName} ${lead.lastName}`;
+        if (!existingTaskTitles.has(title)) {
+          newTasks.push({ title, description: `${lead.firstName} ${lead.lastName} (${lead.companyName || lead.email}) has been a new lead for 3+ days with no contact. Reach out before they go cold.`, priority: "high", dueDate: new Date(now.getTime() + 24 * 60 * 60 * 1000), relatedType: "contact", relatedId: lead.id });
+        }
+      }
+
+      const created = [];
+      for (const task of newTasks.slice(0, 10)) {
+        const result = await storage.createTask({
+          title: task.title,
+          description: task.description,
+          priority: task.priority,
+          status: "pending",
+          dueDate: task.dueDate,
+        });
+        created.push(result);
+      }
+
+      res.json({ generated: created.length, tasks: created });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === AUTO DEAL STAGE PROGRESSION ===
+  app.post("/api/ai/auto-progress-deals", isAuthenticated, async (req, res) => {
+    try {
+      const allDeals = await storage.getDeals();
+      const salesDeals = allDeals.filter(d => d.pipeline === "sales" && d.stage !== "Closed Won" && d.stage !== "Closed Lost");
+      const progressions: Array<{ dealId: number; from: string; to: string; reason: string }> = [];
+
+      const stageOrder = ["New Lead", "Statement Collected", "Under Review", "Proposal Sent", "Negotiation", "Verbal Commit", "Closed Won"];
+
+      for (const deal of salesDeals) {
+        const currentIndex = stageOrder.indexOf(deal.stage);
+        if (currentIndex < 0) continue;
+
+        let shouldAdvance = false;
+        let reason = "";
+
+        if (deal.stage === "New Lead" && deal.lastStatementReviewDate) {
+          shouldAdvance = true;
+          reason = "Statement document received - advancing to review";
+        }
+        if (deal.stage === "Statement Collected" && deal.recommendedPath) {
+          shouldAdvance = true;
+          reason = "Statement review completed with recommendation - advancing to proposal";
+        }
+        if (deal.stage === "Under Review" && deal.effectiveRate) {
+          shouldAdvance = true;
+          reason = "Review analysis complete - advancing to proposal sent";
+        }
+
+        if (shouldAdvance && currentIndex + 1 < stageOrder.length) {
+          const nextStage = stageOrder[currentIndex + 1];
+          await storage.updateDeal(deal.id, { stage: nextStage });
+          progressions.push({ dealId: deal.id, from: deal.stage, to: nextStage, reason });
+          await storage.createAuditLog({ action: "deal_auto_progressed", entityType: "deal", entityId: deal.id, details: { from: deal.stage, to: nextStage, reason } });
+        }
+      }
+
+      res.json({ progressed: progressions.length, progressions });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

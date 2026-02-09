@@ -1,10 +1,37 @@
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { useQuery } from "@tanstack/react-query";
-import { Users, Ticket, TrendingUp, CheckCircle, AlertTriangle, Clock, Target, ArrowUpRight, Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
+import { Users, Ticket, TrendingUp, CheckCircle, AlertTriangle, Clock, Target, ArrowUpRight, Loader2, Brain, Sparkles, RefreshCw } from "lucide-react";
 import type { Contact, Deal } from "@shared/schema";
 
+function formatInsights(text: string) {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return <strong key={i}>{part.slice(2, -2)}</strong>;
+    }
+    return <span key={i}>{part}</span>;
+  });
+}
+
 export default function Overview() {
+  const [insights, setInsights] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+
+  const insightsMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/ai/insights");
+      return await res.json() as { insights: string };
+    },
+    onSuccess: (data) => {
+      setInsights(data.insights);
+      setLastUpdated(new Date());
+    },
+  });
+
   const { data: kpi, isLoading: kpiLoading, isError } = useQuery<{
     pipeline: { totalActive: number; closedWon30d: number; closedLost30d: number; conversionRate: number; stagesBreakdown: Record<string, number>; newLeads7d: number };
     onboarding: { active: number; live: number };
@@ -37,6 +64,75 @@ export default function Overview() {
 
   return (
     <div className="space-y-8">
+      <Card className="bg-primary/5 dark:bg-primary/10" data-testid="card-ai-copilot">
+        <CardHeader className="flex flex-row items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2">
+            <Brain className="w-5 h-5 text-primary" />
+            <CardTitle className="text-base">AI Operations Copilot</CardTitle>
+          </div>
+          {insights ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => insightsMutation.mutate()}
+              disabled={insightsMutation.isPending}
+              data-testid="button-get-insights"
+            >
+              {insightsMutation.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              ) : (
+                <RefreshCw className="w-4 h-4 mr-2" />
+              )}
+              Refresh Insights
+            </Button>
+          ) : (
+            <Button
+              onClick={() => insightsMutation.mutate()}
+              disabled={insightsMutation.isPending}
+              size="sm"
+              data-testid="button-get-insights"
+            >
+              {insightsMutation.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              ) : (
+                <Sparkles className="w-4 h-4 mr-2" />
+              )}
+              Get AI Insights
+            </Button>
+          )}
+        </CardHeader>
+        <CardContent>
+          {insightsMutation.isPending && !insights && (
+            <div className="flex items-center gap-2 text-muted-foreground py-4">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span>Analyzing your operations data...</span>
+            </div>
+          )}
+          {insights && (
+            <div className="space-y-3">
+              <div className="text-sm leading-relaxed whitespace-pre-line" data-testid="text-ai-insights">
+                {formatInsights(insights)}
+              </div>
+              {lastUpdated && (
+                <p className="text-xs text-muted-foreground" data-testid="text-insights-timestamp">
+                  Last updated: {lastUpdated.toLocaleTimeString()}
+                </p>
+              )}
+            </div>
+          )}
+          {!insights && !insightsMutation.isPending && (
+            <p className="text-sm text-muted-foreground">
+              Click "Get AI Insights" to analyze your pipeline, support tickets, and onboarding data.
+            </p>
+          )}
+          {insightsMutation.isError && (
+            <p className="text-sm text-destructive mt-2">
+              Failed to load insights. Please try again.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <Card data-testid="card-kpi-pipeline">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">

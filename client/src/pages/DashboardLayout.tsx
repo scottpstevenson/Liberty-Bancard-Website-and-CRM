@@ -1,7 +1,9 @@
-import { ReactNode } from "react";
+import { ReactNode, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import logoBlue from "@assets/logo-blue.png";
+import UniversalSearch from "@/components/UniversalSearch";
+import { EmailComposer } from "@/components/EmailComposer";
 import {
   LayoutDashboard,
   Users,
@@ -24,7 +26,9 @@ import {
   Upload,
   Send,
   BarChart2,
+  Mail,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import {
   Sidebar,
   SidebarContent,
@@ -76,6 +80,7 @@ const formItems = [
 export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [location] = useLocation();
   const { logout, user } = useAuth();
+  const [emailOpen, setEmailOpen] = useState(false);
 
   const style = {
     "--sidebar-width": "16rem",
@@ -192,14 +197,21 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         </Sidebar>
 
         <div className="flex flex-col flex-1 overflow-hidden">
-          <header className="h-14 bg-background border-b flex items-center justify-between gap-4 px-6 sticky top-0 z-10">
+          <header className="h-14 bg-background border-b flex items-center justify-between gap-4 px-6 sticky top-0 z-50">
             <div className="flex items-center gap-3">
               <SidebarTrigger data-testid="button-sidebar-toggle" />
               <h1 className="font-display font-semibold text-lg" data-testid="text-page-title">
                 {currentLabel}
               </h1>
             </div>
+            <div className="flex items-center gap-2">
+              <UniversalSearch />
+              <Button size="icon" variant="ghost" onClick={() => setEmailOpen(true)} data-testid="button-compose-email">
+                <Mail className="w-4 h-4" />
+              </Button>
+            </div>
           </header>
+          <EmailComposer open={emailOpen} onClose={() => setEmailOpen(false)} />
           <main className="flex-1 overflow-auto p-6 max-w-7xl mx-auto w-full">
             {children}
           </main>
