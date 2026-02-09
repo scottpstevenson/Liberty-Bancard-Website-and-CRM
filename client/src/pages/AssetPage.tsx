@@ -77,7 +77,7 @@ const contentMap: Record<string, ContentPage> = {
       {
         name: "Terminal",
         items: [
-          { href: "/assets/terminal/qd4", label: "Liberty Smart Terminal" },
+          { href: "/assets/terminal/smart-terminal", label: "Liberty Smart Terminal" },
           { href: "/assets/terminal/go-live-checklist", label: "Go-Live Checklist" },
         ],
       },
@@ -215,7 +215,7 @@ const contentMap: Record<string, ContentPage> = {
     type: "standard",
   },
 
-  "/assets/terminal/qd4": {
+  "/assets/terminal/smart-terminal": {
     title: "Liberty Smart Terminal",
     subtitle: "Modern, Reliable, and Ready for Any Payment Type",
     description: "The Liberty Smart Terminal is a full-featured countertop payment device that accepts tap, dip, swipe, and QR payments. It supports dual-pricing, tip adjustment, and integrates with most POS systems out of the box. Built for businesses that need reliability and compliance from day one.",
@@ -433,7 +433,7 @@ const contentMap: Record<string, ContentPage> = {
     bullets: [],
     type: "packet",
     links: [
-      { href: "/assets/terminal/qd4", label: "Liberty Smart Terminal", description: "Terminal specs, features, and payment types supported." },
+      { href: "/assets/terminal/smart-terminal", label: "Liberty Smart Terminal", description: "Terminal specs, features, and payment types supported." },
       { href: "/assets/terminal/go-live-checklist", label: "Go-Live Checklist", description: "Pre-launch steps for connectivity, testing, and training." },
     ],
   },
@@ -471,7 +471,7 @@ const contentMap: Record<string, ContentPage> = {
     links: [
       { href: "/assets/verticals/auto", label: "Automotive Processing Overview", description: "Solutions for auto shops and dealers." },
       { href: "/assets/case-studies/auto-high-ticket", label: "Case Study: Auto High-Ticket", description: "How an auto shop cut costs on large orders." },
-      { href: "/assets/terminal/qd4", label: "Liberty Smart Terminal", description: "Terminal with invoice and keyed-entry support." },
+      { href: "/assets/terminal/smart-terminal", label: "Liberty Smart Terminal", description: "Terminal with invoice and keyed-entry support." },
     ],
   },
 
@@ -484,7 +484,7 @@ const contentMap: Record<string, ContentPage> = {
     links: [
       { href: "/assets/verticals/restaurant", label: "Restaurant Processing Overview", description: "Solutions for dine-in and counter service." },
       { href: "/assets/case-studies/restaurant-tips-speed", label: "Case Study: Tips & Speed", description: "Faster authorizations and reliable tip settlement." },
-      { href: "/assets/terminal/qd4", label: "Liberty Smart Terminal", description: "Terminal configured for high-volume restaurant use." },
+      { href: "/assets/terminal/smart-terminal", label: "Liberty Smart Terminal", description: "Terminal configured for high-volume restaurant use." },
     ],
   },
 
@@ -510,7 +510,7 @@ const contentMap: Record<string, ContentPage> = {
     links: [
       { href: "/assets/verticals/retail", label: "Retail Processing Overview", description: "Solutions for high-volume retail environments." },
       { href: "/assets/case-studies/retail-fast-checkout", label: "Case Study: Fast Checkout", description: "Faster checkout and debit savings for a retail store." },
-      { href: "/assets/terminal/qd4", label: "Liberty Smart Terminal", description: "Contactless-ready terminal for fast retail checkout." },
+      { href: "/assets/terminal/smart-terminal", label: "Liberty Smart Terminal", description: "Contactless-ready terminal for fast retail checkout." },
     ],
   },
 };
