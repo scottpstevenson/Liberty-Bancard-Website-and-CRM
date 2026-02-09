@@ -43,6 +43,10 @@ import RFIs from "@/pages/dashboard/RFIs";
 import CaseStudyIntake from "@/pages/dashboard/CaseStudyIntake";
 import GhlSettings from "@/pages/dashboard/GhlSettings";
 import Automation from "@/pages/dashboard/Automation";
+import Prospects from "@/pages/dashboard/Prospects";
+import ProspectImport from "@/pages/dashboard/ProspectImport";
+import Campaigns from "@/pages/dashboard/Campaigns";
+import OutreachAnalytics from "@/pages/dashboard/OutreachAnalytics";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { user, isLoading } = useAuth();
@@ -140,6 +144,18 @@ function Router() {
       </Route>
       <Route path="/dashboard/automation">
         <ProtectedRoute component={Automation} />
+      </Route>
+      <Route path="/dashboard/prospects">
+        <ProtectedRoute component={Prospects} />
+      </Route>
+      <Route path="/dashboard/prospects/import">
+        <ProtectedRoute component={ProspectImport} />
+      </Route>
+      <Route path="/dashboard/campaigns">
+        <ProtectedRoute component={Campaigns} />
+      </Route>
+      <Route path="/dashboard/outreach-analytics">
+        <ProtectedRoute component={OutreachAnalytics} />
       </Route>
 
       <Route component={NotFound} />

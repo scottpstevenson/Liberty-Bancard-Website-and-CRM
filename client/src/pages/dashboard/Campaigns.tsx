@@ -1,0 +1,688 @@
+import { useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Send, Plus, Play, Pause, Trash2, Mail, Clock } from "lucide-react";
+import type { Campaign, CampaignStep, ProspectList } from "@shared/schema";
+
+const campaignFormSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  description: z.string().optional(),
+  targetListId: z.coerce.number().optional(),
+  targetScores: z.array(z.string()).optional(),
+  aiPersonalization: z.boolean().optional(),
+  dailySendLimit: z.coerce.number().min(1).optional(),
+});
+
+type CampaignFormData = z.infer<typeof campaignFormSchema>;
+
+const stepFormSchema = z.object({
+  stepOrder: z.coerce.number().min(1, "Step order is required"),
+  stepType: z.string().min(1, "Step type is required"),
+  delayDays: z.coerce.number().min(0).optional(),
+  subject: z.string().optional(),
+  bodyTemplate: z.string().optional(),
+  channel: z.string().optional(),
+});
+
+type StepFormData = z.infer<typeof stepFormSchema>;
+
+function getStatusBadgeClass(status: string | null | undefined) {
+  switch (status) {
+    case "active":
+      return "bg-green-100 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-300 dark:border-green-800";
+    case "paused":
+      return "bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-300 dark:border-yellow-800";
+    case "completed":
+      return "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800";
+    case "draft":
+    default:
+      return "bg-gray-100 text-gray-800 border-gray-200 dark:bg-gray-900/30 dark:text-gray-300 dark:border-gray-800";
+  }
+}
+
+function CampaignDetail({ campaign }: { campaign: Campaign }) {
+  const { toast } = useToast();
+  const [showStepForm, setShowStepForm] = useState(false);
+
+  const { data: steps, isLoading: stepsLoading } = useQuery<CampaignStep[]>({
+    queryKey: ["/api/campaigns", campaign.id, "steps"],
+    queryFn: async () => {
+      const res = await fetch(`/api/campaigns/${campaign.id}/steps`, { credentials: "include" });
+      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      return res.json();
+    },
+  });
+
+  const stepForm = useForm<StepFormData>({
+    resolver: zodResolver(stepFormSchema),
+    defaultValues: {
+      stepOrder: (steps?.length || 0) + 1,
+      stepType: "initial_outreach",
+      delayDays: 0,
+      subject: "",
+      bodyTemplate: "",
+      channel: "email",
+    },
+  });
+
+  const addStepMutation = useMutation({
+    mutationFn: async (data: StepFormData) => {
+      await apiRequest("POST", `/api/campaigns/${campaign.id}/steps`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaign.id, "steps"] });
+      toast({ title: "Step added", description: "Campaign step has been created." });
+      setShowStepForm(false);
+      stepForm.reset({ stepOrder: (steps?.length || 0) + 2, stepType: "initial_outreach", delayDays: 0, subject: "", bodyTemplate: "", channel: "email" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to add step", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const deleteStepMutation = useMutation({
+    mutationFn: async (stepId: number) => {
+      await apiRequest("DELETE", `/api/campaign-steps/${stepId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaign.id, "steps"] });
+      toast({ title: "Step deleted" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to delete step", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const queueMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("POST", `/api/campaigns/${campaign.id}/queue`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
+      toast({ title: "Messages queued", description: "Campaign messages have been queued for sending." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Queue failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const toggleStatusMutation = useMutation({
+    mutationFn: async () => {
+      const newStatus = campaign.status === "active" ? "paused" : "active";
+      await apiRequest("PUT", `/api/campaigns/${campaign.id}`, { status: newStatus });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
+      toast({ title: "Campaign updated" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Update failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  return (
+    <div className="space-y-4 pt-4 border-t">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => toggleStatusMutation.mutate()}
+          disabled={toggleStatusMutation.isPending}
+          data-testid={`button-toggle-status-${campaign.id}`}
+        >
+          {campaign.status === "active" ? (
+            <><Pause className="w-4 h-4 mr-1" /> Pause</>
+          ) : (
+            <><Play className="w-4 h-4 mr-1" /> Activate</>
+          )}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => queueMutation.mutate()}
+          disabled={queueMutation.isPending}
+          data-testid={`button-queue-messages-${campaign.id}`}
+        >
+          <Send className="w-4 h-4 mr-1" />
+          {queueMutation.isPending ? "Queuing..." : "Queue Messages"}
+        </Button>
+      </div>
+
+      <div>
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <h4 className="font-medium text-sm">Steps</h4>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowStepForm(!showStepForm)}
+            data-testid={`button-add-step-${campaign.id}`}
+          >
+            <Plus className="w-4 h-4 mr-1" /> Add Step
+          </Button>
+        </div>
+
+        {stepsLoading ? (
+          <div className="space-y-2">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        ) : steps && steps.length > 0 ? (
+          <div className="space-y-2">
+            {steps.map((step) => (
+              <div
+                key={step.id}
+                className="flex flex-wrap items-center gap-3 p-3 rounded-md border bg-muted/30"
+                data-testid={`step-item-${step.id}`}
+              >
+                <Badge variant="outline" className="no-default-hover-elevate no-default-active-elevate">
+                  #{step.stepOrder}
+                </Badge>
+                <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                  <Mail className="w-3 h-3" />
+                  <span>{step.channel || "email"}</span>
+                </div>
+                <span className="text-sm font-medium">{step.stepType?.replace(/_/g, " ")}</span>
+                {step.delayDays ? (
+                  <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                    <Clock className="w-3 h-3" />
+                    <span>{step.delayDays}d delay</span>
+                  </div>
+                ) : null}
+                {step.subject ? (
+                  <span className="text-sm text-muted-foreground truncate max-w-[200px]">{step.subject}</span>
+                ) : null}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="ml-auto"
+                  onClick={() => deleteStepMutation.mutate(step.id)}
+                  disabled={deleteStepMutation.isPending}
+                  data-testid={`button-delete-step-${step.id}`}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground" data-testid={`text-no-steps-${campaign.id}`}>
+            No steps configured yet.
+          </p>
+        )}
+
+        {showStepForm && (
+          <Card className="mt-3">
+            <CardContent className="p-4">
+              <Form {...stepForm}>
+                <form onSubmit={stepForm.handleSubmit((d) => addStepMutation.mutate(d))} className="space-y-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    <FormField
+                      control={stepForm.control}
+                      name="stepOrder"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Step Order</FormLabel>
+                          <FormControl>
+                            <Input
+                              type="number"
+                              {...field}
+                              onChange={(e) => field.onChange(Number(e.target.value))}
+                              data-testid={`input-step-order-${campaign.id}`}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={stepForm.control}
+                      name="stepType"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Step Type</FormLabel>
+                          <Select onValueChange={field.onChange} defaultValue={field.value}>
+                            <FormControl>
+                              <SelectTrigger data-testid={`select-step-type-${campaign.id}`}>
+                                <SelectValue placeholder="Select type" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="initial_outreach">Initial Outreach</SelectItem>
+                              <SelectItem value="follow_up">Follow Up</SelectItem>
+                              <SelectItem value="break_up">Break Up</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={stepForm.control}
+                      name="delayDays"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Delay (days)</FormLabel>
+                          <FormControl>
+                            <Input
+                              type="number"
+                              {...field}
+                              onChange={(e) => field.onChange(Number(e.target.value))}
+                              data-testid={`input-delay-days-${campaign.id}`}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                  <FormField
+                    control={stepForm.control}
+                    name="subject"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Subject</FormLabel>
+                        <FormControl>
+                          <Input {...field} data-testid={`input-step-subject-${campaign.id}`} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={stepForm.control}
+                    name="bodyTemplate"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Body Template</FormLabel>
+                        <FormControl>
+                          <Textarea
+                            {...field}
+                            rows={4}
+                            data-testid={`textarea-step-body-${campaign.id}`}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={stepForm.control}
+                    name="channel"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Channel</FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={field.value || "email"}>
+                          <FormControl>
+                            <SelectTrigger data-testid={`select-step-channel-${campaign.id}`}>
+                              <SelectValue placeholder="Select channel" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="email">Email</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <div className="flex justify-end gap-2">
+                    <Button type="button" variant="outline" size="sm" onClick={() => setShowStepForm(false)} data-testid={`button-cancel-step-${campaign.id}`}>
+                      Cancel
+                    </Button>
+                    <Button type="submit" size="sm" disabled={addStepMutation.isPending} data-testid={`button-save-step-${campaign.id}`}>
+                      {addStepMutation.isPending ? "Saving..." : "Save Step"}
+                    </Button>
+                  </div>
+                </form>
+              </Form>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default function Campaigns() {
+  const { toast } = useToast();
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+
+  const { data: campaigns, isLoading } = useQuery<Campaign[]>({
+    queryKey: ["/api/campaigns"],
+  });
+
+  const { data: prospectLists } = useQuery<ProspectList[]>({
+    queryKey: ["/api/prospect-lists"],
+  });
+
+  const form = useForm<CampaignFormData>({
+    resolver: zodResolver(campaignFormSchema),
+    defaultValues: {
+      name: "",
+      description: "",
+      targetScores: [],
+      aiPersonalization: true,
+      dailySendLimit: 200,
+    },
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async (data: CampaignFormData) => {
+      await apiRequest("POST", "/api/campaigns", data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
+      toast({ title: "Campaign created", description: "Your new campaign has been created." });
+      setIsCreateOpen(false);
+      form.reset({ name: "", description: "", targetScores: [], aiPersonalization: true, dailySendLimit: 200 });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to create campaign", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const listMap = new Map<number, ProspectList>();
+  prospectLists?.forEach((l) => listMap.set(l.id, l));
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold" data-testid="text-campaigns-title">Campaigns</h2>
+          <p className="text-sm text-muted-foreground">Manage outbound email campaigns for lead generation</p>
+        </div>
+
+        <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+          <DialogTrigger asChild>
+            <Button className="gap-2" data-testid="button-create-campaign">
+              <Plus className="w-4 h-4" /> Create Campaign
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Create Campaign</DialogTitle>
+            </DialogHeader>
+            <Form {...form}>
+              <form onSubmit={form.handleSubmit((d) => createMutation.mutate(d))} className="space-y-4">
+                <FormField
+                  control={form.control}
+                  name="name"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Campaign Name</FormLabel>
+                      <FormControl>
+                        <Input {...field} placeholder="e.g. Q1 Restaurant Outreach" data-testid="input-campaign-name" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="description"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Description</FormLabel>
+                      <FormControl>
+                        <Textarea {...field} rows={2} placeholder="Campaign description..." data-testid="input-campaign-description" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="targetListId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Target List</FormLabel>
+                      <Select
+                        onValueChange={(val) => field.onChange(val ? Number(val) : undefined)}
+                        value={field.value ? String(field.value) : ""}
+                      >
+                        <FormControl>
+                          <SelectTrigger data-testid="select-target-list">
+                            <SelectValue placeholder="Select a prospect list" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {prospectLists?.map((list) => (
+                            <SelectItem key={list.id} value={String(list.id)} data-testid={`select-item-list-${list.id}`}>
+                              {list.name} ({list.totalRecords} records)
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="targetScores"
+                  render={() => (
+                    <FormItem>
+                      <FormLabel>Target Scores</FormLabel>
+                      <div className="flex flex-wrap gap-4">
+                        {["hot", "warm", "cold"].map((score) => (
+                          <FormField
+                            key={score}
+                            control={form.control}
+                            name="targetScores"
+                            render={({ field }) => (
+                              <FormItem className="flex items-center gap-2">
+                                <FormControl>
+                                  <Checkbox
+                                    checked={field.value?.includes(score)}
+                                    onCheckedChange={(checked) => {
+                                      const current = field.value || [];
+                                      if (checked) {
+                                        field.onChange([...current, score]);
+                                      } else {
+                                        field.onChange(current.filter((v) => v !== score));
+                                      }
+                                    }}
+                                    data-testid={`checkbox-score-${score}`}
+                                  />
+                                </FormControl>
+                                <FormLabel className="font-normal capitalize cursor-pointer">{score}</FormLabel>
+                              </FormItem>
+                            )}
+                          />
+                        ))}
+                      </div>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="aiPersonalization"
+                  render={({ field }) => (
+                    <FormItem className="flex items-center justify-between gap-2">
+                      <FormLabel>AI Personalization</FormLabel>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                          data-testid="switch-ai-personalization"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="dailySendLimit"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Daily Send Limit</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          {...field}
+                          onChange={(e) => field.onChange(Number(e.target.value))}
+                          data-testid="input-daily-send-limit"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <div className="flex justify-end pt-2">
+                  <Button type="submit" disabled={createMutation.isPending} data-testid="button-submit-campaign">
+                    {createMutation.isPending ? "Creating..." : "Create Campaign"}
+                  </Button>
+                </div>
+              </form>
+            </Form>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      {isLoading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Card key={i}>
+              <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
+                <Skeleton className="h-5 w-40" />
+                <Skeleton className="h-5 w-16" />
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <Skeleton className="h-4 w-full" />
+                <div className="grid grid-cols-2 gap-2">
+                  <Skeleton className="h-8 w-full" />
+                  <Skeleton className="h-8 w-full" />
+                  <Skeleton className="h-8 w-full" />
+                  <Skeleton className="h-8 w-full" />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : campaigns && campaigns.length > 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {campaigns.map((campaign) => {
+            const targetList = campaign.targetListId ? listMap.get(campaign.targetListId) : null;
+            const isExpanded = expandedId === campaign.id;
+
+            return (
+              <Card key={campaign.id} data-testid={`card-campaign-${campaign.id}`}>
+                <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0 pb-2">
+                  <div className="space-y-1 min-w-0">
+                    <CardTitle className="text-base truncate" data-testid={`text-campaign-name-${campaign.id}`}>
+                      {campaign.name}
+                    </CardTitle>
+                    {campaign.description && (
+                      <p className="text-sm text-muted-foreground line-clamp-2" data-testid={`text-campaign-desc-${campaign.id}`}>
+                        {campaign.description}
+                      </p>
+                    )}
+                  </div>
+                  <Badge
+                    variant="outline"
+                    className={`no-default-hover-elevate no-default-active-elevate shrink-0 ${getStatusBadgeClass(campaign.status)}`}
+                    data-testid={`badge-campaign-status-${campaign.id}`}
+                  >
+                    {campaign.status || "draft"}
+                  </Badge>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {targetList && (
+                    <div className="text-sm text-muted-foreground" data-testid={`text-target-list-${campaign.id}`}>
+                      Target: {targetList.name} ({targetList.totalRecords} records)
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="p-2 rounded-md bg-muted/50">
+                      <div className="text-xs text-muted-foreground">Sent</div>
+                      <div className="text-lg font-semibold" data-testid={`text-total-sent-${campaign.id}`}>
+                        {campaign.totalSent || 0}
+                      </div>
+                    </div>
+                    <div className="p-2 rounded-md bg-muted/50">
+                      <div className="text-xs text-muted-foreground">Opened</div>
+                      <div className="text-lg font-semibold" data-testid={`text-total-opened-${campaign.id}`}>
+                        {campaign.totalOpened || 0}
+                      </div>
+                    </div>
+                    <div className="p-2 rounded-md bg-muted/50">
+                      <div className="text-xs text-muted-foreground">Replied</div>
+                      <div className="text-lg font-semibold" data-testid={`text-total-replied-${campaign.id}`}>
+                        {campaign.totalReplied || 0}
+                      </div>
+                    </div>
+                    <div className="p-2 rounded-md bg-muted/50">
+                      <div className="text-xs text-muted-foreground">Bounced</div>
+                      <div className="text-lg font-semibold" data-testid={`text-total-bounced-${campaign.id}`}>
+                        {campaign.totalBounced || 0}
+                      </div>
+                    </div>
+                  </div>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    onClick={() => setExpandedId(isExpanded ? null : campaign.id)}
+                    data-testid={`button-expand-campaign-${campaign.id}`}
+                  >
+                    {isExpanded ? "Collapse" : "Manage Steps"}
+                  </Button>
+
+                  {isExpanded && <CampaignDetail campaign={campaign} />}
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      ) : (
+        <Card>
+          <CardContent className="p-8 text-center">
+            <Mail className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
+            <p className="text-muted-foreground" data-testid="text-no-campaigns">
+              No campaigns yet. Create your first campaign to start outbound outreach.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}

@@ -44,6 +44,10 @@ client/src/
       CaseStudyIntake.tsx - Case study intake form
       GhlSettings.tsx - GHL connection status + activity logs
       Automation.tsx - KPI summary + workflow management
+      Prospects.tsx - Prospect list with search, filter, enrichment triggers
+      ProspectImport.tsx - CSV bulk upload with drag-drop and list management
+      Campaigns.tsx - Campaign creation, step management, activation
+      OutreachAnalytics.tsx - KPI cards, campaign performance, message activity
   components/
     Navbar.tsx - Public site navigation with compliance
     Footer.tsx - Full footer with disclaimers
@@ -57,6 +61,8 @@ server/
     ghl.ts - GoHighLevel API integration service
     sla-worker.ts - SLA timer with 5-minute interval checks
     seed-workflows.ts - Pre-built workflow/template/SLA seeding
+    enrichment.ts - AI prospect enrichment (website scraping, OpenAI classification, scoring)
+    campaign-engine.ts - Campaign queue builder, AI email personalization, send scheduler
 shared/
   schema.ts - Drizzle schema + types
 ```
@@ -73,9 +79,10 @@ shared/
 9. **GHL Integration**: Contact sync, email/SMS sending via templates, calendar booking, webhook handling, merge field templating
 10. **SLA Enforcement**: Automated SLA monitoring (Statement Review 2hr, New Lead 24hr, Proposal 48hr, Call 24hr, Support 4hr) with escalation
 11. **Profit Instrumentation**: Merchant tier, risk tier, health score, avg ticket, estimated profit fields on deals
+12. **Lead Generation Engine**: Bulk CSV prospect import, AI enrichment (website scraping, business categorization, scoring), multi-step campaign sequences with AI-personalized emails, ~2k/day send rate via GHL, open/reply/bounce tracking
 
 ## Database Tables
-contacts, deals, tickets, tasks, notifications, documents, auditLogs, workflows, workflowRuns, rfis, conversations, messages, users, sessions, messageTemplates, collateralPackets, ghlActivityLog, slaConfigs
+contacts, deals, tickets, tasks, notifications, documents, auditLogs, workflows, workflowRuns, rfis, conversations, messages, users, sessions, messageTemplates, collateralPackets, ghlActivityLog, slaConfigs, prospectLists, prospects, enrichmentJobs, campaigns, campaignSteps, outboundMessages
 
 ## API Routes
 - GET/POST /api/contacts, /api/deals, /api/tickets, /api/tasks, /api/notifications
@@ -91,6 +98,17 @@ contacts, deals, tickets, tasks, notifications, documents, auditLogs, workflows,
 - GET /api/ghl/status, /api/ghl/activity (GHL settings)
 - GET /api/message-templates, /api/collateral-packets, /api/sla-configs
 - POST /api/public/callback (quick callback form)
+- GET/POST /api/prospect-lists (prospect list management)
+- GET/POST /api/prospects, PUT /api/prospects/:id (prospect CRUD)
+- POST /api/prospects/import (CSV bulk upload with multer)
+- GET/POST /api/enrichment-jobs, POST /api/enrichment/process-queue (AI enrichment)
+- GET/POST /api/campaigns, PUT /api/campaigns/:id (campaign management)
+- GET/POST /api/campaigns/:id/steps (campaign step management)
+- GET /api/campaigns/:id/analytics (campaign performance stats)
+- POST /api/campaigns/:id/queue (queue campaign messages)
+- GET /api/outbound-messages (outbound message list)
+- POST /api/outbound/process-queue (trigger send queue processing)
+- POST /api/outbound/webhook (tracking webhook for opens/replies/bounces)
 
 ## Environment Variables
 - DATABASE_URL - PostgreSQL connection
@@ -115,3 +133,9 @@ contacts, deals, tickets, tasks, notifications, documents, auditLogs, workflows,
 - Added SEO meta tags with react-helmet-async to all public pages
 - Enhanced Overview dashboard with real-time KPI data (pipeline stats, conversion rates, support metrics, onboarding status)
 - Conversion enhancers: StickyMobileCTA, ExitIntentPopup, ContactBubble all active on public pages
+- Built Lead Generation & Qualification Engine: prospect_lists, prospects, enrichment_jobs, campaigns, campaign_steps, outbound_messages tables
+- AI enrichment service with website scraping, OpenAI classification, hot/warm/cold/unqualified scoring
+- Campaign engine with multi-step email sequences, AI personalization, 2k/day GHL send rate limit
+- CSV bulk import with smart column mapping (30+ column aliases supported)
+- Dashboard pages: Prospects list, Import Prospects (drag-drop CSV), Campaigns builder, Outreach Analytics
+- Webhook endpoint for tracking opens, replies, bounces, unsubscribes

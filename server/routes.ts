@@ -4,8 +4,14 @@ import { storage } from "./storage";
 import { setupAuth, registerAuthRoutes } from "./replit_integrations/auth";
 import { registerAudioRoutes } from "./replit_integrations/audio/routes";
 import { z } from "zod";
-import { insertContactSchema, insertDealSchema, insertTicketSchema, insertTaskSchema, insertCompanySchema, insertDocumentSchema, insertNotificationSchema, insertWorkflowSchema, insertRfiSchema, insertMessageTemplateSchema, insertCollateralPacketSchema, insertSlaConfigSchema } from "@shared/schema";
+import { insertContactSchema, insertDealSchema, insertTicketSchema, insertTaskSchema, insertCompanySchema, insertDocumentSchema, insertNotificationSchema, insertWorkflowSchema, insertRfiSchema, insertMessageTemplateSchema, insertCollateralPacketSchema, insertSlaConfigSchema, insertProspectSchema, insertProspectListSchema, insertEnrichmentJobSchema, insertCampaignSchema, insertCampaignStepSchema, insertOutboundMessageSchema } from "@shared/schema";
 import { isGhlConfigured, getGhlStatus, sendGhlEmail, sendGhlSms, sendTemplatedMessage, upsertGhlContact, handleGhlWebhook, getCalendarBookingUrl } from "./services/ghl";
+import { enrichProspect, runEnrichmentJob, processEnrichmentQueue } from "./services/enrichment";
+import { queueCampaignMessages, processSendQueue, getCampaignAnalytics } from "./services/campaign-engine";
+import multer from "multer";
+import { parse } from "csv-parse/sync";
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 export async function registerRoutes(
   httpServer: Server,
@@ -921,6 +927,284 @@ OUTPUT FORMAT:
           new30d: allContacts.filter(c => c.createdAt && new Date(c.createdAt) >= thirtyDaysAgo).length,
         },
       });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === PROSPECT LISTS ===
+  app.get("/api/prospect-lists", async (req, res) => {
+    const lists = await storage.getProspectLists();
+    res.json(lists);
+  });
+
+  app.get("/api/prospect-lists/:id", async (req, res) => {
+    const list = await storage.getProspectList(Number(req.params.id));
+    if (!list) return res.status(404).json({ message: "List not found" });
+    res.json(list);
+  });
+
+  app.post("/api/prospect-lists", async (req, res) => {
+    try {
+      const input = insertProspectListSchema.parse(req.body);
+      const list = await storage.createProspectList(input);
+      res.status(201).json(list);
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
+  });
+
+  // === PROSPECTS ===
+  app.get("/api/prospects", async (req, res) => {
+    const listId = req.query.listId ? Number(req.query.listId) : undefined;
+    const prospects = await storage.getProspects(listId);
+    res.json(prospects);
+  });
+
+  app.get("/api/prospects/:id", async (req, res) => {
+    const prospect = await storage.getProspect(Number(req.params.id));
+    if (!prospect) return res.status(404).json({ message: "Prospect not found" });
+    res.json(prospect);
+  });
+
+  app.post("/api/prospects", async (req, res) => {
+    try {
+      const input = insertProspectSchema.parse(req.body);
+      const prospect = await storage.createProspect(input);
+      res.status(201).json(prospect);
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
+  });
+
+  app.put("/api/prospects/:id", async (req, res) => {
+    const updated = await storage.updateProspect(Number(req.params.id), req.body);
+    if (!updated) return res.status(404).json({ message: "Prospect not found" });
+    res.json(updated);
+  });
+
+  // CSV Upload endpoint
+  app.post("/api/prospects/import", upload.single("file"), async (req, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+
+      const csvContent = req.file.buffer.toString("utf-8");
+      const records = parse(csvContent, {
+        columns: true,
+        skip_empty_lines: true,
+        trim: true,
+        relax_column_count: true,
+      });
+
+      const listName = (req.body.listName as string) || `Import ${new Date().toLocaleDateString()}`;
+      const list = await storage.createProspectList({
+        name: listName,
+        fileName: req.file.originalname || "upload.csv",
+        totalRecords: records.length,
+      });
+
+      const columnMap: Record<string, string> = {
+        "company": "companyName", "company_name": "companyName", "business": "companyName", "business_name": "companyName", "name": "companyName",
+        "dba": "dba", "doing_business_as": "dba",
+        "email": "email", "email_address": "email", "contact_email": "email",
+        "phone": "phone", "phone_number": "phone", "telephone": "phone", "contact_phone": "phone",
+        "website": "website", "url": "website", "web": "website",
+        "owner_first_name": "ownerFirstName", "first_name": "ownerFirstName", "firstname": "ownerFirstName", "owner_first": "ownerFirstName", "contact_first_name": "ownerFirstName",
+        "owner_last_name": "ownerLastName", "last_name": "ownerLastName", "lastname": "ownerLastName", "owner_last": "ownerLastName", "contact_last_name": "ownerLastName",
+        "owner_email": "ownerEmail",
+        "owner_phone": "ownerPhone",
+        "address": "address", "street": "address", "street_address": "address",
+        "city": "city",
+        "state": "state", "st": "state",
+        "zip": "zip", "zipcode": "zip", "zip_code": "zip", "postal": "zip", "postal_code": "zip",
+        "vertical": "vertical", "industry": "vertical", "category": "vertical", "type": "vertical",
+        "volume": "estimatedVolume", "estimated_volume": "estimatedVolume", "monthly_volume": "estimatedVolume",
+        "processor": "estimatedProcessor", "current_processor": "estimatedProcessor",
+        "employees": "employeeCount", "employee_count": "employeeCount",
+        "year_established": "yearEstablished", "established": "yearEstablished", "year": "yearEstablished",
+        "google_rating": "googleRating", "rating": "googleRating",
+        "google_reviews": "googleReviews", "reviews": "googleReviews",
+      };
+
+      const prospectInserts = (records as Record<string, string>[]).map((row: Record<string, string>) => {
+        const mapped: Record<string, any> = { listId: list.id };
+        for (const [csvCol, value] of Object.entries(row)) {
+          const normalizedCol = csvCol.toLowerCase().trim().replace(/\s+/g, "_");
+          const schemaField = columnMap[normalizedCol];
+          if (schemaField && value) {
+            mapped[schemaField] = value;
+          }
+        }
+        return mapped;
+      }).filter((p: Record<string, any>) => p.companyName || p.email || p.phone);
+
+      const created = await storage.createProspectsBulk(prospectInserts);
+
+      await storage.updateProspectList(list.id, {
+        totalRecords: created.length,
+      });
+
+      res.status(201).json({
+        list,
+        imported: created.length,
+        skipped: records.length - created.length,
+      });
+    } catch (err: any) {
+      console.error("CSV import error:", err);
+      res.status(500).json({ message: err.message || "Import failed" });
+    }
+  });
+
+  // === ENRICHMENT ===
+  app.get("/api/enrichment-jobs", async (req, res) => {
+    const listId = req.query.listId ? Number(req.query.listId) : undefined;
+    const jobs = await storage.getEnrichmentJobs(listId);
+    res.json(jobs);
+  });
+
+  app.post("/api/enrichment-jobs", async (req, res) => {
+    try {
+      const input = insertEnrichmentJobSchema.parse(req.body);
+      const job = await storage.createEnrichmentJob(input);
+
+      if (input.prospectId) {
+        enrichProspect(input.prospectId).catch(console.error);
+      } else if (input.listId) {
+        const prospects = await storage.getProspects(input.listId);
+        await storage.updateEnrichmentJob(job.id, { totalCount: prospects.length });
+        runEnrichmentJob(job.id).catch(console.error);
+      }
+
+      res.status(201).json(job);
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
+  });
+
+  app.post("/api/enrichment/process-queue", async (req, res) => {
+    processEnrichmentQueue().catch(console.error);
+    res.json({ message: "Enrichment queue processing started" });
+  });
+
+  // === CAMPAIGNS ===
+  app.get("/api/campaigns", async (req, res) => {
+    const campaigns = await storage.getCampaigns();
+    res.json(campaigns);
+  });
+
+  app.get("/api/campaigns/:id", async (req, res) => {
+    const campaign = await storage.getCampaign(Number(req.params.id));
+    if (!campaign) return res.status(404).json({ message: "Campaign not found" });
+    res.json(campaign);
+  });
+
+  app.post("/api/campaigns", async (req, res) => {
+    try {
+      const input = insertCampaignSchema.parse(req.body);
+      const campaign = await storage.createCampaign(input);
+      res.status(201).json(campaign);
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
+  });
+
+  app.put("/api/campaigns/:id", async (req, res) => {
+    const updated = await storage.updateCampaign(Number(req.params.id), req.body);
+    if (!updated) return res.status(404).json({ message: "Campaign not found" });
+    res.json(updated);
+  });
+
+  app.get("/api/campaigns/:id/analytics", async (req, res) => {
+    try {
+      const analytics = await getCampaignAnalytics(Number(req.params.id));
+      res.json(analytics);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === CAMPAIGN STEPS ===
+  app.get("/api/campaigns/:id/steps", async (req, res) => {
+    const steps = await storage.getCampaignSteps(Number(req.params.id));
+    res.json(steps);
+  });
+
+  app.post("/api/campaigns/:id/steps", async (req, res) => {
+    try {
+      const input = insertCampaignStepSchema.parse({ ...req.body, campaignId: Number(req.params.id) });
+      const step = await storage.createCampaignStep(input);
+      res.status(201).json(step);
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
+  });
+
+  app.put("/api/campaign-steps/:id", async (req, res) => {
+    const updated = await storage.updateCampaignStep(Number(req.params.id), req.body);
+    if (!updated) return res.status(404).json({ message: "Step not found" });
+    res.json(updated);
+  });
+
+  app.delete("/api/campaign-steps/:id", async (req, res) => {
+    await storage.deleteCampaignStep(Number(req.params.id));
+    res.json({ message: "Step deleted" });
+  });
+
+  // === OUTBOUND MESSAGES ===
+  app.get("/api/outbound-messages", async (req, res) => {
+    const campaignId = req.query.campaignId ? Number(req.query.campaignId) : undefined;
+    const messages = await storage.getOutboundMessages(campaignId);
+    res.json(messages);
+  });
+
+  app.post("/api/campaigns/:id/queue", async (req, res) => {
+    try {
+      const queued = await queueCampaignMessages(Number(req.params.id));
+      res.json({ queued, message: `${queued} messages queued for sending` });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/outbound/process-queue", async (req, res) => {
+    try {
+      const result = await processSendQueue();
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === OUTBOUND WEBHOOK (for GHL tracking) ===
+  app.post("/api/outbound/webhook", async (req, res) => {
+    try {
+      const { messageId, event } = req.body;
+      if (!messageId || !event) return res.status(400).json({ message: "Missing messageId or event" });
+
+      const msg = await storage.getOutboundMessage(Number(messageId));
+      if (!msg) return res.status(404).json({ message: "Message not found" });
+
+      const updates: Record<string, any> = {};
+      if (event === "opened") { updates.status = "opened"; updates.openedAt = new Date(); }
+      if (event === "replied") { updates.status = "replied"; updates.repliedAt = new Date(); }
+      if (event === "bounced") { updates.status = "bounced"; updates.bouncedAt = new Date(); }
+      if (event === "unsubscribed") {
+        updates.status = "unsubscribed";
+        if (msg.prospectId) {
+          await storage.updateProspect(msg.prospectId, { doNotContact: true, status: "do_not_contact" });
+        }
+      }
+
+      if (Object.keys(updates).length > 0) {
+        await storage.updateOutboundMessage(msg.id, updates);
+      }
+
+      res.json({ message: "Webhook processed" });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

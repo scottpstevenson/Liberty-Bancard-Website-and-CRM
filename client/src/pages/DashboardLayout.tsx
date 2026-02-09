@@ -20,6 +20,10 @@ import {
   Settings,
   BarChart3,
   BookOpen,
+  Target,
+  Upload,
+  Send,
+  BarChart2,
 } from "lucide-react";
 import {
   Sidebar,
@@ -55,6 +59,13 @@ const menuItems = [
   { icon: Settings, label: "GHL Settings", href: "/dashboard/ghl-settings" },
 ];
 
+const leadGenItems = [
+  { icon: Target, label: "Prospects", href: "/dashboard/prospects" },
+  { icon: Upload, label: "Import Prospects", href: "/dashboard/prospects/import" },
+  { icon: Send, label: "Campaigns", href: "/dashboard/campaigns" },
+  { icon: BarChart2, label: "Outreach Analytics", href: "/dashboard/outreach-analytics" },
+];
+
 const formItems = [
   { icon: PhoneCall, label: "Call Outcome", href: "/dashboard/call-outcome" },
   { icon: FileCheck, label: "Review Complete", href: "/dashboard/review-complete" },
@@ -73,6 +84,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
   const currentLabel =
     menuItems.find((i) => i.href === location)?.label ||
+    leadGenItems.find((i) => i.href === location)?.label ||
     formItems.find((i) => i.href === location)?.label ||
     "Dashboard";
 
@@ -92,6 +104,28 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
               <SidebarGroupContent>
                 <SidebarMenu>
                   {menuItems.map((item) => {
+                    const Icon = item.icon;
+                    const isActive = location === item.href;
+                    return (
+                      <SidebarMenuItem key={item.href}>
+                        <SidebarMenuButton asChild isActive={isActive} data-testid={`link-sidebar-${item.label.toLowerCase().replace(/\s+/g, "-")}`}>
+                          <Link href={item.href}>
+                            <Icon className="w-4 h-4" />
+                            <span>{item.label}</span>
+                          </Link>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    );
+                  })}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+
+            <SidebarGroup>
+              <SidebarGroupLabel>Lead Generation</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {leadGenItems.map((item) => {
                     const Icon = item.icon;
                     const isActive = location === item.href;
                     return (

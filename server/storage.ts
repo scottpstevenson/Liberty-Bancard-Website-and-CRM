@@ -2,6 +2,7 @@ import { db } from "./db";
 import {
   contacts, companies, deals, tickets, tasks, documents, auditLogs, notifications, workflowRuns, workflows, rfis,
   messageTemplates, collateralPackets, ghlActivityLog, slaConfigs,
+  prospects, prospectLists, enrichmentJobs, campaigns, campaignSteps, outboundMessages,
   type InsertContact, type UpdateContactRequest,
   type InsertCompany,
   type InsertDeal, type UpdateDealRequest,
@@ -17,8 +18,14 @@ import {
   type InsertCollateralPacket,
   type InsertGhlActivityLog,
   type InsertSlaConfig,
+  type Prospect, type InsertProspect, type UpdateProspectRequest,
+  type InsertProspectList,
+  type InsertEnrichmentJob,
+  type InsertCampaign, type UpdateCampaignRequest,
+  type InsertCampaignStep,
+  type InsertOutboundMessage, type UpdateOutboundMessageRequest,
 } from "@shared/schema";
-import { eq, desc, and, lt, isNull, ne } from "drizzle-orm";
+import { eq, desc, and, lt, isNull, ne, sql, asc } from "drizzle-orm";
 
 export interface IStorage {
   getContacts(): Promise<typeof contacts.$inferSelect[]>;
@@ -89,6 +96,42 @@ export interface IStorage {
 
   getDealsStuckInStage(stage: string, maxMinutes: number): Promise<typeof deals.$inferSelect[]>;
   getTicketsBreachingSla(): Promise<typeof tickets.$inferSelect[]>;
+
+  getProspectLists(): Promise<typeof prospectLists.$inferSelect[]>;
+  getProspectList(id: number): Promise<typeof prospectLists.$inferSelect | undefined>;
+  createProspectList(list: InsertProspectList): Promise<typeof prospectLists.$inferSelect>;
+  updateProspectList(id: number, updates: Partial<InsertProspectList>): Promise<typeof prospectLists.$inferSelect | undefined>;
+
+  getProspects(listId?: number): Promise<typeof prospects.$inferSelect[]>;
+  getProspect(id: number): Promise<typeof prospects.$inferSelect | undefined>;
+  createProspect(prospect: InsertProspect): Promise<typeof prospects.$inferSelect>;
+  createProspectsBulk(prospectData: InsertProspect[]): Promise<Prospect[]>;
+  updateProspect(id: number, updates: UpdateProspectRequest): Promise<typeof prospects.$inferSelect | undefined>;
+  getProspectsByStatus(status: string): Promise<typeof prospects.$inferSelect[]>;
+  getProspectsByScore(score: string): Promise<typeof prospects.$inferSelect[]>;
+
+  getEnrichmentJobs(listId?: number): Promise<typeof enrichmentJobs.$inferSelect[]>;
+  createEnrichmentJob(job: InsertEnrichmentJob): Promise<typeof enrichmentJobs.$inferSelect>;
+  updateEnrichmentJob(id: number, updates: Partial<InsertEnrichmentJob>): Promise<typeof enrichmentJobs.$inferSelect | undefined>;
+  getPendingEnrichmentJobs(limit?: number): Promise<typeof enrichmentJobs.$inferSelect[]>;
+
+  getCampaigns(): Promise<typeof campaigns.$inferSelect[]>;
+  getCampaign(id: number): Promise<typeof campaigns.$inferSelect | undefined>;
+  createCampaign(campaign: InsertCampaign): Promise<typeof campaigns.$inferSelect>;
+  updateCampaign(id: number, updates: UpdateCampaignRequest): Promise<typeof campaigns.$inferSelect | undefined>;
+
+  getCampaignSteps(campaignId: number): Promise<typeof campaignSteps.$inferSelect[]>;
+  createCampaignStep(step: InsertCampaignStep): Promise<typeof campaignSteps.$inferSelect>;
+  updateCampaignStep(id: number, updates: Partial<InsertCampaignStep>): Promise<typeof campaignSteps.$inferSelect | undefined>;
+  deleteCampaignStep(id: number): Promise<void>;
+
+  getOutboundMessages(campaignId?: number): Promise<typeof outboundMessages.$inferSelect[]>;
+  getOutboundMessage(id: number): Promise<typeof outboundMessages.$inferSelect | undefined>;
+  createOutboundMessage(msg: InsertOutboundMessage): Promise<typeof outboundMessages.$inferSelect>;
+  createOutboundMessagesBulk(msgs: InsertOutboundMessage[]): Promise<typeof outboundMessages.$inferSelect[]>;
+  updateOutboundMessage(id: number, updates: UpdateOutboundMessageRequest): Promise<typeof outboundMessages.$inferSelect | undefined>;
+  getQueuedMessages(limit: number): Promise<typeof outboundMessages.$inferSelect[]>;
+  getOutboundStats(campaignId: number): Promise<{sent: number, opened: number, replied: number, bounced: number}>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -350,6 +393,164 @@ export class DatabaseStorage implements IStorage {
         ne(tickets.status!, "Resolved"),
         ne(tickets.status!, "Closed")
       ));
+  }
+
+  async getProspectLists() {
+    return await db.select().from(prospectLists).orderBy(desc(prospectLists.createdAt));
+  }
+
+  async getProspectList(id: number) {
+    const [list] = await db.select().from(prospectLists).where(eq(prospectLists.id, id));
+    return list;
+  }
+
+  async createProspectList(list: InsertProspectList) {
+    const [created] = await db.insert(prospectLists).values(list).returning();
+    return created;
+  }
+
+  async updateProspectList(id: number, updates: Partial<InsertProspectList>) {
+    const [updated] = await db.update(prospectLists).set({ ...updates, updatedAt: new Date() }).where(eq(prospectLists.id, id)).returning();
+    return updated;
+  }
+
+  async getProspects(listId?: number) {
+    if (listId) {
+      return await db.select().from(prospects).where(eq(prospects.listId, listId)).orderBy(desc(prospects.createdAt));
+    }
+    return await db.select().from(prospects).orderBy(desc(prospects.createdAt));
+  }
+
+  async getProspect(id: number) {
+    const [prospect] = await db.select().from(prospects).where(eq(prospects.id, id));
+    return prospect;
+  }
+
+  async createProspect(prospect: InsertProspect) {
+    const [created] = await db.insert(prospects).values(prospect).returning();
+    return created;
+  }
+
+  async createProspectsBulk(prospectsList: InsertProspect[]) {
+    return await db.insert(prospects).values(prospectsList).returning();
+  }
+
+  async updateProspect(id: number, updates: UpdateProspectRequest) {
+    const [updated] = await db.update(prospects).set({ ...updates, updatedAt: new Date() }).where(eq(prospects.id, id)).returning();
+    return updated;
+  }
+
+  async getProspectsByStatus(status: string) {
+    return await db.select().from(prospects).where(eq(prospects.status, status)).orderBy(desc(prospects.createdAt));
+  }
+
+  async getProspectsByScore(score: string) {
+    return await db.select().from(prospects).where(eq(prospects.qualificationScore, score)).orderBy(desc(prospects.createdAt));
+  }
+
+  async getEnrichmentJobs(listId?: number) {
+    if (listId) {
+      return await db.select().from(enrichmentJobs).where(eq(enrichmentJobs.listId, listId)).orderBy(desc(enrichmentJobs.createdAt));
+    }
+    return await db.select().from(enrichmentJobs).orderBy(desc(enrichmentJobs.createdAt));
+  }
+
+  async createEnrichmentJob(job: InsertEnrichmentJob) {
+    const [created] = await db.insert(enrichmentJobs).values(job).returning();
+    return created;
+  }
+
+  async updateEnrichmentJob(id: number, updates: Partial<InsertEnrichmentJob>) {
+    const [updated] = await db.update(enrichmentJobs).set(updates).where(eq(enrichmentJobs.id, id)).returning();
+    return updated;
+  }
+
+  async getPendingEnrichmentJobs(limit?: number) {
+    const query = db.select().from(enrichmentJobs).where(eq(enrichmentJobs.status, "pending")).orderBy(asc(enrichmentJobs.createdAt));
+    if (limit) {
+      return await query.limit(limit);
+    }
+    return await query;
+  }
+
+  async getCampaigns() {
+    return await db.select().from(campaigns).orderBy(desc(campaigns.createdAt));
+  }
+
+  async getCampaign(id: number) {
+    const [campaign] = await db.select().from(campaigns).where(eq(campaigns.id, id));
+    return campaign;
+  }
+
+  async createCampaign(campaign: InsertCampaign) {
+    const [created] = await db.insert(campaigns).values(campaign).returning();
+    return created;
+  }
+
+  async updateCampaign(id: number, updates: UpdateCampaignRequest) {
+    const [updated] = await db.update(campaigns).set({ ...updates, updatedAt: new Date() }).where(eq(campaigns.id, id)).returning();
+    return updated;
+  }
+
+  async getCampaignSteps(campaignId: number) {
+    return await db.select().from(campaignSteps).where(eq(campaignSteps.campaignId, campaignId)).orderBy(asc(campaignSteps.stepOrder));
+  }
+
+  async createCampaignStep(step: InsertCampaignStep) {
+    const [created] = await db.insert(campaignSteps).values(step).returning();
+    return created;
+  }
+
+  async updateCampaignStep(id: number, updates: Partial<InsertCampaignStep>) {
+    const [updated] = await db.update(campaignSteps).set(updates).where(eq(campaignSteps.id, id)).returning();
+    return updated;
+  }
+
+  async deleteCampaignStep(id: number) {
+    await db.delete(campaignSteps).where(eq(campaignSteps.id, id));
+  }
+
+  async getOutboundMessages(campaignId?: number) {
+    if (campaignId) {
+      return await db.select().from(outboundMessages).where(eq(outboundMessages.campaignId, campaignId)).orderBy(desc(outboundMessages.createdAt));
+    }
+    return await db.select().from(outboundMessages).orderBy(desc(outboundMessages.createdAt));
+  }
+
+  async getOutboundMessage(id: number) {
+    const [msg] = await db.select().from(outboundMessages).where(eq(outboundMessages.id, id));
+    return msg;
+  }
+
+  async createOutboundMessage(msg: InsertOutboundMessage) {
+    const [created] = await db.insert(outboundMessages).values(msg).returning();
+    return created;
+  }
+
+  async createOutboundMessagesBulk(msgs: InsertOutboundMessage[]) {
+    return await db.insert(outboundMessages).values(msgs).returning();
+  }
+
+  async updateOutboundMessage(id: number, updates: UpdateOutboundMessageRequest) {
+    const [updated] = await db.update(outboundMessages).set(updates).where(eq(outboundMessages.id, id)).returning();
+    return updated;
+  }
+
+  async getQueuedMessages(limit: number) {
+    return await db.select().from(outboundMessages)
+      .where(eq(outboundMessages.status, "queued"))
+      .orderBy(asc(outboundMessages.scheduledFor))
+      .limit(limit);
+  }
+
+  async getOutboundStats(campaignId: number) {
+    const result = await db.select({
+      sent: sql<number>`count(*) filter (where ${outboundMessages.status} = 'sent' or ${outboundMessages.status} = 'delivered' or ${outboundMessages.status} = 'opened' or ${outboundMessages.status} = 'replied')`,
+      opened: sql<number>`count(*) filter (where ${outboundMessages.status} = 'opened' or ${outboundMessages.status} = 'replied')`,
+      replied: sql<number>`count(*) filter (where ${outboundMessages.status} = 'replied')`,
+      bounced: sql<number>`count(*) filter (where ${outboundMessages.status} = 'bounced')`,
+    }).from(outboundMessages).where(eq(outboundMessages.campaignId, campaignId));
+    return result[0] ?? { sent: 0, opened: 0, replied: 0, bounced: 0 };
   }
 }
 

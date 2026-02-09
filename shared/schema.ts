@@ -514,3 +514,245 @@ export const GHL_CHANNELS = [
   "email",
   "sms",
 ] as const;
+
+export const prospectLists = pgTable("prospect_lists", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  fileName: text("file_name"),
+  totalRecords: integer("total_records").default(0),
+  enrichedRecords: integer("enriched_records").default(0),
+  qualifiedRecords: integer("qualified_records").default(0),
+  status: text("status").default("processing"),
+  uploadedBy: text("uploaded_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertProspectListSchema = createInsertSchema(prospectLists).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type ProspectList = typeof prospectLists.$inferSelect;
+export type InsertProspectList = z.infer<typeof insertProspectListSchema>;
+
+export const PROSPECT_STATUSES = [
+  "raw",
+  "enriching",
+  "enriched",
+  "qualified",
+  "disqualified",
+  "in_campaign",
+  "converted",
+  "do_not_contact",
+] as const;
+
+export const QUALIFICATION_SCORES = [
+  "A",
+  "B",
+  "C",
+  "D",
+  "F",
+] as const;
+
+export const prospects = pgTable("prospects", {
+  id: serial("id").primaryKey(),
+  listId: integer("list_id").references(() => prospectLists.id),
+  contactId: integer("contact_id").references(() => contacts.id),
+  companyName: text("company_name"),
+  dba: text("dba"),
+  website: text("website"),
+  phone: text("phone"),
+  email: text("email"),
+  ownerFirstName: text("owner_first_name"),
+  ownerLastName: text("owner_last_name"),
+  ownerEmail: text("owner_email"),
+  ownerPhone: text("owner_phone"),
+  address: text("address"),
+  city: text("city"),
+  state: text("state"),
+  zip: text("zip"),
+  vertical: text("vertical"),
+  estimatedVolume: text("estimated_volume"),
+  estimatedProcessor: text("estimated_processor"),
+  employeeCount: text("employee_count"),
+  yearEstablished: text("year_established"),
+  googleRating: text("google_rating"),
+  googleReviews: text("google_reviews"),
+  estimatedRevenue: text("estimated_revenue"),
+  score: text("score").default("cold"),
+  qualificationScore: text("qualification_score").default("C"),
+  qualificationReason: text("qualification_reason"),
+  status: text("status").default("raw"),
+  enrichmentData: jsonb("enrichment_data"),
+  enrichedAt: timestamp("enriched_at"),
+  aiSummary: text("ai_summary"),
+  aiPitchAngle: text("ai_pitch_angle"),
+  notes: text("notes"),
+  tags: text("tags").array(),
+  doNotContact: boolean("do_not_contact").default(false),
+  lastContactedAt: timestamp("last_contacted_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertProspectSchema = createInsertSchema(prospects).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type Prospect = typeof prospects.$inferSelect;
+export type InsertProspect = z.infer<typeof insertProspectSchema>;
+export type UpdateProspectRequest = Partial<InsertProspect>;
+
+export const enrichmentJobs = pgTable("enrichment_jobs", {
+  id: serial("id").primaryKey(),
+  listId: integer("list_id").references(() => prospectLists.id),
+  prospectId: integer("prospect_id").references(() => prospects.id),
+  jobType: text("job_type").notNull(),
+  status: text("status").default("pending"),
+  totalCount: integer("total_count").default(0),
+  processedCount: integer("processed_count").default(0),
+  result: jsonb("result"),
+  error: text("error"),
+  errorLog: text("error_log"),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertEnrichmentJobSchema = createInsertSchema(enrichmentJobs).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type EnrichmentJob = typeof enrichmentJobs.$inferSelect;
+export type InsertEnrichmentJob = z.infer<typeof insertEnrichmentJobSchema>;
+
+export const CAMPAIGN_STATUSES = [
+  "draft",
+  "active",
+  "paused",
+  "completed",
+  "archived",
+] as const;
+
+export const campaigns = pgTable("campaigns", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  targetListId: integer("target_list_id").references(() => prospectLists.id),
+  targetVerticals: text("target_verticals").array(),
+  targetScores: text("target_scores").array(),
+  filterCriteria: jsonb("filter_criteria"),
+  aiPersonalization: boolean("ai_personalization").default(true),
+  totalSteps: integer("total_steps").default(3),
+  status: text("status").default("draft"),
+  dailySendLimit: integer("daily_send_limit").default(200),
+  totalSent: integer("total_sent").default(0),
+  totalOpened: integer("total_opened").default(0),
+  totalReplied: integer("total_replied").default(0),
+  totalBounced: integer("total_bounced").default(0),
+  totalUnsubscribed: integer("total_unsubscribed").default(0),
+  startDate: timestamp("start_date"),
+  endDate: timestamp("end_date"),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertCampaignSchema = createInsertSchema(campaigns).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type Campaign = typeof campaigns.$inferSelect;
+export type InsertCampaign = z.infer<typeof insertCampaignSchema>;
+export type UpdateCampaignRequest = Partial<InsertCampaign>;
+
+export const campaignSteps = pgTable("campaign_steps", {
+  id: serial("id").primaryKey(),
+  campaignId: integer("campaign_id").references(() => campaigns.id),
+  stepOrder: integer("step_order").notNull(),
+  stepType: text("step_type").notNull(),
+  delayDays: integer("delay_days").default(0),
+  subject: text("subject"),
+  bodyTemplate: text("body_template"),
+  aiPrompt: text("ai_prompt"),
+  useAiPersonalization: boolean("use_ai_personalization").default(true),
+  channel: text("channel").default("email"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertCampaignStepSchema = createInsertSchema(campaignSteps).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type CampaignStep = typeof campaignSteps.$inferSelect;
+export type InsertCampaignStep = z.infer<typeof insertCampaignStepSchema>;
+
+export const OUTBOUND_STATUSES = [
+  "queued",
+  "sending",
+  "sent",
+  "delivered",
+  "opened",
+  "replied",
+  "bounced",
+  "failed",
+  "skipped",
+  "unsubscribed",
+] as const;
+
+export const outboundMessages = pgTable("outbound_messages", {
+  id: serial("id").primaryKey(),
+  campaignId: integer("campaign_id").references(() => campaigns.id),
+  stepId: integer("step_id").references(() => campaignSteps.id),
+  prospectId: integer("prospect_id").references(() => prospects.id),
+  contactId: integer("contact_id").references(() => contacts.id),
+  channel: text("channel").default("email"),
+  toEmail: text("to_email"),
+  toPhone: text("to_phone"),
+  subject: text("subject"),
+  body: text("body"),
+  personalizedSubject: text("personalized_subject"),
+  personalizedBody: text("personalized_body"),
+  status: text("status").default("queued"),
+  scheduledFor: timestamp("scheduled_for"),
+  sentAt: timestamp("sent_at"),
+  openedAt: timestamp("opened_at"),
+  repliedAt: timestamp("replied_at"),
+  bouncedAt: timestamp("bounced_at"),
+  ghlMessageId: text("ghl_message_id"),
+  error: text("error"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertOutboundMessageSchema = createInsertSchema(outboundMessages).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type OutboundMessage = typeof outboundMessages.$inferSelect;
+export type InsertOutboundMessage = z.infer<typeof insertOutboundMessageSchema>;
+export type UpdateOutboundMessageRequest = Partial<InsertOutboundMessage>;
+
+export const ENRICHMENT_JOB_TYPES = [
+  "website_scrape",
+  "ai_classify",
+  "owner_lookup",
+  "full_enrich",
+] as const;
+
+export const CAMPAIGN_STEP_TYPES = [
+  "email",
+  "sms",
+  "wait",
+  "ai_qualify",
+] as const;
