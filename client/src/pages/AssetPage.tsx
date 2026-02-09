@@ -28,6 +28,25 @@ import terminalHero from "@assets/images/liberty-terminal-hero.png";
 import terminalTap from "@assets/images/liberty-terminal-tap.png";
 import terminalAngle from "@assets/images/liberty-terminal-angle.png";
 import terminalStand from "@assets/images/liberty-terminal-stand.png";
+import verticalMedical from "@assets/images/vertical-medical.jpg";
+import verticalAuto from "@assets/images/vertical-auto.jpg";
+import verticalRestaurant from "@assets/images/vertical-restaurant.jpg";
+import verticalHomeServices from "@assets/images/vertical-home-services.jpg";
+import verticalRetail from "@assets/images/vertical-retail.jpg";
+import statementReview from "@assets/images/statement-review.jpg";
+import securityUpload from "@assets/images/security-upload.jpg";
+import merchantOwner from "@assets/images/merchant-owner.jpg";
+import fundingDeposits from "@assets/images/funding-deposits.jpg";
+import hiddenFees from "@assets/images/hidden-fees.jpg";
+import zeroPercent from "@assets/images/zero-percent.jpg";
+import complianceChecklist from "@assets/images/compliance-checklist.jpg";
+import compareRates from "@assets/images/compare-rates.jpg";
+import goLiveChecklist from "@assets/images/go-live-checklist.jpg";
+import caseMedical from "@assets/images/case-medical.jpg";
+import caseAuto from "@assets/images/case-auto.jpg";
+import caseRestaurant from "@assets/images/case-restaurant.jpg";
+import caseHomeServices from "@assets/images/case-home-services.jpg";
+import caseRetail from "@assets/images/case-retail.jpg";
 
 interface ContentPage {
   title: string;
@@ -124,6 +143,7 @@ const contentMap: Record<string, ContentPage> = {
       { label: "Avg Review Turnaround", value: "< 4 hrs" },
       { label: "Client Retention Rate", value: "96.8%" },
     ],
+    images: [{ src: merchantOwner, alt: "Business owner at their point of sale", caption: "Real merchants. Real results. Real numbers." }],
   },
 
   "/assets/one-pagers/how-statement-review-works": {
@@ -144,6 +164,7 @@ const contentMap: Record<string, ContentPage> = {
       { label: "Review Turnaround", value: "< 4 hrs" },
       { label: "Switch Rate After Review", value: "73%" },
     ],
+    images: [{ src: statementReview, alt: "Processing statement analysis on desk", caption: "Every fee, every markup, every line item — analyzed." }],
   },
 
   "/assets/one-pagers/funding-deposits-clarity": {
@@ -163,6 +184,7 @@ const contentMap: Record<string, ContentPage> = {
       { label: "Avg Settlement", value: "< 24 hrs" },
       { label: "Reserve Requirement", value: "Rare" },
     ],
+    images: [{ src: fundingDeposits, alt: "Business funding and cash flow management", caption: "Know exactly when your money arrives." }],
   },
 
   "/assets/one-pagers/hidden-fees-checklist": {
@@ -183,6 +205,7 @@ const contentMap: Record<string, ContentPage> = {
       { label: "Statements with Hidden Fees", value: "89%" },
       { label: "Avg Fee Line Items", value: "14" },
     ],
+    images: [{ src: hiddenFees, alt: "Analyzing merchant statement for hidden fees", caption: "89% of statements we review contain hidden fees." }],
   },
 
   "/assets/security/statement-upload-safety": {
@@ -203,6 +226,7 @@ const contentMap: Record<string, ContentPage> = {
       { label: "Third-Party Sharing", value: "Never" },
       { label: "PCI Compliance", value: "Level 1" },
     ],
+    images: [{ src: securityUpload, alt: "Secure data protection and encryption", caption: "Bank-grade encryption protects every upload." }],
   },
 
   "/assets/0-percent/overview": {
@@ -223,6 +247,7 @@ const contentMap: Record<string, ContentPage> = {
       { label: "Avg Savings for Merchant", value: "$2,100/mo" },
       { label: "States Supported", value: "48" },
     ],
+    images: [{ src: zeroPercent, alt: "Payment terminal for zero-cost processing", caption: "Compliant 0% programs built the right way." }],
   },
 
   "/assets/0-percent/compliance-checklist": {
@@ -243,6 +268,7 @@ const contentMap: Record<string, ContentPage> = {
       { label: "Setup Time", value: "< 48 hrs" },
       { label: "Ongoing Audit Frequency", value: "Quarterly" },
     ],
+    images: [{ src: complianceChecklist, alt: "Compliance checklist and requirements", caption: "12 steps to a fully compliant program." }],
   },
 
   "/assets/compare/beat-square-stripe": {
@@ -267,6 +293,7 @@ const contentMap: Record<string, ContentPage> = {
       { label: "Break-Even Volume", value: "$8K/mo" },
       { label: "Merchants Switched", value: "1,100+" },
     ],
+    images: [{ src: compareRates, alt: "Comparing flat-rate vs interchange-plus pricing", caption: "Side-by-side: where flat-rate processors overcharge." }],
   },
 
   "/assets/terminal/smart-terminal": {
@@ -314,6 +341,7 @@ const contentMap: Record<string, ContentPage> = {
       { label: "Test Transactions", value: "2 Required" },
       { label: "Support Available", value: "24/7" },
     ],
+    images: [{ src: goLiveChecklist, alt: "Terminal setup preparation checklist", caption: "8 steps to a flawless first transaction." }],
   },
 
   "/assets/verticals/medical": {
@@ -334,6 +362,7 @@ const contentMap: Record<string, ContentPage> = {
       { label: "Practices Served", value: "140+" },
       { label: "Avg Monthly Savings", value: "$1,800" },
     ],
+    images: [{ src: verticalMedical, alt: "Medical office reception and payment area", caption: "Payment solutions built for healthcare workflows." }],
   },
 
   "/assets/verticals/auto": {
@@ -354,6 +383,7 @@ const contentMap: Record<string, ContentPage> = {
       { label: "Shops Served", value: "95+" },
       { label: "Avg Monthly Savings", value: "$850" },
     ],
+    images: [{ src: verticalAuto, alt: "Auto repair shop service bay", caption: "High-ticket repair orders deserve better rates." }],
   },
 
   "/assets/verticals/restaurant": {
@@ -374,6 +404,7 @@ const contentMap: Record<string, ContentPage> = {
       { label: "Restaurants Served", value: "210+" },
       { label: "Tip Adjust Accuracy", value: "99.9%" },
     ],
+    images: [{ src: verticalRestaurant, alt: "Restaurant dining area and service", caption: "Fast authorization and reliable tip settlement." }],
   },
 
   "/assets/verticals/home-services": {
@@ -394,6 +425,7 @@ const contentMap: Record<string, ContentPage> = {
       { label: "Contractors Served", value: "120+" },
       { label: "Collection Cycle", value: "< 1 Day" },
     ],
+    images: [{ src: verticalHomeServices, alt: "Home services technician on the job", caption: "Accept payments wherever the job takes you." }],
   },
 
   "/assets/verticals/retail": {
@@ -414,6 +446,7 @@ const contentMap: Record<string, ContentPage> = {
       { label: "Stores Served", value: "175+" },
       { label: "Checkout Speed", value: "< 3 sec" },
     ],
+    images: [{ src: verticalRetail, alt: "Retail store checkout experience", caption: "Tap-to-pay checkout in under 3 seconds." }],
   },
 
   "/assets/case-studies/medical-front-desk": {
@@ -422,6 +455,7 @@ const contentMap: Record<string, ContentPage> = {
     description: "Prestige Dermatology & Medspa in Coral Springs, FL was overpaying on flat-rate processing across three locations, paying identical rates on $15 insurance copays and $2,500 Botox packages. After a detailed statement review, Liberty Bancard eliminated $1,560/month in junk fees, deployed interchange-plus pricing, and implemented a compliant cash discount program for elective services.",
     bullets: [],
     type: "case-study",
+    images: [{ src: caseMedical, alt: "Dermatology and medspa practice", caption: "Prestige Dermatology & Medspa — Coral Springs, FL" }],
     stats: [
       { label: "Avg Ticket", value: "$420" },
       { label: "Monthly Volume", value: "$94K" },
@@ -442,6 +476,7 @@ const contentMap: Record<string, ContentPage> = {
     description: "Summit Auto Repair & Performance in Boca Raton, FL specializes in European vehicles and was losing margin on high-ticket repair orders processed through a flat-rate POS-integrated provider. Liberty Bancard's interchange-plus pricing and compliant surcharge program recovered $10,200 in annual savings.",
     bullets: [],
     type: "case-study",
+    images: [{ src: caseAuto, alt: "Auto repair and performance shop", caption: "Summit Auto Repair & Performance — Boca Raton, FL" }],
     stats: [
       { label: "Avg Ticket", value: "$680" },
       { label: "Monthly Volume", value: "$62K" },
@@ -462,6 +497,7 @@ const contentMap: Record<string, ContentPage> = {
     description: "Coastal Tavern Kitchen & Bar in Fort Lauderdale, FL was experiencing 4-second authorization delays during dinner rush, $1,200/month in tip-adjust reconciliation errors, and cash-flow gaps from delayed batch settlement. Liberty Bancard deployed optimized terminals, switched to interchange-plus pricing, and eliminated every operational bottleneck.",
     bullets: [],
     type: "case-study",
+    images: [{ src: caseRestaurant, alt: "Restaurant and bar dining experience", caption: "Coastal Tavern Kitchen & Bar — Fort Lauderdale, FL" }],
     stats: [
       { label: "Avg Ticket", value: "$38" },
       { label: "Daily Transactions", value: "340" },
@@ -482,6 +518,7 @@ const contentMap: Record<string, ContentPage> = {
     description: "ProFlow Plumbing & HVAC in Pompano Beach, FL was collecting 80% of payments via paper invoice with an 11-day average collection cycle and $1,800/month in write-offs. Liberty Bancard deployed mobile terminals to all 6 service trucks, set up virtual terminal billing, and implemented a compliant cash discount program that transformed their cash flow.",
     bullets: [],
     type: "case-study",
+    images: [{ src: caseHomeServices, alt: "HVAC and plumbing service vehicle", caption: "ProFlow Plumbing & HVAC — Pompano Beach, FL" }],
     stats: [
       { label: "Avg Ticket", value: "$520" },
       { label: "Service Trucks", value: "6" },
@@ -502,6 +539,7 @@ const contentMap: Record<string, ContentPage> = {
     description: "Harbor Surf & Skate Shop in Deerfield Beach, FL was processing over 11,000 transactions per month through a legacy flat-rate processor with 6-8 second chip-read times, no contactless support, and a hidden PCI non-compliance fee. Liberty Bancard deployed tap-to-pay terminals, switched to interchange-plus pricing, and implemented a dual-pricing program that delivered $11,600 in annual savings.",
     bullets: [],
     type: "case-study",
+    images: [{ src: caseRetail, alt: "Surf and skate retail store", caption: "Harbor Surf & Skate Shop — Deerfield Beach, FL" }],
     stats: [
       { label: "Avg Ticket", value: "$32" },
       { label: "Daily Transactions", value: "380" },
@@ -766,6 +804,24 @@ function CaseStudyPage({ content }: { content: ContentPage }) {
       <p className="mt-2 text-lg text-muted-foreground" data-testid="text-asset-subtitle">
         {content.subtitle}
       </p>
+
+      {content.images && content.images.length > 0 && (
+        <div className="mt-8" data-testid="case-study-image">
+          {content.images.map((img, i) => (
+            <div key={i}>
+              <img
+                src={img.src}
+                alt={img.alt}
+                className="w-full rounded-md object-cover max-h-80"
+                data-testid={`img-case-study-${i}`}
+              />
+              {img.caption && (
+                <p className="text-xs text-muted-foreground mt-2 text-center">{img.caption}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       {content.stats && content.stats.length > 0 && (
         <div className="mt-8 grid grid-cols-2 sm:grid-cols-4 gap-4" data-testid="asset-stats-grid">
