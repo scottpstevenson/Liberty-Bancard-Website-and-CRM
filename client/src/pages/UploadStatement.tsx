@@ -36,7 +36,10 @@ import {
   Lock,
   Calendar,
   Loader2,
+  CheckCircle2,
+  ArrowRight,
 } from "lucide-react";
+import terminalHero from "@assets/images/liberty-terminal-hero.png";
 
 const uploadSchema = z.object({
   businessName: z.string().min(1, "Business name is required"),
@@ -513,6 +516,30 @@ export default function UploadStatement() {
                   Book a 10-Minute Call
                 </Button>
               </Link>
+            </div>
+          </div>
+        </section>
+
+        <section className="bg-background py-16" data-testid="section-terminal-promo">
+          <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+              <div className="flex justify-center">
+                <img src={terminalHero} alt="Liberty Smart Terminal" className="w-full max-w-[240px] rounded-md object-contain" data-testid="img-upload-terminal" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-bold text-foreground mb-3" data-testid="text-terminal-promo-heading">
+                  Need a Terminal Too?
+                </h2>
+                <p className="text-muted-foreground mb-4 leading-relaxed">
+                  Your statement review also qualifies you for the Liberty Smart Terminal - free for qualifying merchants.* Tap, dip, swipe, and manual key entry included.
+                </p>
+                <ul className="space-y-2 mb-4">
+                  <li className="flex items-start gap-2 text-sm text-muted-foreground"><CheckCircle2 className="w-4 h-4 text-primary mt-0.5 shrink-0" />Same-day setup available</li>
+                  <li className="flex items-start gap-2 text-sm text-muted-foreground"><CheckCircle2 className="w-4 h-4 text-primary mt-0.5 shrink-0" />Cash discount and surcharge ready</li>
+                  <li className="flex items-start gap-2 text-sm text-muted-foreground"><CheckCircle2 className="w-4 h-4 text-primary mt-0.5 shrink-0" />Guided onboarding and dedicated support</li>
+                </ul>
+                <p className="text-xs text-muted-foreground">*Eligibility, underwriting, card brand rules, and applicable laws apply.</p>
+              </div>
             </div>
           </div>
         </section>

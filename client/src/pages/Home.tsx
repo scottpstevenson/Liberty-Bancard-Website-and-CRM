@@ -49,6 +49,8 @@ import logoBlue from "@assets/logo-blue.png";
 import heroBg from "@assets/images/hero-bg.png";
 import teamCollab from "@assets/images/team-collab.png";
 import terminalDevice from "@assets/images/liberty-terminal-hero.png";
+import terminalTap from "@assets/images/liberty-terminal-tap.png";
+import terminalAngle from "@assets/images/liberty-terminal-angle.png";
 import dashboardPreview from "@assets/images/dashboard-preview.png";
 
 function useCountUp(end: number, duration: number = 2000, suffix: string = "") {
@@ -653,7 +655,7 @@ export default function Home() {
                 </CardHeader>
                 <CardContent>
                   <div className="rounded-md overflow-hidden mb-3">
-                    <img src={terminalDevice} alt="Liberty Smart Terminal" className="w-full h-32 object-cover" />
+                    <img src={terminalDevice} alt="Liberty Smart Terminal" className="w-full h-48 object-contain bg-muted/50 p-2" data-testid="img-home-terminal" />
                   </div>
                   <ul className="space-y-2 text-sm text-muted-foreground">
                     <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Tap, dip, swipe, manual key</li>
@@ -759,6 +761,41 @@ export default function Home() {
                   </CardContent>
                 </Card>
               ))}
+            </div>
+          </div>
+        </section>
+
+        {/* SECTION 8.25: Terminal Showcase */}
+        <section className="bg-background py-20" data-testid="section-terminal-showcase">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+              <div>
+                <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-terminal-showcase-heading">
+                  The Liberty Smart Terminal
+                </h2>
+                <p className="text-lg text-muted-foreground mb-6 leading-relaxed">
+                  Every merchant we onboard gets the same reliable, modern terminal - configured for their business, with guided setup and dedicated support from day one.
+                </p>
+                <ul className="space-y-3 mb-8">
+                  <li className="flex items-start gap-3"><CheckCircle2 className="w-5 h-5 text-primary mt-0.5 shrink-0" /><span className="text-muted-foreground">Tap, dip, swipe, QR, and manual key entry</span></li>
+                  <li className="flex items-start gap-3"><CheckCircle2 className="w-5 h-5 text-primary mt-0.5 shrink-0" /><span className="text-muted-foreground">Built-in cash discount and surcharge support</span></li>
+                  <li className="flex items-start gap-3"><CheckCircle2 className="w-5 h-5 text-primary mt-0.5 shrink-0" /><span className="text-muted-foreground">Wi-Fi and Ethernet connectivity</span></li>
+                  <li className="flex items-start gap-3"><CheckCircle2 className="w-5 h-5 text-primary mt-0.5 shrink-0" /><span className="text-muted-foreground">Tip adjust, batch close, and on-device reporting</span></li>
+                  <li className="flex items-start gap-3"><CheckCircle2 className="w-5 h-5 text-primary mt-0.5 shrink-0" /><span className="text-muted-foreground">Free for qualifying merchants*</span></li>
+                </ul>
+                <Link href="/upload-statement?terminal=yes" data-testid="link-terminal-showcase-cta">
+                  <Button className="gap-2">
+                    Check Terminal Eligibility
+                    <ArrowRight className="w-4 h-4" />
+                  </Button>
+                </Link>
+                <p className="text-xs text-muted-foreground mt-3">*Eligibility, underwriting, card brand rules, and applicable laws apply.</p>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <img src={terminalDevice} alt="Liberty Smart Terminal - front view" className="w-full rounded-md object-contain" data-testid="img-showcase-hero" />
+                <img src={terminalAngle} alt="Liberty Smart Terminal - angle view" className="w-full rounded-md object-contain" data-testid="img-showcase-angle" />
+                <img src={terminalTap} alt="Contactless tap payment on Liberty Smart Terminal" className="col-span-2 w-full rounded-md object-cover max-h-64" data-testid="img-showcase-tap" />
+              </div>
             </div>
           </div>
         </section>

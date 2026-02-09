@@ -18,7 +18,10 @@ import {
   FileCheck,
   Phone,
   Calendar,
+  ArrowRight,
 } from "lucide-react";
+import terminalHero from "@assets/images/liberty-terminal-hero.png";
+import terminalTap from "@assets/images/liberty-terminal-tap.png";
 
 const approaches = [
   {
@@ -256,6 +259,44 @@ export default function ZeroPercent() {
                   </p>
                 </CardContent>
               </Card>
+            </div>
+          </div>
+        </section>
+
+        {/* Terminal Equipment */}
+        <section className="bg-background py-20" data-testid="section-terminal-equipment">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="max-w-5xl mx-auto">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-10 items-center">
+                <div className="flex flex-col gap-4 items-center order-2 md:order-1">
+                  <img src={terminalHero} alt="Liberty Smart Terminal" className="w-full max-w-xs rounded-md object-contain" data-testid="img-zero-terminal-hero" />
+                  <img src={terminalTap} alt="Contactless tap payment on Liberty Smart Terminal" className="w-full max-w-xs rounded-md object-cover" data-testid="img-zero-terminal-tap" />
+                </div>
+                <div className="order-1 md:order-2">
+                  <h2
+                    className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4"
+                    data-testid="text-terminal-heading"
+                  >
+                    Built for the Liberty Smart Terminal
+                  </h2>
+                  <p className="text-muted-foreground mb-6 leading-relaxed" data-testid="text-terminal-description">
+                    Every 0% program we deploy is configured directly on the Liberty Smart Terminal. Dual-pricing, compliant receipts, and proper disclosures are handled automatically at checkout.
+                  </p>
+                  <ul className="space-y-3 mb-6">
+                    <li className="flex items-start gap-3"><CheckCircle2 className="w-5 h-5 text-primary mt-0.5 shrink-0" /><span className="text-muted-foreground">Automatic dual-price display at checkout</span></li>
+                    <li className="flex items-start gap-3"><CheckCircle2 className="w-5 h-5 text-primary mt-0.5 shrink-0" /><span className="text-muted-foreground">Compliant receipts with required disclosures</span></li>
+                    <li className="flex items-start gap-3"><CheckCircle2 className="w-5 h-5 text-primary mt-0.5 shrink-0" /><span className="text-muted-foreground">Tap, dip, swipe, and manual key entry</span></li>
+                    <li className="flex items-start gap-3"><CheckCircle2 className="w-5 h-5 text-primary mt-0.5 shrink-0" /><span className="text-muted-foreground">Free for qualifying merchants*</span></li>
+                  </ul>
+                  <Link href="/upload-statement?terminal=yes" data-testid="link-zero-terminal-cta">
+                    <Button className="gap-2">
+                      Check Terminal Eligibility
+                      <ArrowRight className="w-4 h-4" />
+                    </Button>
+                  </Link>
+                  <p className="text-xs text-muted-foreground mt-4">*Eligibility, underwriting, card brand rules, and applicable laws apply.</p>
+                </div>
+              </div>
             </div>
           </div>
         </section>

@@ -20,6 +20,8 @@ import {
   X,
   Minus,
 } from "lucide-react";
+import terminalHero from "@assets/images/liberty-terminal-hero.png";
+import terminalTap from "@assets/images/liberty-terminal-tap.png";
 
 const comparisonTable = [
   { feature: "Interchange passthrough pricing", square: false, stripe: false, liberty: true },
@@ -277,54 +279,62 @@ export default function BeatSquareStripe() {
         {/* Terminal Block */}
         <section className="bg-muted py-20" data-testid="section-terminal">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="max-w-3xl mx-auto">
+            <div className="max-w-5xl mx-auto">
               <Card data-testid="card-terminal-block">
                 <CardContent className="p-8">
-                  <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center mb-4">
-                    <Smartphone className="w-5 h-5 text-primary" />
-                  </div>
-                  <h2
-                    className="text-2xl md:text-3xl font-display font-bold text-foreground mb-4"
-                    data-testid="text-terminal-heading"
-                  >
-                    Liberty Smart Terminal
-                  </h2>
-                  <p
-                    className="text-muted-foreground mb-6 leading-relaxed"
-                    data-testid="text-terminal-description"
-                  >
-                    Modern checkout with guided onboarding and support after go-live.
-                  </p>
-                  <ul className="space-y-3 mb-6">
-                    {terminalFeatures.map((item, i) => (
-                      <li
-                        key={i}
-                        className="flex items-start gap-3"
-                        data-testid={`terminal-feature-${i}`}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+                    <div>
+                      <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center mb-4">
+                        <Smartphone className="w-5 h-5 text-primary" />
+                      </div>
+                      <h2
+                        className="text-2xl md:text-3xl font-display font-bold text-foreground mb-4"
+                        data-testid="text-terminal-heading"
                       >
-                        <CheckCircle2 className="w-5 h-5 text-primary mt-0.5 shrink-0" />
-                        <span className="text-muted-foreground">{item}</span>
-                      </li>
-                    ))}
-                  </ul>
-                  <p
-                    className="text-sm text-muted-foreground mb-6"
-                    data-testid="text-terminal-note"
-                  >
-                    Free equipment may be available for qualifying merchants.*
-                  </p>
-                  <Link href="/upload-statement" data-testid="link-terminal-cta">
-                    <Button className="gap-2">
-                      Check Terminal Eligibility
-                      <ArrowRight className="w-4 h-4" />
-                    </Button>
-                  </Link>
-                  <p
-                    className="text-xs text-muted-foreground mt-4"
-                    data-testid="text-terminal-footnote"
-                  >
-                    *Eligibility and underwriting apply.
-                  </p>
+                        Liberty Smart Terminal
+                      </h2>
+                      <p
+                        className="text-muted-foreground mb-6 leading-relaxed"
+                        data-testid="text-terminal-description"
+                      >
+                        Modern checkout with guided onboarding and support after go-live.
+                      </p>
+                      <ul className="space-y-3 mb-6">
+                        {terminalFeatures.map((item, i) => (
+                          <li
+                            key={i}
+                            className="flex items-start gap-3"
+                            data-testid={`terminal-feature-${i}`}
+                          >
+                            <CheckCircle2 className="w-5 h-5 text-primary mt-0.5 shrink-0" />
+                            <span className="text-muted-foreground">{item}</span>
+                          </li>
+                        ))}
+                      </ul>
+                      <p
+                        className="text-sm text-muted-foreground mb-6"
+                        data-testid="text-terminal-note"
+                      >
+                        Free equipment may be available for qualifying merchants.*
+                      </p>
+                      <Link href="/upload-statement" data-testid="link-terminal-cta">
+                        <Button className="gap-2">
+                          Check Terminal Eligibility
+                          <ArrowRight className="w-4 h-4" />
+                        </Button>
+                      </Link>
+                      <p
+                        className="text-xs text-muted-foreground mt-4"
+                        data-testid="text-terminal-footnote"
+                      >
+                        *Eligibility and underwriting apply.
+                      </p>
+                    </div>
+                    <div className="flex flex-col gap-4 items-center">
+                      <img src={terminalHero} alt="Liberty Smart Terminal" className="w-full max-w-xs rounded-md object-contain" data-testid="img-terminal-hero" />
+                      <img src={terminalTap} alt="Contactless tap payment on Liberty Smart Terminal" className="w-full max-w-xs rounded-md object-cover" data-testid="img-terminal-tap" />
+                    </div>
+                  </div>
                 </CardContent>
               </Card>
             </div>
