@@ -1,7 +1,5 @@
-import { useCallback, useState } from "react";
-import { useLocation } from "wouter";
-import { Link } from "wouter";
-import { useDropzone } from "react-dropzone";
+import { useEffect } from "react";
+import { useLocation, Link } from "wouter";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -9,7 +7,7 @@ import { useMutation } from "@tanstack/react-query";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -28,34 +26,30 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import {
-  UploadCloud,
-  FileText,
+  FileSearch,
   ShieldCheck,
   Clock,
-  FileSearch,
+  Lock,
   Calendar,
   Loader2,
-  CheckCircle,
 } from "lucide-react";
 
 const uploadSchema = z.object({
   businessName: z.string().min(1, "Business name is required"),
-  contactName: z.string().min(1, "Contact name is required"),
+  contactName: z.string().min(1, "Your name is required"),
   email: z.string().email("Valid email is required"),
   mobile: z.string().min(10, "Valid mobile number is required"),
-  vertical: z.string().min(1, "Please select a vertical"),
+  vertical: z.string().min(1, "Please select an industry"),
   fileName: z.string().optional(),
   currentProvider: z.string().optional(),
-  interestedIn0Percent: z.string().default("no"),
-  needTerminal: z.string().default("no"),
+  interestedIn0Percent: z.boolean().default(false),
+  needTerminal: z.boolean().default(false),
   notes: z.string().optional(),
   consentSms: z.boolean().refine((v) => v === true, {
-    message: "You must agree to receive communications",
+    message: "You must consent to receive communications",
   }),
 });
 
@@ -64,7 +58,10 @@ type UploadFormData = z.infer<typeof uploadSchema>;
 export default function UploadStatement() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const [droppedFileName, setDroppedFileName] = useState<string>("");
+
+  const params = new URLSearchParams(window.location.search);
+  const preTerminal = params.get("terminal") === "yes";
+  const preInterest0 = params.get("interest0") === "yes";
 
   const form = useForm<UploadFormData>({
     resolver: zodResolver(uploadSchema),
@@ -76,32 +73,17 @@ export default function UploadStatement() {
       vertical: "",
       fileName: "",
       currentProvider: "",
-      interestedIn0Percent: "no",
-      needTerminal: "no",
+      interestedIn0Percent: preInterest0,
+      needTerminal: preTerminal,
       notes: "",
       consentSms: false,
     },
   });
 
-  const onDrop = useCallback(
-    (acceptedFiles: File[]) => {
-      if (acceptedFiles.length > 0) {
-        const name = acceptedFiles[0].name;
-        setDroppedFileName(name);
-        form.setValue("fileName", name);
-      }
-    },
-    [form],
-  );
-
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: {
-      "application/pdf": [".pdf"],
-      "image/*": [".png", ".jpg", ".jpeg"],
-    },
-    maxFiles: 1,
-  });
+  useEffect(() => {
+    if (preTerminal) form.setValue("needTerminal", true);
+    if (preInterest0) form.setValue("interestedIn0Percent", true);
+  }, [preTerminal, preInterest0, form]);
 
   const submitMutation = useMutation({
     mutationFn: async (data: UploadFormData) => {
@@ -111,15 +93,19 @@ export default function UploadStatement() {
         email: data.email,
         mobile: data.mobile,
         vertical: data.vertical,
-        currentProvider: data.currentProvider,
-        interestedIn0Percent: data.interestedIn0Percent === "yes",
-        needTerminal: data.needTerminal === "yes",
-        notes: data.notes,
+        currentProvider: data.currentProvider || undefined,
+        interestedIn0Percent: data.interestedIn0Percent,
+        needTerminal: data.needTerminal,
+        notes: data.notes || undefined,
         consentSms: data.consentSms,
       });
       return res.json();
     },
     onSuccess: () => {
+      toast({
+        title: "Statement Received",
+        description: "We got your statement and will review it shortly.",
+      });
       setLocation("/thanks-statement");
     },
     onError: (error: Error) => {
@@ -147,21 +133,15 @@ export default function UploadStatement() {
   const trustBullets = [
     {
       icon: FileSearch,
-      title: "Written breakdown you keep",
-      description:
-        "You get a clear, line-by-line breakdown of your current costs that is yours to keep regardless.",
+      text: "Written breakdown you keep",
     },
     {
       icon: ShieldCheck,
-      title: "Proof-first, no pressure",
-      description:
-        "We show you the math before asking for anything. No obligation, no hard sell.",
+      text: "Proof-first, no pressure",
     },
     {
       icon: Clock,
-      title: "Fast turnaround during business hours",
-      description:
-        "Most reviews are completed within a few hours during normal business days.",
+      text: "Fast turnaround during business hours",
     },
   ];
 
@@ -169,251 +149,226 @@ export default function UploadStatement() {
     <div className="min-h-screen flex flex-col bg-background">
       <Navbar />
 
-      <main className="flex-grow pt-32 pb-16">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-10">
-            <h1
-              className="text-3xl sm:text-4xl font-bold text-foreground mb-3"
-              data-testid="text-upload-heading"
-            >
-              Upload Your Statement (Secure)
-            </h1>
-            <p
-              className="text-lg text-muted-foreground max-w-2xl mx-auto"
-              data-testid="text-upload-subheadline"
-            >
-              PDF or photo. Redact account numbers if you want - totals + fee
-              lines are all we need.
-            </p>
+      <main className="flex-grow pt-28 pb-16">
+        <section className="bg-background py-12">
+          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="text-center mb-10">
+              <h1
+                className="text-3xl sm:text-4xl font-bold text-foreground mb-3"
+                data-testid="text-upload-heading"
+              >
+                Upload Your Statement (Secure)
+              </h1>
+              <p
+                className="text-lg text-muted-foreground max-w-2xl mx-auto mb-8"
+                data-testid="text-upload-subheadline"
+              >
+                PDF or photo. Redact account numbers if you want - totals + fee lines are all we need.
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {trustBullets.map((bullet) => (
+                  <div
+                    key={bullet.text}
+                    className="flex items-center gap-3 justify-center"
+                    data-testid={`trust-bullet-${bullet.text.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                  >
+                    <bullet.icon className="w-5 h-5 text-primary shrink-0" />
+                    <span className="text-sm text-muted-foreground">{bullet.text}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
+        </section>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
-            {trustBullets.map((bullet) => (
-              <Card key={bullet.title} data-testid={`card-trust-${bullet.title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}>
-                <CardContent className="pt-6 flex flex-col items-center text-center gap-3">
-                  <bullet.icon className="w-8 h-8 text-primary" />
-                  <h3 className="font-semibold text-foreground">
-                    {bullet.title}
-                  </h3>
-                  <p className="text-sm text-muted-foreground">
-                    {bullet.description}
-                  </p>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-
-          <Card data-testid="card-upload-form">
-            <CardHeader>
-              <CardTitle data-testid="text-form-title">
-                Statement Upload Form
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Form {...form}>
-                <form
-                  onSubmit={form.handleSubmit(onSubmit)}
-                  className="space-y-6"
-                  data-testid="form-upload-statement"
+        <section className="bg-muted/30 py-12">
+          <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+            <Card data-testid="card-upload-form">
+              <CardContent className="pt-6">
+                <h2
+                  className="text-2xl font-bold text-foreground mb-6"
+                  data-testid="text-form-title"
                 >
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <FormField
-                      control={form.control}
-                      name="businessName"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Business Name *</FormLabel>
-                          <FormControl>
-                            <Input
-                              placeholder="Your business name"
-                              data-testid="input-business-name"
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                  Submit Your Statement for Review
+                </h2>
+                <Form {...form}>
+                  <form
+                    onSubmit={form.handleSubmit(onSubmit)}
+                    className="space-y-6"
+                    data-testid="form-upload-statement"
+                  >
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <FormField
+                        control={form.control}
+                        name="businessName"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Business Name</FormLabel>
+                            <FormControl>
+                              <Input
+                                placeholder="Your business name"
+                                data-testid="input-business-name"
+                                {...field}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
 
-                    <FormField
-                      control={form.control}
-                      name="contactName"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Contact Name *</FormLabel>
-                          <FormControl>
-                            <Input
-                              placeholder="Your full name"
-                              data-testid="input-contact-name"
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                      <FormField
+                        control={form.control}
+                        name="contactName"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Your Name</FormLabel>
+                            <FormControl>
+                              <Input
+                                placeholder="Your full name"
+                                data-testid="input-contact-name"
+                                {...field}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
 
-                    <FormField
-                      control={form.control}
-                      name="email"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Email *</FormLabel>
-                          <FormControl>
-                            <Input
-                              type="email"
-                              placeholder="you@business.com"
-                              data-testid="input-email"
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                      <FormField
+                        control={form.control}
+                        name="email"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Email</FormLabel>
+                            <FormControl>
+                              <Input
+                                type="email"
+                                placeholder="you@business.com"
+                                data-testid="input-email"
+                                {...field}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
 
-                    <FormField
-                      control={form.control}
-                      name="mobile"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Mobile *</FormLabel>
-                          <FormControl>
-                            <Input
-                              type="tel"
-                              placeholder="(555) 123-4567"
-                              data-testid="input-mobile"
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-
-                  <FormField
-                    control={form.control}
-                    name="vertical"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Vertical *</FormLabel>
-                        <Select
-                          onValueChange={field.onChange}
-                          defaultValue={field.value}
-                        >
-                          <FormControl>
-                            <SelectTrigger data-testid="select-vertical">
-                              <SelectValue placeholder="Select your industry" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {verticals.map((v) => (
-                              <SelectItem
-                                key={v}
-                                value={v}
-                                data-testid={`select-item-${v.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
-                              >
-                                {v}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <div>
-                    <Label className="text-sm font-medium mb-2 block">
-                      Upload Statement
-                    </Label>
-                    <div
-                      {...getRootProps()}
-                      className={`border-2 border-dashed rounded-md p-8 text-center cursor-pointer transition-colors ${
-                        isDragActive
-                          ? "border-primary bg-primary/5"
-                          : "border-border hover:border-primary/50"
-                      }`}
-                      data-testid="dropzone-statement"
-                    >
-                      <input {...getInputProps()} data-testid="input-file" />
-                      <UploadCloud className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-                      {droppedFileName ? (
-                        <div className="flex items-center justify-center gap-2">
-                          <FileText className="w-5 h-5 text-primary" />
-                          <span
-                            className="text-sm font-medium text-foreground"
-                            data-testid="text-file-name"
-                          >
-                            {droppedFileName}
-                          </span>
-                        </div>
-                      ) : (
-                        <div>
-                          <p className="text-sm text-foreground font-medium mb-1">
-                            {isDragActive
-                              ? "Drop your file here"
-                              : "Click or drag your statement here"}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            PDF, JPG, or PNG accepted
-                          </p>
-                        </div>
-                      )}
+                      <FormField
+                        control={form.control}
+                        name="mobile"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Mobile Number</FormLabel>
+                            <FormControl>
+                              <Input
+                                type="tel"
+                                placeholder="(555) 123-4567"
+                                data-testid="input-mobile"
+                                {...field}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
                     </div>
-                  </div>
 
-                  <FormField
-                    control={form.control}
-                    name="currentProvider"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Current Provider (optional)</FormLabel>
-                        <FormControl>
-                          <Input
-                            placeholder="e.g. Square, Stripe, Clover, etc."
-                            data-testid="input-current-provider"
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                    <FormField
+                      control={form.control}
+                      name="vertical"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Industry / Vertical</FormLabel>
+                          <Select
+                            onValueChange={field.onChange}
+                            defaultValue={field.value}
+                          >
+                            <FormControl>
+                              <SelectTrigger data-testid="select-vertical">
+                                <SelectValue placeholder="Select your industry" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {verticals.map((v) => (
+                                <SelectItem
+                                  key={v}
+                                  value={v}
+                                  data-testid={`select-item-${v.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                                >
+                                  {v}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <FormField
+                      control={form.control}
+                      name="fileName"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Upload Statement (PDF or Photo)</FormLabel>
+                          <FormControl>
+                            <Input
+                              type="file"
+                              accept=".pdf,.png,.jpg,.jpeg"
+                              data-testid="input-file"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                field.onChange(file?.name || "");
+                              }}
+                            />
+                          </FormControl>
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <Lock className="w-3.5 h-3.5 text-muted-foreground" />
+                            <span
+                              className="text-xs text-muted-foreground"
+                              data-testid="text-secure-upload"
+                            >
+                              Secure upload
+                            </span>
+                          </div>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="currentProvider"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Current Provider (optional)</FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder="e.g. Square, Stripe, Clover"
+                              data-testid="input-current-provider"
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
                     <FormField
                       control={form.control}
                       name="interestedIn0Percent"
                       render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Interested in 0% Processing?</FormLabel>
+                        <FormItem className="flex items-start gap-3">
                           <FormControl>
-                            <RadioGroup
-                              onValueChange={field.onChange}
-                              defaultValue={field.value}
-                              className="flex gap-4"
-                              data-testid="radio-interested-0-percent"
-                            >
-                              <div className="flex items-center gap-2">
-                                <RadioGroupItem
-                                  value="yes"
-                                  id="zero-yes"
-                                  data-testid="radio-0-percent-yes"
-                                />
-                                <Label htmlFor="zero-yes">Yes</Label>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <RadioGroupItem
-                                  value="no"
-                                  id="zero-no"
-                                  data-testid="radio-0-percent-no"
-                                />
-                                <Label htmlFor="zero-no">No</Label>
-                              </div>
-                            </RadioGroup>
+                            <Checkbox
+                              checked={field.value}
+                              onCheckedChange={field.onChange}
+                              data-testid="checkbox-interested-0-percent"
+                            />
                           </FormControl>
+                          <FormLabel className="text-sm font-normal">
+                            Interested in a compliant 0% program? (optional)
+                          </FormLabel>
                           <FormMessage />
                         </FormItem>
                       )}
@@ -423,104 +378,92 @@ export default function UploadStatement() {
                       control={form.control}
                       name="needTerminal"
                       render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Need a Terminal?</FormLabel>
+                        <FormItem className="flex items-start gap-3">
                           <FormControl>
-                            <RadioGroup
-                              onValueChange={field.onChange}
-                              defaultValue={field.value}
-                              className="flex gap-4"
-                              data-testid="radio-need-terminal"
-                            >
-                              <div className="flex items-center gap-2">
-                                <RadioGroupItem
-                                  value="yes"
-                                  id="terminal-yes"
-                                  data-testid="radio-terminal-yes"
-                                />
-                                <Label htmlFor="terminal-yes">Yes</Label>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <RadioGroupItem
-                                  value="no"
-                                  id="terminal-no"
-                                  data-testid="radio-terminal-no"
-                                />
-                                <Label htmlFor="terminal-no">No</Label>
-                              </div>
-                            </RadioGroup>
+                            <Checkbox
+                              checked={field.value}
+                              onCheckedChange={field.onChange}
+                              data-testid="checkbox-need-terminal"
+                            />
+                          </FormControl>
+                          <FormLabel className="text-sm font-normal">
+                            Do you need a terminal? (optional)
+                          </FormLabel>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="notes"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Anything you want us to focus on? (optional)</FormLabel>
+                          <FormControl>
+                            <Textarea
+                              placeholder="Tell us what matters most to you"
+                              className="resize-none"
+                              rows={3}
+                              data-testid="textarea-notes"
+                              {...field}
+                            />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
                       )}
                     />
-                  </div>
 
-                  <FormField
-                    control={form.control}
-                    name="notes"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Notes (optional)</FormLabel>
-                        <FormControl>
-                          <Textarea
-                            placeholder="What are you trying to fix?"
-                            className="resize-none"
-                            rows={3}
-                            data-testid="textarea-notes"
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                    <FormField
+                      control={form.control}
+                      name="consentSms"
+                      render={({ field }) => (
+                        <FormItem className="flex items-start gap-3">
+                          <FormControl>
+                            <Checkbox
+                              checked={field.value}
+                              onCheckedChange={field.onChange}
+                              data-testid="checkbox-consent"
+                            />
+                          </FormControl>
+                          <div className="space-y-1 leading-none">
+                            <FormLabel className="text-sm font-normal text-muted-foreground">
+                              I consent to receive text/email communications from Liberty Bancard.
+                            </FormLabel>
+                            <FormMessage />
+                          </div>
+                        </FormItem>
+                      )}
+                    />
 
-                  <FormField
-                    control={form.control}
-                    name="consentSms"
-                    render={({ field }) => (
-                      <FormItem className="flex items-start gap-3">
-                        <FormControl>
-                          <Checkbox
-                            checked={field.value}
-                            onCheckedChange={field.onChange}
-                            data-testid="checkbox-consent"
-                          />
-                        </FormControl>
-                        <div className="space-y-1 leading-none">
-                          <FormLabel className="text-sm font-normal text-muted-foreground">
-                            By submitting, you agree to receive texts/emails
-                            about your statement review. Reply STOP to opt out.
-                          </FormLabel>
-                          <FormMessage />
-                        </div>
-                      </FormItem>
-                    )}
-                  />
+                    <Button
+                      type="submit"
+                      className="w-full"
+                      disabled={submitMutation.isPending}
+                      data-testid="button-upload-submit"
+                    >
+                      {submitMutation.isPending ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                          Submitting...
+                        </>
+                      ) : (
+                        "Upload My Statement"
+                      )}
+                    </Button>
+                  </form>
+                </Form>
+              </CardContent>
+            </Card>
+          </div>
+        </section>
 
-                  <Button
-                    type="submit"
-                    className="w-full"
-                    disabled={submitMutation.isPending}
-                    data-testid="button-upload-submit"
-                  >
-                    {submitMutation.isPending ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                        Submitting...
-                      </>
-                    ) : (
-                      "Upload My Statement"
-                    )}
-                  </Button>
-                </form>
-              </Form>
-            </CardContent>
-          </Card>
-
-          <div className="mt-16" data-testid="section-what-happens-next">
-            <h2 className="text-2xl font-bold text-foreground text-center mb-8">
+        <section className="bg-background py-16" data-testid="section-what-happens-next">
+          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+            <h2
+              className="text-2xl font-bold text-foreground text-center mb-8"
+              data-testid="text-what-happens-next"
+            >
               What Happens Next
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -529,11 +472,8 @@ export default function UploadStatement() {
                   <div className="w-10 h-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center mx-auto text-lg font-bold">
                     1
                   </div>
-                  <h3 className="font-semibold text-foreground">
-                    Confirmation
-                  </h3>
                   <p className="text-sm text-muted-foreground">
-                    We confirm we received your file (SMS/email)
+                    We confirm we received your file (SMS/email).
                   </p>
                 </CardContent>
               </Card>
@@ -542,10 +482,8 @@ export default function UploadStatement() {
                   <div className="w-10 h-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center mx-auto text-lg font-bold">
                     2
                   </div>
-                  <h3 className="font-semibold text-foreground">Analysis</h3>
                   <p className="text-sm text-muted-foreground">
-                    We calculate your effective rate and identify cost drivers
-                    line-by-line
+                    We calculate your effective rate and identify cost drivers line-by-line.
                   </p>
                 </CardContent>
               </Card>
@@ -554,38 +492,51 @@ export default function UploadStatement() {
                   <div className="w-10 h-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center mx-auto text-lg font-bold">
                     3
                   </div>
-                  <h3 className="font-semibold text-foreground">Options</h3>
                   <p className="text-sm text-muted-foreground">
-                    We send you 2-3 clear options with apples-to-apples math
+                    We send you 2-3 clear options with apples-to-apples math and next steps.
                   </p>
                 </CardContent>
               </Card>
             </div>
+            <p
+              className="text-[10px] text-muted-foreground text-center mt-6"
+              data-testid="text-compliance-microcopy"
+            >
+              Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.
+            </p>
+            <div className="text-center mt-6">
+              <Link href="#">
+                <Button variant="outline" className="gap-2" data-testid="button-book-call-next">
+                  <Calendar className="w-4 h-4" />
+                  Book a 10-Minute Call
+                </Button>
+              </Link>
+            </div>
           </div>
+        </section>
 
-          <p
-            className="text-[10px] text-muted-foreground text-center mt-8"
-            data-testid="text-compliance-microline"
-          >
-            Eligibility, underwriting, card brand rules, and applicable laws
-            apply. No savings claims without statement review.
-          </p>
-
-          <div
-            className="mt-10 text-center"
-            data-testid="section-secondary-cta"
-          >
-            <p className="text-muted-foreground mb-3">
+        <section className="bg-muted/30 py-16" data-testid="section-secondary-cta">
+          <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+            <h2
+              className="text-2xl font-bold text-foreground mb-3"
+              data-testid="text-prefer-talk"
+            >
               Prefer to Talk First?
+            </h2>
+            <p
+              className="text-muted-foreground mb-6"
+              data-testid="text-prefer-talk-description"
+            >
+              Book a quick 10-minute call. We'll tell you exactly what to upload and what to look for.
             </p>
             <Link href="#">
-              <Button variant="outline" className="gap-2" data-testid="button-book-call">
+              <Button className="gap-2" data-testid="button-book-call-secondary">
                 <Calendar className="w-4 h-4" />
                 Book a 10-Minute Call
               </Button>
             </Link>
           </div>
-        </div>
+        </section>
       </main>
 
       <Footer />

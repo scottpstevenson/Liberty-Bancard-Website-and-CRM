@@ -1,5 +1,6 @@
 import { Link } from "wouter";
 import { Phone, Mail, Calendar } from "lucide-react";
+import logoWhite from "@assets/logo-white.png";
 
 export function Footer() {
   const quickLinks = [
@@ -23,12 +24,7 @@ export function Footer() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12 mb-12">
           <div>
             <Link href="/" data-testid="link-footer-logo">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="w-8 h-8 rounded-md bg-white/10 flex items-center justify-center">
-                  <span className="text-primary-foreground font-bold text-lg">L</span>
-                </div>
-                <span className="font-bold text-xl tracking-tight">Liberty Bancard</span>
-              </div>
+              <img src={logoWhite} alt="Liberty Bancard" className="h-10 w-auto mb-4" />
             </Link>
             <p className="text-primary-foreground/70 text-sm leading-relaxed" data-testid="text-footer-description">
               We don't sell a rate. We prove your real cost and fix it.

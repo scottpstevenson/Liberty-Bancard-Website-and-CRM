@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Menu, X, Phone, Mail, Upload, Calendar, LayoutDashboard } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import logoBlue from "@assets/logo-blue.png";
 
 const navLinks = [
   { name: "Home", href: "/" },
@@ -64,15 +65,10 @@ export function Navbar() {
             {/* Logo */}
             <Link
               href="/"
-              className="flex items-center gap-2 shrink-0"
+              className="flex items-center shrink-0"
               data-testid="link-logo"
             >
-              <div className="w-8 h-8 rounded-md bg-primary flex items-center justify-center">
-                <span className="text-primary-foreground font-bold text-lg">L</span>
-              </div>
-              <span className="font-bold text-xl text-foreground tracking-tight">
-                Liberty Bancard
-              </span>
+              <img src={logoBlue} alt="Liberty Bancard" className="h-10 w-auto" />
             </Link>
 
             {/* Desktop Nav Links */}

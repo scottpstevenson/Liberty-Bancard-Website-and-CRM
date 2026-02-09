@@ -12,81 +12,76 @@ import {
 import {
   Upload,
   CheckCircle2,
-  ArrowRight,
   ShieldCheck,
-  DollarSign,
-  FileText,
-  Users,
-  CreditCard,
-  ClipboardCheck,
-  Headphones,
+  Scale,
+  FileCheck,
   Phone,
+  Calendar,
 } from "lucide-react";
 
 const approaches = [
   {
     title: "Cash Discount",
-    description:
-      "A posted cash price with a clearly disclosed service fee for card payments. The discount is applied at the register and reflected on the receipt. This model is widely accepted and straightforward to implement when done correctly.",
-    icon: DollarSign,
+    description: "Discount for cash-paying customers; clear and transparent.",
+    icon: Scale,
   },
   {
     title: "Compliant Surcharging",
     description:
-      "A percentage-based surcharge added to credit card transactions only, with proper registration, signage, and receipt disclosure. Debit cards are never surcharged. This model requires card brand registration and state-level compliance checks.",
+      "Disclosed fee on eligible credit transactions where permitted.",
     icon: ShieldCheck,
   },
 ];
 
 const fitItems = [
-  "Your average ticket is high enough that the fee offset is meaningful",
-  "Your customer base is accustomed to cash/card price differences",
-  "You operate in a state where surcharging or cash discount is permitted",
-  "You want to eliminate or significantly reduce your monthly processing cost",
+  "Your customers are not extremely price-sensitive",
+  "Your average ticket is high enough that a disclosure fee isn't disruptive",
+  "Your debit share is understood and handled correctly",
+  "Your staff can consistently follow a simple script at checkout",
 ];
 
 const checkoutBullets = [
-  "Clear signage at the point of entry and point of sale",
-  "Receipts that show the base price and any fee or discount separately",
-  "Debit transactions are always excluded from surcharges",
-  "Staff trained with a simple, professional script for customer questions",
+  "Clear disclosure before payment",
+  "Receipts that match signage",
+  "Debit handled correctly",
+  "One-sentence staff script (provided)",
 ];
 
 const complianceItems = [
-  { label: "Signage", detail: "Posted at entry and register per card brand requirements" },
-  { label: "Receipt line items", detail: "Base price and fee shown separately on every receipt" },
-  { label: "Debit exclusion", detail: "PIN and signature debit are never surcharged" },
-  { label: "Card brand registration", detail: "Surcharge programs registered with Visa/Mastercard as required" },
-  { label: "Ongoing support", detail: "We monitor rule changes and update your configuration" },
+  "Signage and checkout messaging",
+  "Receipt formatting",
+  "Debit program rules",
+  "Card brand requirements (including registration where required)",
+  "Ongoing support as requirements evolve",
 ];
 
-const processSteps = [
-  { step: "1", title: "Upload", detail: "Send us your current processing statement (PDF or photo)" },
-  { step: "2", title: "Review", detail: "We calculate your effective rate and identify cost drivers" },
-  { step: "3", title: "Recommend", detail: "You receive a written breakdown with compliant options" },
-  { step: "4", title: "Deploy", detail: "We configure your terminal, signage, and receipts correctly" },
+const implementationSteps = [
+  "We confirm your business model and state rules (where applicable)",
+  "We recommend cash discount vs compliant surcharging (or recommend wholesale pricing if it's a better fit)",
+  "We configure signage/receipt formatting and provide a staff script",
+  "We support you after go-live as requirements evolve",
 ];
 
 const faqItems = [
   {
-    question: "Is surcharging legal in my state?",
+    question: 'Is this the same as "surcharging"?',
     answer:
-      "Surcharging is legal in most U.S. states, but some states have restrictions or prohibitions. We check your specific state's rules before recommending a surcharge program and will only deploy it where it is fully compliant.",
+      'Sometimes. "0%" is a general marketing term. The two compliant structures are cash discount and (where permitted) compliant surcharging on eligible credit transactions.',
   },
   {
-    question: "Can I surcharge debit cards?",
+    question: "Does it apply to debit cards?",
     answer:
-      "No. Card brand rules and federal regulations prohibit surcharging on debit card transactions, whether PIN or signature debit. Our system automatically excludes debit cards from any surcharge.",
+      "Debit must be handled correctly under program rules. We'll configure the correct treatment based on your setup.",
   },
   {
-    question: "Will customers complain about the fee?",
+    question: "Will customers get upset?",
     answer:
-      "Transparency is key. When signage is clear, receipts are itemized, and staff are trained with a professional script, most customers understand and accept the fee. Many businesses report minimal pushback after the first week.",
+      "Clear disclosure and staff consistency make the difference. We provide signage language, receipt formatting, and a one-sentence script.",
   },
   {
-    question: "What if card brand rules change?",
+    question: "Is it allowed in my state?",
     answer:
-      "We monitor Visa, Mastercard, and other network rule updates continuously. If anything changes that affects your program, we update your configuration and notify you proactively.",
+      "Rules vary. We'll verify the right approach for your location and business model before recommending anything.",
   },
 ];
 
@@ -95,7 +90,7 @@ export default function ZeroPercent() {
     <div className="min-h-screen flex flex-col font-body">
       <Navbar />
 
-      <main className="flex-grow pt-16">
+      <main className="flex-grow pt-28">
         {/* Hero */}
         <section className="bg-background py-20 lg:py-28" data-testid="section-zero-hero">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -110,9 +105,10 @@ export default function ZeroPercent() {
                 className="text-lg text-muted-foreground mb-8 leading-relaxed"
                 data-testid="text-zero-subheadline"
               >
-                Eliminating fees requires the correct structure, disclosures, and configuration
-                - and it isn't right for every business. We review your statement and recommend
-                the most compliant, lowest-friction approach.
+                Eliminating fees requires the correct structure, disclosures, and
+                configuration - and it isn't right for every business. We review
+                your statement and recommend the most compliant, lowest-friction
+                approach.
               </p>
               <div className="flex flex-col sm:flex-row gap-4 flex-wrap">
                 <Link href="/upload-statement" data-testid="link-zero-primary-cta">
@@ -134,6 +130,13 @@ export default function ZeroPercent() {
               >
                 Where permitted; rules vary by state and card brand.
               </p>
+              <p
+                className="text-xs text-muted-foreground mt-2"
+                data-testid="text-zero-footnote"
+              >
+                Eligibility, underwriting, card brand rules, and applicable laws
+                apply.
+              </p>
             </div>
           </div>
         </section>
@@ -145,7 +148,7 @@ export default function ZeroPercent() {
               className="text-3xl md:text-4xl font-display font-bold text-foreground mb-12 text-center"
               data-testid="text-approaches-heading"
             >
-              Two Legit Approaches
+              Two Legit Approaches (We'll Recommend the Right Fit)
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {approaches.map((item, i) => (
@@ -164,6 +167,13 @@ export default function ZeroPercent() {
                 </Card>
               ))}
             </div>
+            <p
+              className="text-sm text-muted-foreground text-center mt-8 max-w-2xl mx-auto"
+              data-testid="text-approaches-expert-note"
+            >
+              Your ticket size, debit share, and card mix determine whether this
+              is smart. Your statement reveals this fast.
+            </p>
           </div>
         </section>
 
@@ -172,12 +182,18 @@ export default function ZeroPercent() {
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="max-w-3xl mx-auto">
               <h2
-                className="text-3xl md:text-4xl font-display font-bold text-foreground mb-8"
+                className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4"
                 data-testid="text-fit-heading"
               >
-                Is It a Fit?
+                Is a Fee-Offset Program Right for Your Business?
               </h2>
-              <ul className="space-y-4">
+              <p
+                className="text-muted-foreground mb-8"
+                data-testid="text-fit-intro"
+              >
+                In general, these programs tend to work best when:
+              </p>
+              <ul className="space-y-4 mb-8">
                 {fitItems.map((item, i) => (
                   <li
                     key={i}
@@ -189,6 +205,19 @@ export default function ZeroPercent() {
                   </li>
                 ))}
               </ul>
+              <p
+                className="text-muted-foreground mb-6"
+                data-testid="text-fit-not-sure"
+              >
+                Not sure? Upload your statement and we'll recommend the
+                lowest-friction path.
+              </p>
+              <Link href="/upload-statement" data-testid="link-fit-cta">
+                <Button className="gap-2">
+                  <Upload className="w-4 h-4" />
+                  Upload Statement
+                </Button>
+              </Link>
             </div>
           </div>
         </section>
@@ -201,20 +230,28 @@ export default function ZeroPercent() {
                 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-8"
                 data-testid="text-checkout-heading"
               >
-                Customer-Friendly Checkout
+                Customer-Friendly Checkout (No Surprise Fees)
               </h2>
-              <ul className="space-y-4">
+              <ul className="space-y-4 mb-8">
                 {checkoutBullets.map((item, i) => (
                   <li
                     key={i}
                     className="flex items-start gap-3"
                     data-testid={`checkout-bullet-${i}`}
                   >
-                    <Users className="w-5 h-5 text-primary mt-0.5 shrink-0" />
+                    <CheckCircle2 className="w-5 h-5 text-primary mt-0.5 shrink-0" />
                     <span className="text-muted-foreground">{item}</span>
                   </li>
                 ))}
               </ul>
+              <Card data-testid="card-checkout-callout">
+                <CardContent className="pt-6">
+                  <p className="text-sm text-muted-foreground">
+                    We prioritize clarity and compliance so you avoid chargebacks
+                    and complaints.
+                  </p>
+                </CardContent>
+              </Card>
             </div>
           </div>
         </section>
@@ -227,20 +264,17 @@ export default function ZeroPercent() {
                 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-8"
                 data-testid="text-compliance-heading"
               >
-                Compliance Checklist
+                The Compliance Pieces Most Providers Skip
               </h2>
-              <ul className="space-y-5">
+              <ul className="space-y-4">
                 {complianceItems.map((item, i) => (
                   <li
                     key={i}
                     className="flex items-start gap-3"
                     data-testid={`compliance-item-${i}`}
                   >
-                    <ClipboardCheck className="w-5 h-5 text-primary mt-0.5 shrink-0" />
-                    <div>
-                      <span className="font-medium text-foreground">{item.label}</span>
-                      <span className="text-muted-foreground"> - {item.detail}</span>
-                    </div>
+                    <FileCheck className="w-5 h-5 text-primary mt-0.5 shrink-0" />
+                    <span className="text-muted-foreground">{item}</span>
                   </li>
                 ))}
               </ul>
@@ -248,31 +282,49 @@ export default function ZeroPercent() {
           </div>
         </section>
 
-        {/* What Happens After Upload */}
+        {/* What Happens After You Upload Your Statement */}
         <section className="bg-muted py-20" data-testid="section-process">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <h2
               className="text-3xl md:text-4xl font-display font-bold text-foreground mb-12 text-center"
               data-testid="text-process-heading"
             >
-              What Happens After Upload
+              What Happens After You Upload Your Statement
             </h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-              {processSteps.map((item, i) => (
+              {implementationSteps.map((step, i) => (
                 <Card key={i} data-testid={`card-process-${i}`}>
                   <CardContent className="pt-6">
                     <div className="w-10 h-10 rounded-md bg-primary flex items-center justify-center mb-4">
                       <span className="text-primary-foreground font-bold text-lg">
-                        {item.step}
+                        {i + 1}
                       </span>
                     </div>
-                    <h3 className="font-display font-bold text-foreground text-lg mb-2">
-                      {item.title}
-                    </h3>
-                    <p className="text-sm text-muted-foreground">{item.detail}</p>
+                    <p className="text-sm text-muted-foreground">{step}</p>
                   </CardContent>
                 </Card>
               ))}
+            </div>
+            <p
+              className="text-xs text-muted-foreground text-center mt-8"
+              data-testid="text-process-microcopy"
+            >
+              Eligibility, underwriting, card brand rules, and applicable laws
+              apply.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-4 justify-center mt-8 flex-wrap">
+              <Link href="/upload-statement" data-testid="link-process-upload">
+                <Button className="gap-2">
+                  <Upload className="w-4 h-4" />
+                  Upload Statement
+                </Button>
+              </Link>
+              <a href="#" data-testid="link-process-call">
+                <Button variant="outline" className="gap-2">
+                  <Calendar className="w-4 h-4" />
+                  Book a 10-Minute Call
+                </Button>
+              </a>
             </div>
           </div>
         </section>
@@ -285,11 +337,15 @@ export default function ZeroPercent() {
                 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-8"
                 data-testid="text-zero-faq-heading"
               >
-                Frequently Asked Questions
+                0% Program FAQs
               </h2>
               <Accordion type="single" collapsible className="w-full">
                 {faqItems.map((item, i) => (
-                  <AccordionItem key={i} value={`faq-${i}`} data-testid={`faq-item-${i}`}>
+                  <AccordionItem
+                    key={i}
+                    value={`faq-${i}`}
+                    data-testid={`faq-item-${i}`}
+                  >
                     <AccordionTrigger
                       className="text-left"
                       data-testid={`faq-trigger-${i}`}
@@ -302,6 +358,14 @@ export default function ZeroPercent() {
                   </AccordionItem>
                 ))}
               </Accordion>
+              <div className="mt-8">
+                <Link href="/upload-statement" data-testid="link-faq-cta">
+                  <Button className="gap-2">
+                    <Upload className="w-4 h-4" />
+                    Check Eligibility (Free Review)
+                  </Button>
+                </Link>
+              </div>
             </div>
           </div>
         </section>
@@ -315,15 +379,17 @@ export default function ZeroPercent() {
             >
               Want the Cleanest, Most Compliant Setup?
             </h2>
-            <p className="text-muted-foreground mb-8 max-w-2xl mx-auto">
-              Upload your statement and we will show you whether a 0% program is the right fit
-              - and exactly how to implement it.
+            <p
+              className="text-muted-foreground mb-8 max-w-2xl mx-auto"
+              data-testid="text-zero-final-cta-body"
+            >
+              Upload your statement and we'll recommend the best-fit program (or
+              tell you if it isn't worth it).
             </p>
             <Link href="/upload-statement" data-testid="link-zero-final-cta">
               <Button size="lg" className="gap-2">
                 <Upload className="w-4 h-4" />
-                Upload My Statement
-                <ArrowRight className="w-4 h-4" />
+                Upload Statement
               </Button>
             </Link>
           </div>

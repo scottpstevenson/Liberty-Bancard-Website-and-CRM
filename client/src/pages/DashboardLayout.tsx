@@ -1,6 +1,7 @@
 import { ReactNode } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
+import logoBlue from "@assets/logo-blue.png";
 import {
   LayoutDashboard,
   Users,
@@ -70,8 +71,8 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       <div className="flex h-screen w-full">
         <Sidebar>
           <SidebarHeader className="p-4 border-b">
-            <Link href="/" className="font-display font-bold text-lg tracking-tight" data-testid="link-sidebar-logo">
-              Liberty Bancard
+            <Link href="/" data-testid="link-sidebar-logo">
+              <img src={logoBlue} alt="Liberty Bancard" className="h-8 w-auto" />
             </Link>
           </SidebarHeader>
 

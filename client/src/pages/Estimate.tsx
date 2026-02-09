@@ -1,5 +1,4 @@
-import { useLocation } from "wouter";
-import { Link } from "wouter";
+import { useLocation, Link } from "wouter";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -10,6 +9,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Form,
   FormControl,
@@ -20,19 +27,33 @@ import {
 } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { Loader2, Calculator } from "lucide-react";
+import { Loader2, Upload, ArrowRight } from "lucide-react";
 
 const estimateSchema = z.object({
-  contactName: z.string().min(1, "Contact name is required"),
+  contactName: z.string().min(1, "Your name is required"),
+  businessName: z.string().min(1, "Business name is required"),
   email: z.string().email("Valid email is required"),
-  phone: z.string().min(10, "Valid phone number is required"),
-  monthlyVolume: z.string().min(1, "Monthly volume is required"),
-  totalFees: z.string().min(1, "Total fees is required"),
+  phone: z.string().min(10, "Valid mobile number is required"),
+  vertical: z.string().min(1, "Industry / Vertical is required"),
+  monthlyVolume: z.string().min(1, "Monthly processing volume is required"),
+  totalFees: z.string().min(1, "Total processing fees is required"),
   currentProvider: z.string().optional(),
   notes: z.string().optional(),
+  consent: z.boolean().refine((val) => val === true, {
+    message: "You must consent to receive communications",
+  }),
 });
 
 type EstimateFormData = z.infer<typeof estimateSchema>;
+
+const verticals = [
+  "Medical/Dental/Medspa",
+  "Automotive",
+  "Restaurant",
+  "Home Services",
+  "Retail",
+  "Other",
+];
 
 export default function Estimate() {
   const [, setLocation] = useLocation();
@@ -42,19 +63,17 @@ export default function Estimate() {
     resolver: zodResolver(estimateSchema),
     defaultValues: {
       contactName: "",
+      businessName: "",
       email: "",
       phone: "",
+      vertical: "",
       monthlyVolume: "",
       totalFees: "",
       currentProvider: "",
       notes: "",
+      consent: false,
     },
   });
-
-  const monthlyVolume = parseFloat(form.watch("monthlyVolume") || "0");
-  const totalFees = parseFloat(form.watch("totalFees") || "0");
-  const effectiveRate =
-    monthlyVolume > 0 ? ((totalFees / monthlyVolume) * 100).toFixed(2) : null;
 
   const submitMutation = useMutation({
     mutationFn: async (data: EstimateFormData) => {
@@ -64,8 +83,8 @@ export default function Estimate() {
         phone: data.phone,
         monthlyVolume: data.monthlyVolume,
         totalFees: data.totalFees,
-        currentProvider: data.currentProvider,
-        notes: data.notes,
+        currentProvider: data.currentProvider || undefined,
+        notes: data.notes || undefined,
       });
       return res.json();
     },
@@ -86,228 +105,309 @@ export default function Estimate() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-background">
+    <div className="min-h-screen flex flex-col">
       <Navbar />
 
-      <main className="flex-grow pt-32 pb-16">
-        <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-10">
+      <main className="flex-grow pt-28">
+        <section className="bg-background py-20 lg:py-28" data-testid="section-estimate-hero">
+          <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
             <h1
-              className="text-3xl sm:text-4xl font-bold text-foreground mb-3"
+              className="text-4xl md:text-5xl font-display font-bold text-foreground leading-tight mb-6"
               data-testid="text-estimate-heading"
             >
-              Effective Rate Estimate
+              Get a Fast Effective Rate Estimate
             </h1>
             <p
-              className="text-lg text-muted-foreground max-w-xl mx-auto"
+              className="text-lg text-muted-foreground leading-relaxed mb-6"
               data-testid="text-estimate-subheadline"
             >
-              Get a quick estimate of your effective processing rate without
-              uploading a statement. Just enter your numbers and we will do the
-              math.
+              Share monthly volume and total fees. We'll estimate your effective rate and recommend next steps. For a definitive comparison, upload a statement anytime.
             </p>
+            <Link
+              href="/upload-statement"
+              className="text-sm font-medium text-primary hover:underline"
+              data-testid="link-upload-instead"
+            >
+              Upload a Statement Instead
+            </Link>
           </div>
+        </section>
 
-          {effectiveRate !== null && monthlyVolume > 0 && totalFees > 0 && (
-            <Card className="mb-8" data-testid="card-effective-rate">
-              <CardContent className="pt-6 text-center">
-                <div className="flex items-center justify-center gap-2 mb-2">
-                  <Calculator className="w-5 h-5 text-primary" />
-                  <span className="text-sm font-medium text-muted-foreground">
-                    Your Estimated Effective Rate
-                  </span>
-                </div>
-                <p
-                  className="text-4xl font-bold text-primary"
-                  data-testid="text-effective-rate-value"
-                >
-                  {effectiveRate}%
-                </p>
-                <p className="text-xs text-muted-foreground mt-2">
-                  Based on ${totalFees.toLocaleString()} in fees on $
-                  {monthlyVolume.toLocaleString()} monthly volume
-                </p>
+        <section className="bg-muted py-20" data-testid="section-estimate-form">
+          <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8">
+            <Card data-testid="card-estimate-form">
+              <CardHeader>
+                <CardTitle data-testid="text-estimate-form-title">
+                  Get My Estimate
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Form {...form}>
+                  <form
+                    onSubmit={form.handleSubmit(onSubmit)}
+                    className="space-y-6"
+                    data-testid="form-estimate"
+                  >
+                    <FormField
+                      control={form.control}
+                      name="contactName"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Your Name</FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder="Full name"
+                              data-testid="input-contact-name"
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="businessName"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Business Name</FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder="Your business name"
+                              data-testid="input-business-name"
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <FormField
+                        control={form.control}
+                        name="email"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Email</FormLabel>
+                            <FormControl>
+                              <Input
+                                type="email"
+                                placeholder="you@business.com"
+                                data-testid="input-email"
+                                {...field}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="phone"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Mobile Number</FormLabel>
+                            <FormControl>
+                              <Input
+                                type="tel"
+                                placeholder="(555) 123-4567"
+                                data-testid="input-phone"
+                                {...field}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+
+                    <FormField
+                      control={form.control}
+                      name="vertical"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Industry / Vertical</FormLabel>
+                          <Select
+                            onValueChange={field.onChange}
+                            defaultValue={field.value}
+                          >
+                            <FormControl>
+                              <SelectTrigger data-testid="select-vertical">
+                                <SelectValue placeholder="Select your industry" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {verticals.map((v) => (
+                                <SelectItem key={v} value={v} data-testid={`select-vertical-${v.toLowerCase().replace(/[^a-z]/g, "-")}`}>
+                                  {v}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <FormField
+                        control={form.control}
+                        name="monthlyVolume"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Monthly Processing Volume ($)</FormLabel>
+                            <FormControl>
+                              <Input
+                                type="number"
+                                placeholder="e.g. 18000"
+                                data-testid="input-monthly-volume"
+                                {...field}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="totalFees"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Total Processing Fees ($)</FormLabel>
+                            <FormControl>
+                              <Input
+                                type="number"
+                                placeholder="e.g. 450"
+                                data-testid="input-total-fees"
+                                {...field}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+
+                    <FormField
+                      control={form.control}
+                      name="currentProvider"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Current Provider (optional)</FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder="e.g. Square, Stripe, Clover"
+                              data-testid="input-current-provider"
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="notes"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Anything you want us to focus on? (optional)</FormLabel>
+                          <FormControl>
+                            <Textarea
+                              placeholder="Any additional details..."
+                              className="resize-none"
+                              rows={3}
+                              data-testid="textarea-notes"
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="consent"
+                      render={({ field }) => (
+                        <FormItem className="flex flex-row items-start gap-3 space-y-0">
+                          <FormControl>
+                            <Checkbox
+                              checked={field.value}
+                              onCheckedChange={field.onChange}
+                              data-testid="checkbox-consent"
+                            />
+                          </FormControl>
+                          <div className="space-y-1 leading-none">
+                            <FormLabel className="text-sm font-normal text-muted-foreground">
+                              I consent to receive text/email communications from Liberty Bancard.
+                            </FormLabel>
+                            <FormMessage />
+                          </div>
+                        </FormItem>
+                      )}
+                    />
+
+                    <Button
+                      type="submit"
+                      className="w-full"
+                      disabled={submitMutation.isPending}
+                      data-testid="button-estimate-submit"
+                    >
+                      {submitMutation.isPending ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                          Submitting...
+                        </>
+                      ) : (
+                        "Get My Estimate"
+                      )}
+                    </Button>
+                  </form>
+                </Form>
               </CardContent>
             </Card>
-          )}
+          </div>
+        </section>
 
-          <Card data-testid="card-estimate-form">
-            <CardHeader>
-              <CardTitle data-testid="text-estimate-form-title">
-                Enter Your Numbers
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Form {...form}>
-                <form
-                  onSubmit={form.handleSubmit(onSubmit)}
-                  className="space-y-6"
-                  data-testid="form-estimate"
-                >
-                  <FormField
-                    control={form.control}
-                    name="contactName"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Contact Name *</FormLabel>
-                        <FormControl>
-                          <Input
-                            placeholder="Your full name"
-                            data-testid="input-contact-name"
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <FormField
-                      control={form.control}
-                      name="email"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Email *</FormLabel>
-                          <FormControl>
-                            <Input
-                              type="email"
-                              placeholder="you@business.com"
-                              data-testid="input-email"
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="phone"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Phone *</FormLabel>
-                          <FormControl>
-                            <Input
-                              type="tel"
-                              placeholder="(555) 123-4567"
-                              data-testid="input-phone"
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <FormField
-                      control={form.control}
-                      name="monthlyVolume"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Monthly Volume ($) *</FormLabel>
-                          <FormControl>
-                            <Input
-                              type="number"
-                              placeholder="e.g. 50000"
-                              data-testid="input-monthly-volume"
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="totalFees"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Total Processing Fees ($) *</FormLabel>
-                          <FormControl>
-                            <Input
-                              type="number"
-                              placeholder="e.g. 1500"
-                              data-testid="input-total-fees"
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-
-                  <FormField
-                    control={form.control}
-                    name="currentProvider"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Current Provider (optional)</FormLabel>
-                        <FormControl>
-                          <Input
-                            placeholder="e.g. Square, Stripe, Clover, etc."
-                            data-testid="input-current-provider"
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="notes"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Notes (optional)</FormLabel>
-                        <FormControl>
-                          <Textarea
-                            placeholder="Any additional details..."
-                            className="resize-none"
-                            rows={3}
-                            data-testid="textarea-notes"
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <Button
-                    type="submit"
-                    className="w-full"
-                    disabled={submitMutation.isPending}
-                    data-testid="button-estimate-submit"
-                  >
-                    {submitMutation.isPending ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                        Submitting...
-                      </>
-                    ) : (
-                      "Get My Estimate"
-                    )}
-                  </Button>
-                </form>
-              </Form>
-            </CardContent>
-          </Card>
-
-          <p
-            className="text-[10px] text-muted-foreground text-center mt-8"
-            data-testid="text-compliance-microline"
-          >
-            Eligibility, underwriting, card brand rules, and applicable laws
-            apply. No savings claims without statement review.
-          </p>
-        </div>
+        <section className="bg-background py-20" data-testid="section-effective-rate-education">
+          <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+            <h2
+              className="text-3xl md:text-4xl font-display font-bold text-foreground mb-6"
+              data-testid="text-effective-rate-heading"
+            >
+              What Is an Effective Rate?
+            </h2>
+            <div className="space-y-4 mb-6">
+              <p className="text-muted-foreground" data-testid="text-effective-rate-intro">
+                Your effective rate is the simplest reality check:
+              </p>
+              <p className="text-foreground font-medium" data-testid="text-effective-rate-formula">
+                Effective rate = total fees divided by total volume.
+              </p>
+              <p className="text-muted-foreground" data-testid="text-effective-rate-example">
+                Example: $450 in fees on $18,000 volume = 2.5% effective rate.
+              </p>
+            </div>
+            <p
+              className="text-sm text-muted-foreground mb-6"
+              data-testid="text-effective-rate-microcopy"
+            >
+              For the exact line-item breakdown (and to identify the cost drivers), upload a statement.
+            </p>
+            <Link href="/upload-statement" data-testid="link-education-upload-statement">
+              <Button className="gap-2">
+                <Upload className="w-4 h-4" />
+                Upload Statement (Exact Breakdown)
+                <ArrowRight className="w-4 h-4" />
+              </Button>
+            </Link>
+          </div>
+        </section>
       </main>
 
       <Footer />
