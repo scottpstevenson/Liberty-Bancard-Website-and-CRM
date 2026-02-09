@@ -7,6 +7,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { Loader2 } from "lucide-react";
 import { StickyMobileCTA } from "@/components/StickyMobileCTA";
 import { ExitIntentPopup } from "@/components/ExitIntentPopup";
+import { ContactBubble } from "@/components/ContactBubble";
 
 import Home from "@/pages/Home";
 import GetStarted from "@/pages/GetStarted";
@@ -135,6 +136,7 @@ function PublicLayout() {
       <Router />
       {!isDashboard && !isThanksPage && <StickyMobileCTA />}
       {!isDashboard && <ExitIntentPopup />}
+      {!isDashboard && !isThanksPage && <ContactBubble />}
     </>
   );
 }

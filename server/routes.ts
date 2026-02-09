@@ -331,6 +331,37 @@ export async function registerRoutes(
     }
   });
 
+  // === CALLBACK REQUEST ===
+  app.post("/api/public/callback", async (req, res) => {
+    try {
+      const { name, phone, bestTime, notes } = req.body;
+      const nameParts = (name || "").split(" ");
+      const firstName = nameParts[0] || "";
+      const lastName = nameParts.slice(1).join(" ") || "";
+
+      const contact = await storage.createContact({
+        firstName, lastName, email: "", phone: phone || "",
+        status: "New",
+        tags: ["src_website", "lead_callback", `callback_${(bestTime || "anytime").toLowerCase().replace(/[^a-z]/g, "_")}`],
+      });
+
+      const deal = await storage.createDeal({
+        contactId: contact.id, pipeline: "sales", stage: "New Lead",
+        notes: `Callback request. Best time: ${bestTime || "Anytime"}. Notes: ${notes || "None"}`,
+      });
+
+      await storage.createNotification({
+        channel: "#sales", title: "Callback Requested",
+        message: `${firstName} ${lastName} - ${phone} - Best time: ${bestTime || "Anytime"}`,
+        type: "alert",
+      });
+
+      res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id });
+    } catch (err: any) {
+      res.status(400).json({ message: err.message || "Invalid submission" });
+    }
+  });
+
   // === AI ADVISOR ===
   app.post("/api/ai/chat", async (req, res) => {
     try {

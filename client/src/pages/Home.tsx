@@ -1,10 +1,12 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Link } from "wouter";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import {
   Accordion,
   AccordionContent,
@@ -35,8 +37,52 @@ import {
   Users,
   BadgeCheck,
   Phone,
+  Building,
+  HandshakeIcon,
+  Banknote,
+  Loader2,
+  X,
+  CheckCircle,
 } from "lucide-react";
 import logoBlue from "@assets/logo-blue.png";
+
+function useCountUp(end: number, duration: number = 2000, suffix: string = "") {
+  const [count, setCount] = useState(0);
+  const [started, setStarted] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting && !started) {
+          setStarted(true);
+        }
+      },
+      { threshold: 0.3 }
+    );
+    if (ref.current) observer.observe(ref.current);
+    return () => observer.disconnect();
+  }, [started]);
+
+  useEffect(() => {
+    if (!started) return;
+    const steps = 60;
+    const increment = end / steps;
+    let current = 0;
+    const interval = setInterval(() => {
+      current += increment;
+      if (current >= end) {
+        setCount(end);
+        clearInterval(interval);
+      } else {
+        setCount(Math.floor(current));
+      }
+    }, duration / steps);
+    return () => clearInterval(interval);
+  }, [started, end, duration]);
+
+  return { ref, display: `${count.toLocaleString()}${suffix}` };
+}
 
 const INDUSTRY_BENCHMARKS: Record<string, { low: number; mid: number; high: number; label: string }> = {
   restaurant: { low: 1.8, mid: 2.5, high: 3.2, label: "Restaurants" },
@@ -58,6 +104,35 @@ export default function Home() {
   const [monthlyVolume, setMonthlyVolume] = useState("");
   const [totalFees, setTotalFees] = useState("");
   const [selectedIndustry, setSelectedIndustry] = useState("restaurant");
+  const [cbName, setCbName] = useState("");
+  const [cbPhone, setCbPhone] = useState("");
+  const [cbBestTime, setCbBestTime] = useState("Morning");
+  const [cbSubmitting, setCbSubmitting] = useState(false);
+  const [cbSubmitted, setCbSubmitted] = useState(false);
+  const { toast } = useToast();
+
+  const stat1 = useCountUp(15, 2000, "+");
+  const stat2 = useCountUp(500, 2000, "+");
+  const stat3 = useCountUp(98, 2000, "%");
+
+  const handleCallbackSubmit = async () => {
+    if (!cbName.trim() || !cbPhone.trim()) return;
+    setCbSubmitting(true);
+    try {
+      await apiRequest("POST", "/api/public/callback", {
+        name: cbName, phone: cbPhone, bestTime: cbBestTime,
+      });
+      setCbSubmitted(true);
+    } catch (error: any) {
+      toast({
+        title: "Something went wrong",
+        description: error.message || "Please try again or call us at 954-266-8214.",
+        variant: "destructive",
+      });
+    } finally {
+      setCbSubmitting(false);
+    }
+  };
 
   const volume = parseFloat(monthlyVolume.replace(/[,$]/g, "")) || 0;
   const fees = parseFloat(totalFees.replace(/[,$]/g, "")) || 0;
@@ -183,6 +258,29 @@ export default function Home() {
             <p className="text-center text-muted-foreground mt-8 text-sm" data-testid="text-pain-resolution">
               If any of this sounds right, your statement will tell us exactly what's going on.
             </p>
+          </div>
+        </section>
+
+        {/* SECTION 3.5: By the Numbers */}
+        <section className="bg-background py-16" data-testid="section-stats">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 text-center">
+              <div ref={stat1.ref} data-testid="stat-years">
+                <div className="text-4xl md:text-5xl font-display font-bold text-primary mb-2">{stat1.display}</div>
+                <div className="text-sm font-medium text-foreground">Years in Business</div>
+                <div className="text-xs text-muted-foreground mt-1">South Florida roots, nationwide reach</div>
+              </div>
+              <div ref={stat2.ref} data-testid="stat-merchants">
+                <div className="text-4xl md:text-5xl font-display font-bold text-primary mb-2">{stat2.display}</div>
+                <div className="text-sm font-medium text-foreground">Merchants Served</div>
+                <div className="text-xs text-muted-foreground mt-1">Across every major vertical</div>
+              </div>
+              <div ref={stat3.ref} data-testid="stat-retention">
+                <div className="text-4xl md:text-5xl font-display font-bold text-primary mb-2">{stat3.display}</div>
+                <div className="text-sm font-medium text-foreground">Retention Rate</div>
+                <div className="text-xs text-muted-foreground mt-1">Merchants stay because the math works</div>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -543,6 +641,39 @@ export default function Home() {
           </div>
         </section>
 
+        {/* SECTION 8.5: Why Liberty - Differentiators */}
+        <section className="bg-muted/30 py-20" data-testid="section-why-liberty">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="text-center mb-12">
+              <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-why-liberty-heading">
+                Why Merchants Switch to Liberty
+              </h2>
+              <p className="text-muted-foreground max-w-xl mx-auto">The differences you feel every day, not just on paper.</p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+              {[
+                { icon: FileText, title: "Statement-Based Pricing", desc: "We price off your actual statement, not a generic quote. You see exactly what changes and why." },
+                { icon: Headphones, title: "Direct Human Support", desc: "A real person picks up the phone. No ticket queues, no chatbots, no 3-day wait." },
+                { icon: Banknote, title: "Next-Day Funding*", desc: "For qualifying merchants, funds hit your account the next business day. Cash flow you can count on." },
+                { icon: HandshakeIcon, title: "No Long-Term Contracts", desc: "We earn your business every month. No cancellation fees, no lock-in, no pressure." },
+              ].map((item, i) => (
+                <Card key={i} data-testid={`card-why-liberty-${i}`}>
+                  <CardContent className="p-5">
+                    <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center mb-3">
+                      <item.icon className="w-5 h-5 text-primary" />
+                    </div>
+                    <h3 className="font-display font-semibold text-foreground mb-1.5">{item.title}</h3>
+                    <p className="text-sm text-muted-foreground leading-relaxed">{item.desc}</p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+            <p className="text-center text-xs text-muted-foreground mt-6" data-testid="text-why-liberty-footnote">
+              *Eligibility, underwriting, card brand rules, and applicable laws apply.
+            </p>
+          </div>
+        </section>
+
         {/* SECTION 9: Social Proof / Reviews */}
         <section className="bg-muted/30 py-20" data-testid="section-reviews">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -650,6 +781,85 @@ export default function Home() {
                   </AccordionContent>
                 </AccordionItem>
               </Accordion>
+            </div>
+          </div>
+        </section>
+
+        {/* SECTION 11.5: Quick Callback Form */}
+        <section className="bg-background py-20" data-testid="section-callback">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+              <div>
+                <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-callback-heading">
+                  Prefer a Quick Call?
+                </h2>
+                <p className="text-muted-foreground mb-6 leading-relaxed">
+                  Not ready to upload? No problem. Leave your number and a Liberty advisor will call you back - no pitch, just answers.
+                </p>
+                <div className="space-y-3 mb-6">
+                  {[
+                    "10 minutes or less",
+                    "Real person, not a call center",
+                    "No obligation, no follow-up pressure",
+                  ].map((item, i) => (
+                    <div key={i} className="flex items-center gap-2 text-sm text-foreground">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                      {item}
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Or call us directly: <a href="tel:9542668214" className="text-primary font-medium" data-testid="link-callback-phone">954-266-8214</a>
+                </p>
+              </div>
+              <div>
+                {cbSubmitted ? (
+                  <Card className="border-2 border-emerald-200 dark:border-emerald-800">
+                    <CardContent className="p-8 text-center">
+                      <CheckCircle className="w-12 h-12 text-emerald-500 mx-auto mb-4" />
+                      <h3 className="text-xl font-display font-bold text-foreground mb-2" data-testid="text-callback-success">We'll Call You Back</h3>
+                      <p className="text-muted-foreground text-sm">A Liberty advisor will reach out during your preferred window. No pressure, just answers.</p>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <Card>
+                    <CardContent className="p-6 space-y-4">
+                      <div>
+                        <label className="text-sm font-medium text-foreground mb-1.5 block" htmlFor="cb-name">Your Name</label>
+                        <Input id="cb-name" placeholder="First and Last" value={cbName} onChange={(e) => setCbName(e.target.value)} data-testid="input-callback-name" />
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium text-foreground mb-1.5 block" htmlFor="cb-phone">Phone Number</label>
+                        <Input id="cb-phone" type="tel" placeholder="(555) 123-4567" value={cbPhone} onChange={(e) => setCbPhone(e.target.value)} data-testid="input-callback-phone" />
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium text-foreground mb-1.5 block">Best Time to Call</label>
+                        <div className="grid grid-cols-3 gap-2">
+                          {["Morning", "Afternoon", "Evening"].map((time) => (
+                            <Button
+                              key={time}
+                              variant={cbBestTime === time ? "default" : "outline"}
+                              size="sm"
+                              onClick={() => setCbBestTime(time)}
+                              className="toggle-elevate"
+                              data-testid={`button-callback-time-${time.toLowerCase()}`}
+                            >
+                              {time}
+                            </Button>
+                          ))}
+                        </div>
+                      </div>
+                      <Button className="w-full gap-2" onClick={handleCallbackSubmit} disabled={cbSubmitting || !cbName.trim() || !cbPhone.trim()} data-testid="button-callback-submit">
+                        {cbSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Phone className="w-4 h-4" />}
+                        Request a Callback
+                      </Button>
+                      <p className="text-[10px] text-muted-foreground text-center">
+                        By submitting, you agree to receive a call from Liberty Bancard. Standard call rates apply.
+                      </p>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
             </div>
           </div>
         </section>

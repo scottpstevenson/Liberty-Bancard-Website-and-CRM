@@ -15,7 +15,23 @@ import {
   BarChart3,
   CheckCircle2,
   Smartphone,
+  Check,
+  X,
+  Minus,
 } from "lucide-react";
+
+const comparisonTable = [
+  { feature: "Interchange passthrough pricing", square: false, stripe: false, liberty: true },
+  { feature: "Line-item cost breakdown", square: false, stripe: false, liberty: true },
+  { feature: "Statement-based pricing", square: false, stripe: false, liberty: true },
+  { feature: "Next-day funding*", square: false, stripe: false, liberty: true },
+  { feature: "Dedicated human support", square: false, stripe: false, liberty: true },
+  { feature: "No long-term contract", square: true, stripe: true, liberty: true },
+  { feature: "Free terminal for qualifying merchants*", square: false, stripe: false, liberty: true },
+  { feature: "Cash discount / 0% programs*", square: false, stripe: false, liberty: true },
+  { feature: "Easy online signup", square: true, stripe: true, liberty: true },
+  { feature: "Guided onboarding + go-live support", square: false, stripe: false, liberty: true },
+];
 
 const comparisonPoints = [
   "Effective rate including monthly add-ons",
@@ -114,8 +130,65 @@ export default function BeatSquareStripe() {
           </div>
         </section>
 
+        {/* Head-to-Head Comparison Table */}
+        <section className="bg-muted py-20" data-testid="section-comparison-table">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="text-center mb-10">
+              <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-comparison-heading">
+                Head-to-Head Comparison
+              </h2>
+              <p className="text-muted-foreground max-w-xl mx-auto">See what you get with each provider. The math doesn't lie.</p>
+            </div>
+            <Card>
+              <CardContent className="p-0 overflow-x-auto">
+                <table className="w-full text-sm" data-testid="table-comparison">
+                  <thead>
+                    <tr className="border-b border-border">
+                      <th className="text-left p-4 font-medium text-foreground">Feature</th>
+                      <th className="text-center p-4 font-medium text-muted-foreground min-w-[100px]">Square</th>
+                      <th className="text-center p-4 font-medium text-muted-foreground min-w-[100px]">Stripe</th>
+                      <th className="text-center p-4 font-semibold text-primary min-w-[100px]">Liberty</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {comparisonTable.map((row, i) => (
+                      <tr key={i} className="border-b border-border last:border-0" data-testid={`comparison-row-${i}`}>
+                        <td className="p-4 text-foreground">{row.feature}</td>
+                        <td className="p-4 text-center">
+                          {row.square ? (
+                            <Check className="w-5 h-5 text-emerald-500 mx-auto" />
+                          ) : (
+                            <X className="w-5 h-5 text-red-400 mx-auto" />
+                          )}
+                        </td>
+                        <td className="p-4 text-center">
+                          {row.stripe ? (
+                            <Check className="w-5 h-5 text-emerald-500 mx-auto" />
+                          ) : (
+                            <X className="w-5 h-5 text-red-400 mx-auto" />
+                          )}
+                        </td>
+                        <td className="p-4 text-center bg-primary/5">
+                          {row.liberty ? (
+                            <Check className="w-5 h-5 text-emerald-500 mx-auto" />
+                          ) : (
+                            <X className="w-5 h-5 text-red-400 mx-auto" />
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
+            <p className="text-xs text-muted-foreground text-center mt-4" data-testid="text-comparison-footnote">
+              *Eligibility, underwriting, card brand rules, and applicable laws apply. Feature availability may vary by account type and volume.
+            </p>
+          </div>
+        </section>
+
         {/* Why Flat-Rate Can Cost More */}
-        <section className="bg-muted py-20" data-testid="section-cost-more">
+        <section className="bg-background py-20" data-testid="section-cost-more">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="max-w-3xl mx-auto">
               <h2
@@ -159,7 +232,7 @@ export default function BeatSquareStripe() {
         </section>
 
         {/* What You Get */}
-        <section className="bg-background py-20" data-testid="section-beat-what-you-get">
+        <section className="bg-muted/30 py-20" data-testid="section-beat-what-you-get">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="max-w-3xl mx-auto">
               <h2

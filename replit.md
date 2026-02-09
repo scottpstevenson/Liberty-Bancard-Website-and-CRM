@@ -82,3 +82,9 @@ contacts, deals, tickets, tasks, notifications, documents, auditLogs, workflows,
 - Implemented 3 internal operational forms (CallOutcome, ReviewComplete, OnboardingKickoff)
 - Added AI Business Advisor with 7 department-specific prompt configurations
 - Added task management and notification center to dashboard
+- Added "By the Numbers" animated stats section on homepage (useCountUp hook with IntersectionObserver)
+- Added "Why Liberty" differentiator section on homepage (4 cards: Statement-Based Pricing, Direct Support, Next-Day Funding, No Contracts)
+- Added Quick Callback form on homepage with POST /api/public/callback endpoint
+- Added floating ContactBubble component for desktop visitors (persistent callback request widget)
+- Added head-to-head comparison table on BeatSquareStripe page (Square vs Stripe vs Liberty feature grid)
+- Conversion enhancers: StickyMobileCTA, ExitIntentPopup, ContactBubble all active on public pages
