@@ -9,6 +9,8 @@ import {
   type InsertDocument,
   type InsertAuditLog,
   type InsertNotification,
+  type InsertWorkflow, type UpdateWorkflowRequest,
+  type InsertWorkflowRun,
 } from "@shared/schema";
 import { eq, desc } from "drizzle-orm";
 
@@ -45,6 +47,18 @@ export interface IStorage {
   getNotifications(): Promise<typeof notifications.$inferSelect[]>;
   createNotification(notification: InsertNotification): Promise<typeof notifications.$inferSelect>;
   markNotificationRead(id: number): Promise<void>;
+
+  getWorkflows(): Promise<typeof workflows.$inferSelect[]>;
+  getWorkflow(id: number): Promise<typeof workflows.$inferSelect | undefined>;
+  createWorkflow(workflow: InsertWorkflow): Promise<typeof workflows.$inferSelect>;
+  updateWorkflow(id: number, workflow: UpdateWorkflowRequest): Promise<typeof workflows.$inferSelect | undefined>;
+  deleteWorkflow(id: number): Promise<void>;
+  getWorkflowsByTrigger(triggerType: string): Promise<typeof workflows.$inferSelect[]>;
+
+  getWorkflowRuns(): Promise<typeof workflowRuns.$inferSelect[]>;
+  getWorkflowRunsByWorkflow(workflowId: number): Promise<typeof workflowRuns.$inferSelect[]>;
+  createWorkflowRun(run: InsertWorkflowRun): Promise<typeof workflowRuns.$inferSelect>;
+  updateWorkflowRun(id: number, updates: Partial<InsertWorkflowRun>): Promise<typeof workflowRuns.$inferSelect | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -163,6 +177,51 @@ export class DatabaseStorage implements IStorage {
 
   async markNotificationRead(id: number) {
     await db.update(notifications).set({ read: true }).where(eq(notifications.id, id));
+  }
+
+  async getWorkflows() {
+    return await db.select().from(workflows).orderBy(desc(workflows.createdAt));
+  }
+
+  async getWorkflow(id: number) {
+    const [workflow] = await db.select().from(workflows).where(eq(workflows.id, id));
+    return workflow;
+  }
+
+  async createWorkflow(insertWorkflow: InsertWorkflow) {
+    const [workflow] = await db.insert(workflows).values(insertWorkflow).returning();
+    return workflow;
+  }
+
+  async updateWorkflow(id: number, updates: UpdateWorkflowRequest) {
+    const [updated] = await db.update(workflows).set(updates).where(eq(workflows.id, id)).returning();
+    return updated;
+  }
+
+  async deleteWorkflow(id: number) {
+    await db.delete(workflows).where(eq(workflows.id, id));
+  }
+
+  async getWorkflowsByTrigger(triggerType: string) {
+    return await db.select().from(workflows).where(eq(workflows.triggerType, triggerType));
+  }
+
+  async getWorkflowRuns() {
+    return await db.select().from(workflowRuns).orderBy(desc(workflowRuns.createdAt));
+  }
+
+  async getWorkflowRunsByWorkflow(workflowId: number) {
+    return await db.select().from(workflowRuns).where(eq(workflowRuns.workflowId, workflowId)).orderBy(desc(workflowRuns.createdAt));
+  }
+
+  async createWorkflowRun(insertRun: InsertWorkflowRun) {
+    const [run] = await db.insert(workflowRuns).values(insertRun).returning();
+    return run;
+  }
+
+  async updateWorkflowRun(id: number, updates: Partial<InsertWorkflowRun>) {
+    const [updated] = await db.update(workflowRuns).set(updates).where(eq(workflowRuns.id, id)).returning();
+    return updated;
   }
 }
 

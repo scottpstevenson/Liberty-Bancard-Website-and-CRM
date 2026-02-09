@@ -37,6 +37,7 @@ import Notifications from "@/pages/dashboard/Notifications";
 import CallOutcome from "@/pages/dashboard/CallOutcome";
 import ReviewComplete from "@/pages/dashboard/ReviewComplete";
 import OnboardingKickoff from "@/pages/dashboard/OnboardingKickoff";
+import Workflows from "@/pages/dashboard/Workflows";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { user, isLoading } = useAuth();
@@ -119,6 +120,9 @@ function Router() {
       </Route>
       <Route path="/dashboard/onboarding-kickoff">
         <ProtectedRoute component={OnboardingKickoff} />
+      </Route>
+      <Route path="/dashboard/workflows">
+        <ProtectedRoute component={Workflows} />
       </Route>
 
       <Route component={NotFound} />

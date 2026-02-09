@@ -4,7 +4,7 @@ import { storage } from "./storage";
 import { setupAuth, registerAuthRoutes } from "./replit_integrations/auth";
 import { registerAudioRoutes } from "./replit_integrations/audio/routes";
 import { z } from "zod";
-import { insertContactSchema, insertDealSchema, insertTicketSchema, insertTaskSchema, insertCompanySchema, insertDocumentSchema, insertNotificationSchema } from "@shared/schema";
+import { insertContactSchema, insertDealSchema, insertTicketSchema, insertTaskSchema, insertCompanySchema, insertDocumentSchema, insertNotificationSchema, insertWorkflowSchema } from "@shared/schema";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -359,6 +359,121 @@ export async function registerRoutes(
       res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id });
     } catch (err: any) {
       res.status(400).json({ message: err.message || "Invalid submission" });
+    }
+  });
+
+  // === WORKFLOWS ===
+  app.get("/api/workflows", async (req, res) => {
+    const wfs = await storage.getWorkflows();
+    res.json(wfs);
+  });
+
+  app.get("/api/workflows/:id", async (req, res) => {
+    const wf = await storage.getWorkflow(Number(req.params.id));
+    if (!wf) return res.status(404).json({ message: "Not found" });
+    res.json(wf);
+  });
+
+  app.post("/api/workflows", async (req, res) => {
+    try {
+      const input = insertWorkflowSchema.parse(req.body);
+      const wf = await storage.createWorkflow(input);
+      await storage.createAuditLog({ action: "workflow_created", entityType: "workflow", entityId: wf.id, details: { name: wf.name, trigger: wf.triggerType } });
+      res.status(201).json(wf);
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
+  });
+
+  app.put("/api/workflows/:id", async (req, res) => {
+    try {
+      const allowed = insertWorkflowSchema.partial().parse(req.body);
+      const updated = await storage.updateWorkflow(Number(req.params.id), allowed);
+      if (!updated) return res.status(404).json({ message: "Not found" });
+      res.json(updated);
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
+  });
+
+  app.delete("/api/workflows/:id", async (req, res) => {
+    await storage.deleteWorkflow(Number(req.params.id));
+    res.json({ success: true });
+  });
+
+  app.get("/api/workflow-runs", async (req, res) => {
+    const workflowId = req.query.workflowId ? Number(req.query.workflowId) : undefined;
+    const runs = workflowId
+      ? await storage.getWorkflowRunsByWorkflow(workflowId)
+      : await storage.getWorkflowRuns();
+    res.json(runs);
+  });
+
+  app.post("/api/workflows/:id/run", async (req, res) => {
+    try {
+      const wf = await storage.getWorkflow(Number(req.params.id));
+      if (!wf) return res.status(404).json({ message: "Workflow not found" });
+      if (!wf.enabled) return res.status(400).json({ message: "Workflow is disabled" });
+
+      const run = await storage.createWorkflowRun({
+        workflowId: wf.id,
+        entityType: req.body.entityType || null,
+        entityId: req.body.entityId || null,
+        status: "running",
+        currentStep: 0,
+        log: [{ step: 0, action: "started", timestamp: new Date().toISOString() }],
+      });
+
+      const actions = (wf.actions as any[]) || [];
+      const logEntries: any[] = [{ step: 0, action: "started", timestamp: new Date().toISOString() }];
+
+      for (let i = 0; i < actions.length; i++) {
+        const action = actions[i];
+        try {
+          if (action.type === "create_task") {
+            await storage.createTask({
+              title: action.title || `Auto-task from ${wf.name}`,
+              assignedTo: action.assignedTo || "Unassigned",
+              priority: action.priority || "medium",
+              dueDate: action.dueHours ? new Date(Date.now() + action.dueHours * 60 * 60 * 1000) : undefined,
+              dealId: req.body.entityType === "deal" ? req.body.entityId : undefined,
+              contactId: req.body.entityType === "contact" ? req.body.entityId : undefined,
+            });
+            logEntries.push({ step: i + 1, action: "create_task", title: action.title, status: "completed", timestamp: new Date().toISOString() });
+          } else if (action.type === "send_notification") {
+            await storage.createNotification({
+              channel: action.channel || "internal",
+              title: action.title || `Workflow: ${wf.name}`,
+              message: action.message || "Automated workflow notification",
+              type: action.notificationType || "info",
+            });
+            logEntries.push({ step: i + 1, action: "send_notification", title: action.title, status: "completed", timestamp: new Date().toISOString() });
+          } else if (action.type === "create_audit_log") {
+            await storage.createAuditLog({
+              action: action.logAction || "workflow_action",
+              entityType: req.body.entityType || "workflow",
+              entityId: req.body.entityId || run.id,
+              details: { workflow: wf.name, step: i + 1 },
+            });
+            logEntries.push({ step: i + 1, action: "create_audit_log", status: "completed", timestamp: new Date().toISOString() });
+          }
+        } catch (stepErr: any) {
+          logEntries.push({ step: i + 1, action: action.type, status: "failed", error: stepErr.message, timestamp: new Date().toISOString() });
+        }
+      }
+
+      await storage.updateWorkflowRun(run.id, {
+        status: "completed",
+        completedAt: new Date(),
+        currentStep: actions.length,
+        log: logEntries,
+      });
+
+      res.json({ success: true, runId: run.id, steps: logEntries });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Workflow execution failed" });
     }
   });
 

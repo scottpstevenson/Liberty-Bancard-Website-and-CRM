@@ -15,6 +15,7 @@ import {
   PhoneCall,
   FileCheck,
   Rocket,
+  Zap,
 } from "lucide-react";
 import {
   Sidebar,
@@ -44,6 +45,7 @@ const menuItems = [
   { icon: ClipboardList, label: "Tasks", href: "/dashboard/tasks" },
   { icon: Bell, label: "Notifications", href: "/dashboard/notifications" },
   { icon: MessageSquare, label: "AI Advisor", href: "/dashboard/chat" },
+  { icon: Zap, label: "Workflows", href: "/dashboard/workflows" },
 ];
 
 const formItems = [

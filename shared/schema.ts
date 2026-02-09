@@ -233,6 +233,40 @@ export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
 export type Notification = typeof notifications.$inferSelect;
 export type InsertNotification = z.infer<typeof insertNotificationSchema>;
 
+export const insertWorkflowSchema = createInsertSchema(workflows).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertWorkflowRunSchema = createInsertSchema(workflowRuns).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type Workflow = typeof workflows.$inferSelect;
+export type InsertWorkflow = z.infer<typeof insertWorkflowSchema>;
+export type UpdateWorkflowRequest = Partial<InsertWorkflow>;
+
+export type WorkflowRun = typeof workflowRuns.$inferSelect;
+export type InsertWorkflowRun = z.infer<typeof insertWorkflowRunSchema>;
+
+export const WORKFLOW_TRIGGERS = [
+  "deal_stage_changed",
+  "ticket_created",
+  "contact_created",
+  "deal_created",
+  "ticket_sla_breach",
+  "manual",
+] as const;
+
+export const WORKFLOW_ACTIONS = [
+  "create_task",
+  "send_notification",
+  "update_deal",
+  "create_audit_log",
+  "wait",
+] as const;
+
 export const SALES_STAGES = [
   "New Lead",
   "Statement Received",
