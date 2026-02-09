@@ -143,7 +143,7 @@ export default function Chat() {
                 )}
                 {department === "onboarding" && (
                   <>
-                    <Button variant="outline" size="sm" onClick={() => { setInputValue("Generate a go-live checklist for a new merchant with a Dejavoo QD4 terminal"); }} data-testid="button-suggestion-1">Go-live checklist</Button>
+                    <Button variant="outline" size="sm" onClick={() => { setInputValue("Generate a go-live checklist for a new merchant with a Liberty Smart Terminal"); }} data-testid="button-suggestion-1">Go-live checklist</Button>
                     <Button variant="outline" size="sm" onClick={() => { setInputValue("What documents do I need for underwriting a medical practice?"); }} data-testid="button-suggestion-2">Underwriting docs</Button>
                   </>
                 )}

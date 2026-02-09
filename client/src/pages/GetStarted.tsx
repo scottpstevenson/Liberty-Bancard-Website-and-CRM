@@ -96,7 +96,7 @@ function getRecommendation(goal: string, vertical: string, volume: string, inter
       path: "Terminal + Processing Package",
       icon: Monitor,
       headline: "The right terminal paired with the right pricing makes all the difference.",
-      description: "We'll pair you with the Dejavoo QD4 Smart Terminal - modern, reliable, and set up with guided onboarding. Free equipment for qualifying merchants.* Processing is bundled so you get one relationship for hardware + support.",
+      description: "We'll pair you with the Liberty Smart Terminal - modern, reliable, and set up with guided onboarding. Free equipment for qualifying merchants.* Processing is bundled so you get one relationship for hardware + support.",
       urgency: "Most terminal setups are completed within 48 hours of approval.",
       nextSteps: [
         { label: "Upload statement to check eligibility", primary: true, href: "/upload-statement?terminal=yes" },
@@ -445,7 +445,7 @@ export default function GetStarted() {
                 {step === 4 && (
                   <div data-testid="step-terminal">
                     <p className="text-sm text-muted-foreground mb-4">
-                      We offer the Dejavoo QD4 Smart Terminal - free for qualifying merchants.* Tap, dip, swipe, and manual key.
+                      We offer the Liberty Smart Terminal - free for qualifying merchants.* Tap, dip, swipe, and manual key.
                     </p>
                     <div className="grid grid-cols-2 gap-4">
                       <Button

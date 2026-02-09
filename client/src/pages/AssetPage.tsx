@@ -24,6 +24,9 @@ import {
   BookOpen,
   FolderOpen,
 } from "lucide-react";
+import terminalHero from "@assets/images/liberty-terminal-hero.png";
+import terminalTap from "@assets/images/liberty-terminal-tap.png";
+import terminalAngle from "@assets/images/liberty-terminal-angle.png";
 
 interface ContentPage {
   title: string;
@@ -31,6 +34,7 @@ interface ContentPage {
   description: string;
   bullets: string[];
   type: "standard" | "case-study" | "packet" | "index";
+  images?: { src: string; alt: string; caption?: string }[];
   caseStudy?: {
     snapshot: string;
     before: string;
@@ -73,7 +77,7 @@ const contentMap: Record<string, ContentPage> = {
       {
         name: "Terminal",
         items: [
-          { href: "/assets/terminal/qd4", label: "Liberty Smart Terminal (QD4)" },
+          { href: "/assets/terminal/qd4", label: "Liberty Smart Terminal" },
           { href: "/assets/terminal/go-live-checklist", label: "Go-Live Checklist" },
         ],
       },
@@ -212,17 +216,23 @@ const contentMap: Record<string, ContentPage> = {
   },
 
   "/assets/terminal/qd4": {
-    title: "Liberty Smart Terminal (Dejavoo QD4)",
+    title: "Liberty Smart Terminal",
     subtitle: "Modern, Reliable, and Ready for Any Payment Type",
-    description: "The Dejavoo QD4 is a full-featured smart terminal that accepts tap, dip, swipe, and QR payments. It supports dual-pricing, tip adjustment, and integrates with most POS systems out of the box.",
+    description: "The Liberty Smart Terminal is a full-featured countertop payment device that accepts tap, dip, swipe, and QR payments. It supports dual-pricing, tip adjustment, and integrates with most POS systems out of the box. Built for businesses that need reliability and compliance from day one.",
     bullets: [
       "Accepts EMV chip, contactless/NFC, magstripe, and QR codes",
       "Built-in support for cash discount and surcharge programs",
       "Wi-Fi and Ethernet connectivity",
       "Tip adjust, batch close, and reporting from the terminal",
-      "Compact countertop form factor",
+      "Compact countertop form factor with touchscreen display",
+      "Liberty Bancard branding and dedicated support",
     ],
     type: "standard",
+    images: [
+      { src: terminalHero, alt: "Liberty Smart Terminal - product view", caption: "Liberty Smart Terminal - countertop payment device" },
+      { src: terminalTap, alt: "Liberty Smart Terminal - contactless tap payment in use", caption: "Contactless tap payment - fast and secure" },
+      { src: terminalAngle, alt: "Liberty Smart Terminal - 3/4 angle view", caption: "Compact design with full payment acceptance" },
+    ],
   },
 
   "/assets/terminal/go-live-checklist": {
@@ -318,7 +328,7 @@ const contentMap: Record<string, ContentPage> = {
     caseStudy: {
       snapshot: "[To be completed with verified merchant data] \u2014 Multi-provider medical practice, average ticket $350+, processing $80K+/month in card volume.",
       before: "[To be completed with verified merchant data] \u2014 Flat-rate processing at 2.6% + $0.10, no cost optimization, paying interchange markups on all card types.",
-      changed: "[To be completed with verified merchant data] \u2014 Migrated to interchange-plus pricing, deployed compliant cash discount program for elective services, installed Dejavoo QD4 terminals at front desk.",
+      changed: "[To be completed with verified merchant data] \u2014 Migrated to interchange-plus pricing, deployed compliant cash discount program for elective services, installed Liberty Smart Terminals at front desk.",
       after: "[To be completed with verified merchant data] \u2014 Significant monthly savings on processing fees, faster funding, and full compliance with card brand rules.",
     },
   },
@@ -346,7 +356,7 @@ const contentMap: Record<string, ContentPage> = {
     caseStudy: {
       snapshot: "[To be completed with verified merchant data] \u2014 Full-service restaurant, 200+ transactions/day, average ticket $35, heavy debit card usage.",
       before: "[To be completed with verified merchant data] \u2014 Flat-rate processing, slow batch settlement, tip adjust issues causing reconciliation delays.",
-      changed: "[To be completed with verified merchant data] \u2014 Deployed QD4 terminals with optimized tip-adjust workflow, switched to interchange-plus to capture debit savings.",
+      changed: "[To be completed with verified merchant data] \u2014 Deployed Liberty Smart Terminals with optimized tip-adjust workflow, switched to interchange-plus to capture debit savings.",
       after: "[To be completed with verified merchant data] \u2014 Faster authorizations, reliable tip settlement, and measurable monthly savings.",
     },
   },
@@ -374,7 +384,7 @@ const contentMap: Record<string, ContentPage> = {
     caseStudy: {
       snapshot: "[To be completed with verified merchant data] \u2014 Specialty retail store, 300+ transactions/day, average ticket $28, 60% debit card usage.",
       before: "[To be completed with verified merchant data] \u2014 Flat-rate processing at 2.6% + $0.10, no debit optimization, slow chip-read times on older terminal.",
-      changed: "[To be completed with verified merchant data] \u2014 Switched to interchange-plus, deployed QD4 with contactless support, enabled compliant cash discount program.",
+      changed: "[To be completed with verified merchant data] \u2014 Switched to interchange-plus, deployed Liberty Smart Terminal with contactless support, enabled compliant cash discount program.",
       after: "[To be completed with verified merchant data] \u2014 Faster checkout with tap-to-pay, significant savings on debit transactions, improved customer experience.",
     },
   },
@@ -419,11 +429,11 @@ const contentMap: Record<string, ContentPage> = {
   "/packet/terminal": {
     title: "Terminal Packet",
     subtitle: "Resources for Terminal Deployment and Setup",
-    description: "Everything a merchant needs for a smooth terminal rollout. Covers the Dejavoo QD4 features and a pre-launch checklist to ensure day-one readiness.",
+    description: "Everything a merchant needs for a smooth terminal rollout. Covers the Liberty Smart Terminal features and a pre-launch checklist to ensure day-one readiness.",
     bullets: [],
     type: "packet",
     links: [
-      { href: "/assets/terminal/qd4", label: "Liberty Smart Terminal (QD4)", description: "Terminal specs, features, and payment types supported." },
+      { href: "/assets/terminal/qd4", label: "Liberty Smart Terminal", description: "Terminal specs, features, and payment types supported." },
       { href: "/assets/terminal/go-live-checklist", label: "Go-Live Checklist", description: "Pre-launch steps for connectivity, testing, and training." },
     ],
   },
@@ -461,7 +471,7 @@ const contentMap: Record<string, ContentPage> = {
     links: [
       { href: "/assets/verticals/auto", label: "Automotive Processing Overview", description: "Solutions for auto shops and dealers." },
       { href: "/assets/case-studies/auto-high-ticket", label: "Case Study: Auto High-Ticket", description: "How an auto shop cut costs on large orders." },
-      { href: "/assets/terminal/qd4", label: "Liberty Smart Terminal (QD4)", description: "Terminal with invoice and keyed-entry support." },
+      { href: "/assets/terminal/qd4", label: "Liberty Smart Terminal", description: "Terminal with invoice and keyed-entry support." },
     ],
   },
 
@@ -474,7 +484,7 @@ const contentMap: Record<string, ContentPage> = {
     links: [
       { href: "/assets/verticals/restaurant", label: "Restaurant Processing Overview", description: "Solutions for dine-in and counter service." },
       { href: "/assets/case-studies/restaurant-tips-speed", label: "Case Study: Tips & Speed", description: "Faster authorizations and reliable tip settlement." },
-      { href: "/assets/terminal/qd4", label: "Liberty Smart Terminal (QD4)", description: "Terminal configured for high-volume restaurant use." },
+      { href: "/assets/terminal/qd4", label: "Liberty Smart Terminal", description: "Terminal configured for high-volume restaurant use." },
     ],
   },
 
@@ -500,7 +510,7 @@ const contentMap: Record<string, ContentPage> = {
     links: [
       { href: "/assets/verticals/retail", label: "Retail Processing Overview", description: "Solutions for high-volume retail environments." },
       { href: "/assets/case-studies/retail-fast-checkout", label: "Case Study: Fast Checkout", description: "Faster checkout and debit savings for a retail store." },
-      { href: "/assets/terminal/qd4", label: "Liberty Smart Terminal (QD4)", description: "Contactless-ready terminal for fast retail checkout." },
+      { href: "/assets/terminal/qd4", label: "Liberty Smart Terminal", description: "Contactless-ready terminal for fast retail checkout." },
     ],
   },
 };
@@ -557,6 +567,25 @@ function StandardPage({ content }: { content: ContentPage }) {
       <p className="mt-2 text-lg text-muted-foreground" data-testid="text-asset-subtitle">
         {content.subtitle}
       </p>
+
+      {content.images && content.images.length > 0 && (
+        <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-4" data-testid="asset-image-gallery">
+          {content.images.map((img, i) => (
+            <div key={i} className={`${i === 0 && content.images!.length > 2 ? "md:col-span-2" : ""}`}>
+              <img
+                src={img.src}
+                alt={img.alt}
+                className="w-full rounded-md object-cover"
+                data-testid={`img-asset-${i}`}
+              />
+              {img.caption && (
+                <p className="text-xs text-muted-foreground mt-2 text-center">{img.caption}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
       <p className="mt-6 text-foreground/80 leading-relaxed max-w-3xl" data-testid="text-asset-description">
         {content.description}
       </p>

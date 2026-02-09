@@ -287,7 +287,7 @@ export default function BeatSquareStripe() {
                     className="text-2xl md:text-3xl font-display font-bold text-foreground mb-4"
                     data-testid="text-terminal-heading"
                   >
-                    Liberty Smart Terminal (Dejavoo QD4)
+                    Liberty Smart Terminal
                   </h2>
                   <p
                     className="text-muted-foreground mb-6 leading-relaxed"

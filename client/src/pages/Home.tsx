@@ -48,7 +48,7 @@ import {
 import logoBlue from "@assets/logo-blue.png";
 import heroBg from "@assets/images/hero-bg.png";
 import teamCollab from "@assets/images/team-collab.png";
-import terminalDevice from "@assets/images/terminal-device.png";
+import terminalDevice from "@assets/images/liberty-terminal-hero.png";
 import dashboardPreview from "@assets/images/dashboard-preview.png";
 
 function useCountUp(end: number, duration: number = 2000, suffix: string = "") {
@@ -649,7 +649,7 @@ export default function Home() {
               <Card className="relative overflow-visible" data-testid="card-terminal">
                 <CardHeader className="gap-1">
                   <CardTitle className="text-lg">Liberty Smart Terminal</CardTitle>
-                  <CardDescription>Dejavoo QD4. Modern checkout with guided onboarding and support.</CardDescription>
+                  <CardDescription>Modern checkout with guided onboarding and dedicated support.</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="rounded-md overflow-hidden mb-3">
