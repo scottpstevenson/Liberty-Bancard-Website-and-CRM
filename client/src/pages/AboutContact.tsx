@@ -15,6 +15,8 @@ import {
   Phone,
   Mail,
 } from "lucide-react";
+import heroTeam from "@assets/images/hero-team.jpg";
+import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 
 const steps = [
   {
@@ -43,36 +45,44 @@ const beliefs = [
 ];
 
 export default function AboutContact() {
+  const containerRef = useScrollReveal();
+
   return (
     <div className="min-h-screen flex flex-col">
       <SEO title="About Us & Contact" description="Learn about Liberty Bancard's approach to merchant payment processing. Direct support, transparent pricing, no long-term contracts." path="/about-contact" />
       <Navbar />
 
-      <main className="flex-grow pt-28">
-        <section className="bg-background py-20 lg:py-28" data-testid="section-about-hero">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="max-w-3xl">
+      <main className="flex-grow pt-28" ref={containerRef}>
+        <section className="relative overflow-hidden" data-testid="section-about-hero">
+          <div className="absolute inset-0">
+            <img src={heroTeam} alt="" className="w-full h-full object-cover" />
+            <div className="absolute inset-0 bg-gradient-to-r from-[hsl(222,47%,6%)/0.97] via-[hsl(222,47%,6%)/0.93] to-[hsl(222,47%,6%)/0.85]" />
+          </div>
+          <div className="glow-blob w-64 h-64 bg-sky-500 top-10 right-1/4" />
+          <div className="glow-blob glow-blob-2 w-48 h-48 bg-blue-600 bottom-10 left-1/4" />
+          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 lg:py-32">
+            <div className="max-w-3xl reveal">
               <h1
-                className="text-4xl md:text-5xl font-display font-bold text-foreground leading-tight mb-6"
+                className="text-4xl md:text-5xl font-display font-bold text-white leading-tight mb-6"
                 data-testid="text-about-heading"
               >
-                Merchant-First Support. Statement-First Pricing.
+                <span className="text-sky-400">Merchant-First</span> Support. Statement-First Pricing.
               </h1>
               <p
-                className="text-lg text-muted-foreground leading-relaxed mb-8"
+                className="text-lg text-white/70 leading-relaxed mb-8"
                 data-testid="text-about-body"
               >
                 Liberty Bancard helps operators stop overpaying and stop guessing with line-item statement diagnostics, clear options, and support that sticks around.
               </p>
               <div className="flex flex-wrap items-center gap-4">
                 <Link href="/upload-statement" data-testid="link-hero-upload-statement">
-                  <Button className="gap-2">
+                  <Button className="gap-2 cta-pulse">
                     <Upload className="w-4 h-4" />
                     Upload Statement
                   </Button>
                 </Link>
                 <a href="#" data-testid="link-hero-book-call">
-                  <Button variant="outline" className="gap-2">
+                  <Button variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
                     <Calendar className="w-4 h-4" />
                     Book a 10-Minute Call
                   </Button>
@@ -82,27 +92,29 @@ export default function AboutContact() {
           </div>
         </section>
 
-        <section className="bg-muted py-20" data-testid="section-how-we-work">
+        <section className="bg-muted bg-dots py-20" data-testid="section-how-we-work">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <h2
-              className="text-3xl md:text-4xl font-display font-bold text-foreground mb-12 text-center"
-              data-testid="text-how-we-work-heading"
-            >
-              How We Work
-            </h2>
+            <div className="reveal">
+              <h2
+                className="text-3xl md:text-4xl font-display font-bold text-foreground mb-12 text-center"
+                data-testid="text-how-we-work-heading"
+              >
+                How We <span className="text-sky-400">Work</span>
+              </h2>
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               {steps.map((item, i) => (
-                <Card key={i} data-testid={`card-step-${i}`}>
-                  <CardContent className="pt-6">
-                    <div className="w-10 h-10 rounded-md bg-primary flex items-center justify-center mb-4">
-                      <span className="text-primary-foreground font-bold text-lg">
+                <Card key={i} className={`reveal reveal-delay-${i + 1}`} data-testid={`card-step-${i}`}>
+                  <CardContent className="pt-8 pb-6 px-6">
+                    <div className="w-14 h-14 rounded-md bg-primary flex items-center justify-center mb-5">
+                      <span className="text-primary-foreground font-bold text-xl">
                         {i + 1}
                       </span>
                     </div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <item.icon className="w-5 h-5 text-primary shrink-0" />
+                    <div className="flex items-start gap-3 mb-2">
+                      <item.icon className="w-6 h-6 text-sky-400 shrink-0 mt-0.5" />
                       <h3
-                        className="font-display font-bold text-foreground text-base"
+                        className="font-display font-bold text-foreground text-base leading-snug"
                         data-testid={`text-step-title-${i}`}
                       >
                         {item.title}
@@ -115,14 +127,14 @@ export default function AboutContact() {
           </div>
         </section>
 
-        <section className="bg-background py-20" data-testid="section-different">
+        <section className="bg-background bg-grid py-20" data-testid="section-different">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="max-w-3xl mx-auto">
+            <div className="max-w-3xl mx-auto reveal">
               <h2
                 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-8"
                 data-testid="text-different-heading"
               >
-                What Makes Liberty Different
+                What Makes Liberty <span className="text-sky-400">Different</span>
               </h2>
               <ul className="space-y-4 mb-8">
                 {beliefs.map((item, i) => (
@@ -131,7 +143,7 @@ export default function AboutContact() {
                     className="flex items-start gap-3"
                     data-testid={`different-bullet-${i}`}
                   >
-                    <CheckCircle2 className="w-5 h-5 text-primary mt-0.5 shrink-0" />
+                    <CheckCircle2 className="w-5 h-5 text-sky-400 mt-0.5 shrink-0" />
                     <span className="text-muted-foreground">{item}</span>
                   </li>
                 ))}
@@ -146,20 +158,22 @@ export default function AboutContact() {
           </div>
         </section>
 
-        <section className="bg-muted py-20" data-testid="section-contact">
+        <section className="bg-muted bg-dots py-20" data-testid="section-contact">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="max-w-3xl mx-auto">
-              <h2
-                className="text-3xl md:text-4xl font-display font-bold text-foreground mb-8 text-center"
-                data-testid="text-contact-heading"
-              >
-                Contact Liberty Bancard
-              </h2>
+              <div className="reveal">
+                <h2
+                  className="text-3xl md:text-4xl font-display font-bold text-foreground mb-8 text-center"
+                  data-testid="text-contact-heading"
+                >
+                  Contact <span className="text-sky-400">Liberty Bancard</span>
+                </h2>
+              </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-10">
-                <Card data-testid="card-contact-phone">
+                <Card className="reveal reveal-delay-1" data-testid="card-contact-phone">
                   <CardContent className="pt-6 text-center">
-                    <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center mx-auto mb-3">
-                      <Phone className="w-5 h-5 text-primary" />
+                    <div className="w-12 h-12 rounded-md bg-primary/10 flex items-center justify-center mx-auto mb-4">
+                      <Phone className="w-6 h-6 text-sky-400" />
                     </div>
                     <h3 className="font-display font-bold text-foreground mb-2">Call/Text</h3>
                     <a
@@ -172,10 +186,10 @@ export default function AboutContact() {
                   </CardContent>
                 </Card>
 
-                <Card data-testid="card-contact-email">
+                <Card className="reveal reveal-delay-2" data-testid="card-contact-email">
                   <CardContent className="pt-6 text-center">
-                    <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center mx-auto mb-3">
-                      <Mail className="w-5 h-5 text-primary" />
+                    <div className="w-12 h-12 rounded-md bg-primary/10 flex items-center justify-center mx-auto mb-4">
+                      <Mail className="w-6 h-6 text-sky-400" />
                     </div>
                     <h3 className="font-display font-bold text-foreground mb-2">Email</h3>
                     <a
@@ -188,10 +202,10 @@ export default function AboutContact() {
                   </CardContent>
                 </Card>
 
-                <Card data-testid="card-contact-book">
+                <Card className="reveal reveal-delay-3" data-testid="card-contact-book">
                   <CardContent className="pt-6 text-center">
-                    <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center mx-auto mb-3">
-                      <Calendar className="w-5 h-5 text-primary" />
+                    <div className="w-12 h-12 rounded-md bg-primary/10 flex items-center justify-center mx-auto mb-4">
+                      <Calendar className="w-6 h-6 text-sky-400" />
                     </div>
                     <h3 className="font-display font-bold text-foreground mb-2">Book</h3>
                     <a
@@ -205,7 +219,7 @@ export default function AboutContact() {
                 </Card>
               </div>
 
-              <div className="text-center">
+              <div className="text-center reveal reveal-delay-4">
                 <a href="#" data-testid="link-contact-book-call">
                   <Button className="gap-2">
                     <Calendar className="w-4 h-4" />

@@ -1,6 +1,7 @@
 import { SEO } from "@/components/SEO";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
+import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Link } from "wouter";
@@ -74,16 +75,18 @@ const faqItems = [
 ];
 
 export default function BeatSquareStripe() {
+  const containerRef = useScrollReveal();
   return (
     <div className="min-h-screen flex flex-col font-body">
       <SEO title="Beat Square & Stripe Pricing" description="Compare Liberty Bancard's statement-based pricing against Square and Stripe flat-rate processing. Real numbers, no guesswork." path="/beat-square-stripe" />
       <Navbar />
 
-      <main className="flex-grow pt-28">
+      <main className="flex-grow pt-28" ref={containerRef}>
         {/* Hero - 2 column */}
         <section className="relative overflow-hidden" data-testid="section-beat-hero">
           <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />
-          <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(circle at 80% 30%, rgba(56,189,248,0.4) 0%, transparent 50%)' }} />
+          <div className="glow-blob w-72 h-72 bg-sky-500 top-16 right-1/4" />
+          <div className="glow-blob glow-blob-2 w-48 h-48 bg-blue-600 bottom-10 left-1/3" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 lg:py-28">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
               <div>
@@ -137,9 +140,9 @@ export default function BeatSquareStripe() {
         </section>
 
         {/* Head-to-Head Comparison Table */}
-        <section className="bg-muted py-20" data-testid="section-comparison-table">
+        <section className="bg-muted bg-dots py-20" data-testid="section-comparison-table">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="text-center mb-10">
+            <div className="reveal text-center mb-10">
               <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-comparison-heading">
                 Head-to-Head Comparison
               </h2>
@@ -194,9 +197,9 @@ export default function BeatSquareStripe() {
         </section>
 
         {/* Why Flat-Rate Can Cost More */}
-        <section className="bg-background py-20" data-testid="section-cost-more">
+        <section className="bg-background bg-grid py-20" data-testid="section-cost-more">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="max-w-3xl mx-auto">
+            <div className="reveal max-w-3xl mx-auto">
               <h2
                 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-6"
                 data-testid="text-cost-more-heading"
@@ -240,7 +243,7 @@ export default function BeatSquareStripe() {
         {/* What You Get */}
         <section className="bg-muted/30 py-20" data-testid="section-beat-what-you-get">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="max-w-3xl mx-auto">
+            <div className="reveal max-w-3xl mx-auto">
               <h2
                 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-8"
                 data-testid="text-beat-what-you-get-heading"
@@ -277,9 +280,9 @@ export default function BeatSquareStripe() {
         </section>
 
         {/* Terminal Block */}
-        <section className="bg-muted py-20" data-testid="section-terminal">
+        <section className="bg-muted bg-dots py-20" data-testid="section-terminal">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="max-w-5xl mx-auto">
+            <div className="reveal max-w-5xl mx-auto">
               <Card data-testid="card-terminal-block">
                 <CardContent className="p-8">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
@@ -344,7 +347,7 @@ export default function BeatSquareStripe() {
         {/* FAQ */}
         <section className="bg-background py-20" data-testid="section-beat-faq">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="max-w-3xl mx-auto">
+            <div className="reveal max-w-3xl mx-auto">
               <h2
                 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-8"
                 data-testid="text-beat-faq-heading"

@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 import {
   FileSearch,
   ShieldCheck,
@@ -40,6 +41,7 @@ import {
   ArrowRight,
 } from "lucide-react";
 import terminalHero from "@assets/images/liberty-terminal-hero.png";
+import heroSecure from "@assets/images/hero-secure.jpg";
 
 const uploadSchema = z.object({
   businessName: z.string().min(1, "Business name is required"),
@@ -62,6 +64,7 @@ type UploadFormData = z.infer<typeof uploadSchema>;
 export default function UploadStatement() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const containerRef = useScrollReveal();
 
   const params = new URLSearchParams(window.location.search);
   const preTerminal = params.get("terminal") === "yes";
@@ -154,31 +157,37 @@ export default function UploadStatement() {
       <SEO title="Upload Your Processing Statement" description="Upload your merchant processing statement for a free, no-obligation rate analysis. See exactly where your fees are going." path="/upload-statement" />
       <Navbar />
 
-      <main className="flex-grow pt-28 pb-16">
-        <section className="bg-background py-12">
-          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="text-center mb-10">
+      <main className="flex-grow pt-28" ref={containerRef}>
+        <section className="relative overflow-hidden" data-testid="section-upload-hero">
+          <div className="absolute inset-0">
+            <img src={heroSecure} alt="" className="w-full h-full object-cover" />
+            <div className="absolute inset-0 bg-gradient-to-r from-[hsl(222,47%,6%)/0.97] via-[hsl(222,47%,6%)/0.93] to-[hsl(222,47%,6%)/0.85]" />
+          </div>
+          <div className="glow-blob w-64 h-64 bg-sky-500 top-10 right-1/4" />
+          <div className="glow-blob glow-blob-2 w-48 h-48 bg-blue-600 bottom-10 left-1/4" />
+          <div className="relative max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-20 lg:py-28">
+            <div className="text-center mb-10 reveal">
               <h1
-                className="text-3xl sm:text-4xl font-bold text-foreground mb-3"
+                className="text-3xl sm:text-4xl lg:text-5xl font-bold text-white mb-4"
                 data-testid="text-upload-heading"
               >
-                Upload Your Statement (Secure)
+                Upload Your Statement (<span className="text-sky-400">Secure</span>)
               </h1>
               <p
-                className="text-lg text-muted-foreground max-w-2xl mx-auto mb-8"
+                className="text-lg text-white/70 max-w-2xl mx-auto mb-10"
                 data-testid="text-upload-subheadline"
               >
                 PDF or photo. Redact account numbers if you want - totals + fee lines are all we need.
               </p>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 reveal reveal-delay-1">
                 {trustBullets.map((bullet) => (
                   <div
                     key={bullet.text}
-                    className="flex items-center gap-3 justify-center"
+                    className="glass-dark rounded-md px-4 py-3 flex items-center gap-3 justify-center"
                     data-testid={`trust-bullet-${bullet.text.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
                   >
-                    <bullet.icon className="w-5 h-5 text-primary shrink-0" />
-                    <span className="text-sm text-muted-foreground">{bullet.text}</span>
+                    <bullet.icon className="w-5 h-5 text-sky-400 shrink-0" />
+                    <span className="text-sm text-white/80">{bullet.text}</span>
                   </div>
                 ))}
               </div>
@@ -186,8 +195,8 @@ export default function UploadStatement() {
           </div>
         </section>
 
-        <section className="bg-muted/30 py-12">
-          <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+        <section className="bg-muted/30 bg-dots py-12">
+          <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 reveal">
             <Card data-testid="card-upload-form">
               <CardContent className="pt-6">
                 <h2
@@ -463,40 +472,43 @@ export default function UploadStatement() {
           </div>
         </section>
 
-        <section className="bg-background py-16" data-testid="section-what-happens-next">
-          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+        <section className="bg-background bg-dots py-16" data-testid="section-what-happens-next">
+          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 reveal">
             <h2
-              className="text-2xl font-bold text-foreground text-center mb-8"
+              className="text-2xl sm:text-3xl font-bold text-foreground text-center mb-10"
               data-testid="text-what-happens-next"
             >
               What Happens Next
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <Card data-testid="card-step-1">
-                <CardContent className="pt-6 text-center space-y-3">
-                  <div className="w-10 h-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center mx-auto text-lg font-bold">
+              <Card className="reveal reveal-delay-1" data-testid="card-step-1">
+                <CardContent className="pt-8 pb-8 text-center space-y-4">
+                  <div className="w-14 h-14 rounded-full bg-sky-500 text-white flex items-center justify-center mx-auto text-2xl font-bold">
                     1
                   </div>
+                  <h3 className="text-base font-semibold text-foreground">Confirmation</h3>
                   <p className="text-sm text-muted-foreground">
                     We confirm we received your file (SMS/email).
                   </p>
                 </CardContent>
               </Card>
-              <Card data-testid="card-step-2">
-                <CardContent className="pt-6 text-center space-y-3">
-                  <div className="w-10 h-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center mx-auto text-lg font-bold">
+              <Card className="reveal reveal-delay-2" data-testid="card-step-2">
+                <CardContent className="pt-8 pb-8 text-center space-y-4">
+                  <div className="w-14 h-14 rounded-full bg-sky-500 text-white flex items-center justify-center mx-auto text-2xl font-bold">
                     2
                   </div>
+                  <h3 className="text-base font-semibold text-foreground">Analysis</h3>
                   <p className="text-sm text-muted-foreground">
                     We calculate your effective rate and identify cost drivers line-by-line.
                   </p>
                 </CardContent>
               </Card>
-              <Card data-testid="card-step-3">
-                <CardContent className="pt-6 text-center space-y-3">
-                  <div className="w-10 h-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center mx-auto text-lg font-bold">
+              <Card className="reveal reveal-delay-3" data-testid="card-step-3">
+                <CardContent className="pt-8 pb-8 text-center space-y-4">
+                  <div className="w-14 h-14 rounded-full bg-sky-500 text-white flex items-center justify-center mx-auto text-2xl font-bold">
                     3
                   </div>
+                  <h3 className="text-base font-semibold text-foreground">Clear Options</h3>
                   <p className="text-sm text-muted-foreground">
                     We send you 2-3 clear options with apples-to-apples math and next steps.
                   </p>
@@ -509,7 +521,7 @@ export default function UploadStatement() {
             >
               Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.
             </p>
-            <div className="text-center mt-6">
+            <div className="text-center mt-6 reveal reveal-delay-4">
               <Link href="#">
                 <Button variant="outline" className="gap-2" data-testid="button-book-call-next">
                   <Calendar className="w-4 h-4" />
@@ -521,12 +533,12 @@ export default function UploadStatement() {
         </section>
 
         <section className="bg-background py-16" data-testid="section-terminal-promo">
-          <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 reveal">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
-              <div className="flex justify-center">
+              <div className="flex justify-center reveal reveal-delay-1">
                 <img src={terminalHero} alt="Liberty Smart Terminal" className="w-full max-w-[240px] rounded-md object-contain" data-testid="img-upload-terminal" />
               </div>
-              <div>
+              <div className="reveal reveal-delay-2">
                 <h2 className="text-2xl font-bold text-foreground mb-3" data-testid="text-terminal-promo-heading">
                   Need a Terminal Too?
                 </h2>
@@ -545,7 +557,7 @@ export default function UploadStatement() {
         </section>
 
         <section className="bg-muted/30 py-16" data-testid="section-secondary-cta">
-          <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+          <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center reveal">
             <h2
               className="text-2xl font-bold text-foreground mb-3"
               data-testid="text-prefer-talk"

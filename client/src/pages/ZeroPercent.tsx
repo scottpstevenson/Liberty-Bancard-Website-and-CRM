@@ -1,6 +1,7 @@
 import { SEO } from "@/components/SEO";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
+import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Link } from "wouter";
@@ -90,16 +91,18 @@ const faqItems = [
 ];
 
 export default function ZeroPercent() {
+  const containerRef = useScrollReveal();
   return (
     <div className="min-h-screen flex flex-col font-body">
       <SEO title="0% Processing Program" description="Learn about compliant cash discount and surcharge programs. Eligibility depends on state law, card brand rules, and business model." path="/0-percent-processing" />
       <Navbar />
 
-      <main className="flex-grow pt-28">
+      <main className="flex-grow pt-28" ref={containerRef}>
         {/* Hero */}
         <section className="relative overflow-hidden" data-testid="section-zero-hero">
           <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />
-          <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(circle at 30% 60%, rgba(56,189,248,0.4) 0%, transparent 50%)' }} />
+          <div className="glow-blob w-64 h-64 bg-sky-500 top-10 right-1/4" />
+          <div className="glow-blob glow-blob-2 w-48 h-48 bg-blue-600 bottom-10 left-1/4" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 lg:py-28">
             <div className="max-w-3xl">
               <h1
@@ -149,15 +152,15 @@ export default function ZeroPercent() {
         </section>
 
         {/* Two Legit Approaches */}
-        <section className="bg-muted py-20" data-testid="section-approaches">
+        <section className="bg-muted bg-dots py-20" data-testid="section-approaches">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <h2
-              className="text-3xl md:text-4xl font-display font-bold text-foreground mb-12 text-center"
+              className="reveal text-3xl md:text-4xl font-display font-bold text-foreground mb-12 text-center"
               data-testid="text-approaches-heading"
             >
               Two Legit Approaches (We'll Recommend the Right Fit)
             </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="reveal grid grid-cols-1 md:grid-cols-2 gap-6">
               {approaches.map((item, i) => (
                 <Card key={i} data-testid={`card-approach-${i}`}>
                   <CardHeader>
@@ -185,9 +188,9 @@ export default function ZeroPercent() {
         </section>
 
         {/* Is It a Fit? */}
-        <section className="bg-background py-20" data-testid="section-fit">
+        <section className="bg-background bg-grid py-20" data-testid="section-fit">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="max-w-3xl mx-auto">
+            <div className="reveal max-w-3xl mx-auto">
               <h2
                 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4"
                 data-testid="text-fit-heading"
@@ -232,7 +235,7 @@ export default function ZeroPercent() {
         {/* Customer-Friendly Checkout */}
         <section className="bg-muted py-20" data-testid="section-checkout">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="max-w-3xl mx-auto">
+            <div className="reveal max-w-3xl mx-auto">
               <h2
                 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-8"
                 data-testid="text-checkout-heading"
@@ -264,9 +267,9 @@ export default function ZeroPercent() {
         </section>
 
         {/* Terminal Equipment */}
-        <section className="bg-background py-20" data-testid="section-terminal-equipment">
+        <section className="bg-background bg-dots py-20" data-testid="section-terminal-equipment">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="max-w-5xl mx-auto">
+            <div className="reveal max-w-5xl mx-auto">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-10 items-center">
                 <div className="flex flex-col gap-4 items-center order-2 md:order-1">
                   <img src={terminalHero} alt="Liberty Smart Terminal" className="w-full max-w-xs rounded-md object-contain" data-testid="img-zero-terminal-hero" />
@@ -304,7 +307,7 @@ export default function ZeroPercent() {
         {/* Compliance Checklist */}
         <section className="bg-background py-20" data-testid="section-compliance">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="max-w-3xl mx-auto">
+            <div className="reveal max-w-3xl mx-auto">
               <h2
                 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-8"
                 data-testid="text-compliance-heading"
@@ -328,15 +331,15 @@ export default function ZeroPercent() {
         </section>
 
         {/* What Happens After You Upload Your Statement */}
-        <section className="bg-muted py-20" data-testid="section-process">
+        <section className="bg-muted bg-grid py-20" data-testid="section-process">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <h2
-              className="text-3xl md:text-4xl font-display font-bold text-foreground mb-12 text-center"
+              className="reveal text-3xl md:text-4xl font-display font-bold text-foreground mb-12 text-center"
               data-testid="text-process-heading"
             >
               What Happens After You Upload Your Statement
             </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="reveal grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               {implementationSteps.map((step, i) => (
                 <Card key={i} data-testid={`card-process-${i}`}>
                   <CardContent className="pt-6">
@@ -377,7 +380,7 @@ export default function ZeroPercent() {
         {/* FAQ */}
         <section className="bg-background py-20" data-testid="section-zero-faq">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="max-w-3xl mx-auto">
+            <div className="reveal max-w-3xl mx-auto">
               <h2
                 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-8"
                 data-testid="text-zero-faq-heading"

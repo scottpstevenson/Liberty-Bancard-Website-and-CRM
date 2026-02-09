@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 import {
   ArrowLeft,
   ArrowRight,
@@ -159,6 +160,7 @@ export default function GetStarted() {
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const { toast } = useToast();
+  const resultsRef = useScrollReveal();
 
   const canProceed = () => {
     switch (step) {
@@ -219,89 +221,102 @@ export default function GetStarted() {
     return (
       <div className="min-h-screen flex flex-col font-body">
         <Navbar />
-        <main className="flex-grow pt-28">
-          <section className="bg-background py-16" data-testid="section-get-started-results">
+        <main className="flex-grow pt-28" ref={resultsRef}>
+          <section className="relative overflow-hidden" data-testid="section-get-started-results-hero">
+            <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />
+            <div className="glow-blob w-64 h-64 bg-emerald-500 top-10 right-1/4" />
+            <div className="glow-blob glow-blob-2 w-48 h-48 bg-sky-500 bottom-4 left-1/4" />
+            <div className="relative max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-16 lg:py-20 text-center">
+              <div className="w-16 h-16 rounded-full bg-emerald-500/20 flex items-center justify-center mx-auto mb-4">
+                <CheckCircle className="w-8 h-8 text-emerald-400" />
+              </div>
+              <h1 className="text-3xl md:text-4xl font-display font-bold text-white mb-2" data-testid="text-results-heading">
+                Your Personalized Recommendation
+              </h1>
+              <p className="text-white/70">Based on your answers, here's the best path forward.</p>
+            </div>
+          </section>
+
+          <section className="bg-muted/30 py-12" data-testid="section-get-started-results">
             <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
-              <div className="text-center mb-8">
-                <div className="w-16 h-16 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center mx-auto mb-4">
-                  <CheckCircle className="w-8 h-8 text-emerald-600 dark:text-emerald-400" />
-                </div>
-                <h1 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-2" data-testid="text-results-heading">
-                  Your Personalized Recommendation
-                </h1>
-                <p className="text-muted-foreground">Based on your answers, here's the best path forward.</p>
+              <div className="reveal">
+                <Card className="border-2 border-primary/20 mb-8" data-testid="card-recommendation">
+                  <CardContent className="p-6 sm:p-8">
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="w-12 h-12 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+                        <RecIcon className="w-6 h-6 text-primary" />
+                      </div>
+                      <div>
+                        <div className="text-xs font-medium text-primary uppercase tracking-wider">Recommended Path</div>
+                        <h2 className="text-xl font-display font-bold text-foreground" data-testid="text-recommendation-path">
+                          {recommendation.path}
+                        </h2>
+                      </div>
+                    </div>
+
+                    <h3 className="text-lg font-semibold text-foreground mb-3" data-testid="text-recommendation-headline">
+                      {recommendation.headline}
+                    </h3>
+                    <p className="text-muted-foreground leading-relaxed mb-4" data-testid="text-recommendation-description">
+                      {recommendation.description}
+                    </p>
+
+                    <div className="bg-primary/5 rounded-md p-3 mb-6 flex items-start gap-2" data-testid="text-recommendation-urgency">
+                      <Zap className="w-4 h-4 text-primary mt-0.5 shrink-0" />
+                      <p className="text-sm text-foreground font-medium">{recommendation.urgency}</p>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      {recommendation.nextSteps.map((ns, i) => (
+                        ns.href.startsWith("tel:") ? (
+                          <a key={i} href={ns.href} data-testid={`link-results-action-${i}`}>
+                            <Button size="lg" variant={ns.primary ? "default" : "outline"} className="gap-2 w-full">
+                              <Phone className="w-4 h-4" />
+                              {ns.label}
+                            </Button>
+                          </a>
+                        ) : (
+                          <Link key={i} href={ns.href} data-testid={`link-results-action-${i}`}>
+                            <Button size="lg" variant={ns.primary ? "default" : "outline"} className="gap-2 w-full">
+                              {ns.primary ? <Upload className="w-4 h-4" /> : <ArrowRight className="w-4 h-4" />}
+                              {ns.label}
+                            </Button>
+                          </Link>
+                        )
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
 
-              <Card className="border-2 border-primary/20 mb-8" data-testid="card-recommendation">
-                <CardContent className="p-6 sm:p-8">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="w-12 h-12 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
-                      <RecIcon className="w-6 h-6 text-primary" />
-                    </div>
-                    <div>
-                      <div className="text-xs font-medium text-primary uppercase tracking-wider">Recommended Path</div>
-                      <h2 className="text-xl font-display font-bold text-foreground" data-testid="text-recommendation-path">
-                        {recommendation.path}
-                      </h2>
-                    </div>
-                  </div>
-
-                  <h3 className="text-lg font-semibold text-foreground mb-3" data-testid="text-recommendation-headline">
-                    {recommendation.headline}
-                  </h3>
-                  <p className="text-muted-foreground leading-relaxed mb-4" data-testid="text-recommendation-description">
-                    {recommendation.description}
-                  </p>
-
-                  <div className="bg-primary/5 rounded-md p-3 mb-6 flex items-start gap-2" data-testid="text-recommendation-urgency">
-                    <Zap className="w-4 h-4 text-primary mt-0.5 shrink-0" />
-                    <p className="text-sm text-foreground font-medium">{recommendation.urgency}</p>
-                  </div>
-
-                  <div className="flex flex-col sm:flex-row gap-3">
-                    {recommendation.nextSteps.map((ns, i) => (
-                      ns.href.startsWith("tel:") ? (
-                        <a key={i} href={ns.href} data-testid={`link-results-action-${i}`}>
-                          <Button size="lg" variant={ns.primary ? "default" : "outline"} className="gap-2 w-full">
-                            <Phone className="w-4 h-4" />
-                            {ns.label}
-                          </Button>
-                        </a>
-                      ) : (
-                        <Link key={i} href={ns.href} data-testid={`link-results-action-${i}`}>
-                          <Button size="lg" variant={ns.primary ? "default" : "outline"} className="gap-2 w-full">
-                            {ns.primary ? <Upload className="w-4 h-4" /> : <ArrowRight className="w-4 h-4" />}
-                            {ns.label}
-                          </Button>
-                        </Link>
-                      )
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-                <Card data-testid="card-result-trust-1">
-                  <CardContent className="p-4 text-center">
-                    <ShieldCheck className="w-8 h-8 text-primary mx-auto mb-2" />
-                    <p className="text-sm font-medium text-foreground">No Contract Required</p>
-                    <p className="text-xs text-muted-foreground">Review is free and no-obligation</p>
-                  </CardContent>
-                </Card>
-                <Card data-testid="card-result-trust-2">
-                  <CardContent className="p-4 text-center">
-                    <FileText className="w-8 h-8 text-primary mx-auto mb-2" />
-                    <p className="text-sm font-medium text-foreground">Keep the Breakdown</p>
-                    <p className="text-xs text-muted-foreground">Even if you don't switch</p>
-                  </CardContent>
-                </Card>
-                <Card data-testid="card-result-trust-3">
-                  <CardContent className="p-4 text-center">
-                    <Phone className="w-8 h-8 text-primary mx-auto mb-2" />
-                    <p className="text-sm font-medium text-foreground">Real Human Support</p>
-                    <p className="text-xs text-muted-foreground">954-266-8214</p>
-                  </CardContent>
-                </Card>
+                <div className="reveal reveal-delay-1">
+                  <Card data-testid="card-result-trust-1">
+                    <CardContent className="p-4 text-center">
+                      <ShieldCheck className="w-8 h-8 text-primary mx-auto mb-2" />
+                      <p className="text-sm font-medium text-foreground">No Contract Required</p>
+                      <p className="text-xs text-muted-foreground">Review is free and no-obligation</p>
+                    </CardContent>
+                  </Card>
+                </div>
+                <div className="reveal reveal-delay-2">
+                  <Card data-testid="card-result-trust-2">
+                    <CardContent className="p-4 text-center">
+                      <FileText className="w-8 h-8 text-primary mx-auto mb-2" />
+                      <p className="text-sm font-medium text-foreground">Keep the Breakdown</p>
+                      <p className="text-xs text-muted-foreground">Even if you don't switch</p>
+                    </CardContent>
+                  </Card>
+                </div>
+                <div className="reveal reveal-delay-3">
+                  <Card data-testid="card-result-trust-3">
+                    <CardContent className="p-4 text-center">
+                      <Phone className="w-8 h-8 text-primary mx-auto mb-2" />
+                      <p className="text-sm font-medium text-foreground">Real Human Support</p>
+                      <p className="text-xs text-muted-foreground">954-266-8214</p>
+                    </CardContent>
+                  </Card>
+                </div>
               </div>
 
               <p className="text-xs text-muted-foreground text-center" data-testid="text-results-disclaimer">
@@ -329,17 +344,21 @@ export default function GetStarted() {
       <SEO title="Get Started - Free Statement Analysis" description="Answer a few questions and get a personalized processing recommendation. Free statement review, no obligation." path="/get-started" />
       <Navbar />
       <main className="flex-grow pt-28">
-        <section className="bg-background py-16" data-testid="section-get-started">
-          <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="mb-8 text-center">
-              <h1 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-2" data-testid="text-get-started-heading">
-                Find Your Best Path Forward
-              </h1>
-              <p className="text-muted-foreground" data-testid="text-get-started-subheadline">
-                60 seconds. 6 questions. We'll tell you exactly what to do next.
-              </p>
-            </div>
+        <section className="relative overflow-hidden" data-testid="section-get-started-hero">
+          <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />
+          <div className="glow-blob w-64 h-64 bg-sky-500 top-10 right-1/4" />
+          <div className="relative max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-16 lg:py-20 text-center">
+            <h1 className="text-3xl md:text-4xl font-display font-bold text-white mb-2" data-testid="text-get-started-heading">
+              Find Your <span className="text-sky-400">Best Path</span> Forward
+            </h1>
+            <p className="text-white/70" data-testid="text-get-started-subheadline">
+              60 seconds. 6 questions. We'll tell you exactly what to do next.
+            </p>
+          </div>
+        </section>
 
+        <section className="bg-muted/30 py-12" data-testid="section-get-started">
+          <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex items-center gap-1 mb-2" data-testid="progress-indicator">
               {Array.from({ length: TOTAL_STEPS }, (_, i) => (
                 <div

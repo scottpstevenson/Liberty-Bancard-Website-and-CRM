@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { SEO } from "@/components/SEO";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
+import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -119,6 +120,7 @@ export default function Home() {
   const [cbSubmitted, setCbSubmitted] = useState(false);
   const { toast } = useToast();
 
+  const containerRef = useScrollReveal();
   const stat1 = useCountUp(15, 2000, "+");
   const stat2 = useCountUp(500, 2000, "+");
   const stat3 = useCountUp(98, 2000, "%");
@@ -159,7 +161,7 @@ export default function Home() {
       <SEO title="Merchant Payment Processing" description="See exactly what you pay to accept cards. Liberty Bancard provides transparent, statement-based pricing for businesses. Upload your statement for a free analysis." path="/" />
       <Navbar />
 
-      <main className="flex-grow pt-28">
+      <main className="flex-grow pt-28" ref={containerRef}>
 
         {/* SECTION 1: Social Proof Bar */}
         <section className="bg-primary text-primary-foreground" data-testid="section-proof-bar">
@@ -183,6 +185,8 @@ export default function Home() {
             <img src={heroBg} alt="" className="w-full h-full object-cover" />
             <div className="absolute inset-0 bg-gradient-to-r from-[hsl(222,47%,6%)/0.97] via-[hsl(222,47%,6%)/0.93] to-[hsl(222,47%,6%)/0.85]" />
           </div>
+          <div className="glow-blob w-72 h-72 bg-sky-500 top-20 right-1/4" />
+          <div className="glow-blob glow-blob-2 w-56 h-56 bg-blue-600 bottom-10 left-1/3" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 lg:py-36">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
               <div>
@@ -246,12 +250,12 @@ export default function Home() {
         </section>
 
         {/* SECTION 3: Pain Points */}
-        <section className="bg-muted/30 py-16" data-testid="section-pain">
+        <section className="bg-muted/30 bg-dots py-16" data-testid="section-pain">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <h2 className="text-2xl md:text-3xl font-display font-bold text-foreground text-center mb-10" data-testid="text-pain-heading">
+            <h2 className="reveal text-2xl md:text-3xl font-display font-bold text-foreground text-center mb-10" data-testid="text-pain-heading">
               Sound Familiar?
             </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="reveal grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               {[
                 { icon: AlertTriangle, text: "You were quoted 1.5% but your statement shows 3%+", color: "text-red-500" },
                 { icon: DollarSign, text: "Monthly fees keep creeping up and nobody explains why", color: "text-amber-500" },
@@ -326,10 +330,10 @@ export default function Home() {
         </section>
 
         {/* SECTION 4: What You Get */}
-        <section className="bg-background py-20" data-testid="section-what-you-get">
+        <section className="bg-background bg-grid py-20" data-testid="section-what-you-get">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-start">
-              <div>
+              <div className="reveal">
                 <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-what-you-get-heading">
                   What You Get From a Liberty Statement Review
                 </h2>
@@ -352,7 +356,7 @@ export default function Home() {
                   ))}
                 </ul>
               </div>
-              <div className="lg:sticky lg:top-32">
+              <div className="reveal reveal-delay-2 lg:sticky lg:top-32">
                 <Card className="border-2 border-primary/20">
                   <CardContent className="p-6 text-center">
                     <ShieldCheck className="w-10 h-10 text-primary mx-auto mb-4" />
@@ -375,11 +379,11 @@ export default function Home() {
         {/* SECTION 5: How It Works */}
         <section className="bg-muted/30 py-20" data-testid="section-how-it-works">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground text-center mb-4" data-testid="text-how-heading">
+            <h2 className="reveal text-3xl md:text-4xl font-display font-bold text-foreground text-center mb-4" data-testid="text-how-heading">
               Three Steps. No Guesswork.
             </h2>
             <p className="text-center text-muted-foreground mb-12 max-w-xl mx-auto">Upload your statement. We do the math. You make the call.</p>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <div className="reveal grid grid-cols-1 md:grid-cols-3 gap-8">
               {[
                 { step: "1", icon: Upload, title: "Upload Your Statement", desc: "PDF or photo. Takes 30 seconds. Redact account numbers if you want.", cta: "Upload Now", href: "/upload-statement" },
                 { step: "2", icon: Calculator, title: "We Break It Down", desc: "Line-item review of every fee, markup, and cost driver on your statement.", cta: null, href: null },
@@ -444,10 +448,10 @@ export default function Home() {
         </section>
 
         {/* SECTION 6: Enhanced Rate Calculator */}
-        <section className="bg-muted/30 py-20" data-testid="section-calculator">
+        <section className="bg-muted/30 bg-dots py-20" data-testid="section-calculator">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-start">
-              <div>
+              <div className="reveal">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="w-12 h-12 rounded-md bg-primary/10 flex items-center justify-center">
                     <Calculator className="w-6 h-6 text-primary" />
@@ -597,11 +601,11 @@ export default function Home() {
         {/* SECTION 7: Choose Your Path */}
         <section className="bg-muted/30 py-20" data-testid="section-choose-path">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground text-center mb-4" data-testid="text-choose-path-heading">
+            <h2 className="reveal text-3xl md:text-4xl font-display font-bold text-foreground text-center mb-4" data-testid="text-choose-path-heading">
               Choose the Strategy That Fits
             </h2>
             <p className="text-center text-muted-foreground mb-12 max-w-xl mx-auto">Every business is different. Here are the most common paths our merchants take.</p>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="reveal grid grid-cols-1 md:grid-cols-3 gap-6">
               <Card className="relative overflow-visible" data-testid="card-wholesale">
                 <div className="absolute -top-3 left-4">
                   <span className="bg-primary text-primary-foreground text-xs font-semibold px-3 py-1 rounded-md">Most Popular</span>
@@ -681,9 +685,9 @@ export default function Home() {
         </section>
 
         {/* SECTION 7.5: Platform Preview */}
-        <section className="bg-background py-20" data-testid="section-platform-preview">
+        <section className="bg-background bg-grid py-20" data-testid="section-platform-preview">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+            <div className="reveal grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
               <div>
                 <div className="inline-flex items-center gap-2 bg-sky-50 dark:bg-sky-950/30 text-sky-600 dark:text-sky-400 text-xs font-semibold px-3 py-1 rounded-md mb-4">
                   INTERNAL PLATFORM
@@ -726,15 +730,15 @@ export default function Home() {
         </section>
 
         {/* SECTION 8: Vertical Credibility */}
-        <section className="bg-muted/30 py-20" data-testid="section-verticals">
+        <section className="bg-muted/30 bg-dots py-20" data-testid="section-verticals">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="text-center mb-12">
+            <div className="reveal text-center mb-12">
               <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-verticals-heading">
                 Built for Operators Who Run Real Businesses
               </h2>
               <p className="text-muted-foreground max-w-xl mx-auto">South Florida roots. Nationwide reach. We know the cost pressures in your industry.</p>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="reveal grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {[
                 { icon: Stethoscope, title: "Medical / Dental / Medspa", points: ["Front desk speed and deposit clarity", "Fewer billing headaches", "HIPAA-aware workflows"] },
                 { icon: Car, title: "Automotive", points: ["High-ticket transaction handling", "Predictable funding schedules", "Chargeback prevention"] },
@@ -769,7 +773,7 @@ export default function Home() {
         {/* SECTION 8.25: Terminal Showcase */}
         <section className="bg-background py-20" data-testid="section-terminal-showcase">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+            <div className="reveal grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
               <div>
                 <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-terminal-showcase-heading">
                   The Liberty Smart Terminal
@@ -805,13 +809,13 @@ export default function Home() {
         {/* SECTION 8.5: Why Liberty - Differentiators */}
         <section className="bg-muted/30 py-20" data-testid="section-why-liberty">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="text-center mb-12">
+            <div className="reveal text-center mb-12">
               <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-why-liberty-heading">
                 Why Merchants Switch to Liberty
               </h2>
               <p className="text-muted-foreground max-w-xl mx-auto">The differences you feel every day, not just on paper.</p>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="reveal grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               {[
                 { icon: FileText, title: "Statement-Based Pricing", desc: "We price off your actual statement, not a generic quote. You see exactly what changes and why." },
                 { icon: Headphones, title: "Direct Human Support", desc: "A real person picks up the phone. No ticket queues, no chatbots, no 3-day wait." },
@@ -838,11 +842,11 @@ export default function Home() {
         {/* SECTION 9: Social Proof / Reviews */}
         <section className="bg-muted/30 py-20" data-testid="section-reviews">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground text-center mb-4" data-testid="text-reviews-heading">
+            <h2 className="reveal text-3xl md:text-4xl font-display font-bold text-foreground text-center mb-4" data-testid="text-reviews-heading">
               Merchants Don't Want a "Processor." They Want a Partner.
             </h2>
             <p className="text-center text-muted-foreground mb-12 max-w-xl mx-auto">Here's what business owners say after their first statement review.</p>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="reveal grid grid-cols-1 md:grid-cols-3 gap-6">
               {[
                 { quote: "We finally saw our real effective rate. The breakdown was clear, the switch was smooth, and we had a direct line for questions.", author: "Retail Owner, Boca Raton", stars: 5 },
                 { quote: "Support actually answered when we needed it. No ticket loop, no waiting 3 days for a callback. This is how it should work.", author: "Automotive Shop Manager", stars: 5 },
@@ -931,7 +935,7 @@ export default function Home() {
         {/* SECTION 11: FAQ */}
         <section className="bg-muted/30 py-20" data-testid="section-faq">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="max-w-3xl mx-auto">
+            <div className="reveal max-w-3xl mx-auto">
               <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-8" data-testid="text-faq-heading">
                 Common Questions
               </h2>
@@ -978,9 +982,9 @@ export default function Home() {
         </section>
 
         {/* SECTION 11.5: Quick Callback Form */}
-        <section className="bg-background py-20" data-testid="section-callback">
+        <section className="bg-background bg-grid py-20" data-testid="section-callback">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+            <div className="reveal grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
               <div>
                 <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-callback-heading">
                   Prefer a Quick Call?

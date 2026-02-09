@@ -28,7 +28,9 @@ import {
 } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { Loader2, Upload, ArrowRight } from "lucide-react";
+import { Loader2, Upload, ArrowRight, Calculator, TrendingDown } from "lucide-react";
+import heroAnalytics from "@assets/images/hero-analytics.jpg";
+import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 
 const estimateSchema = z.object({
   contactName: z.string().min(1, "Your name is required"),
@@ -59,6 +61,7 @@ const verticals = [
 export default function Estimate() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const containerRef = useScrollReveal();
 
   const form = useForm<EstimateFormData>({
     resolver: zodResolver(estimateSchema),
@@ -110,24 +113,29 @@ export default function Estimate() {
       <SEO title="Quick Estimate Request" description="Get a quick processing cost estimate. Provide your monthly volume and current fees for a preliminary analysis." path="/estimate" />
       <Navbar />
 
-      <main className="flex-grow pt-28">
-        <section className="bg-background py-20 lg:py-28" data-testid="section-estimate-hero">
-          <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+      <main className="flex-grow pt-28" ref={containerRef}>
+        <section className="relative overflow-hidden" data-testid="section-estimate-hero">
+          <div className="absolute inset-0">
+            <img src={heroAnalytics} alt="" className="w-full h-full object-cover" />
+            <div className="absolute inset-0 bg-gradient-to-r from-[hsl(222,47%,6%)/0.97] via-[hsl(222,47%,6%)/0.93] to-[hsl(222,47%,6%)/0.85]" />
+          </div>
+          <div className="glow-blob w-64 h-64 bg-sky-500 top-10 right-1/4" />
+          <div className="relative max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-20 lg:py-28 text-center">
             <h1
-              className="text-4xl md:text-5xl font-display font-bold text-foreground leading-tight mb-6"
+              className="reveal text-4xl md:text-5xl font-display font-bold text-white leading-tight mb-6"
               data-testid="text-estimate-heading"
             >
-              Get a Fast Effective Rate Estimate
+              Get a Fast <span className="text-sky-400">Effective Rate</span> Estimate
             </h1>
             <p
-              className="text-lg text-muted-foreground leading-relaxed mb-6"
+              className="reveal reveal-delay-1 text-lg text-white/70 leading-relaxed mb-6"
               data-testid="text-estimate-subheadline"
             >
               Share monthly volume and total fees. We'll estimate your effective rate and recommend next steps. For a definitive comparison, upload a statement anytime.
             </p>
             <Link
               href="/upload-statement"
-              className="text-sm font-medium text-primary hover:underline"
+              className="reveal reveal-delay-2 inline-block text-sm font-medium text-sky-400 hover:underline"
               data-testid="link-upload-instead"
             >
               Upload a Statement Instead
@@ -136,7 +144,7 @@ export default function Estimate() {
         </section>
 
         <section className="bg-muted py-20" data-testid="section-estimate-form">
-          <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="reveal max-w-2xl mx-auto px-4 sm:px-6 lg:px-8">
             <Card data-testid="card-estimate-form">
               <CardHeader>
                 <CardTitle data-testid="text-estimate-form-title">
@@ -356,7 +364,7 @@ export default function Estimate() {
 
                     <Button
                       type="submit"
-                      className="w-full"
+                      className="w-full cta-pulse"
                       disabled={submitMutation.isPending}
                       data-testid="button-estimate-submit"
                     >
@@ -376,38 +384,58 @@ export default function Estimate() {
           </div>
         </section>
 
-        <section className="bg-background py-20" data-testid="section-effective-rate-education">
+        <section className="bg-background bg-grid py-20" data-testid="section-effective-rate-education">
           <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
-            <h2
-              className="text-3xl md:text-4xl font-display font-bold text-foreground mb-6"
-              data-testid="text-effective-rate-heading"
-            >
-              What Is an Effective Rate?
-            </h2>
-            <div className="space-y-4 mb-6">
-              <p className="text-muted-foreground" data-testid="text-effective-rate-intro">
-                Your effective rate is the simplest reality check:
-              </p>
-              <p className="text-foreground font-medium" data-testid="text-effective-rate-formula">
-                Effective rate = total fees divided by total volume.
-              </p>
-              <p className="text-muted-foreground" data-testid="text-effective-rate-example">
-                Example: $450 in fees on $18,000 volume = 2.5% effective rate.
-              </p>
+            <div className="reveal">
+              <h2
+                className="text-3xl md:text-4xl font-display font-bold text-foreground mb-8"
+                data-testid="text-effective-rate-heading"
+              >
+                What Is an Effective Rate?
+              </h2>
             </div>
-            <p
-              className="text-sm text-muted-foreground mb-6"
-              data-testid="text-effective-rate-microcopy"
-            >
-              For the exact line-item breakdown (and to identify the cost drivers), upload a statement.
-            </p>
-            <Link href="/upload-statement" data-testid="link-education-upload-statement">
-              <Button className="gap-2">
-                <Upload className="w-4 h-4" />
-                Upload Statement (Exact Breakdown)
-                <ArrowRight className="w-4 h-4" />
-              </Button>
-            </Link>
+
+            <div className="reveal reveal-delay-1">
+              <Card className="mb-8 border-sky-500/20 bg-gradient-to-br from-sky-50 to-background dark:from-sky-950/30 dark:to-background">
+                <CardContent className="p-6">
+                  <div className="flex items-start gap-4">
+                    <div className="flex-shrink-0 w-10 h-10 rounded-md bg-sky-500/10 flex items-center justify-center">
+                      <Calculator className="w-5 h-5 text-sky-500" />
+                    </div>
+                    <div className="space-y-3">
+                      <p className="text-muted-foreground" data-testid="text-effective-rate-intro">
+                        Your effective rate is the simplest reality check:
+                      </p>
+                      <p className="text-lg font-display font-bold text-foreground" data-testid="text-effective-rate-formula">
+                        Effective Rate = Total Fees &divide; Total Volume
+                      </p>
+                      <div className="flex items-center gap-2 text-sm">
+                        <TrendingDown className="w-4 h-4 text-sky-500" />
+                        <p className="text-muted-foreground" data-testid="text-effective-rate-example">
+                          Example: $450 in fees on $18,000 volume = <span className="font-semibold text-foreground">2.5% effective rate</span>
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="reveal reveal-delay-2">
+              <p
+                className="text-sm text-muted-foreground mb-6"
+                data-testid="text-effective-rate-microcopy"
+              >
+                For the exact line-item breakdown (and to identify the cost drivers), upload a statement.
+              </p>
+              <Link href="/upload-statement" data-testid="link-education-upload-statement">
+                <Button className="gap-2">
+                  <Upload className="w-4 h-4" />
+                  Upload Statement (Exact Breakdown)
+                  <ArrowRight className="w-4 h-4" />
+                </Button>
+              </Link>
+            </div>
           </div>
         </section>
       </main>
