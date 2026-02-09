@@ -1,129 +1,229 @@
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
-import { LogOut, User, Menu, X } from "lucide-react";
+import { Menu, X, Phone, Mail, Upload, Calendar, LayoutDashboard } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 
+const navLinks = [
+  { name: "Home", href: "/" },
+  { name: "0% Programs", href: "/0-percent-processing" },
+  { name: "Beat Square & Stripe", href: "/beat-square-stripe" },
+  { name: "About", href: "/about-contact" },
+  { name: "Support", href: "/support" },
+];
+
 export function Navbar() {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const [location] = useLocation();
   const [isOpen, setIsOpen] = useState(false);
 
-  const navLinks = [
-    { name: "Home", href: "/" },
-    { name: "Features", href: "/#features" },
-    { name: "Pricing", href: "/#pricing" },
-  ];
-
   return (
-    <nav className="fixed w-full z-50 bg-background/80 backdrop-blur-md border-b border-border/50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between h-16 items-center">
-          <Link href="/" className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-              <span className="text-white font-display font-bold text-lg">L</span>
-            </div>
-            <span className="font-display font-bold text-xl text-primary tracking-tight">Liberty Bancard</span>
-          </Link>
-
-          {/* Desktop Nav */}
-          <div className="hidden md:flex items-center gap-8">
-            {navLinks.map((link) => (
-              <a
-                key={link.name}
-                href={link.href}
-                className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors"
-              >
-                {link.name}
-              </a>
-            ))}
-          </div>
-
-          <div className="hidden md:flex items-center gap-4">
-            {user ? (
-              <div className="flex items-center gap-4">
-                <Link href="/dashboard">
-                  <Button variant="ghost" className="font-medium">Dashboard</Button>
-                </Link>
-                <Button 
-                  onClick={() => logout()}
-                  variant="outline" 
-                  size="sm"
-                  className="gap-2"
-                >
-                  <LogOut className="w-4 h-4" />
-                  Logout
-                </Button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-4">
-                <a href="/api/login">
-                  <Button variant="ghost" className="font-medium">Log in</Button>
-                </a>
-                <Link href="/get-started">
-                  <Button className="font-semibold shadow-lg shadow-primary/20 hover:shadow-primary/30">
-                    Get Started
-                  </Button>
-                </Link>
-              </div>
-            )}
-          </div>
-
-          {/* Mobile Menu Button */}
-          <div className="md:hidden flex items-center">
-            <button
-              onClick={() => setIsOpen(!isOpen)}
-              className="text-primary hover:text-primary/80 transition-colors"
+    <nav className="fixed w-full z-50" data-testid="navbar">
+      {/* Top Bar */}
+      <div className="bg-primary text-primary-foreground">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-end items-center h-8 gap-4 text-xs">
+            <a
+              href="tel:9542668214"
+              className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
+              data-testid="link-phone"
             >
-              {isOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-            </button>
+              <Phone className="w-3 h-3" />
+              <span>Call/Text 954-266-8214</span>
+            </a>
+            <span className="opacity-60">|</span>
+            <a
+              href="mailto:support@libertybancard.com"
+              className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
+              data-testid="link-email"
+            >
+              <Mail className="w-3 h-3" />
+              <span>support@libertybancard.com</span>
+            </a>
           </div>
         </div>
       </div>
 
-      {/* Mobile Menu */}
-      {isOpen && (
-        <div className="md:hidden bg-background border-b border-border p-4 animate-in slide-in-from-top-4 duration-200">
-          <div className="flex flex-col gap-4">
-            {navLinks.map((link) => (
-              <a
-                key={link.name}
-                href={link.href}
-                className="text-base font-medium text-muted-foreground hover:text-primary transition-colors"
-                onClick={() => setIsOpen(false)}
-              >
-                {link.name}
-              </a>
-            ))}
-            <div className="h-px bg-border my-2" />
-            {user ? (
-              <div className="flex flex-col gap-3">
-                <Link href="/dashboard" onClick={() => setIsOpen(false)}>
-                  <Button className="w-full">Go to Dashboard</Button>
-                </Link>
-                <Button 
-                  onClick={() => logout()}
-                  variant="outline" 
-                  className="w-full gap-2"
+      {/* Compliance Microline */}
+      <div className="bg-muted/80 border-b border-border/30">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <p
+            className="text-[10px] text-muted-foreground text-center py-0.5 leading-tight"
+            data-testid="text-compliance"
+          >
+            Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.
+          </p>
+        </div>
+      </div>
+
+      {/* Main Nav */}
+      <div className="bg-background/80 backdrop-blur-md border-b border-border/50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16 gap-4">
+            {/* Logo */}
+            <Link
+              href="/"
+              className="flex items-center gap-2 shrink-0"
+              data-testid="link-logo"
+            >
+              <div className="w-8 h-8 rounded-md bg-primary flex items-center justify-center">
+                <span className="text-primary-foreground font-bold text-lg">L</span>
+              </div>
+              <span className="font-bold text-xl text-foreground tracking-tight">
+                Liberty Bancard
+              </span>
+            </Link>
+
+            {/* Desktop Nav Links */}
+            <div className="hidden lg:flex items-center gap-6">
+              {navLinks.map((link) => (
+                <Link
+                  key={link.name}
+                  href={link.href}
+                  className={cn(
+                    "text-sm font-medium transition-colors",
+                    location === link.href
+                      ? "text-primary"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                  data-testid={`link-nav-${link.href.replace(/\//g, "").replace(/-/g, "-") || "home"}`}
                 >
-                  <LogOut className="w-4 h-4" />
-                  Logout
-                </Button>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-3">
-                <a href="/api/login">
-                  <Button variant="outline" className="w-full">Log in</Button>
-                </a>
-                <Link href="/get-started" onClick={() => setIsOpen(false)}>
-                  <Button className="w-full">Get Started</Button>
+                  {link.name}
                 </Link>
-              </div>
-            )}
+              ))}
+              {user && (
+                <Link
+                  href="/dashboard"
+                  className={cn(
+                    "text-sm font-medium transition-colors flex items-center gap-1.5",
+                    location === "/dashboard"
+                      ? "text-primary"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                  data-testid="link-nav-dashboard"
+                >
+                  <LayoutDashboard className="w-3.5 h-3.5" />
+                  Dashboard
+                </Link>
+              )}
+            </div>
+
+            {/* Desktop CTAs */}
+            <div className="hidden lg:flex items-center gap-3">
+              <a href="#" data-testid="link-book-call">
+                <Button variant="outline" className="gap-2">
+                  <Calendar className="w-4 h-4" />
+                  Book 10-Min Call
+                </Button>
+              </a>
+              <Link href="/upload-statement" data-testid="link-upload-statement">
+                <Button className="gap-2">
+                  <Upload className="w-4 h-4" />
+                  Upload Statement
+                </Button>
+              </Link>
+            </div>
+
+            {/* Mobile Menu Button */}
+            <div className="lg:hidden">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setIsOpen(!isOpen)}
+                data-testid="button-mobile-menu"
+                aria-label={isOpen ? "Close menu" : "Open menu"}
+              >
+                {isOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+              </Button>
+            </div>
           </div>
         </div>
-      )}
+
+        {/* Mobile Menu */}
+        {isOpen && (
+          <div className="lg:hidden bg-background border-t border-border/50 animate-in slide-in-from-top-2 duration-200">
+            <div className="max-w-7xl mx-auto px-4 py-4 flex flex-col gap-1">
+              {navLinks.map((link) => (
+                <Link
+                  key={link.name}
+                  href={link.href}
+                  className={cn(
+                    "px-3 py-2.5 rounded-md text-sm font-medium transition-colors",
+                    location === link.href
+                      ? "text-primary bg-primary/5"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                  )}
+                  onClick={() => setIsOpen(false)}
+                  data-testid={`link-mobile-nav-${link.href.replace(/\//g, "").replace(/-/g, "-") || "home"}`}
+                >
+                  {link.name}
+                </Link>
+              ))}
+              {user && (
+                <Link
+                  href="/dashboard"
+                  className={cn(
+                    "px-3 py-2.5 rounded-md text-sm font-medium transition-colors flex items-center gap-2",
+                    location === "/dashboard"
+                      ? "text-primary bg-primary/5"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                  )}
+                  onClick={() => setIsOpen(false)}
+                  data-testid="link-mobile-nav-dashboard"
+                >
+                  <LayoutDashboard className="w-4 h-4" />
+                  Dashboard
+                </Link>
+              )}
+
+              <div className="h-px bg-border my-2" />
+
+              {/* Mobile Contact Info */}
+              <div className="flex flex-col gap-2 px-3 py-2">
+                <a
+                  href="tel:9542668214"
+                  className="text-sm text-muted-foreground flex items-center gap-2"
+                  data-testid="link-mobile-phone"
+                >
+                  <Phone className="w-4 h-4" />
+                  Call/Text 954-266-8214
+                </a>
+                <a
+                  href="mailto:support@libertybancard.com"
+                  className="text-sm text-muted-foreground flex items-center gap-2"
+                  data-testid="link-mobile-email"
+                >
+                  <Mail className="w-4 h-4" />
+                  support@libertybancard.com
+                </a>
+              </div>
+
+              <div className="h-px bg-border my-2" />
+
+              {/* Mobile CTAs */}
+              <div className="flex flex-col gap-2 px-3">
+                <a href="#" data-testid="link-mobile-book-call">
+                  <Button variant="outline" className="w-full gap-2">
+                    <Calendar className="w-4 h-4" />
+                    Book 10-Min Call
+                  </Button>
+                </a>
+                <Link
+                  href="/upload-statement"
+                  onClick={() => setIsOpen(false)}
+                  data-testid="link-mobile-upload-statement"
+                >
+                  <Button className="w-full gap-2">
+                    <Upload className="w-4 h-4" />
+                    Upload Statement
+                  </Button>
+                </Link>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </nav>
   );
 }

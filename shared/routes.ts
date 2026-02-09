@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { insertContactSchema, contacts, insertTicketSchema, tickets } from './schema';
+import { insertContactSchema, insertDealSchema, insertTicketSchema, insertTaskSchema, insertCompanySchema, insertDocumentSchema, insertNotificationSchema, insertAuditLogSchema } from './schema';
 
 export const errorSchemas = {
   validation: z.object({
@@ -16,66 +16,47 @@ export const errorSchemas = {
 
 export const api = {
   contacts: {
-    list: {
-      method: 'GET' as const,
-      path: '/api/contacts' as const,
-      responses: {
-        200: z.array(z.custom<typeof contacts.$inferSelect>()),
-      },
-    },
-    create: {
-      method: 'POST' as const,
-      path: '/api/contacts' as const,
-      input: insertContactSchema,
-      responses: {
-        201: z.custom<typeof contacts.$inferSelect>(),
-        400: errorSchemas.validation,
-      },
-    },
-    get: {
-      method: 'GET' as const,
-      path: '/api/contacts/:id' as const,
-      responses: {
-        200: z.custom<typeof contacts.$inferSelect>(),
-        404: errorSchemas.notFound,
-      },
-    },
-    update: {
-      method: 'PUT' as const,
-      path: '/api/contacts/:id' as const,
-      input: insertContactSchema.partial(),
-      responses: {
-        200: z.custom<typeof contacts.$inferSelect>(),
-        404: errorSchemas.notFound,
-      },
-    },
+    list: { method: 'GET' as const, path: '/api/contacts' as const },
+    create: { method: 'POST' as const, path: '/api/contacts' as const, input: insertContactSchema },
+    get: { method: 'GET' as const, path: '/api/contacts/:id' as const },
+    update: { method: 'PUT' as const, path: '/api/contacts/:id' as const, input: insertContactSchema.partial() },
+  },
+  companies: {
+    list: { method: 'GET' as const, path: '/api/companies' as const },
+    create: { method: 'POST' as const, path: '/api/companies' as const, input: insertCompanySchema },
+    get: { method: 'GET' as const, path: '/api/companies/:id' as const },
+  },
+  deals: {
+    list: { method: 'GET' as const, path: '/api/deals' as const },
+    create: { method: 'POST' as const, path: '/api/deals' as const, input: insertDealSchema },
+    get: { method: 'GET' as const, path: '/api/deals/:id' as const },
+    update: { method: 'PUT' as const, path: '/api/deals/:id' as const, input: insertDealSchema.partial() },
   },
   tickets: {
-    list: {
-      method: 'GET' as const,
-      path: '/api/tickets' as const,
-      responses: {
-        200: z.array(z.custom<typeof tickets.$inferSelect>()),
-      },
-    },
-    create: {
-      method: 'POST' as const,
-      path: '/api/tickets' as const,
-      input: insertTicketSchema,
-      responses: {
-        201: z.custom<typeof tickets.$inferSelect>(),
-        400: errorSchemas.validation,
-      },
-    },
-    update: {
-      method: 'PUT' as const,
-      path: '/api/tickets/:id' as const,
-      input: insertTicketSchema.partial(),
-      responses: {
-        200: z.custom<typeof tickets.$inferSelect>(),
-        404: errorSchemas.notFound,
-      },
-    },
+    list: { method: 'GET' as const, path: '/api/tickets' as const },
+    create: { method: 'POST' as const, path: '/api/tickets' as const, input: insertTicketSchema },
+    get: { method: 'GET' as const, path: '/api/tickets/:id' as const },
+    update: { method: 'PUT' as const, path: '/api/tickets/:id' as const, input: insertTicketSchema.partial() },
+  },
+  tasks: {
+    list: { method: 'GET' as const, path: '/api/tasks' as const },
+    create: { method: 'POST' as const, path: '/api/tasks' as const, input: insertTaskSchema },
+    update: { method: 'PUT' as const, path: '/api/tasks/:id' as const, input: insertTaskSchema.partial() },
+  },
+  documents: {
+    list: { method: 'GET' as const, path: '/api/documents' as const },
+    create: { method: 'POST' as const, path: '/api/documents' as const, input: insertDocumentSchema },
+  },
+  notifications: {
+    list: { method: 'GET' as const, path: '/api/notifications' as const },
+    create: { method: 'POST' as const, path: '/api/notifications' as const, input: insertNotificationSchema },
+    markRead: { method: 'PUT' as const, path: '/api/notifications/:id/read' as const },
+  },
+  auditLogs: {
+    list: { method: 'GET' as const, path: '/api/audit-logs' as const },
+  },
+  ai: {
+    chat: { method: 'POST' as const, path: '/api/ai/chat' as const },
   },
 };
 
