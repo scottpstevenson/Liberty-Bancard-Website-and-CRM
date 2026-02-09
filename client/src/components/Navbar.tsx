@@ -8,10 +8,10 @@ import logoBlue from "@assets/logo-blue.png";
 
 const navLinks = [
   { name: "Home", href: "/" },
+  { name: "Get Started", href: "/get-started" },
   { name: "0% Programs", href: "/0-percent-processing" },
   { name: "Beat Square & Stripe", href: "/beat-square-stripe" },
   { name: "About", href: "/about-contact" },
-  { name: "Support", href: "/support" },
 ];
 
 export function Navbar() {

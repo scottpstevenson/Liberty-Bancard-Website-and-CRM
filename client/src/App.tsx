@@ -5,6 +5,8 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/use-auth";
 import { Loader2 } from "lucide-react";
+import { StickyMobileCTA } from "@/components/StickyMobileCTA";
+import { ExitIntentPopup } from "@/components/ExitIntentPopup";
 
 import Home from "@/pages/Home";
 import GetStarted from "@/pages/GetStarted";
@@ -123,12 +125,26 @@ function Router() {
   );
 }
 
+function PublicLayout() {
+  const [location] = useLocation();
+  const isDashboard = location.startsWith("/dashboard");
+  const isThanksPage = location.startsWith("/thanks");
+
+  return (
+    <>
+      <Router />
+      {!isDashboard && !isThanksPage && <StickyMobileCTA />}
+      {!isDashboard && <ExitIntentPopup />}
+    </>
+  );
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <Toaster />
-        <Router />
+        <PublicLayout />
       </TooltipProvider>
     </QueryClientProvider>
   );
