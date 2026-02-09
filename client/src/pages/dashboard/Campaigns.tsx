@@ -615,13 +615,24 @@ export default function Campaigns() {
                       </p>
                     )}
                   </div>
-                  <Badge
-                    variant="outline"
-                    className={`no-default-hover-elevate no-default-active-elevate shrink-0 ${getStatusBadgeClass(campaign.status)}`}
-                    data-testid={`badge-campaign-status-${campaign.id}`}
-                  >
-                    {campaign.status || "draft"}
-                  </Badge>
+                  <div className="flex flex-wrap items-center gap-1 shrink-0">
+                    {campaign.name.startsWith("SDR-") && (
+                      <Badge
+                        variant="secondary"
+                        className="no-default-hover-elevate no-default-active-elevate"
+                        data-testid={`badge-template-${campaign.id}`}
+                      >
+                        Template
+                      </Badge>
+                    )}
+                    <Badge
+                      variant="outline"
+                      className={`no-default-hover-elevate no-default-active-elevate ${getStatusBadgeClass(campaign.status)}`}
+                      data-testid={`badge-campaign-status-${campaign.id}`}
+                    >
+                      {campaign.status || "draft"}
+                    </Badge>
+                  </div>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   {targetList && (
@@ -629,6 +640,24 @@ export default function Campaigns() {
                       Target: {targetList.name} ({targetList.totalRecords} records)
                     </div>
                   )}
+
+                  <div className="flex flex-wrap items-center gap-1">
+                    {campaign.aiPersonalization && (
+                      <Badge variant="outline" className="no-default-hover-elevate no-default-active-elevate text-xs">
+                        AI Personalization
+                      </Badge>
+                    )}
+                    {campaign.totalSteps && (
+                      <Badge variant="outline" className="no-default-hover-elevate no-default-active-elevate text-xs">
+                        {campaign.totalSteps} Steps
+                      </Badge>
+                    )}
+                    {campaign.targetVerticals && campaign.targetVerticals.length > 0 && (
+                      <Badge variant="outline" className="no-default-hover-elevate no-default-active-elevate text-xs">
+                        {campaign.targetVerticals.length} Verticals
+                      </Badge>
+                    )}
+                  </div>
 
                   <div className="grid grid-cols-2 gap-2">
                     <div className="p-2 rounded-md bg-muted/50">
