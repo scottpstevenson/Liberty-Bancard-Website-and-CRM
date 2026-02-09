@@ -233,6 +233,53 @@ export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
 export type Notification = typeof notifications.$inferSelect;
 export type InsertNotification = z.infer<typeof insertNotificationSchema>;
 
+export const rfis = pgTable("rfis", {
+  id: serial("id").primaryKey(),
+  contactId: integer("contact_id").references(() => contacts.id),
+  dealId: integer("deal_id").references(() => deals.id),
+  subject: text("subject").notNull(),
+  description: text("description"),
+  category: text("category").default("General"),
+  priority: text("priority").default("Normal"),
+  status: text("status").default("Open"),
+  assignedTo: text("assigned_to"),
+  requestedBy: text("requested_by"),
+  dueDate: timestamp("due_date"),
+  response: text("response"),
+  respondedAt: timestamp("responded_at"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertRfiSchema = createInsertSchema(rfis).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type Rfi = typeof rfis.$inferSelect;
+export type InsertRfi = z.infer<typeof insertRfiSchema>;
+export type UpdateRfiRequest = Partial<InsertRfi>;
+
+export const RFI_CATEGORIES = [
+  "General",
+  "Pricing",
+  "Compliance",
+  "Technical",
+  "Onboarding",
+  "Underwriting",
+  "Equipment",
+] as const;
+
+export const RFI_STATUSES = [
+  "Open",
+  "In Progress",
+  "Waiting on Merchant",
+  "Responded",
+  "Closed",
+] as const;
+
 export const insertWorkflowSchema = createInsertSchema(workflows).omit({
   id: true,
   createdAt: true,

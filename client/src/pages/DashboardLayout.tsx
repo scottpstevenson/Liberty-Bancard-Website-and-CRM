@@ -16,6 +16,7 @@ import {
   FileCheck,
   Rocket,
   Zap,
+  FileQuestion,
 } from "lucide-react";
 import {
   Sidebar,
@@ -46,6 +47,7 @@ const menuItems = [
   { icon: Bell, label: "Notifications", href: "/dashboard/notifications" },
   { icon: MessageSquare, label: "AI Advisor", href: "/dashboard/chat" },
   { icon: Zap, label: "Workflows", href: "/dashboard/workflows" },
+  { icon: FileQuestion, label: "RFIs", href: "/dashboard/rfis" },
 ];
 
 const formItems = [

@@ -4,7 +4,7 @@ import { storage } from "./storage";
 import { setupAuth, registerAuthRoutes } from "./replit_integrations/auth";
 import { registerAudioRoutes } from "./replit_integrations/audio/routes";
 import { z } from "zod";
-import { insertContactSchema, insertDealSchema, insertTicketSchema, insertTaskSchema, insertCompanySchema, insertDocumentSchema, insertNotificationSchema, insertWorkflowSchema } from "@shared/schema";
+import { insertContactSchema, insertDealSchema, insertTicketSchema, insertTaskSchema, insertCompanySchema, insertDocumentSchema, insertNotificationSchema, insertWorkflowSchema, insertRfiSchema } from "@shared/schema";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -359,6 +359,60 @@ export async function registerRoutes(
       res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id });
     } catch (err: any) {
       res.status(400).json({ message: err.message || "Invalid submission" });
+    }
+  });
+
+  // === RFIs ===
+  app.get("/api/rfis", async (req, res) => {
+    const allRfis = await storage.getRfis();
+    res.json(allRfis);
+  });
+
+  app.get("/api/rfis/:id", async (req, res) => {
+    const rfi = await storage.getRfi(Number(req.params.id));
+    if (!rfi) return res.status(404).json({ message: "Not found" });
+    res.json(rfi);
+  });
+
+  app.post("/api/rfis", async (req, res) => {
+    try {
+      const input = insertRfiSchema.parse(req.body);
+      const rfi = await storage.createRfi(input);
+      await storage.createAuditLog({ action: "rfi_created", entityType: "rfi", entityId: rfi.id, details: { subject: rfi.subject, category: rfi.category } });
+      await storage.createNotification({
+        channel: "internal",
+        title: `New RFI: ${rfi.subject}`,
+        message: `Priority: ${rfi.priority} | Category: ${rfi.category} | Assigned to: ${rfi.assignedTo || "Unassigned"}`,
+        type: rfi.priority === "Urgent" ? "urgent" : "info",
+      });
+      res.status(201).json(rfi);
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
+  });
+
+  app.put("/api/rfis/:id", async (req, res) => {
+    try {
+      const allowed = insertRfiSchema.partial().parse(req.body);
+      const old = await storage.getRfi(Number(req.params.id));
+      const updated = await storage.updateRfi(Number(req.params.id), allowed);
+      if (!updated) return res.status(404).json({ message: "Not found" });
+      if (old && old.status !== updated.status) {
+        await storage.createAuditLog({ action: "rfi_status_changed", entityType: "rfi", entityId: updated.id, details: { from: old.status, to: updated.status } });
+      }
+      if (allowed.response && !old?.response) {
+        await storage.createNotification({
+          channel: "internal",
+          title: `RFI Responded: ${updated.subject}`,
+          message: `RFI #${updated.id} has been responded to`,
+          type: "info",
+        });
+      }
+      res.json(updated);
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
     }
   });
 

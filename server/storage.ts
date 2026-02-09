@@ -1,6 +1,6 @@
 import { db } from "./db";
 import {
-  contacts, companies, deals, tickets, tasks, documents, auditLogs, notifications, workflowRuns, workflows,
+  contacts, companies, deals, tickets, tasks, documents, auditLogs, notifications, workflowRuns, workflows, rfis,
   type InsertContact, type UpdateContactRequest,
   type InsertCompany,
   type InsertDeal, type UpdateDealRequest,
@@ -11,6 +11,7 @@ import {
   type InsertNotification,
   type InsertWorkflow, type UpdateWorkflowRequest,
   type InsertWorkflowRun,
+  type InsertRfi, type UpdateRfiRequest,
 } from "@shared/schema";
 import { eq, desc } from "drizzle-orm";
 
@@ -59,6 +60,11 @@ export interface IStorage {
   getWorkflowRunsByWorkflow(workflowId: number): Promise<typeof workflowRuns.$inferSelect[]>;
   createWorkflowRun(run: InsertWorkflowRun): Promise<typeof workflowRuns.$inferSelect>;
   updateWorkflowRun(id: number, updates: Partial<InsertWorkflowRun>): Promise<typeof workflowRuns.$inferSelect | undefined>;
+
+  getRfis(): Promise<typeof rfis.$inferSelect[]>;
+  getRfi(id: number): Promise<typeof rfis.$inferSelect | undefined>;
+  createRfi(rfi: InsertRfi): Promise<typeof rfis.$inferSelect>;
+  updateRfi(id: number, rfi: UpdateRfiRequest): Promise<typeof rfis.$inferSelect | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -221,6 +227,25 @@ export class DatabaseStorage implements IStorage {
 
   async updateWorkflowRun(id: number, updates: Partial<InsertWorkflowRun>) {
     const [updated] = await db.update(workflowRuns).set(updates).where(eq(workflowRuns.id, id)).returning();
+    return updated;
+  }
+
+  async getRfis() {
+    return await db.select().from(rfis).orderBy(desc(rfis.createdAt));
+  }
+
+  async getRfi(id: number) {
+    const [rfi] = await db.select().from(rfis).where(eq(rfis.id, id));
+    return rfi;
+  }
+
+  async createRfi(insertRfi: InsertRfi) {
+    const [rfi] = await db.insert(rfis).values(insertRfi).returning();
+    return rfi;
+  }
+
+  async updateRfi(id: number, updates: UpdateRfiRequest) {
+    const [updated] = await db.update(rfis).set({ ...updates, updatedAt: new Date() }).where(eq(rfis.id, id)).returning();
     return updated;
   }
 }

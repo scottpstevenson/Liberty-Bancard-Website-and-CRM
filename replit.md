@@ -58,13 +58,18 @@ shared/
 4. **Internal Forms**: Call Outcome, Statement Review Complete, Onboarding Kickoff
 5. **AI Advisors**: 7 department-specific advisors (Sales, Support, Onboarding, Marketing, Finance, Compliance, Executive)
 6. **Compliance**: Microlines and disclaimers throughout; no savings claims without statement review
+7. **Workflow Automation**: Create/manage automated workflows with triggers (deal_stage_changed, ticket_created, contact_created, etc.) and actions (create_task, send_notification, create_audit_log). Manual trigger support + run history.
+8. **RFI System**: Request for Information tracking with categories (General, Pricing, Compliance, Technical, Onboarding, Underwriting, Equipment), priority levels, assignment, response tracking, and status workflow (Open → In Progress → Responded → Closed).
 
 ## Database Tables
-contacts, deals, tickets, tasks, notifications, documents, auditLogs, workflows, workflowRuns, conversations, messages, users, sessions
+contacts, deals, tickets, tasks, notifications, documents, auditLogs, workflows, workflowRuns, rfis, conversations, messages, users, sessions
 
 ## API Routes
 - GET/POST /api/contacts, /api/deals, /api/tickets, /api/tasks, /api/notifications
 - PUT /api/deals/:id, /api/tickets/:id, /api/tasks/:id
+- GET/POST /api/workflows, PUT/DELETE /api/workflows/:id, POST /api/workflows/:id/run
+- GET /api/workflow-runs
+- GET/POST /api/rfis, PUT /api/rfis/:id
 - POST /api/ai/chat (department-specific AI advisor)
 - GET/POST /api/conversations (chat history)
 - GET /api/user, POST /api/login, /api/logout (auth)

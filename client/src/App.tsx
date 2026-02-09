@@ -38,6 +38,7 @@ import CallOutcome from "@/pages/dashboard/CallOutcome";
 import ReviewComplete from "@/pages/dashboard/ReviewComplete";
 import OnboardingKickoff from "@/pages/dashboard/OnboardingKickoff";
 import Workflows from "@/pages/dashboard/Workflows";
+import RFIs from "@/pages/dashboard/RFIs";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { user, isLoading } = useAuth();
@@ -123,6 +124,9 @@ function Router() {
       </Route>
       <Route path="/dashboard/workflows">
         <ProtectedRoute component={Workflows} />
+      </Route>
+      <Route path="/dashboard/rfis">
+        <ProtectedRoute component={RFIs} />
       </Route>
 
       <Route component={NotFound} />
