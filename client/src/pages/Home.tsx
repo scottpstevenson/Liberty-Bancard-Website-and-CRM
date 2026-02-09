@@ -176,7 +176,7 @@ export default function Home() {
         <section className="relative overflow-hidden" data-testid="section-hero">
           <div className="absolute inset-0">
             <img src={heroBg} alt="" className="w-full h-full object-cover" />
-            <div className="absolute inset-0 bg-gradient-to-r from-[hsl(222,47%,8%)/0.92] via-[hsl(222,47%,8%)/0.85] to-[hsl(222,47%,8%)/0.7]" />
+            <div className="absolute inset-0 bg-gradient-to-r from-[hsl(222,47%,6%)/0.97] via-[hsl(222,47%,6%)/0.93] to-[hsl(222,47%,6%)/0.85]" />
           </div>
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 lg:py-36">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
@@ -188,10 +188,10 @@ export default function Home() {
                 <h1 className="text-4xl md:text-5xl lg:text-6xl font-display font-bold text-white leading-tight mb-6" data-testid="text-hero-heading">
                   You're Not Paying a "Rate."<br />You're Paying a <span className="text-sky-400">Markup</span> You've Never Seen.
                 </h1>
-                <p className="text-lg text-white/70 mb-4 leading-relaxed" data-testid="text-hero-subheadline">
+                <p className="text-lg text-white/85 mb-4 leading-relaxed" data-testid="text-hero-subheadline">
                   Your processor quoted you a rate. But your actual cost is buried in interchange downgrades, monthly add-ons, PCI fees, and batch charges you've never been shown.
                 </p>
-                <p className="text-lg text-white/80 mb-8 leading-relaxed font-medium" data-testid="text-hero-subheadline-2">
+                <p className="text-lg text-white/90 mb-8 leading-relaxed font-medium" data-testid="text-hero-subheadline-2">
                   We pull it apart line-by-line and show you exactly where your money goes.
                 </p>
                 <div className="flex flex-col sm:flex-row gap-4 flex-wrap">
@@ -208,7 +208,7 @@ export default function Home() {
                     </Button>
                   </Link>
                 </div>
-                <p className="text-xs text-white/40 mt-4 max-w-md" data-testid="text-hero-microcopy">
+                <p className="text-xs text-white/55 mt-4 max-w-md" data-testid="text-hero-microcopy">
                   PDF or photo. 30 seconds. Redact account numbers if you want - we only need totals + fee lines.
                 </p>
               </div>
