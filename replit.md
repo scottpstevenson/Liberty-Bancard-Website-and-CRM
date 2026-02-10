@@ -21,7 +21,7 @@ The system is built on a modern web stack:
     - **Public Website**: Features marketing pages, conversion forms (quiz, statement upload, estimate), and legal pages, all optimized for SEO and compliance. Includes 30+ hidden sales enablement pages.
     - **CRM Dashboard**: Provides modules for contact management, sales and onboarding pipelines (Kanban), support ticket management, task tracking, notifications, and KPI digests.
     - **AI Advisors**: Seven specialized AI advisors (Sales, Support, Onboarding, Marketing, Finance, Compliance, Executive) offer guidance and automation.
-    - **Workflow Automation**: A robust engine with 9 pre-built workflows, 10 action types (including GHL interactions, packet sending, proposal generation), and trigger-based automation.
+    - **Workflow Automation**: A centralized workflow execution engine (`server/services/workflow-executor.ts`) with 12+ action types (create_task, send_ghl_email, send_ghl_sms, wait/resume, enroll_sequence, update_contact_tags, send_packet, generate_proposal, request_review, update_deal, send_notification, create_audit_log) with template interpolation. All event triggers (contact_created, deal_stage_changed, form_submitted, ticket_created, inbound_message) fire workflows automatically. Waiting workflows resume via SLA worker. Manual runs also use the centralized executor.
     - **RFI System**: Manages Request for Information with categorization, prioritization, assignment, and status tracking.
     - **SLA Enforcement**: Automated monitoring and escalation for critical operational timelines (e.g., Statement Review, New Lead, Proposal, Support).
     - **Profit Instrumentation**: Integrates fields for merchant tier, risk tier, health score, average ticket, and estimated profit to deals.
