@@ -4,6 +4,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { HelmetProvider } from 'react-helmet-async';
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { ThemeProvider } from "@/components/ThemeProvider";
 import { useAuth } from "@/hooks/use-auth";
 import { Loader2 } from "lucide-react";
 import { StickyMobileCTA } from "@/components/StickyMobileCTA";
@@ -188,10 +189,12 @@ function App() {
   return (
     <HelmetProvider>
       <QueryClientProvider client={queryClient}>
-        <TooltipProvider>
-          <Toaster />
-          <PublicLayout />
-        </TooltipProvider>
+        <ThemeProvider>
+          <TooltipProvider>
+            <Toaster />
+            <PublicLayout />
+          </TooltipProvider>
+        </ThemeProvider>
       </QueryClientProvider>
     </HelmetProvider>
   );

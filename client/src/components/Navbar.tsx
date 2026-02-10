@@ -5,6 +5,7 @@ import { Menu, X, Phone, Mail, Upload, Calendar, LayoutDashboard } from "lucide-
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import logoBlue from "@assets/logo-blue.png";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 const navLinks = [
   { name: "Home", href: "/" },
@@ -105,6 +106,7 @@ export function Navbar() {
 
             {/* Desktop CTAs */}
             <div className="hidden lg:flex items-center gap-3">
+              <ThemeToggle />
               <a href="#" data-testid="link-book-call">
                 <Button variant="outline" className="gap-2">
                   <Calendar className="w-4 h-4" />

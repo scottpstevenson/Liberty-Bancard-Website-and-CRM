@@ -4,6 +4,7 @@ import { useAuth } from "@/hooks/use-auth";
 import logoBlue from "@assets/logo-blue.png";
 import UniversalSearch from "@/components/UniversalSearch";
 import { EmailComposer } from "@/components/EmailComposer";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   LayoutDashboard,
   Users,
@@ -208,6 +209,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
             </div>
             <div className="flex items-center gap-1 sm:gap-2 shrink-0">
               <UniversalSearch />
+              <ThemeToggle />
               <Button size="icon" variant="ghost" onClick={() => setEmailOpen(true)} data-testid="button-compose-email">
                 <Mail className="w-4 h-4" />
               </Button>
