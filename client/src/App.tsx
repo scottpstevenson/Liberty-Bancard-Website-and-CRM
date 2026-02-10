@@ -57,6 +57,7 @@ import LeadIntelligence from "@/pages/dashboard/LeadIntelligence";
 import StatementReview from "@/pages/dashboard/StatementReview";
 import Outreach from "@/pages/dashboard/Outreach";
 import LeadEngine from "@/pages/dashboard/LeadEngine";
+import LeadCommandCenter from "@/pages/dashboard/LeadCommandCenter";
 import BlazeIntegration from "@/pages/dashboard/BlazeIntegration";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
@@ -196,6 +197,9 @@ function Router() {
       </Route>
       <Route path="/dashboard/lead-engine">
         <ProtectedRoute component={LeadEngine} />
+      </Route>
+      <Route path="/dashboard/lead-command-center">
+        <ProtectedRoute component={LeadCommandCenter} />
       </Route>
       <Route path="/dashboard/blaze">
         <ProtectedRoute component={BlazeIntegration} />

@@ -5,15 +5,23 @@ import type { SunbizEntity, Prospect, Contact, Deal } from "@shared/schema";
 
 const BATCH_SIZE = 10;
 
-export async function runSunbizAutoConvert(): Promise<{ converted: number; promoted: number; estimated: number }> {
+export async function runSunbizAutoConvert(): Promise<{ converted: number; promoted: number; estimated: number; qualified: number; retried: number }> {
   let converted = 0;
   let promoted = 0;
   let estimated = 0;
+  let qualified = 0;
+  let retried = 0;
 
   try {
     converted = await autoConvertEnrichedEntities();
   } catch (err) {
     console.error("[Sunbiz Cron] Auto-convert error:", err);
+  }
+
+  try {
+    qualified = await autoQualifyProspects();
+  } catch (err) {
+    console.error("[Sunbiz Cron] Auto-qualify error:", err);
   }
 
   try {
@@ -28,11 +36,17 @@ export async function runSunbizAutoConvert(): Promise<{ converted: number; promo
     console.error("[Sunbiz Cron] Volume estimate error:", err);
   }
 
-  if (converted > 0 || promoted > 0 || estimated > 0) {
-    console.log(`[Sunbiz Cron] Converted: ${converted}, Promoted: ${promoted}, Estimates updated: ${estimated}`);
+  try {
+    retried = await retryFailedEnrichments();
+  } catch (err) {
+    console.error("[Sunbiz Cron] Retry enrichment error:", err);
   }
 
-  return { converted, promoted, estimated };
+  if (converted > 0 || promoted > 0 || estimated > 0 || qualified > 0 || retried > 0) {
+    console.log(`[Sunbiz Cron] Converted: ${converted}, Qualified: ${qualified}, Promoted: ${promoted}, Estimates: ${estimated}, Retried: ${retried}`);
+  }
+
+  return { converted, promoted, estimated, qualified, retried };
 }
 
 async function autoConvertEnrichedEntities(): Promise<number> {
@@ -122,6 +136,29 @@ async function autoPromoteProspects(): Promise<number> {
 
       const volumeEst = estimateFromProspect(prospect);
 
+      let companyId: number | undefined;
+      if (prospect.companyName) {
+        const existingCompanies = await storage.getCompanies();
+        const existingCompany = existingCompanies.find(c =>
+          c.legalName.toLowerCase() === prospect.companyName!.toLowerCase() ||
+          (prospect.website && c.website && c.website.toLowerCase() === prospect.website.toLowerCase())
+        );
+        if (existingCompany) {
+          companyId = existingCompany.id;
+        } else {
+          const company = await storage.createCompany({
+            legalName: prospect.companyName,
+            dba: prospect.dba || undefined,
+            vertical: prospect.vertical || undefined,
+            address: [prospect.address, prospect.city, prospect.state, prospect.zip].filter(Boolean).join(", ") || undefined,
+            website: prospect.website || undefined,
+            volumeRange: prospect.estimatedVolume || undefined,
+            notes: prospect.aiSummary || undefined,
+          });
+          companyId = company.id;
+        }
+      }
+
       const contact = await storage.createContact({
         firstName,
         lastName,
@@ -130,6 +167,7 @@ async function autoPromoteProspects(): Promise<number> {
         companyName: prospect.companyName || undefined,
         vertical: prospect.vertical || undefined,
         monthlyVolume: prospect.estimatedVolume || undefined,
+        avgTicket: prospect.estimatedAvgTicket || undefined,
         estimatedProcessingVolume: volumeEst.estimatedProcessingVolume,
         estimatedResidual: volumeEst.estimatedResidual,
         volumeConfidence: volumeEst.volumeConfidence,
@@ -137,14 +175,21 @@ async function autoPromoteProspects(): Promise<number> {
         tags: ["sunbiz-auto", ...(prospect.tags || [])],
         notes: prospect.aiSummary || prospect.notes || undefined,
         consentEmail: true,
+        leadScore: prospect.score === "hot" ? 80 : prospect.score === "warm" ? 60 : 40,
       });
+
+      const priorityScore = prospect.score === "hot" ? 90
+        : prospect.score === "warm" && (prospect.qualificationScore === "A" || prospect.qualificationScore === "B") ? 75
+        : 50;
 
       const deal = await storage.createDeal({
         contactId: contact.id,
+        companyId: companyId || undefined,
         pipeline: "sales",
         stage: "New Lead",
         offerPath: "Cash Discount",
         leadSource: "sunbiz",
+        priorityScore,
         estimatedGrossProfitBps: volumeEst.estimatedGrossProfitBps,
         estimatedGrossProfitMonthly: volumeEst.estimatedGrossProfitMonthly,
         estimatedNetProfitMonthly: volumeEst.estimatedNetProfitMonthly,
@@ -225,4 +270,81 @@ async function updateVolumeEstimates(): Promise<number> {
   }
 
   return updated;
+}
+
+async function autoQualifyProspects(): Promise<number> {
+  const gradeRank: Record<string, number> = { A: 5, B: 4, C: 3, D: 2, F: 1 };
+  const prospects = await storage.getProspects();
+  let qualified = 0;
+
+  const eligible = prospects.filter(p =>
+    p.status !== "converted" &&
+    p.status !== "disqualified" &&
+    p.status !== "do_not_contact" &&
+    !p.doNotContact &&
+    (p.status === "enriched" || p.status === "qualified" || p.status === "raw")
+  );
+
+  for (const prospect of eligible.slice(0, BATCH_SIZE * 2)) {
+    try {
+      let points = 0;
+      if (prospect.email || prospect.ownerEmail) points += 20;
+      if (prospect.phone || prospect.ownerPhone) points += 15;
+      if (prospect.website) points += 15;
+      if (prospect.vertical) points += 10;
+      if (prospect.address && prospect.city) points += 10;
+      if (prospect.status === "enriched" || prospect.status === "qualified") points += 15;
+      if (prospect.score === "hot") points += 15;
+      else if (prospect.score === "warm") points += 10;
+      else if (prospect.score === "cold") points += 5;
+
+      let grade: string;
+      if (points >= 80) grade = "A";
+      else if (points >= 60) grade = "B";
+      else if (points >= 40) grade = "C";
+      else if (points >= 20) grade = "D";
+      else grade = "F";
+
+      const currentRank = gradeRank[prospect.qualificationScore || "F"] || 0;
+      const newRank = gradeRank[grade] || 0;
+
+      if (newRank > currentRank) {
+        const updates: Record<string, any> = { qualificationScore: grade };
+        if ((grade === "A" || grade === "B") && prospect.status === "enriched") {
+          updates.status = "qualified";
+        }
+        await storage.updateProspect(prospect.id, updates);
+        qualified++;
+      }
+    } catch (err) {
+      console.error(`[Sunbiz Cron] Qualify prospect ${prospect.id} failed:`, err);
+    }
+  }
+
+  return qualified;
+}
+
+const retriedEntityIds = new Set<number>();
+
+async function retryFailedEnrichments(): Promise<number> {
+  const failed = await storage.getSunbizEntitiesByStatus("failed");
+  let retried = 0;
+
+  const retryable = failed.filter(e =>
+    !retriedEntityIds.has(e.id) &&
+    (e.email || e.phone || e.ownerEmail || e.ownerPhone || e.website) &&
+    e.entityName
+  );
+
+  for (const entity of retryable.slice(0, 3)) {
+    try {
+      retriedEntityIds.add(entity.id);
+      await storage.updateSunbizEntity(entity.id, { enrichmentStatus: "pending" });
+      retried++;
+    } catch (err) {
+      console.error(`[Sunbiz Cron] Retry entity ${entity.id} failed:`, err);
+    }
+  }
+
+  return retried;
 }

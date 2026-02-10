@@ -253,9 +253,52 @@ export async function processSunbizEnrichmentQueue(limit: number = 5): Promise<n
   return processed;
 }
 
+function computeQualificationScore(data: {
+  email?: string | null;
+  phone?: string | null;
+  ownerEmail?: string | null;
+  ownerPhone?: string | null;
+  website?: string | null;
+  vertical?: string | null;
+  address?: string | null;
+  city?: string | null;
+  enrichmentStatus?: string | null;
+  score?: string | null;
+}): string {
+  let points = 0;
+  if (data.email || data.ownerEmail) points += 20;
+  if (data.phone || data.ownerPhone) points += 15;
+  if (data.website) points += 15;
+  if (data.vertical) points += 10;
+  if (data.address && data.city) points += 10;
+  if (data.enrichmentStatus === "enriched") points += 15;
+  if (data.score === "hot") points += 15;
+  else if (data.score === "warm") points += 10;
+  else if (data.score === "cold") points += 5;
+
+  if (points >= 80) return "A";
+  if (points >= 60) return "B";
+  if (points >= 40) return "C";
+  if (points >= 20) return "D";
+  return "F";
+}
+
 export async function convertToProspect(entityId: number, listId?: number): Promise<number | null> {
   const entity = await storage.getSunbizEntity(entityId);
   if (!entity) return null;
+
+  const qualificationScore = computeQualificationScore({
+    email: entity.email,
+    phone: entity.phone,
+    ownerEmail: entity.ownerEmail,
+    ownerPhone: entity.ownerPhone,
+    website: entity.website,
+    vertical: entity.vertical,
+    address: entity.principalAddress,
+    city: entity.principalCity,
+    enrichmentStatus: entity.enrichmentStatus,
+    score: entity.score,
+  });
 
   const prospect = await storage.createProspect({
     listId: listId || entity.listId || undefined,
@@ -274,6 +317,7 @@ export async function convertToProspect(entityId: number, listId?: number): Prom
     zip: entity.principalZip || undefined,
     vertical: entity.vertical || undefined,
     score: entity.score || "cold",
+    qualificationScore,
     status: entity.enrichmentStatus === "enriched" ? "enriched" : "raw",
     aiSummary: entity.aiSummary || undefined,
     notes: `Imported from Sunbiz. Filing: ${entity.filingNumber || "N/A"}. ${entity.notes || ""}`.trim(),
