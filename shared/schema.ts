@@ -984,3 +984,55 @@ export const CONTACT_SCORE_FACTORS = {
   websiteVisit: 3,
   daysSinceLastActivity: -1,
 } as const;
+
+export const sunbizEntities = pgTable("sunbiz_entities", {
+  id: serial("id").primaryKey(),
+  filingNumber: text("filing_number"),
+  feiEinNumber: text("fei_ein_number"),
+  entityName: text("entity_name").notNull(),
+  dba: text("dba"),
+  entityType: text("entity_type"),
+  filingDate: text("filing_date"),
+  entityStatus: text("entity_status"),
+  lastEvent: text("last_event"),
+  lastEventDate: text("last_event_date"),
+  principalAddress: text("principal_address"),
+  principalCity: text("principal_city"),
+  principalState: text("principal_state"),
+  principalZip: text("principal_zip"),
+  mailingAddress: text("mailing_address"),
+  registeredAgentName: text("registered_agent_name"),
+  registeredAgentAddress: text("registered_agent_address"),
+  officers: jsonb("officers"),
+  website: text("website"),
+  email: text("email"),
+  phone: text("phone"),
+  ownerName: text("owner_name"),
+  ownerEmail: text("owner_email"),
+  ownerPhone: text("owner_phone"),
+  vertical: text("vertical"),
+  score: text("score").default("raw"),
+  enrichmentStatus: text("enrichment_status").default("pending"),
+  enrichmentData: jsonb("enrichment_data"),
+  enrichedAt: timestamp("enriched_at"),
+  aiSummary: text("ai_summary"),
+  listId: integer("list_id").references(() => prospectLists.id),
+  prospectId: integer("prospect_id").references(() => prospects.id),
+  notes: text("notes"),
+  tags: text("tags").array(),
+  source: text("source").default("sunbiz"),
+  searchQuery: text("search_query"),
+  detailUrl: text("detail_url"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertSunbizEntitySchema = createInsertSchema(sunbizEntities).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type SunbizEntity = typeof sunbizEntities.$inferSelect;
+export type InsertSunbizEntity = z.infer<typeof insertSunbizEntitySchema>;
+export type UpdateSunbizEntityRequest = Partial<InsertSunbizEntity>;

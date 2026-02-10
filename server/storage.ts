@@ -4,6 +4,7 @@ import {
   messageTemplates, collateralPackets, ghlActivityLog, slaConfigs,
   prospects, prospectLists, enrichmentJobs, campaigns, campaignSteps, outboundMessages, notes,
   emailLogs, callLogs, stageAutomationRules, followUpSequences, sequenceSteps, sequenceEnrollments,
+  sunbizEntities,
   type InsertContact, type UpdateContactRequest,
   type InsertCompany,
   type InsertDeal, type UpdateDealRequest,
@@ -27,6 +28,7 @@ import {
   type InsertOutboundMessage, type UpdateOutboundMessageRequest,
   type InsertNote,
   type InsertEmailLog, type InsertCallLog, type InsertStageAutomationRule, type InsertFollowUpSequence, type InsertSequenceStep, type InsertSequenceEnrollment,
+  type InsertSunbizEntity, type UpdateSunbizEntityRequest, type SunbizEntity,
 } from "@shared/schema";
 import { eq, desc, and, lt, isNull, ne, sql, asc } from "drizzle-orm";
 
@@ -169,6 +171,15 @@ export interface IStorage {
   createSequenceEnrollment(enrollment: InsertSequenceEnrollment): Promise<typeof sequenceEnrollments.$inferSelect>;
   updateSequenceEnrollment(id: number, updates: Partial<InsertSequenceEnrollment>): Promise<typeof sequenceEnrollments.$inferSelect | undefined>;
   getActiveEnrollments(): Promise<typeof sequenceEnrollments.$inferSelect[]>;
+
+  getSunbizEntities(listId?: number): Promise<SunbizEntity[]>;
+  getSunbizEntity(id: number): Promise<SunbizEntity | undefined>;
+  getSunbizEntityByFiling(filingNumber: string): Promise<SunbizEntity | undefined>;
+  createSunbizEntity(entity: InsertSunbizEntity): Promise<SunbizEntity>;
+  createSunbizEntitiesBulk(entities: InsertSunbizEntity[]): Promise<SunbizEntity[]>;
+  updateSunbizEntity(id: number, updates: UpdateSunbizEntityRequest): Promise<SunbizEntity | undefined>;
+  getSunbizEntitiesByStatus(status: string): Promise<SunbizEntity[]>;
+  getSunbizStats(listId?: number): Promise<{total: number, enriched: number, pending: number, withEmail: number, withPhone: number, withWebsite: number}>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -736,6 +747,67 @@ export class DatabaseStorage implements IStorage {
         sql`${sequenceEnrollments.nextActionAt} <= ${now}`
       )
     );
+  }
+
+  async getSunbizEntities(listId?: number) {
+    if (listId) {
+      return await db.select().from(sunbizEntities).where(eq(sunbizEntities.listId, listId)).orderBy(desc(sunbizEntities.createdAt));
+    }
+    return await db.select().from(sunbizEntities).orderBy(desc(sunbizEntities.createdAt));
+  }
+
+  async getSunbizEntity(id: number) {
+    const [entity] = await db.select().from(sunbizEntities).where(eq(sunbizEntities.id, id));
+    return entity;
+  }
+
+  async getSunbizEntityByFiling(filingNumber: string) {
+    const [entity] = await db.select().from(sunbizEntities).where(eq(sunbizEntities.filingNumber, filingNumber));
+    return entity;
+  }
+
+  async createSunbizEntity(entity: InsertSunbizEntity) {
+    const [created] = await db.insert(sunbizEntities).values(entity).returning();
+    return created;
+  }
+
+  async createSunbizEntitiesBulk(entities: InsertSunbizEntity[]) {
+    if (entities.length === 0) return [];
+    const created = await db.insert(sunbizEntities).values(entities).returning();
+    return created;
+  }
+
+  async updateSunbizEntity(id: number, updates: UpdateSunbizEntityRequest) {
+    const [updated] = await db.update(sunbizEntities).set({ ...updates, updatedAt: new Date() }).where(eq(sunbizEntities.id, id)).returning();
+    return updated;
+  }
+
+  async getSunbizEntitiesByStatus(status: string) {
+    return await db.select().from(sunbizEntities).where(eq(sunbizEntities.enrichmentStatus, status)).orderBy(desc(sunbizEntities.createdAt));
+  }
+
+  async getSunbizStats(listId?: number) {
+    const condition = listId ? sql`list_id = ${listId}` : sql`1=1`;
+    const result = await db.execute(sql`
+      SELECT
+        COUNT(*)::int as total,
+        COUNT(*) FILTER (WHERE enrichment_status = 'enriched')::int as enriched,
+        COUNT(*) FILTER (WHERE enrichment_status = 'pending')::int as pending,
+        COUNT(*) FILTER (WHERE email IS NOT NULL OR owner_email IS NOT NULL)::int as with_email,
+        COUNT(*) FILTER (WHERE phone IS NOT NULL OR owner_phone IS NOT NULL)::int as with_phone,
+        COUNT(*) FILTER (WHERE website IS NOT NULL)::int as with_website
+      FROM sunbiz_entities
+      WHERE ${condition}
+    `);
+    const row = (result as any).rows?.[0] || result[0] || {};
+    return {
+      total: Number(row.total) || 0,
+      enriched: Number(row.enriched) || 0,
+      pending: Number(row.pending) || 0,
+      withEmail: Number(row.with_email) || 0,
+      withPhone: Number(row.with_phone) || 0,
+      withWebsite: Number(row.with_website) || 0,
+    };
   }
 }
 
