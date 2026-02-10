@@ -67,17 +67,15 @@ const menuItems = [
   { icon: FileQuestion, label: "RFIs", href: "/dashboard/rfis" },
   { icon: BarChart3, label: "Automation", href: "/dashboard/automation" },
   { icon: GitBranch, label: "Stage Rules", href: "/dashboard/stage-rules" },
-  { icon: Repeat, label: "Drip Sequences", href: "/dashboard/sequences" },
+  { icon: Repeat, label: "Outreach", href: "/dashboard/outreach" },
   { icon: Settings, label: "GHL Settings", href: "/dashboard/ghl-settings" },
   { icon: PieChart, label: "Reporting", href: "/dashboard/reporting" },
 ];
 
 const leadGenItems = [
-  { icon: Brain, label: "Lead Intelligence", href: "/dashboard/lead-intelligence" },
-  { icon: Wand2, label: "Lead Gen Cleaner", href: "/dashboard/lead-gen" },
+  { icon: Brain, label: "Lead Engine", href: "/dashboard/lead-engine" },
   { icon: Target, label: "Prospects", href: "/dashboard/prospects" },
   { icon: Upload, label: "Import Prospects", href: "/dashboard/prospects/import" },
-  { icon: Send, label: "Campaigns", href: "/dashboard/campaigns" },
   { icon: BarChart2, label: "Outreach Analytics", href: "/dashboard/outreach-analytics" },
 ];
 

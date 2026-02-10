@@ -21,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Search, Sparkles, Loader2 } from "lucide-react";
+import { Search, Sparkles, Loader2, UserPlus, Users } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { Prospect, ProspectList } from "@shared/schema";
 
@@ -109,6 +109,40 @@ export default function Prospects() {
     },
     onError: (err: Error) => {
       toast({ title: "AI routing failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const convertMutation = useMutation({
+    mutationFn: async (prospectId: number) => {
+      const res = await apiRequest("POST", `/api/prospects/${prospectId}/convert`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/prospects"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/deals"] });
+      toast({ title: "Prospect converted to contact", description: "Contact, deal, scoring, and routing all triggered." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Conversion failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const batchConvertMutation = useMutation({
+    mutationFn: async () => {
+      const hotIds = prospects?.filter(p => (p.score === "hot" || p.qualificationScore === "A") && p.status !== "converted" && !p.contactId).map(p => p.id) || [];
+      if (hotIds.length === 0) throw new Error("No hot/A-scored prospects to convert");
+      const res = await apiRequest("POST", "/api/prospects/convert-batch", { prospectIds: hotIds });
+      return res.json();
+    },
+    onSuccess: (data: { converted: number }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/prospects"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/deals"] });
+      toast({ title: `${data.converted} prospects converted`, description: "All converted to contacts with deals, scoring, and sequence enrollment." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Batch conversion failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -203,7 +237,16 @@ export default function Prospects() {
           disabled={routeProspectsMutation.isPending}
         >
           {routeProspectsMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-          AI Route to Campaigns
+          AI Route
+        </Button>
+        <Button
+          data-testid="button-batch-convert"
+          className="gap-2 shrink-0"
+          onClick={() => batchConvertMutation.mutate()}
+          disabled={batchConvertMutation.isPending}
+        >
+          {batchConvertMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Users className="w-4 h-4" />}
+          Convert Hot Leads
         </Button>
       </div>
 
@@ -284,16 +327,30 @@ export default function Prospects() {
                       {formatDate(prospect.lastContactedAt)}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => enrichMutation.mutate(prospect.id)}
-                        disabled={enrichMutation.isPending}
-                        title="Enrich prospect"
-                        data-testid={`button-enrich-${prospect.id}`}
-                      >
-                        <Sparkles className="h-4 w-4" />
-                      </Button>
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => enrichMutation.mutate(prospect.id)}
+                          disabled={enrichMutation.isPending}
+                          title="Enrich prospect"
+                          data-testid={`button-enrich-${prospect.id}`}
+                        >
+                          <Sparkles className="h-4 w-4" />
+                        </Button>
+                        {prospect.status !== "converted" && !prospect.contactId && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => convertMutation.mutate(prospect.id)}
+                            disabled={convertMutation.isPending}
+                            title="Convert to contact"
+                            data-testid={`button-convert-${prospect.id}`}
+                          >
+                            <UserPlus className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))

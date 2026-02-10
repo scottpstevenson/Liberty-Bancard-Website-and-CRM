@@ -54,6 +54,8 @@ import StageRules from "@/pages/dashboard/StageRules";
 import Sequences from "@/pages/dashboard/Sequences";
 import LeadGenCleaner from "@/pages/dashboard/LeadGenCleaner";
 import LeadIntelligence from "@/pages/dashboard/LeadIntelligence";
+import Outreach from "@/pages/dashboard/Outreach";
+import LeadEngine from "@/pages/dashboard/LeadEngine";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { user, isLoading } = useAuth();
@@ -183,6 +185,12 @@ function Router() {
       </Route>
       <Route path="/dashboard/lead-intelligence">
         <ProtectedRoute component={LeadIntelligence} />
+      </Route>
+      <Route path="/dashboard/outreach">
+        <ProtectedRoute component={Outreach} />
+      </Route>
+      <Route path="/dashboard/lead-engine">
+        <ProtectedRoute component={LeadEngine} />
       </Route>
 
       <Route component={NotFound} />

@@ -1087,6 +1087,206 @@ OUTPUT FORMAT:
     res.json(updated);
   });
 
+  app.post("/api/prospects/:id/convert", isAuthenticated, async (req, res) => {
+    try {
+      const prospect = await storage.getProspect(Number(req.params.id));
+      if (!prospect) return res.status(404).json({ message: "Prospect not found" });
+      if (prospect.contactId) return res.json({ message: "Already converted", contactId: prospect.contactId });
+
+      const contact = await storage.createContact({
+        firstName: prospect.ownerFirstName || prospect.companyName?.split(" ")[0] || "Unknown",
+        lastName: prospect.ownerLastName || "",
+        email: prospect.email || prospect.ownerEmail || "",
+        phone: prospect.phone || prospect.ownerPhone || "",
+        companyName: prospect.companyName || "",
+        vertical: prospect.vertical || "",
+        status: "new",
+        source: "prospect_conversion",
+        monthlyVolume: prospect.estimatedVolume || "",
+        currentProvider: prospect.estimatedProcessor || "",
+      });
+
+      const deal = await storage.createDeal({
+        contactId: contact.id,
+        pipeline: "sales",
+        stage: "New Lead",
+        owner: "Scott Stevenson",
+        value: prospect.estimatedVolume || "0",
+      });
+
+      await storage.updateProspect(prospect.id, { contactId: contact.id, status: "converted" });
+
+      scoreContact(contact.id).catch(err => console.error("Scoring error:", err));
+      routeContact(contact.id).catch(err => console.error("Routing error:", err));
+      generateDealBlueprint(deal.id).catch(err => console.error("Blueprint error:", err));
+
+      try {
+        const { autoEnrollFromTrigger } = await import("./services/sequence-worker");
+        await autoEnrollFromTrigger("contact_created", { contactId: contact.id });
+      } catch {}
+
+      try {
+        const matchingRules = await storage.getMatchingStageRules("sales", null, "New Lead");
+        for (const rule of matchingRules) {
+          const ruleActions = (rule.actions as any[]) || [];
+          for (const action of ruleActions) {
+            if (action.type === "create_task") {
+              await storage.createTask({
+                title: action.title || "Auto: New Lead",
+                assignedTo: action.assignedTo || "Scott Stevenson",
+                priority: action.priority || "medium",
+                dueDate: action.dueHours ? new Date(Date.now() + action.dueHours * 3600000) : undefined,
+                dealId: deal.id,
+                contactId: contact.id,
+              });
+            } else if (action.type === "send_notification") {
+              await storage.createNotification({
+                channel: action.channel || "internal",
+                title: action.title || `Stage Automation: ${rule.name}`,
+                message: action.message || "New lead entered pipeline",
+                type: "info",
+              });
+            } else if (action.type === "enroll_sequence" && action.sequenceName) {
+              const seqs = await storage.getFollowUpSequences();
+              const seq = seqs.find((s: any) => s.name === action.sequenceName);
+              if (seq) {
+                await storage.createSequenceEnrollment({
+                  sequenceId: seq.id,
+                  contactId: contact.id,
+                  dealId: deal.id,
+                  status: "active",
+                  nextActionAt: new Date(),
+                  currentStep: 0,
+                });
+              }
+            }
+          }
+          await storage.createAuditLog({
+            action: "stage_rule_triggered",
+            entityType: "deal",
+            entityId: deal.id,
+            details: { ruleName: rule.name, fromStage: null, toStage: "New Lead", source: "prospect_conversion" },
+          });
+        }
+      } catch (ruleErr) {
+        console.error("Stage rule error on conversion:", ruleErr);
+      }
+
+      await storage.createAuditLog({
+        action: "prospect_converted",
+        entityType: "contact",
+        entityId: contact.id,
+        details: { prospectId: prospect.id, dealId: deal.id, company: prospect.companyName },
+      });
+
+      res.json({ contactId: contact.id, dealId: deal.id });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/prospects/convert-batch", isAuthenticated, async (req, res) => {
+    try {
+      const { prospectIds } = req.body as { prospectIds: number[] };
+      if (!prospectIds?.length) return res.status(400).json({ message: "No prospect IDs provided" });
+
+      const results: Array<{ prospectId: number; contactId: number; dealId: number }> = [];
+      for (const pid of prospectIds.slice(0, 50)) {
+        const prospect = await storage.getProspect(pid);
+        if (!prospect || prospect.contactId) continue;
+
+        const contact = await storage.createContact({
+          firstName: prospect.ownerFirstName || prospect.companyName?.split(" ")[0] || "Unknown",
+          lastName: prospect.ownerLastName || "",
+          email: prospect.email || prospect.ownerEmail || "",
+          phone: prospect.phone || prospect.ownerPhone || "",
+          companyName: prospect.companyName || "",
+          vertical: prospect.vertical || "",
+          status: "new",
+          source: "prospect_conversion",
+          monthlyVolume: prospect.estimatedVolume || "",
+          currentProvider: prospect.estimatedProcessor || "",
+        });
+
+        const deal = await storage.createDeal({
+          contactId: contact.id,
+          pipeline: "sales",
+          stage: "New Lead",
+          owner: "Scott Stevenson",
+          value: prospect.estimatedVolume || "0",
+        });
+
+        await storage.updateProspect(pid, { contactId: contact.id, status: "converted" });
+
+        scoreContact(contact.id).catch(() => {});
+        routeContact(contact.id).catch(() => {});
+        generateDealBlueprint(deal.id).catch(() => {});
+
+        results.push({ prospectId: pid, contactId: contact.id, dealId: deal.id });
+      }
+
+      try {
+        const { autoEnrollFromTrigger } = await import("./services/sequence-worker");
+        for (const r of results) {
+          await autoEnrollFromTrigger("contact_created", { contactId: r.contactId });
+        }
+      } catch {}
+
+      try {
+        const matchingRules = await storage.getMatchingStageRules("sales", null, "New Lead");
+        for (const r of results) {
+          for (const rule of matchingRules) {
+            const ruleActions = (rule.actions as any[]) || [];
+            for (const action of ruleActions) {
+              if (action.type === "create_task") {
+                await storage.createTask({
+                  title: action.title || "Auto: New Lead",
+                  assignedTo: action.assignedTo || "Scott Stevenson",
+                  priority: action.priority || "medium",
+                  dueDate: action.dueHours ? new Date(Date.now() + action.dueHours * 3600000) : undefined,
+                  dealId: r.dealId,
+                  contactId: r.contactId,
+                });
+              } else if (action.type === "send_notification") {
+                await storage.createNotification({
+                  channel: action.channel || "internal",
+                  title: action.title || `Stage Automation: ${rule.name}`,
+                  message: action.message || "New lead entered pipeline",
+                  type: "info",
+                });
+              } else if (action.type === "enroll_sequence" && action.sequenceName) {
+                const seqs = await storage.getFollowUpSequences();
+                const seq = seqs.find((s: any) => s.name === action.sequenceName);
+                if (seq) {
+                  await storage.createSequenceEnrollment({
+                    sequenceId: seq.id,
+                    contactId: r.contactId,
+                    dealId: r.dealId,
+                    status: "active",
+                    nextActionAt: new Date(),
+                    currentStep: 0,
+                  });
+                }
+              }
+            }
+            await storage.createAuditLog({
+              action: "stage_rule_triggered",
+              entityType: "deal",
+              entityId: r.dealId,
+              details: { ruleName: rule.name, fromStage: null, toStage: "New Lead", source: "batch_conversion" },
+            });
+          }
+        }
+      } catch (ruleErr) {
+        console.error("Stage rule error on batch conversion:", ruleErr);
+      }
+
+      res.json({ converted: results.length, results });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // CSV Upload endpoint
   app.post("/api/prospects/import", upload.single("file"), async (req, res) => {
     try {

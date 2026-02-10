@@ -6,6 +6,7 @@ import { startSlaWorker } from "./services/sla-worker";
 import { seedDefaultData } from "./services/seed-workflows";
 import { seedSequences } from "./services/seed-sequences";
 import { seedVerticalCampaigns } from "./services/seed-vertical-campaigns";
+import { seedStageRules, seedDemoProspects } from "./services/seed-automation";
 
 const app = express();
 const httpServer = createServer(app);
@@ -105,6 +106,8 @@ app.use((req, res, next) => {
       seedDefaultData();
       seedSequences();
       seedVerticalCampaigns();
+      seedStageRules();
+      seedDemoProspects();
       startSlaWorker();
     },
   );
