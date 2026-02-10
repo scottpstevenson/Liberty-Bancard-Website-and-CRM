@@ -4,6 +4,8 @@ import { processSequenceEnrollments } from "./sequence-worker";
 import { processSendQueue } from "./campaign-engine";
 import { processEnrichmentQueue } from "./enrichment";
 import { processSunbizEnrichmentQueue } from "./sunbiz-enrichment";
+import { scoreContact } from "./lead-scoring";
+import { checkCompliance } from "./smart-router";
 
 const SLA_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -263,6 +265,122 @@ async function checkWaitingWorkflows() {
   }
 }
 
+async function checkDocumentReadiness() {
+  try {
+    const allDeals = await storage.getDeals();
+    const activeSalesDeals = allDeals.filter(
+      d => d.pipeline === "sales" &&
+        d.stage !== "Closed Won" && d.stage !== "Closed Lost" && d.stage !== "New Lead" &&
+        d.contactId
+    );
+
+    const now = new Date();
+    const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    let nudgesCreated = 0;
+
+    for (const deal of activeSalesDeals) {
+      if (nudgesCreated >= 5) break;
+
+      const docs = {
+        statement: deal.statementReceived || false,
+        app: deal.appCompleted || false,
+        voidedCheck: deal.voidedCheckReceived || false,
+        id: deal.idReceived || false,
+      };
+      const completed = Object.values(docs).filter(Boolean).length;
+
+      if (completed >= 4) continue;
+      if (completed === 0 && deal.stage === "Statement Received") continue;
+
+      if (deal.lastNudgeAt && new Date(deal.lastNudgeAt) > twentyFourHoursAgo) continue;
+
+      const missing: string[] = [];
+      if (!docs.statement) missing.push("processing statement");
+      if (!docs.app) missing.push("merchant application");
+      if (!docs.voidedCheck) missing.push("voided check");
+      if (!docs.id) missing.push("owner ID");
+
+      if (missing.length === 0) continue;
+
+      const contact = deal.contactId ? await storage.getContact(deal.contactId) : null;
+      if (!contact) continue;
+
+      await storage.createTask({
+        dealId: deal.id,
+        contactId: deal.contactId || undefined,
+        title: `Doc Nudge: ${contact.firstName} ${contact.lastName} missing ${missing.join(", ")}`,
+        assignedTo: deal.owner || "Scott Stevenson",
+        priority: completed >= 2 ? "high" : "medium",
+        dueDate: new Date(now.getTime() + 24 * 60 * 60 * 1000),
+      });
+
+      if (isGhlConfigured() && completed >= 1) {
+        const compliance = checkCompliance(contact);
+        if (compliance.canEmail) {
+          try {
+            await sendGhlEmail({
+              contactId: deal.contactId!,
+              dealId: deal.id,
+              subject: `Quick update needed - ${contact.companyName || "your account"}`,
+              body: `<p>Hi ${contact.firstName},</p>
+<p>We're making great progress on your processing setup! To keep things moving, we just need a few more items:</p>
+<ul>${missing.map(m => `<li>${m.charAt(0).toUpperCase() + m.slice(1)}</li>`).join("")}</ul>
+<p>You can reply to this email with the documents or give us a call and we'll walk you through it.</p>
+<p>Best,<br/>Liberty Bancard Team</p>
+<p style="font-size:11px;color:#999;">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>`,
+            });
+          } catch (emailErr) {
+            console.error(`Doc nudge email failed for deal ${deal.id}:`, emailErr);
+          }
+        }
+      }
+
+      await storage.updateDeal(deal.id, {
+        lastNudgeAt: now,
+        nextNudgeAt: new Date(now.getTime() + 48 * 60 * 60 * 1000),
+        docReadinessScore: completed,
+      });
+
+      nudgesCreated++;
+    }
+
+    if (nudgesCreated > 0) {
+      console.log(`Doc readiness: ${nudgesCreated} nudges created`);
+    }
+  } catch (err) {
+    console.error("Document readiness check error:", err);
+  }
+}
+
+async function periodicLeadScoring() {
+  try {
+    const contacts = await storage.getContacts();
+    const now = new Date();
+    const sixHoursAgo = new Date(now.getTime() - 6 * 60 * 60 * 1000);
+
+    const staleContacts = contacts.filter(c => {
+      if (!c.lastScoredAt) return true;
+      return new Date(c.lastScoredAt) < sixHoursAgo;
+    });
+
+    const toScore = staleContacts.slice(0, 10);
+    let scored = 0;
+
+    for (const contact of toScore) {
+      try {
+        await scoreContact(contact.id);
+        scored++;
+      } catch (err) {}
+    }
+
+    if (scored > 0) {
+      console.log(`Periodic scoring: ${scored} contacts re-scored`);
+    }
+  } catch (err) {
+    console.error("Periodic lead scoring error:", err);
+  }
+}
+
 let slaInterval: NodeJS.Timeout | null = null;
 let cycleCount = 0;
 const AI_OPS_EVERY_N_CYCLES = 6;
@@ -341,6 +459,8 @@ export function startSlaWorker() {
     await processSendQueue().catch(err => console.error("Campaign send queue error:", err));
     await processEnrichmentQueue().catch(err => console.error("Enrichment queue error:", err));
     await processSunbizEnrichmentQueue(5).catch(err => console.error("Sunbiz enrichment queue error:", err));
+    await checkDocumentReadiness().catch(err => console.error("Doc readiness check error:", err));
+    await periodicLeadScoring().catch(err => console.error("Periodic scoring error:", err));
     cycleCount++;
     if (cycleCount % AI_OPS_EVERY_N_CYCLES === 0) {
       await runScheduledAiOps();

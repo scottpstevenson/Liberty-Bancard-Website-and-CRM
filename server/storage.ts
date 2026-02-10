@@ -44,6 +44,7 @@ export interface IStorage {
   getDeals(): Promise<typeof deals.$inferSelect[]>;
   getDeal(id: number): Promise<typeof deals.$inferSelect | undefined>;
   getDealsByPipeline(pipeline: string): Promise<typeof deals.$inferSelect[]>;
+  getDealsByContact(contactId: number): Promise<typeof deals.$inferSelect[]>;
   createDeal(deal: InsertDeal): Promise<typeof deals.$inferSelect>;
   updateDeal(id: number, deal: UpdateDealRequest): Promise<typeof deals.$inferSelect | undefined>;
 
@@ -222,6 +223,10 @@ export class DatabaseStorage implements IStorage {
 
   async getDealsByPipeline(pipeline: string) {
     return await db.select().from(deals).where(eq(deals.pipeline, pipeline)).orderBy(desc(deals.createdAt));
+  }
+
+  async getDealsByContact(contactId: number) {
+    return await db.select().from(deals).where(eq(deals.contactId, contactId)).orderBy(desc(deals.createdAt));
   }
 
   async createDeal(insertDeal: InsertDeal) {

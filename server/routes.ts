@@ -9,6 +9,9 @@ import { isGhlConfigured, getGhlStatus, sendGhlEmail, sendGhlSms, sendTemplatedM
 import { enrichProspect, runEnrichmentJob, processEnrichmentQueue } from "./services/enrichment";
 import { queueCampaignMessages, processSendQueue, getCampaignAnalytics } from "./services/campaign-engine";
 import { autoEnrollFromTrigger } from "./services/sequence-worker";
+import { scoreContact } from "./services/lead-scoring";
+import { generateDealBlueprint } from "./services/deal-blueprint";
+import { routeContact, getRoutingRecommendation, checkCompliance } from "./services/smart-router";
 import { parseSunbizCsv, searchSunbiz, getEntityDetail, streamCorevtFromZip } from "./services/sunbiz-scraper";
 import { enrichSunbizEntity, processSunbizEnrichmentQueue, convertToProspect } from "./services/sunbiz-enrichment";
 import { insertSunbizEntitySchema } from "@shared/schema";
@@ -44,7 +47,9 @@ export async function registerRoutes(
       for (const wf of contactWorkflows.filter(w => w.enabled)) {
         await storage.createWorkflowRun({ workflowId: wf.id, status: "completed", entityType: "contact", entityId: contact.id, log: { autoTriggered: true, event: "contact_created" } });
       }
+      scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
       autoEnrollFromTrigger("contact_created", { contactId: contact.id }).catch(err => console.error("Auto-enroll error:", err));
+      routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
       res.status(201).json(contact);
     } catch (err) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
@@ -93,6 +98,10 @@ export async function registerRoutes(
       const input = insertDealSchema.parse(req.body);
       const deal = await storage.createDeal(input);
       await storage.createAuditLog({ action: "deal_created", entityType: "deal", entityId: deal.id, details: { pipeline: deal.pipeline, stage: deal.stage } });
+      if (deal.contactId) {
+        scoreContact(deal.contactId).catch(err => console.error("Lead scoring error:", err));
+      }
+      generateDealBlueprint(deal.id).catch(err => console.error("Blueprint generation error:", err));
       res.status(201).json(deal);
     } catch (err) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
@@ -313,6 +322,9 @@ export async function registerRoutes(
       });
 
       await storage.createAuditLog({ action: "statement_uploaded", entityType: "contact", entityId: contact.id, details: { source: "website" } });
+      await storage.updateDeal(deal.id, { statementReceived: true, docReadinessScore: 1 });
+      scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
+      routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
       autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "statement_upload" }).catch(err => console.error("Auto-enroll error:", err));
 
       res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id });
@@ -347,6 +359,8 @@ export async function registerRoutes(
         type: "info",
       });
 
+      scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
+      routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
       autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "estimate" }).catch(err => console.error("Auto-enroll error:", err));
       res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id });
     } catch (err: any) {
@@ -413,6 +427,9 @@ export async function registerRoutes(
         type: "info",
       });
 
+      scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
+      routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
+      generateDealBlueprint(deal.id).catch(err => console.error("Blueprint gen error:", err));
       autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "get_started" }).catch(err => console.error("Auto-enroll error:", err));
       res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id, offerPath });
     } catch (err: any) {
@@ -445,6 +462,8 @@ export async function registerRoutes(
         type: "alert",
       });
 
+      scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
+      routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
       autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "callback" }).catch(err => console.error("Auto-enroll error:", err));
       res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id });
     } catch (err: any) {
@@ -2687,6 +2706,249 @@ Return JSON with:
       res.setHeader("Content-Type", "text/csv");
       res.setHeader("Content-Disposition", `attachment; filename="sunbiz-leads-${Date.now()}.csv"`);
       res.send(csvRows.join("\n"));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === LEAD INTELLIGENCE ENGINE ===
+  app.post("/api/lead-intelligence/score/:contactId", isAuthenticated, async (req, res) => {
+    try {
+      const contactId = Number(req.params.contactId);
+      const breakdown = await scoreContact(contactId);
+      if (!breakdown) return res.status(404).json({ message: "Contact not found" });
+      res.json(breakdown);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/lead-intelligence/score/:contactId", isAuthenticated, async (req, res) => {
+    try {
+      const contact = await storage.getContact(Number(req.params.contactId));
+      if (!contact) return res.status(404).json({ message: "Contact not found" });
+      res.json({
+        leadScore: contact.leadScore || 0,
+        revPotentialScore: contact.revPotentialScore || 0,
+        switchabilityScore: contact.switchabilityScore || 0,
+        uwConfidenceScore: contact.uwConfidenceScore || 0,
+        engagementScore: contact.engagementScore || 0,
+        scoreBreakdown: contact.scoreBreakdown || null,
+        lastScoredAt: contact.lastScoredAt,
+        tier: (contact.leadScore || 0) >= 70 ? "hot" : (contact.leadScore || 0) >= 45 ? "warm" : (contact.leadScore || 0) >= 20 ? "cold" : "unqualified",
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/lead-intelligence/blueprint/:dealId", isAuthenticated, async (req, res) => {
+    try {
+      const dealId = Number(req.params.dealId);
+      const blueprint = await generateDealBlueprint(dealId);
+      if (!blueprint) return res.status(404).json({ message: "Deal not found or blueprint generation failed" });
+      res.json(blueprint);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/lead-intelligence/blueprint/:dealId", isAuthenticated, async (req, res) => {
+    try {
+      const deal = await storage.getDeal(Number(req.params.dealId));
+      if (!deal) return res.status(404).json({ message: "Deal not found" });
+      res.json({
+        dealBlueprint: deal.dealBlueprint,
+        recommendedProgram: deal.recommendedProgram,
+        hardwarePackage: deal.hardwarePackage,
+        estMonthlyRevenue: deal.estMonthlyRevenue,
+        underwritingPath: deal.underwritingPath,
+        competitivePositioning: deal.competitivePositioning,
+        repBriefing: deal.repBriefing,
+        repOpener: deal.repOpener,
+        likelyObjections: deal.likelyObjections,
+        blueprintGeneratedAt: deal.blueprintGeneratedAt,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/lead-intelligence/route/:contactId", isAuthenticated, async (req, res) => {
+    try {
+      const contactId = Number(req.params.contactId);
+      const result = await routeContact(contactId);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/lead-intelligence/routing/:contactId", isAuthenticated, async (req, res) => {
+    try {
+      const contactId = Number(req.params.contactId);
+      const recommendation = await getRoutingRecommendation(contactId);
+      res.json(recommendation);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/lead-intelligence/doc-readiness/:dealId", isAuthenticated, async (req, res) => {
+    try {
+      const deal = await storage.getDeal(Number(req.params.dealId));
+      if (!deal) return res.status(404).json({ message: "Deal not found" });
+
+      const docs = {
+        statementReceived: deal.statementReceived || false,
+        voidedCheckReceived: deal.voidedCheckReceived || false,
+        idReceived: deal.idReceived || false,
+        appCompleted: deal.appCompleted || false,
+      };
+      const completed = Object.values(docs).filter(Boolean).length;
+      const total = 4;
+
+      let stage = "Lead";
+      if (completed >= 4) stage = "Submit to Processor";
+      else if (completed >= 3) stage = "Underwriting Ready";
+      else if (completed >= 2) stage = "Proposal Stage";
+      else if (completed >= 1) stage = "Qualified";
+
+      const missing: string[] = [];
+      if (!docs.statementReceived) missing.push("Processing Statement");
+      if (!docs.appCompleted) missing.push("Merchant Application");
+      if (!docs.voidedCheckReceived) missing.push("Voided Check");
+      if (!docs.idReceived) missing.push("Owner ID");
+
+      res.json({
+        ...docs,
+        docReadinessScore: completed,
+        docReadinessMax: total,
+        docReadinessPercent: Math.round((completed / total) * 100),
+        readinessStage: stage,
+        missing,
+        lastNudgeAt: deal.lastNudgeAt,
+        nextNudgeAt: deal.nextNudgeAt,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/lead-intelligence/full/:contactId", isAuthenticated, async (req, res) => {
+    try {
+      const contactId = Number(req.params.contactId);
+      const contact = await storage.getContact(contactId);
+      if (!contact) return res.status(404).json({ message: "Contact not found" });
+
+      const contactDeals = await storage.getDealsByContact(contactId);
+      const primaryDeal = contactDeals[0] || null;
+
+      const scoring = {
+        leadScore: contact.leadScore || 0,
+        revPotentialScore: contact.revPotentialScore || 0,
+        switchabilityScore: contact.switchabilityScore || 0,
+        uwConfidenceScore: contact.uwConfidenceScore || 0,
+        engagementScore: contact.engagementScore || 0,
+        scoreBreakdown: typeof contact.scoreBreakdown === 'object' && contact.scoreBreakdown
+          ? (contact.scoreBreakdown as any).summary || JSON.stringify(contact.scoreBreakdown)
+          : contact.scoreBreakdown || "",
+        lastScoredAt: contact.lastScoredAt,
+        tier: (contact.leadScore || 0) >= 70 ? "hot" : (contact.leadScore || 0) >= 45 ? "warm" : (contact.leadScore || 0) >= 20 ? "cold" : "unqualified",
+      };
+
+      let blueprint = null;
+      let docReadiness = null;
+
+      if (primaryDeal) {
+        blueprint = {
+          dealId: primaryDeal.id,
+          recommendedProgram: primaryDeal.recommendedProgram,
+          hardwarePackage: primaryDeal.hardwarePackage,
+          estMonthlyRevenue: primaryDeal.estMonthlyRevenue,
+          underwritingPath: primaryDeal.underwritingPath,
+          competitivePositioning: primaryDeal.competitivePositioning,
+          repBriefing: primaryDeal.repBriefing,
+          repOpener: primaryDeal.repOpener,
+          likelyObjections: primaryDeal.likelyObjections,
+          blueprintGeneratedAt: primaryDeal.blueprintGeneratedAt,
+        };
+
+        const docs = {
+          statementReceived: primaryDeal.statementReceived || false,
+          voidedCheckReceived: primaryDeal.voidedCheckReceived || false,
+          idReceived: primaryDeal.idReceived || false,
+          appCompleted: primaryDeal.appCompleted || false,
+        };
+        const completed = Object.values(docs).filter(Boolean).length;
+        const missing: string[] = [];
+        if (!docs.statementReceived) missing.push("Processing Statement");
+        if (!docs.appCompleted) missing.push("Merchant Application");
+        if (!docs.voidedCheckReceived) missing.push("Voided Check");
+        if (!docs.idReceived) missing.push("Owner ID");
+
+        docReadiness = {
+          ...docs,
+          score: completed,
+          max: 4,
+          percent: Math.round((completed / 4) * 100),
+          missing,
+        };
+      }
+
+      const routingRec = await getRoutingRecommendation(contactId);
+
+      const complianceStatus = {
+        doNotContact: contact.doNotContact || false,
+        consentSms: contact.consentSms || false,
+        consentEmail: contact.consentEmail || false,
+        smsOptInAt: contact.smsOptInAt,
+        coolingUntil: contact.coolingUntil,
+        contactAttempts: contact.contactAttempts || 0,
+        dncReason: contact.dncReason,
+      };
+
+      res.json({
+        contact: {
+          id: contact.id,
+          name: `${contact.firstName} ${contact.lastName}`,
+          company: contact.companyName,
+          vertical: contact.vertical,
+          monthlyVolume: contact.monthlyVolume,
+          currentProvider: contact.currentProvider,
+          painPoints: contact.painPoints,
+          contractStatus: contact.contractStatus,
+          lookingReason: contact.lookingReason,
+          referralSource: contact.referralSource,
+        },
+        scoring,
+        blueprint,
+        docReadiness,
+        routing: routingRec,
+        compliance: complianceStatus,
+        deal: primaryDeal ? {
+          id: primaryDeal.id,
+          stage: primaryDeal.stage,
+          pipeline: primaryDeal.pipeline,
+        } : null,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/lead-intelligence/score-batch", isAuthenticated, async (req, res) => {
+    try {
+      const { contactIds } = req.body;
+      if (!Array.isArray(contactIds)) return res.status(400).json({ message: "contactIds array required" });
+      let scored = 0;
+      for (const id of contactIds.slice(0, 50)) {
+        try {
+          await scoreContact(id);
+          scored++;
+        } catch (e) {}
+      }
+      res.json({ scored, total: contactIds.length });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
