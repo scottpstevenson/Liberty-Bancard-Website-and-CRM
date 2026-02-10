@@ -9,6 +9,7 @@ import { isGhlConfigured, getGhlStatus, sendGhlEmail, sendGhlSms, sendTemplatedM
 import { enrichProspect, runEnrichmentJob, processEnrichmentQueue } from "./services/enrichment";
 import { queueCampaignMessages, processSendQueue, getCampaignAnalytics } from "./services/campaign-engine";
 import { autoEnrollFromTrigger } from "./services/sequence-worker";
+import { triggerWorkflowsByEvent, executeWorkflowActions } from "./services/workflow-executor";
 import { scoreContact } from "./services/lead-scoring";
 import { generateDealBlueprint } from "./services/deal-blueprint";
 import { routeContact, getRoutingRecommendation, checkCompliance } from "./services/smart-router";
@@ -43,10 +44,7 @@ export async function registerRoutes(
       const input = insertContactSchema.parse(req.body);
       const contact = await storage.createContact(input);
       await storage.createAuditLog({ action: "contact_created", entityType: "contact", entityId: contact.id, details: { name: `${contact.firstName} ${contact.lastName}` } });
-      const contactWorkflows = await storage.getWorkflowsByTrigger("contact_created");
-      for (const wf of contactWorkflows.filter(w => w.enabled)) {
-        await storage.createWorkflowRun({ workflowId: wf.id, status: "completed", entityType: "contact", entityId: contact.id, log: { autoTriggered: true, event: "contact_created" } });
-      }
+      triggerWorkflowsByEvent("contact_created", { entityType: "contact", entityId: contact.id, contactId: contact.id }).catch(err => console.error("Workflow trigger error:", err));
       scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
       autoEnrollFromTrigger("contact_created", { contactId: contact.id }).catch(err => console.error("Auto-enroll error:", err));
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
@@ -184,6 +182,13 @@ export async function registerRoutes(
         fromStage: old.stage,
         pipeline: updated.pipeline,
       } as any).catch(err => console.error("Auto-enroll on stage change error:", err));
+
+      triggerWorkflowsByEvent("deal_stage_changed", {
+        entityType: "deal",
+        entityId: updated.id,
+        contactId: updated.contactId || undefined,
+        dealId: updated.id,
+      }, { toStage: updated.stage, fromStage: old.stage }).catch(err => console.error("Workflow trigger error:", err));
     }
     res.json(updated);
   });
@@ -200,10 +205,7 @@ export async function registerRoutes(
       const ticket = await storage.createTicket(input);
       await storage.createAuditLog({ action: "ticket_created", entityType: "ticket", entityId: ticket.id, details: { category: ticket.category, priority: ticket.priority } });
       await storage.createNotification({ channel: "internal", title: `New ${ticket.priority} Support Ticket`, message: `${ticket.subject} - Category: ${ticket.category}`, type: ticket.priority === "Urgent" ? "urgent" : "info" });
-      const ticketWorkflows = await storage.getWorkflowsByTrigger("ticket_created");
-      for (const wf of ticketWorkflows.filter(w => w.enabled)) {
-        await storage.createWorkflowRun({ workflowId: wf.id, status: "completed", entityType: "ticket", entityId: ticket.id, log: { autoTriggered: true, event: "ticket_created" } });
-      }
+      triggerWorkflowsByEvent("ticket_created", { entityType: "ticket", entityId: ticket.id }).catch(err => console.error("Workflow trigger error:", err));
       res.status(201).json(ticket);
     } catch (err) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
@@ -326,6 +328,7 @@ export async function registerRoutes(
       scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
       autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "statement_upload" }).catch(err => console.error("Auto-enroll error:", err));
+      triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: deal.id }, { formType: "statement_upload" }).catch(err => console.error("Workflow trigger error:", err));
 
       res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id });
     } catch (err: any) {
@@ -362,6 +365,7 @@ export async function registerRoutes(
       scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
       autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "estimate" }).catch(err => console.error("Auto-enroll error:", err));
+      triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: deal.id }, { formType: "estimate" }).catch(err => console.error("Workflow trigger error:", err));
       res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id });
     } catch (err: any) {
       res.status(400).json({ message: err.message || "Invalid submission" });
@@ -431,6 +435,7 @@ export async function registerRoutes(
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
       generateDealBlueprint(deal.id).catch(err => console.error("Blueprint gen error:", err));
       autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "get_started" }).catch(err => console.error("Auto-enroll error:", err));
+      triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: deal.id }, { formType: "get_started" }).catch(err => console.error("Workflow trigger error:", err));
       res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id, offerPath });
     } catch (err: any) {
       res.status(400).json({ message: err.message || "Invalid submission" });
@@ -465,6 +470,7 @@ export async function registerRoutes(
       scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
       autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "callback" }).catch(err => console.error("Auto-enroll error:", err));
+      triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: deal.id }, { formType: "callback" }).catch(err => console.error("Workflow trigger error:", err));
       res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id });
     } catch (err: any) {
       res.status(400).json({ message: err.message || "Invalid submission" });
@@ -580,195 +586,13 @@ export async function registerRoutes(
       if (!wf) return res.status(404).json({ message: "Workflow not found" });
       if (!wf.enabled) return res.status(400).json({ message: "Workflow is disabled" });
 
-      const run = await storage.createWorkflowRun({
-        workflowId: wf.id,
-        entityType: req.body.entityType || null,
-        entityId: req.body.entityId || null,
-        status: "running",
-        currentStep: 0,
-        log: [{ step: 0, action: "started", timestamp: new Date().toISOString() }],
-      });
-
       const actions = (wf.actions as any[]) || [];
-      const logEntries: any[] = [{ step: 0, action: "started", timestamp: new Date().toISOString() }];
-
-      const entityType = req.body.entityType;
-      const entityId = req.body.entityId;
-
-      let contactId: number | undefined;
-      let dealId: number | undefined;
-      if (entityType === "deal" && entityId) {
-        dealId = entityId;
-        const deal = await storage.getDeal(dealId as number);
-        contactId = deal?.contactId || undefined;
-      } else if (entityType === "contact" && entityId) {
-        contactId = entityId;
-      }
-
-      for (let i = 0; i < actions.length; i++) {
-        const action = actions[i];
-        try {
-          if (action.type === "create_task") {
-            await storage.createTask({
-              title: action.title || `Auto-task from ${wf.name}`,
-              assignedTo: action.assignedTo || "Unassigned",
-              priority: action.priority || "medium",
-              dueDate: action.dueHours ? new Date(Date.now() + action.dueHours * 60 * 60 * 1000) : undefined,
-              dealId, contactId,
-            });
-            logEntries.push({ step: i + 1, action: "create_task", title: action.title, status: "completed", timestamp: new Date().toISOString() });
-
-          } else if (action.type === "send_notification") {
-            await storage.createNotification({
-              channel: action.channel || "internal",
-              title: action.title || `Workflow: ${wf.name}`,
-              message: action.message || "Automated workflow notification",
-              type: action.notificationType || "info",
-              metadata: { workflowId: wf.id, dealId, contactId },
-            });
-            logEntries.push({ step: i + 1, action: "send_notification", title: action.title, status: "completed", timestamp: new Date().toISOString() });
-
-          } else if (action.type === "create_audit_log") {
-            await storage.createAuditLog({
-              action: action.logAction || "workflow_action",
-              entityType: entityType || "workflow",
-              entityId: entityId || run.id,
-              details: { workflow: wf.name, step: i + 1 },
-            });
-            logEntries.push({ step: i + 1, action: "create_audit_log", status: "completed", timestamp: new Date().toISOString() });
-
-          } else if (action.type === "update_deal" && dealId) {
-            const updates: any = {};
-            if (action.stage) updates.stage = action.stage;
-            if (action.notes) updates.notes = action.notes;
-            if (action.offerPath) updates.offerPath = action.offerPath;
-            if (action.owner) updates.owner = action.owner;
-            if (action.nextFollowUp) updates.nextFollowUp = new Date(Date.now() + (action.nextFollowUpHours || 24) * 60 * 60 * 1000);
-            await storage.updateDeal(dealId, updates);
-            logEntries.push({ step: i + 1, action: "update_deal", updates, status: "completed", timestamp: new Date().toISOString() });
-
-          } else if (action.type === "update_contact_tags" && contactId) {
-            const contact = await storage.getContact(contactId);
-            if (contact) {
-              const currentTags = contact.tags || [];
-              const addTags = action.addTags || [];
-              const removeTags = action.removeTags || [];
-              const newTags = Array.from(new Set([...currentTags, ...addTags])).filter(t => !removeTags.includes(t));
-              await storage.updateContact(contactId, { tags: newTags });
-            }
-            logEntries.push({ step: i + 1, action: "update_contact_tags", status: "completed", timestamp: new Date().toISOString() });
-
-          } else if (action.type === "send_ghl_email" && contactId) {
-            if (action.templateId) {
-              const result = await sendTemplatedMessage({ templateId: action.templateId, contactId, dealId });
-              logEntries.push({ step: i + 1, action: "send_ghl_email", templateId: action.templateId, status: result.success ? "completed" : "failed", error: result.error, timestamp: new Date().toISOString() });
-            } else {
-              const result = await sendGhlEmail({ contactId, dealId, subject: action.subject || "Liberty Bancard", body: action.body || "" });
-              logEntries.push({ step: i + 1, action: "send_ghl_email", status: result.success ? "completed" : "failed", error: result.error, timestamp: new Date().toISOString() });
-            }
-
-          } else if (action.type === "send_ghl_sms" && contactId) {
-            if (action.templateId) {
-              const result = await sendTemplatedMessage({ templateId: action.templateId, contactId, dealId });
-              logEntries.push({ step: i + 1, action: "send_ghl_sms", templateId: action.templateId, status: result.success ? "completed" : "failed", error: result.error, timestamp: new Date().toISOString() });
-            } else {
-              const result = await sendGhlSms({ contactId, dealId, body: action.body || "" });
-              logEntries.push({ step: i + 1, action: "send_ghl_sms", status: result.success ? "completed" : "failed", error: result.error, timestamp: new Date().toISOString() });
-            }
-
-          } else if (action.type === "send_packet" && contactId) {
-            const packets = await storage.getCollateralPackets();
-            let matchedPacket = packets.find(p => p.id === action.packetId);
-            if (!matchedPacket && dealId) {
-              const deal = await storage.getDeal(dealId);
-              matchedPacket = packets.find(p => p.offerPath === deal?.offerPath && p.isActive);
-            }
-            if (matchedPacket) {
-              const packetUrl = (matchedPacket.pages || []).map(p => `${process.env.REPLIT_DEV_DOMAIN ? 'https://' + process.env.REPLIT_DEV_DOMAIN : ''}/assets/${p}`).join(", ");
-              const result = await sendGhlEmail({
-                contactId,
-                dealId,
-                subject: `Your Custom Pricing Breakdown - ${matchedPacket.name}`,
-                body: `<p>Hi {{contact.firstName}},</p><p>Here is your personalized information packet: ${matchedPacket.name}</p><p>View your materials: ${packetUrl}</p><p>Questions? Reply to this email or call us directly.</p><p>Best,<br/>Liberty Bancard</p><p style="font-size:11px;color:#999;">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>`,
-              });
-              logEntries.push({ step: i + 1, action: "send_packet", packetName: matchedPacket.name, status: result.success ? "completed" : "failed", timestamp: new Date().toISOString() });
-            } else {
-              logEntries.push({ step: i + 1, action: "send_packet", status: "skipped", reason: "No matching packet found", timestamp: new Date().toISOString() });
-            }
-
-          } else if (action.type === "generate_proposal" && contactId && dealId) {
-            const deal = await storage.getDeal(dealId);
-            const contact = await storage.getContact(contactId);
-            if (deal && contact) {
-              const proposalBody = `<h2>Statement Analysis & Proposal</h2>
-<p>Dear ${contact.firstName},</p>
-<p>After reviewing your processing statement, here is what we found:</p>
-<ul>
-  <li><strong>Current Effective Rate:</strong> ${deal.effectiveRate || "Pending Review"}</li>
-  <li><strong>Monthly Volume:</strong> ${deal.totalVolume || "Pending Review"}</li>
-  <li><strong>Current Total Fees:</strong> ${deal.totalFees || "Pending Review"}</li>
-  <li><strong>Top Cost Drivers:</strong> ${(deal.topCostDrivers || []).join(", ") || "Pending Review"}</li>
-  <li><strong>Recommended Path:</strong> ${deal.recommendedPath || deal.offerPath || "Custom Pricing"}</li>
-  ${deal.terminalRecommendation ? `<li><strong>Terminal:</strong> ${deal.terminalRecommendation}</li>` : ""}
-</ul>
-<p><strong>Next Step:</strong> <a href="{{calendarLink}}">Book a 10-minute call</a> to walk through the numbers.</p>
-<p>Best,<br/>Liberty Bancard Team</p>
-<p style="font-size:11px;color:#999;">Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.</p>`;
-
-              const result = await sendGhlEmail({
-                contactId,
-                dealId,
-                subject: `Your Processing Analysis is Ready - ${contact.companyName || contact.firstName}`,
-                body: proposalBody,
-              });
-              if (deal.stage === "Review In Progress") {
-                await storage.updateDeal(dealId, { stage: "Proposal Sent" });
-              }
-              logEntries.push({ step: i + 1, action: "generate_proposal", status: result.success ? "completed" : "failed", timestamp: new Date().toISOString() });
-            }
-
-          } else if (action.type === "request_review" && contactId) {
-            const contact = await storage.getContact(contactId);
-            if (contact) {
-              const reviewBody = `<p>Hi ${contact.firstName},</p>
-<p>We hope your payment processing has been running smoothly since switching to Liberty Bancard!</p>
-<p>Would you mind leaving us a quick review? It only takes 30 seconds and helps other business owners find better processing.</p>
-<p><a href="${action.reviewUrl || "[REVIEW_URL]"}">Leave a Review</a></p>
-<p>Thank you for your business!</p>
-<p>Best,<br/>Liberty Bancard Team</p>`;
-              const result = await sendGhlEmail({
-                contactId,
-                dealId,
-                subject: "How's your experience with Liberty Bancard?",
-                body: reviewBody,
-              });
-              logEntries.push({ step: i + 1, action: "request_review", status: result.success ? "completed" : "failed", timestamp: new Date().toISOString() });
-            }
-
-          } else if (action.type === "wait") {
-            const waitMinutes = action.minutes || action.hours * 60 || 60;
-            logEntries.push({ step: i + 1, action: "wait", minutes: waitMinutes, status: "scheduled", timestamp: new Date().toISOString() });
-            await storage.updateWorkflowRun(run.id, {
-              status: "waiting",
-              currentStep: i + 1,
-              nextRunAt: new Date(Date.now() + waitMinutes * 60 * 1000),
-              log: logEntries,
-            });
-            return res.json({ success: true, runId: run.id, status: "waiting", nextRunAt: new Date(Date.now() + waitMinutes * 60 * 1000), steps: logEntries });
-          }
-        } catch (stepErr: any) {
-          logEntries.push({ step: i + 1, action: action.type, status: "failed", error: stepErr.message, timestamp: new Date().toISOString() });
-        }
-      }
-
-      await storage.updateWorkflowRun(run.id, {
-        status: "completed",
-        completedAt: new Date(),
-        currentStep: actions.length,
-        log: logEntries,
+      const result = await executeWorkflowActions(wf.id, actions, {
+        entityType: req.body.entityType || undefined,
+        entityId: req.body.entityId || undefined,
       });
 
-      res.json({ success: true, runId: run.id, steps: logEntries });
+      res.json({ success: true, runId: result.runId, status: result.status, steps: result.log });
     } catch (err: any) {
       res.status(500).json({ message: err.message || "Workflow execution failed" });
     }
@@ -1101,7 +925,7 @@ OUTPUT FORMAT:
         companyName: prospect.companyName || "",
         vertical: prospect.vertical || "",
         status: "new",
-        source: "prospect_conversion",
+        notes: "Source: prospect_conversion",
         monthlyVolume: prospect.estimatedVolume || "",
         currentProvider: prospect.estimatedProcessor || "",
       });
@@ -1111,7 +935,7 @@ OUTPUT FORMAT:
         pipeline: "sales",
         stage: "New Lead",
         owner: "Scott Stevenson",
-        value: prospect.estimatedVolume || "0",
+        notes: `Estimated volume: ${prospect.estimatedVolume || "N/A"}`,
       });
 
       await storage.updateProspect(prospect.id, { contactId: contact.id, status: "converted" });
@@ -1203,7 +1027,7 @@ OUTPUT FORMAT:
           companyName: prospect.companyName || "",
           vertical: prospect.vertical || "",
           status: "new",
-          source: "prospect_conversion",
+          notes: "Source: prospect_conversion",
           monthlyVolume: prospect.estimatedVolume || "",
           currentProvider: prospect.estimatedProcessor || "",
         });
@@ -1213,7 +1037,7 @@ OUTPUT FORMAT:
           pipeline: "sales",
           stage: "New Lead",
           owner: "Scott Stevenson",
-          value: prospect.estimatedVolume || "0",
+          notes: `Estimated volume: ${prospect.estimatedVolume || "N/A"}`,
         });
 
         await storage.updateProspect(pid, { contactId: contact.id, status: "converted" });
@@ -2213,28 +2037,13 @@ Return JSON with:
       const { event, entityType, entityId, data } = req.body;
       if (!event) return res.status(400).json({ message: "event required" });
 
-      const matchingWorkflows = await storage.getWorkflowsByTrigger(event);
-      const activeWorkflows = matchingWorkflows.filter(w => w.enabled);
+      const results = await triggerWorkflowsByEvent(event, {
+        entityType: entityType || undefined,
+        entityId: entityId ? Number(entityId) : undefined,
+        data,
+      });
 
-      const runs = [];
-      for (const workflow of activeWorkflows) {
-        const run = await storage.createWorkflowRun({
-          workflowId: workflow.id,
-          status: "completed",
-          log: { triggeredBy: `webhook:${event}`, event, entityType, entityId, data, actionsExecuted: Array.isArray(workflow.actions) ? workflow.actions.length : 0 },
-        });
-        runs.push(run);
-
-        await storage.createAuditLog({
-          action: "workflow_triggered",
-          entityType: entityType || "system",
-          entityId: entityId ? Number(entityId) : undefined,
-          details: { workflowId: workflow.id, workflowName: workflow.name, event, triggerSource: "webhook" },
-        });
-      }
-
-      const workflowNames = activeWorkflows.map(w => w.name);
-      res.json({ triggered: runs.length, workflows: workflowNames });
+      res.json({ triggered: results.length, workflows: results.map(r => r.workflowName), results });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

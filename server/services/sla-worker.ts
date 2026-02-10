@@ -169,6 +169,7 @@ async function runSlaCheck() {
 
 async function checkWaitingWorkflows() {
   try {
+    const { executeWorkflowActions } = await import("./workflow-executor");
     const allRuns = await storage.getWorkflowRuns();
     const waitingRuns = allRuns.filter(r => r.status === "waiting" && r.nextRunAt && new Date(r.nextRunAt) <= new Date());
 
@@ -178,87 +179,13 @@ async function checkWaitingWorkflows() {
 
       const actions = (workflow.actions as any[]) || [];
       const currentStep = run.currentStep || 0;
-      const logEntries: any[] = [...((run.log as any[]) || [])];
 
-      let contactId: number | undefined;
-      let dealId: number | undefined;
-      if (run.entityType === "deal" && run.entityId) {
-        dealId = run.entityId;
-        const deal = await storage.getDeal(dealId);
-        contactId = deal?.contactId || undefined;
-      } else if (run.entityType === "contact" && run.entityId) {
-        contactId = run.entityId;
-      }
+      await executeWorkflowActions(workflow.id, actions, {
+        entityType: run.entityType || undefined,
+        entityId: run.entityId || undefined,
+      }, run.id, currentStep);
 
-      for (let i = currentStep; i < actions.length; i++) {
-        const action = actions[i];
-        try {
-          if (action.type === "wait") {
-            const waitMinutes = action.minutes || (action.hours || 1) * 60;
-            logEntries.push({ step: i + 1, action: "wait_resumed", timestamp: new Date().toISOString() });
-            continue;
-          }
-
-          if (action.type === "create_task") {
-            await storage.createTask({
-              title: action.title || `Auto-task from ${workflow.name}`,
-              assignedTo: action.assignedTo || "Unassigned",
-              priority: action.priority || "medium",
-              dueDate: action.dueHours ? new Date(Date.now() + action.dueHours * 60 * 60 * 1000) : undefined,
-              dealId, contactId,
-            });
-            logEntries.push({ step: i + 1, action: "create_task", title: action.title, status: "completed", timestamp: new Date().toISOString() });
-          } else if (action.type === "send_notification") {
-            await storage.createNotification({
-              channel: action.channel || "internal",
-              title: action.title || `Workflow: ${workflow.name}`,
-              message: action.message || "Automated workflow notification",
-              type: action.notificationType || "info",
-            });
-            logEntries.push({ step: i + 1, action: "send_notification", status: "completed", timestamp: new Date().toISOString() });
-          } else if (action.type === "send_ghl_email" && contactId) {
-            const { sendGhlEmail: sendEmail, sendTemplatedMessage: sendTemplate } = await import("./ghl");
-            if (action.templateId) {
-              await sendTemplate({ templateId: action.templateId, contactId, dealId });
-            } else {
-              await sendEmail({ contactId, dealId, subject: action.subject || "", body: action.body || "" });
-            }
-            logEntries.push({ step: i + 1, action: "send_ghl_email", status: "completed", timestamp: new Date().toISOString() });
-          } else if (action.type === "send_ghl_sms" && contactId) {
-            const { sendGhlSms: sendSms, sendTemplatedMessage: sendTemplate } = await import("./ghl");
-            if (action.templateId) {
-              await sendTemplate({ templateId: action.templateId, contactId, dealId });
-            } else {
-              await sendSms({ contactId, dealId, body: action.body || "" });
-            }
-            logEntries.push({ step: i + 1, action: "send_ghl_sms", status: "completed", timestamp: new Date().toISOString() });
-          }
-
-          if (i + 1 < actions.length && actions[i + 1]?.type === "wait") {
-            const nextWait = actions[i + 1];
-            const waitMinutes = nextWait.minutes || (nextWait.hours || 1) * 60;
-            await storage.updateWorkflowRun(run.id, {
-              status: "waiting",
-              currentStep: i + 2,
-              nextRunAt: new Date(Date.now() + waitMinutes * 60 * 1000),
-              log: logEntries,
-            });
-            break;
-          }
-        } catch (stepErr: any) {
-          logEntries.push({ step: i + 1, action: action.type, status: "failed", error: stepErr.message, timestamp: new Date().toISOString() });
-        }
-      }
-
-      const lastLog = logEntries[logEntries.length - 1];
-      if (lastLog?.action !== "wait" && lastLog?.status !== "waiting") {
-        await storage.updateWorkflowRun(run.id, {
-          status: "completed",
-          completedAt: new Date(),
-          currentStep: actions.length,
-          log: logEntries,
-        });
-      }
+      console.log(`[Workflow] Resumed waiting workflow "${workflow.name}" from step ${currentStep}`);
     }
   } catch (err) {
     console.error("Waiting workflow check error:", err);
@@ -316,7 +243,7 @@ async function checkDocumentReadiness() {
 
       if (isGhlConfigured() && completed >= 1) {
         const compliance = checkCompliance(contact);
-        if (compliance.canEmail) {
+        if (compliance.channelsAllowed.includes("email")) {
           try {
             await sendGhlEmail({
               contactId: deal.contactId!,
