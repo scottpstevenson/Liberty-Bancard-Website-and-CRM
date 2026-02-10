@@ -4,7 +4,7 @@ import { storage } from "./storage";
 import { setupAuth, registerAuthRoutes, isAuthenticated } from "./replit_integrations/auth";
 import { registerAudioRoutes } from "./replit_integrations/audio/routes";
 import { z } from "zod";
-import { insertContactSchema, insertDealSchema, insertTicketSchema, insertTaskSchema, insertCompanySchema, insertDocumentSchema, insertNotificationSchema, insertWorkflowSchema, insertRfiSchema, insertMessageTemplateSchema, insertCollateralPacketSchema, insertSlaConfigSchema, insertProspectSchema, insertProspectListSchema, insertEnrichmentJobSchema, insertCampaignSchema, insertCampaignStepSchema, insertOutboundMessageSchema } from "@shared/schema";
+import { insertContactSchema, insertDealSchema, insertTicketSchema, insertTaskSchema, insertCompanySchema, insertDocumentSchema, insertNotificationSchema, insertWorkflowSchema, insertRfiSchema, insertMessageTemplateSchema, insertCollateralPacketSchema, insertSlaConfigSchema, insertProspectSchema, insertProspectListSchema, insertEnrichmentJobSchema, insertCampaignSchema, insertCampaignStepSchema, insertOutboundMessageSchema, insertNoteSchema } from "@shared/schema";
 import { isGhlConfigured, getGhlStatus, sendGhlEmail, sendGhlSms, sendTemplatedMessage, upsertGhlContact, handleGhlWebhook, getCalendarBookingUrl } from "./services/ghl";
 import { enrichProspect, runEnrichmentJob, processEnrichmentQueue } from "./services/enrichment";
 import { queueCampaignMessages, processSendQueue, getCampaignAnalytics } from "./services/campaign-engine";
@@ -1941,6 +1941,160 @@ Return JSON with:
 
       const workflowNames = activeWorkflows.map(w => w.name);
       res.json({ triggered: runs.length, workflows: workflowNames });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === NOTES ===
+  app.get("/api/notes", isAuthenticated, async (req, res) => {
+    try {
+      const { entityType, entityId } = req.query;
+      if (!entityType || !entityId) return res.status(400).json({ message: "entityType and entityId required" });
+      const notesList = await storage.getNotes(String(entityType), Number(entityId));
+      res.json(notesList);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/notes", isAuthenticated, async (req, res) => {
+    try {
+      const input = insertNoteSchema.parse(req.body);
+      const note = await storage.createNote(input);
+      res.status(201).json(note);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/notes/:id", isAuthenticated, async (req, res) => {
+    try {
+      await storage.deleteNote(Number(req.params.id));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === GLOBAL SEARCH ===
+  app.get("/api/search", isAuthenticated, async (req, res) => {
+    try {
+      const q = String(req.query.q || "").toLowerCase().trim();
+      if (!q) return res.json({ contacts: [], deals: [], tickets: [], tasks: [] });
+      
+      const [allContacts, allDeals, allTickets, allTasks] = await Promise.all([
+        storage.getContacts(),
+        storage.getDeals(),
+        storage.getTickets(),
+        storage.getTasks(),
+      ]);
+      
+      const matchContacts = allContacts.filter(c => 
+        c.firstName.toLowerCase().includes(q) || c.lastName.toLowerCase().includes(q) || 
+        c.email?.toLowerCase().includes(q) || c.companyName?.toLowerCase().includes(q) || c.phone?.includes(q)
+      ).slice(0, 10);
+      
+      const matchDeals = allDeals.filter(d => 
+        d.stage?.toLowerCase().includes(q) || d.offerPath?.toLowerCase().includes(q) || 
+        d.notes?.toLowerCase().includes(q) || d.pipeline?.toLowerCase().includes(q)
+      ).slice(0, 10);
+      
+      const matchTickets = allTickets.filter(t => 
+        t.subject?.toLowerCase().includes(q) || t.description?.toLowerCase().includes(q) || 
+        t.category?.toLowerCase().includes(q)
+      ).slice(0, 10);
+      
+      const matchTasks = allTasks.filter(t => 
+        t.title?.toLowerCase().includes(q) || t.description?.toLowerCase().includes(q) || 
+        t.assignedTo?.toLowerCase().includes(q)
+      ).slice(0, 10);
+      
+      res.json({ contacts: matchContacts, deals: matchDeals, tickets: matchTickets, tasks: matchTasks });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === CONTACT DETAIL AGGREGATE ===
+  app.get("/api/contacts/:id/detail", isAuthenticated, async (req, res) => {
+    try {
+      const contactId = Number(req.params.id);
+      const contact = await storage.getContact(contactId);
+      if (!contact) return res.status(404).json({ message: "Not found" });
+      
+      const [allDeals, allTickets, allTasks, contactNotes] = await Promise.all([
+        storage.getDeals(),
+        storage.getTickets(),
+        storage.getTasks(),
+        storage.getNotes("contact", contactId),
+      ]);
+      
+      const contactDeals = allDeals.filter(d => d.contactId === contactId);
+      const contactTickets = allTickets.filter(t => t.contactId === contactId);
+      const contactTasks = allTasks.filter(t => t.contactId === contactId);
+      
+      res.json({ contact, deals: contactDeals, tickets: contactTickets, tasks: contactTasks, notes: contactNotes });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === EXPORT CSV ===
+  app.get("/api/export/contacts", isAuthenticated, async (req, res) => {
+    try {
+      const allContacts = await storage.getContacts();
+      const headers = ["ID","First Name","Last Name","Email","Phone","Company","Status","Tags","Created"];
+      const rows = allContacts.map(c => [
+        c.id, c.firstName, c.lastName, c.email, c.phone, c.companyName || "", c.status || "", 
+        (c.tags || []).join(";"), c.createdAt ? new Date(c.createdAt).toISOString() : ""
+      ]);
+      const csv = [headers.join(","), ...rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(","))].join("\n");
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", "attachment; filename=contacts.csv");
+      res.send(csv);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/export/deals", isAuthenticated, async (req, res) => {
+    try {
+      const allDeals = await storage.getDeals();
+      const allContacts = await storage.getContacts();
+      const contactMap = new Map(allContacts.map(c => [c.id, c]));
+      const headers = ["ID","Contact","Company","Pipeline","Stage","Offer Path","Volume","Fees","Profit/mo","Created"];
+      const rows = allDeals.map(d => {
+        const c = d.contactId ? contactMap.get(d.contactId) : null;
+        return [
+          d.id, c ? `${c.firstName} ${c.lastName}` : "", c?.companyName || "", d.pipeline, d.stage, d.offerPath || "",
+          d.totalVolume || "", d.totalFees || "", d.estimatedNetProfitMonthly || "",
+          d.createdAt ? new Date(d.createdAt).toISOString() : ""
+        ];
+      });
+      const csv = [headers.join(","), ...rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(","))].join("\n");
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", "attachment; filename=deals.csv");
+      res.send(csv);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/export/tickets", isAuthenticated, async (req, res) => {
+    try {
+      const allTickets = await storage.getTickets();
+      const headers = ["ID","Subject","Category","Priority","Status","Assigned To","SLA Deadline","Created"];
+      const rows = allTickets.map(t => [
+        t.id, t.subject, t.category || "", t.priority || "", t.status || "", t.assignedTo || "",
+        t.slaDeadline ? new Date(t.slaDeadline).toISOString() : "",
+        t.createdAt ? new Date(t.createdAt).toISOString() : ""
+      ]);
+      const csv = [headers.join(","), ...rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(","))].join("\n");
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", "attachment; filename=tickets.csv");
+      res.send(csv);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

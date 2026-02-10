@@ -49,6 +49,7 @@ import ProspectImport from "@/pages/dashboard/ProspectImport";
 import Campaigns from "@/pages/dashboard/Campaigns";
 import OutreachAnalytics from "@/pages/dashboard/OutreachAnalytics";
 import Reporting from "@/pages/dashboard/Reporting";
+import ContactDetail from "@/pages/dashboard/ContactDetail";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { user, isLoading } = useAuth();
@@ -103,6 +104,9 @@ function Router() {
       {/* Dashboard Routes */}
       <Route path="/dashboard">
         <ProtectedRoute component={Overview} />
+      </Route>
+      <Route path="/dashboard/contacts/:id">
+        <ProtectedRoute component={ContactDetail} />
       </Route>
       <Route path="/dashboard/contacts">
         <ProtectedRoute component={Contacts} />

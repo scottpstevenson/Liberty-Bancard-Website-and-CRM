@@ -2,7 +2,7 @@ import { db } from "./db";
 import {
   contacts, companies, deals, tickets, tasks, documents, auditLogs, notifications, workflowRuns, workflows, rfis,
   messageTemplates, collateralPackets, ghlActivityLog, slaConfigs,
-  prospects, prospectLists, enrichmentJobs, campaigns, campaignSteps, outboundMessages,
+  prospects, prospectLists, enrichmentJobs, campaigns, campaignSteps, outboundMessages, notes,
   type InsertContact, type UpdateContactRequest,
   type InsertCompany,
   type InsertDeal, type UpdateDealRequest,
@@ -24,6 +24,7 @@ import {
   type InsertCampaign, type UpdateCampaignRequest,
   type InsertCampaignStep,
   type InsertOutboundMessage, type UpdateOutboundMessageRequest,
+  type InsertNote,
 } from "@shared/schema";
 import { eq, desc, and, lt, isNull, ne, sql, asc } from "drizzle-orm";
 
@@ -132,6 +133,10 @@ export interface IStorage {
   updateOutboundMessage(id: number, updates: UpdateOutboundMessageRequest): Promise<typeof outboundMessages.$inferSelect | undefined>;
   getQueuedMessages(limit: number): Promise<typeof outboundMessages.$inferSelect[]>;
   getOutboundStats(campaignId: number): Promise<{sent: number, opened: number, replied: number, bounced: number}>;
+
+  getNotes(entityType: string, entityId: number): Promise<typeof notes.$inferSelect[]>;
+  createNote(note: InsertNote): Promise<typeof notes.$inferSelect>;
+  deleteNote(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -551,6 +556,18 @@ export class DatabaseStorage implements IStorage {
       bounced: sql<number>`count(*) filter (where ${outboundMessages.status} = 'bounced')`,
     }).from(outboundMessages).where(eq(outboundMessages.campaignId, campaignId));
     return result[0] ?? { sent: 0, opened: 0, replied: 0, bounced: 0 };
+  }
+  async getNotes(entityType: string, entityId: number) {
+    return await db.select().from(notes).where(and(eq(notes.entityType, entityType), eq(notes.entityId, entityId))).orderBy(desc(notes.createdAt));
+  }
+
+  async createNote(note: InsertNote) {
+    const [created] = await db.insert(notes).values(note).returning();
+    return created;
+  }
+
+  async deleteNote(id: number) {
+    await db.delete(notes).where(eq(notes.id, id));
   }
 }
 

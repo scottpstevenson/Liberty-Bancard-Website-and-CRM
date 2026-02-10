@@ -6,7 +6,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Search, Plus, MoreHorizontal, UserPlus, Mail, MessageSquare, Zap, AlertTriangle, Sparkles, Activity, ArrowRight, Clock, TrendingUp, Ticket } from "lucide-react";
+import { Search, Plus, MoreHorizontal, UserPlus, Mail, MessageSquare, Zap, AlertTriangle, Sparkles, Activity, ArrowRight, Clock, TrendingUp, Ticket, Download, CheckSquare, ExternalLink } from "lucide-react";
+import { useLocation } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -177,6 +178,8 @@ export default function Contacts() {
   const [searchTerm, setSearchTerm] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [selectedContact, setSelectedContact] = useState<any>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [, setLocation] = useLocation();
   const createContact = useCreateContact();
   const updateContact = useUpdateContact();
 
@@ -203,6 +206,31 @@ export default function Contacts() {
     c.companyName?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const toggleSelect = (id: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === (filteredContacts?.length || 0)) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredContacts?.map((c: any) => c.id) || []));
+    }
+  };
+
+  const bulkUpdateStatus = async (status: string) => {
+    const ids = Array.from(selectedIds);
+    for (const id of ids) {
+      await updateContact.mutateAsync({ id, status });
+    }
+    setSelectedIds(new Set());
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between gap-4">
@@ -210,18 +238,38 @@ export default function Contacts() {
           <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
           <Input 
             placeholder="Search contacts..." 
-            className="pl-9 bg-white"
+            className="pl-9"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
+            data-testid="input-search-contacts"
           />
         </div>
         
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild>
-            <Button className="gap-2 shadow-md">
-              <Plus className="w-4 h-4" /> Add Contact
-            </Button>
-          </DialogTrigger>
+        <div className="flex items-center gap-2 flex-wrap">
+          {selectedIds.size > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-2" data-testid="button-bulk-actions">
+                  <CheckSquare className="w-4 h-4" />
+                  {selectedIds.size} selected
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuItem onClick={() => bulkUpdateStatus("Contacted")} data-testid="bulk-mark-contacted">Mark Contacted</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => bulkUpdateStatus("Won")} data-testid="bulk-mark-won">Mark Won</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => bulkUpdateStatus("Lost")} data-testid="bulk-mark-lost">Mark Lost</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => window.open("/api/export/contacts", "_blank")} data-testid="button-export-contacts">
+            <Download className="w-4 h-4" /> Export CSV
+          </Button>
+          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+            <DialogTrigger asChild>
+              <Button className="gap-2" data-testid="button-add-contact">
+                <Plus className="w-4 h-4" /> Add Contact
+              </Button>
+            </DialogTrigger>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Create New Contact</DialogTitle>
@@ -294,53 +342,21 @@ export default function Contacts() {
             </Form>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
-
-      <Dialog open={!!selectedContact} onOpenChange={(open) => { if (!open) setSelectedContact(null); }}>
-        <DialogContent className="max-w-lg" data-testid="contact-detail-dialog">
-          {selectedContact && (
-            <>
-              <DialogHeader>
-                <DialogTitle data-testid="contact-detail-name">
-                  {selectedContact.firstName} {selectedContact.lastName}
-                </DialogTitle>
-              </DialogHeader>
-              <div className="space-y-3">
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div>
-                    <span className="text-muted-foreground">Email</span>
-                    <p className="font-medium" data-testid="contact-detail-email">{selectedContact.email}</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Phone</span>
-                    <p className="font-medium" data-testid="contact-detail-phone">{selectedContact.phone}</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Company</span>
-                    <p className="font-medium" data-testid="contact-detail-company">{selectedContact.companyName}</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Status</span>
-                    <p className="font-medium" data-testid="contact-detail-status">{selectedContact.status}</p>
-                  </div>
-                </div>
-                <div className="border-t pt-2">
-                  <ActivityTimeline entityType="contact" entityId={selectedContact.id} />
-                </div>
-              </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
 
       <Card>
         <CardContent className="p-0 overflow-x-auto">
-          <Table className="min-w-[600px]">
+          <Table className="min-w-[700px]">
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10">
+                  <input type="checkbox" checked={selectedIds.size === (filteredContacts?.length || 0) && (filteredContacts?.length || 0) > 0} onChange={toggleSelectAll} className="rounded" data-testid="checkbox-select-all" />
+                </TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>Company</TableHead>
                 <TableHead>Email</TableHead>
+                <TableHead>Tags</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -348,49 +364,74 @@ export default function Contacts() {
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center h-24">Loading...</TableCell>
+                  <TableCell colSpan={7} className="text-center h-24">Loading...</TableCell>
                 </TableRow>
               ) : filteredContacts?.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center h-24 text-muted-foreground">No contacts found</TableCell>
+                  <TableCell colSpan={7} className="text-center h-24 text-muted-foreground">No contacts found</TableCell>
                 </TableRow>
               ) : (
                 filteredContacts?.map((contact: any) => (
                   <TableRow
                     key={contact.id}
                     className="cursor-pointer"
-                    onClick={() => setSelectedContact(contact)}
+                    onClick={() => setLocation(`/dashboard/contacts/${contact.id}`)}
                     data-testid={`contact-row-${contact.id}`}
                   >
-                    <TableCell className="font-medium">{contact.firstName} {contact.lastName}</TableCell>
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <input type="checkbox" checked={selectedIds.has(contact.id)} onChange={(e) => toggleSelect(contact.id, e as any)} className="rounded" data-testid={`checkbox-contact-${contact.id}`} />
+                    </TableCell>
+                    <TableCell className="font-medium">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-bold shrink-0">
+                          {contact.firstName[0]}{contact.lastName[0]}
+                        </div>
+                        <span>{contact.firstName} {contact.lastName}</span>
+                      </div>
+                    </TableCell>
                     <TableCell>{contact.companyName}</TableCell>
-                    <TableCell>{contact.email}</TableCell>
+                    <TableCell className="text-muted-foreground text-sm">{contact.email}</TableCell>
+                    <TableCell>
+                      <div className="flex gap-1 flex-wrap">
+                        {(contact.tags || []).slice(0, 2).map((tag: string) => (
+                          <span key={tag} className="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-muted text-muted-foreground">{tag}</span>
+                        ))}
+                        {(contact.tags || []).length > 2 && <span className="text-xs text-muted-foreground">+{contact.tags.length - 2}</span>}
+                      </div>
+                    </TableCell>
                     <TableCell>
                       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
-                        ${contact.status === 'New' ? 'bg-blue-100 text-blue-800' : 
-                          contact.status === 'Won' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                        ${contact.status === 'New' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' : 
+                          contact.status === 'Won' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' : 
+                          contact.status === 'Contacted' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' :
+                          'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'}`}>
                         {contact.status}
                       </span>
                     </TableCell>
                     <TableCell className="text-right">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={(e) => e.stopPropagation()}>
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); updateContact.mutate({ id: contact.id, status: "Contacted" }); }}>
-                            Mark Contacted
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); updateContact.mutate({ id: contact.id, status: "Won" }); }}>
-                            Mark Won
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); updateContact.mutate({ id: contact.id, status: "Lost" }); }}>
-                            Mark Lost
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                      <div className="flex items-center justify-end gap-1">
+                        <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); setLocation(`/dashboard/contacts/${contact.id}`); }} data-testid={`button-view-${contact.id}`}>
+                          <ExternalLink className="h-4 w-4" />
+                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" onClick={(e) => e.stopPropagation()} data-testid={`button-actions-${contact.id}`}>
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); updateContact.mutate({ id: contact.id, status: "Contacted" }); }}>
+                              Mark Contacted
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); updateContact.mutate({ id: contact.id, status: "Won" }); }}>
+                              Mark Won
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); updateContact.mutate({ id: contact.id, status: "Lost" }); }}>
+                              Mark Lost
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))

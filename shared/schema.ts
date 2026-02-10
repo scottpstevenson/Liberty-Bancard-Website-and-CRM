@@ -743,6 +743,27 @@ export type OutboundMessage = typeof outboundMessages.$inferSelect;
 export type InsertOutboundMessage = z.infer<typeof insertOutboundMessageSchema>;
 export type UpdateOutboundMessageRequest = Partial<InsertOutboundMessage>;
 
+export const notes = pgTable("notes", {
+  id: serial("id").primaryKey(),
+  entityType: text("entity_type").notNull(),
+  entityId: integer("entity_id").notNull(),
+  content: text("content").notNull(),
+  authorId: text("author_id"),
+  authorName: text("author_name"),
+  pinned: boolean("pinned").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertNoteSchema = createInsertSchema(notes).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type Note = typeof notes.$inferSelect;
+export type InsertNote = z.infer<typeof insertNoteSchema>;
+
 export const ENRICHMENT_JOB_TYPES = [
   "website_scrape",
   "ai_classify",

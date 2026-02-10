@@ -1,5 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, buildUrl, type CreateContactRequest, type UpdateContactRequest } from "@shared/routes";
+import { api, buildUrl } from "@shared/routes";
+import type { z } from "zod";
+
+type CreateContactInput = z.infer<typeof api.contacts.create.input>;
+type UpdateContactInput = z.infer<typeof api.contacts.update.input>;
 
 export function useContacts() {
   return useQuery({
@@ -7,7 +11,7 @@ export function useContacts() {
     queryFn: async () => {
       const res = await fetch(api.contacts.list.path, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch contacts");
-      return api.contacts.list.responses[200].parse(await res.json());
+      return res.json();
     },
   });
 }
@@ -20,7 +24,7 @@ export function useContact(id: number) {
       const res = await fetch(url, { credentials: "include" });
       if (res.status === 404) return null;
       if (!res.ok) throw new Error("Failed to fetch contact");
-      return api.contacts.get.responses[200].parse(await res.json());
+      return res.json();
     },
     enabled: !!id,
   });
@@ -29,7 +33,7 @@ export function useContact(id: number) {
 export function useCreateContact() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (data: CreateContactRequest) => {
+    mutationFn: async (data: CreateContactInput) => {
       const res = await fetch(api.contacts.create.path, {
         method: api.contacts.create.method,
         headers: { "Content-Type": "application/json" },
@@ -37,13 +41,10 @@ export function useCreateContact() {
         credentials: "include",
       });
       if (!res.ok) {
-        if (res.status === 400) {
-          const error = api.contacts.create.responses[400].parse(await res.json());
-          throw new Error(error.message);
-        }
-        throw new Error("Failed to create contact");
+        const error = await res.json();
+        throw new Error(error.message || "Failed to create contact");
       }
-      return api.contacts.create.responses[201].parse(await res.json());
+      return res.json();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: [api.contacts.list.path] }),
   });
@@ -52,7 +53,7 @@ export function useCreateContact() {
 export function useUpdateContact() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, ...updates }: { id: number } & UpdateContactRequest) => {
+    mutationFn: async ({ id, ...updates }: { id: number } & UpdateContactInput) => {
       const url = buildUrl(api.contacts.update.path, { id });
       const res = await fetch(url, {
         method: api.contacts.update.method,
@@ -61,14 +62,10 @@ export function useUpdateContact() {
         credentials: "include",
       });
       if (!res.ok) {
-        if (res.status === 400) {
-          const error = api.contacts.update.responses[400].parse(await res.json());
-          throw new Error(error.message);
-        }
-        if (res.status === 404) throw new Error("Contact not found");
-        throw new Error("Failed to update contact");
+        const error = await res.json();
+        throw new Error(error.message || "Failed to update contact");
       }
-      return api.contacts.update.responses[200].parse(await res.json());
+      return res.json();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: [api.contacts.list.path] }),
   });
