@@ -1,6 +1,7 @@
 import { storage } from "../storage";
 import { convertToProspect, processSunbizEnrichmentQueue } from "./sunbiz-enrichment";
 import { estimateFromProspect, estimateFromContact, estimateFromDeal } from "./volume-estimator";
+import { toProperCase } from "./sunbiz-scraper";
 import type { SunbizEntity, Prospect, Contact, Deal } from "@shared/schema";
 
 const BATCH_SIZE = 10;
@@ -131,8 +132,8 @@ async function autoPromoteProspects(): Promise<number> {
         continue;
       }
 
-      const firstName = prospect.ownerFirstName || prospect.companyName?.split(" ")[0] || "Owner";
-      const lastName = prospect.ownerLastName || prospect.companyName?.split(" ").slice(1).join(" ") || "";
+      const firstName = toProperCase(prospect.ownerFirstName || prospect.companyName?.split(" ")[0]) || "Owner";
+      const lastName = toProperCase(prospect.ownerLastName || prospect.companyName?.split(" ").slice(1).join(" ")) || "";
 
       const volumeEst = estimateFromProspect(prospect);
 
@@ -164,7 +165,7 @@ async function autoPromoteProspects(): Promise<number> {
         lastName,
         email: email || `lead-${prospect.id}@placeholder.com`,
         phone: phone || "",
-        companyName: prospect.companyName || undefined,
+        companyName: toProperCase(prospect.companyName) || undefined,
         vertical: prospect.vertical || undefined,
         monthlyVolume: prospect.estimatedVolume || undefined,
         avgTicket: prospect.estimatedAvgTicket || undefined,

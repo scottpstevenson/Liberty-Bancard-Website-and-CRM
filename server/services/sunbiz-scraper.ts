@@ -3,6 +3,65 @@ import * as cheerio from "cheerio";
 const SUNBIZ_BASE = "https://search.sunbiz.org";
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
+const SMALL_WORDS = new Set([
+  "a", "an", "and", "as", "at", "but", "by", "for", "if", "in", "nor",
+  "of", "on", "or", "so", "the", "to", "up", "yet", "is", "it",
+]);
+
+const BUSINESS_ABBREVIATIONS: Record<string, string> = {
+  "llc": "LLC", "llp": "LLP", "inc": "Inc.", "corp": "Corp.",
+  "co": "Co.", "ltd": "Ltd.", "dba": "DBA", "pllc": "PLLC",
+  "pa": "P.A.", "pc": "P.C.", "lp": "LP", "na": "N.A.",
+  "ii": "II", "iii": "III", "iv": "IV", "usa": "USA", "us": "US",
+  "fl": "FL", "ny": "NY", "ca": "CA", "tx": "TX", "nj": "NJ",
+  "ga": "GA", "nc": "NC", "va": "VA", "oh": "OH", "pa.": "PA",
+  "il": "IL", "mi": "MI", "ma": "MA", "md": "MD", "wa": "WA",
+};
+
+export function toProperCase(text: string | null | undefined): string {
+  if (!text) return "";
+  const trimmed = text.trim();
+  if (!trimmed) return "";
+  if (trimmed !== trimmed.toUpperCase() && trimmed !== trimmed.toLowerCase()) {
+    return trimmed;
+  }
+  return trimmed
+    .toLowerCase()
+    .split(/\s+/)
+    .map((word, i) => {
+      const clean = word.replace(/[.,]/g, "");
+      const abbr = BUSINESS_ABBREVIATIONS[clean];
+      if (abbr) {
+        const suffix = word.slice(clean.length);
+        return abbr + suffix;
+      }
+      if (i > 0 && SMALL_WORDS.has(clean) && word.length < 4) {
+        return word;
+      }
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    })
+    .join(" ");
+}
+
+function properCaseAddress(text: string | null | undefined): string {
+  if (!text) return "";
+  const trimmed = text.trim();
+  if (!trimmed) return "";
+  if (trimmed !== trimmed.toUpperCase()) return trimmed;
+  return trimmed
+    .toLowerCase()
+    .split(/\s+/)
+    .map((word) => {
+      if (/^\d/.test(word)) return word;
+      const upper = word.toUpperCase();
+      if (/^(ne|nw|se|sw|n|s|e|w|apt|ste|fl|bldg|po|st|rd|dr|ln|ct|ave|blvd|hwy|pkwy|cir)\.?$/i.test(word)) {
+        return upper;
+      }
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    })
+    .join(" ");
+}
+
 export interface SunbizSearchResult {
   entityName: string;
   filingNumber: string;
@@ -363,15 +422,15 @@ function parseCorevtLine(line: string): CorevtRecord | null {
     eventDesc1,
     eventDesc2,
     eventDate,
-    entityName,
-    principalAddress: [principalAddress, principalAddress2].filter(Boolean).join(", "),
+    entityName: toProperCase(entityName),
+    principalAddress: properCaseAddress([principalAddress, principalAddress2].filter(Boolean).join(", ")),
     principalAddress2: "",
-    principalCity,
+    principalCity: toProperCase(principalCity),
     principalState,
     principalZip,
-    mailingAddress: [mailingAddress, mailingAddress2].filter(Boolean).join(", "),
+    mailingAddress: properCaseAddress([mailingAddress, mailingAddress2].filter(Boolean).join(", ")),
     mailingAddress2: "",
-    mailingCity,
+    mailingCity: toProperCase(mailingCity),
     mailingState,
     mailingZip,
   };
@@ -617,21 +676,25 @@ export function parseSunbizCsv(rows: Record<string, string>[]): ParsedSunbizRow[
     }
 
     return {
-      entityName: mapped.entityName || "",
+      entityName: toProperCase(mapped.entityName) || "",
       filingNumber: mapped.filingNumber || "",
       feiEinNumber: mapped.feiEinNumber || "",
       entityType: mapped.entityType || "",
       entityStatus: mapped.entityStatus || "Active",
       filingDate: mapped.filingDate || "",
-      principalAddress: mapped.principalAddress || "",
-      principalCity: mapped.principalCity || "",
+      principalAddress: properCaseAddress(mapped.principalAddress) || "",
+      principalCity: toProperCase(mapped.principalCity) || "",
       principalState: mapped.principalState || "FL",
       principalZip: mapped.principalZip || "",
-      mailingAddress: mapped.mailingAddress || "",
-      registeredAgentName: mapped.registeredAgentName || "",
-      registeredAgentAddress: mapped.registeredAgentAddress || "",
-      officers: officers.length > 0 ? officers : undefined,
-      dba: mapped.dba || "",
+      mailingAddress: properCaseAddress(mapped.mailingAddress) || "",
+      registeredAgentName: toProperCase(mapped.registeredAgentName) || "",
+      registeredAgentAddress: properCaseAddress(mapped.registeredAgentAddress) || "",
+      officers: officers.length > 0 ? officers.map(o => ({
+        ...o,
+        name: toProperCase(o.name),
+        address: properCaseAddress(o.address),
+      })) : undefined,
+      dba: toProperCase(mapped.dba) || "",
       website: mapped.website || "",
       email: mapped.email || "",
       phone: mapped.phone || "",

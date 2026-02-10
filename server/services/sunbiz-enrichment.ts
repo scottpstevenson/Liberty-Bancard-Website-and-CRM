@@ -1,6 +1,7 @@
 import { storage } from "../storage";
 import type { SunbizEntity } from "@shared/schema";
 import OpenAI from "openai";
+import { toProperCase } from "./sunbiz-scraper";
 
 function getOpenAI() {
   return new OpenAI({
@@ -305,17 +306,17 @@ export async function convertToProspect(entityId: number, listId?: number): Prom
 
   const prospect = await storage.createProspect({
     listId: listId || entity.listId || undefined,
-    companyName: entity.entityName,
-    dba: entity.dba || undefined,
+    companyName: toProperCase(entity.entityName),
+    dba: toProperCase(entity.dba) || undefined,
     website: entity.website || undefined,
     phone: entity.phone || undefined,
     email: entity.email || undefined,
-    ownerFirstName: entity.ownerName?.split(" ")[0] || undefined,
-    ownerLastName: entity.ownerName?.split(" ").slice(1).join(" ") || undefined,
+    ownerFirstName: toProperCase(entity.ownerName?.split(" ")[0]) || undefined,
+    ownerLastName: toProperCase(entity.ownerName?.split(" ").slice(1).join(" ")) || undefined,
     ownerEmail: entity.ownerEmail || undefined,
     ownerPhone: entity.ownerPhone || undefined,
-    address: entity.principalAddress || undefined,
-    city: entity.principalCity || undefined,
+    address: toProperCase(entity.principalAddress) || undefined,
+    city: toProperCase(entity.principalCity) || undefined,
     state: entity.principalState || "FL",
     zip: entity.principalZip || undefined,
     vertical: entity.vertical || undefined,
