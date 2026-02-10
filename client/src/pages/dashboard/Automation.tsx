@@ -4,7 +4,7 @@ import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Loader2, Zap, Package, Workflow, ChevronDown, ChevronRight, Mail, MessageSquare, Clock, ListChecks, Bell, FileText, Tag, Shield, ArrowRight, ExternalLink, Sparkles, Play, BarChart3, Route, Ticket, Brain, FileSearch } from "lucide-react";
+import { Loader2, Zap, Package, Workflow, ChevronDown, ChevronRight, Mail, MessageSquare, Clock, ListChecks, Bell, FileText, Tag, Shield, ArrowRight, ExternalLink, Sparkles, Play, BarChart3, Route, Ticket, Brain, FileSearch, Activity, CheckCircle2, AlertCircle, Pause, RefreshCw } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { CollateralPacket, Workflow as WorkflowType, MessageTemplate } from "@shared/schema";
@@ -566,6 +566,139 @@ function TemplateCard({ template }: { template: MessageTemplate }) {
   );
 }
 
+interface WorkflowRun {
+  id: number;
+  workflowId: number;
+  entityType?: string | null;
+  entityId?: number | null;
+  status: string;
+  currentStep?: number | null;
+  log: any;
+  completedAt?: string | null;
+  nextRunAt?: string | null;
+  createdAt: string;
+}
+
+function RecentWorkflowRuns() {
+  const [showAll, setShowAll] = useState(false);
+
+  const { data: runs, isLoading } = useQuery<WorkflowRun[]>({
+    queryKey: ["/api/workflow-runs"],
+    refetchInterval: 15000,
+  });
+
+  const { data: workflows } = useQuery<WorkflowType[]>({
+    queryKey: ["/api/workflows"],
+  });
+
+  const workflowMap = new Map<number, string>();
+  workflows?.forEach(w => workflowMap.set(w.id, w.name));
+
+  if (isLoading) {
+    return (
+      <Card data-testid="card-recent-runs">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Activity className="w-5 h-5" />
+            Recent Workflow Runs
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-center h-24">
+            <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const sortedRuns = [...(runs || [])].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const displayRuns = showAll ? sortedRuns : sortedRuns.slice(0, 10);
+
+  const statusCounts = {
+    completed: sortedRuns.filter(r => r.status === "completed").length,
+    running: sortedRuns.filter(r => r.status === "running").length,
+    waiting: sortedRuns.filter(r => r.status === "waiting").length,
+    failed: sortedRuns.filter(r => r.status === "failed").length,
+  };
+
+  const StatusIcon = ({ status }: { status: string }) => {
+    switch (status) {
+      case "completed": return <CheckCircle2 className="w-4 h-4 text-green-500" />;
+      case "running": return <RefreshCw className="w-4 h-4 text-blue-500 animate-spin" />;
+      case "waiting": return <Pause className="w-4 h-4 text-yellow-500" />;
+      case "failed": return <AlertCircle className="w-4 h-4 text-red-500" />;
+      default: return <Activity className="w-4 h-4 text-muted-foreground" />;
+    }
+  };
+
+  return (
+    <Card data-testid="card-recent-runs">
+      <CardHeader className="flex flex-row items-center justify-between gap-3 flex-wrap">
+        <CardTitle className="flex items-center gap-2">
+          <Activity className="w-5 h-5" />
+          Recent Workflow Runs
+        </CardTitle>
+        <div className="flex items-center gap-2 flex-wrap">
+          {statusCounts.completed > 0 && <Badge variant="secondary" data-testid="badge-runs-completed">{statusCounts.completed} completed</Badge>}
+          {statusCounts.running > 0 && <Badge variant="default" data-testid="badge-runs-running">{statusCounts.running} running</Badge>}
+          {statusCounts.waiting > 0 && <Badge variant="outline" data-testid="badge-runs-waiting">{statusCounts.waiting} waiting</Badge>}
+          {statusCounts.failed > 0 && <Badge variant="destructive" data-testid="badge-runs-failed">{statusCounts.failed} failed</Badge>}
+        </div>
+      </CardHeader>
+      <CardContent>
+        {displayRuns.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-6" data-testid="text-no-runs">No workflow runs recorded yet. Runs appear here when workflows are triggered.</p>
+        ) : (
+          <div className="space-y-2">
+            {displayRuns.map(run => {
+              const logEntries = Array.isArray(run.log) ? run.log : [];
+              const actionsSummary = logEntries.filter((l: any) => l.action && l.action !== "started").map((l: any) => l.action).slice(0, 3);
+              const stepsCompleted = logEntries.filter((l: any) => l.status === "completed").length;
+              const stepsFailed = logEntries.filter((l: any) => l.status === "failed").length;
+
+              return (
+                <div key={run.id} className="flex items-center gap-3 p-3 rounded-md border" data-testid={`run-item-${run.id}`}>
+                  <StatusIcon status={run.status} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-medium truncate">{workflowMap.get(run.workflowId!) || `Workflow #${run.workflowId}`}</span>
+                      <Badge variant={run.status === "completed" ? "secondary" : run.status === "failed" ? "destructive" : "outline"} className="text-xs">
+                        {run.status}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5 flex-wrap">
+                      <span>{formatRelativeTime(run.createdAt)}</span>
+                      {stepsCompleted > 0 && <span>{stepsCompleted} step{stepsCompleted !== 1 ? "s" : ""} done</span>}
+                      {stepsFailed > 0 && <span className="text-red-500">{stepsFailed} failed</span>}
+                      {run.entityType && <Badge variant="outline" className="text-xs">{run.entityType} #{run.entityId}</Badge>}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 flex-wrap shrink-0">
+                    {actionsSummary.map((action: string, i: number) => {
+                      const config = ACTION_LABELS[action];
+                      return config ? (
+                        <Badge key={i} variant="secondary" className="text-xs">{config.label}</Badge>
+                      ) : null;
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {sortedRuns.length > 10 && (
+          <div className="mt-3 flex justify-center">
+            <Button variant="ghost" size="sm" onClick={() => setShowAll(!showAll)} data-testid="button-toggle-all-runs">
+              {showAll ? "Show Less" : `Show All (${sortedRuns.length})`}
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function Automation() {
   const { data: packets, isLoading: packetsLoading } = useQuery<CollateralPacket[]>({
     queryKey: ["/api/collateral-packets"],
@@ -600,6 +733,8 @@ export default function Automation() {
       </div>
 
       <AICommandCenter />
+
+      <RecentWorkflowRuns />
 
       <div>
         <div className="flex items-center gap-2 mb-4">

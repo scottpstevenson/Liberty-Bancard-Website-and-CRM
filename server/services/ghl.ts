@@ -315,17 +315,34 @@ export async function sendTemplatedMessage(params: {
 }
 
 export async function handleGhlWebhook(payload: any): Promise<void> {
-  const { type, contactId, messageId, direction, body, subject } = payload;
+  const { type, contactId, messageId, direction, body, subject, status: deliveryStatus } = payload;
+
+  if (deliveryStatus && contactId) {
+    const contacts = await storage.getContacts();
+    const contact = contacts.find(c => c.ghlContactId === contactId);
+    if (contact) {
+      const recentLogs = await storage.getGhlActivityLogs(contact.id);
+      const matchingLog = recentLogs.find(l => l.ghlMessageId === messageId);
+      if (matchingLog) {
+        console.log(`[GHL Webhook] Delivery status update: ${deliveryStatus} for message ${messageId}`);
+      }
+    }
+  }
 
   if (direction === "inbound") {
     const contacts = await storage.getContacts();
     const contact = contacts.find(c => c.ghlContactId === contactId);
     if (contact) {
+      const channel = type === "SMS" ? "sms" : "email";
+
+      const deals = await storage.getDeals();
+      const contactDeal = deals.find(d => d.contactId === contact.id);
+
       await storage.createGhlActivityLog({
         contactId: contact.id,
-        dealId: null,
+        dealId: contactDeal?.id || null,
         direction: "inbound",
-        channel: type === "SMS" ? "sms" : "email",
+        channel,
         templateId: null,
         subject: subject || null,
         body: body || null,
@@ -333,12 +350,91 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
         ghlMessageId: messageId || null,
       });
 
+      await storage.updateContact(contact.id, {
+        lastContactedAt: new Date(),
+        tags: Array.from(new Set([...(contact.tags || []), "replied", `replied_${channel}`])),
+      });
+
+      const messageClassification = classifyInboundMessage(body || "");
+
       await storage.createNotification({
         channel: "internal",
-        title: `Inbound ${type === "SMS" ? "SMS" : "Email"} from ${contact.firstName} ${contact.lastName}`,
+        title: `Inbound ${channel.toUpperCase()} from ${contact.firstName} ${contact.lastName}`,
         message: body?.substring(0, 200) || "New message received",
-        type: "info",
-        metadata: { contactId: contact.id, channel: type },
+        type: messageClassification.priority === "high" ? "warning" : "info",
+        metadata: {
+          contactId: contact.id,
+          dealId: contactDeal?.id,
+          channel,
+          classification: messageClassification,
+        },
+      });
+
+      if (messageClassification.intent === "unsubscribe") {
+        await storage.updateContact(contact.id, { doNotContact: true });
+        await storage.createAuditLog({
+          action: "contact_unsubscribed",
+          entityType: "contact",
+          entityId: contact.id,
+          details: { source: "ghl_inbound_message", channel },
+        });
+      }
+
+      if (messageClassification.intent === "interested" && contactDeal) {
+        if (["New Lead", "Contacted"].includes(contactDeal.stage)) {
+          await storage.updateDeal(contactDeal.id, { stage: "Engaged" });
+          await storage.createAuditLog({
+            action: "deal_auto_progressed",
+            entityType: "deal",
+            entityId: contactDeal.id,
+            details: { from: contactDeal.stage, to: "Engaged", reason: "inbound_reply" },
+          });
+        }
+      }
+
+      if (messageClassification.intent === "support" || messageClassification.intent === "question") {
+        await storage.createTask({
+          title: `Follow up: ${contact.firstName} ${contact.lastName} - ${messageClassification.intent}`,
+          assignedTo: contactDeal?.owner || "Unassigned",
+          priority: messageClassification.priority === "high" ? "high" : "medium",
+          dueDate: new Date(Date.now() + 4 * 60 * 60 * 1000),
+          dealId: contactDeal?.id,
+          contactId: contact.id,
+        });
+      }
+
+      if (messageClassification.intent === "callback") {
+        await storage.createTask({
+          title: `CALLBACK REQUEST: ${contact.firstName} ${contact.lastName}`,
+          assignedTo: contactDeal?.owner || "Unassigned",
+          priority: "high",
+          dueDate: new Date(Date.now() + 1 * 60 * 60 * 1000),
+          dealId: contactDeal?.id,
+          contactId: contact.id,
+        });
+      }
+
+      try {
+        const { triggerWorkflowsByEvent } = await import("./workflow-executor");
+        await triggerWorkflowsByEvent("inbound_message", {
+          entityType: "contact",
+          entityId: contact.id,
+          data: { channel, body, subject, classification: messageClassification },
+        });
+      } catch (e) {
+        console.error("[GHL Webhook] Workflow trigger error:", e);
+      }
+
+      await storage.createAuditLog({
+        action: "inbound_message_processed",
+        entityType: "contact",
+        entityId: contact.id,
+        details: {
+          channel,
+          classification: messageClassification,
+          dealId: contactDeal?.id,
+          messagePreview: (body || "").substring(0, 100),
+        },
       });
     }
   }
@@ -356,4 +452,36 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
       });
     }
   }
+}
+
+function classifyInboundMessage(message: string): {
+  intent: "interested" | "unsubscribe" | "question" | "support" | "callback" | "neutral";
+  priority: "high" | "medium" | "low";
+  keywords: string[];
+} {
+  const lower = message.toLowerCase();
+  const keywords: string[] = [];
+
+  const unsubWords = ["unsubscribe", "stop", "opt out", "remove me", "do not contact", "take me off"];
+  const interestWords = ["interested", "tell me more", "sounds good", "let's talk", "sign me up", "ready", "i want", "let's do it", "i'm in"];
+  const callbackWords = ["call me", "give me a call", "phone me", "call back", "callback", "ring me"];
+  const supportWords = ["problem", "issue", "not working", "broken", "help", "complaint", "frustrated", "error", "charge", "refund"];
+  const questionWords = ["how much", "what is", "how does", "when can", "pricing", "rates", "cost", "?"];
+
+  for (const w of unsubWords) { if (lower.includes(w)) keywords.push(w); }
+  if (keywords.length > 0) return { intent: "unsubscribe", priority: "high", keywords };
+
+  for (const w of callbackWords) { if (lower.includes(w)) keywords.push(w); }
+  if (keywords.length > 0) return { intent: "callback", priority: "high", keywords };
+
+  for (const w of supportWords) { if (lower.includes(w)) keywords.push(w); }
+  if (keywords.length > 0) return { intent: "support", priority: "high", keywords };
+
+  for (const w of interestWords) { if (lower.includes(w)) keywords.push(w); }
+  if (keywords.length > 0) return { intent: "interested", priority: "medium", keywords };
+
+  for (const w of questionWords) { if (lower.includes(w)) keywords.push(w); }
+  if (keywords.length > 0) return { intent: "question", priority: "medium", keywords };
+
+  return { intent: "neutral", priority: "low", keywords: [] };
 }
