@@ -4,6 +4,7 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import { startSlaWorker } from "./services/sla-worker";
 import { seedDefaultData } from "./services/seed-workflows";
+import { seedSequences } from "./services/seed-sequences";
 
 const app = express();
 const httpServer = createServer(app);
@@ -101,6 +102,7 @@ app.use((req, res, next) => {
     () => {
       log(`serving on port ${port}`);
       seedDefaultData();
+      seedSequences();
       startSlaWorker();
     },
   );

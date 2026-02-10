@@ -1,0 +1,2757 @@
+
+
+
+
+
+Invite team members
+Keyword Surfer
+Humanizer words limit
+500 words left until 28 Feb '26
+Increase Humanizer limits
+You said:
+Give me 20 drip marketing campaign sequences to implement with our marketing platform that are designed to educate and drive signups from
+Merchants 
+
+ChatGPT said:
+Here are 20 merchant-focused drip campaign sequences (each is a self-contained mini-series) designed to educate, build trust, and drive “Apply / Get a quote / Book a demo” signups for Liberty Bancard.
+
+Use these as automations in your marketing platform with branching by vertical, size, and pain-point.
+
+1) “Switch & Save” Cost Audit Sequence (7 emails)
+Goal: Get them to request a statement review / quote.
+
+Welcome + “We’ll find hidden fees in 10 minutes”
+
+The 7 common junk fees (and where they hide)
+
+Interchange vs “qualified” pricing explained simply
+
+Case study: before/after monthly cost breakdown
+
+How to compare processor quotes (checklist)
+
+“What if I’m in a contract?” options + savings math
+
+CTA: Upload statement → receive savings report
+
+2) “Payment Stack 101” Education Sequence (6 emails)
+Goal: Build trust with new/early-stage merchants.
+
+What a processor actually does (and who’s in the middle)
+
+Gateway vs POS vs terminal vs processor (diagram email)
+
+Authorizations, batching, funding timelines
+
+Chargebacks & disputes: what matters most
+
+Security basics: PCI, EMV, tokenization
+
+CTA: “Tell us your setup → we recommend a stack”
+
+3) “Fast Approval” Onboarding Sequence (5 emails)
+Goal: Reduce friction → application completion.
+
+What we need + why (no surprises)
+
+Common reasons apps get delayed (and how to avoid)
+
+How underwriting thinks (volume, tickets, refunds)
+
+What you’ll get on day 1 (terminal/POS, dashboard)
+
+CTA: “Finish your application in 3 minutes”
+
+4) “Trust Builder” Authority Sequence (8 emails)
+Goal: Overcome skepticism and “been burned before.”
+
+How to spot sketchy processing offers
+
+What “rate baiting” looks like
+
+Contracts: what to look for (and what we avoid)
+
+Funding holds explained (what triggers them)
+
+Chargeback prevention system basics
+
+Security + PCI compliance made easy
+
+Case study: rescue from a bad processor
+
+CTA: “Get a no-obligation review”
+
+5) “Chargeback Defense” Sequence (7 emails)
+Goal: Convert high-risk or high-dispute merchants.
+
+Chargebacks cost more than fees—here’s why
+
+The chargeback lifecycle (and deadlines)
+
+5 prevention levers: receipts, policies, AVS/CVV, etc.
+
+Representment basics: what wins disputes
+
+Fraud vs friendly fraud (examples)
+
+Tools: alerts, descriptors, documentation templates
+
+CTA: “Free chargeback risk score”
+
+6) “Funding Speed” Sequence (6 emails)
+Goal: Sell reliability and cashflow control.
+
+Funding timelines: what’s realistic (and what’s hype)
+
+Weekend/holiday funding: how it works
+
+What causes reserves/holds (and how to avoid)
+
+Same-day funding: who qualifies
+
+Cashflow playbook for merchants
+
+CTA: “See your funding options”
+
+7) “POS vs Terminal” Decision Sequence (5 emails)
+Goal: Push the right hardware path.
+
+Terminal vs POS: quick comparison
+
+Retail: why POS wins (inventory, receipts, staff)
+
+Service businesses: why terminal wins (simplicity)
+
+Mobile/field sales: best setup
+
+CTA: “Get the recommended setup”
+
+8) “Liberty Smart Terminal (Dejavoo QD4)” Product Sequence (6 emails)
+Goal: Drive hardware interest → signup.
+
+Meet the Liberty Smart Terminal: fast, clean, reliable
+
+Tap-to-pay + chip + swipe: why it matters
+
+Receipts, tips, prompts, surcharge/cash discount options
+
+Remote support + updates + replacement policy
+
+Setup in 24–48 hours (typical timeline)
+
+CTA: “Claim your terminal + get a quote”
+
+9) “Surcharge / Cash Discount” Compliance Sequence (7 emails)
+Goal: Convert price-sensitive merchants safely.
+
+Surcharge vs cash discount (simple breakdown)
+
+What’s legal vs risky (don’t get fined)
+
+Signage + receipts + customer messaging templates
+
+How to roll it out without losing customers
+
+Case study: net savings month 1
+
+FAQs: returns, tips, partial refunds
+
+CTA: “See if your business qualifies”
+
+10) “Industry: Retail” Sequence (6 emails)
+Goal: Vertical relevance for brick-and-mortar.
+
+Retail pain points: checkout speed + employee errors
+
+Inventory + barcode + receipts
+
+Returns/exchanges done right
+
+Fraud prevention at the counter
+
+Peak season readiness checklist
+
+CTA: “Retail setup quote”
+
+11) “Industry: Auto” Sequence (7 emails)
+Goal: High ticket + MOTO + parts/service complexity.
+
+Auto payments: invoices, deposits, split payments
+
+Best practices for keyed-in transactions
+
+Tips for reducing chargebacks on repairs
+
+Using text-to-pay for approvals
+
+Fleet/commercial card handling
+
+Funding and cashflow planning for parts orders
+
+CTA: “Auto workflow demo”
+
+12) “Industry: Medical” Sequence (7 emails)
+Goal: Professionalism + compliance + patient experience.
+
+Patient payments: deposits, co-pays, recurring
+
+Card-on-file done the right way
+
+Receipts, refunds, and documentation
+
+Avoiding disputes: consent + policies
+
+Integrated vs standalone options
+
+Funding reliability (no surprises)
+
+CTA: “Medical payments consult”
+
+13) “Recurring Billing” Sequence (6 emails)
+Goal: Convert subscription / membership merchants.
+
+Why recurring fails (and how to stop churn losses)
+
+Card updater + retries + dunning basics
+
+Invoices + SMS/email payment links
+
+Cancellation & refund policy templates
+
+Chargeback prevention for subscriptions
+
+CTA: “Set up recurring the right way”
+
+14) “Text-to-Pay / Payment Links” Sequence (5 emails)
+Goal: Capture service and remote payments.
+
+Get paid without chasing invoices
+
+Text-to-pay vs email invoices (when to use each)
+
+Deposits and partial payments workflow
+
+Reducing disputes with better receipts/descriptors
+
+CTA: “Enable payment links”
+
+15) “Online + In-Person Omnichannel” Sequence (7 emails)
+Goal: Convert merchants with multiple channels.
+
+Why mismatched systems create reporting chaos
+
+Unified settlements + reconciliation
+
+Fraud rules for online vs in-store
+
+Chargeback prevention across channels
+
+Tokenization + customer profiles
+
+Staff permissions + audit trails
+
+CTA: “Build your omnichannel stack”
+
+16) “Security & PCI Made Easy” Sequence (6 emails)
+Goal: Reduce fear; build enterprise trust.
+
+PCI in plain English
+
+What happens if you ignore PCI
+
+EMV + tokenization + encryption basics
+
+How we help you stay compliant
+
+Fraud prevention checklist
+
+CTA: “PCI quick-start + signup”
+
+17) “Contract Escape / Switch Help” Sequence (7 emails)
+Goal: Convert locked-in merchants.
+
+Are you actually locked in? (contract myths)
+
+Termination fees: what’s real vs padded
+
+How to time a switch with minimal downtime
+
+Data you should export before switching
+
+Hardware re-use vs replacement
+
+Migration plan (48-hour cutover example)
+
+CTA: “Switch plan call”
+
+18) “Objection Crusher” Sequence (8 emails)
+Goal: Handle common sales objections at scale.
+
+“Your rate seems too low to be real” (explain pricing)
+
+“I don’t want a contract” (options)
+
+“My processor is fine” (fee audit offer)
+
+“I can’t change hardware” (migration path)
+
+“Chargebacks are killing me” (tools + process)
+
+“Funding holds scare me” (how to qualify)
+
+“Support is everything” (how support works)
+
+CTA: “Apply / Get quote”
+
+19) “Reactivation” Cold Lead Sequence (5 emails)
+Goal: Revive leads who went dark.
+
+“Still processing with the same provider?” quick check-in
+
+New savings report offer
+
+A short case study relevant to their vertical
+
+“Here’s what we’d change in your setup” (teaser)
+
+CTA: “Reply with monthly volume → we’ll quote”
+
+20) “Referral Flywheel” Merchant-to-Merchant Sequence (6 emails)
+Goal: Turn signed merchants into referrers.
+
+Introduce referral credit + how it works
+
+Who’s a great referral? (3 ideal profiles)
+
+Copy/paste text message they can send
+
+“Make an intro in 10 seconds” email template
+
+Spotlight story: merchant who earned credits
+
+CTA: “Submit a referral”
+
+Implementation notes (so these actually convert)
+Trigger rules
+
+Sequence 1 for anyone who clicks “pricing” or visits “fees” page
+
+Sequence 8 for “hardware/terminal” interest
+
+Vertical sequences (10–12) based on form selection or keyword
+
+Every sequence should have 1 primary CTA
+
+“Upload statement” or “Apply” or “Book a call” (don’t mix)
+
+Use 2-step conversions
+
+Step 1: lightweight (“get audit”, “get recommendations”)
+
+Step 2: full app after value delivered
+
+If you want, I can also give you the exact email-by-email copy (subject lines + body + CTA buttons) for the first 5 sequences, formatted to drop directly into your marketing platform.
+
+
+You said:
+Yes also add text / sms for go high level deployments 
+
+ChatGPT said:
+Perfect — SMS is where GHL really shines if we do this clean, compliant, and value-first (not spammy).
+
+Below is a ready-to-deploy SMS library mapped to the first 10 high-impact drip sequences, plus timing + best practices specifically for GoHighLevel.
+
+You can plug these straight into Workflows → SMS steps and pair them with the email drips you already have.
+
+GLOBAL SMS RULES (IMPORTANT)
+Use these across all workflows 👇
+
+Timing
+
+Day 0–1: SMS after form fill or key page visit
+
+Day 2–4: 1 follow-up SMS
+
+Day 6–10: 1 reminder or value ping
+
+Never more than 3–4 SMS per sequence
+
+Tone
+
+Short
+
+Conversational
+
+Helpful, not salesy
+
+Sounds like a real operator, not a bot
+
+Signature
+Always end with:
+
+— Liberty Bancard
+
+1) SWITCH & SAVE (STATEMENT AUDIT) – SMS
+SMS 1 – Immediate
+
+Hey {{contact.first_name}}, this is Liberty Bancard.
+We can usually find hidden fees in 5–10 minutes from a merchant statement.
+Want us to take a look?
+
+SMS 2 – Day 2
+
+Most merchants overpay by 10–30% without realizing it.
+If you want, you can upload a statement here and we’ll break it down for you.
+{{link}}
+— Liberty Bancard
+
+SMS 3 – Day 5
+
+Quick check-in — still happy with your processing costs?
+Even if you don’t switch, we’ll show you where the fees are hiding.
+— Liberty Bancard
+
+2) PAYMENT STACK 101 (EDUCATION) – SMS
+SMS 1
+
+Hi {{contact.first_name}}, Liberty Bancard here.
+If payment processing has always felt confusing, you’re not alone.
+Want us to recommend the right setup for your business?
+
+SMS 2
+
+Terminal vs POS vs gateway trips up a lot of merchants.
+Tell us how you take payments and we’ll simplify it for you.
+{{link}}
+— Liberty Bancard
+
+3) FAST APPROVAL / APPLICATION COMPLETION – SMS
+SMS 1
+
+Hey {{contact.first_name}} — saw you started an application with Liberty Bancard.
+Most approvals take just a few minutes once it’s finished.
+Need help wrapping it up?
+
+SMS 2
+
+Small thing that helps approval go fast:
+✔ accurate monthly volume
+✔ average ticket size
+✔ business bank info
+Want us to review it before submission?
+
+4) TRUST / BEEN-BURNED-BEFORE – SMS
+SMS 1
+
+Totally fair if you’re cautious — a lot of merchants get burned by processors.
+We’re happy to walk you through pricing and contracts with zero pressure.
+— Liberty Bancard
+
+SMS 2
+
+If you want, we can review your current setup and tell you if it’s actually decent.
+No pitch if it is.
+— Liberty Bancard
+
+5) CHARGEBACK DEFENSE – SMS
+SMS 1
+
+Chargebacks add up fast — not just fees, but higher risk scores too.
+Want a quick look at how exposed your business might be?
+
+SMS 2
+
+A few small changes (receipts, descriptors, policies) can cut disputes a lot.
+We’ll show you exactly what to adjust.
+— Liberty Bancard
+
+6) FUNDING SPEED / HOLDS – SMS
+SMS 1
+
+One of the biggest frustrations we hear: random funding delays.
+We focus on predictable funding, not surprises.
+Want to see your options?
+
+SMS 2
+
+Same-day or next-day funding depends on setup + volume.
+Happy to check what you qualify for.
+— Liberty Bancard
+
+7) POS VS TERMINAL – SMS
+SMS 1
+
+Quick question {{contact.first_name}} —
+Are you mostly in-person, mobile, or a mix?
+
+SMS 2
+
+Based on how you take payments, we’ll tell you if a POS or smart terminal makes more sense.
+No upsell — just the right tool.
+— Liberty Bancard
+
+8) LIBERTY SMART TERMINAL (DEJAVOO QD4) – SMS
+SMS 1
+
+Our Liberty Smart Terminal supports tap, chip, swipe, tips, and cash discounting.
+Simple, fast, no fluff.
+Want details?
+
+SMS 2
+
+Most merchants are live within 24–48 hours once approved.
+We handle setup + support.
+— Liberty Bancard
+
+9) SURCHARGE / CASH DISCOUNT – SMS
+SMS 1
+
+Heads up — surcharge and cash discount aren’t the same, and one can get you fined if done wrong.
+Want to make sure yours is compliant?
+
+SMS 2
+
+We’ll walk you through signage, receipts, and customer messaging so there’s no backlash.
+— Liberty Bancard
+
+10) VERTICAL-SPECIFIC (AUTO / MEDICAL / RETAIL) – SMS
+SMS 1
+
+We work with a lot of {{custom.value.vertical}} businesses.
+Payments there are a bit different than standard retail.
+Want a setup tailored for your industry?
+
+SMS 2
+
+Deposits, partial payments, invoices, chargeback protection — all handled cleanly.
+Happy to show you how.
+— Liberty Bancard
+
+GHL WORKFLOW DEPLOYMENT (HOW TO SET THIS UP)
+Trigger Examples
+
+Form submitted → Email + SMS (immediate)
+
+Pricing page visited → Switch & Save SMS
+
+App started but not completed → Fast Approval SMS
+
+Hardware page visited → Terminal SMS
+
+No response in 5 days → Reactivation SMS
+
+Best Practice
+
+Pair 1 SMS per 2–3 emails
+
+Use SMS to:
+
+Ask a question
+
+Offer help
+
+Nudge value
+
+Use email for depth + education
+
+If you want next, I can:
+
+Build exact GHL workflow logic (triggers, waits, branches)
+
+Add reply handling rules (“YES”, “HELP”, “STOP”)
+
+Write AI auto-responder prompts for SMS replies
+
+Customize SMS per Auto / Medical / Retail
+
+Create compliance-safe opt-in language
+
+Just tell me what you want to tackle next.
+
+
+You said:
+Also do these as emails and text mixes 
+
+ChatGPT said:
+Got it — we’ll do this the right GHL way:
+email + SMS woven together, timed, and conversion-focused.
+Below are 5 complete mixed sequences (email + text) you can deploy immediately. These are the highest-ROI merchant flows. Once these are live, cloning the rest is easy.
+
+I’ll show:
+
+Sequence goal
+
+Timing
+
+Exact emails
+
+Exact SMS
+
+SEQUENCE 1: SWITCH & SAVE (STATEMENT AUDIT)
+Goal: Get statement uploads → pricing calls
+Length: 7 days
+Mix: 3 emails + 2 SMS
+
+Email 1 (Day 0 – Immediate)
+Email
+Subject
+Most merchants are overpaying — here’s how to check
+Hi {{contact.first_name}},
+
+Most business owners don’t realize this, but payment processors often hide fees in places no one explains clearly.
+
+We review merchant statements every day and typically find 10–30% in unnecessary costs — sometimes more.
+
+If you’d like, we’ll:
+
+Review your current statement
+
+Show you exactly where fees are hiding
+
+Tell you whether switching would actually save you money
+
+No pressure. Even if your setup is good, we’ll tell you.
+
+👉 Upload a statement here: {{link}}
+
+— Liberty Bancard
+
+SMS 1 (Day 0 – 1 hour after email)
+Hey {{contact.first_name}}, Liberty Bancard here.
+We can usually find hidden processing fees in under 10 minutes.
+Want us to review your statement?
+
+Email 2 (Day 3)
+Email
+Subject
+Where processors usually hide extra fees
+Hi {{contact.first_name}},
+
+Here’s where we most often find overcharges:
+
+Downgraded transactions
+
+Marked-up interchange
+
+Junk “non-qualified” rates
+
+Batch and compliance fees no one explains
+
+Most merchants never see these clearly — until we break them out line by line.
+
+If you want a clean breakdown of what you’re paying and why, upload a statement here:
+{{link}}
+
+— Liberty Bancard
+
+SMS 2 (Day 5)
+Quick check-in — still curious if you’re overpaying on processing?
+Happy to take a look even if you don’t switch.
+— Liberty Bancard
+
+Email 3 (Day 7 – Soft CTA)
+Email
+Subject
+No obligation — just clarity
+Hi {{contact.first_name}},
+
+This isn’t a sales trick.
+It’s just transparency.
+
+If your pricing is fair, we’ll say so.
+If it isn’t, we’ll show you how to fix it.
+
+Either way, you’ll understand your processing costs better than 99% of merchants.
+
+👉 Get your free review here: {{link}}
+
+— Liberty Bancard
+
+SEQUENCE 2: PAYMENT STACK EDUCATION
+Goal: Build trust → recommend setup
+Length: 6 days
+Mix: 2 emails + 2 SMS
+
+Email 1 (Day 0)
+Email
+Subject
+Terminal, POS, gateway — what actually matters
+Hi {{contact.first_name}},
+
+Payment processing feels confusing because no one explains the pieces clearly.
+
+Quick breakdown:
+
+Processor: moves money
+
+Terminal/POS: takes the payment
+
+Gateway: routes online transactions
+
+Bank: settles funds
+
+Most problems happen when these don’t match your business model.
+
+If you want, tell us how you take payments and we’ll recommend the cleanest setup.
+
+👉 Get a recommendation: {{link}}
+
+— Liberty Bancard
+
+SMS 1 (Day 1)
+Processing setups confuse almost everyone at first.
+If you want a simple recommendation, we’ve got you.
+— Liberty Bancard
+
+Email 2 (Day 4)
+Email
+Subject
+The wrong setup costs more than higher rates
+Hi {{contact.first_name}},
+
+We see merchants with “low rates” losing money because:
+
+They’re using the wrong hardware
+
+Transactions downgrade
+
+Refunds and disputes are mishandled
+
+The right setup often matters more than the rate itself.
+
+If you want clarity, we’ll map the best stack for your business.
+{{link}}
+
+— Liberty Bancard
+
+SMS 2 (Day 6)
+Tell us if you’re in-person, mobile, online, or mixed — we’ll point you in the right direction.
+— Liberty Bancard
+
+SEQUENCE 3: FAST APPROVAL / APPLICATION COMPLETION
+Goal: Finish apps
+Length: 4 days
+Mix: 2 emails + 2 SMS
+
+Email 1 (Day 0)
+Email
+Subject
+You’re almost approved
+Hi {{contact.first_name}},
+
+You’re close — we just need a few final details to complete your application.
+
+Once submitted, most approvals take minutes, not days.
+
+If you want, we can review it before it goes in to avoid delays.
+
+👉 Finish your application here: {{link}}
+
+— Liberty Bancard
+
+SMS 1 (Day 1)
+Hey {{contact.first_name}} — saw you started your app.
+Want help finishing it so approval goes fast?
+
+Email 2 (Day 3)
+Email
+Subject
+Avoid approval delays
+Hi {{contact.first_name}},
+
+Three things that slow approvals:
+
+Inaccurate monthly volume
+
+Missing bank info
+
+Mismatch between business type and activity
+
+We’re happy to double-check everything before submission.
+
+👉 Complete your app here: {{link}}
+
+— Liberty Bancard
+
+SMS 2 (Day 4)
+Happy to sanity-check your application before it’s submitted.
+Just reply HELP if you want us to review it.
+— Liberty Bancard
+
+SEQUENCE 4: LIBERTY SMART TERMINAL (DEJAVOO QD4)
+Goal: Hardware → signup
+Mix: 2 emails + 2 SMS
+
+Email 1
+Email
+Subject
+A smart terminal built for real businesses
+Hi {{contact.first_name}},
+
+Our Liberty Smart Terminal is designed for merchants who want:
+
+Fast checkout
+
+Tap, chip, swipe
+
+Tips, receipts, and cash discount support
+
+No gimmicks or locked ecosystems
+
+Most merchants are live within 24–48 hours after approval.
+
+👉 See if it’s right for you: {{link}}
+
+— Liberty Bancard
+
+SMS 1
+Our Liberty Smart Terminal is simple, fast, and flexible.
+Want specs or pricing?
+— Liberty Bancard
+
+Email 2
+Email
+Subject
+Set up once. It just works.
+Hi {{contact.first_name}},
+
+We handle:
+
+Terminal configuration
+
+Support
+
+Replacements
+
+Updates
+
+You focus on running your business.
+
+👉 Claim your terminal here: {{link}}
+
+— Liberty Bancard
+
+SMS 2
+Most merchants are processing in 1–2 days after approval.
+Let us know if you want to get started.
+— Liberty Bancard
+
+SEQUENCE 5: SURCHARGE / CASH DISCOUNT (COMPLIANCE)
+Goal: Cost savings without risk
+Mix: 2 emails + 2 SMS
+
+Email 1
+Email
+Subject
+One mistake here can cost you thousands
+Hi {{contact.first_name}},
+
+Surcharge and cash discount programs are powerful — if done correctly.
+
+Done wrong, they can:
+
+Trigger fines
+
+Upset customers
+
+Cause chargebacks
+
+We’ll help you implement it compliantly with proper signage, receipts, and messaging.
+
+👉 See if you qualify: {{link}}
+
+— Liberty Bancard
+
+SMS 1
+Quick heads up — surcharge and cash discount aren’t the same legally.
+Want to make sure yours is compliant?
+— Liberty Bancard
+
+Email 2
+Email
+Subject
+Save on fees without customer backlash
+Hi {{contact.first_name}},
+
+The key is transparency:
+
+Clear signage
+
+Correct receipt language
+
+Proper terminal setup
+
+We guide you through all of it.
+
+👉 Get a compliant setup: {{link}}
+
+— Liberty Bancard
+
+SMS 2
+We’ll handle setup, compliance, and messaging so there are no surprises.
+— Liberty Bancard
+
+NEXT (HIGH VALUE)
+If you want, I can:
+
+Finish all 20 sequences at this same depth
+
+Deliver GHL workflow maps (exact triggers, waits, branches)
+
+Add AI SMS reply handling (“YES”, “HELP”, objections)
+
+Customize per Auto / Medical / Retail
+
+Package this as a plug-and-play GHL snapshot
+
+Tell me what you want next and I’ll build it.
+
+
+You said:
+okay, even better, we need sdr outreaches, marketing drip campaigns, catergized by merchant type so the outreach is tailored and personal to their business, we also need operational workflows emails and campaigns built for for all departments, 
+
+ChatGPT said:
+Absolutely — you’re describing a full communications operating system:
+
+SDR outbound outreaches (personal, vertical-specific, multi-touch)
+
+Marketing drip/nurture campaigns (education → conversion, by merchant type)
+
+Operational workflows + emails/SMS for every department (onboarding, support, risk, finance, hardware, renewals, referrals, etc.)
+
+Below is a complete, deployable framework you can implement in GoHighLevel (or your in-house CRM) and expand.
+
+A) Merchant Segmentation Map (so everything is tailored)
+Create a required field on every lead:
+
+Merchant Type (dropdown)
+
+Retail (in-store)
+
+Restaurant / QSR
+
+Auto (repair, parts, towing)
+
+Medical (clinic, dental, med spa)
+
+Home Services (HVAC, plumbing, electricians)
+
+Professional Services (legal, accounting, agencies)
+
+eCommerce / Online
+
+High-risk (supplements, CBD-adjacent, travel, etc. — whatever you allow)
+
+Other fields to personalize
+
+Monthly volume range (0–25k / 25–100k / 100–250k / 250k+)
+
+Avg ticket size
+
+How they take payments (in-person / remote / online / mixed)
+
+Current provider (if known)
+
+Biggest pain (fees / chargebacks / funding delays / hardware / support)
+
+This powers: dynamic snippets and branching in both outbound and drip.
+
+B) SDR Outreach Sequences (tailored by merchant type)
+Each vertical gets:
+
+10-day outbound cadence
+
+Email + SMS mix
+
+“Personalization hooks” based on their business type
+
+One primary CTA: “2-minute quote” or “statement audit” or “setup recommendation”
+
+Universal SDR cadence (10 days)
+Day 1: Email 1 + optional SMS (if opted-in)
+
+Day 2: Email 2
+
+Day 4: SMS 1 (question-based)
+
+Day 6: Email 3 (case study / proof)
+
+Day 8: Email 4 (soft close)
+
+Day 10: SMS 2 (breakup)
+
+1) Retail SDR Sequence (4 emails + 2 SMS)
+Angle: faster checkout, fewer downgrades, reliable funding, simple hardware
+
+Email 1 (personal)
+Subject: Quick question about payments at {{business.name}}
+Body:
+
+Mention retail-specific cue: “busy counter / returns / tips / staff logins”
+
+Offer: “free cost + setup audit”
+
+Email 2 (value)
+
+“3 places retail merchants overpay: downgrades, junk fees, equipment leases”
+
+Email 3 (proof)
+
+Short case: “reduced fees + improved checkout speed”
+
+Email 4 (soft close)
+
+“Worth a 10-min review or should I close the loop?”
+
+SMS
+
+“Are you mostly tap/chip in-store or do you also do phone invoices?”
+
+2) Restaurant / QSR SDR Sequence
+Angle: tips, shift controls, speed, chargeback protection, uptime
+
+Personalization hooks:
+
+“dinner rush”
+
+“tip prompts”
+
+“split tender”
+
+“offline mode / connection reliability”
+
+CTA: “Want a restaurant-ready setup recommendation?”
+
+3) Auto (repair/towing/parts) SDR Sequence
+Angle: deposits, keyed-in/MOTO, invoices, partial payments, high-ticket risk controls
+
+Personalization hooks:
+
+“deposits for parts”
+
+“customer approvals”
+
+“repair invoices”
+
+“text-to-pay”
+
+CTA: “Want a deposit + invoice workflow that reduces disputes?”
+
+4) Medical / Med Spa SDR Sequence
+Angle: card-on-file, recurring, clean receipts, less friendly fraud, professionalism
+
+Hooks:
+
+“co-pays / deposits”
+
+“treatment packages”
+
+“membership billing”
+
+CTA: “Want a compliant, patient-friendly payment flow?”
+
+5) Home Services SDR Sequence
+Angle: mobile payments, field invoicing, deposits, payment links, fast funding
+
+Hooks:
+
+“tech in the field”
+
+“invoice on-site”
+
+“collect deposit before scheduling”
+
+CTA: “Want a mobile + invoice setup?”
+
+6) Professional Services SDR Sequence
+Angle: invoices, retainers, ACH, payment links, recurring
+
+Hooks:
+
+“retainers”
+
+“invoice terms”
+
+“recurring monthly services”
+
+CTA: “Want a cleaner invoice + collection flow?”
+
+7) eCommerce / Online SDR Sequence
+Angle: auth rates, fraud controls, chargebacks, gateway fit, payouts
+
+Hooks:
+
+“conversion drop from declines”
+
+“fraud + disputes”
+
+“multiple SKUs/subscriptions”
+
+CTA: “Want a quick auth-rate + chargeback risk check?”
+
+8) High-risk SDR Sequence (only if you support)
+Angle: stability, risk expertise, realistic expectations, long-term processing
+
+CTA: “Want a risk-first plan that keeps you live?”
+
+SDR “Personalization Formula” (copy paste for reps)
+Use this structure to make every message feel personal:
+
+Observation: “Noticed you’re a {{vertical}} business…”
+
+Common pain: “Most {{vertical}} merchants deal with {{pain}}…”
+
+Offer: “We can show you {{outcome}} in {{time}}…”
+
+Simple CTA: “Worth a quick look?”
+
+C) Marketing Drip Campaigns (by merchant type)
+These are inbound nurture campaigns triggered after:
+
+form submission
+
+lead magnet
+
+pricing page visit
+
+“get quote” click but no app
+
+chat lead
+
+Each vertical gets a 14-day mixed drip:
+
+5 emails
+
+3 SMS (if opted-in)
+
+optional voicemail drop for SDR
+
+Universal 14-day drip structure
+Day 0: “What to expect” + quick CTA
+
+Day 2: “Fees explained for your vertical”
+
+Day 4: “Workflow: how payments should work for you”
+
+Day 7: “Case study + proof”
+
+Day 10: “Objections handled”
+
+Day 14: “Breakup / last call”
+
+Vertical customization examples
+
+Auto: deposits + approvals + disputes
+
+Medical: recurring + packages + COF
+
+Retail: downgrades + returns + staff controls
+
+Restaurant: tips + speed + downtime prevention
+
+Home services: mobile + invoice + payment links
+
+eCom: fraud + auth rates + chargebacks
+
+D) Department Operational Workflows (emails + SMS + internal alerts)
+Here’s the all-department campaign/workflow library you want in place.
+
+1) Sales Ops
+Workflows
+
+Lead received → assign SDR → SLA timers → reminders
+
+No response → follow-up tasks + auto “breakup” message
+
+Appointment booked → confirmation + prep checklist
+
+Missed appointment → reschedule sequence
+
+Customer-facing messages
+
+Appointment confirmation email + SMS
+
+“What to bring” (statement / volume / provider / bank)
+
+“Here’s what we’ll review on the call”
+
+2) Onboarding / Underwriting
+Workflows
+
+Application started → completion nudges
+
+Application submitted → “Underwriting in progress”
+
+Conditional approval → “missing items” request
+
+Approved → “go-live steps”
+
+Declined → respectful explanation + next steps
+
+Key campaigns
+
+“Fast Approval Checklist” (email + SMS)
+
+“Go Live in 48 Hours” (email series)
+
+3) Hardware / Logistics (Liberty Smart Terminal)
+Workflows
+
+Approved → shipping confirmation
+
+Delivered → setup instructions + support link
+
+Not activated in 48 hours → activation rescue
+
+7 days post-activation → “optimize settings” (tips, prompts, receipts)
+
+Replacement / RMA flow
+
+Key campaigns
+
+“Unboxing + Setup” (3 emails)
+
+“Activation Rescue” (2 SMS + 1 email)
+
+“Feature Adoption” (tips, surcharge/cash discount, receipts)
+
+4) Support / Success (Retention)
+Workflows
+
+Ticket created → acknowledgment + SLA
+
+Ticket resolved → CSAT request
+
+14 days after go-live → first success check-in
+
+Monthly “health check” for larger merchants
+
+Winback sequence for churn risk
+
+Key campaigns
+
+“First 14 days success plan”
+
+“Monthly optimization: lower declines + reduce fees”
+
+“CSAT + referral ask when happy”
+
+5) Risk / Chargebacks / Disputes
+Workflows
+
+Chargeback alert → immediate email/SMS + evidence checklist
+
+Dispute deadline reminders
+
+Excessive refunds/chargebacks → proactive outreach
+
+Descriptor/policy improvements drip
+
+Key campaigns
+
+“Chargeback Response Kit” (email + checklist)
+
+“Dispute Prevention for {{vertical}}” (4-email mini course)
+
+6) Finance (Billing, Funding, Reserves)
+Workflows
+
+Welcome: funding timeline + batching cutoffs
+
+Deposit delay event → proactive notification + explanation
+
+NSF / payout failures → fix steps
+
+Monthly statement email (with “book a review” CTA)
+
+Past due → collections ladder (polite → firm)
+
+Key campaigns
+
+“Understanding Funding” (education + reduced tickets)
+
+“Monthly Statement Review” (retention + upsell)
+
+7) Partner / ISO / Referral Department
+Workflows
+
+New partner signed → onboarding sequence + assets
+
+Weekly partner performance email
+
+Co-branded landing page deployment
+
+Referral reward tracking campaign
+
+Key campaigns
+
+“Partner Launch Kit”
+
+“2 referrals / month challenge” (gamified)
+
+E) What I need to deliver next (without slowing you down)
+To make this real, I’ll produce copy + workflow specs in a structured “deployment pack”:
+
+1) SDR Outbound Packs (per merchant type)
+4 emails + 2 SMS per vertical
+
+subject lines + variants
+
+personalization tokens
+
+objection responses (rate, contract, switching, support)
+
+2) Marketing Drip Packs (per merchant type)
+5 emails + 3 SMS per vertical
+
+lead magnet tie-ins (“fee audit”, “chargeback checklist”, “funding guide”)
+
+3) Operational Workflow Packs (all departments)
+For each workflow:
+
+Trigger
+
+Filters
+
+Steps (email/SMS/task/slack)
+
+Wait logic
+
+Branching rules
+
+Templates
+
+Fast start recommendation (most impact first)
+If you want maximum ROI fastest, deploy in this order:
+
+Retail + Auto + Medical SDR outbound packs
+
+Switch & Save + Fast Approval inbound drips
+
+Onboarding + Hardware Activation Rescue operational flows
+
+Chargeback + Funding education (reduces tickets + churn)
+
+If you tell me your top 5 merchant types you want to prioritize (or I can assume: Retail, Auto, Medical, Restaurants, Home Services), I’ll generate the full SDR + drip copy for those categories first, plus the department workflow templates for onboarding/support/finance/hardware.
+
+
+You said:
+yes to all Account Management Calendar https://api.leadconnectorhq.com/widget/booking/kBRoNz5XoTpddupMQg0c Sales Outreach Calendar. https://api.leadconnectorhq.com/widget/bookings/libertybancard
+
+ChatGPT said:
+Perfect — we’ll wire both calendars directly into every sequence so the CTA always routes to the right team.
+
+Your calendars (locked in)
+Sales Outreach / New Leads (SDR + AE): https://api.leadconnectorhq.com/widget/bookings/libertybancard
+
+Account Management / Existing Merchants: https://api.leadconnectorhq.com/widget/booking/kBRoNz5XoTpddupMQg0c
+
+1) Global rule: which link goes where
+Use Sales Outreach Calendar when the contact is:
+New lead (no MID yet)
+
+Quote request / statement review
+
+App started but not approved
+
+“Thinking about switching”
+
+Any inbound marketing conversion
+
+CTA text examples
+
+“Book a 10-minute savings review”
+
+“Get a fast quote”
+
+“Talk to a payments specialist”
+
+➡️ Link: /widget/bookings/libertybancard
+
+Use Account Management Calendar when the contact is:
+Approved / live / boarded
+
+Existing merchant asking about: funding, chargebacks, terminal, pricing review, adding locations
+
+Monthly/quarterly reviews
+
+Expansion (additional terminals, add online payments, recurring billing)
+
+CTA text examples
+
+“Book your account review”
+
+“Schedule a funding/statement walkthrough”
+
+“Account optimization call”
+
+➡️ Link: /widget/booking/kBRoNz5XoTpddupMQg0c
+
+2) Drop-in CTA blocks (email + SMS)
+Use these everywhere so your team stays consistent.
+
+Sales CTA (Email)
+Button text: Book a 10-minute call
+Link: https://api.leadconnectorhq.com/widget/bookings/libertybancard
+Footer line: Prefer text? Reply here and we’ll help right away.
+
+Sales CTA (SMS)
+Want to grab 10 minutes and I’ll give you the quickest path + pricing options?
+Book here: https://api.leadconnectorhq.com/widget/bookings/libertybancard
+— Liberty Bancard
+
+AM CTA (Email)
+Button text: Book an account review
+Link: https://api.leadconnectorhq.com/widget/booking/kBRoNz5XoTpddupMQg0c
+Footer line: If it’s urgent, reply “URGENT” and we’ll prioritize.
+
+AM CTA (SMS)
+Want to do a quick account check-in (funding/fees/setup)?
+Book here: https://api.leadconnectorhq.com/widget/booking/kBRoNz5XoTpddupMQg0c
+— Liberty Bancard
+
+3) Where these calendars plug into your system (end-to-end)
+A) SDR Outbound (by merchant type)
+Every outbound cadence should have two booking moments:
+
+Touch #1–#3: soft ask (“Worth 10 minutes?”) + Sales Calendar
+
+Final touch: breakup + Sales Calendar
+
+Example “breakup” SMS
+
+Should I close this out or is it worth a quick 10 minutes?
+https://api.leadconnectorhq.com/widget/bookings/libertybancard
+— Liberty Bancard
+
+B) Inbound Marketing Drips (by merchant type)
+Put the booking link in:
+
+Email 1 (Day 0)
+
+SMS 1 (Day 0–1)
+
+Email 3/4 (case study)
+
+Final email (breakup)
+
+All use Sales Calendar unless they’re already an active merchant.
+
+C) Operational workflows (all departments)
+1) Onboarding / Underwriting
+App started → incomplete: Sales Calendar
+
+Approved → go-live help: AM Calendar
+
+Missing docs / stuck: Sales Calendar (until approved)
+
+2) Hardware & Activation
+Delivered + not activated in 48h: AM Calendar
+
+Training + feature setup: AM Calendar
+
+3) Account Management / Success
+14 days post go-live: AM Calendar (first review)
+
+Monthly statement review: AM Calendar
+
+Expansion (2nd terminal / new location): AM Calendar
+
+4) Chargebacks / Risk
+Chargeback alert: AM Calendar (fast response call)
+
+5) Finance (funding/billing)
+Deposit delay / payout fail: AM Calendar
+
+Past due escalation: AM Calendar (or finance-specific inbox + task), but calendar still helps resolve fast.
+
+4) Make it automatic in GHL (routing logic)
+You’ll want a single smart custom value like:
+
+{{custom_values.booking_link}}
+that resolves to the correct calendar.
+
+Routing concept
+
+If Lifecycle Stage = Customer (or MID exists) → set booking_link = AM calendar
+
+Else → set booking_link = Sales calendar
+
+Then every email/SMS template just uses:
+
+Book here: {{custom_values.booking_link}}
+
+This prevents reps from sending the wrong link and keeps everything scalable.
+
+5) Next deliverable I’ll generate (so you can deploy immediately)
+I’ll produce a deployment pack with:
+
+SDR outreach sequences by merchant type (Retail, Auto, Medical, Restaurant, Home Services first)
+
+4 emails + 2 SMS each
+
+all CTAs auto-routed using the booking link logic
+
+Marketing drip sequences by merchant type
+
+5 emails + 3 SMS each
+
+Operational workflows for every department (Onboarding, Hardware, AM, Support, Risk, Finance)
+
+trigger → steps → wait logic → internal tasks/alerts → customer comms
+
+all using the correct calendar link
+
+If you want me to start with your highest value verticals, I’m going to assume: Retail, Auto, Medical, Restaurants, Home Services and build those first.
+
+
+You said:
+yes to all
+
+ChatGPT said:
+
+Thought for 13s
+Awesome — locking this in as your full Liberty Bancard Comms System: SDR outbound + marketing drips (by merchant type) + operational workflows (all departments), with automatic calendar routing.
+
+Below is a deployable “template library + workflow spec” you can paste into GoHighLevel and scale. It’s built so you don’t have to rewrite 500 messages—just swap the vertical snippet.
+
+0) Your calendars (baked into everything)
+Sales Outreach / New Leads
+https://api.leadconnectorhq.com/widget/bookings/libertybancard
+
+Account Management / Existing Merchants
+https://api.leadconnectorhq.com/widget/booking/kBRoNz5XoTpddupMQg0c
+
+One-rule routing (recommended)
+Create a custom value: {{custom_values.booking_link}}
+
+Set it automatically:
+
+If Customer / MID exists / Lifecycle = Active Merchant → booking_link = AM calendar
+
+Else → booking_link = Sales calendar
+
+Then every CTA in every email/SMS uses:
+
+Book here: {{custom_values.booking_link}}
+
+1) Required fields for personalization + vertical routing
+Create these fields (or map equivalents):
+
+Contact fields
+
+merchant_type (Retail / Restaurant / Auto / Medical / Home Services)
+
+monthly_volume_range (0–25k / 25–100k / 100–250k / 250k+)
+
+avg_ticket_range
+
+payment_channels (in-person / mobile / online / mixed)
+
+current_processor (text)
+
+top_pain (fees / chargebacks / funding delays / hardware / support)
+
+mid_status (No MID / Pending / Active)
+
+Business fields
+
+business_name
+
+city
+
+website
+
+2) SDR OUTREACH SYSTEM (by merchant type)
+Cadence (10 days, best-performing)
+Day 1: Email 1 (personal) + optional SMS (if opted-in)
+
+Day 2: Email 2 (value)
+
+Day 4: SMS 1 (question)
+
+Day 6: Email 3 (proof + offer)
+
+Day 8: Email 4 (soft close)
+
+Day 10: SMS 2 (breakup)
+
+SDR Universal “Base Templates” (used for ALL verticals)
+You’ll plug in the vertical snippet (section 2B).
+
+Email 1 (Personal opener + relevant pain + easy CTA)
+Subject options (rotate):
+
+Quick question about payments at {{business_name}}
+
+{{business_name}} — are you happy with your processing setup?
+
+Payments question ({{city}})
+
+Body (base)
+Hi {{contact.first_name}} — quick note.
+
+I work with a lot of {{merchant_type}} businesses and noticed {{personalization_hook}}.
+
+Most {{merchant_type}} owners come to us for one of these:
+
+lower real processing cost (not “rate bait”)
+
+more predictable funding
+
+fewer chargebacks / better dispute handling
+
+a cleaner terminal/POS setup with real support
+
+If you’re open to it, I can do a quick 10-minute review and tell you if there’s anything worth fixing (even if you don’t switch).
+
+Book here: {{custom_values.booking_link}}
+— Liberty Bancard
+
+Email 2 (Value: “where you overpay”)
+Subject options:
+
+Where {{merchant_type}} merchants usually overpay
+
+The 3 fee traps we see every week
+
+Quick checklist for {{merchant_type}} payments
+
+Body (base)
+Hi {{contact.first_name}},
+
+Here are the top 3 places we see {{merchant_type}} merchants lose money without realizing it:
+
+Downgrades / higher interchange (setup + card types)
+
+Junk fees that don’t show up as “rate”
+
+Wrong workflow (refunds, deposits, keyed-in, tips, etc.)
+
+If you want, we’ll pinpoint this quickly from a recent statement or by reviewing how you take payments.
+
+Book here: {{custom_values.booking_link}}
+— Liberty Bancard
+
+SMS 1 (Day 4 — question-based)
+Hey {{contact.first_name}} — quick one: are you mostly {{payment_channels}} or do you also take remote/over-the-phone payments?
+— Liberty Bancard
+
+Email 3 (Proof + specific outcome)
+Subject options:
+
+Example: what we changed for a {{merchant_type}} business
+
+Real-world improvements (not hype)
+
+Quick case study
+
+Body (base)
+Hi {{contact.first_name}},
+
+We recently helped a {{merchant_type}} business by:
+
+cleaning up pricing + eliminating avoidable fees
+
+tightening the workflow to reduce disputes
+
+improving funding predictability
+
+making checkout simpler for staff
+
+If you tell me your monthly volume range (roughly), I’ll recommend the best path (terminal vs POS vs links/invoicing).
+
+Book here: {{custom_values.booking_link}}
+— Liberty Bancard
+
+Email 4 (Soft close)
+Subject options:
+
+Should I close this out?
+
+Worth a quick look or not a priority?
+
+Last note from me
+
+Body (base)
+Hi {{contact.first_name}},
+
+Totally fine if now isn’t the time — just don’t want to spam you.
+
+Should I:
+
+close this out, or
+
+set up a quick 10-minute review?
+
+Book here if helpful: {{custom_values.booking_link}}
+— Liberty Bancard
+
+SMS 2 (Day 10 — breakup)
+Should I close the loop or is it worth a quick 10 minutes?
+{{custom_values.booking_link}}
+— Liberty Bancard
+
+2B) Vertical Snippet Library (5 merchant types)
+Use these to populate:
+
+{{personalization_hook}}
+
+a custom line in Email 1
+
+the “workflow pain” examples in Email 2/3
+
+the question in SMS 1
+
+1) Retail
+personalization_hook: “you’re likely dealing with busy counter moments, returns, and staff handoffs”
+
+pain examples: “downgrades, returns/exchanges, staff permissions, receipt settings”
+
+SMS angle: “mostly tap/chip at counter or also phone orders/invoices?”
+
+2) Restaurant / QSR
+personalization_hook: “you’ve got tips, rush-hour speed, and staff shift changes to manage”
+
+pain examples: “tip prompts, split checks, uptime, end-of-day batching”
+
+SMS angle: “do you need tip prompts + shift controls?”
+
+3) Auto (repair / towing / parts)
+personalization_hook: “you probably take deposits for parts and deal with higher-ticket invoices”
+
+pain examples: “keyed-in/MOTO, deposits, partial payments, text-to-pay approvals”
+
+SMS angle: “do you take deposits or do customers pay after service?”
+
+4) Medical / Med Spa
+personalization_hook: “you likely handle deposits, packages, and recurring payments”
+
+pain examples: “card-on-file, recurring, consent/policies, dispute prevention”
+
+SMS angle: “do you run memberships/packages or mostly one-time visits?”
+
+5) Home Services (HVAC / plumbing / electric)
+personalization_hook: “you may be collecting on-site or sending invoices after the job”
+
+pain examples: “mobile payments, payment links, deposits before scheduling, fast funding”
+
+SMS angle: “do you want techs collecting in-field or customers paying by invoice/link?”
+
+3) MARKETING DRIP CAMPAIGNS (inbound nurture, by merchant type)
+Trigger these on:
+
+form fill / chat lead
+
+pricing page view
+
+statement upload CTA click
+
+“get quote” click but no application
+
+14-day structure (works across verticals)
+Day 0: Welcome + what happens next + book link
+
+Day 2: Education: fee traps for that vertical
+
+Day 4: Workflow: “how payments should work for your business”
+
+Day 7: Proof/case study
+
+Day 10: Objection handling
+
+Day 14: Breakup / last chance
+
+Drip Email Templates (base, with vertical inserts)
+Drip Email 1 (Day 0)
+Subject: Quick next step for {{business_name}}
+Hi {{contact.first_name}},
+
+Thanks for reaching out. For {{merchant_type}} businesses, we typically help with:
+
+lower true costs (not gimmicks)
+
+reliable funding
+
+fewer disputes
+
+a clean setup with real support
+
+If you want the fastest path, book 10 minutes here: {{custom_values.booking_link}}
+— Liberty Bancard
+
+SMS (optional, Day 0 + 1 hour)
+Hey {{contact.first_name}} — want me to recommend the best setup for your {{merchant_type}} business?
+Book here: {{custom_values.booking_link}}
+— Liberty Bancard
+
+Drip Email 2 (Day 2) — Education
+Subject: The 3 cost traps for {{merchant_type}} merchants
+(Use the vertical snippet pain examples here.)
+CTA: {{custom_values.booking_link}}
+
+Drip Email 3 (Day 4) — Workflow
+Subject: The cleanest payment workflow for {{merchant_type}}
+Explain their ideal workflow:
+
+Retail: checkout speed + returns + staff controls
+
+Restaurant: tips + batching + rush reliability
+
+Auto: deposits + text approvals + invoices
+
+Medical: recurring + consent + COF
+
+Home services: mobile + invoice + deposit before scheduling
+CTA: {{custom_values.booking_link}}
+
+SMS (Day 4)
+Quick question — what’s your biggest headache: fees, funding speed, chargebacks, or hardware/support?
+— Liberty Bancard
+
+Drip Email 4 (Day 7) — Proof
+Subject: What we changed for a {{merchant_type}} business
+3 bullets + CTA booking link.
+
+Drip Email 5 (Day 10) — Objections
+Subject: “I don’t want to switch” / “I’m under contract” / “My rate is fine”
+Short answers + CTA booking link.
+
+SMS (Day 10)
+If it’s easier, reply with your monthly volume range and I’ll tell you the best path.
+— Liberty Bancard
+
+Drip Email 6 (Day 14) — Breakup
+Subject: Should I close your file?
+2 options + booking link.
+
+4) OPERATIONAL WORKFLOWS (all departments)
+Below are the workflows you asked for—triggers + steps + the customer-facing templates. These are the backbone that makes you “operator-grade.”
+
+4A) SALES OPS WORKFLOWS
+Workflow: New Lead → SLA → Assign → Follow-up
+Trigger: New contact created OR form submitted
+Steps:
+
+Assign owner (round robin or by merchant_type)
+
+Create task: “Call within 5 minutes”
+
+Send Drip Email 1 + optional SMS
+
+If no appointment booked in 48 hours → push into SDR cadence
+
+Internal notification (Slack/email)
+“New {{merchant_type}} lead: {{business_name}} — pain: {{top_pain}} — owner: {{owner.name}}”
+
+4B) UNDERWRITING / ONBOARDING WORKFLOWS
+Workflow: Application Started → Completion
+Trigger: Application started / incomplete
+Steps: Email + SMS nudges + task for rep
+
+Email
+Subject: You’re almost approved
+Body: “Finish these 3 items…” + booking link (Sales)
+
+SMS
+Hey {{contact.first_name}} — want help finishing your app so approval goes fast?
+{{custom_values.booking_link}}
+— Liberty Bancard
+
+Workflow: Approved → Go-Live
+Trigger: Approved / MID issued
+Steps:
+
+Set mid_status = Active
+
+Set booking_link = AM calendar
+
+Send “Go-Live Welcome” email
+
+Create AM kickoff task
+
+Start Hardware workflow (if terminal shipped)
+
+Go-Live Welcome Email
+Subject: You’re approved — here’s your go-live plan
+Body:
+
+funding timeline basics
+
+support contact method
+
+“Book your account kickoff” (AM calendar)
+
+4C) HARDWARE / TERMINAL WORKFLOWS
+Workflow: Delivered → Activation
+Trigger: Shipment delivered
+Steps:
+
+Day 0: “Unbox + Setup” email
+
+Day 1: SMS: “Need help activating?”
+
+Day 2: If not active → “Activation Rescue” email + AM task
+
+Day 7: Feature adoption email (tips/receipts/cash discount options)
+
+Activation SMS
+Hey {{contact.first_name}} — did you get the terminal set up ok? If you want, we can walk you through it in 10 minutes.
+{{custom_values.booking_link}}
+— Liberty Bancard
+
+(booking_link will be AM calendar for active merchants)
+
+4D) ACCOUNT MANAGEMENT / SUCCESS WORKFLOWS
+Workflow: 14-day success check-in
+Trigger: 14 days after go-live
+Steps:
+
+Email: “2-week optimization check”
+
+SMS reminder
+
+Create AM task: “Ask for referral if happy”
+
+Email
+Subject: 2-week check-in — let’s optimize your setup
+Body: “We’ll review fees, declines, funding, chargebacks, terminal settings.” + AM calendar
+
+Workflow: Monthly statement review (retention + upsell)
+Trigger: Monthly on same day OR after statement generated
+Steps:
+
+Email: “Your monthly statement review option”
+
+If opens/clicks: notify AM
+
+4E) RISK / CHARGEBACK WORKFLOWS
+Workflow: Chargeback alert
+Trigger: Chargeback detected OR manual tag “Chargeback”
+Steps:
+
+Email: “Action needed — dispute deadline”
+
+SMS: “Reply HELP and we’ll guide you”
+
+Create urgent AM task
+
+SMS
+Chargeback alert: we can help you respond correctly to win more disputes. Reply HELP or book here: {{custom_values.booking_link}}
+— Liberty Bancard
+
+4F) FINANCE WORKFLOWS (funding, billing, payout issues)
+Workflow: Deposit delay / payout failure
+Trigger: payout failure / NSF / funding delay flag
+Steps:
+
+Proactive email explaining cause + fix steps
+
+SMS: “We’re on it”
+
+Finance task created
+
+SMS
+Hey {{contact.first_name}} — we saw a funding issue and we’re already working it. If you want a quick walkthrough, book here: {{custom_values.booking_link}}
+— Liberty Bancard
+
+4G) REFERRAL / REVIEW WORKFLOWS
+Workflow: Happy customer → referral ask
+Trigger: CSAT ≥ 9 or “Resolved + happy” tag
+Steps:
+
+Email: “Quick favor” + referral reward
+
+SMS: “Know 1–2 business owners who’d want better payments/support?”
+
+5) What I’ll generate next (in the same format) if you want it expanded
+Right now you have a complete system with base templates + vertical snippets + full departmental workflows.
+
+Next expansion (if you want me to output it all verbatim):
+
+Full word-for-word: Retail SDR (4E/2SMS), Retail Drip (6E/2–3SMS)
+
+Then clone for Auto, Medical, Restaurant, Home Services
+
+Plus: objection playbooks per vertical (fees, contract, rate skepticism, chargebacks, funding holds)
+
+If you want me to proceed immediately, I’ll start by outputting the full exact copy (every email + every SMS) for the top 5 merchant types in the order you’ll deploy:
+Retail → Auto → Medical → Restaurant → Home Services, and I’ll keep every CTA using your auto-routed booking_link.
+
+
+You said:
+yes do this all
+
+ChatGPT said:
+Perfect — we’re officially building Liberty Bancard’s full revenue + ops communications machine.
+To keep this usable (and not dump 400 pages at once), I’m going to deliver this in clean, deployable waves.
+
+📦 DELIVERY PLAN (locked)
+I’ll deliver FULL WORD-FOR-WORD COPY + WORKFLOW INTENT in this order:
+
+This message (Phase 1 – COMPLETE & READY TO DEPLOY):
+
+✅ RETAIL – SDR Outbound (4 emails + 2 SMS)
+
+✅ RETAIL – Inbound Marketing Drip (6 emails + 3 SMS)
+
+✅ RETAIL – Operational Emails
+
+Onboarding
+
+Go-Live
+
+14-Day AM Check-In
+
+Monthly Statement Review
+
+Next messages (Phase 2–6):
+
+Auto
+
+Medical
+
+Restaurant
+
+Home Services
+
+Cross-department system emails (chargebacks, funding, hardware, finance, referrals)
+
+All CTAs use your auto-routed calendar logic:
+{{custom_values.booking_link}}
+
+PHASE 1 — RETAIL (IN-STORE MERCHANTS)
+1) RETAIL — SDR OUTBOUND SEQUENCE
+Use for cold outbound, purchased lists, Apollo, ZoomInfo, manual prospecting
+
+Email 1 — Personal opener
+Email
+Subject
+Quick question about payments at {{business_name}}
+Hi {{contact.first_name}},
+
+Quick note — I work with a lot of retail businesses, and most are dealing with some combination of:
+
+busy checkout moments
+
+returns/exchanges
+
+staff turnover
+
+confusing processing fees
+
+We usually help retail merchants:
+
+reduce hidden processing costs
+
+avoid downgrade fees
+
+simplify checkout for staff
+
+get more predictable funding
+
+If you’re open to it, I can do a quick 10-minute review and tell you if there’s anything worth fixing (even if you don’t switch).
+
+Book here if helpful:
+{{custom_values.booking_link}}
+
+— Liberty Bancard
+
+Email 2 — Value / education
+Email
+Subject
+3 ways retail merchants overpay without realizing it
+Hi {{contact.first_name}},
+
+Here are the 3 most common cost traps we see in retail:
+
+Transaction downgrades from card types + terminal setup
+
+Junk fees buried outside the “rate”
+
+Return/refund handling that increases costs and disputes
+
+Most processors never explain this — we break it out line by line.
+
+If you want clarity, we can walk through your setup or a recent statement.
+
+{{custom_values.booking_link}}
+
+— Liberty Bancard
+
+SMS 1 — Question based
+Quick question {{contact.first_name}} — are you mostly tap/chip at the counter, or do you also take phone orders or invoices?
+— Liberty Bancard
+
+Email 3 — Proof
+Email
+Subject
+What we fixed for a retail store like yours
+Hi {{contact.first_name}},
+
+We recently helped a retail merchant by:
+
+cleaning up pricing (eliminated unnecessary downgrades)
+
+simplifying returns + receipt settings
+
+improving checkout speed for staff
+
+making funding more predictable
+
+If you tell me roughly what your monthly volume looks like, I’ll recommend the best setup (terminal vs POS).
+
+{{custom_values.booking_link}}
+
+— Liberty Bancard
+
+Email 4 — Soft close
+Email
+Subject
+Should I close this out?
+Hi {{contact.first_name}},
+
+Totally fine if now isn’t the right time — just don’t want to keep bugging you.
+
+Should I:
+
+close the loop, or
+
+set up a quick 10-minute review?
+
+{{custom_values.booking_link}}
+
+— Liberty Bancard
+
+SMS 2 — Breakup
+Should I close this out or is it worth a quick 10 minutes?
+{{custom_values.booking_link}}
+— Liberty Bancard
+
+2) RETAIL — INBOUND MARKETING DRIP
+Trigger: form fill, pricing page, chat, statement audit CTA
+
+Drip Email 1 — Welcome
+Email
+Subject
+Here’s what to expect next
+Hi {{contact.first_name}},
+
+Thanks for reaching out.
+
+For retail businesses, we typically help with:
+
+lowering real processing costs
+
+faster, simpler checkout
+
+fewer disputes on returns
+
+terminals that staff actually understand
+
+If you want the fastest path, book a quick call here:
+{{custom_values.booking_link}}
+
+— Liberty Bancard
+
+SMS (1 hour later)
+
+Hey {{contact.first_name}} — want me to recommend the best payment setup for your retail store?
+{{custom_values.booking_link}}
+— Liberty Bancard
+
+Drip Email 2 — Fees education
+Email
+Subject
+Retail fees explained (without the nonsense)
+Hi {{contact.first_name}},
+
+Most retail merchants are shown a “rate” — not the full picture.
+
+The biggest cost drivers are:
+
+card mix + downgrades
+
+terminal configuration
+
+how refunds and tips are handled
+
+We’ll show you exactly what matters and what doesn’t.
+
+{{custom_values.booking_link}}
+
+— Liberty Bancard
+
+Drip Email 3 — Workflow
+Email
+Subject
+What a clean retail payment setup looks like
+Hi {{contact.first_name}},
+
+The best retail setups have:
+
+fast tap/chip checkout
+
+clean receipts
+
+easy returns
+
+staff permissions
+
+predictable funding
+
+We’ll map this out specifically for your store.
+
+{{custom_values.booking_link}}
+
+— Liberty Bancard
+
+SMS
+
+What’s more annoying right now — fees, slow checkout, or support that never helps?
+— Liberty Bancard
+
+Drip Email 4 — Case study
+Email
+Subject
+How a retail store cut fees without changing prices
+Hi {{contact.first_name}},
+
+We helped a retail merchant reduce processing costs without raising prices by:
+
+fixing downgrade issues
+
+removing unnecessary fees
+
+adjusting terminal settings
+
+Happy to show you if the same applies to your store.
+
+{{custom_values.booking_link}}
+
+— Liberty Bancard
+
+Drip Email 5 — Objections
+Email
+Subject
+“My rate is fine” — that might still be costing you
+Hi {{contact.first_name}},
+
+A low rate doesn’t always mean low cost.
+
+Most overpayment happens outside the advertised rate — especially in retail.
+
+We’ll tell you honestly if your setup is already good.
+
+{{custom_values.booking_link}}
+
+— Liberty Bancard
+
+SMS
+
+If it’s easier, reply with your rough monthly volume and I’ll point you in the right direction.
+— Liberty Bancard
+
+Drip Email 6 — Breakup
+Email
+Subject
+Close the loop?
+Hi {{contact.first_name}},
+
+Last note from me.
+
+If you want clarity on your retail payment setup, grab time here:
+{{custom_values.booking_link}}
+
+Otherwise, I’ll step back.
+
+— Liberty Bancard
+
+3) RETAIL — OPERATIONAL EMAILS (POST-SIGNUP)
+Onboarding — Approval
+Email
+Subject
+You’re approved — here’s what happens next
+Hi {{contact.first_name}},
+
+You’re approved 🎉
+
+Here’s what to expect:
+
+Funding timeline overview
+
+Terminal/POS setup
+
+Support access
+
+Optimization check-in
+
+Book your account kickoff here:
+{{custom_values.booking_link}}
+
+— Liberty Bancard
+
+Go-Live Welcome
+Email
+Subject
+You’re live — let’s make sure everything’s dialed in
+Hi {{contact.first_name}},
+
+You’re officially live.
+
+We recommend a quick check-in to:
+
+confirm funding timing
+
+review receipts + returns
+
+optimize terminal settings
+
+Book here:
+{{custom_values.booking_link}}
+
+— Liberty Bancard
+
+14-Day Account Management Check-In
+Email
+Subject
+2-week retail optimization check
+Hi {{contact.first_name}},
+
+You’ve been live for about two weeks.
+
+Let’s do a quick review to:
+
+confirm fees look right
+
+reduce declines
+
+make checkout easier for staff
+
+{{custom_values.booking_link}}
+
+— Liberty Bancard
+
+Monthly Statement Review
+Email
+Subject
+Your monthly processing review (optional)
+Hi {{contact.first_name}},
+
+We offer optional monthly reviews to:
+
+spot new fees
+
+catch downgrades early
+
+keep costs optimized
+
+If you want us to take a look:
+{{custom_values.booking_link}}
+
+— Liberty Bancard
+
+✅ WHAT’S DONE
+✔ Retail SDR outbound
+✔ Retail inbound marketing drips
+✔ Retail onboarding + AM emails
+✔ Calendar routing baked in
+
+🔜 NEXT MESSAGE (Phase 2)
+I will deliver AUTO MERCHANT in the exact same depth:
+
+SDR outbound
+
+Inbound drips
+
+Deposits / invoices / text-to-pay workflows
+
+Risk-aware language
+
+Then Medical → Restaurant → Home Services → Cross-department system emails.
+
+You’re building something very real and very scalable here.
+Onward 🚀
+
+
+You said:
+yes 
+
+ChatGPT said:
+Great — continuing immediately with Phase 2: AUTO, in the same plug-and-play format (SDR outbound + inbound drip + operational flows). Every CTA uses your auto-routed:
+
+{{custom_values.booking_link}}
+
+PHASE 2 — AUTO (REPAIR / BODY SHOP / TOWING / PARTS)
+1) AUTO — SDR OUTBOUND SEQUENCE (4 emails + 2 SMS)
+Use for cold outbound + list outreach to auto merchants
+
+Email 1 — Personal opener (deposits + high tickets)
+Email
+Subject
+Quick question about payments at {{business_name}}
+Hi {{contact.first_name}},
+
+Quick note — I work with a lot of auto repair / towing / parts businesses, and payments tend to be different because of:
+
+deposits for parts
+
+higher-ticket invoices
+
+phone/keyed-in transactions
+
+disputes when customers “change their mind”
+
+We usually help auto merchants:
+
+set up deposits + partial payments cleanly
+
+reduce disputes with better receipts/policies
+
+improve approval rates for keyed-in when needed
+
+keep funding predictable
+
+If you’re open to it, I can do a 10-minute review and recommend the best setup for your shop.
+
+Book here:
+{{custom_values.booking_link}}
+
+— Liberty Bancard
+
+Email 2 — Value (3 traps)
+Email
+Subject
+3 payment issues we see in auto shops every week
+Hi {{contact.first_name}},
+
+Here are 3 common issues that quietly cost auto shops money:
+
+Deposits handled incorrectly (creates disputes + refund problems)
+
+Keyed-in/MOTO done without guardrails (more risk, more fees)
+
+Weak invoice documentation (harder to win chargebacks)
+
+We can show you a cleaner flow that protects the shop and keeps customers happy.
+
+{{custom_values.booking_link}}
+
+— Liberty Bancard
+
+SMS 1 — Question (deposit workflow)
+Quick one {{contact.first_name}} — do you usually take deposits for parts or do customers pay after the work is done?
+— Liberty Bancard
+
+Email 3 — Proof + outcome
+Email
+Subject
+A cleaner deposit + invoice flow for auto payments
+Hi {{contact.first_name}},
+
+We recently helped an auto business by:
+
+setting up deposit + partial payment workflow
+
+improving dispute prevention (clear docs + receipts)
+
+reducing friction for customers paying remotely
+
+keeping funding more predictable
+
+If you tell me roughly your monthly volume range, I’ll recommend the simplest setup (terminal + invoice links / text-to-pay where needed).
+
+{{custom_values.booking_link}}
+
+— Liberty Bancard
+
+Email 4 — Soft close
+Email
+Subject
+Worth 10 minutes or should I close this out?
+Hi {{contact.first_name}},
+
+Totally fine if now isn’t the right time — just don’t want to bug you.
+
+Should I close the loop, or is it worth a quick 10-minute review?
+
+{{custom_values.booking_link}}
+
+— Liberty Bancard
+
+SMS 2 — Breakup
+Should I close this out or is it worth a quick 10 minutes?
+{{custom_values.booking_link}}
+— Liberty Bancard
+
+2) AUTO — INBOUND MARKETING DRIP (6 emails + 3 SMS)
+Trigger: lead form, chat, “get quote”, pricing page, statement audit CTA
+
+Drip Email 1 — Welcome
+Email
+Subject
+Here’s the fastest way to improve your auto payments
+Hi {{contact.first_name}},
+
+Thanks for reaching out.
+
+For auto repair / towing / parts businesses, we typically help with:
+
+deposits for parts
+
+partial payments / split payments
+
+clean invoice documentation
+
+fewer disputes + better protection
+
+reliable funding
+
+If you want the fastest path, book 10 minutes here:
+{{custom_values.booking_link}}
+
+— Liberty Bancard
+
+SMS (1 hour later)
+
+Hey {{contact.first_name}} — want a quick recommendation for the best deposit + invoice setup for your shop?
+{{custom_values.booking_link}}
+— Liberty Bancard
+
+Drip Email 2 — Education (deposits + keyed-in)
+Email
+Subject
+Deposits + keyed-in payments (how to do it safely)
+Hi {{contact.first_name}},
+
+Auto payments get messy when:
+
+deposits aren’t documented clearly
+
+customers pay over the phone without a clean trail
+
+refunds/partials aren’t tracked correctly
+
+The fix is a simple workflow:
+
+clear deposit authorization
+
+accurate receipts/invoices
+
+consistent customer messaging
+
+We’ll help you implement it the right way.
+
+{{custom_values.booking_link}}
+
+— Liberty Bancard
+
+Drip Email 3 — Workflow (ideal flow)
+Email
+Subject
+The cleanest payment workflow for auto shops
+Hi {{contact.first_name}},
+
+A strong auto payment setup usually looks like:
+
+deposit for parts (with clear authorization)
+
+invoice for balance
+
+remote option when customer isn’t on-site (link/text)
+
+documentation stored for disputes
+
+If you want, we’ll map this to your exact flow.
+
+{{custom_values.booking_link}}
+
+— Liberty Bancard
+
+SMS
+
+What’s the biggest headache right now — disputes, funding timing, or deposits/partials getting messy?
+— Liberty Bancard
+
+Drip Email 4 — Case study / proof
+Email
+Subject
+How an auto shop reduced disputes and got paid faster
+Hi {{contact.first_name}},
+
+We helped an auto business by tightening:
+
+deposit and invoice documentation
+
+customer messaging
+
+receipts and descriptors
+
+remote payment options
+
+Result: fewer disputes, smoother collections.
+
+If you want, we’ll show you exactly what we’d change for your shop.
+
+{{custom_values.booking_link}}
+
+— Liberty Bancard
+
+Drip Email 5 — Objections (contract / rate / switching)
+Email
+Subject
+“I don’t want to switch processors” — fair
+Hi {{contact.first_name}},
+
+Totally fair.
+
+Even if you don’t switch, a quick review can still help you:
+
+identify hidden fees
+
+reduce disputes with better documentation
+
+improve deposit and invoice workflow
+
+If it’s useful, book 10 minutes here:
+{{custom_values.booking_link}}
+
+— Liberty Bancard
+
+SMS
+
+If you reply with your rough monthly volume + avg ticket, I’ll tell you the best setup for your shop.
+— Liberty Bancard
+
+Drip Email 6 — Breakup
+Email
+Subject
+Close the loop?
+Hi {{contact.first_name}},
+
+Last note from me.
+
+If you want a clean auto payment setup (deposits + invoices + fewer disputes), grab time here:
+{{custom_values.booking_link}}
+
+Otherwise I’ll step back.
+
+— Liberty Bancard
+
+3) AUTO — OPERATIONAL EMAILS (POST-SIGNUP)
+These are for approved / live merchants (booking_link should route to AM calendar automatically).
+
+Approved — Next steps (auto-specific)
+Email
+Subject
+You’re approved — let’s set up deposits + invoicing correctly
+Hi {{contact.first_name}},
+
+You’re approved 🎉
+
+For auto businesses, our go-live focus is:
+
+deposit workflow (parts + authorization)
+
+partial payments and refunds done cleanly
+
+remote payment option (link/text) when customers aren’t on-site
+
+documentation that helps prevent disputes
+
+Book your account kickoff here:
+{{custom_values.booking_link}}
+
+— Liberty Bancard
+
+Go-Live Welcome
+Email
+Subject
+You’re live — let’s dial in deposits, receipts, and funding
+Hi {{contact.first_name}},
+
+You’re officially live.
+
+Let’s do a quick check-in to:
+
+confirm funding timing
+
+confirm deposit + partial payment handling
+
+optimize receipts and invoice wording
+
+reduce dispute risk
+
+Book here:
+{{custom_values.booking_link}}
+
+— Liberty Bancard
+
+14-Day Optimization (auto-specific)
+Email
+Subject
+2-week check-in — reduce disputes + tighten your workflow
+Hi {{contact.first_name}},
+
+You’ve been live for about two weeks.
+
+Let’s do a quick review to:
+
+spot any avoidable fees
+
+reduce declines
+
+ensure deposits/partials/refunds are tracked correctly
+
+tighten documentation for dispute prevention
+
+{{custom_values.booking_link}}
+
+— Liberty Bancard
+
+Monthly Statement Review (auto-specific)
+Email
+Subject
+Monthly review: fees + dispute prevention check (optional)
+Hi {{contact.first_name}},
+
+Optional monthly review for auto merchants:
+
+fee changes or new charges
+
+downgrade patterns
+
+dispute prevention improvements
+
+funding consistency
+
+If you want us to review it:
+{{custom_values.booking_link}}
+
+— Liberty Bancard
+
+✅ PHASE 2 DONE
+✔ Auto SDR outbound
+✔ Auto inbound drips
+✔ Auto operational templates
+
+NEXT: PHASE 3 — MEDICAL / MED SPA
+I’ll deliver next (same depth):
+
+SDR outbound (medical tailored: deposits, packages, recurring, COF)
+
+inbound drip
+
+operational onboarding + 14-day + monthly review
+
+optional: “membership billing” mini-sequence
+
+Say “go” and I’ll continue directly with Medical.
+
+
+You said:
+yes
+
+ChatGPT said:
+
+

@@ -157,3 +157,6 @@ contacts, deals, tickets, tasks, notifications, documents, auditLogs, workflows,
 - Auto-enrollment triggers: contacts auto-enrolled in sequences on contact creation, form submissions (all 4 forms), and deal stage changes
 - Campaign send queue and enrichment queue wired into background timer for fully automated processing
 - Full automation loop: lead enters via form -> contact created -> auto-enrolled in drip sequence -> steps execute on schedule -> emails/tasks created automatically
+- 20 pre-built drip campaign sequences seeded with full email/SMS copy: Switch & Save, Payment Stack 101, Fast Approval, Trust Builder, Chargeback Defense, Funding Speed, POS vs Terminal, Liberty Smart Terminal, Surcharge/Cash Discount, Retail SDR, Auto SDR, Medical SDR, Recurring Billing, Text-to-Pay, Omnichannel, Security/PCI, Contract Escape, Objection Crusher, Reactivation, Referral Flywheel
+- All emails include professional HTML with CTA buttons linking to Sales calendar (new leads) or AM calendar (existing merchants), plus compliance footer
+- Idempotent seeding: checks by name to avoid duplicates on restart
