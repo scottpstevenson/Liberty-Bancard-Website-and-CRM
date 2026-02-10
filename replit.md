@@ -160,3 +160,13 @@ contacts, deals, tickets, tasks, notifications, documents, auditLogs, workflows,
 - 20 pre-built drip campaign sequences seeded with full email/SMS copy: Switch & Save, Payment Stack 101, Fast Approval, Trust Builder, Chargeback Defense, Funding Speed, POS vs Terminal, Liberty Smart Terminal, Surcharge/Cash Discount, Retail SDR, Auto SDR, Medical SDR, Recurring Billing, Text-to-Pay, Omnichannel, Security/PCI, Contract Escape, Objection Crusher, Reactivation, Referral Flywheel
 - All emails include professional HTML with CTA buttons linking to Sales calendar (new leads) or AM calendar (existing merchants), plus compliance footer
 - Idempotent seeding: checks by name to avoid duplicates on restart
+- Sunbiz Lead Gen Cleaner: CSV upload ingestion, Sunbiz web scraper, deep enrichment pipeline (website discovery, email/phone extraction, AI owner finder), batch processing, prospect conversion
+- sunbiz_entities table: filing number, entity name, officers (JSONB), registered agent, addresses, enrichment fields, prospect linking
+- Lead Gen Cleaner dashboard: drag-drop CSV upload, KPI cards (total/enriched/pending/email/phone/website), search + filter, entity table, detail dialog, enrich/convert actions, CSV export
+- Background Sunbiz enrichment processing wired into SLA worker (5 entities per cycle)
+- API routes: /api/sunbiz/upload, /api/sunbiz/entities, /api/sunbiz/stats, /api/sunbiz/search, /api/sunbiz/enrich-batch, /api/sunbiz/entities/:id/enrich, /api/sunbiz/entities/:id/convert, /api/sunbiz/convert-batch, /api/sunbiz/export
+- Corevt.txt fixed-width parser: streams 9.5GB Florida state filing zip files via child_process spawn, extracts active corporations/LLCs with names, addresses, filing numbers in 500-line batches
+- POST /api/sunbiz/upload-corevt: accepts corevt.zip uploads (300MB limit), streams fixed-width data, filters by event codes (CORAPNC, CORLCNC, etc.), imports to sunbiz_entities with batch upserts
+- Lead Gen Cleaner UI supports both CSV and corevt.zip uploads with auto-detection and progress indicators
+- 12 vertical-specific campaign sequences: Retail (SDR/Inbound/Ops), Auto (SDR/Inbound/Ops), Medical (SDR/Inbound/Ops), Restaurant (SDR/Inbound/Ops) with industry-tailored email/SMS copy
+- All Sunbiz API routes protected with isAuthenticated middleware

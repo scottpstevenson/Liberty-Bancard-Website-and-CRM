@@ -799,7 +799,8 @@ export class DatabaseStorage implements IStorage {
       FROM sunbiz_entities
       WHERE ${condition}
     `);
-    const row = (result as any).rows?.[0] || result[0] || {};
+    const rows = (result as any).rows || [];
+    const row = rows[0] || {};
     return {
       total: Number(row.total) || 0,
       enriched: Number(row.enriched) || 0,

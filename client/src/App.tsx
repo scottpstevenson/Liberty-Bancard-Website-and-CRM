@@ -52,6 +52,7 @@ import Reporting from "@/pages/dashboard/Reporting";
 import ContactDetail from "@/pages/dashboard/ContactDetail";
 import StageRules from "@/pages/dashboard/StageRules";
 import Sequences from "@/pages/dashboard/Sequences";
+import LeadGenCleaner from "@/pages/dashboard/LeadGenCleaner";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { user, isLoading } = useAuth();
@@ -175,6 +176,9 @@ function Router() {
       </Route>
       <Route path="/dashboard/sequences">
         <ProtectedRoute component={Sequences} />
+      </Route>
+      <Route path="/dashboard/lead-gen">
+        <ProtectedRoute component={LeadGenCleaner} />
       </Route>
 
       <Route component={NotFound} />

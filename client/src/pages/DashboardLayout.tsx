@@ -31,6 +31,7 @@ import {
   PieChart,
   GitBranch,
   Repeat,
+  Wand2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -71,6 +72,7 @@ const menuItems = [
 ];
 
 const leadGenItems = [
+  { icon: Wand2, label: "Lead Gen Cleaner", href: "/dashboard/lead-gen" },
   { icon: Target, label: "Prospects", href: "/dashboard/prospects" },
   { icon: Upload, label: "Import Prospects", href: "/dashboard/prospects/import" },
   { icon: Send, label: "Campaigns", href: "/dashboard/campaigns" },

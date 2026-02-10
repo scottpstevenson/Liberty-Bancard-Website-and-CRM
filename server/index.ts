@@ -5,6 +5,7 @@ import { createServer } from "http";
 import { startSlaWorker } from "./services/sla-worker";
 import { seedDefaultData } from "./services/seed-workflows";
 import { seedSequences } from "./services/seed-sequences";
+import { seedVerticalCampaigns } from "./services/seed-vertical-campaigns";
 
 const app = express();
 const httpServer = createServer(app);
@@ -103,6 +104,7 @@ app.use((req, res, next) => {
       log(`serving on port ${port}`);
       seedDefaultData();
       seedSequences();
+      seedVerticalCampaigns();
       startSlaWorker();
     },
   );

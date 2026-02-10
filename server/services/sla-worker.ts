@@ -3,6 +3,7 @@ import { sendGhlEmail, isGhlConfigured } from "./ghl";
 import { processSequenceEnrollments } from "./sequence-worker";
 import { processSendQueue } from "./campaign-engine";
 import { processEnrichmentQueue } from "./enrichment";
+import { processSunbizEnrichmentQueue } from "./sunbiz-enrichment";
 
 const SLA_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -339,6 +340,7 @@ export function startSlaWorker() {
     await processSequenceEnrollments();
     await processSendQueue().catch(err => console.error("Campaign send queue error:", err));
     await processEnrichmentQueue().catch(err => console.error("Enrichment queue error:", err));
+    await processSunbizEnrichmentQueue(5).catch(err => console.error("Sunbiz enrichment queue error:", err));
     cycleCount++;
     if (cycleCount % AI_OPS_EVERY_N_CYCLES === 0) {
       await runScheduledAiOps();

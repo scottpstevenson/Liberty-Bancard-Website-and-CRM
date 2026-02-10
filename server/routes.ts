@@ -9,10 +9,17 @@ import { isGhlConfigured, getGhlStatus, sendGhlEmail, sendGhlSms, sendTemplatedM
 import { enrichProspect, runEnrichmentJob, processEnrichmentQueue } from "./services/enrichment";
 import { queueCampaignMessages, processSendQueue, getCampaignAnalytics } from "./services/campaign-engine";
 import { autoEnrollFromTrigger } from "./services/sequence-worker";
+import { parseSunbizCsv, searchSunbiz, getEntityDetail, streamCorevtFromZip } from "./services/sunbiz-scraper";
+import { enrichSunbizEntity, processSunbizEnrichmentQueue, convertToProspect } from "./services/sunbiz-enrichment";
+import { insertSunbizEntitySchema } from "@shared/schema";
 import multer from "multer";
 import { parse } from "csv-parse/sync";
+import path from "path";
+import fs from "fs";
+import os from "os";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+const uploadLarge = multer({ dest: os.tmpdir(), limits: { fileSize: 300 * 1024 * 1024 } });
 
 export async function registerRoutes(
   httpServer: Server,
@@ -2383,6 +2390,307 @@ Return JSON with:
 
   // === ENHANCED DEAL STAGE CHANGE WITH AUTOMATION ===
   // (Stage automation is now handled in the existing PUT /api/deals/:id route enhancement)
+
+  // === SUNBIZ LEAD GEN CLEANER ===
+  app.get("/api/sunbiz/entities", isAuthenticated, async (req, res) => {
+    const listId = req.query.listId ? Number(req.query.listId) : undefined;
+    const entities = await storage.getSunbizEntities(listId);
+    res.json(entities);
+  });
+
+  app.get("/api/sunbiz/entities/:id", isAuthenticated, async (req, res) => {
+    const entity = await storage.getSunbizEntity(Number(req.params.id));
+    if (!entity) return res.status(404).json({ message: "Entity not found" });
+    res.json(entity);
+  });
+
+  app.get("/api/sunbiz/stats", isAuthenticated, async (req, res) => {
+    const listId = req.query.listId ? Number(req.query.listId) : undefined;
+    const stats = await storage.getSunbizStats(listId);
+    res.json(stats);
+  });
+
+  app.post("/api/sunbiz/search", isAuthenticated, async (req, res) => {
+    try {
+      const { query, entityType } = req.body;
+      if (!query) return res.status(400).json({ message: "Search query required" });
+      const results = await searchSunbiz(query, entityType);
+      res.json(results);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/sunbiz/import-detail", isAuthenticated, async (req, res) => {
+    try {
+      const { detailUrl, listId } = req.body;
+      if (!detailUrl) return res.status(400).json({ message: "Detail URL required" });
+      const detail = await getEntityDetail(detailUrl);
+      if (!detail) return res.status(404).json({ message: "Could not fetch entity detail" });
+
+      const existing = detail.filingNumber ? await storage.getSunbizEntityByFiling(detail.filingNumber) : null;
+      if (existing) return res.json(existing);
+
+      const entity = await storage.createSunbizEntity({
+        entityName: detail.entityName,
+        filingNumber: detail.filingNumber || undefined,
+        feiEinNumber: detail.feiEinNumber || undefined,
+        entityType: detail.entityType || undefined,
+        entityStatus: detail.entityStatus || undefined,
+        filingDate: detail.filingDate || undefined,
+        lastEvent: detail.lastEvent || undefined,
+        lastEventDate: detail.lastEventDate || undefined,
+        principalAddress: detail.principalAddress || undefined,
+        principalCity: detail.principalCity || undefined,
+        principalState: detail.principalState || "FL",
+        principalZip: detail.principalZip || undefined,
+        mailingAddress: detail.mailingAddress || undefined,
+        registeredAgentName: detail.registeredAgentName || undefined,
+        registeredAgentAddress: detail.registeredAgentAddress || undefined,
+        officers: detail.officers.length > 0 ? detail.officers : undefined,
+        detailUrl: detail.detailUrl || undefined,
+        listId: listId || undefined,
+        source: "sunbiz",
+        enrichmentStatus: "pending",
+      });
+
+      res.json(entity);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/sunbiz/upload", isAuthenticated, upload.single("file"), async (req, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+
+      const content = req.file.buffer.toString("utf-8");
+      const records = parse(content, {
+        columns: true,
+        skip_empty_lines: true,
+        trim: true,
+        relax_column_count: true,
+        bom: true,
+      });
+
+      const listName = req.body.listName || `Sunbiz Import ${new Date().toLocaleDateString()}`;
+      const list = await storage.createProspectList({
+        name: listName,
+        description: `Sunbiz directory upload: ${req.file.originalname}`,
+        fileName: req.file.originalname,
+        totalRecords: records.length,
+        status: "processing",
+      });
+
+      const parsed = parseSunbizCsv(records as Record<string, string>[]);
+      const entities = parsed.map(p => ({
+        entityName: p.entityName || "",
+        filingNumber: p.filingNumber || undefined,
+        feiEinNumber: p.feiEinNumber || undefined,
+        entityType: p.entityType || undefined,
+        entityStatus: p.entityStatus || "Active",
+        filingDate: p.filingDate || undefined,
+        principalAddress: p.principalAddress || undefined,
+        principalCity: p.principalCity || undefined,
+        principalState: p.principalState || "FL",
+        principalZip: p.principalZip || undefined,
+        mailingAddress: p.mailingAddress || undefined,
+        registeredAgentName: p.registeredAgentName || undefined,
+        registeredAgentAddress: p.registeredAgentAddress || undefined,
+        officers: p.officers || undefined,
+        dba: p.dba || undefined,
+        website: p.website || undefined,
+        email: p.email || undefined,
+        phone: p.phone || undefined,
+        detailUrl: p.detailUrl || undefined,
+        listId: list.id,
+        source: "sunbiz",
+        enrichmentStatus: "pending" as const,
+        searchQuery: listName,
+      }));
+
+      const created = await storage.createSunbizEntitiesBulk(entities);
+
+      await storage.updateProspectList(list.id, {
+        totalRecords: created.length,
+        status: "ready",
+      });
+
+      res.json({ list, imported: created.length });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/sunbiz/upload-corevt", isAuthenticated, uploadLarge.single("file"), async (req, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+
+      const filePath = req.file.path;
+      const listName = req.body.listName || `Sunbiz Corevt Import ${new Date().toLocaleDateString()}`;
+      const maxRecords = parseInt(req.body.maxRecords) || 10000;
+      const onlyWithAddress = req.body.onlyWithAddress === "true";
+
+      const list = await storage.createProspectList({
+        name: listName,
+        description: `Sunbiz corevt fixed-width upload: ${req.file.originalname}`,
+        fileName: req.file.originalname || "corevt.zip",
+        totalRecords: 0,
+        status: "processing",
+      });
+
+      let totalImported = 0;
+
+      try {
+        for await (const batch of streamCorevtFromZip(filePath, { maxRecords })) {
+          const filtered = onlyWithAddress
+            ? batch.filter(e => e.principalAddress || e.principalCity)
+            : batch;
+
+          if (filtered.length === 0) continue;
+
+          const entities = filtered.map(p => ({
+            entityName: p.entityName || "",
+            filingNumber: p.filingNumber || undefined,
+            feiEinNumber: p.feiEinNumber || undefined,
+            entityType: p.entityType || undefined,
+            entityStatus: p.entityStatus || "Active",
+            filingDate: p.filingDate || undefined,
+            principalAddress: p.principalAddress || undefined,
+            principalCity: p.principalCity || undefined,
+            principalState: p.principalState || "FL",
+            principalZip: p.principalZip || undefined,
+            mailingAddress: p.mailingAddress || undefined,
+            registeredAgentName: p.registeredAgentName || undefined,
+            registeredAgentAddress: p.registeredAgentAddress || undefined,
+            officers: p.officers && p.officers.length > 0 ? p.officers : undefined,
+            dba: p.dba || undefined,
+            website: p.website || undefined,
+            email: p.email || undefined,
+            phone: p.phone || undefined,
+            detailUrl: p.detailUrl || undefined,
+            listId: list.id,
+            source: "corevt",
+            enrichmentStatus: "pending" as const,
+            searchQuery: listName,
+          }));
+
+          const created = await storage.createSunbizEntitiesBulk(entities);
+          totalImported += created.length;
+        }
+      } finally {
+        try { fs.unlinkSync(filePath); } catch {}
+      }
+
+      await storage.updateProspectList(list.id, {
+        totalRecords: totalImported,
+        status: "ready",
+      });
+
+      res.json({ list: { ...list, totalRecords: totalImported }, imported: totalImported });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/sunbiz/entities/:id/enrich", isAuthenticated, async (req, res) => {
+    try {
+      const result = await enrichSunbizEntity(Number(req.params.id));
+      if (!result) return res.status(404).json({ message: "Entity not found" });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/sunbiz/enrich-batch", isAuthenticated, async (req, res) => {
+    try {
+      const limit = req.body.limit || 10;
+      const processed = await processSunbizEnrichmentQueue(limit);
+      res.json({ processed });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/sunbiz/entities/:id/convert", isAuthenticated, async (req, res) => {
+    try {
+      const prospectId = await convertToProspect(Number(req.params.id), req.body.listId);
+      if (!prospectId) return res.status(404).json({ message: "Entity not found" });
+      res.json({ prospectId });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/sunbiz/convert-batch", isAuthenticated, async (req, res) => {
+    try {
+      const { entityIds, listId } = req.body;
+      if (!entityIds || !Array.isArray(entityIds)) return res.status(400).json({ message: "entityIds array required" });
+      const results: number[] = [];
+      for (const id of entityIds) {
+        const prospectId = await convertToProspect(id, listId);
+        if (prospectId) results.push(prospectId);
+      }
+      res.json({ converted: results.length, prospectIds: results });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/sunbiz/entities/:id", isAuthenticated, async (req, res) => {
+    try {
+      const updated = await storage.updateSunbizEntity(Number(req.params.id), req.body);
+      if (!updated) return res.status(404).json({ message: "Entity not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/sunbiz/export", isAuthenticated, async (req, res) => {
+    try {
+      const listId = req.query.listId ? Number(req.query.listId) : undefined;
+      const entities = await storage.getSunbizEntities(listId);
+      const enrichedOnly = req.query.enrichedOnly === "true";
+      const filtered = enrichedOnly ? entities.filter(e => e.enrichmentStatus === "enriched") : entities;
+
+      const headers = ["Entity Name", "DBA", "Filing Number", "Entity Type", "Status", "Filing Date", "Principal Address", "City", "State", "Zip", "Owner Name", "Owner Email", "Owner Phone", "Website", "Email", "Phone", "Vertical", "Score", "AI Summary", "Officers"];
+      const csvRows = [headers.join(",")];
+      for (const e of filtered) {
+        const officers = (e.officers as any[]) || [];
+        const officerStr = officers.map((o: any) => `${o.title}: ${o.name}`).join("; ");
+        csvRows.push([
+          `"${(e.entityName || "").replace(/"/g, '""')}"`,
+          `"${(e.dba || "").replace(/"/g, '""')}"`,
+          e.filingNumber || "",
+          e.entityType || "",
+          e.entityStatus || "",
+          e.filingDate || "",
+          `"${(e.principalAddress || "").replace(/"/g, '""')}"`,
+          e.principalCity || "",
+          e.principalState || "",
+          e.principalZip || "",
+          `"${(e.ownerName || "").replace(/"/g, '""')}"`,
+          e.ownerEmail || "",
+          e.ownerPhone || "",
+          e.website || "",
+          e.email || "",
+          e.phone || "",
+          e.vertical || "",
+          e.score || "",
+          `"${(e.aiSummary || "").replace(/"/g, '""')}"`,
+          `"${officerStr.replace(/"/g, '""')}"`,
+        ].join(","));
+      }
+
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", `attachment; filename="sunbiz-leads-${Date.now()}.csv"`);
+      res.send(csvRows.join("\n"));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
 
   return httpServer;
 }
