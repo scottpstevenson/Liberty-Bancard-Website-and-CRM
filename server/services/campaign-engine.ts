@@ -4,7 +4,7 @@ import OpenAI from "openai";
 import { sendGhlEmail, isGhlConfigured } from "./ghl";
 
 function getOpenAI() {
-  return new OpenAI();
+  return new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
 }
 
 const DAILY_SEND_LIMIT = 2000;

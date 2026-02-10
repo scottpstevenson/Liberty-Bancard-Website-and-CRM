@@ -708,7 +708,7 @@ OUTPUT FORMAT:
       const systemPrompt = `${basePrompt}\n\n${departmentPrompts[department] || departmentPrompts.sales}`;
 
       const { OpenAI } = await import("openai");
-      const openai = new OpenAI();
+      const openai = new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
 
       const completion = await openai.chat.completions.create({
         model: "gpt-4o",
@@ -1514,7 +1514,7 @@ OUTPUT FORMAT:
 - Deal stages with most stalling: ${JSON.stringify(Object.fromEntries(stallingDeals.reduce((acc, d) => { acc.set(d.stage, (acc.get(d.stage) || 0) + 1); return acc; }, new Map())))}`;
 
       const { OpenAI } = await import("openai");
-      const openai = new OpenAI();
+      const openai = new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
 
       const completion = await openai.chat.completions.create({
         model: "gpt-4o",
@@ -1557,7 +1557,7 @@ RULES:
       }
 
       const { OpenAI } = await import("openai");
-      const openai = new OpenAI();
+      const openai = new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
 
       const completion = await openai.chat.completions.create({
         model: "gpt-4o",
@@ -1869,7 +1869,7 @@ FORMAT your response as JSON: {"subject": "...", "body": "..."}`
       if (!ticket) return res.status(404).json({ message: "Ticket not found" });
 
       const { OpenAI } = await import("openai");
-      const openai = new OpenAI();
+      const openai = new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
 
       const completion = await openai.chat.completions.create({
         model: "gpt-4o",
@@ -1961,7 +1961,7 @@ Respond ONLY with valid JSON.`
       if (!statementData) return res.status(400).json({ message: "statementData required" });
 
       const { OpenAI } = await import("openai");
-      const openai = new OpenAI();
+      const openai = new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
 
       const completion = await openai.chat.completions.create({
         model: "gpt-4o",
@@ -2030,7 +2030,7 @@ Return JSON with:
       const currentMonthlyFees = volume * (effectiveRate / 100);
 
       const { OpenAI } = await import("openai");
-      const openai = new OpenAI();
+      const openai = new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
 
       const completion = await openai.chat.completions.create({
         model: "gpt-4o",
