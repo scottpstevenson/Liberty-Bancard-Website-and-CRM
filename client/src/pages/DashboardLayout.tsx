@@ -33,6 +33,10 @@ import {
   Repeat,
   Wand2,
   Brain,
+  ListOrdered,
+  Megaphone,
+  Sparkles,
+  FileSearch,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -63,19 +67,26 @@ const menuItems = [
   { icon: ClipboardList, label: "Tasks", href: "/dashboard/tasks" },
   { icon: Bell, label: "Notifications", href: "/dashboard/notifications" },
   { icon: MessageSquare, label: "AI Advisor", href: "/dashboard/chat" },
-  { icon: Zap, label: "Workflows", href: "/dashboard/workflows" },
   { icon: FileQuestion, label: "RFIs", href: "/dashboard/rfis" },
+  { icon: PieChart, label: "Reporting", href: "/dashboard/reporting" },
+];
+
+const automationItems = [
   { icon: BarChart3, label: "Automation", href: "/dashboard/automation" },
+  { icon: Zap, label: "Workflows", href: "/dashboard/workflows" },
+  { icon: ListOrdered, label: "Sequences", href: "/dashboard/sequences" },
   { icon: GitBranch, label: "Stage Rules", href: "/dashboard/stage-rules" },
   { icon: Repeat, label: "Outreach", href: "/dashboard/outreach" },
+  { icon: Megaphone, label: "Campaigns", href: "/dashboard/campaigns" },
   { icon: Settings, label: "GHL Settings", href: "/dashboard/ghl-settings" },
-  { icon: PieChart, label: "Reporting", href: "/dashboard/reporting" },
 ];
 
 const leadGenItems = [
   { icon: Brain, label: "Lead Engine", href: "/dashboard/lead-engine" },
+  { icon: Sparkles, label: "Lead Intelligence", href: "/dashboard/lead-intelligence" },
   { icon: Target, label: "Prospects", href: "/dashboard/prospects" },
   { icon: Upload, label: "Import Prospects", href: "/dashboard/prospects/import" },
+  { icon: FileSearch, label: "Sunbiz Lead Gen", href: "/dashboard/lead-gen" },
   { icon: BarChart2, label: "Outreach Analytics", href: "/dashboard/outreach-analytics" },
 ];
 
@@ -98,6 +109,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
   const currentLabel =
     menuItems.find((i) => i.href === location)?.label ||
+    automationItems.find((i) => i.href === location)?.label ||
     leadGenItems.find((i) => i.href === location)?.label ||
     formItems.find((i) => i.href === location)?.label ||
     "Dashboard";
@@ -118,6 +130,28 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
               <SidebarGroupContent>
                 <SidebarMenu>
                   {menuItems.map((item) => {
+                    const Icon = item.icon;
+                    const isActive = location === item.href;
+                    return (
+                      <SidebarMenuItem key={item.href}>
+                        <SidebarMenuButton asChild isActive={isActive} data-testid={`link-sidebar-${item.label.toLowerCase().replace(/\s+/g, "-")}`}>
+                          <Link href={item.href}>
+                            <Icon className="w-4 h-4" />
+                            <span>{item.label}</span>
+                          </Link>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    );
+                  })}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+
+            <SidebarGroup>
+              <SidebarGroupLabel>Automation</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {automationItems.map((item) => {
                     const Icon = item.icon;
                     const isActive = location === item.href;
                     return (
