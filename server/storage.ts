@@ -29,6 +29,7 @@ import {
   type InsertNote,
   type InsertEmailLog, type InsertCallLog, type InsertStageAutomationRule, type InsertFollowUpSequence, type InsertSequenceStep, type InsertSequenceEnrollment,
   type InsertSunbizEntity, type UpdateSunbizEntityRequest, type SunbizEntity,
+  systemSettings,
 } from "@shared/schema";
 import { eq, desc, and, lt, isNull, ne, sql, asc } from "drizzle-orm";
 
@@ -820,6 +821,19 @@ export class DatabaseStorage implements IStorage {
       withPhone: Number(row.with_phone) || 0,
       withWebsite: Number(row.with_website) || 0,
     };
+  }
+  async getSystemSetting(key: string): Promise<any> {
+    const [row] = await db.select().from(systemSettings).where(eq(systemSettings.key, key));
+    return row?.value || null;
+  }
+
+  async setSystemSetting(key: string, value: any): Promise<void> {
+    const existing = await db.select().from(systemSettings).where(eq(systemSettings.key, key));
+    if (existing.length > 0) {
+      await db.update(systemSettings).set({ value, updatedAt: new Date() }).where(eq(systemSettings.key, key));
+    } else {
+      await db.insert(systemSettings).values({ key, value, updatedAt: new Date() });
+    }
   }
 }
 

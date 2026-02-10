@@ -724,30 +724,35 @@ OUTPUT FORMAT:
   });
 
   // === BLAZE.AI INTEGRATION ===
-  let blazeSettings: any = { enabled: false, webhookUrl: "", zapierConnected: false, lastSyncAt: null, contentTypes: ["email", "social", "blog", "newsletter"], workspaceId: "" };
+  const BLAZE_SETTINGS_KEY = "blaze_integration";
+  const defaultBlazeSettings = { enabled: false, webhookUrl: "", zapierConnected: false, lastSyncAt: null, contentTypes: ["email", "social", "blog", "newsletter"], workspaceId: "" };
 
   app.get("/api/integrations/blaze", isAuthenticated, async (req, res) => {
-    res.json(blazeSettings);
+    const saved = await storage.getSystemSetting(BLAZE_SETTINGS_KEY);
+    res.json(saved || defaultBlazeSettings);
   });
 
   app.post("/api/integrations/blaze", isAuthenticated, async (req, res) => {
     const { webhookUrl, workspaceId } = req.body;
-    blazeSettings = {
-      ...blazeSettings,
-      webhookUrl: webhookUrl || blazeSettings.webhookUrl,
-      workspaceId: workspaceId || blazeSettings.workspaceId,
-      enabled: !!(webhookUrl || workspaceId),
+    const current = (await storage.getSystemSetting(BLAZE_SETTINGS_KEY)) || { ...defaultBlazeSettings };
+    const updated = {
+      ...current,
+      webhookUrl: webhookUrl || current.webhookUrl,
+      workspaceId: workspaceId || current.workspaceId,
+      enabled: !!(webhookUrl || workspaceId || current.webhookUrl || current.workspaceId),
     };
+    await storage.setSystemSetting(BLAZE_SETTINGS_KEY, updated);
     await storage.createAuditLog({
       action: "blaze_settings_updated",
       entityType: "integration",
       details: { webhookUrl: !!webhookUrl, workspaceId: !!workspaceId },
     });
-    res.json({ success: true, settings: blazeSettings });
+    res.json({ success: true, settings: updated });
   });
 
   app.post("/api/integrations/blaze/test", isAuthenticated, async (req, res) => {
-    if (!blazeSettings.webhookUrl && !blazeSettings.workspaceId) {
+    const saved = (await storage.getSystemSetting(BLAZE_SETTINGS_KEY)) || defaultBlazeSettings;
+    if (!saved.webhookUrl && !saved.workspaceId) {
       return res.json({ success: false, message: "No Blaze.ai webhook URL or workspace ID configured. Use Zapier integration as the recommended approach." });
     }
     res.json({ success: true, message: "Settings saved. Connect via Zapier for the most reliable integration with Blaze.ai." });
@@ -764,7 +769,9 @@ OUTPUT FORMAT:
         details: { type, metadata },
       });
 
-      blazeSettings.lastSyncAt = new Date().toISOString();
+      const current = (await storage.getSystemSetting(BLAZE_SETTINGS_KEY)) || { ...defaultBlazeSettings };
+      current.lastSyncAt = new Date().toISOString();
+      await storage.setSystemSetting(BLAZE_SETTINGS_KEY, current);
 
       if (type === "content_published" && content) {
         await storage.createNotification({
@@ -2070,7 +2077,29 @@ Notes: ${deal.notes || "None"}`
         return res.status(500).json({ message: "Failed to generate structured proposal" });
       }
 
-      const proposal = JSON.parse(jsonMatch[0]);
+      let proposal: any;
+      try {
+        proposal = JSON.parse(jsonMatch[0]);
+      } catch (parseErr) {
+        return res.status(500).json({ message: "AI returned malformed JSON. Please try again." });
+      }
+
+      if (!proposal.plans || !Array.isArray(proposal.plans) || proposal.plans.length === 0) {
+        return res.status(500).json({ message: "Proposal missing required plan data. Please try again." });
+      }
+
+      for (const plan of proposal.plans) {
+        plan.monthlySavings = typeof plan.monthlySavings === "number" ? plan.monthlySavings : 0;
+        plan.annualSavings = typeof plan.annualSavings === "number" ? plan.annualSavings : plan.monthlySavings * 12;
+        plan.savingsPercent = typeof plan.savingsPercent === "number" ? plan.savingsPercent : 0;
+        plan.libertyMarginBps = typeof plan.libertyMarginBps === "number" ? plan.libertyMarginBps : 0;
+        plan.libertyMonthlyRevenue = typeof plan.libertyMonthlyRevenue === "number" ? plan.libertyMonthlyRevenue : 0;
+      }
+
+      if (!proposal.currentState) {
+        proposal.currentState = { monthlyVolume: volume, effectiveRate: `${effectiveRate}%`, monthlyFees: currentMonthlyFees, annualFees: currentMonthlyFees * 12, avgTicket, topIssues: [] };
+      }
+
       proposal.generatedAt = new Date().toISOString();
       proposal.dealId = deal.id;
 
