@@ -15,6 +15,7 @@ import { generateDealBlueprint } from "./services/deal-blueprint";
 import { routeContact, getRoutingRecommendation, checkCompliance } from "./services/smart-router";
 import { parseSunbizCsv, searchSunbiz, getEntityDetail, streamCorevtFromZip } from "./services/sunbiz-scraper";
 import { enrichSunbizEntity, processSunbizEnrichmentQueue, convertToProspect } from "./services/sunbiz-enrichment";
+import { estimateFromDeal, estimateFromContact, estimateFromProspect } from "./services/volume-estimator";
 import { insertSunbizEntitySchema } from "@shared/schema";
 import multer from "multer";
 import { parse } from "csv-parse/sync";
@@ -175,6 +176,26 @@ export async function registerRoutes(
         console.error("Stage automation error:", ruleErr);
       }
 
+      try {
+        const contact = updated.contactId ? await storage.getContact(updated.contactId) : null;
+        const volumeEst = estimateFromDeal(updated, contact);
+        await storage.updateDeal(updated.id, {
+          estimatedGrossProfitBps: volumeEst.estimatedGrossProfitBps,
+          estimatedGrossProfitMonthly: volumeEst.estimatedGrossProfitMonthly,
+          estimatedNetProfitMonthly: volumeEst.estimatedNetProfitMonthly,
+          merchantTier: volumeEst.merchantTier,
+        });
+        if (contact) {
+          await storage.updateContact(contact.id, {
+            estimatedProcessingVolume: volumeEst.estimatedProcessingVolume,
+            estimatedResidual: volumeEst.estimatedResidual,
+            volumeConfidence: volumeEst.volumeConfidence,
+          });
+        }
+      } catch (volErr) {
+        console.error("Volume estimate recalc error:", volErr);
+      }
+
       autoEnrollFromTrigger("deal_stage_changed", {
         contactId: updated.contactId || undefined,
         dealId: updated.id,
@@ -191,6 +212,63 @@ export async function registerRoutes(
       }, { toStage: updated.stage, fromStage: old.stage }).catch(err => console.error("Workflow trigger error:", err));
     }
     res.json(updated);
+  });
+
+  app.post("/api/deals/:id/recalculate-volume", isAuthenticated, async (req, res) => {
+    try {
+      const deal = await storage.getDeal(Number(req.params.id));
+      if (!deal) return res.status(404).json({ message: "Deal not found" });
+      const contact = deal.contactId ? await storage.getContact(deal.contactId) : null;
+      const estimate = estimateFromDeal(deal, contact);
+      await storage.updateDeal(deal.id, {
+        estimatedGrossProfitBps: estimate.estimatedGrossProfitBps,
+        estimatedGrossProfitMonthly: estimate.estimatedGrossProfitMonthly,
+        estimatedNetProfitMonthly: estimate.estimatedNetProfitMonthly,
+        merchantTier: estimate.merchantTier,
+      });
+      if (contact) {
+        await storage.updateContact(contact.id, {
+          estimatedProcessingVolume: estimate.estimatedProcessingVolume,
+          estimatedResidual: estimate.estimatedResidual,
+          volumeConfidence: estimate.volumeConfidence,
+        });
+      }
+      res.json({ success: true, estimate });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/contacts/:id/recalculate-volume", isAuthenticated, async (req, res) => {
+    try {
+      const contact = await storage.getContact(Number(req.params.id));
+      if (!contact) return res.status(404).json({ message: "Contact not found" });
+      const estimate = estimateFromContact(contact);
+      await storage.updateContact(contact.id, {
+        estimatedProcessingVolume: estimate.estimatedProcessingVolume,
+        estimatedResidual: estimate.estimatedResidual,
+        volumeConfidence: estimate.volumeConfidence,
+      });
+      res.json({ success: true, estimate });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/prospects/:id/recalculate-volume", isAuthenticated, async (req, res) => {
+    try {
+      const prospect = await storage.getProspect(Number(req.params.id));
+      if (!prospect) return res.status(404).json({ message: "Prospect not found" });
+      const estimate = estimateFromProspect(prospect);
+      await storage.updateProspect(prospect.id, {
+        estimatedVolume: estimate.estimatedProcessingVolume,
+        estimatedResidual: estimate.estimatedResidual,
+        estimatedAvgTicket: estimate.estimatedAvgTicket,
+      });
+      res.json({ success: true, estimate });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   // === TICKETS ===

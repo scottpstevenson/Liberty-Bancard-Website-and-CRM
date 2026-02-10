@@ -4,6 +4,7 @@ import { processSequenceEnrollments } from "./sequence-worker";
 import { processSendQueue } from "./campaign-engine";
 import { processEnrichmentQueue } from "./enrichment";
 import { processSunbizEnrichmentQueue } from "./sunbiz-enrichment";
+import { runSunbizAutoConvert } from "./sunbiz-cron";
 import { scoreContact } from "./lead-scoring";
 import { checkCompliance } from "./smart-router";
 
@@ -386,6 +387,7 @@ export function startSlaWorker() {
     await processSendQueue().catch(err => console.error("Campaign send queue error:", err));
     await processEnrichmentQueue().catch(err => console.error("Enrichment queue error:", err));
     await processSunbizEnrichmentQueue(5).catch(err => console.error("Sunbiz enrichment queue error:", err));
+    await runSunbizAutoConvert().catch(err => console.error("Sunbiz auto-convert error:", err));
     await checkDocumentReadiness().catch(err => console.error("Doc readiness check error:", err));
     await periodicLeadScoring().catch(err => console.error("Periodic scoring error:", err));
     cycleCount++;
