@@ -29,6 +29,8 @@ import {
   BarChart2,
   Mail,
   PieChart,
+  GitBranch,
+  Repeat,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -62,6 +64,8 @@ const menuItems = [
   { icon: Zap, label: "Workflows", href: "/dashboard/workflows" },
   { icon: FileQuestion, label: "RFIs", href: "/dashboard/rfis" },
   { icon: BarChart3, label: "Automation", href: "/dashboard/automation" },
+  { icon: GitBranch, label: "Stage Rules", href: "/dashboard/stage-rules" },
+  { icon: Repeat, label: "Drip Sequences", href: "/dashboard/sequences" },
   { icon: Settings, label: "GHL Settings", href: "/dashboard/ghl-settings" },
   { icon: PieChart, label: "Reporting", href: "/dashboard/reporting" },
 ];

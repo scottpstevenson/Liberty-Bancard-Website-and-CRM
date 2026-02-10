@@ -50,6 +50,8 @@ import Campaigns from "@/pages/dashboard/Campaigns";
 import OutreachAnalytics from "@/pages/dashboard/OutreachAnalytics";
 import Reporting from "@/pages/dashboard/Reporting";
 import ContactDetail from "@/pages/dashboard/ContactDetail";
+import StageRules from "@/pages/dashboard/StageRules";
+import Sequences from "@/pages/dashboard/Sequences";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { user, isLoading } = useAuth();
@@ -167,6 +169,12 @@ function Router() {
       </Route>
       <Route path="/dashboard/reporting">
         <ProtectedRoute component={Reporting} />
+      </Route>
+      <Route path="/dashboard/stage-rules">
+        <ProtectedRoute component={StageRules} />
+      </Route>
+      <Route path="/dashboard/sequences">
+        <ProtectedRoute component={Sequences} />
       </Route>
 
       <Route component={NotFound} />

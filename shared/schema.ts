@@ -777,3 +777,210 @@ export const CAMPAIGN_STEP_TYPES = [
   "wait",
   "ai_qualify",
 ] as const;
+
+export const emailLogs = pgTable("email_logs", {
+  id: serial("id").primaryKey(),
+  contactId: integer("contact_id").references(() => contacts.id),
+  dealId: integer("deal_id").references(() => deals.id),
+  direction: text("direction").notNull().default("outbound"),
+  from: text("from_address"),
+  to: text("to_address"),
+  subject: text("subject"),
+  body: text("body"),
+  snippet: text("snippet"),
+  templateId: integer("template_id"),
+  status: text("status").default("sent"),
+  openedAt: timestamp("opened_at"),
+  repliedAt: timestamp("replied_at"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertEmailLogSchema = createInsertSchema(emailLogs).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type EmailLog = typeof emailLogs.$inferSelect;
+export type InsertEmailLog = z.infer<typeof insertEmailLogSchema>;
+
+export const callLogs = pgTable("call_logs", {
+  id: serial("id").primaryKey(),
+  contactId: integer("contact_id").references(() => contacts.id),
+  dealId: integer("deal_id").references(() => deals.id),
+  direction: text("direction").notNull().default("outbound"),
+  duration: integer("duration"),
+  outcome: text("outcome"),
+  summary: text("summary"),
+  aiSummary: text("ai_summary"),
+  recordingUrl: text("recording_url"),
+  callerName: text("caller_name"),
+  nextSteps: text("next_steps"),
+  sentiment: text("sentiment"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertCallLogSchema = createInsertSchema(callLogs).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type CallLog = typeof callLogs.$inferSelect;
+export type InsertCallLog = z.infer<typeof insertCallLogSchema>;
+
+export const stageAutomationRules = pgTable("stage_automation_rules", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  pipeline: text("pipeline").notNull().default("sales"),
+  fromStage: text("from_stage"),
+  toStage: text("to_stage").notNull(),
+  actions: jsonb("actions").notNull(),
+  enabled: boolean("enabled").default(true),
+  priority: integer("priority").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertStageAutomationRuleSchema = createInsertSchema(stageAutomationRules).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type StageAutomationRule = typeof stageAutomationRules.$inferSelect;
+export type InsertStageAutomationRule = z.infer<typeof insertStageAutomationRuleSchema>;
+
+export const STAGE_AUTOMATION_ACTIONS = [
+  "create_task",
+  "send_email",
+  "send_sms",
+  "send_notification",
+  "update_contact_tags",
+  "create_follow_up",
+  "assign_owner",
+  "send_packet",
+  "update_deal_fields",
+  "enroll_sequence",
+  "log_activity",
+] as const;
+
+export const followUpSequences = pgTable("follow_up_sequences", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  triggerType: text("trigger_type").notNull().default("manual"),
+  triggerConfig: jsonb("trigger_config"),
+  totalSteps: integer("total_steps").default(0),
+  status: text("status").default("active"),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertFollowUpSequenceSchema = createInsertSchema(followUpSequences).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type FollowUpSequence = typeof followUpSequences.$inferSelect;
+export type InsertFollowUpSequence = z.infer<typeof insertFollowUpSequenceSchema>;
+
+export const sequenceSteps = pgTable("sequence_steps", {
+  id: serial("id").primaryKey(),
+  sequenceId: integer("sequence_id").references(() => followUpSequences.id),
+  stepOrder: integer("step_order").notNull(),
+  actionType: text("action_type").notNull(),
+  delayDays: integer("delay_days").default(0),
+  delayHours: integer("delay_hours").default(0),
+  subject: text("subject"),
+  body: text("body"),
+  templateId: integer("template_id"),
+  config: jsonb("config"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertSequenceStepSchema = createInsertSchema(sequenceSteps).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type SequenceStep = typeof sequenceSteps.$inferSelect;
+export type InsertSequenceStep = z.infer<typeof insertSequenceStepSchema>;
+
+export const sequenceEnrollments = pgTable("sequence_enrollments", {
+  id: serial("id").primaryKey(),
+  sequenceId: integer("sequence_id").references(() => followUpSequences.id),
+  contactId: integer("contact_id").references(() => contacts.id),
+  dealId: integer("deal_id").references(() => deals.id),
+  currentStep: integer("current_step").default(0),
+  status: text("status").default("active"),
+  nextActionAt: timestamp("next_action_at"),
+  completedAt: timestamp("completed_at"),
+  pausedAt: timestamp("paused_at"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertSequenceEnrollmentSchema = createInsertSchema(sequenceEnrollments).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type SequenceEnrollment = typeof sequenceEnrollments.$inferSelect;
+export type InsertSequenceEnrollment = z.infer<typeof insertSequenceEnrollmentSchema>;
+
+export const SEQUENCE_STATUSES = [
+  "active",
+  "paused",
+  "completed",
+  "cancelled",
+  "bounced",
+] as const;
+
+export const SEQUENCE_STEP_TYPES = [
+  "email",
+  "sms",
+  "call_reminder",
+  "task",
+  "wait",
+  "condition",
+] as const;
+
+export const CALL_OUTCOMES = [
+  "Connected",
+  "Voicemail",
+  "No Answer",
+  "Busy",
+  "Wrong Number",
+  "Callback Scheduled",
+  "Not Interested",
+  "Interested",
+  "Appointment Set",
+] as const;
+
+export const CALL_SENTIMENTS = [
+  "Positive",
+  "Neutral",
+  "Negative",
+  "Mixed",
+] as const;
+
+export const EMAIL_DIRECTIONS = [
+  "inbound",
+  "outbound",
+] as const;
+
+export const CONTACT_SCORE_FACTORS = {
+  emailOpened: 5,
+  emailReplied: 15,
+  callConnected: 20,
+  formSubmitted: 25,
+  meetingBooked: 30,
+  proposalViewed: 10,
+  websiteVisit: 3,
+  daysSinceLastActivity: -1,
+} as const;

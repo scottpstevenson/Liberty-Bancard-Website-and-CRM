@@ -3,6 +3,7 @@ import {
   contacts, companies, deals, tickets, tasks, documents, auditLogs, notifications, workflowRuns, workflows, rfis,
   messageTemplates, collateralPackets, ghlActivityLog, slaConfigs,
   prospects, prospectLists, enrichmentJobs, campaigns, campaignSteps, outboundMessages, notes,
+  emailLogs, callLogs, stageAutomationRules, followUpSequences, sequenceSteps, sequenceEnrollments,
   type InsertContact, type UpdateContactRequest,
   type InsertCompany,
   type InsertDeal, type UpdateDealRequest,
@@ -25,6 +26,7 @@ import {
   type InsertCampaignStep,
   type InsertOutboundMessage, type UpdateOutboundMessageRequest,
   type InsertNote,
+  type InsertEmailLog, type InsertCallLog, type InsertStageAutomationRule, type InsertFollowUpSequence, type InsertSequenceStep, type InsertSequenceEnrollment,
 } from "@shared/schema";
 import { eq, desc, and, lt, isNull, ne, sql, asc } from "drizzle-orm";
 
@@ -137,6 +139,36 @@ export interface IStorage {
   getNotes(entityType: string, entityId: number): Promise<typeof notes.$inferSelect[]>;
   createNote(note: InsertNote): Promise<typeof notes.$inferSelect>;
   deleteNote(id: number): Promise<void>;
+
+  getEmailLogs(contactId?: number): Promise<typeof emailLogs.$inferSelect[]>;
+  createEmailLog(log: InsertEmailLog): Promise<typeof emailLogs.$inferSelect>;
+
+  getCallLogs(contactId?: number): Promise<typeof callLogs.$inferSelect[]>;
+  createCallLog(log: InsertCallLog): Promise<typeof callLogs.$inferSelect>;
+
+  getStageAutomationRules(pipeline?: string): Promise<typeof stageAutomationRules.$inferSelect[]>;
+  getStageAutomationRule(id: number): Promise<typeof stageAutomationRules.$inferSelect | undefined>;
+  createStageAutomationRule(rule: InsertStageAutomationRule): Promise<typeof stageAutomationRules.$inferSelect>;
+  updateStageAutomationRule(id: number, updates: Partial<InsertStageAutomationRule>): Promise<typeof stageAutomationRules.$inferSelect | undefined>;
+  deleteStageAutomationRule(id: number): Promise<void>;
+  getMatchingStageRules(pipeline: string, fromStage: string | null, toStage: string): Promise<typeof stageAutomationRules.$inferSelect[]>;
+
+  getFollowUpSequences(): Promise<typeof followUpSequences.$inferSelect[]>;
+  getFollowUpSequence(id: number): Promise<typeof followUpSequences.$inferSelect | undefined>;
+  createFollowUpSequence(seq: InsertFollowUpSequence): Promise<typeof followUpSequences.$inferSelect>;
+  updateFollowUpSequence(id: number, updates: Partial<InsertFollowUpSequence>): Promise<typeof followUpSequences.$inferSelect | undefined>;
+  deleteFollowUpSequence(id: number): Promise<void>;
+
+  getSequenceSteps(sequenceId: number): Promise<typeof sequenceSteps.$inferSelect[]>;
+  createSequenceStep(step: InsertSequenceStep): Promise<typeof sequenceSteps.$inferSelect>;
+  updateSequenceStep(id: number, updates: Partial<InsertSequenceStep>): Promise<typeof sequenceSteps.$inferSelect | undefined>;
+  deleteSequenceStep(id: number): Promise<void>;
+
+  getSequenceEnrollments(sequenceId?: number): Promise<typeof sequenceEnrollments.$inferSelect[]>;
+  getContactEnrollments(contactId: number): Promise<typeof sequenceEnrollments.$inferSelect[]>;
+  createSequenceEnrollment(enrollment: InsertSequenceEnrollment): Promise<typeof sequenceEnrollments.$inferSelect>;
+  updateSequenceEnrollment(id: number, updates: Partial<InsertSequenceEnrollment>): Promise<typeof sequenceEnrollments.$inferSelect | undefined>;
+  getActiveEnrollments(): Promise<typeof sequenceEnrollments.$inferSelect[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -568,6 +600,142 @@ export class DatabaseStorage implements IStorage {
 
   async deleteNote(id: number) {
     await db.delete(notes).where(eq(notes.id, id));
+  }
+
+  async getEmailLogs(contactId?: number) {
+    if (contactId) {
+      return await db.select().from(emailLogs).where(eq(emailLogs.contactId, contactId)).orderBy(desc(emailLogs.createdAt));
+    }
+    return await db.select().from(emailLogs).orderBy(desc(emailLogs.createdAt));
+  }
+
+  async createEmailLog(log: InsertEmailLog) {
+    const [created] = await db.insert(emailLogs).values(log).returning();
+    return created;
+  }
+
+  async getCallLogs(contactId?: number) {
+    if (contactId) {
+      return await db.select().from(callLogs).where(eq(callLogs.contactId, contactId)).orderBy(desc(callLogs.createdAt));
+    }
+    return await db.select().from(callLogs).orderBy(desc(callLogs.createdAt));
+  }
+
+  async createCallLog(log: InsertCallLog) {
+    const [created] = await db.insert(callLogs).values(log).returning();
+    return created;
+  }
+
+  async getStageAutomationRules(pipeline?: string) {
+    if (pipeline) {
+      return await db.select().from(stageAutomationRules).where(eq(stageAutomationRules.pipeline, pipeline)).orderBy(desc(stageAutomationRules.priority));
+    }
+    return await db.select().from(stageAutomationRules).orderBy(desc(stageAutomationRules.priority));
+  }
+
+  async getStageAutomationRule(id: number) {
+    const [rule] = await db.select().from(stageAutomationRules).where(eq(stageAutomationRules.id, id));
+    return rule;
+  }
+
+  async createStageAutomationRule(rule: InsertStageAutomationRule) {
+    const [created] = await db.insert(stageAutomationRules).values(rule).returning();
+    return created;
+  }
+
+  async updateStageAutomationRule(id: number, updates: Partial<InsertStageAutomationRule>) {
+    const [updated] = await db.update(stageAutomationRules).set({ ...updates, updatedAt: new Date() }).where(eq(stageAutomationRules.id, id)).returning();
+    return updated;
+  }
+
+  async deleteStageAutomationRule(id: number) {
+    await db.delete(stageAutomationRules).where(eq(stageAutomationRules.id, id));
+  }
+
+  async getMatchingStageRules(pipeline: string, fromStage: string | null, toStage: string) {
+    return await db.select().from(stageAutomationRules).where(
+      and(
+        eq(stageAutomationRules.pipeline, pipeline),
+        eq(stageAutomationRules.toStage, toStage),
+        eq(stageAutomationRules.enabled, true),
+        fromStage
+          ? sql`(${stageAutomationRules.fromStage} IS NULL OR ${stageAutomationRules.fromStage} = ${fromStage})`
+          : isNull(stageAutomationRules.fromStage)
+      )
+    ).orderBy(desc(stageAutomationRules.priority));
+  }
+
+  async getFollowUpSequences() {
+    return await db.select().from(followUpSequences).orderBy(desc(followUpSequences.createdAt));
+  }
+
+  async getFollowUpSequence(id: number) {
+    const [seq] = await db.select().from(followUpSequences).where(eq(followUpSequences.id, id));
+    return seq;
+  }
+
+  async createFollowUpSequence(seq: InsertFollowUpSequence) {
+    const [created] = await db.insert(followUpSequences).values(seq).returning();
+    return created;
+  }
+
+  async updateFollowUpSequence(id: number, updates: Partial<InsertFollowUpSequence>) {
+    const [updated] = await db.update(followUpSequences).set({ ...updates, updatedAt: new Date() }).where(eq(followUpSequences.id, id)).returning();
+    return updated;
+  }
+
+  async deleteFollowUpSequence(id: number) {
+    await db.delete(followUpSequences).where(eq(followUpSequences.id, id));
+  }
+
+  async getSequenceSteps(sequenceId: number) {
+    return await db.select().from(sequenceSteps).where(eq(sequenceSteps.sequenceId, sequenceId)).orderBy(asc(sequenceSteps.stepOrder));
+  }
+
+  async createSequenceStep(step: InsertSequenceStep) {
+    const [created] = await db.insert(sequenceSteps).values(step).returning();
+    return created;
+  }
+
+  async updateSequenceStep(id: number, updates: Partial<InsertSequenceStep>) {
+    const [updated] = await db.update(sequenceSteps).set(updates).where(eq(sequenceSteps.id, id)).returning();
+    return updated;
+  }
+
+  async deleteSequenceStep(id: number) {
+    await db.delete(sequenceSteps).where(eq(sequenceSteps.id, id));
+  }
+
+  async getSequenceEnrollments(sequenceId?: number) {
+    if (sequenceId) {
+      return await db.select().from(sequenceEnrollments).where(eq(sequenceEnrollments.sequenceId, sequenceId)).orderBy(desc(sequenceEnrollments.createdAt));
+    }
+    return await db.select().from(sequenceEnrollments).orderBy(desc(sequenceEnrollments.createdAt));
+  }
+
+  async getContactEnrollments(contactId: number) {
+    return await db.select().from(sequenceEnrollments).where(eq(sequenceEnrollments.contactId, contactId)).orderBy(desc(sequenceEnrollments.createdAt));
+  }
+
+  async createSequenceEnrollment(enrollment: InsertSequenceEnrollment) {
+    const [created] = await db.insert(sequenceEnrollments).values(enrollment).returning();
+    return created;
+  }
+
+  async updateSequenceEnrollment(id: number, updates: Partial<InsertSequenceEnrollment>) {
+    const [updated] = await db.update(sequenceEnrollments).set({ ...updates, updatedAt: new Date() }).where(eq(sequenceEnrollments.id, id)).returning();
+    return updated;
+  }
+
+  async getActiveEnrollments() {
+    const now = new Date();
+    return await db.select().from(sequenceEnrollments).where(
+      and(
+        eq(sequenceEnrollments.status, "active"),
+        sql`${sequenceEnrollments.nextActionAt} IS NOT NULL`,
+        sql`${sequenceEnrollments.nextActionAt} <= ${now}`
+      )
+    );
   }
 }
 

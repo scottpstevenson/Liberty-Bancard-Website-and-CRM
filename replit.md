@@ -147,3 +147,9 @@ contacts, deals, tickets, tasks, notifications, documents, auditLogs, workflows,
 - AI Statement Analysis on upload page: fee analysis, program recommendations, key findings
 - Form-to-workflow triggers: all form submissions auto-trigger matching workflows, external webhook trigger endpoint
 - GET /api/activity endpoint for unified activity timeline (audit logs + GHL activity)
+- CRM Automation: email/call logging tables, stage automation rules engine, follow-up sequences/drip campaigns
+- Drip Sequences page: multi-step campaign builder (email/SMS/call/task/wait steps), enrollment management, KPI cards
+- Stage Rules page: automatic action triggers on deal stage changes (create tasks, notifications, sequence enrollment)
+- API routes: /api/email-logs, /api/call-logs, /api/stage-rules, /api/sequences, /api/sequence-enrollments
+- Unified activity feed: /api/contacts/:contactId/activity (emails, calls, notes, audit logs, GHL activity)
+- Deal stage automation engine: auto-triggers matching rules when deals change stages

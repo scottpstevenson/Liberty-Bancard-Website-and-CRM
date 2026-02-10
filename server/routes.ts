@@ -4,7 +4,7 @@ import { storage } from "./storage";
 import { setupAuth, registerAuthRoutes, isAuthenticated } from "./replit_integrations/auth";
 import { registerAudioRoutes } from "./replit_integrations/audio/routes";
 import { z } from "zod";
-import { insertContactSchema, insertDealSchema, insertTicketSchema, insertTaskSchema, insertCompanySchema, insertDocumentSchema, insertNotificationSchema, insertWorkflowSchema, insertRfiSchema, insertMessageTemplateSchema, insertCollateralPacketSchema, insertSlaConfigSchema, insertProspectSchema, insertProspectListSchema, insertEnrichmentJobSchema, insertCampaignSchema, insertCampaignStepSchema, insertOutboundMessageSchema, insertNoteSchema } from "@shared/schema";
+import { insertContactSchema, insertDealSchema, insertTicketSchema, insertTaskSchema, insertCompanySchema, insertDocumentSchema, insertNotificationSchema, insertWorkflowSchema, insertRfiSchema, insertMessageTemplateSchema, insertCollateralPacketSchema, insertSlaConfigSchema, insertProspectSchema, insertProspectListSchema, insertEnrichmentJobSchema, insertCampaignSchema, insertCampaignStepSchema, insertOutboundMessageSchema, insertNoteSchema, insertEmailLogSchema, insertCallLogSchema, insertStageAutomationRuleSchema, insertFollowUpSequenceSchema, insertSequenceStepSchema, insertSequenceEnrollmentSchema } from "@shared/schema";
 import { isGhlConfigured, getGhlStatus, sendGhlEmail, sendGhlSms, sendTemplatedMessage, upsertGhlContact, handleGhlWebhook, getCalendarBookingUrl } from "./services/ghl";
 import { enrichProspect, runEnrichmentJob, processEnrichmentQueue } from "./services/enrichment";
 import { queueCampaignMessages, processSendQueue, getCampaignAnalytics } from "./services/campaign-engine";
@@ -104,6 +104,60 @@ export async function registerRoutes(
     if (old && old.stage !== updated.stage) {
       await storage.createAuditLog({ action: "deal_stage_changed", entityType: "deal", entityId: updated.id, details: { from: old.stage, to: updated.stage } });
       await storage.createNotification({ channel: "internal", title: "Deal Stage Changed", message: `Deal #${updated.id} moved from "${old.stage}" to "${updated.stage}"`, type: "info" });
+
+      try {
+        const matchingRules = await storage.getMatchingStageRules(updated.pipeline, old.stage, updated.stage);
+        for (const rule of matchingRules) {
+          const ruleActions = (rule.actions as any[]) || [];
+          for (const action of ruleActions) {
+            if (action.type === "create_task") {
+              await storage.createTask({
+                title: action.title || `Auto: Stage moved to ${updated.stage}`,
+                assignedTo: action.assignedTo || updated.owner || "Unassigned",
+                priority: action.priority || "medium",
+                dueDate: action.dueHours ? new Date(Date.now() + action.dueHours * 3600000) : undefined,
+                dealId: updated.id,
+                contactId: updated.contactId || undefined,
+              });
+            } else if (action.type === "send_notification") {
+              await storage.createNotification({
+                channel: action.channel || "internal",
+                title: action.title || `Stage Automation: ${rule.name}`,
+                message: action.message || `Deal moved to ${updated.stage}`,
+                type: "info",
+              });
+            } else if (action.type === "create_follow_up") {
+              const followUpDate = new Date(Date.now() + (action.delayHours || 24) * 3600000);
+              await storage.createTask({
+                title: action.title || `Follow up: ${updated.stage}`,
+                assignedTo: updated.owner || "Unassigned",
+                priority: "high",
+                dueDate: followUpDate,
+                dealId: updated.id,
+                contactId: updated.contactId || undefined,
+                description: action.description || `Auto-generated follow-up from stage automation rule: ${rule.name}`,
+              });
+            } else if (action.type === "enroll_sequence" && action.sequenceId) {
+              await storage.createSequenceEnrollment({
+                sequenceId: action.sequenceId,
+                contactId: updated.contactId || undefined,
+                dealId: updated.id,
+                status: "active",
+                nextActionAt: new Date(),
+                currentStep: 0,
+              });
+            }
+          }
+          await storage.createAuditLog({
+            action: "stage_rule_triggered",
+            entityType: "deal",
+            entityId: updated.id,
+            details: { ruleName: rule.name, fromStage: old.stage, toStage: updated.stage },
+          });
+        }
+      } catch (ruleErr) {
+        console.error("Stage automation error:", ruleErr);
+      }
     }
     res.json(updated);
   });
@@ -2099,6 +2153,222 @@ Return JSON with:
       res.status(500).json({ message: err.message });
     }
   });
+
+  // === EMAIL LOGS ===
+  app.get("/api/email-logs", async (req, res) => {
+    const contactId = req.query.contactId ? Number(req.query.contactId) : undefined;
+    const logs = await storage.getEmailLogs(contactId);
+    res.json(logs);
+  });
+
+  app.get("/api/email-logs/contact/:contactId", async (req, res) => {
+    const logs = await storage.getEmailLogs(Number(req.params.contactId));
+    res.json(logs);
+  });
+
+  app.post("/api/email-logs", async (req, res) => {
+    try {
+      const input = insertEmailLogSchema.parse(req.body);
+      const log = await storage.createEmailLog(input);
+      await storage.createAuditLog({ action: "email_logged", entityType: "contact", entityId: log.contactId || 0, details: { direction: log.direction, subject: log.subject || "" } });
+      res.status(201).json(log);
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
+  });
+
+  // === CALL LOGS ===
+  app.get("/api/call-logs", async (req, res) => {
+    const contactId = req.query.contactId ? Number(req.query.contactId) : undefined;
+    const logs = await storage.getCallLogs(contactId);
+    res.json(logs);
+  });
+
+  app.get("/api/call-logs/contact/:contactId", async (req, res) => {
+    const logs = await storage.getCallLogs(Number(req.params.contactId));
+    res.json(logs);
+  });
+
+  app.post("/api/call-logs", async (req, res) => {
+    try {
+      const input = insertCallLogSchema.parse(req.body);
+      const log = await storage.createCallLog(input);
+      await storage.createAuditLog({ action: "call_logged", entityType: "contact", entityId: log.contactId || 0, details: { direction: log.direction, outcome: log.outcome || "", duration: String(log.duration || 0) } });
+      if (log.outcome === "Appointment Set" || log.outcome === "Interested") {
+        await storage.createNotification({ channel: "internal", title: "Positive Call Outcome", message: `Call with contact #${log.contactId}: ${log.outcome}`, type: "info" });
+      }
+      res.status(201).json(log);
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
+  });
+
+  // === STAGE AUTOMATION RULES ===
+  app.get("/api/stage-rules", async (req, res) => {
+    const pipeline = req.query.pipeline as string | undefined;
+    const rules = await storage.getStageAutomationRules(pipeline);
+    res.json(rules);
+  });
+
+  app.get("/api/stage-rules/:id", async (req, res) => {
+    const rule = await storage.getStageAutomationRule(Number(req.params.id));
+    if (!rule) return res.status(404).json({ message: "Not found" });
+    res.json(rule);
+  });
+
+  app.post("/api/stage-rules", async (req, res) => {
+    try {
+      const input = insertStageAutomationRuleSchema.parse(req.body);
+      const rule = await storage.createStageAutomationRule(input);
+      await storage.createAuditLog({ action: "stage_rule_created", entityType: "stage_rule", entityId: rule.id, details: { name: rule.name, pipeline: rule.pipeline } });
+      res.status(201).json(rule);
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
+  });
+
+  app.put("/api/stage-rules/:id", async (req, res) => {
+    const updated = await storage.updateStageAutomationRule(Number(req.params.id), req.body);
+    if (!updated) return res.status(404).json({ message: "Not found" });
+    res.json(updated);
+  });
+
+  app.delete("/api/stage-rules/:id", async (req, res) => {
+    await storage.deleteStageAutomationRule(Number(req.params.id));
+    res.json({ success: true });
+  });
+
+  // === FOLLOW-UP SEQUENCES (DRIP CAMPAIGNS) ===
+  app.get("/api/sequences", async (req, res) => {
+    const sequences = await storage.getFollowUpSequences();
+    res.json(sequences);
+  });
+
+  app.get("/api/sequences/:id", async (req, res) => {
+    const seq = await storage.getFollowUpSequence(Number(req.params.id));
+    if (!seq) return res.status(404).json({ message: "Not found" });
+    res.json(seq);
+  });
+
+  app.post("/api/sequences", async (req, res) => {
+    try {
+      const input = insertFollowUpSequenceSchema.parse(req.body);
+      const seq = await storage.createFollowUpSequence(input);
+      await storage.createAuditLog({ action: "sequence_created", entityType: "sequence", entityId: seq.id, details: { name: seq.name } });
+      res.status(201).json(seq);
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
+  });
+
+  app.put("/api/sequences/:id", async (req, res) => {
+    const updated = await storage.updateFollowUpSequence(Number(req.params.id), req.body);
+    if (!updated) return res.status(404).json({ message: "Not found" });
+    res.json(updated);
+  });
+
+  app.delete("/api/sequences/:id", async (req, res) => {
+    await storage.deleteFollowUpSequence(Number(req.params.id));
+    res.json({ success: true });
+  });
+
+  // === SEQUENCE STEPS ===
+  app.get("/api/sequences/:sequenceId/steps", async (req, res) => {
+    const steps = await storage.getSequenceSteps(Number(req.params.sequenceId));
+    res.json(steps);
+  });
+
+  app.post("/api/sequences/:sequenceId/steps", async (req, res) => {
+    try {
+      const input = insertSequenceStepSchema.parse({ ...req.body, sequenceId: Number(req.params.sequenceId) });
+      const step = await storage.createSequenceStep(input);
+      const seq = await storage.getFollowUpSequence(Number(req.params.sequenceId));
+      if (seq) {
+        const steps = await storage.getSequenceSteps(seq.id);
+        await storage.updateFollowUpSequence(seq.id, { totalSteps: steps.length });
+      }
+      res.status(201).json(step);
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
+  });
+
+  app.put("/api/sequence-steps/:id", async (req, res) => {
+    const updated = await storage.updateSequenceStep(Number(req.params.id), req.body);
+    if (!updated) return res.status(404).json({ message: "Not found" });
+    res.json(updated);
+  });
+
+  app.delete("/api/sequence-steps/:id", async (req, res) => {
+    await storage.deleteSequenceStep(Number(req.params.id));
+    res.json({ success: true });
+  });
+
+  // === SEQUENCE ENROLLMENTS ===
+  app.get("/api/sequence-enrollments", async (req, res) => {
+    const sequenceId = req.query.sequenceId ? Number(req.query.sequenceId) : undefined;
+    const enrollments = await storage.getSequenceEnrollments(sequenceId);
+    res.json(enrollments);
+  });
+
+  app.post("/api/sequence-enrollments", async (req, res) => {
+    try {
+      const input = insertSequenceEnrollmentSchema.parse(req.body);
+      const enrollment = await storage.createSequenceEnrollment(input);
+      await storage.createAuditLog({ action: "sequence_enrolled", entityType: "contact", entityId: enrollment.contactId || 0, details: { sequenceId: String(enrollment.sequenceId) } });
+      res.status(201).json(enrollment);
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
+  });
+
+  app.put("/api/sequence-enrollments/:id", async (req, res) => {
+    const updated = await storage.updateSequenceEnrollment(Number(req.params.id), req.body);
+    if (!updated) return res.status(404).json({ message: "Not found" });
+    res.json(updated);
+  });
+
+  app.get("/api/contacts/:contactId/enrollments", async (req, res) => {
+    const enrollments = await storage.getContactEnrollments(Number(req.params.contactId));
+    res.json(enrollments);
+  });
+
+  // === UNIFIED ACTIVITY FEED ===
+  app.get("/api/contacts/:contactId/activity", async (req, res) => {
+    try {
+      const contactId = Number(req.params.contactId);
+      const [emails, calls, contactNotes, auditLogsList, ghlLogs] = await Promise.all([
+        storage.getEmailLogs(contactId),
+        storage.getCallLogs(contactId),
+        storage.getNotes("contact", contactId),
+        storage.getAuditLogs(),
+        storage.getGhlActivityLogs(contactId),
+      ]);
+
+      const filteredAudit = auditLogsList.filter(a => (a.entityType === "contact" && a.entityId === contactId) || (a.entityType === "deal" && a.details && (a.details as any).contactId === contactId));
+
+      const activities = [
+        ...emails.map(e => ({ id: `email-${e.id}`, type: "email" as const, data: e, createdAt: e.createdAt })),
+        ...calls.map(c => ({ id: `call-${c.id}`, type: "call" as const, data: c, createdAt: c.createdAt })),
+        ...contactNotes.map(n => ({ id: `note-${n.id}`, type: "note" as const, data: n, createdAt: n.createdAt })),
+        ...filteredAudit.map(a => ({ id: `audit-${a.id}`, type: "audit" as const, data: a, createdAt: a.createdAt })),
+        ...ghlLogs.map(g => ({ id: `ghl-${g.id}`, type: "ghl" as const, data: g, createdAt: g.createdAt })),
+      ].sort((a, b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime());
+
+      res.json(activities);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === ENHANCED DEAL STAGE CHANGE WITH AUTOMATION ===
+  // (Stage automation is now handled in the existing PUT /api/deals/:id route enhancement)
 
   return httpServer;
 }
