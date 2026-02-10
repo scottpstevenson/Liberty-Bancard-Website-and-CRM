@@ -75,6 +75,7 @@ export interface IStorage {
   getWorkflowsByTrigger(triggerType: string): Promise<typeof workflows.$inferSelect[]>;
 
   getWorkflowRuns(): Promise<typeof workflowRuns.$inferSelect[]>;
+  getWorkflowRun(id: number): Promise<typeof workflowRuns.$inferSelect | undefined>;
   getWorkflowRunsByWorkflow(workflowId: number): Promise<typeof workflowRuns.$inferSelect[]>;
   createWorkflowRun(run: InsertWorkflowRun): Promise<typeof workflowRuns.$inferSelect>;
   updateWorkflowRun(id: number, updates: Partial<InsertWorkflowRun>): Promise<typeof workflowRuns.$inferSelect | undefined>;
@@ -334,6 +335,11 @@ export class DatabaseStorage implements IStorage {
 
   async getWorkflowRuns() {
     return await db.select().from(workflowRuns).orderBy(desc(workflowRuns.createdAt));
+  }
+
+  async getWorkflowRun(id: number) {
+    const [run] = await db.select().from(workflowRuns).where(eq(workflowRuns.id, id));
+    return run;
   }
 
   async getWorkflowRunsByWorkflow(workflowId: number) {

@@ -68,12 +68,11 @@ export async function executeWorkflowActions(
   startStep: number = 0
 ): Promise<{ status: string; log: any[]; runId: number }> {
   const { contactId, dealId } = await resolveContext(ctx);
-  const logEntries: any[] = startStep === 0
-    ? [{ step: 0, action: "started", timestamp: new Date().toISOString() }]
-    : [];
+  let logEntries: any[] = [];
 
   let createdRunId = runId;
   if (!createdRunId) {
+    logEntries = [{ step: 0, action: "started", timestamp: new Date().toISOString() }];
     const run = await storage.createWorkflowRun({
       workflowId,
       entityType: ctx.entityType || null,
@@ -83,6 +82,10 @@ export async function executeWorkflowActions(
       log: logEntries,
     });
     createdRunId = run.id;
+  } else if (startStep > 0) {
+    const existingRun = await storage.getWorkflowRun(createdRunId);
+    logEntries = Array.isArray(existingRun?.log) ? [...(existingRun!.log as any[])] : [];
+    logEntries.push({ step: startStep, action: "wait_resumed", timestamp: new Date().toISOString() });
   }
 
   for (let i = startStep; i < actions.length; i++) {
