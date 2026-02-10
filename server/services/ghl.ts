@@ -1,5 +1,10 @@
 import { storage } from "../storage";
 import type { Contact, Deal } from "@shared/schema";
+import OpenAI from "openai";
+
+function getOpenAI() {
+  return new OpenAI();
+}
 
 const GHL_API_BASE = "https://services.leadconnectorhq.com";
 
@@ -126,6 +131,8 @@ export async function sendGhlEmail(params: {
       body: JSON.stringify(emailPayload),
     });
 
+    if (result?.messageId) trackOutboundMessageId(result.messageId);
+
     await storage.createGhlActivityLog({
       contactId: params.contactId,
       dealId: params.dealId || null,
@@ -183,6 +190,8 @@ export async function sendGhlSms(params: {
       method: "POST",
       body: JSON.stringify(smsPayload),
     });
+
+    if (result?.messageId) trackOutboundMessageId(result.messageId);
 
     await storage.createGhlActivityLog({
       contactId: params.contactId,
@@ -330,6 +339,11 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
   }
 
   if (direction === "inbound") {
+    if (messageId && isOurOutboundMessage(messageId)) {
+      console.log(`[GHL Webhook] Ignoring echo of our own outbound message: ${messageId}`);
+      return;
+    }
+
     const contacts = await storage.getContacts();
     const contact = contacts.find(c => c.ghlContactId === contactId);
     if (contact) {
@@ -436,6 +450,23 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
           messagePreview: (body || "").substring(0, 100),
         },
       });
+
+      try {
+        const autoReplyResult = await sendAiAutoReply({
+          contact,
+          deal: contactDeal,
+          channel,
+          inboundMessage: body || "",
+          classification: messageClassification,
+        });
+        if (autoReplyResult.sent) {
+          console.log(`[GHL Webhook] AI auto-reply sent to ${contact.firstName} ${contact.lastName} via ${channel}`);
+        } else {
+          console.log(`[GHL Webhook] AI auto-reply skipped: ${autoReplyResult.error}`);
+        }
+      } catch (autoReplyErr: any) {
+        console.error("[GHL Webhook] AI auto-reply error:", autoReplyErr.message);
+      }
     }
   }
 
@@ -451,6 +482,224 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
         details: { source: "ghl_webhook" },
       });
     }
+  }
+}
+
+const recentAutoReplies = new Map<string, number>();
+const outboundMessageIds = new Set<string>();
+
+function trackOutboundMessageId(messageId: string) {
+  if (!messageId) return;
+  outboundMessageIds.add(messageId);
+  setTimeout(() => outboundMessageIds.delete(messageId), 30 * 60 * 1000);
+}
+
+function isOurOutboundMessage(messageId: string): boolean {
+  return messageId ? outboundMessageIds.has(messageId) : false;
+}
+
+async function hasRecentAutoReply(contactId: number, channel: string): Promise<boolean> {
+  const key = `${contactId}_${channel}`;
+  const lastReply = recentAutoReplies.get(key);
+  if (lastReply && Date.now() - lastReply < 5 * 60 * 1000) {
+    return true;
+  }
+  const logs = await storage.getGhlActivityLogs(contactId);
+  const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
+  return logs.some(l =>
+    l.direction === "outbound" &&
+    l.channel === channel &&
+    l.status === "sent" &&
+    l.createdAt && new Date(l.createdAt) > fiveMinAgo &&
+    l.metadata && (l.metadata as any).autoReply === true
+  );
+}
+
+function markAutoReplySent(contactId: number, channel: string) {
+  recentAutoReplies.set(`${contactId}_${channel}`, Date.now());
+  setTimeout(() => recentAutoReplies.delete(`${contactId}_${channel}`), 5 * 60 * 1000);
+}
+
+async function generateAiAutoReply(params: {
+  contact: Contact;
+  deal: Deal | undefined;
+  channel: "email" | "sms";
+  inboundMessage: string;
+  classification: { intent: string; priority: string; keywords: string[] };
+}): Promise<{ subject?: string; body: string } | null> {
+  const { contact, deal, channel, inboundMessage, classification } = params;
+
+  const noReplyIntents = ["unsubscribe", "callback", "neutral"];
+  if (noReplyIntents.includes(classification.intent)) return null;
+
+  if (contact.doNotContact) return null;
+
+  if (channel === "sms" && !contact.consentSms) return null;
+
+  if (await hasRecentAutoReply(contact.id, channel)) {
+    console.log(`[AI Auto-Reply] Skipped: recent auto-reply already sent to contact ${contact.id} via ${channel}`);
+    return null;
+  }
+
+  const isSms = channel === "sms";
+
+  const systemPrompt = `You are a professional sales advisor for Liberty Bancard, a merchant payment processing company. Generate a helpful, compliant reply to an inbound ${channel} message from a business prospect.
+
+RULES:
+- Be warm, professional, and helpful
+- NEVER make specific savings promises (like "save 30%") — use phrases like "many merchants find significant savings" or "we typically help businesses reduce processing costs"
+- NEVER provide legal, tax, or PCI compliance advice
+- NEVER ask for sensitive card data or bank account numbers
+- Always include a clear next step (schedule a call, send a statement for review, etc.)
+- If they asked a pricing question, explain that pricing depends on their specific processing profile and offer a free statement analysis
+- Keep the tone conversational but professional
+${isSms ? "- Keep response under 300 characters for SMS" : "- Keep response concise but thorough for email"}
+- Sign off as "Liberty Bancard Team"
+
+COMPLIANCE DISCLAIMER (must be included in every reply):
+${isSms ? "Msg&data rates may apply. Reply STOP to opt out." : "This message is from Liberty Bancard. If you no longer wish to receive communications, please reply STOP or contact us to be removed from our list."}`;
+
+  const contactContext = `Contact: ${contact.firstName} ${contact.lastName}
+Company: ${contact.companyName || "Not specified"}
+Industry: ${contact.vertical || "Not specified"}
+Current Provider: ${contact.currentProvider || "Not specified"}
+Monthly Volume: ${contact.monthlyVolume || "Not specified"}
+Deal Stage: ${deal?.stage || "No active deal"}
+Message Intent: ${classification.intent}
+Message Keywords: ${classification.keywords.join(", ")}`;
+
+  try {
+    const completion = await getOpenAI().chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: `${contactContext}\n\nInbound message:\n"${inboundMessage}"\n\nGenerate a ${channel} reply. ${isSms ? "Keep it under 300 characters." : "Include a subject line on the first line prefixed with 'Subject: ' followed by the body."}` }
+      ],
+      max_tokens: isSms ? 150 : 500,
+      temperature: 0.7,
+    });
+
+    const raw = completion.choices[0]?.message?.content?.trim() || "";
+    if (!raw) return null;
+
+    if (isSms) {
+      const smsDisclaimer = "\nMsg&data rates may apply. Reply STOP to opt out.";
+      const hasDisclaimer = raw.toLowerCase().includes("reply stop");
+      if (hasDisclaimer) {
+        const smsBody = raw.length > 300 ? raw.substring(0, 297) + "..." : raw;
+        return { body: smsBody };
+      }
+      const maxContent = 300 - smsDisclaimer.length;
+      const content = raw.length > maxContent ? raw.substring(0, maxContent - 3) + "..." : raw;
+      return { body: content + smsDisclaimer };
+    }
+
+    const emailDisclaimer = "\n\nThis message is from Liberty Bancard. If you no longer wish to receive communications, please reply STOP or contact us to be removed from our list.";
+    const subjectMatch = raw.match(/^Subject:\s*(.+?)[\n\r]/i);
+    const subject = subjectMatch ? subjectMatch[1].trim() : `Re: Your inquiry — Liberty Bancard`;
+    let emailBody = subjectMatch ? raw.replace(/^Subject:\s*.+?[\n\r]+/i, "").trim() : raw;
+    if (!emailBody.toLowerCase().includes("no longer wish to receive") && !emailBody.toLowerCase().includes("reply stop")) {
+      emailBody += emailDisclaimer;
+    }
+
+    return { subject, body: emailBody };
+  } catch (err: any) {
+    console.error("[AI Auto-Reply] Generation failed:", err.message);
+    return null;
+  }
+}
+
+export async function sendAiAutoReply(params: {
+  contact: Contact;
+  deal: Deal | undefined;
+  channel: "email" | "sms";
+  inboundMessage: string;
+  classification: { intent: string; priority: string; keywords: string[] };
+}): Promise<{ sent: boolean; error?: string }> {
+  try {
+    if (!isGhlConfigured()) {
+      return { sent: false, error: "GHL not configured" };
+    }
+
+    const reply = await generateAiAutoReply(params);
+    if (!reply) {
+      return { sent: false, error: "No reply generated (intent filtered or generation failed)" };
+    }
+
+    let result: { success: boolean; messageId?: string; error?: string };
+
+    if (params.channel === "email") {
+      result = await sendGhlEmail({
+        contactId: params.contact.id,
+        dealId: params.deal?.id,
+        subject: reply.subject || "Re: Your inquiry — Liberty Bancard",
+        body: reply.body,
+      });
+    } else {
+      result = await sendGhlSms({
+        contactId: params.contact.id,
+        dealId: params.deal?.id,
+        body: reply.body,
+      });
+    }
+
+    if (result.success) {
+      markAutoReplySent(params.contact.id, params.channel);
+
+      await storage.createGhlActivityLog({
+        contactId: params.contact.id,
+        dealId: params.deal?.id || null,
+        direction: "outbound",
+        channel: params.channel,
+        templateId: null,
+        subject: params.channel === "email" ? (reply.subject || "Re: Your inquiry") : null,
+        body: reply.body,
+        status: "sent",
+        ghlMessageId: result.messageId || null,
+        metadata: { autoReply: true, intent: params.classification.intent },
+      });
+
+      await storage.createAuditLog({
+        action: "ai_auto_reply_sent",
+        entityType: "contact",
+        entityId: params.contact.id,
+        details: {
+          channel: params.channel,
+          intent: params.classification.intent,
+          dealId: params.deal?.id,
+          replyPreview: reply.body.substring(0, 150),
+          messageId: result.messageId,
+        },
+      });
+
+      await storage.createNotification({
+        channel: "internal",
+        title: `AI Auto-Reply Sent to ${params.contact.firstName} ${params.contact.lastName}`,
+        message: `${params.channel.toUpperCase()} reply sent for "${params.classification.intent}" message. Preview: ${reply.body.substring(0, 100)}...`,
+        type: "info",
+        metadata: {
+          contactId: params.contact.id,
+          dealId: params.deal?.id,
+          autoReply: true,
+        },
+      });
+    } else {
+      await storage.createAuditLog({
+        action: "ai_auto_reply_failed",
+        entityType: "contact",
+        entityId: params.contact.id,
+        details: {
+          channel: params.channel,
+          intent: params.classification.intent,
+          error: result.error,
+        },
+      });
+    }
+
+    return { sent: result.success, error: result.error };
+  } catch (err: any) {
+    console.error("[AI Auto-Reply] Error:", err.message);
+    return { sent: false, error: err.message };
   }
 }
 

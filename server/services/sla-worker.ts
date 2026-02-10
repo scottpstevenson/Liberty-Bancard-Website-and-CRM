@@ -310,7 +310,7 @@ async function periodicLeadScoring() {
 
 let slaInterval: NodeJS.Timeout | null = null;
 let cycleCount = 0;
-const AI_OPS_EVERY_N_CYCLES = 6;
+const AI_OPS_EVERY_N_CYCLES = 2;
 
 async function runScheduledAiOps() {
   try {
