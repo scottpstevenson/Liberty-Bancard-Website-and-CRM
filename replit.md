@@ -153,3 +153,7 @@ contacts, deals, tickets, tasks, notifications, documents, auditLogs, workflows,
 - API routes: /api/email-logs, /api/call-logs, /api/stage-rules, /api/sequences, /api/sequence-enrollments
 - Unified activity feed: /api/contacts/:contactId/activity (emails, calls, notes, audit logs, GHL activity)
 - Deal stage automation engine: auto-triggers matching rules when deals change stages
+- Sequence processing worker: background timer (every 5 min) executes drip sequence steps, handles delays, processes email/SMS/call/task actions
+- Auto-enrollment triggers: contacts auto-enrolled in sequences on contact creation, form submissions (all 4 forms), and deal stage changes
+- Campaign send queue and enrichment queue wired into background timer for fully automated processing
+- Full automation loop: lead enters via form -> contact created -> auto-enrolled in drip sequence -> steps execute on schedule -> emails/tasks created automatically

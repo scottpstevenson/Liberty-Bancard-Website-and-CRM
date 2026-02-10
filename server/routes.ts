@@ -8,6 +8,7 @@ import { insertContactSchema, insertDealSchema, insertTicketSchema, insertTaskSc
 import { isGhlConfigured, getGhlStatus, sendGhlEmail, sendGhlSms, sendTemplatedMessage, upsertGhlContact, handleGhlWebhook, getCalendarBookingUrl } from "./services/ghl";
 import { enrichProspect, runEnrichmentJob, processEnrichmentQueue } from "./services/enrichment";
 import { queueCampaignMessages, processSendQueue, getCampaignAnalytics } from "./services/campaign-engine";
+import { autoEnrollFromTrigger } from "./services/sequence-worker";
 import multer from "multer";
 import { parse } from "csv-parse/sync";
 
@@ -36,6 +37,7 @@ export async function registerRoutes(
       for (const wf of contactWorkflows.filter(w => w.enabled)) {
         await storage.createWorkflowRun({ workflowId: wf.id, status: "completed", entityType: "contact", entityId: contact.id, log: { autoTriggered: true, event: "contact_created" } });
       }
+      autoEnrollFromTrigger("contact_created", { contactId: contact.id }).catch(err => console.error("Auto-enroll error:", err));
       res.status(201).json(contact);
     } catch (err) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
@@ -158,6 +160,14 @@ export async function registerRoutes(
       } catch (ruleErr) {
         console.error("Stage automation error:", ruleErr);
       }
+
+      autoEnrollFromTrigger("deal_stage_changed", {
+        contactId: updated.contactId || undefined,
+        dealId: updated.id,
+        toStage: updated.stage,
+        fromStage: old.stage,
+        pipeline: updated.pipeline,
+      } as any).catch(err => console.error("Auto-enroll on stage change error:", err));
     }
     res.json(updated);
   });
@@ -296,6 +306,7 @@ export async function registerRoutes(
       });
 
       await storage.createAuditLog({ action: "statement_uploaded", entityType: "contact", entityId: contact.id, details: { source: "website" } });
+      autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "statement_upload" }).catch(err => console.error("Auto-enroll error:", err));
 
       res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id });
     } catch (err: any) {
@@ -329,6 +340,7 @@ export async function registerRoutes(
         type: "info",
       });
 
+      autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "estimate" }).catch(err => console.error("Auto-enroll error:", err));
       res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id });
     } catch (err: any) {
       res.status(400).json({ message: err.message || "Invalid submission" });
@@ -394,6 +406,7 @@ export async function registerRoutes(
         type: "info",
       });
 
+      autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "get_started" }).catch(err => console.error("Auto-enroll error:", err));
       res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id, offerPath });
     } catch (err: any) {
       res.status(400).json({ message: err.message || "Invalid submission" });
@@ -425,6 +438,7 @@ export async function registerRoutes(
         type: "alert",
       });
 
+      autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "callback" }).catch(err => console.error("Auto-enroll error:", err));
       res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id });
     } catch (err: any) {
       res.status(400).json({ message: err.message || "Invalid submission" });
