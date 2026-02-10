@@ -27,6 +27,8 @@ The system is built on a modern web stack:
     - **Profit Instrumentation**: Integrates fields for merchant tier, risk tier, health score, average ticket, and estimated profit to deals.
     - **Lead Generation & Qualification Engine**: Features bulk CSV import, AI-powered prospect enrichment (website scraping, categorization, scoring), multi-step campaign sequences with AI-personalized emails, and tracking. It also includes an AI-powered lead scoring model (0-100 across 4 dimensions), AI deal blueprint generation, smart sequence routing, and document readiness tracking with auto-nudges.
     - **Sunbiz Lead Gen Cleaner**: A specialized tool for processing Florida state filing data (corevt.zip files), performing deep enrichment, and converting entities into prospects.
+    - **Statement Review & Savings Proposals**: AI-powered statement analysis that generates multi-plan pricing proposals (Cash Discount/Compliant Surcharging, Interchange Plus, Tiered Reduction) with 20-30% savings calculations, annual projections, Liberty Bancard margin data, compliance disclaimers, and urgency CTAs. Stored in deal.savingsProposal JSONB field. Dashboard page at `/dashboard/statement-review`.
+    - **Blaze.ai Marketing Integration**: Integration settings page for connecting Blaze.ai AI marketing platform via Zapier/webhooks. Supports inbound webhook at `/api/webhooks/blaze` for content events. Dashboard page at `/dashboard/blaze`.
 - **Compliance Rules**: Strict adherence to regulatory guidelines, including explicit disclaimers, no unsubstantiated savings claims, no legal/tax advice, and no PCI data storage.
 
 ## External Dependencies

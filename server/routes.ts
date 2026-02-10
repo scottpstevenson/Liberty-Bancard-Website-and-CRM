@@ -723,6 +723,66 @@ OUTPUT FORMAT:
     }
   });
 
+  // === BLAZE.AI INTEGRATION ===
+  let blazeSettings: any = { enabled: false, webhookUrl: "", zapierConnected: false, lastSyncAt: null, contentTypes: ["email", "social", "blog", "newsletter"], workspaceId: "" };
+
+  app.get("/api/integrations/blaze", isAuthenticated, async (req, res) => {
+    res.json(blazeSettings);
+  });
+
+  app.post("/api/integrations/blaze", isAuthenticated, async (req, res) => {
+    const { webhookUrl, workspaceId } = req.body;
+    blazeSettings = {
+      ...blazeSettings,
+      webhookUrl: webhookUrl || blazeSettings.webhookUrl,
+      workspaceId: workspaceId || blazeSettings.workspaceId,
+      enabled: !!(webhookUrl || workspaceId),
+    };
+    await storage.createAuditLog({
+      action: "blaze_settings_updated",
+      entityType: "integration",
+      details: { webhookUrl: !!webhookUrl, workspaceId: !!workspaceId },
+    });
+    res.json({ success: true, settings: blazeSettings });
+  });
+
+  app.post("/api/integrations/blaze/test", isAuthenticated, async (req, res) => {
+    if (!blazeSettings.webhookUrl && !blazeSettings.workspaceId) {
+      return res.json({ success: false, message: "No Blaze.ai webhook URL or workspace ID configured. Use Zapier integration as the recommended approach." });
+    }
+    res.json({ success: true, message: "Settings saved. Connect via Zapier for the most reliable integration with Blaze.ai." });
+  });
+
+  app.post("/api/webhooks/blaze", async (req, res) => {
+    try {
+      const { type, content, metadata } = req.body;
+      console.log(`[Blaze Webhook] Received: ${type}`, metadata);
+
+      await storage.createAuditLog({
+        action: "blaze_webhook_received",
+        entityType: "integration",
+        details: { type, metadata },
+      });
+
+      blazeSettings.lastSyncAt = new Date().toISOString();
+
+      if (type === "content_published" && content) {
+        await storage.createNotification({
+          channel: "internal",
+          title: "Blaze.ai Content Published",
+          message: `New ${metadata?.contentType || "content"}: ${content?.title || "Untitled"}`,
+          type: "info",
+          metadata: { source: "blaze", contentType: metadata?.contentType },
+        });
+      }
+
+      res.json({ success: true, received: true });
+    } catch (err: any) {
+      console.error("Blaze webhook error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // === MESSAGE TEMPLATES ===
   app.get("/api/message-templates", async (req, res) => {
     const category = req.query.category as string | undefined;
@@ -1866,6 +1926,202 @@ Return JSON with:
       res.json(analysis);
     } catch (err: any) {
       res.status(500).json({ message: err.message || "Analysis error" });
+    }
+  });
+
+  app.post("/api/ai/generate-proposal", isAuthenticated, async (req, res) => {
+    try {
+      const { dealId, statementData } = req.body;
+      if (!dealId) return res.status(400).json({ message: "dealId required" });
+
+      const deal = await storage.getDeal(Number(dealId));
+      if (!deal) return res.status(404).json({ message: "Deal not found" });
+
+      const contact = deal.contactId ? await storage.getContact(deal.contactId) : null;
+
+      const volume = parseFloat((statementData?.monthlyVolume || deal.totalVolume || "0").toString().replace(/[^0-9.]/g, ""));
+      const effectiveRate = parseFloat((statementData?.effectiveRate || deal.effectiveRate || "3.0").toString().replace(/[^0-9.]/g, ""));
+      const avgTicket = parseFloat((statementData?.avgTicket || deal.avgTicket || "50").toString().replace(/[^0-9.]/g, ""));
+      const currentMonthlyFees = volume * (effectiveRate / 100);
+
+      const { OpenAI } = await import("openai");
+      const openai = new OpenAI();
+
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: `You are Liberty Bancard's AI Pricing Strategist. Generate a competitive savings proposal for a merchant.
+
+BUSINESS CONTEXT:
+- Liberty Bancard is a merchant payment processor offering better rates
+- Goal: Show the merchant EXACTLY where they save and how much per year
+- Pricing should be 20-30% lower than their current processing fees
+- Liberty Bancard still needs healthy margin (target 15-25 basis points net profit on volume)
+- Generate THREE pricing plans the sales rep can present
+
+PLAN TYPES:
+1. "Cash Discount / Compliant Surcharging" - Merchant effectively pays 0% processing. Customer pays a small service fee at point of sale. Liberty Bancard earns from the surcharge program management fee.
+2. "Interchange Plus" - Transparent pricing: interchange cost + small fixed markup. Merchant still saves significantly vs their current tiered/bundled pricing. This is the "honest" plan.
+3. "Tiered Reduction" - Simplified tiered pricing but with rates 20-30% lower than current. Good for merchants who want simplicity.
+
+RULES:
+- All savings must be realistic and mathematically sound
+- Include disclaimer: "Eligibility, underwriting, card brand rules, and applicable laws apply. Savings estimates based on statement data provided. Actual results may vary."
+- Never promise exact savings without full underwriting
+- Be specific with dollar amounts
+- Include strong urgency CTAs
+
+Return valid JSON with this exact structure:
+{
+  "merchantName": "string",
+  "currentState": {
+    "monthlyVolume": number,
+    "effectiveRate": "string (e.g. 3.2%)",
+    "monthlyFees": number,
+    "annualFees": number,
+    "avgTicket": number,
+    "topIssues": ["string array of 3-5 specific fee problems found"]
+  },
+  "plans": [
+    {
+      "name": "Cash Discount / Compliant Surcharging",
+      "shortName": "cashDiscount",
+      "headline": "string - compelling one-liner",
+      "effectiveRate": "string (e.g. 0.00%)",
+      "monthlyFees": number,
+      "monthlySavings": number,
+      "annualSavings": number,
+      "savingsPercent": number,
+      "howItWorks": "string - 2-3 sentence explanation",
+      "pros": ["string array"],
+      "cons": ["string array"],
+      "bestFor": "string",
+      "libertyMarginBps": number,
+      "libertyMonthlyRevenue": number
+    },
+    {
+      "name": "Interchange Plus",
+      "shortName": "interchangePlus",
+      "headline": "string",
+      "effectiveRate": "string",
+      "monthlyFees": number,
+      "monthlySavings": number,
+      "annualSavings": number,
+      "savingsPercent": number,
+      "howItWorks": "string",
+      "pros": ["string array"],
+      "cons": ["string array"],
+      "bestFor": "string",
+      "libertyMarginBps": number,
+      "libertyMonthlyRevenue": number
+    },
+    {
+      "name": "Tiered Reduction",
+      "shortName": "tieredReduction",
+      "headline": "string",
+      "effectiveRate": "string",
+      "monthlyFees": number,
+      "monthlySavings": number,
+      "annualSavings": number,
+      "savingsPercent": number,
+      "howItWorks": "string",
+      "pros": ["string array"],
+      "cons": ["string array"],
+      "bestFor": "string",
+      "libertyMarginBps": number,
+      "libertyMonthlyRevenue": number
+    }
+  ],
+  "recommendedPlan": "shortName of best plan for this merchant",
+  "recommendedReason": "string - why this plan is best",
+  "urgencyCtas": ["3 strong CTA messages to close the deal ASAP"],
+  "complianceDisclaimer": "string",
+  "feeBreakdown": {
+    "currentInterchange": "string estimate",
+    "currentMarkup": "string estimate",
+    "currentMonthlyFees": "string estimate",
+    "currentPciFees": "string estimate",
+    "hiddenFees": ["string array of fees they're overpaying"]
+  }
+}`
+          },
+          {
+            role: "user",
+            content: `Generate a savings proposal for this merchant:
+Merchant: ${contact?.companyName || contact?.firstName + " " + contact?.lastName || "Unknown Business"}
+Industry: ${contact?.vertical || "General Retail"}
+Monthly Volume: $${volume.toLocaleString()}
+Current Effective Rate: ${effectiveRate}%
+Current Monthly Fees: $${currentMonthlyFees.toFixed(2)}
+Average Ticket: $${avgTicket.toFixed(2)}
+Current Provider: ${contact?.currentProvider || "Unknown"}
+Additional Statement Data: ${statementData ? JSON.stringify(statementData) : "None provided"}
+Notes: ${deal.notes || "None"}`
+          }
+        ],
+        max_tokens: 2000,
+      });
+
+      const raw = completion.choices[0]?.message?.content || "";
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        return res.status(500).json({ message: "Failed to generate structured proposal" });
+      }
+
+      const proposal = JSON.parse(jsonMatch[0]);
+      proposal.generatedAt = new Date().toISOString();
+      proposal.dealId = deal.id;
+
+      const bestPlan = proposal.plans?.find((p: any) => p.shortName === proposal.recommendedPlan) || proposal.plans?.[0];
+
+      await storage.updateDeal(deal.id, {
+        savingsProposal: proposal,
+        proposalGeneratedAt: new Date(),
+        recommendedPath: bestPlan?.name || deal.recommendedPath,
+        effectiveRate: deal.effectiveRate || `${effectiveRate}%`,
+        totalVolume: deal.totalVolume || `$${volume.toLocaleString()}`,
+        totalFees: deal.totalFees || `$${currentMonthlyFees.toFixed(2)}`,
+        avgTicket: deal.avgTicket || `$${avgTicket.toFixed(2)}`,
+        estimatedGrossProfitBps: bestPlan?.libertyMarginBps || deal.estimatedGrossProfitBps,
+        estimatedGrossProfitMonthly: bestPlan?.libertyMonthlyRevenue ? `$${bestPlan.libertyMonthlyRevenue.toFixed(2)}` : deal.estimatedGrossProfitMonthly,
+        lastStatementReviewDate: new Date(),
+      });
+
+      await storage.createAuditLog({
+        action: "proposal_generated",
+        entityType: "deal",
+        entityId: deal.id,
+        details: {
+          recommendedPlan: proposal.recommendedPlan,
+          plans: proposal.plans?.map((p: any) => ({ name: p.name, annualSavings: p.annualSavings, savingsPercent: p.savingsPercent })),
+        },
+      });
+
+      await storage.createNotification({
+        channel: "internal",
+        title: "Savings Proposal Generated",
+        message: `Proposal ready for ${contact?.companyName || contact?.firstName || "Unknown"} - recommended: ${bestPlan?.name || "N/A"}, annual savings: $${bestPlan?.annualSavings?.toLocaleString() || "N/A"}`,
+        type: "info",
+        metadata: { dealId: deal.id, contactId: deal.contactId },
+      });
+
+      res.json(proposal);
+    } catch (err: any) {
+      console.error("Proposal generation error:", err);
+      res.status(500).json({ message: err.message || "Proposal generation error" });
+    }
+  });
+
+  app.get("/api/deals/:id/proposal", isAuthenticated, async (req, res) => {
+    try {
+      const deal = await storage.getDeal(Number(req.params.id));
+      if (!deal) return res.status(404).json({ message: "Deal not found" });
+      if (!deal.savingsProposal) return res.status(404).json({ message: "No proposal generated yet" });
+      res.json(deal.savingsProposal);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
     }
   });
 

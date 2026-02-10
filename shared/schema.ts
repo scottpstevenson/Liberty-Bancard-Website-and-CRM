@@ -119,6 +119,8 @@ export const deals = pgTable("deals", {
   campaignName: text("campaign_name"),
   notes: text("notes"),
   dealBlueprint: jsonb("deal_blueprint"),
+  savingsProposal: jsonb("savings_proposal"),
+  proposalGeneratedAt: timestamp("proposal_generated_at"),
   recommendedProgram: text("recommended_program"),
   hardwarePackage: text("hardware_package"),
   estMonthlyRevenue: text("est_monthly_revenue"),
@@ -1074,3 +1076,12 @@ export const insertSunbizEntitySchema = createInsertSchema(sunbizEntities).omit(
 export type SunbizEntity = typeof sunbizEntities.$inferSelect;
 export type InsertSunbizEntity = z.infer<typeof insertSunbizEntitySchema>;
 export type UpdateSunbizEntityRequest = Partial<InsertSunbizEntity>;
+
+export const systemSettings = pgTable("system_settings", {
+  id: serial("id").primaryKey(),
+  key: text("key").notNull().unique(),
+  value: jsonb("value"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type SystemSetting = typeof systemSettings.$inferSelect;

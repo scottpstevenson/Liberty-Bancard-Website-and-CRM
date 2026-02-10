@@ -37,6 +37,7 @@ import {
   Megaphone,
   Sparkles,
   FileSearch,
+  FileBarChart,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -78,12 +79,14 @@ const automationItems = [
   { icon: GitBranch, label: "Stage Rules", href: "/dashboard/stage-rules" },
   { icon: Repeat, label: "Outreach", href: "/dashboard/outreach" },
   { icon: Megaphone, label: "Campaigns", href: "/dashboard/campaigns" },
+  { icon: Wand2, label: "Blaze.ai Marketing", href: "/dashboard/blaze" },
   { icon: Settings, label: "GHL Settings", href: "/dashboard/ghl-settings" },
 ];
 
 const leadGenItems = [
   { icon: Brain, label: "Lead Engine", href: "/dashboard/lead-engine" },
   { icon: Sparkles, label: "Lead Intelligence", href: "/dashboard/lead-intelligence" },
+  { icon: FileBarChart, label: "Statement Review", href: "/dashboard/statement-review" },
   { icon: Target, label: "Prospects", href: "/dashboard/prospects" },
   { icon: Upload, label: "Import Prospects", href: "/dashboard/prospects/import" },
   { icon: FileSearch, label: "Sunbiz Lead Gen", href: "/dashboard/lead-gen" },
