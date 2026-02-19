@@ -126,7 +126,9 @@ export default function MerchantApplication() {
   const [ecommerceNeeded, setEcommerceNeeded] = useState<boolean | null>(null);
   const [preferredProgram, setPreferredProgram] = useState("");
 
-  const [esignConsent, setEsignConsent] = useState(false);
+  const [esignSending, setEsignSending] = useState(false);
+  const [esignStatus, setEsignStatus] = useState<string | null>(null);
+  const [reviewConfirmed, setReviewConfirmed] = useState(false);
 
   const toggleCardType = (type: string) => {
     setAcceptedCardTypes((prev) =>
@@ -192,7 +194,7 @@ export default function MerchantApplication() {
           (terminalNeeded === false || (terminalType !== "" && terminalQuantity.trim() !== ""))
         );
       case 6:
-        return esignConsent;
+        return reviewConfirmed;
       default:
         return false;
     }
@@ -257,10 +259,26 @@ export default function MerchantApplication() {
         terminalQuantity: terminalNeeded ? parseInt(terminalQuantity) || 1 : 0,
         ecommerceNeeded: ecommerceNeeded === true,
         preferredProgram,
-        esignStatus: "signed",
+        esignStatus: "pending",
       });
       const data = await res.json();
       setApplicationId(data.id);
+
+      setEsignSending(true);
+      try {
+        const esignRes = await apiRequest("POST", "/api/merchant-applications/request-esign", {
+          applicationId: data.id,
+          email: ownerEmail || businessEmail,
+        });
+        const esignData = await esignRes.json();
+        setEsignStatus(esignData.status || "sent");
+      } catch (esignErr: any) {
+        console.log("[E-Sign] GHL e-sign dispatch note:", esignErr.message);
+        setEsignStatus("email_pending");
+      } finally {
+        setEsignSending(false);
+      }
+
       setSubmitted(true);
     } catch (error: any) {
       toast({
@@ -297,18 +315,75 @@ export default function MerchantApplication() {
           </section>
 
           <section className="bg-muted/30 py-12" data-testid="section-application-success">
-            <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
+              {esignStatus === "sent" && (
+                <Card data-testid="card-esign-info">
+                  <CardContent className="p-6 sm:p-8 text-center">
+                    <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-3">
+                      <FileCheck className="w-6 h-6 text-primary" />
+                    </div>
+                    <h2 className="text-xl font-display font-bold text-foreground mb-2" data-testid="text-esign-heading">
+                      E-Signature Sent
+                    </h2>
+                    <p className="text-muted-foreground mb-4" data-testid="text-esign-description">
+                      Your Merchant Processing Agreement has been sent to{" "}
+                      <span className="font-medium text-foreground">{ownerEmail || businessEmail}</span>{" "}
+                      for electronic signature via GoHighLevel. Please check your email and sign the document to complete your application.
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
+
+              {esignStatus === "email_pending" && (
+                <Card data-testid="card-esign-pending">
+                  <CardContent className="p-6 sm:p-8 text-center">
+                    <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-3">
+                      <FileCheck className="w-6 h-6 text-primary" />
+                    </div>
+                    <h2 className="text-xl font-display font-bold text-foreground mb-2" data-testid="text-esign-pending-heading">
+                      E-Signature Coming Soon
+                    </h2>
+                    <p className="text-muted-foreground mb-4" data-testid="text-esign-pending-description">
+                      Your application has been submitted. Our team will send you a Merchant Processing Agreement 
+                      for electronic signature shortly via email to{" "}
+                      <span className="font-medium text-foreground">{ownerEmail || businessEmail}</span>.
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
+
               <Card data-testid="card-success-details">
                 <CardContent className="p-6 sm:p-8 text-center">
                   <h2 className="text-xl font-display font-bold text-foreground mb-3" data-testid="text-success-heading">
                     What Happens Next?
                   </h2>
-                  <p className="text-muted-foreground mb-4" data-testid="text-success-description">
-                    Our underwriting team will review your application within 1-2 business days. 
-                    You'll receive an email confirmation at <span className="font-medium text-foreground">{businessEmail}</span> with your application details and next steps.
-                  </p>
+                  <div className="space-y-3 text-left max-w-md mx-auto mb-6">
+                    <div className="flex items-start gap-3">
+                      <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                        <span className="text-xs font-bold text-primary">1</span>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        <span className="font-medium text-foreground">Sign your agreement</span> - Check your email for the Merchant Processing Agreement sent via GoHighLevel and complete the electronic signature.
+                      </p>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                        <span className="text-xs font-bold text-primary">2</span>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        <span className="font-medium text-foreground">Underwriting review</span> - Our team will review your application within 1-2 business days.
+                      </p>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                        <span className="text-xs font-bold text-primary">3</span>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        <span className="font-medium text-foreground">Get started</span> - Once approved, we'll set up your account and ship your equipment.
+                      </p>
+                    </div>
+                  </div>
                   <p className="text-muted-foreground mb-6">
-                    If we need additional information, we'll reach out via phone or email. 
                     For questions, call us at <a href="tel:9542668214" className="text-primary font-medium">954-266-8214</a>.
                   </p>
                   <p className="text-xs text-muted-foreground border-t pt-4" data-testid="text-success-disclaimer">
@@ -924,15 +999,15 @@ export default function MerchantApplication() {
                         Eligibility, underwriting, card brand rules, and applicable laws apply. By submitting this application, 
                         you consent to a background and credit check as part of the underwriting process.
                       </p>
-                      <label className="flex items-start gap-3 cursor-pointer" data-testid="checkbox-esign-consent">
+                      <label className="flex items-start gap-3 cursor-pointer" data-testid="checkbox-review-confirm">
                         <Checkbox
-                          checked={esignConsent}
-                          onCheckedChange={(checked) => setEsignConsent(checked === true)}
+                          checked={reviewConfirmed}
+                          onCheckedChange={(checked) => setReviewConfirmed(checked === true)}
                           className="mt-0.5"
                         />
                         <span className="text-sm text-foreground leading-relaxed">
-                          I authorize Liberty Bancard to process this application. I confirm that all information provided is accurate 
-                          and complete. I consent to electronic signature and agree to the terms of the merchant processing agreement.
+                          I confirm that all information provided is accurate and complete. I understand that a Merchant Processing 
+                          Agreement will be sent to my email via GoHighLevel for electronic signature after submission.
                         </span>
                       </label>
                     </div>
@@ -974,12 +1049,12 @@ export default function MerchantApplication() {
                       {submitting ? (
                         <>
                           <Loader2 className="w-4 h-4 animate-spin" />
-                          Submitting...
+                          {esignSending ? "Sending for E-Signature..." : "Submitting..."}
                         </>
                       ) : (
                         <>
-                          <CheckCircle className="w-4 h-4" />
-                          Submit Application
+                          <FileCheck className="w-4 h-4" />
+                          Submit & Send for E-Signature
                         </>
                       )}
                     </Button>

@@ -703,6 +703,73 @@ export async function sendAiAutoReply(params: {
   }
 }
 
+export async function sendDocumentForEsign(opts: {
+  documentTemplateId: string;
+  contactId?: string;
+  recipientName: string;
+  recipientEmail: string;
+  applicationId: number;
+}): Promise<{ success: boolean; documentId?: string; signingUrl?: string; error?: string }> {
+  try {
+    const config = getConfig();
+    if (!config) {
+      return { success: false, error: "GHL not configured. Set GHL_API_KEY and GHL_LOCATION_ID." };
+    }
+
+    const payload: Record<string, any> = {
+      locationId: config.locationId,
+      templateId: opts.documentTemplateId,
+      name: `Merchant Processing Agreement - ${opts.recipientName}`,
+      recipients: [
+        {
+          name: opts.recipientName,
+          email: opts.recipientEmail,
+          role: "signer",
+        },
+      ],
+      emailSettings: {
+        subject: "Liberty Bancard - Merchant Processing Agreement for E-Signature",
+        fromName: "Liberty Bancard",
+      },
+    };
+
+    if (opts.contactId) {
+      payload.contactId = opts.contactId;
+    }
+
+    const result = await ghlFetch("/documents/", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+
+    return {
+      success: true,
+      documentId: result?.id || result?.documentId,
+      signingUrl: result?.signingUrl || result?.publicUrl || null,
+    };
+  } catch (err: any) {
+    console.error("[GHL E-Sign] Error sending document:", err.message);
+    return { success: false, error: err.message };
+  }
+}
+
+export async function getDocumentStatus(documentId: string): Promise<{
+  status: string;
+  signedAt?: string;
+  error?: string;
+}> {
+  try {
+    const result = await ghlFetch(`/documents/${documentId}`, { method: "GET" });
+    return {
+      status: result?.status || "unknown",
+      signedAt: result?.completedAt || result?.signedAt,
+    };
+  } catch (err: any) {
+    console.error("[GHL E-Sign] Error checking document status:", err.message);
+    return { status: "error", error: err.message };
+  }
+}
+
 function classifyInboundMessage(message: string): {
   intent: "interested" | "unsubscribe" | "question" | "support" | "callback" | "neutral";
   priority: "high" | "medium" | "low";

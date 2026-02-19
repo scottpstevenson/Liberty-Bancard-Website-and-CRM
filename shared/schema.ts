@@ -1144,6 +1144,8 @@ export const merchantApplications = pgTable("merchant_applications", {
   referralSource: text("referral_source"),
   referralCode: text("referral_code"),
   esignStatus: text("esign_status").default("pending"),
+  esignDocumentId: text("esign_document_id"),
+  esignSigningUrl: text("esign_signing_url"),
   esignedAt: timestamp("esigned_at"),
   esignIp: text("esign_ip"),
   underwritingStatus: text("underwriting_status").default("pending"),
