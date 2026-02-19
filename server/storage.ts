@@ -5,6 +5,8 @@ import {
   prospects, prospectLists, enrichmentJobs, campaigns, campaignSteps, outboundMessages, notes,
   emailLogs, callLogs, stageAutomationRules, followUpSequences, sequenceSteps, sequenceEnrollments,
   sunbizEntities,
+  merchantApplications, merchantProfiles, equipmentOrders, agents, residualReports, merchantResiduals,
+  healthAlerts, dealCompetitors, partners, referrals, knowledgeBase, reviewRequests, onboardingSteps,
   type InsertContact, type UpdateContactRequest,
   type InsertCompany,
   type InsertDeal, type UpdateDealRequest,
@@ -29,6 +31,19 @@ import {
   type InsertNote,
   type InsertEmailLog, type InsertCallLog, type InsertStageAutomationRule, type InsertFollowUpSequence, type InsertSequenceStep, type InsertSequenceEnrollment,
   type InsertSunbizEntity, type UpdateSunbizEntityRequest, type SunbizEntity,
+  type InsertMerchantApplication, type MerchantApplication,
+  type InsertMerchantProfile, type MerchantProfile,
+  type InsertEquipmentOrder, type EquipmentOrder,
+  type InsertAgent, type Agent,
+  type InsertResidualReport, type ResidualReport,
+  type InsertMerchantResidual, type MerchantResidual,
+  type InsertHealthAlert, type HealthAlert,
+  type InsertDealCompetitor, type DealCompetitor,
+  type InsertPartner, type Partner,
+  type InsertReferral, type Referral,
+  type InsertKnowledgeBaseArticle, type KnowledgeBaseArticle,
+  type InsertReviewRequest, type ReviewRequest,
+  type InsertOnboardingStep, type OnboardingStep,
   systemSettings,
 } from "@shared/schema";
 import { eq, desc, and, lt, isNull, ne, sql, asc } from "drizzle-orm";
@@ -183,6 +198,84 @@ export interface IStorage {
   updateSunbizEntity(id: number, updates: UpdateSunbizEntityRequest): Promise<SunbizEntity | undefined>;
   getSunbizEntitiesByStatus(status: string): Promise<SunbizEntity[]>;
   getSunbizStats(listId?: number): Promise<{total: number, enriched: number, pending: number, withEmail: number, withPhone: number, withWebsite: number}>;
+
+  getMerchantApplications(): Promise<MerchantApplication[]>;
+  getMerchantApplication(id: number): Promise<MerchantApplication | undefined>;
+  getMerchantApplicationByUser(userId: string): Promise<MerchantApplication | undefined>;
+  createMerchantApplication(app: InsertMerchantApplication): Promise<MerchantApplication>;
+  updateMerchantApplication(id: number, updates: Partial<InsertMerchantApplication>): Promise<MerchantApplication | undefined>;
+
+  getMerchantProfiles(): Promise<MerchantProfile[]>;
+  getMerchantProfile(id: number): Promise<MerchantProfile | undefined>;
+  getMerchantProfileByUser(userId: string): Promise<MerchantProfile | undefined>;
+  createMerchantProfile(profile: InsertMerchantProfile): Promise<MerchantProfile>;
+  updateMerchantProfile(id: number, updates: Partial<InsertMerchantProfile>): Promise<MerchantProfile | undefined>;
+
+  getEquipmentOrders(dealId?: number): Promise<EquipmentOrder[]>;
+  getEquipmentOrder(id: number): Promise<EquipmentOrder | undefined>;
+  getEquipmentOrdersByDeal(dealId: number): Promise<EquipmentOrder[]>;
+  createEquipmentOrder(order: InsertEquipmentOrder): Promise<EquipmentOrder>;
+  updateEquipmentOrder(id: number, updates: Partial<InsertEquipmentOrder>): Promise<EquipmentOrder | undefined>;
+
+  getAgents(): Promise<Agent[]>;
+  getAgent(id: number): Promise<Agent | undefined>;
+  createAgent(agent: InsertAgent): Promise<Agent>;
+  updateAgent(id: number, updates: Partial<InsertAgent>): Promise<Agent | undefined>;
+
+  getResidualReports(): Promise<ResidualReport[]>;
+  getResidualReport(id: number): Promise<ResidualReport | undefined>;
+  getResidualReportsByMonth(month: string): Promise<ResidualReport[]>;
+  createResidualReport(report: InsertResidualReport): Promise<ResidualReport>;
+
+  getMerchantResiduals(reportId?: number): Promise<MerchantResidual[]>;
+  getMerchantResidual(id: number): Promise<MerchantResidual | undefined>;
+  getMerchantResidualsByDeal(dealId: number): Promise<MerchantResidual[]>;
+  getMerchantResidualsByMonth(month: string): Promise<MerchantResidual[]>;
+  createMerchantResidual(residual: InsertMerchantResidual): Promise<MerchantResidual>;
+
+  getHealthAlerts(): Promise<HealthAlert[]>;
+  getHealthAlert(id: number): Promise<HealthAlert | undefined>;
+  getHealthAlertsByDeal(dealId: number): Promise<HealthAlert[]>;
+  getActiveHealthAlerts(): Promise<HealthAlert[]>;
+  createHealthAlert(alert: InsertHealthAlert): Promise<HealthAlert>;
+  updateHealthAlert(id: number, updates: Partial<InsertHealthAlert>): Promise<HealthAlert | undefined>;
+
+  getDealCompetitors(dealId?: number): Promise<DealCompetitor[]>;
+  getDealCompetitor(id: number): Promise<DealCompetitor | undefined>;
+  getDealCompetitorsByDeal(dealId: number): Promise<DealCompetitor[]>;
+  createDealCompetitor(competitor: InsertDealCompetitor): Promise<DealCompetitor>;
+  updateDealCompetitor(id: number, updates: Partial<InsertDealCompetitor>): Promise<DealCompetitor | undefined>;
+
+  getPartners(): Promise<Partner[]>;
+  getPartner(id: number): Promise<Partner | undefined>;
+  createPartner(partner: InsertPartner): Promise<Partner>;
+  updatePartner(id: number, updates: Partial<InsertPartner>): Promise<Partner | undefined>;
+
+  getReferrals(partnerId?: number): Promise<Referral[]>;
+  getReferral(id: number): Promise<Referral | undefined>;
+  getReferralsByPartner(partnerId: number): Promise<Referral[]>;
+  createReferral(referral: InsertReferral): Promise<Referral>;
+  updateReferral(id: number, updates: Partial<InsertReferral>): Promise<Referral | undefined>;
+
+  getKnowledgeBaseArticles(): Promise<KnowledgeBaseArticle[]>;
+  getKnowledgeBaseArticle(id: number): Promise<KnowledgeBaseArticle | undefined>;
+  getKnowledgeBaseByCategory(category: string): Promise<KnowledgeBaseArticle[]>;
+  getPublishedArticles(): Promise<KnowledgeBaseArticle[]>;
+  createKnowledgeBaseArticle(article: InsertKnowledgeBaseArticle): Promise<KnowledgeBaseArticle>;
+  updateKnowledgeBaseArticle(id: number, updates: Partial<InsertKnowledgeBaseArticle>): Promise<KnowledgeBaseArticle | undefined>;
+
+  getReviewRequests(dealId?: number): Promise<ReviewRequest[]>;
+  getReviewRequest(id: number): Promise<ReviewRequest | undefined>;
+  getReviewRequestsByDeal(dealId: number): Promise<ReviewRequest[]>;
+  createReviewRequest(request: InsertReviewRequest): Promise<ReviewRequest>;
+  updateReviewRequest(id: number, updates: Partial<InsertReviewRequest>): Promise<ReviewRequest | undefined>;
+
+  getOnboardingSteps(dealId?: number): Promise<OnboardingStep[]>;
+  getOnboardingStep(id: number): Promise<OnboardingStep | undefined>;
+  getOnboardingStepsByDeal(dealId: number): Promise<OnboardingStep[]>;
+  getOnboardingStepsByApplication(applicationId: number): Promise<OnboardingStep[]>;
+  createOnboardingStep(step: InsertOnboardingStep): Promise<OnboardingStep>;
+  updateOnboardingStep(id: number, updates: Partial<InsertOnboardingStep>): Promise<OnboardingStep | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -822,6 +915,323 @@ export class DatabaseStorage implements IStorage {
       withWebsite: Number(row.with_website) || 0,
     };
   }
+  async getMerchantApplications() {
+    return await db.select().from(merchantApplications).orderBy(desc(merchantApplications.createdAt));
+  }
+
+  async getMerchantApplication(id: number) {
+    const [app] = await db.select().from(merchantApplications).where(eq(merchantApplications.id, id));
+    return app;
+  }
+
+  async getMerchantApplicationByUser(userId: string) {
+    const [app] = await db.select().from(merchantApplications).where(eq(merchantApplications.userId, userId));
+    return app;
+  }
+
+  async createMerchantApplication(app: InsertMerchantApplication) {
+    const [created] = await db.insert(merchantApplications).values(app).returning();
+    return created;
+  }
+
+  async updateMerchantApplication(id: number, updates: Partial<InsertMerchantApplication>) {
+    const [updated] = await db.update(merchantApplications).set({ ...updates, updatedAt: new Date() }).where(eq(merchantApplications.id, id)).returning();
+    return updated;
+  }
+
+  async getMerchantProfiles() {
+    return await db.select().from(merchantProfiles).orderBy(desc(merchantProfiles.createdAt));
+  }
+
+  async getMerchantProfile(id: number) {
+    const [profile] = await db.select().from(merchantProfiles).where(eq(merchantProfiles.id, id));
+    return profile;
+  }
+
+  async getMerchantProfileByUser(userId: string) {
+    const [profile] = await db.select().from(merchantProfiles).where(eq(merchantProfiles.userId, userId));
+    return profile;
+  }
+
+  async createMerchantProfile(profile: InsertMerchantProfile) {
+    const [created] = await db.insert(merchantProfiles).values(profile).returning();
+    return created;
+  }
+
+  async updateMerchantProfile(id: number, updates: Partial<InsertMerchantProfile>) {
+    const [updated] = await db.update(merchantProfiles).set({ ...updates, updatedAt: new Date() }).where(eq(merchantProfiles.id, id)).returning();
+    return updated;
+  }
+
+  async getEquipmentOrders(dealId?: number) {
+    if (dealId) {
+      return await db.select().from(equipmentOrders).where(eq(equipmentOrders.dealId, dealId)).orderBy(desc(equipmentOrders.createdAt));
+    }
+    return await db.select().from(equipmentOrders).orderBy(desc(equipmentOrders.createdAt));
+  }
+
+  async getEquipmentOrder(id: number) {
+    const [order] = await db.select().from(equipmentOrders).where(eq(equipmentOrders.id, id));
+    return order;
+  }
+
+  async getEquipmentOrdersByDeal(dealId: number) {
+    return await db.select().from(equipmentOrders).where(eq(equipmentOrders.dealId, dealId)).orderBy(desc(equipmentOrders.createdAt));
+  }
+
+  async createEquipmentOrder(order: InsertEquipmentOrder) {
+    const [created] = await db.insert(equipmentOrders).values(order).returning();
+    return created;
+  }
+
+  async updateEquipmentOrder(id: number, updates: Partial<InsertEquipmentOrder>) {
+    const [updated] = await db.update(equipmentOrders).set({ ...updates, updatedAt: new Date() }).where(eq(equipmentOrders.id, id)).returning();
+    return updated;
+  }
+
+  async getAgents() {
+    return await db.select().from(agents).orderBy(desc(agents.createdAt));
+  }
+
+  async getAgent(id: number) {
+    const [agent] = await db.select().from(agents).where(eq(agents.id, id));
+    return agent;
+  }
+
+  async createAgent(agent: InsertAgent) {
+    const [created] = await db.insert(agents).values(agent).returning();
+    return created;
+  }
+
+  async updateAgent(id: number, updates: Partial<InsertAgent>) {
+    const [updated] = await db.update(agents).set({ ...updates, updatedAt: new Date() }).where(eq(agents.id, id)).returning();
+    return updated;
+  }
+
+  async getResidualReports() {
+    return await db.select().from(residualReports).orderBy(desc(residualReports.createdAt));
+  }
+
+  async getResidualReport(id: number) {
+    const [report] = await db.select().from(residualReports).where(eq(residualReports.id, id));
+    return report;
+  }
+
+  async getResidualReportsByMonth(month: string) {
+    return await db.select().from(residualReports).where(eq(residualReports.month, month)).orderBy(desc(residualReports.createdAt));
+  }
+
+  async createResidualReport(report: InsertResidualReport) {
+    const [created] = await db.insert(residualReports).values(report).returning();
+    return created;
+  }
+
+  async getMerchantResiduals(reportId?: number) {
+    if (reportId) {
+      return await db.select().from(merchantResiduals).where(eq(merchantResiduals.reportId, reportId)).orderBy(desc(merchantResiduals.createdAt));
+    }
+    return await db.select().from(merchantResiduals).orderBy(desc(merchantResiduals.createdAt));
+  }
+
+  async getMerchantResidual(id: number) {
+    const [residual] = await db.select().from(merchantResiduals).where(eq(merchantResiduals.id, id));
+    return residual;
+  }
+
+  async getMerchantResidualsByDeal(dealId: number) {
+    return await db.select().from(merchantResiduals).where(eq(merchantResiduals.dealId, dealId)).orderBy(desc(merchantResiduals.createdAt));
+  }
+
+  async getMerchantResidualsByMonth(month: string) {
+    return await db.select().from(merchantResiduals).where(eq(merchantResiduals.month, month)).orderBy(desc(merchantResiduals.createdAt));
+  }
+
+  async createMerchantResidual(residual: InsertMerchantResidual) {
+    const [created] = await db.insert(merchantResiduals).values(residual).returning();
+    return created;
+  }
+
+  async getHealthAlerts() {
+    return await db.select().from(healthAlerts).orderBy(desc(healthAlerts.createdAt));
+  }
+
+  async getHealthAlert(id: number) {
+    const [alert] = await db.select().from(healthAlerts).where(eq(healthAlerts.id, id));
+    return alert;
+  }
+
+  async getHealthAlertsByDeal(dealId: number) {
+    return await db.select().from(healthAlerts).where(eq(healthAlerts.dealId, dealId)).orderBy(desc(healthAlerts.createdAt));
+  }
+
+  async getActiveHealthAlerts() {
+    return await db.select().from(healthAlerts).where(eq(healthAlerts.status, "active")).orderBy(desc(healthAlerts.createdAt));
+  }
+
+  async createHealthAlert(alert: InsertHealthAlert) {
+    const [created] = await db.insert(healthAlerts).values(alert).returning();
+    return created;
+  }
+
+  async updateHealthAlert(id: number, updates: Partial<InsertHealthAlert>) {
+    const [updated] = await db.update(healthAlerts).set(updates).where(eq(healthAlerts.id, id)).returning();
+    return updated;
+  }
+
+  async getDealCompetitors(dealId?: number) {
+    if (dealId) {
+      return await db.select().from(dealCompetitors).where(eq(dealCompetitors.dealId, dealId)).orderBy(desc(dealCompetitors.createdAt));
+    }
+    return await db.select().from(dealCompetitors).orderBy(desc(dealCompetitors.createdAt));
+  }
+
+  async getDealCompetitor(id: number) {
+    const [competitor] = await db.select().from(dealCompetitors).where(eq(dealCompetitors.id, id));
+    return competitor;
+  }
+
+  async getDealCompetitorsByDeal(dealId: number) {
+    return await db.select().from(dealCompetitors).where(eq(dealCompetitors.dealId, dealId)).orderBy(desc(dealCompetitors.createdAt));
+  }
+
+  async createDealCompetitor(competitor: InsertDealCompetitor) {
+    const [created] = await db.insert(dealCompetitors).values(competitor).returning();
+    return created;
+  }
+
+  async updateDealCompetitor(id: number, updates: Partial<InsertDealCompetitor>) {
+    const [updated] = await db.update(dealCompetitors).set(updates).where(eq(dealCompetitors.id, id)).returning();
+    return updated;
+  }
+
+  async getPartners() {
+    return await db.select().from(partners).orderBy(desc(partners.createdAt));
+  }
+
+  async getPartner(id: number) {
+    const [partner] = await db.select().from(partners).where(eq(partners.id, id));
+    return partner;
+  }
+
+  async createPartner(partner: InsertPartner) {
+    const [created] = await db.insert(partners).values(partner).returning();
+    return created;
+  }
+
+  async updatePartner(id: number, updates: Partial<InsertPartner>) {
+    const [updated] = await db.update(partners).set({ ...updates, updatedAt: new Date() }).where(eq(partners.id, id)).returning();
+    return updated;
+  }
+
+  async getReferrals(partnerId?: number) {
+    if (partnerId) {
+      return await db.select().from(referrals).where(eq(referrals.partnerId, partnerId)).orderBy(desc(referrals.createdAt));
+    }
+    return await db.select().from(referrals).orderBy(desc(referrals.createdAt));
+  }
+
+  async getReferral(id: number) {
+    const [referral] = await db.select().from(referrals).where(eq(referrals.id, id));
+    return referral;
+  }
+
+  async getReferralsByPartner(partnerId: number) {
+    return await db.select().from(referrals).where(eq(referrals.partnerId, partnerId)).orderBy(desc(referrals.createdAt));
+  }
+
+  async createReferral(referral: InsertReferral) {
+    const [created] = await db.insert(referrals).values(referral).returning();
+    return created;
+  }
+
+  async updateReferral(id: number, updates: Partial<InsertReferral>) {
+    const [updated] = await db.update(referrals).set({ ...updates, updatedAt: new Date() }).where(eq(referrals.id, id)).returning();
+    return updated;
+  }
+
+  async getKnowledgeBaseArticles() {
+    return await db.select().from(knowledgeBase).orderBy(desc(knowledgeBase.createdAt));
+  }
+
+  async getKnowledgeBaseArticle(id: number) {
+    const [article] = await db.select().from(knowledgeBase).where(eq(knowledgeBase.id, id));
+    return article;
+  }
+
+  async getKnowledgeBaseByCategory(category: string) {
+    return await db.select().from(knowledgeBase).where(eq(knowledgeBase.category, category)).orderBy(desc(knowledgeBase.createdAt));
+  }
+
+  async getPublishedArticles() {
+    return await db.select().from(knowledgeBase).where(eq(knowledgeBase.isPublished, true)).orderBy(desc(knowledgeBase.createdAt));
+  }
+
+  async createKnowledgeBaseArticle(article: InsertKnowledgeBaseArticle) {
+    const [created] = await db.insert(knowledgeBase).values(article).returning();
+    return created;
+  }
+
+  async updateKnowledgeBaseArticle(id: number, updates: Partial<InsertKnowledgeBaseArticle>) {
+    const [updated] = await db.update(knowledgeBase).set({ ...updates, updatedAt: new Date() }).where(eq(knowledgeBase.id, id)).returning();
+    return updated;
+  }
+
+  async getReviewRequests(dealId?: number) {
+    if (dealId) {
+      return await db.select().from(reviewRequests).where(eq(reviewRequests.dealId, dealId)).orderBy(desc(reviewRequests.createdAt));
+    }
+    return await db.select().from(reviewRequests).orderBy(desc(reviewRequests.createdAt));
+  }
+
+  async getReviewRequest(id: number) {
+    const [request] = await db.select().from(reviewRequests).where(eq(reviewRequests.id, id));
+    return request;
+  }
+
+  async getReviewRequestsByDeal(dealId: number) {
+    return await db.select().from(reviewRequests).where(eq(reviewRequests.dealId, dealId)).orderBy(desc(reviewRequests.createdAt));
+  }
+
+  async createReviewRequest(request: InsertReviewRequest) {
+    const [created] = await db.insert(reviewRequests).values(request).returning();
+    return created;
+  }
+
+  async updateReviewRequest(id: number, updates: Partial<InsertReviewRequest>) {
+    const [updated] = await db.update(reviewRequests).set(updates).where(eq(reviewRequests.id, id)).returning();
+    return updated;
+  }
+
+  async getOnboardingSteps(dealId?: number) {
+    if (dealId) {
+      return await db.select().from(onboardingSteps).where(eq(onboardingSteps.dealId, dealId)).orderBy(asc(onboardingSteps.stepOrder));
+    }
+    return await db.select().from(onboardingSteps).orderBy(desc(onboardingSteps.createdAt));
+  }
+
+  async getOnboardingStep(id: number) {
+    const [step] = await db.select().from(onboardingSteps).where(eq(onboardingSteps.id, id));
+    return step;
+  }
+
+  async getOnboardingStepsByDeal(dealId: number) {
+    return await db.select().from(onboardingSteps).where(eq(onboardingSteps.dealId, dealId)).orderBy(asc(onboardingSteps.stepOrder));
+  }
+
+  async getOnboardingStepsByApplication(applicationId: number) {
+    return await db.select().from(onboardingSteps).where(eq(onboardingSteps.applicationId, applicationId)).orderBy(asc(onboardingSteps.stepOrder));
+  }
+
+  async createOnboardingStep(step: InsertOnboardingStep) {
+    const [created] = await db.insert(onboardingSteps).values(step).returning();
+    return created;
+  }
+
+  async updateOnboardingStep(id: number, updates: Partial<InsertOnboardingStep>) {
+    const [updated] = await db.update(onboardingSteps).set(updates).where(eq(onboardingSteps.id, id)).returning();
+    return updated;
+  }
+
   async getSystemSetting(key: string): Promise<any> {
     const [row] = await db.select().from(systemSettings).where(eq(systemSettings.key, key));
     return row?.value || null;

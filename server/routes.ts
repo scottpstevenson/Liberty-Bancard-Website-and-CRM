@@ -4,7 +4,7 @@ import { storage } from "./storage";
 import { setupAuth, registerAuthRoutes, isAuthenticated } from "./replit_integrations/auth";
 import { registerAudioRoutes } from "./replit_integrations/audio/routes";
 import { z } from "zod";
-import { insertContactSchema, insertDealSchema, insertTicketSchema, insertTaskSchema, insertCompanySchema, insertDocumentSchema, insertNotificationSchema, insertWorkflowSchema, insertRfiSchema, insertMessageTemplateSchema, insertCollateralPacketSchema, insertSlaConfigSchema, insertProspectSchema, insertProspectListSchema, insertEnrichmentJobSchema, insertCampaignSchema, insertCampaignStepSchema, insertOutboundMessageSchema, insertNoteSchema, insertEmailLogSchema, insertCallLogSchema, insertStageAutomationRuleSchema, insertFollowUpSequenceSchema, insertSequenceStepSchema, insertSequenceEnrollmentSchema } from "@shared/schema";
+import { insertContactSchema, insertDealSchema, insertTicketSchema, insertTaskSchema, insertCompanySchema, insertDocumentSchema, insertNotificationSchema, insertWorkflowSchema, insertRfiSchema, insertMessageTemplateSchema, insertCollateralPacketSchema, insertSlaConfigSchema, insertProspectSchema, insertProspectListSchema, insertEnrichmentJobSchema, insertCampaignSchema, insertCampaignStepSchema, insertOutboundMessageSchema, insertNoteSchema, insertEmailLogSchema, insertCallLogSchema, insertStageAutomationRuleSchema, insertFollowUpSequenceSchema, insertSequenceStepSchema, insertSequenceEnrollmentSchema, insertMerchantApplicationSchema, insertEquipmentOrderSchema, insertAgentSchema, insertResidualReportSchema, insertMerchantResidualSchema, insertHealthAlertSchema, insertDealCompetitorSchema, insertPartnerSchema, insertReferralSchema, insertKnowledgeBaseSchema, insertReviewRequestSchema, insertOnboardingStepSchema, insertMerchantProfileSchema } from "@shared/schema";
 import { isGhlConfigured, getGhlStatus, sendGhlEmail, sendGhlSms, sendTemplatedMessage, upsertGhlContact, handleGhlWebhook, getCalendarBookingUrl } from "./services/ghl";
 import { enrichProspect, runEnrichmentJob, processEnrichmentQueue } from "./services/enrichment";
 import { queueCampaignMessages, processSendQueue, getCampaignAnalytics } from "./services/campaign-engine";
@@ -3339,6 +3339,488 @@ Notes: ${deal.notes || "None"}`
       res.json({ scored, total: contactIds.length });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === MERCHANT APPLICATIONS ===
+  app.post("/api/merchant-applications", async (req, res) => {
+    try {
+      const input = insertMerchantApplicationSchema.parse(req.body);
+      const application = await storage.createMerchantApplication(input);
+      res.status(201).json(application);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/merchant-applications/user/:userId", async (req, res) => {
+    try {
+      const application = await storage.getMerchantApplicationByUser(req.params.userId);
+      if (!application) return res.status(404).json({ message: "Not found" });
+      res.json(application);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/merchant-applications/:id", async (req, res) => {
+    try {
+      const application = await storage.getMerchantApplication(Number(req.params.id));
+      if (!application) return res.status(404).json({ message: "Not found" });
+      res.json(application);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/merchant-applications/:id", async (req, res) => {
+    try {
+      const updated = await storage.updateMerchantApplication(Number(req.params.id), req.body);
+      if (!updated) return res.status(404).json({ message: "Not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  // === MERCHANT PROFILES ===
+  app.get("/api/merchant-profile", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id;
+      if (!userId) return res.status(401).json({ message: "Not authenticated" });
+      const profile = await storage.getMerchantProfileByUser(userId);
+      if (!profile) return res.status(404).json({ message: "Not found" });
+      res.json(profile);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/merchant-profiles", isAuthenticated, async (req, res) => {
+    try {
+      const input = insertMerchantProfileSchema.parse(req.body);
+      const profile = await storage.createMerchantProfile(input);
+      res.status(201).json(profile);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  // === EQUIPMENT ORDERS ===
+  app.get("/api/equipment-orders", isAuthenticated, async (req, res) => {
+    try {
+      const dealId = req.query.dealId ? Number(req.query.dealId) : undefined;
+      const orders = dealId ? await storage.getEquipmentOrdersByDeal(dealId) : await storage.getEquipmentOrders();
+      res.json(orders);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/equipment-orders/:id", isAuthenticated, async (req, res) => {
+    try {
+      const order = await storage.getEquipmentOrder(Number(req.params.id));
+      if (!order) return res.status(404).json({ message: "Not found" });
+      res.json(order);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/equipment-orders", isAuthenticated, async (req, res) => {
+    try {
+      const input = insertEquipmentOrderSchema.parse(req.body);
+      const order = await storage.createEquipmentOrder(input);
+      res.status(201).json(order);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/equipment-orders/:id", isAuthenticated, async (req, res) => {
+    try {
+      const updated = await storage.updateEquipmentOrder(Number(req.params.id), req.body);
+      if (!updated) return res.status(404).json({ message: "Not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  // === ONBOARDING STEPS ===
+  app.get("/api/onboarding-steps/deal/:dealId", isAuthenticated, async (req, res) => {
+    try {
+      const steps = await storage.getOnboardingStepsByDeal(Number(req.params.dealId));
+      res.json(steps);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/onboarding-steps/application/:applicationId", isAuthenticated, async (req, res) => {
+    try {
+      const steps = await storage.getOnboardingStepsByApplication(Number(req.params.applicationId));
+      res.json(steps);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/onboarding-steps", isAuthenticated, async (req, res) => {
+    try {
+      const input = insertOnboardingStepSchema.parse(req.body);
+      const step = await storage.createOnboardingStep(input);
+      res.status(201).json(step);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/onboarding-steps/:id", isAuthenticated, async (req, res) => {
+    try {
+      const updated = await storage.updateOnboardingStep(Number(req.params.id), req.body);
+      if (!updated) return res.status(404).json({ message: "Not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  // === AGENTS ===
+  app.get("/api/agents", isAuthenticated, async (req, res) => {
+    try {
+      const agentsList = await storage.getAgents();
+      res.json(agentsList);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/agents/:id", isAuthenticated, async (req, res) => {
+    try {
+      const agent = await storage.getAgent(Number(req.params.id));
+      if (!agent) return res.status(404).json({ message: "Not found" });
+      res.json(agent);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/agents", isAuthenticated, async (req, res) => {
+    try {
+      const input = insertAgentSchema.parse(req.body);
+      const agent = await storage.createAgent(input);
+      res.status(201).json(agent);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/agents/:id", isAuthenticated, async (req, res) => {
+    try {
+      const updated = await storage.updateAgent(Number(req.params.id), req.body);
+      if (!updated) return res.status(404).json({ message: "Not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  // === RESIDUAL REPORTS ===
+  app.get("/api/residual-reports", isAuthenticated, async (req, res) => {
+    try {
+      const reports = await storage.getResidualReports();
+      res.json(reports);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/residual-reports", isAuthenticated, async (req, res) => {
+    try {
+      const input = insertResidualReportSchema.parse(req.body);
+      const report = await storage.createResidualReport(input);
+      res.status(201).json(report);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/residual-reports/:id", isAuthenticated, async (req, res) => {
+    try {
+      const report = await storage.getResidualReport(Number(req.params.id));
+      if (!report) return res.status(404).json({ message: "Not found" });
+      res.json(report);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/merchant-residuals", isAuthenticated, async (req, res) => {
+    try {
+      const month = req.query.month as string | undefined;
+      const dealId = req.query.dealId ? Number(req.query.dealId) : undefined;
+      if (dealId) {
+        const residuals = await storage.getMerchantResidualsByDeal(dealId);
+        res.json(residuals);
+      } else if (month) {
+        const residuals = await storage.getMerchantResidualsByMonth(month);
+        res.json(residuals);
+      } else {
+        const residuals = await storage.getMerchantResiduals();
+        res.json(residuals);
+      }
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === HEALTH ALERTS ===
+  app.get("/api/health-alerts", isAuthenticated, async (req, res) => {
+    try {
+      const alerts = await storage.getActiveHealthAlerts();
+      res.json(alerts);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/health-alerts/deal/:dealId", isAuthenticated, async (req, res) => {
+    try {
+      const alerts = await storage.getHealthAlertsByDeal(Number(req.params.dealId));
+      res.json(alerts);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/health-alerts", isAuthenticated, async (req, res) => {
+    try {
+      const input = insertHealthAlertSchema.parse(req.body);
+      const alert = await storage.createHealthAlert(input);
+      res.status(201).json(alert);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/health-alerts/:id", isAuthenticated, async (req, res) => {
+    try {
+      const updated = await storage.updateHealthAlert(Number(req.params.id), req.body);
+      if (!updated) return res.status(404).json({ message: "Not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  // === DEAL COMPETITORS ===
+  app.get("/api/deal-competitors", isAuthenticated, async (req, res) => {
+    try {
+      const competitors = await storage.getDealCompetitors();
+      res.json(competitors);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/deal-competitors/deal/:dealId", isAuthenticated, async (req, res) => {
+    try {
+      const competitors = await storage.getDealCompetitorsByDeal(Number(req.params.dealId));
+      res.json(competitors);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/deal-competitors", isAuthenticated, async (req, res) => {
+    try {
+      const input = insertDealCompetitorSchema.parse(req.body);
+      const competitor = await storage.createDealCompetitor(input);
+      res.status(201).json(competitor);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/deal-competitors/:id", isAuthenticated, async (req, res) => {
+    try {
+      const updated = await storage.updateDealCompetitor(Number(req.params.id), req.body);
+      if (!updated) return res.status(404).json({ message: "Not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  // === PARTNERS ===
+  app.get("/api/partners", isAuthenticated, async (req, res) => {
+    try {
+      const partnersList = await storage.getPartners();
+      res.json(partnersList);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/partners/:id", isAuthenticated, async (req, res) => {
+    try {
+      const partner = await storage.getPartner(Number(req.params.id));
+      if (!partner) return res.status(404).json({ message: "Not found" });
+      res.json(partner);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/partners", isAuthenticated, async (req, res) => {
+    try {
+      const input = insertPartnerSchema.parse(req.body);
+      const partner = await storage.createPartner(input);
+      res.status(201).json(partner);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/partners/:id", isAuthenticated, async (req, res) => {
+    try {
+      const updated = await storage.updatePartner(Number(req.params.id), req.body);
+      if (!updated) return res.status(404).json({ message: "Not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  // === REFERRALS ===
+  app.get("/api/referrals", isAuthenticated, async (req, res) => {
+    try {
+      const partnerId = req.query.partnerId ? Number(req.query.partnerId) : undefined;
+      const referralsList = partnerId ? await storage.getReferralsByPartner(partnerId) : await storage.getReferrals();
+      res.json(referralsList);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/referrals", isAuthenticated, async (req, res) => {
+    try {
+      const input = insertReferralSchema.parse(req.body);
+      const referral = await storage.createReferral(input);
+      res.status(201).json(referral);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/referrals/:id", isAuthenticated, async (req, res) => {
+    try {
+      const updated = await storage.updateReferral(Number(req.params.id), req.body);
+      if (!updated) return res.status(404).json({ message: "Not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  // === KNOWLEDGE BASE ===
+  app.get("/api/knowledge-base", async (req, res) => {
+    try {
+      const articles = await storage.getPublishedArticles();
+      res.json(articles);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/knowledge-base/category/:category", async (req, res) => {
+    try {
+      const articles = await storage.getKnowledgeBaseByCategory(req.params.category);
+      res.json(articles);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/knowledge-base/:id", async (req, res) => {
+    try {
+      const article = await storage.getKnowledgeBaseArticle(Number(req.params.id));
+      if (!article) return res.status(404).json({ message: "Not found" });
+      res.json(article);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/knowledge-base", isAuthenticated, async (req, res) => {
+    try {
+      const input = insertKnowledgeBaseSchema.parse(req.body);
+      const article = await storage.createKnowledgeBaseArticle(input);
+      res.status(201).json(article);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/knowledge-base/:id", isAuthenticated, async (req, res) => {
+    try {
+      const updated = await storage.updateKnowledgeBaseArticle(Number(req.params.id), req.body);
+      if (!updated) return res.status(404).json({ message: "Not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  // === REVIEW REQUESTS ===
+  app.get("/api/review-requests", isAuthenticated, async (req, res) => {
+    try {
+      const requests = await storage.getReviewRequests();
+      res.json(requests);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/review-requests/deal/:dealId", isAuthenticated, async (req, res) => {
+    try {
+      const requests = await storage.getReviewRequestsByDeal(Number(req.params.dealId));
+      res.json(requests);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/review-requests", isAuthenticated, async (req, res) => {
+    try {
+      const input = insertReviewRequestSchema.parse(req.body);
+      const request = await storage.createReviewRequest(input);
+      res.status(201).json(request);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/review-requests/:id", isAuthenticated, async (req, res) => {
+    try {
+      const updated = await storage.updateReviewRequest(Number(req.params.id), req.body);
+      if (!updated) return res.status(404).json({ message: "Not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
     }
   });
 

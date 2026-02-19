@@ -1,0 +1,521 @@
+import { useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useAuth } from "@/hooks/use-auth";
+import { useToast } from "@/hooks/use-toast";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  User, ClipboardList, FileText, Headphones,
+  CheckCircle, Circle, Loader2, Plus, Upload,
+  Calendar, Hash, CreditCard, Activity, ArrowRight
+} from "lucide-react";
+import { Link } from "wouter";
+import type { MerchantProfile, OnboardingStep, Ticket } from "@shared/schema";
+import type { Document as DocType } from "@shared/schema";
+
+type TabKey = "account" | "onboarding" | "documents" | "support";
+
+const TABS: { key: TabKey; label: string; icon: typeof User }[] = [
+  { key: "account", label: "My Account", icon: User },
+  { key: "onboarding", label: "Onboarding Progress", icon: ClipboardList },
+  { key: "documents", label: "My Documents", icon: FileText },
+  { key: "support", label: "Support", icon: Headphones },
+];
+
+function getStatusBadgeVariant(status: string | null | undefined): "default" | "secondary" | "destructive" | "outline" {
+  switch (status) {
+    case "active": return "default";
+    case "pending": return "secondary";
+    case "under_review": return "outline";
+    default: return "secondary";
+  }
+}
+
+function formatDate(date: string | Date | null | undefined): string {
+  if (!date) return "N/A";
+  return new Date(date).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+}
+
+function AccountTab({ profile, isLoading }: { profile: MerchantProfile | null | undefined; isLoading: boolean }) {
+  if (isLoading) {
+    return (
+      <div className="space-y-4" data-testid="account-loading">
+        <Skeleton className="h-32 w-full" />
+        <Skeleton className="h-24 w-full" />
+      </div>
+    );
+  }
+
+  if (!profile) {
+    return (
+      <Card data-testid="card-no-profile">
+        <CardContent className="flex flex-col items-center justify-center py-12 gap-4">
+          <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
+            <CreditCard className="w-8 h-8 text-primary" />
+          </div>
+          <div className="text-center space-y-2">
+            <h3 className="text-lg font-semibold" data-testid="text-no-profile-title">Application in Progress</h3>
+            <p className="text-sm text-muted-foreground max-w-md">
+              Your merchant profile hasn't been set up yet. Complete your application to get started with payment processing.
+            </p>
+          </div>
+          <Link href="/apply">
+            <Button data-testid="button-start-application">
+              <ArrowRight className="w-4 h-4 mr-2" />
+              Complete Your Application
+            </Button>
+          </Link>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <Card data-testid="card-account-status">
+        <CardHeader className="flex flex-row items-center justify-between gap-2 flex-wrap">
+          <CardTitle className="text-base">Account Status</CardTitle>
+          <Badge variant={getStatusBadgeVariant(profile.accountStatus)} data-testid="badge-account-status">
+            {profile.accountStatus || "Pending"}
+          </Badge>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground">MID Number</p>
+              <p className="text-sm font-medium flex items-center gap-2" data-testid="text-mid-number">
+                <Hash className="w-4 h-4 text-muted-foreground" />
+                {profile.merchantMid || "Not assigned"}
+              </p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground">Program Type</p>
+              <p className="text-sm font-medium flex items-center gap-2" data-testid="text-program-type">
+                <CreditCard className="w-4 h-4 text-muted-foreground" />
+                {profile.programType || "Not set"}
+              </p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground">Go-Live Date</p>
+              <p className="text-sm font-medium flex items-center gap-2" data-testid="text-go-live-date">
+                <Calendar className="w-4 h-4 text-muted-foreground" />
+                {formatDate(profile.goLiveDate)}
+              </p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground">Current Monthly Volume</p>
+              <p className="text-sm font-medium flex items-center gap-2" data-testid="text-monthly-volume">
+                <Activity className="w-4 h-4 text-muted-foreground" />
+                {profile.currentMonthlyVolume ? `$${Number(profile.currentMonthlyVolume).toLocaleString()}` : "N/A"}
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function OnboardingTab({ dealId }: { dealId: number | null | undefined }) {
+  const { data: steps, isLoading } = useQuery<OnboardingStep[]>({
+    queryKey: ["/api/onboarding-steps/deal", dealId],
+    queryFn: async () => {
+      const res = await fetch(`/api/onboarding-steps/deal/${dealId}`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!dealId,
+  });
+
+  if (!dealId) {
+    return (
+      <Card data-testid="card-no-onboarding">
+        <CardContent className="flex flex-col items-center justify-center py-12 gap-4">
+          <ClipboardList className="w-12 h-12 text-muted-foreground" />
+          <div className="text-center space-y-2">
+            <h3 className="text-lg font-semibold">No Onboarding Data</h3>
+            <p className="text-sm text-muted-foreground">Onboarding steps will appear here once your application is processed.</p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div className="space-y-3" data-testid="onboarding-loading">
+        {[1, 2, 3, 4].map((i) => (
+          <div key={i} className="flex gap-3 items-center">
+            <Skeleton className="h-8 w-8 rounded-full shrink-0" />
+            <div className="space-y-2 flex-1">
+              <Skeleton className="h-4 w-40" />
+              <Skeleton className="h-3 w-24" />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  const sortedSteps = steps?.sort((a, b) => a.stepOrder - b.stepOrder) || [];
+  const currentIndex = sortedSteps.findIndex((s) => s.status !== "completed");
+
+  if (sortedSteps.length === 0) {
+    return (
+      <Card data-testid="card-no-steps">
+        <CardContent className="flex flex-col items-center justify-center py-12 gap-4">
+          <ClipboardList className="w-12 h-12 text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">No onboarding steps found for this deal.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card data-testid="card-onboarding-steps">
+      <CardHeader>
+        <CardTitle className="text-base">Onboarding Steps</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-0">
+          {sortedSteps.map((step, index) => {
+            const isCompleted = step.status === "completed";
+            const isCurrent = index === currentIndex;
+            const isLast = index === sortedSteps.length - 1;
+
+            return (
+              <div key={step.id} className="relative flex gap-3 pb-6" data-testid={`onboarding-step-${step.id}`}>
+                <div className="flex flex-col items-center">
+                  <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 ${
+                    isCompleted
+                      ? "bg-green-100 border-green-500 dark:bg-green-900 dark:border-green-400"
+                      : isCurrent
+                        ? "bg-blue-100 border-blue-500 dark:bg-blue-900 dark:border-blue-400"
+                        : "bg-muted border-muted-foreground/30"
+                  }`}>
+                    {isCompleted ? (
+                      <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400" />
+                    ) : isCurrent ? (
+                      <Loader2 className="h-4 w-4 text-blue-600 dark:text-blue-400 animate-spin" />
+                    ) : (
+                      <Circle className="h-4 w-4 text-muted-foreground/50" />
+                    )}
+                  </div>
+                  {!isLast && (
+                    <div className={`w-0.5 flex-1 mt-1 ${isCompleted ? "bg-green-500" : "bg-border"}`} />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0 pt-0.5">
+                  <p className={`text-sm font-medium ${isCompleted ? "text-foreground" : isCurrent ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground"}`} data-testid={`text-step-name-${step.id}`}>
+                    {step.stepName}
+                  </p>
+                  {isCompleted && step.completedAt && (
+                    <p className="text-xs text-muted-foreground mt-0.5" data-testid={`text-step-date-${step.id}`}>
+                      Completed {formatDate(step.completedAt)}
+                    </p>
+                  )}
+                  {isCurrent && (
+                    <p className="text-xs text-blue-600 dark:text-blue-400 mt-0.5">In progress</p>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function DocumentsTab({ contactId }: { contactId: number | null | undefined }) {
+  const { toast } = useToast();
+  const { data: allDocuments, isLoading } = useQuery<DocType[]>({
+    queryKey: ["/api/documents"],
+  });
+
+  const documents = contactId
+    ? allDocuments?.filter((d) => d.contactId === contactId)
+    : [];
+
+  if (isLoading) {
+    return (
+      <div className="space-y-3" data-testid="documents-loading">
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-10 w-full" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-end">
+        <Button
+          variant="outline"
+          onClick={() => toast({ title: "Coming soon", description: "Document upload will be available soon." })}
+          data-testid="button-upload-document"
+        >
+          <Upload className="w-4 h-4 mr-2" />
+          Upload Document
+        </Button>
+      </div>
+      <Card data-testid="card-documents-list">
+        <CardContent className="p-0 overflow-x-auto">
+          <Table className="min-w-[500px]">
+            <TableHeader>
+              <TableRow>
+                <TableHead>File Name</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead>Upload Date</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(!documents || documents.length === 0) ? (
+                <TableRow>
+                  <TableCell colSpan={3} className="text-center h-24 text-muted-foreground" data-testid="text-no-documents">
+                    No documents uploaded yet
+                  </TableCell>
+                </TableRow>
+              ) : (
+                documents.map((doc) => (
+                  <TableRow key={doc.id} data-testid={`row-document-${doc.id}`}>
+                    <TableCell className="font-medium" data-testid={`text-doc-name-${doc.id}`}>
+                      <div className="flex items-center gap-2">
+                        <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
+                        {doc.fileName}
+                      </div>
+                    </TableCell>
+                    <TableCell data-testid={`text-doc-type-${doc.id}`}>{doc.type}</TableCell>
+                    <TableCell data-testid={`text-doc-date-${doc.id}`}>{formatDate(doc.createdAt)}</TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function SupportTab({ contactId }: { contactId: number | null | undefined }) {
+  const { toast } = useToast();
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newTicket, setNewTicket] = useState({ subject: "", description: "", priority: "Normal" });
+
+  const { data: allTickets, isLoading } = useQuery<Ticket[]>({
+    queryKey: ["/api/tickets"],
+  });
+
+  const tickets = contactId
+    ? allTickets?.filter((t) => t.contactId === contactId)
+    : [];
+
+  const createMutation = useMutation({
+    mutationFn: async (data: { subject: string; description: string; priority: string; contactId?: number }) => {
+      const res = await apiRequest("POST", "/api/tickets", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
+      setCreateOpen(false);
+      setNewTicket({ subject: "", description: "", priority: "Normal" });
+      toast({ title: "Ticket created", description: "Your support ticket has been submitted." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to create ticket.", variant: "destructive" });
+    },
+  });
+
+  const handleCreateTicket = () => {
+    if (!newTicket.subject || !newTicket.description) {
+      toast({ title: "Missing fields", description: "Please fill in subject and description.", variant: "destructive" });
+      return;
+    }
+    createMutation.mutate({
+      subject: newTicket.subject,
+      description: newTicket.description,
+      priority: newTicket.priority,
+      ...(contactId ? { contactId } : {}),
+    });
+  };
+
+  if (isLoading) {
+    return (
+      <div className="space-y-3" data-testid="support-loading">
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-10 w-full" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-end">
+        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+          <DialogTrigger asChild>
+            <Button data-testid="button-create-ticket">
+              <Plus className="w-4 h-4 mr-2" />
+              New Ticket
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Create Support Ticket</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Subject</Label>
+                <Input
+                  value={newTicket.subject}
+                  onChange={(e) => setNewTicket({ ...newTicket, subject: e.target.value })}
+                  placeholder="Brief description of your issue"
+                  data-testid="input-ticket-subject"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Description</Label>
+                <Textarea
+                  value={newTicket.description}
+                  onChange={(e) => setNewTicket({ ...newTicket, description: e.target.value })}
+                  placeholder="Provide details about your issue"
+                  data-testid="input-ticket-description"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Priority</Label>
+                <Select value={newTicket.priority} onValueChange={(v) => setNewTicket({ ...newTicket, priority: v })}>
+                  <SelectTrigger data-testid="select-ticket-priority">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Low">Low</SelectItem>
+                    <SelectItem value="Normal">Normal</SelectItem>
+                    <SelectItem value="High">High</SelectItem>
+                    <SelectItem value="Urgent">Urgent</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex justify-end pt-2">
+                <Button onClick={handleCreateTicket} disabled={createMutation.isPending} data-testid="button-submit-ticket">
+                  {createMutation.isPending ? "Submitting..." : "Submit Ticket"}
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      </div>
+      <Card data-testid="card-tickets-list">
+        <CardContent className="p-0 overflow-x-auto">
+          <Table className="min-w-[500px]">
+            <TableHeader>
+              <TableRow>
+                <TableHead>Subject</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Priority</TableHead>
+                <TableHead>Created</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(!tickets || tickets.length === 0) ? (
+                <TableRow>
+                  <TableCell colSpan={4} className="text-center h-24 text-muted-foreground" data-testid="text-no-tickets">
+                    No support tickets
+                  </TableCell>
+                </TableRow>
+              ) : (
+                tickets.map((ticket) => (
+                  <TableRow key={ticket.id} data-testid={`row-ticket-${ticket.id}`}>
+                    <TableCell className="font-medium" data-testid={`text-ticket-subject-${ticket.id}`}>{ticket.subject}</TableCell>
+                    <TableCell>
+                      <Badge variant="secondary" data-testid={`badge-ticket-status-${ticket.id}`}>
+                        {ticket.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={ticket.priority === "Urgent" ? "destructive" : "secondary"} data-testid={`badge-ticket-priority-${ticket.id}`}>
+                        {ticket.priority}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-sm" data-testid={`text-ticket-date-${ticket.id}`}>
+                      {formatDate(ticket.createdAt)}
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+export default function MerchantPortal() {
+  const [activeTab, setActiveTab] = useState<TabKey>("account");
+  const { user } = useAuth();
+
+  const { data: profile, isLoading: profileLoading } = useQuery<MerchantProfile | null>({
+    queryKey: ["/api/merchant-profile"],
+    queryFn: async () => {
+      const res = await fetch("/api/merchant-profile", { credentials: "include" });
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error("Failed to fetch profile");
+      return res.json();
+    },
+  });
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold" data-testid="text-portal-title">Merchant Portal</h1>
+        <p className="text-sm text-muted-foreground mt-1" data-testid="text-portal-subtitle">
+          {user?.email ? `Welcome, ${user.firstName || user.email}` : "Manage your merchant account"}
+        </p>
+      </div>
+
+      <div className="flex gap-1 flex-wrap border-b pb-0" data-testid="tab-navigation">
+        {TABS.map((tab) => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.key;
+          return (
+            <Button
+              key={tab.key}
+              variant="ghost"
+              className={`rounded-b-none gap-2 ${isActive ? "border-b-2 border-primary" : ""}`}
+              onClick={() => setActiveTab(tab.key)}
+              data-testid={`tab-${tab.key}`}
+            >
+              <Icon className="w-4 h-4" />
+              <span className="hidden sm:inline">{tab.label}</span>
+            </Button>
+          );
+        })}
+      </div>
+
+      <div data-testid={`tab-content-${activeTab}`}>
+        {activeTab === "account" && (
+          <AccountTab profile={profile} isLoading={profileLoading} />
+        )}
+        {activeTab === "onboarding" && (
+          <OnboardingTab dealId={profile?.dealId} />
+        )}
+        {activeTab === "documents" && (
+          <DocumentsTab contactId={profile?.contactId} />
+        )}
+        {activeTab === "support" && (
+          <SupportTab contactId={profile?.contactId} />
+        )}
+      </div>
+    </div>
+  );
+}

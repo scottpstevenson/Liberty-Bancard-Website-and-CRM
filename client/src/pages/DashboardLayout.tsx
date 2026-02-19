@@ -38,6 +38,14 @@ import {
   Sparkles,
   FileSearch,
   FileBarChart,
+  Trophy,
+  DollarSign,
+  UserPlus,
+  HeartPulse,
+  Handshake,
+  Star,
+  ShieldCheck,
+  HelpCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -92,6 +100,20 @@ const leadGenItems = [
   { icon: BarChart2, label: "Outreach Analytics", href: "/dashboard/outreach-analytics" },
 ];
 
+const businessItems = [
+  { icon: DollarSign, label: "Revenue Dashboard", href: "/dashboard/residual-revenue" },
+  { icon: UserPlus, label: "Agent Management", href: "/dashboard/agent-management" },
+  { icon: HeartPulse, label: "Merchant Health", href: "/dashboard/merchant-health" },
+  { icon: Trophy, label: "Win/Loss Analysis", href: "/dashboard/win-loss" },
+  { icon: Handshake, label: "Referral Program", href: "/dashboard/referral-program" },
+  { icon: Star, label: "Review Requests", href: "/dashboard/review-requests" },
+];
+
+const merchantItems = [
+  { icon: ShieldCheck, label: "My Portal", href: "/dashboard/merchant-portal" },
+  { icon: HelpCircle, label: "Knowledge Base", href: "/dashboard/knowledge-base" },
+];
+
 const formItems = [
   { icon: PhoneCall, label: "Call Outcome", href: "/dashboard/call-outcome" },
   { icon: FileCheck, label: "Review Complete", href: "/dashboard/review-complete" },
@@ -113,6 +135,8 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     menuItems.find((i) => i.href === location)?.label ||
     automationItems.find((i) => i.href === location)?.label ||
     leadGenItems.find((i) => i.href === location)?.label ||
+    businessItems.find((i) => i.href === location)?.label ||
+    merchantItems.find((i) => i.href === location)?.label ||
     formItems.find((i) => i.href === location)?.label ||
     "Dashboard";
 
@@ -176,6 +200,50 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
               <SidebarGroupContent>
                 <SidebarMenu>
                   {leadGenItems.map((item) => {
+                    const Icon = item.icon;
+                    const isActive = location === item.href;
+                    return (
+                      <SidebarMenuItem key={item.href}>
+                        <SidebarMenuButton asChild isActive={isActive} data-testid={`link-sidebar-${item.label.toLowerCase().replace(/\s+/g, "-")}`}>
+                          <Link href={item.href}>
+                            <Icon className="w-4 h-4" />
+                            <span>{item.label}</span>
+                          </Link>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    );
+                  })}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+
+            <SidebarGroup>
+              <SidebarGroupLabel>Business Intelligence</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {businessItems.map((item) => {
+                    const Icon = item.icon;
+                    const isActive = location === item.href;
+                    return (
+                      <SidebarMenuItem key={item.href}>
+                        <SidebarMenuButton asChild isActive={isActive} data-testid={`link-sidebar-${item.label.toLowerCase().replace(/\s+/g, "-")}`}>
+                          <Link href={item.href}>
+                            <Icon className="w-4 h-4" />
+                            <span>{item.label}</span>
+                          </Link>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    );
+                  })}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+
+            <SidebarGroup>
+              <SidebarGroupLabel>Merchant</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {merchantItems.map((item) => {
                     const Icon = item.icon;
                     const isActive = location === item.href;
                     return (

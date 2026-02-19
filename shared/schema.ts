@@ -1,6 +1,7 @@
 import { pgTable, text, serial, integer, boolean, timestamp, jsonb, varchar } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+import { users } from "./models/auth";
 
 export * from "./models/auth";
 export * from "./models/chat";
@@ -1090,3 +1091,520 @@ export const systemSettings = pgTable("system_settings", {
 });
 
 export type SystemSetting = typeof systemSettings.$inferSelect;
+
+export const merchantApplications = pgTable("merchant_applications", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").references(() => users.id),
+  contactId: integer("contact_id").references(() => contacts.id),
+  companyId: integer("company_id").references(() => companies.id),
+  dealId: integer("deal_id").references(() => deals.id),
+  status: text("status").default("draft"),
+  currentStep: integer("current_step").default(1),
+  totalSteps: integer("total_steps").default(6),
+  legalBusinessName: text("legal_business_name"),
+  dba: text("dba"),
+  ein: text("ein"),
+  businessType: text("business_type"),
+  businessStartDate: text("business_start_date"),
+  businessAddress: text("business_address"),
+  businessCity: text("business_city"),
+  businessState: text("business_state"),
+  businessZip: text("business_zip"),
+  businessPhone: text("business_phone"),
+  businessEmail: text("business_email"),
+  website: text("website"),
+  vertical: text("vertical"),
+  ownerFirstName: text("owner_first_name"),
+  ownerLastName: text("owner_last_name"),
+  ownerEmail: text("owner_email"),
+  ownerPhone: text("owner_phone"),
+  ownerDob: text("owner_dob"),
+  ownerSsn: text("owner_ssn"),
+  ownerAddress: text("owner_address"),
+  ownerCity: text("owner_city"),
+  ownerState: text("owner_state"),
+  ownerZip: text("owner_zip"),
+  ownershipPercent: integer("ownership_percent"),
+  additionalOwners: jsonb("additional_owners"),
+  bankName: text("bank_name"),
+  bankRoutingNumber: text("bank_routing_number"),
+  bankAccountNumber: text("bank_account_number"),
+  bankAccountType: text("bank_account_type"),
+  estimatedMonthlyVolume: text("estimated_monthly_volume"),
+  estimatedAvgTicket: text("estimated_avg_ticket"),
+  highestTicket: text("highest_ticket"),
+  currentProcessor: text("current_processor"),
+  currentRate: text("current_rate"),
+  acceptedCardTypes: text("accepted_card_types").array(),
+  terminalNeeded: boolean("terminal_needed").default(false),
+  terminalType: text("terminal_type"),
+  terminalQuantity: integer("terminal_quantity").default(1),
+  ecommerceNeeded: boolean("ecommerce_needed").default(false),
+  preferredProgram: text("preferred_program"),
+  referralSource: text("referral_source"),
+  referralCode: text("referral_code"),
+  esignStatus: text("esign_status").default("pending"),
+  esignedAt: timestamp("esigned_at"),
+  esignIp: text("esign_ip"),
+  underwritingStatus: text("underwriting_status").default("pending"),
+  underwritingNotes: text("underwriting_notes"),
+  approvedAt: timestamp("approved_at"),
+  declinedAt: timestamp("declined_at"),
+  declineReason: text("decline_reason"),
+  submittedAt: timestamp("submitted_at"),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertMerchantApplicationSchema = createInsertSchema(merchantApplications).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type MerchantApplication = typeof merchantApplications.$inferSelect;
+export type InsertMerchantApplication = z.infer<typeof insertMerchantApplicationSchema>;
+
+export const APPLICATION_STATUSES = [
+  "draft",
+  "in_progress",
+  "submitted",
+  "under_review",
+  "approved",
+  "declined",
+  "withdrawn",
+] as const;
+
+export const UNDERWRITING_STATUSES = [
+  "pending",
+  "documents_needed",
+  "in_review",
+  "approved",
+  "conditionally_approved",
+  "declined",
+  "referred",
+] as const;
+
+export const BUSINESS_TYPES = [
+  "Sole Proprietorship",
+  "LLC",
+  "Corporation",
+  "Partnership",
+  "Non-Profit",
+  "Government",
+] as const;
+
+export const TERMINAL_TYPES = [
+  "Clover Flex",
+  "Clover Mini",
+  "Clover Station",
+  "Dejavoo Z11",
+  "PAX A920",
+  "Virtual Terminal Only",
+  "Mobile Reader",
+] as const;
+
+export const merchantProfiles = pgTable("merchant_profiles", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  contactId: integer("contact_id").references(() => contacts.id),
+  companyId: integer("company_id").references(() => companies.id),
+  dealId: integer("deal_id").references(() => deals.id),
+  applicationId: integer("application_id").references(() => merchantApplications.id),
+  merchantMid: text("merchant_mid"),
+  accountStatus: text("account_status").default("pending"),
+  goLiveDate: timestamp("go_live_date"),
+  currentMonthlyVolume: text("current_monthly_volume"),
+  lastStatementDate: timestamp("last_statement_date"),
+  nextStatementDate: timestamp("next_statement_date"),
+  programType: text("program_type"),
+  terminalInfo: jsonb("terminal_info"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertMerchantProfileSchema = createInsertSchema(merchantProfiles).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type MerchantProfile = typeof merchantProfiles.$inferSelect;
+export type InsertMerchantProfile = z.infer<typeof insertMerchantProfileSchema>;
+
+export const equipmentOrders = pgTable("equipment_orders", {
+  id: serial("id").primaryKey(),
+  applicationId: integer("application_id").references(() => merchantApplications.id),
+  dealId: integer("deal_id").references(() => deals.id),
+  contactId: integer("contact_id").references(() => contacts.id),
+  equipmentType: text("equipment_type").notNull(),
+  quantity: integer("quantity").default(1),
+  shippingAddress: text("shipping_address"),
+  shippingCity: text("shipping_city"),
+  shippingState: text("shipping_state"),
+  shippingZip: text("shipping_zip"),
+  trackingNumber: text("tracking_number"),
+  status: text("status").default("pending"),
+  orderedAt: timestamp("ordered_at"),
+  shippedAt: timestamp("shipped_at"),
+  deliveredAt: timestamp("delivered_at"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertEquipmentOrderSchema = createInsertSchema(equipmentOrders).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type EquipmentOrder = typeof equipmentOrders.$inferSelect;
+export type InsertEquipmentOrder = z.infer<typeof insertEquipmentOrderSchema>;
+
+export const EQUIPMENT_STATUSES = [
+  "pending",
+  "ordered",
+  "shipped",
+  "delivered",
+  "installed",
+  "returned",
+] as const;
+
+export const agents = pgTable("agents", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").references(() => users.id),
+  firstName: text("first_name").notNull(),
+  lastName: text("last_name").notNull(),
+  email: text("email").notNull(),
+  phone: text("phone"),
+  role: text("role").default("sales_rep"),
+  managerId: integer("manager_id"),
+  commissionSplitPercent: integer("commission_split_percent").default(50),
+  status: text("status").default("active"),
+  territory: text("territory"),
+  hireDate: timestamp("hire_date"),
+  totalDeals: integer("total_deals").default(0),
+  totalRevenue: text("total_revenue").default("0"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertAgentSchema = createInsertSchema(agents).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type Agent = typeof agents.$inferSelect;
+export type InsertAgent = z.infer<typeof insertAgentSchema>;
+
+export const residualReports = pgTable("residual_reports", {
+  id: serial("id").primaryKey(),
+  month: text("month").notNull(),
+  processor: text("processor"),
+  totalMerchants: integer("total_merchants").default(0),
+  totalVolume: text("total_volume").default("0"),
+  totalTransactions: integer("total_transactions").default(0),
+  totalRevenue: text("total_revenue").default("0"),
+  totalCost: text("total_cost").default("0"),
+  netRevenue: text("net_revenue").default("0"),
+  avgRevenuePerMerchant: text("avg_revenue_per_merchant").default("0"),
+  newMerchants: integer("new_merchants").default(0),
+  lostMerchants: integer("lost_merchants").default(0),
+  attritionRate: text("attrition_rate"),
+  importedAt: timestamp("imported_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertResidualReportSchema = createInsertSchema(residualReports).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type ResidualReport = typeof residualReports.$inferSelect;
+export type InsertResidualReport = z.infer<typeof insertResidualReportSchema>;
+
+export const merchantResiduals = pgTable("merchant_residuals", {
+  id: serial("id").primaryKey(),
+  reportId: integer("report_id").references(() => residualReports.id),
+  dealId: integer("deal_id").references(() => deals.id),
+  contactId: integer("contact_id").references(() => contacts.id),
+  merchantMid: text("merchant_mid"),
+  merchantName: text("merchant_name"),
+  month: text("month").notNull(),
+  volume: text("volume").default("0"),
+  transactions: integer("transactions").default(0),
+  revenue: text("revenue").default("0"),
+  cost: text("cost").default("0"),
+  netRevenue: text("net_revenue").default("0"),
+  agentId: integer("agent_id").references(() => agents.id),
+  agentCommission: text("agent_commission").default("0"),
+  volumeChange: text("volume_change"),
+  revenueChange: text("revenue_change"),
+  flags: text("flags").array(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertMerchantResidualSchema = createInsertSchema(merchantResiduals).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type MerchantResidual = typeof merchantResiduals.$inferSelect;
+export type InsertMerchantResidual = z.infer<typeof insertMerchantResidualSchema>;
+
+export const healthAlerts = pgTable("health_alerts", {
+  id: serial("id").primaryKey(),
+  dealId: integer("deal_id").references(() => deals.id),
+  contactId: integer("contact_id").references(() => contacts.id),
+  alertType: text("alert_type").notNull(),
+  severity: text("severity").default("warning"),
+  title: text("title").notNull(),
+  description: text("description"),
+  metric: text("metric"),
+  currentValue: text("current_value"),
+  previousValue: text("previous_value"),
+  threshold: text("threshold"),
+  status: text("status").default("active"),
+  acknowledgedAt: timestamp("acknowledged_at"),
+  acknowledgedBy: text("acknowledged_by"),
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertHealthAlertSchema = createInsertSchema(healthAlerts).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type HealthAlert = typeof healthAlerts.$inferSelect;
+export type InsertHealthAlert = z.infer<typeof insertHealthAlertSchema>;
+
+export const HEALTH_ALERT_TYPES = [
+  "volume_decline",
+  "chargeback_spike",
+  "no_processing",
+  "high_refund_rate",
+  "compliance_issue",
+  "terminal_offline",
+  "funding_hold",
+] as const;
+
+export const ALERT_SEVERITIES = [
+  "info",
+  "warning",
+  "critical",
+  "urgent",
+] as const;
+
+export const dealCompetitors = pgTable("deal_competitors", {
+  id: serial("id").primaryKey(),
+  dealId: integer("deal_id").references(() => deals.id),
+  competitorName: text("competitor_name").notNull(),
+  competitorRate: text("competitor_rate"),
+  competitorProgram: text("competitor_program"),
+  result: text("result"),
+  lossReason: text("loss_reason"),
+  winFactor: text("win_factor"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertDealCompetitorSchema = createInsertSchema(dealCompetitors).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type DealCompetitor = typeof dealCompetitors.$inferSelect;
+export type InsertDealCompetitor = z.infer<typeof insertDealCompetitorSchema>;
+
+export const WIN_LOSS_REASONS = [
+  "Better Rate",
+  "Better Service",
+  "Equipment Offer",
+  "Relationship",
+  "Contract Terms",
+  "Speed of Setup",
+  "Technology/Integration",
+  "Competitor Retention Offer",
+  "No Decision",
+  "Went with Bank",
+  "Price Too High",
+  "Other",
+] as const;
+
+export const partners = pgTable("partners", {
+  id: serial("id").primaryKey(),
+  companyName: text("company_name").notNull(),
+  contactName: text("contact_name"),
+  email: text("email"),
+  phone: text("phone"),
+  partnerType: text("partner_type").default("referral"),
+  commissionPercent: integer("commission_percent").default(10),
+  status: text("status").default("active"),
+  totalReferrals: integer("total_referrals").default(0),
+  totalConversions: integer("total_conversions").default(0),
+  totalPayouts: text("total_payouts").default("0"),
+  agreementDate: timestamp("agreement_date"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertPartnerSchema = createInsertSchema(partners).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type Partner = typeof partners.$inferSelect;
+export type InsertPartner = z.infer<typeof insertPartnerSchema>;
+
+export const referrals = pgTable("referrals", {
+  id: serial("id").primaryKey(),
+  partnerId: integer("partner_id").references(() => partners.id),
+  contactId: integer("contact_id").references(() => contacts.id),
+  dealId: integer("deal_id").references(() => deals.id),
+  referredName: text("referred_name"),
+  referredEmail: text("referred_email"),
+  referredPhone: text("referred_phone"),
+  referredCompany: text("referred_company"),
+  status: text("status").default("pending"),
+  incentiveType: text("incentive_type").default("commission"),
+  incentiveAmount: text("incentive_amount"),
+  paidAt: timestamp("paid_at"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertReferralSchema = createInsertSchema(referrals).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type Referral = typeof referrals.$inferSelect;
+export type InsertReferral = z.infer<typeof insertReferralSchema>;
+
+export const PARTNER_TYPES = [
+  "referral",
+  "iso_agent",
+  "bank_partner",
+  "technology",
+  "association",
+  "strategic",
+] as const;
+
+export const REFERRAL_STATUSES = [
+  "pending",
+  "contacted",
+  "qualified",
+  "converted",
+  "lost",
+  "paid",
+] as const;
+
+export const knowledgeBase = pgTable("knowledge_base", {
+  id: serial("id").primaryKey(),
+  category: text("category").notNull(),
+  title: text("title").notNull(),
+  content: text("content").notNull(),
+  tags: text("tags").array(),
+  sortOrder: integer("sort_order").default(0),
+  isPublished: boolean("is_published").default(true),
+  viewCount: integer("view_count").default(0),
+  helpfulCount: integer("helpful_count").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertKnowledgeBaseSchema = createInsertSchema(knowledgeBase).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type KnowledgeBaseArticle = typeof knowledgeBase.$inferSelect;
+export type InsertKnowledgeBaseArticle = z.infer<typeof insertKnowledgeBaseSchema>;
+
+export const KB_CATEGORIES = [
+  "Getting Started",
+  "Terminals & Equipment",
+  "Processing & Transactions",
+  "Chargebacks & Disputes",
+  "Statements & Billing",
+  "PCI Compliance",
+  "Account Management",
+  "Troubleshooting",
+] as const;
+
+export const reviewRequests = pgTable("review_requests", {
+  id: serial("id").primaryKey(),
+  dealId: integer("deal_id").references(() => deals.id),
+  contactId: integer("contact_id").references(() => contacts.id),
+  channel: text("channel").default("email"),
+  status: text("status").default("pending"),
+  sentAt: timestamp("sent_at"),
+  respondedAt: timestamp("responded_at"),
+  rating: integer("rating"),
+  reviewText: text("review_text"),
+  platform: text("platform"),
+  reviewUrl: text("review_url"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertReviewRequestSchema = createInsertSchema(reviewRequests).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type ReviewRequest = typeof reviewRequests.$inferSelect;
+export type InsertReviewRequest = z.infer<typeof insertReviewRequestSchema>;
+
+export const REVIEW_PLATFORMS = [
+  "Google",
+  "Yelp",
+  "BBB",
+  "Trustpilot",
+  "Internal",
+] as const;
+
+export const onboardingSteps = pgTable("onboarding_steps", {
+  id: serial("id").primaryKey(),
+  dealId: integer("deal_id").references(() => deals.id),
+  applicationId: integer("application_id").references(() => merchantApplications.id),
+  stepName: text("step_name").notNull(),
+  stepOrder: integer("step_order").notNull(),
+  status: text("status").default("pending"),
+  completedAt: timestamp("completed_at"),
+  completedBy: text("completed_by"),
+  notes: text("notes"),
+  dueDate: timestamp("due_date"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertOnboardingStepSchema = createInsertSchema(onboardingSteps).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type OnboardingStep = typeof onboardingSteps.$inferSelect;
+export type InsertOnboardingStep = z.infer<typeof insertOnboardingStepSchema>;
+
+export const ONBOARDING_STEP_NAMES = [
+  "Application Submitted",
+  "Documents Uploaded",
+  "Underwriting Review",
+  "Approved",
+  "Agreement Signed",
+  "Equipment Ordered",
+  "Equipment Shipped",
+  "Equipment Delivered",
+  "Terminal Programmed",
+  "First Batch Processed",
+  "Go-Live Complete",
+] as const;

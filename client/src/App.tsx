@@ -43,6 +43,7 @@ import ThanksStatement from "@/pages/ThanksStatement";
 import ThanksEstimate from "@/pages/ThanksEstimate";
 import ThanksCall from "@/pages/ThanksCall";
 import ThanksSupport from "@/pages/ThanksSupport";
+import MerchantApplication from "@/pages/MerchantApplication";
 import AssetPage from "@/pages/AssetPage";
 import NotFound from "@/pages/not-found";
 import { DashboardLayout } from "@/pages/DashboardLayout";
@@ -77,6 +78,14 @@ import Outreach from "@/pages/dashboard/Outreach";
 import LeadEngine from "@/pages/dashboard/LeadEngine";
 import LeadCommandCenter from "@/pages/dashboard/LeadCommandCenter";
 import BlazeIntegration from "@/pages/dashboard/BlazeIntegration";
+import MerchantPortal from "@/pages/dashboard/MerchantPortal";
+import AgentManagement from "@/pages/dashboard/AgentManagement";
+import MerchantHealth from "@/pages/dashboard/MerchantHealth";
+import WinLoss from "@/pages/dashboard/WinLoss";
+import ReferralProgram from "@/pages/dashboard/ReferralProgram";
+import KnowledgeBase from "@/pages/dashboard/KnowledgeBase";
+import ReviewRequests from "@/pages/dashboard/ReviewRequests";
+import ResidualRevenue from "@/pages/dashboard/ResidualRevenue";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { user, isLoading } = useAuth();
@@ -136,6 +145,7 @@ function Router() {
       <Route path="/thanks-estimate" component={ThanksEstimate} />
       <Route path="/thanks-call" component={ThanksCall} />
       <Route path="/thanks-support" component={ThanksSupport} />
+      <Route path="/merchant-application" component={MerchantApplication} />
 
       {/* Asset Library & Packet Routes */}
       <Route path="/assets/:a/:b" component={AssetPage} />
@@ -178,6 +188,9 @@ function Router() {
       <Route path="/dashboard/review-complete">
         <ProtectedRoute component={ReviewComplete} />
       </Route>
+      <Route path="/dashboard/review-requests">
+        <ProtectedRoute component={ReviewRequests} />
+      </Route>
       <Route path="/dashboard/onboarding-kickoff">
         <ProtectedRoute component={OnboardingKickoff} />
       </Route>
@@ -211,6 +224,9 @@ function Router() {
       <Route path="/dashboard/reporting">
         <ProtectedRoute component={Reporting} />
       </Route>
+      <Route path="/dashboard/win-loss">
+        <ProtectedRoute component={WinLoss} />
+      </Route>
       <Route path="/dashboard/stage-rules">
         <ProtectedRoute component={StageRules} />
       </Route>
@@ -237,6 +253,25 @@ function Router() {
       </Route>
       <Route path="/dashboard/blaze">
         <ProtectedRoute component={BlazeIntegration} />
+      </Route>
+      <Route path="/dashboard/merchant-portal">
+        <ProtectedRoute component={MerchantPortal} />
+      </Route>
+      <Route path="/dashboard/merchant-health">
+        <ProtectedRoute component={MerchantHealth} />
+      </Route>
+      <Route path="/dashboard/agent-management">
+        <ProtectedRoute component={AgentManagement} />
+      </Route>
+
+      <Route path="/dashboard/residual-revenue">
+        <ProtectedRoute component={ResidualRevenue} />
+      </Route>
+      <Route path="/dashboard/referral-program">
+        <ProtectedRoute component={ReferralProgram} />
+      </Route>
+      <Route path="/dashboard/knowledge-base">
+        <ProtectedRoute component={KnowledgeBase} />
       </Route>
 
       <Route component={NotFound} />
