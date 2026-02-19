@@ -11,6 +11,8 @@ import { StickyMobileCTA } from "@/components/StickyMobileCTA";
 import { ExitIntentPopup } from "@/components/ExitIntentPopup";
 import { ContactBubble } from "@/components/ContactBubble";
 
+import Login from "@/pages/Login";
+import Signup from "@/pages/Signup";
 import Home from "@/pages/Home";
 import GetStarted from "@/pages/GetStarted";
 import UploadStatement from "@/pages/UploadStatement";
@@ -73,8 +75,7 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
   }
 
   if (!user) {
-    // Redirect to login handled by useAuth or manual check
-    window.location.href = "/api/login";
+    setLocation("/login");
     return null;
   }
 
@@ -88,6 +89,8 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
 function Router() {
   return (
     <Switch>
+      <Route path="/login" component={Login} />
+      <Route path="/signup" component={Signup} />
       <Route path="/" component={Home} />
       <Route path="/get-started" component={GetStarted} />
       <Route path="/upload-statement" component={UploadStatement} />
@@ -214,13 +217,14 @@ function PublicLayout() {
   const [location] = useLocation();
   const isDashboard = location.startsWith("/dashboard");
   const isThanksPage = location.startsWith("/thanks");
+  const isAuthPage = location === "/login" || location === "/signup";
 
   return (
     <>
       <Router />
-      {!isDashboard && !isThanksPage && <StickyMobileCTA />}
-      {!isDashboard && <ExitIntentPopup />}
-      {!isDashboard && !isThanksPage && <ContactBubble />}
+      {!isDashboard && !isThanksPage && !isAuthPage && <StickyMobileCTA />}
+      {!isDashboard && !isAuthPage && <ExitIntentPopup />}
+      {!isDashboard && !isThanksPage && !isAuthPage && <ContactBubble />}
     </>
   );
 }

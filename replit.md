@@ -14,7 +14,7 @@ The system is built on a modern web stack:
 - **Frontend**: React with Vite, TypeScript, Tailwind CSS, and shadcn/ui for a modern, responsive user interface. `wouter` is used for client-side routing. `react-helmet-async` manages SEO meta tags.
 - **Backend**: Express.js with TypeScript handles API services.
 - **Database**: PostgreSQL is used for data persistence, accessed via Drizzle ORM.
-- **Authentication**: Replit Auth (OIDC) is integrated for secure user authentication.
+- **Authentication**: Custom email/password authentication with session-based auth (passport-local + bcryptjs). Admin: scott@libertybancard.com. Merchants sign up via email/password. Google OAuth button present (requires configuration). Users table has role (admin/merchant), passwordHash, authProvider fields. Sessions stored in PostgreSQL via connect-pg-simple.
 - **AI Integration**: OpenAI provides department-specific AI advisors and powers lead enrichment, scoring, and deal blueprint generation.
 - **External Communications**: GoHighLevel (GHL) is the primary platform for SMS, email, and calendar management, deeply integrated with the system.
 - **Core Features**:
@@ -39,5 +39,5 @@ The system is built on a modern web stack:
 - **PostgreSQL**: Relational database for all application data.
 - **OpenAI API**: For AI advisor functionalities, lead enrichment, scoring, and deal blueprint generation.
 - **GoHighLevel (GHL) API**: Used for contact synchronization, sending emails and SMS messages, calendar booking, handling inbound webhooks for communication tracking, and AI-powered auto-replies for inbound messages.
-- **Replit Auth (OIDC)**: Provides user authentication services.
+- **Passport.js (passport-local + bcryptjs)**: Custom email/password authentication with session-based auth. Admin account seeded on startup. Google OAuth ready for future configuration.
 - **Multer**: Used for handling `multipart/form-data` for file uploads, specifically for CSV and corevt.zip imports.
