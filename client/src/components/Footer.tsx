@@ -26,6 +26,13 @@ export function Footer() {
     { label: "Cookie Policy", href: "/cookie-policy" },
     { label: "Advertising Disclosure", href: "/advertising-disclosure" },
     { label: "Accessibility", href: "/accessibility" },
+    { label: "SMS Terms", href: "/sms-terms" },
+    { label: "E-Sign Consent", href: "/esign-consent" },
+    { label: "Surcharging Disclosure", href: "/surcharging-disclosure" },
+    { label: "Merchant Policies", href: "/merchant-policies" },
+    { label: "Security & Compliance", href: "/security-compliance" },
+    { label: "Regulatory Notices", href: "/regulatory-notices" },
+    { label: "Data Processing Agreement", href: "/data-processing-agreement" },
   ];
 
   return (
@@ -142,9 +149,18 @@ export function Footer() {
             Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review. Contract terms, early termination fees, and equipment return requirements are specified in the Merchant Processing Agreement.
           </p>
 
-          <p className="text-primary-foreground/50 text-sm" data-testid="text-footer-copyright">
-            &copy; {new Date().getFullYear()} Liberty Bancard. All rights reserved.
-          </p>
+          <div className="flex flex-wrap items-center gap-4">
+            <p className="text-primary-foreground/50 text-sm" data-testid="text-footer-copyright">
+              &copy; {new Date().getFullYear()} Liberty Bancard. All rights reserved.
+            </p>
+            <Link
+              href="/do-not-sell"
+              className="text-primary-foreground/60 text-sm hover:text-primary-foreground transition-colors underline"
+              data-testid="link-footer-do-not-sell"
+            >
+              Do Not Sell or Share My Personal Information
+            </Link>
+          </div>
         </div>
       </div>
     </footer>

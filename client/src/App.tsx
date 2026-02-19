@@ -27,6 +27,14 @@ import Terms from "@/pages/Terms";
 import CookiePolicy from "@/pages/CookiePolicy";
 import AdvertisingDisclosure from "@/pages/AdvertisingDisclosure";
 import AccessibilityStatement from "@/pages/AccessibilityStatement";
+import SmsTerms from "@/pages/SmsTerms";
+import ESignConsent from "@/pages/ESignConsent";
+import SurchargingDisclosure from "@/pages/SurchargingDisclosure";
+import MerchantPolicies from "@/pages/MerchantPolicies";
+import RegulatoryNotices from "@/pages/RegulatoryNotices";
+import SecurityCompliance from "@/pages/SecurityCompliance";
+import DoNotSell from "@/pages/DoNotSell";
+import DataProcessingAgreement from "@/pages/DataProcessingAgreement";
 import ThanksStatement from "@/pages/ThanksStatement";
 import ThanksEstimate from "@/pages/ThanksEstimate";
 import ThanksCall from "@/pages/ThanksCall";
@@ -108,6 +116,14 @@ function Router() {
       <Route path="/cookie-policy" component={CookiePolicy} />
       <Route path="/advertising-disclosure" component={AdvertisingDisclosure} />
       <Route path="/accessibility" component={AccessibilityStatement} />
+      <Route path="/sms-terms" component={SmsTerms} />
+      <Route path="/esign-consent" component={ESignConsent} />
+      <Route path="/surcharging-disclosure" component={SurchargingDisclosure} />
+      <Route path="/merchant-policies" component={MerchantPolicies} />
+      <Route path="/regulatory-notices" component={RegulatoryNotices} />
+      <Route path="/security-compliance" component={SecurityCompliance} />
+      <Route path="/do-not-sell" component={DoNotSell} />
+      <Route path="/data-processing-agreement" component={DataProcessingAgreement} />
       <Route path="/thanks-statement" component={ThanksStatement} />
       <Route path="/thanks-estimate" component={ThanksEstimate} />
       <Route path="/thanks-call" component={ThanksCall} />
