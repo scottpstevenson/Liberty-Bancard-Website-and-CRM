@@ -971,6 +971,16 @@ OUTPUT FORMAT:
       const stagesCount: Record<string, number> = {};
       salesDeals.forEach(d => { stagesCount[d.stage] = (stagesCount[d.stage] || 0) + 1; });
 
+      const parseCurrency = (v: string | null | undefined): number => {
+        if (!v) return 0;
+        const n = parseFloat(v.replace(/[^0-9.\-]/g, ""));
+        return isNaN(n) ? 0 : n;
+      };
+
+      const totalEstVolume = allContacts.reduce((s, c) => s + parseCurrency(c.estimatedProcessingVolume), 0);
+      const totalEstResidual = allContacts.reduce((s, c) => s + parseCurrency(c.estimatedResidual), 0);
+      const totalEstProfit = allDeals.reduce((s, d) => s + parseCurrency(d.estimatedGrossProfitMonthly), 0);
+
       res.json({
         pipeline: {
           totalActive: salesDeals.filter(d => d.stage !== "Closed Won" && d.stage !== "Closed Lost").length,
@@ -996,6 +1006,12 @@ OUTPUT FORMAT:
         contacts: {
           total: allContacts.length,
           new30d: allContacts.filter(c => c.createdAt && new Date(c.createdAt) >= thirtyDaysAgo).length,
+        },
+        revenue: {
+          totalEstVolume,
+          totalEstResidual,
+          totalEstProfit,
+          avgDealProfit: allDeals.length > 0 ? Math.round(totalEstProfit / allDeals.length) : 0,
         },
       });
     } catch (err: any) {

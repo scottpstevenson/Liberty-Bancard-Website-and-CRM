@@ -85,6 +85,9 @@ const automationItems = [
 
 const leadGenItems = [
   { icon: Brain, label: "Lead Command Center", href: "/dashboard/lead-command-center" },
+  { icon: Target, label: "Prospects", href: "/dashboard/prospects" },
+  { icon: FileSearch, label: "Sunbiz Lead Gen", href: "/dashboard/lead-gen" },
+  { icon: Sparkles, label: "Lead Intelligence", href: "/dashboard/lead-intelligence" },
   { icon: FileBarChart, label: "Statement Review", href: "/dashboard/statement-review" },
   { icon: BarChart2, label: "Outreach Analytics", href: "/dashboard/outreach-analytics" },
 ];

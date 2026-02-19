@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
-import { Users, Ticket, TrendingUp, CheckCircle, AlertTriangle, Clock, Target, ArrowUpRight, Loader2, Brain, Sparkles, RefreshCw } from "lucide-react";
+import { Users, Ticket, TrendingUp, CheckCircle, AlertTriangle, Clock, Target, ArrowUpRight, Loader2, Brain, Sparkles, RefreshCw, DollarSign, Banknote } from "lucide-react";
 import type { Contact, Deal } from "@shared/schema";
 
 function formatInsights(text: string) {
@@ -38,6 +38,7 @@ export default function Overview() {
     support: { openTickets: number; breachedSla: number };
     tasks: { pending: number; overdue: number };
     contacts: { total: number; new30d: number };
+    revenue: { totalEstVolume: number; totalEstResidual: number; totalEstProfit: number; avgDealProfit: number };
   }>({ queryKey: ["/api/kpi/summary"] });
 
   const { data: contacts } = useQuery<Contact[]>({ queryKey: ["/api/contacts"] });
@@ -186,6 +187,52 @@ export default function Overview() {
             ) : (
               <p className="text-xs text-muted-foreground mt-1" data-testid="text-tasks-ok">None overdue</p>
             )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <Card data-testid="card-kpi-volume">
+          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Est. Processing Volume</CardTitle>
+            <DollarSign className="w-4 h-4 text-green-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold" data-testid="text-est-volume">${(kpi?.revenue.totalEstVolume || 0).toLocaleString()}</div>
+            <p className="text-xs text-muted-foreground mt-1">Monthly estimated volume</p>
+          </CardContent>
+        </Card>
+
+        <Card data-testid="card-kpi-residual">
+          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Est. Monthly Residual</CardTitle>
+            <Banknote className="w-4 h-4 text-green-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold" data-testid="text-est-residual">${(kpi?.revenue.totalEstResidual || 0).toLocaleString()}</div>
+            <p className="text-xs text-muted-foreground mt-1">Projected monthly income</p>
+          </CardContent>
+        </Card>
+
+        <Card data-testid="card-kpi-profit">
+          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Est. Gross Profit</CardTitle>
+            <TrendingUp className="w-4 h-4 text-green-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold" data-testid="text-est-profit">${(kpi?.revenue.totalEstProfit || 0).toLocaleString()}</div>
+            <p className="text-xs text-muted-foreground mt-1">Monthly from all deals</p>
+          </CardContent>
+        </Card>
+
+        <Card data-testid="card-kpi-avg-deal">
+          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Avg Deal Profit</CardTitle>
+            <Target className="w-4 h-4 text-green-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold" data-testid="text-avg-deal-profit">${(kpi?.revenue.avgDealProfit || 0).toLocaleString()}</div>
+            <p className="text-xs text-muted-foreground mt-1">Per deal average</p>
           </CardContent>
         </Card>
       </div>
