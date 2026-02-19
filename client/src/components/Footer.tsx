@@ -22,7 +22,10 @@ export function Footer() {
 
   const legalLinks = [
     { label: "Privacy Policy", href: "/privacy-policy" },
-    { label: "Terms", href: "/terms" },
+    { label: "Terms of Service", href: "/terms" },
+    { label: "Cookie Policy", href: "/cookie-policy" },
+    { label: "Advertising Disclosure", href: "/advertising-disclosure" },
+    { label: "Accessibility", href: "/accessibility" },
   ];
 
   return (
@@ -127,12 +130,16 @@ export function Footer() {
         </div>
 
         <div className="border-t border-white/10 pt-8 space-y-4">
+          <p className="text-primary-foreground/40 text-xs leading-relaxed" data-testid="text-footer-iso-disclosure">
+            Liberty Bancard is a registered Independent Sales Organization (ISO) and merchant services provider. Liberty Bancard is not a bank. All merchant accounts are subject to application, credit approval, and underwriting by the acquiring bank and payment processor. Liberty Bancard facilitates payment processing services on behalf of its acquiring bank partner(s) and does not directly process transactions, hold merchant funds, or bear settlement risk.
+          </p>
+
           <p className="text-primary-foreground/40 text-xs leading-relaxed" data-testid="text-footer-disclaimer">
-            Disclosures: Liberty Bancard provides payment processing and related services. Pricing, program eligibility, funding speed, and equipment offers vary by merchant profile and are subject to underwriting approval. "Next-day funding" options may be available for qualified merchants and depend on cutoff times, bank schedules, and risk review. "0% processing" refers to compliant cash discount or surcharging programs where permitted; applicability depends on state law, card brand rules, and your business model. PCI compliance is the merchant's responsibility; we provide guidance and support. We do not provide legal or tax advice.
+            Disclosures: Pricing, program eligibility, funding speed, and equipment offers vary by merchant profile and are subject to underwriting approval. "Next-day funding" options may be available for qualified merchants and depend on cutoff times, bank schedules, and risk review. "0% processing" refers to compliant cash discount or surcharging programs where permitted; applicability depends on state law, card brand rules, and your business model. "Free terminal" placement requires an approved and active processing account, is subject to minimum processing requirements and contract term, and equipment remains the property of Liberty Bancard. Early termination fees may apply. PCI compliance is the merchant's responsibility; we provide guidance and support. We do not provide legal, tax, or financial advice.
           </p>
 
           <p className="text-primary-foreground/40 text-xs" data-testid="text-footer-compliance">
-            Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.
+            Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review. Contract terms, early termination fees, and equipment return requirements are specified in the Merchant Processing Agreement.
           </p>
 
           <p className="text-primary-foreground/50 text-sm" data-testid="text-footer-copyright">

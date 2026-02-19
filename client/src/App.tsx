@@ -10,6 +10,7 @@ import { Loader2 } from "lucide-react";
 import { StickyMobileCTA } from "@/components/StickyMobileCTA";
 import { ExitIntentPopup } from "@/components/ExitIntentPopup";
 import { ContactBubble } from "@/components/ContactBubble";
+import { CookieConsent } from "@/components/CookieConsent";
 
 import Login from "@/pages/Login";
 import Signup from "@/pages/Signup";
@@ -23,6 +24,9 @@ import Estimate from "@/pages/Estimate";
 import Support from "@/pages/Support";
 import PrivacyPolicy from "@/pages/PrivacyPolicy";
 import Terms from "@/pages/Terms";
+import CookiePolicy from "@/pages/CookiePolicy";
+import AdvertisingDisclosure from "@/pages/AdvertisingDisclosure";
+import AccessibilityStatement from "@/pages/AccessibilityStatement";
 import ThanksStatement from "@/pages/ThanksStatement";
 import ThanksEstimate from "@/pages/ThanksEstimate";
 import ThanksCall from "@/pages/ThanksCall";
@@ -101,6 +105,9 @@ function Router() {
       <Route path="/support" component={Support} />
       <Route path="/privacy-policy" component={PrivacyPolicy} />
       <Route path="/terms" component={Terms} />
+      <Route path="/cookie-policy" component={CookiePolicy} />
+      <Route path="/advertising-disclosure" component={AdvertisingDisclosure} />
+      <Route path="/accessibility" component={AccessibilityStatement} />
       <Route path="/thanks-statement" component={ThanksStatement} />
       <Route path="/thanks-estimate" component={ThanksEstimate} />
       <Route path="/thanks-call" component={ThanksCall} />
@@ -225,6 +232,7 @@ function PublicLayout() {
       {!isDashboard && !isThanksPage && !isAuthPage && <StickyMobileCTA />}
       {!isDashboard && !isAuthPage && <ExitIntentPopup />}
       {!isDashboard && !isThanksPage && !isAuthPage && <ContactBubble />}
+      {!isDashboard && !isAuthPage && <CookieConsent />}
     </>
   );
 }
