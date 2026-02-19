@@ -33,6 +33,10 @@ export function Footer() {
     { label: "Security & Compliance", href: "/security-compliance" },
     { label: "Regulatory Notices", href: "/regulatory-notices" },
     { label: "Data Processing Agreement", href: "/data-processing-agreement" },
+    { label: "Responsible AI", href: "/responsible-ai" },
+    { label: "Testimonials Disclosure", href: "/testimonials-disclosure" },
+    { label: "Law Enforcement Guidelines", href: "/law-enforcement" },
+    { label: "Dispute Resolution", href: "/dispute-resolution" },
   ];
 
   return (

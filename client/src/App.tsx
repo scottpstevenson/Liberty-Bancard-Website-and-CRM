@@ -35,6 +35,10 @@ import RegulatoryNotices from "@/pages/RegulatoryNotices";
 import SecurityCompliance from "@/pages/SecurityCompliance";
 import DoNotSell from "@/pages/DoNotSell";
 import DataProcessingAgreement from "@/pages/DataProcessingAgreement";
+import ResponsibleAI from "@/pages/ResponsibleAI";
+import TestimonialsDisclosure from "@/pages/TestimonialsDisclosure";
+import LawEnforcementGuidelines from "@/pages/LawEnforcementGuidelines";
+import DisputeResolution from "@/pages/DisputeResolution";
 import ThanksStatement from "@/pages/ThanksStatement";
 import ThanksEstimate from "@/pages/ThanksEstimate";
 import ThanksCall from "@/pages/ThanksCall";
@@ -124,6 +128,10 @@ function Router() {
       <Route path="/security-compliance" component={SecurityCompliance} />
       <Route path="/do-not-sell" component={DoNotSell} />
       <Route path="/data-processing-agreement" component={DataProcessingAgreement} />
+      <Route path="/responsible-ai" component={ResponsibleAI} />
+      <Route path="/testimonials-disclosure" component={TestimonialsDisclosure} />
+      <Route path="/law-enforcement" component={LawEnforcementGuidelines} />
+      <Route path="/dispute-resolution" component={DisputeResolution} />
       <Route path="/thanks-statement" component={ThanksStatement} />
       <Route path="/thanks-estimate" component={ThanksEstimate} />
       <Route path="/thanks-call" component={ThanksCall} />
