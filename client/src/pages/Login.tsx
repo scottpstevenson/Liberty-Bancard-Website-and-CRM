@@ -100,6 +100,12 @@ export default function Login() {
                 </div>
               </div>
 
+              <div className="flex justify-end">
+                <Link href="/forgot-password" className="text-sm text-primary underline-offset-4 hover:underline" data-testid="link-forgot-password">
+                  Forgot password?
+                </Link>
+              </div>
+
               <Button type="submit" className="w-full" disabled={isLoggingIn} data-testid="button-login">
                 {isLoggingIn ? (
                   <>

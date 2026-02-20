@@ -1,4 +1,4 @@
-import { ReactNode, useState } from "react";
+import { ReactNode, useState, useMemo } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import logoBlue from "@assets/logo-blue.png";
@@ -46,6 +46,8 @@ import {
   Star,
   ShieldCheck,
   HelpCircle,
+  UserCog,
+  Calendar,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -67,64 +69,93 @@ interface DashboardLayoutProps {
   children: ReactNode;
 }
 
-const menuItems = [
-  { icon: LayoutDashboard, label: "Overview", href: "/dashboard" },
-  { icon: Users, label: "Contacts", href: "/dashboard/contacts" },
-  { icon: TrendingUp, label: "Pipeline", href: "/dashboard/pipeline" },
-  { icon: Package, label: "Onboarding", href: "/dashboard/onboarding" },
-  { icon: Ticket, label: "Tickets", href: "/dashboard/tickets" },
-  { icon: ClipboardList, label: "Tasks", href: "/dashboard/tasks" },
-  { icon: Bell, label: "Notifications", href: "/dashboard/notifications" },
-  { icon: MessageSquare, label: "AI Advisor", href: "/dashboard/chat" },
-  { icon: FileQuestion, label: "RFIs", href: "/dashboard/rfis" },
-  { icon: PieChart, label: "Reporting", href: "/dashboard/reporting" },
+type UserRole = "admin" | "manager" | "agent" | "merchant";
+
+interface MenuItem {
+  icon: any;
+  label: string;
+  href: string;
+  roles?: UserRole[];
+}
+
+const menuItems: MenuItem[] = [
+  { icon: LayoutDashboard, label: "Overview", href: "/dashboard", roles: ["admin", "manager", "agent"] },
+  { icon: Users, label: "Contacts", href: "/dashboard/contacts", roles: ["admin", "manager", "agent"] },
+  { icon: TrendingUp, label: "Pipeline", href: "/dashboard/pipeline", roles: ["admin", "manager", "agent"] },
+  { icon: Package, label: "Onboarding", href: "/dashboard/onboarding", roles: ["admin", "manager"] },
+  { icon: Ticket, label: "Tickets", href: "/dashboard/tickets", roles: ["admin", "manager"] },
+  { icon: ClipboardList, label: "Tasks", href: "/dashboard/tasks", roles: ["admin", "manager", "agent"] },
+  { icon: Bell, label: "Notifications", href: "/dashboard/notifications", roles: ["admin", "manager", "agent"] },
+  { icon: MessageSquare, label: "AI Advisor", href: "/dashboard/chat", roles: ["admin", "manager", "agent"] },
+  { icon: FileQuestion, label: "RFIs", href: "/dashboard/rfis", roles: ["admin", "manager"] },
+  { icon: PieChart, label: "Reporting", href: "/dashboard/reporting", roles: ["admin", "manager"] },
+  { icon: Calendar, label: "Calendar", href: "/dashboard/calendar", roles: ["admin", "manager", "agent"] },
 ];
 
-const automationItems = [
-  { icon: BarChart3, label: "Automation", href: "/dashboard/automation" },
-  { icon: Zap, label: "Workflows", href: "/dashboard/workflows" },
-  { icon: ListOrdered, label: "Sequences", href: "/dashboard/sequences" },
-  { icon: GitBranch, label: "Stage Rules", href: "/dashboard/stage-rules" },
-  { icon: Repeat, label: "Outreach", href: "/dashboard/outreach" },
-  { icon: Megaphone, label: "Campaigns", href: "/dashboard/campaigns" },
-  { icon: Wand2, label: "Blaze.ai Marketing", href: "/dashboard/blaze" },
-  { icon: Settings, label: "GHL Settings", href: "/dashboard/ghl-settings" },
+const automationItems: MenuItem[] = [
+  { icon: BarChart3, label: "Automation", href: "/dashboard/automation", roles: ["admin", "manager"] },
+  { icon: Zap, label: "Workflows", href: "/dashboard/workflows", roles: ["admin", "manager"] },
+  { icon: ListOrdered, label: "Sequences", href: "/dashboard/sequences", roles: ["admin", "manager"] },
+  { icon: GitBranch, label: "Stage Rules", href: "/dashboard/stage-rules", roles: ["admin", "manager"] },
+  { icon: Repeat, label: "Outreach", href: "/dashboard/outreach", roles: ["admin", "manager"] },
+  { icon: Megaphone, label: "Campaigns", href: "/dashboard/campaigns", roles: ["admin", "manager"] },
+  { icon: Wand2, label: "Blaze.ai Marketing", href: "/dashboard/blaze", roles: ["admin", "manager"] },
+  { icon: Settings, label: "GHL Settings", href: "/dashboard/ghl-settings", roles: ["admin"] },
 ];
 
-const leadGenItems = [
-  { icon: Brain, label: "Lead Command Center", href: "/dashboard/lead-command-center" },
-  { icon: Target, label: "Prospects", href: "/dashboard/prospects" },
-  { icon: FileSearch, label: "Sunbiz Lead Gen", href: "/dashboard/lead-gen" },
-  { icon: Sparkles, label: "Lead Intelligence", href: "/dashboard/lead-intelligence" },
-  { icon: FileBarChart, label: "Statement Review", href: "/dashboard/statement-review" },
-  { icon: BarChart2, label: "Outreach Analytics", href: "/dashboard/outreach-analytics" },
+const leadGenItems: MenuItem[] = [
+  { icon: Brain, label: "Lead Command Center", href: "/dashboard/lead-command-center", roles: ["admin", "manager"] },
+  { icon: Target, label: "Prospects", href: "/dashboard/prospects", roles: ["admin", "manager"] },
+  { icon: FileSearch, label: "Sunbiz Lead Gen", href: "/dashboard/lead-gen", roles: ["admin", "manager"] },
+  { icon: Sparkles, label: "Lead Intelligence", href: "/dashboard/lead-intelligence", roles: ["admin", "manager"] },
+  { icon: FileBarChart, label: "Statement Review", href: "/dashboard/statement-review", roles: ["admin", "manager"] },
+  { icon: BarChart2, label: "Outreach Analytics", href: "/dashboard/outreach-analytics", roles: ["admin", "manager"] },
 ];
 
-const businessItems = [
-  { icon: DollarSign, label: "Revenue Dashboard", href: "/dashboard/residual-revenue" },
-  { icon: UserPlus, label: "Agent Management", href: "/dashboard/agent-management" },
-  { icon: HeartPulse, label: "Merchant Health", href: "/dashboard/merchant-health" },
-  { icon: Trophy, label: "Win/Loss Analysis", href: "/dashboard/win-loss" },
-  { icon: Handshake, label: "Referral Program", href: "/dashboard/referral-program" },
-  { icon: Star, label: "Review Requests", href: "/dashboard/review-requests" },
+const businessItems: MenuItem[] = [
+  { icon: DollarSign, label: "Revenue Dashboard", href: "/dashboard/residual-revenue", roles: ["admin", "manager"] },
+  { icon: TrendingUp, label: "Forecasting", href: "/dashboard/forecasting", roles: ["admin", "manager"] },
+  { icon: UserPlus, label: "Agent Management", href: "/dashboard/agent-management", roles: ["admin", "manager"] },
+  { icon: HeartPulse, label: "Merchant Health", href: "/dashboard/merchant-health", roles: ["admin", "manager"] },
+  { icon: Trophy, label: "Win/Loss Analysis", href: "/dashboard/win-loss", roles: ["admin", "manager"] },
+  { icon: Handshake, label: "Referral Program", href: "/dashboard/referral-program", roles: ["admin", "manager"] },
+  { icon: Star, label: "Review Requests", href: "/dashboard/review-requests", roles: ["admin", "manager"] },
 ];
 
-const merchantItems = [
+const merchantItems: MenuItem[] = [
   { icon: ShieldCheck, label: "My Portal", href: "/dashboard/merchant-portal" },
   { icon: HelpCircle, label: "Knowledge Base", href: "/dashboard/knowledge-base" },
 ];
 
-const formItems = [
-  { icon: PhoneCall, label: "Call Outcome", href: "/dashboard/call-outcome" },
-  { icon: FileCheck, label: "Review Complete", href: "/dashboard/review-complete" },
-  { icon: Rocket, label: "Onboarding Kickoff", href: "/dashboard/onboarding-kickoff" },
-  { icon: BookOpen, label: "Case Study Intake", href: "/dashboard/case-study-intake" },
+const adminItems: MenuItem[] = [
+  { icon: UserCog, label: "User Management", href: "/dashboard/user-management", roles: ["admin"] },
 ];
+
+const formItems: MenuItem[] = [
+  { icon: PhoneCall, label: "Call Outcome", href: "/dashboard/call-outcome", roles: ["admin", "manager", "agent"] },
+  { icon: FileCheck, label: "Review Complete", href: "/dashboard/review-complete", roles: ["admin", "manager", "agent"] },
+  { icon: Rocket, label: "Onboarding Kickoff", href: "/dashboard/onboarding-kickoff", roles: ["admin", "manager"] },
+  { icon: BookOpen, label: "Case Study Intake", href: "/dashboard/case-study-intake", roles: ["admin", "manager"] },
+];
+
+function filterByRole(items: MenuItem[], role: UserRole): MenuItem[] {
+  return items.filter((item) => !item.roles || item.roles.includes(role));
+}
 
 export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [location] = useLocation();
   const { logout, user } = useAuth();
   const [emailOpen, setEmailOpen] = useState(false);
+  const role = (user?.role as UserRole) || "merchant";
+
+  const filteredMenu = useMemo(() => filterByRole(menuItems, role), [role]);
+  const filteredAutomation = useMemo(() => filterByRole(automationItems, role), [role]);
+  const filteredLeadGen = useMemo(() => filterByRole(leadGenItems, role), [role]);
+  const filteredBusiness = useMemo(() => filterByRole(businessItems, role), [role]);
+  const filteredAdmin = useMemo(() => filterByRole(adminItems, role), [role]);
+  const filteredForms = useMemo(() => filterByRole(formItems, role), [role]);
+
+  const allItems = [...menuItems, ...automationItems, ...leadGenItems, ...businessItems, ...merchantItems, ...adminItems, ...formItems];
 
   const style = {
     "--sidebar-width": "16rem",
@@ -132,13 +163,35 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   };
 
   const currentLabel =
-    menuItems.find((i) => i.href === location)?.label ||
-    automationItems.find((i) => i.href === location)?.label ||
-    leadGenItems.find((i) => i.href === location)?.label ||
-    businessItems.find((i) => i.href === location)?.label ||
-    merchantItems.find((i) => i.href === location)?.label ||
-    formItems.find((i) => i.href === location)?.label ||
+    allItems.find((i) => i.href === location)?.label ||
     "Dashboard";
+
+  const renderGroup = (label: string, items: MenuItem[]) => {
+    if (items.length === 0) return null;
+    return (
+      <SidebarGroup>
+        <SidebarGroupLabel>{label}</SidebarGroupLabel>
+        <SidebarGroupContent>
+          <SidebarMenu>
+            {items.map((item) => {
+              const Icon = item.icon;
+              const isActive = location === item.href;
+              return (
+                <SidebarMenuItem key={item.href}>
+                  <SidebarMenuButton asChild isActive={isActive} data-testid={`link-sidebar-${item.label.toLowerCase().replace(/\s+/g, "-")}`}>
+                    <Link href={item.href}>
+                      <Icon className="w-4 h-4" />
+                      <span>{item.label}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              );
+            })}
+          </SidebarMenu>
+        </SidebarGroupContent>
+      </SidebarGroup>
+    );
+  };
 
   return (
     <SidebarProvider style={style as React.CSSProperties}>
@@ -151,137 +204,13 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           </SidebarHeader>
 
           <SidebarContent>
-            <SidebarGroup>
-              <SidebarGroupLabel>Navigation</SidebarGroupLabel>
-              <SidebarGroupContent>
-                <SidebarMenu>
-                  {menuItems.map((item) => {
-                    const Icon = item.icon;
-                    const isActive = location === item.href;
-                    return (
-                      <SidebarMenuItem key={item.href}>
-                        <SidebarMenuButton asChild isActive={isActive} data-testid={`link-sidebar-${item.label.toLowerCase().replace(/\s+/g, "-")}`}>
-                          <Link href={item.href}>
-                            <Icon className="w-4 h-4" />
-                            <span>{item.label}</span>
-                          </Link>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                    );
-                  })}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
-
-            <SidebarGroup>
-              <SidebarGroupLabel>Automation</SidebarGroupLabel>
-              <SidebarGroupContent>
-                <SidebarMenu>
-                  {automationItems.map((item) => {
-                    const Icon = item.icon;
-                    const isActive = location === item.href;
-                    return (
-                      <SidebarMenuItem key={item.href}>
-                        <SidebarMenuButton asChild isActive={isActive} data-testid={`link-sidebar-${item.label.toLowerCase().replace(/\s+/g, "-")}`}>
-                          <Link href={item.href}>
-                            <Icon className="w-4 h-4" />
-                            <span>{item.label}</span>
-                          </Link>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                    );
-                  })}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
-
-            <SidebarGroup>
-              <SidebarGroupLabel>Lead Generation</SidebarGroupLabel>
-              <SidebarGroupContent>
-                <SidebarMenu>
-                  {leadGenItems.map((item) => {
-                    const Icon = item.icon;
-                    const isActive = location === item.href;
-                    return (
-                      <SidebarMenuItem key={item.href}>
-                        <SidebarMenuButton asChild isActive={isActive} data-testid={`link-sidebar-${item.label.toLowerCase().replace(/\s+/g, "-")}`}>
-                          <Link href={item.href}>
-                            <Icon className="w-4 h-4" />
-                            <span>{item.label}</span>
-                          </Link>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                    );
-                  })}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
-
-            <SidebarGroup>
-              <SidebarGroupLabel>Business Intelligence</SidebarGroupLabel>
-              <SidebarGroupContent>
-                <SidebarMenu>
-                  {businessItems.map((item) => {
-                    const Icon = item.icon;
-                    const isActive = location === item.href;
-                    return (
-                      <SidebarMenuItem key={item.href}>
-                        <SidebarMenuButton asChild isActive={isActive} data-testid={`link-sidebar-${item.label.toLowerCase().replace(/\s+/g, "-")}`}>
-                          <Link href={item.href}>
-                            <Icon className="w-4 h-4" />
-                            <span>{item.label}</span>
-                          </Link>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                    );
-                  })}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
-
-            <SidebarGroup>
-              <SidebarGroupLabel>Merchant</SidebarGroupLabel>
-              <SidebarGroupContent>
-                <SidebarMenu>
-                  {merchantItems.map((item) => {
-                    const Icon = item.icon;
-                    const isActive = location === item.href;
-                    return (
-                      <SidebarMenuItem key={item.href}>
-                        <SidebarMenuButton asChild isActive={isActive} data-testid={`link-sidebar-${item.label.toLowerCase().replace(/\s+/g, "-")}`}>
-                          <Link href={item.href}>
-                            <Icon className="w-4 h-4" />
-                            <span>{item.label}</span>
-                          </Link>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                    );
-                  })}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
-
-            <SidebarGroup>
-              <SidebarGroupLabel>Forms</SidebarGroupLabel>
-              <SidebarGroupContent>
-                <SidebarMenu>
-                  {formItems.map((item) => {
-                    const Icon = item.icon;
-                    const isActive = location === item.href;
-                    return (
-                      <SidebarMenuItem key={item.href}>
-                        <SidebarMenuButton asChild isActive={isActive} data-testid={`link-sidebar-${item.label.toLowerCase().replace(/\s+/g, "-")}`}>
-                          <Link href={item.href}>
-                            <Icon className="w-4 h-4" />
-                            <span>{item.label}</span>
-                          </Link>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                    );
-                  })}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
+            {renderGroup("Navigation", filteredMenu)}
+            {renderGroup("Automation", filteredAutomation)}
+            {renderGroup("Lead Generation", filteredLeadGen)}
+            {renderGroup("Business Intelligence", filteredBusiness)}
+            {renderGroup("Merchant", merchantItems)}
+            {renderGroup("Administration", filteredAdmin)}
+            {renderGroup("Forms", filteredForms)}
           </SidebarContent>
 
           <SidebarFooter className="p-4 border-t">

@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { useContacts, useCreateContact, useUpdateContact } from "@/hooks/use-contacts";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Search, Plus, MoreHorizontal, UserPlus, Mail, MessageSquare, Zap, AlertTriangle, Sparkles, Activity, ArrowRight, Clock, TrendingUp, Ticket, Download, CheckSquare, ExternalLink } from "lucide-react";
 import { useLocation } from "wouter";
 import { useForm } from "react-hook-form";
@@ -14,6 +16,9 @@ import { z } from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
+import { apiRequest } from "@/lib/queryClient";
+import { exportToCSV } from "@/lib/export-csv";
+import { useToast } from "@/hooks/use-toast";
 
 const formSchema = z.object({
   firstName: z.string().min(1, "Required"),
@@ -35,6 +40,14 @@ interface ActivityEvent {
   entityId: number;
   details: Record<string, string>;
   createdAt: string;
+}
+
+interface BulkMessageResult {
+  sent: number;
+  skipped: number;
+  errors: number;
+  total: number;
+  results: { contactId: number; status: string; error?: string }[];
 }
 
 function formatRelativeTime(dateStr: string): string {
@@ -182,6 +195,35 @@ export default function Contacts() {
   const [, setLocation] = useLocation();
   const createContact = useCreateContact();
   const updateContact = useUpdateContact();
+  const { toast } = useToast();
+
+  const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
+  const [bulkChannel, setBulkChannel] = useState<"email" | "sms">("email");
+  const [bulkSubject, setBulkSubject] = useState("");
+  const [bulkMessage, setBulkMessage] = useState("");
+  const [bulkResults, setBulkResults] = useState<BulkMessageResult | null>(null);
+
+  const bulkSendMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/bulk-message", {
+        contactIds: Array.from(selectedIds),
+        channel: bulkChannel,
+        subject: bulkChannel === "email" ? bulkSubject : undefined,
+        message: bulkMessage,
+      });
+      return res.json() as Promise<BulkMessageResult>;
+    },
+    onSuccess: (data) => {
+      setBulkResults(data);
+      toast({
+        title: "Bulk message complete",
+        description: `Sent: ${data.sent}, Skipped: ${data.skipped}, Errors: ${data.errors}`,
+      });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -231,6 +273,16 @@ export default function Contacts() {
     setSelectedIds(new Set());
   };
 
+  const openBulkDialog = (channel: "email" | "sms") => {
+    setBulkChannel(channel);
+    setBulkSubject("");
+    setBulkMessage("");
+    setBulkResults(null);
+    setBulkDialogOpen(true);
+  };
+
+  const selectedContacts = Array.from(selectedIds);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between gap-4">
@@ -261,7 +313,16 @@ export default function Contacts() {
               </DropdownMenuContent>
             </DropdownMenu>
           )}
-          <Button variant="outline" size="sm" className="gap-2" onClick={() => window.open("/api/export/contacts", "_blank")} data-testid="button-export-contacts">
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => exportToCSV(filteredContacts || [], "contacts", [
+            { key: "firstName", label: "First Name" },
+            { key: "lastName", label: "Last Name" },
+            { key: "email", label: "Email" },
+            { key: "phone", label: "Phone" },
+            { key: "companyName", label: "Company" },
+            { key: "status", label: "Status" },
+            { key: "leadScore", label: "Lead Score" },
+            { key: "createdAt", label: "Created At" },
+          ])} data-testid="button-export-contacts">
             <Download className="w-4 h-4" /> Export CSV
           </Button>
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
@@ -345,13 +406,34 @@ export default function Contacts() {
         </div>
       </div>
 
+      {selectedContacts.length > 0 && (
+        <div className="flex items-center gap-3 p-3 bg-primary/5 rounded-md flex-wrap" data-testid="bulk-actions-toolbar">
+          <span className="text-sm font-medium" data-testid="text-selected-count">
+            {selectedContacts.length} selected
+          </span>
+          <Button size="sm" onClick={() => openBulkDialog("email")} data-testid="button-bulk-email">
+            <Mail className="w-4 h-4 mr-1" /> Bulk Email
+          </Button>
+          <Button size="sm" onClick={() => openBulkDialog("sms")} data-testid="button-bulk-sms">
+            <MessageSquare className="w-4 h-4 mr-1" /> Bulk SMS
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => setSelectedIds(new Set())} data-testid="button-clear-selection">
+            Clear
+          </Button>
+        </div>
+      )}
+
       <Card>
         <CardContent className="p-0 overflow-x-auto">
           <Table className="min-w-[700px]">
             <TableHeader>
               <TableRow>
                 <TableHead className="w-10">
-                  <input type="checkbox" checked={selectedIds.size === (filteredContacts?.length || 0) && (filteredContacts?.length || 0) > 0} onChange={toggleSelectAll} className="rounded" data-testid="checkbox-select-all" />
+                  <Checkbox
+                    checked={selectedIds.size === (filteredContacts?.length || 0) && (filteredContacts?.length || 0) > 0}
+                    onCheckedChange={toggleSelectAll}
+                    data-testid="checkbox-select-all"
+                  />
                 </TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>Company</TableHead>
@@ -379,7 +461,17 @@ export default function Contacts() {
                     data-testid={`contact-row-${contact.id}`}
                   >
                     <TableCell onClick={(e) => e.stopPropagation()}>
-                      <input type="checkbox" checked={selectedIds.has(contact.id)} onChange={(e) => toggleSelect(contact.id, e as any)} className="rounded" data-testid={`checkbox-contact-${contact.id}`} />
+                      <Checkbox
+                        checked={selectedIds.has(contact.id)}
+                        onCheckedChange={() => {
+                          setSelectedIds(prev => {
+                            const next = new Set(prev);
+                            if (next.has(contact.id)) next.delete(contact.id); else next.add(contact.id);
+                            return next;
+                          });
+                        }}
+                        data-testid={`checkbox-contact-${contact.id}`}
+                      />
                     </TableCell>
                     <TableCell className="font-medium">
                       <div className="flex items-center gap-2">
@@ -440,6 +532,77 @@ export default function Contacts() {
           </Table>
         </CardContent>
       </Card>
+
+      <Dialog open={bulkDialogOpen} onOpenChange={(open) => { setBulkDialogOpen(open); if (!open) setBulkResults(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle data-testid="text-bulk-dialog-title">
+              {bulkChannel === "email" ? "Send Bulk Email" : "Send Bulk SMS"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground" data-testid="text-bulk-recipient-count">
+              Sending to {selectedContacts.length} contact{selectedContacts.length !== 1 ? "s" : ""} via {bulkChannel}
+            </p>
+
+            {bulkChannel === "email" && (
+              <div>
+                <label className="text-sm font-medium">Subject</label>
+                <Input
+                  value={bulkSubject}
+                  onChange={(e) => setBulkSubject(e.target.value)}
+                  placeholder="Email subject line"
+                  data-testid="input-bulk-subject"
+                />
+              </div>
+            )}
+
+            <div>
+              <label className="text-sm font-medium">Message</label>
+              <Textarea
+                value={bulkMessage}
+                onChange={(e) => setBulkMessage(e.target.value)}
+                placeholder="Type your message here..."
+                rows={5}
+                data-testid="input-bulk-message"
+              />
+              <p className="text-xs text-muted-foreground mt-1" data-testid="text-template-hints">
+                {"Available variables: {{firstName}}, {{lastName}}, {{companyName}}, {{email}}"}
+              </p>
+            </div>
+
+            <p className="text-xs text-muted-foreground border-t pt-3" data-testid="text-compliance-disclaimer">
+              By sending this message you confirm all recipients have opted in to receive communications. Contacts flagged as Do Not Contact or without SMS consent will be automatically skipped.
+            </p>
+
+            {bulkResults && (
+              <div className="rounded-md border p-3 space-y-1" data-testid="bulk-results-summary">
+                <p className="text-sm font-medium">Results</p>
+                <div className="flex gap-4 text-sm">
+                  <span className="text-green-600 dark:text-green-400" data-testid="text-bulk-sent">Sent: {bulkResults.sent}</span>
+                  <span className="text-yellow-600 dark:text-yellow-400" data-testid="text-bulk-skipped">Skipped: {bulkResults.skipped}</span>
+                  <span className="text-red-600 dark:text-red-400" data-testid="text-bulk-errors">Errors: {bulkResults.errors}</span>
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => setBulkDialogOpen(false)} data-testid="button-bulk-cancel">
+                {bulkResults ? "Close" : "Cancel"}
+              </Button>
+              {!bulkResults && (
+                <Button
+                  onClick={() => bulkSendMutation.mutate()}
+                  disabled={!bulkMessage || bulkSendMutation.isPending}
+                  data-testid="button-bulk-send"
+                >
+                  {bulkSendMutation.isPending ? "Sending..." : `Send ${bulkChannel === "email" ? "Email" : "SMS"}`}
+                </Button>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

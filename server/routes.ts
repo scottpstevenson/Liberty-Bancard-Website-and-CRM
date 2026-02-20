@@ -2,9 +2,12 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, registerAuthRoutes, isAuthenticated } from "./replit_integrations/auth";
+import { db } from "./db";
+import { users } from "@shared/schema";
+import { eq, desc } from "drizzle-orm";
 import { registerAudioRoutes } from "./replit_integrations/audio/routes";
 import { z } from "zod";
-import { insertContactSchema, insertDealSchema, insertTicketSchema, insertTaskSchema, insertCompanySchema, insertDocumentSchema, insertNotificationSchema, insertWorkflowSchema, insertRfiSchema, insertMessageTemplateSchema, insertCollateralPacketSchema, insertSlaConfigSchema, insertProspectSchema, insertProspectListSchema, insertEnrichmentJobSchema, insertCampaignSchema, insertCampaignStepSchema, insertOutboundMessageSchema, insertNoteSchema, insertEmailLogSchema, insertCallLogSchema, insertStageAutomationRuleSchema, insertFollowUpSequenceSchema, insertSequenceStepSchema, insertSequenceEnrollmentSchema, insertMerchantApplicationSchema, insertEquipmentOrderSchema, insertAgentSchema, insertResidualReportSchema, insertMerchantResidualSchema, insertHealthAlertSchema, insertDealCompetitorSchema, insertPartnerSchema, insertReferralSchema, insertKnowledgeBaseSchema, insertReviewRequestSchema, insertOnboardingStepSchema, insertMerchantProfileSchema } from "@shared/schema";
+import { insertContactSchema, insertDealSchema, insertTicketSchema, insertTaskSchema, insertCompanySchema, insertDocumentSchema, insertNotificationSchema, insertWorkflowSchema, insertRfiSchema, insertMessageTemplateSchema, insertCollateralPacketSchema, insertSlaConfigSchema, insertProspectSchema, insertProspectListSchema, insertEnrichmentJobSchema, insertCampaignSchema, insertCampaignStepSchema, insertOutboundMessageSchema, insertNoteSchema, insertEmailLogSchema, insertCallLogSchema, insertStageAutomationRuleSchema, insertFollowUpSequenceSchema, insertSequenceStepSchema, insertSequenceEnrollmentSchema, insertMerchantApplicationSchema, insertEquipmentOrderSchema, insertAgentSchema, insertResidualReportSchema, insertMerchantResidualSchema, insertHealthAlertSchema, insertDealCompetitorSchema, insertPartnerSchema, insertReferralSchema, insertKnowledgeBaseSchema, insertReviewRequestSchema, insertOnboardingStepSchema, insertMerchantProfileSchema, insertConsentAuditLogSchema, insertCalendarEventSchema, insertAgentQuotaSchema, insertDataDeleteRequestSchema } from "@shared/schema";
 import { isGhlConfigured, getGhlStatus, sendGhlEmail, sendGhlSms, sendTemplatedMessage, upsertGhlContact, handleGhlWebhook, getCalendarBookingUrl, sendDocumentForEsign, getDocumentStatus } from "./services/ghl";
 import { enrichProspect, runEnrichmentJob, processEnrichmentQueue } from "./services/enrichment";
 import { queueCampaignMessages, processSendQueue, getCampaignAnalytics } from "./services/campaign-engine";
@@ -343,6 +346,91 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/documents/upload", isAuthenticated, upload.single("file"), async (req, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+
+      const { type, contactId, dealId, accessScope } = req.body;
+      const fileName = req.file.originalname;
+      const storageKey = `uploads/${Date.now()}_${fileName}`;
+
+      const uploadsDir = path.join(process.cwd(), "uploads");
+      if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+      fs.writeFileSync(path.join(uploadsDir, `${Date.now()}_${fileName}`), req.file.buffer);
+
+      const doc = await storage.createDocument({
+        contactId: contactId ? Number(contactId) : null,
+        dealId: dealId ? Number(dealId) : null,
+        type: type || "general",
+        fileName,
+        storageKey,
+        accessScope: accessScope || "internal",
+      });
+
+      res.status(201).json(doc);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/documents/download/:id", isAuthenticated, async (req, res) => {
+    try {
+      const docs = await storage.getDocuments();
+      const doc = docs.find(d => d.id === Number(req.params.id));
+      if (!doc) return res.status(404).json({ message: "Document not found" });
+
+      const uploadsDir = path.join(process.cwd(), "uploads");
+      const files = fs.readdirSync(uploadsDir);
+      const matchingFile = files.find(f => doc.storageKey?.includes(f) || f.includes(doc.fileName));
+
+      if (matchingFile) {
+        res.download(path.join(uploadsDir, matchingFile), doc.fileName);
+      } else {
+        res.status(404).json({ message: "File not found on disk" });
+      }
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/documents/contact/:contactId", isAuthenticated, async (req, res) => {
+    const docs = await storage.getDocuments();
+    const contactDocs = docs.filter(d => d.contactId === Number(req.params.contactId));
+    res.json(contactDocs);
+  });
+
+  app.post("/api/merchant-portal/upload-statement", isAuthenticated, upload.single("file"), async (req, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+
+      const user = req.user as any;
+      const fileName = req.file.originalname;
+      const storageKey = `statements/${Date.now()}_${fileName}`;
+
+      const uploadsDir = path.join(process.cwd(), "uploads");
+      if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+      fs.writeFileSync(path.join(uploadsDir, `${Date.now()}_${fileName}`), req.file.buffer);
+
+      const doc = await storage.createDocument({
+        type: "merchant_statement",
+        fileName,
+        storageKey,
+        accessScope: "merchant",
+      });
+
+      await storage.createNotification({
+        channel: "internal",
+        title: "New Statement Uploaded",
+        message: `${user.firstName} ${user.lastName} uploaded a processing statement: ${fileName}`,
+        type: "info",
+      });
+
+      res.status(201).json(doc);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // === NOTIFICATIONS ===
   app.get("/api/notifications", async (req, res) => {
     const notifications = await storage.getNotifications();
@@ -400,6 +488,19 @@ export async function registerRoutes(
         message: `${firstName} ${lastName} from ${businessName || "Unknown"} (${vertical || "Unknown"}) uploaded a statement`,
         type: "alert",
       });
+
+      if (consentSms) {
+        await storage.createConsentAuditLog({
+          contactId: contact.id,
+          channel: "sms",
+          action: "opt_in",
+          consented: true,
+          source: "website_form",
+          ipAddress: req.ip || req.socket.remoteAddress || "unknown",
+          userAgent: req.headers["user-agent"] || "unknown",
+          details: { formType: "statement_upload" },
+        });
+      }
 
       await storage.createAuditLog({ action: "statement_uploaded", entityType: "contact", entityId: contact.id, details: { source: "website" } });
       await storage.updateDeal(deal.id, { statementReceived: true, docReadinessScore: 1 });
@@ -464,6 +565,19 @@ export async function registerRoutes(
         tags: ["src_website", "support_request", `support_${(issueType || "other").toLowerCase().replace(/[^a-z]/g, "_")}`],
       });
 
+      if (consentSms) {
+        await storage.createConsentAuditLog({
+          contactId: contact.id,
+          channel: "sms",
+          action: "opt_in",
+          consented: true,
+          source: "website_form",
+          ipAddress: req.ip || req.socket.remoteAddress || "unknown",
+          userAgent: req.headers["user-agent"] || "unknown",
+          details: { formType: "support" },
+        });
+      }
+
       const ticket = await storage.createTicket({
         contactId: contact.id,
         subject: `${issueType || "Support"} - ${businessName || firstName}`,
@@ -497,6 +611,19 @@ export async function registerRoutes(
         status: "New",
         tags: ["src_website", "lead_quiz", `vertical_${(vertical || "unknown").toLowerCase().replace(/[^a-z]/g, "_")}`],
       });
+
+      if (consentSms) {
+        await storage.createConsentAuditLog({
+          contactId: contact.id,
+          channel: "sms",
+          action: "opt_in",
+          consented: true,
+          source: "website_form",
+          ipAddress: req.ip || req.socket.remoteAddress || "unknown",
+          userAgent: req.headers["user-agent"] || "unknown",
+          details: { formType: "get_started" },
+        });
+      }
 
       const deal = await storage.createDeal({
         contactId: contact.id, pipeline: "sales", stage: "New Lead",
@@ -801,6 +928,82 @@ OUTPUT FORMAT:
     }
   });
 
+  // === BULK MESSAGING ===
+  app.post("/api/bulk-message", isAuthenticated, async (req, res) => {
+    try {
+      const { contactIds, channel, subject, message: msgBody, templateId } = req.body;
+
+      if (!contactIds?.length || !channel || !msgBody) {
+        return res.status(400).json({ message: "contactIds, channel, and message are required" });
+      }
+
+      if (!["email", "sms"].includes(channel)) {
+        return res.status(400).json({ message: "Channel must be email or sms" });
+      }
+
+      const results: { contactId: number; status: string; error?: string }[] = [];
+
+      for (const contactId of contactIds) {
+        try {
+          const contact = await storage.getContact(contactId);
+          if (!contact) {
+            results.push({ contactId, status: "error", error: "Contact not found" });
+            continue;
+          }
+
+          if (contact.doNotContact) {
+            results.push({ contactId, status: "skipped", error: "Do Not Contact" });
+            continue;
+          }
+
+          if (channel === "sms" && !contact.consentSms) {
+            results.push({ contactId, status: "skipped", error: "No SMS consent" });
+            continue;
+          }
+
+          const personalizedMsg = msgBody
+            .replace(/\{\{firstName\}\}/g, contact.firstName || "")
+            .replace(/\{\{lastName\}\}/g, contact.lastName || "")
+            .replace(/\{\{companyName\}\}/g, contact.companyName || "")
+            .replace(/\{\{email\}\}/g, contact.email || "");
+
+          if (channel === "email") {
+            if (isGhlConfigured() && contact.email) {
+              await sendGhlEmail({ email: contact.email, subject: subject || "Message from Liberty Bancard", body: personalizedMsg });
+              results.push({ contactId, status: "sent" });
+            } else {
+              results.push({ contactId, status: "queued", error: "GHL not configured" });
+            }
+          } else {
+            if (isGhlConfigured() && contact.phone) {
+              await sendGhlSms({ phone: contact.phone, message: personalizedMsg });
+              results.push({ contactId, status: "sent" });
+            } else {
+              results.push({ contactId, status: "queued", error: "GHL not configured" });
+            }
+          }
+
+          await storage.createAuditLog({
+            action: `bulk_${channel}_sent`,
+            entityType: "contact",
+            entityId: contactId,
+            details: { channel, subject },
+          });
+        } catch (err: any) {
+          results.push({ contactId, status: "error", error: err.message });
+        }
+      }
+
+      const sent = results.filter(r => r.status === "sent").length;
+      const skipped = results.filter(r => r.status === "skipped").length;
+      const errors = results.filter(r => r.status === "error").length;
+
+      res.json({ sent, skipped, errors, total: contactIds.length, results });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // === BLAZE.AI INTEGRATION ===
   const BLAZE_SETTINGS_KEY = "blaze_integration";
   const defaultBlazeSettings = { enabled: false, webhookUrl: "", zapierConnected: false, lastSyncAt: null, contentTypes: ["email", "social", "blog", "newsletter"], workspaceId: "" };
@@ -1013,6 +1216,48 @@ OUTPUT FORMAT:
           totalEstProfit,
           avgDealProfit: allDeals.length > 0 ? Math.round(totalEstProfit / allDeals.length) : 0,
         },
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === KPI COMPARATIVE ===
+  app.get("/api/kpi/comparative", isAuthenticated, async (req, res) => {
+    try {
+      const [allDeals, allContacts, allTickets] = await Promise.all([
+        storage.getDeals(),
+        storage.getContacts(),
+        storage.getTickets(),
+      ]);
+
+      const now = new Date();
+      const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+
+      const thisMonthDeals = allDeals.filter(d => d.createdAt && new Date(d.createdAt) >= thisMonthStart);
+      const lastMonthDeals = allDeals.filter(d => d.createdAt && new Date(d.createdAt) >= lastMonthStart && new Date(d.createdAt) <= lastMonthEnd);
+
+      const thisMonthContacts = allContacts.filter(c => c.createdAt && new Date(c.createdAt) >= thisMonthStart);
+      const lastMonthContacts = allContacts.filter(c => c.createdAt && new Date(c.createdAt) >= lastMonthStart && new Date(c.createdAt) <= lastMonthEnd);
+
+      const thisMonthWon = allDeals.filter(d => d.stage === "Closed Won" && d.updatedAt && new Date(d.updatedAt) >= thisMonthStart);
+      const lastMonthWon = allDeals.filter(d => d.stage === "Closed Won" && d.updatedAt && new Date(d.updatedAt) >= lastMonthStart && new Date(d.updatedAt) <= lastMonthEnd);
+
+      const thisMonthTickets = allTickets.filter(t => t.createdAt && new Date(t.createdAt) >= thisMonthStart);
+      const lastMonthTickets = allTickets.filter(t => t.createdAt && new Date(t.createdAt) >= lastMonthStart && new Date(t.createdAt) <= lastMonthEnd);
+
+      const calcChange = (current: number, previous: number) => {
+        if (previous === 0) return current > 0 ? 100 : 0;
+        return Math.round(((current - previous) / previous) * 100);
+      };
+
+      res.json({
+        newDeals: { current: thisMonthDeals.length, previous: lastMonthDeals.length, change: calcChange(thisMonthDeals.length, lastMonthDeals.length) },
+        newContacts: { current: thisMonthContacts.length, previous: lastMonthContacts.length, change: calcChange(thisMonthContacts.length, lastMonthContacts.length) },
+        closedWon: { current: thisMonthWon.length, previous: lastMonthWon.length, change: calcChange(thisMonthWon.length, lastMonthWon.length) },
+        tickets: { current: thisMonthTickets.length, previous: lastMonthTickets.length, change: calcChange(thisMonthTickets.length, lastMonthTickets.length) },
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -3684,6 +3929,37 @@ Notes: ${deal.notes || "None"}`
     }
   });
 
+  // === AGENT QUOTAS ===
+  app.get("/api/agent-quotas", isAuthenticated, async (req, res) => {
+    try {
+      const quotas = await storage.getAgentQuotas();
+      res.json(quotas);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/agent-quotas", isAuthenticated, async (req, res) => {
+    try {
+      const input = insertAgentQuotaSchema.parse(req.body);
+      const quota = await storage.createAgentQuota(input);
+      res.status(201).json(quota);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/agent-quotas/:id", isAuthenticated, async (req, res) => {
+    try {
+      const updated = await storage.updateAgentQuota(Number(req.params.id), req.body);
+      if (!updated) return res.status(404).json({ message: "Not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
   // === RESIDUAL REPORTS ===
   app.get("/api/residual-reports", isAuthenticated, async (req, res) => {
     try {
@@ -3975,6 +4251,242 @@ Notes: ${deal.notes || "None"}`
     } catch (err: any) {
       res.status(400).json({ message: err.message });
     }
+  });
+
+  // === CONSENT AUDIT LOGS ===
+  app.get("/api/consent-audit", isAuthenticated, async (req, res) => {
+    const logs = await storage.getConsentAuditLogs();
+    res.json(logs);
+  });
+
+  app.get("/api/consent-audit/contact/:contactId", isAuthenticated, async (req, res) => {
+    const logs = await storage.getConsentAuditLogsByContact(Number(req.params.contactId));
+    res.json(logs);
+  });
+
+  app.post("/api/consent-audit", async (req, res) => {
+    try {
+      const input = insertConsentAuditLogSchema.parse(req.body);
+      const log = await storage.createConsentAuditLog(input);
+      res.status(201).json(log);
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
+  });
+
+  // === CONTACT ACTIVITY TIMELINE ===
+  app.get("/api/contacts/:id/activity", isAuthenticated, async (req, res) => {
+    try {
+      const contactId = Number(req.params.id);
+      const events: any[] = [];
+
+      const auditEntries = await storage.getAuditLogs();
+      const contactAudit = auditEntries.filter(a =>
+        (a.entityType === "contact" && a.entityId === contactId) ||
+        (a.details as any)?.contactId === contactId
+      );
+      contactAudit.forEach(a => {
+        events.push({
+          id: `audit_${a.id}`,
+          type: "audit",
+          action: a.action,
+          entityType: a.entityType,
+          entityId: a.entityId || 0,
+          details: a.details || {},
+          createdAt: a.createdAt,
+        });
+      });
+
+      const contactNotes = await storage.getNotes("contact", contactId);
+      contactNotes.forEach(n => {
+        events.push({
+          id: `note_${n.id}`,
+          type: "note",
+          action: "note_added",
+          entityType: "note",
+          entityId: n.id,
+          details: { content: (n.content || "").substring(0, 200), author: n.authorId || "" },
+          createdAt: n.createdAt,
+        });
+      });
+
+      const contactEmails = await storage.getEmailLogs(contactId);
+      contactEmails.forEach(e => {
+        events.push({
+          id: `email_${e.id}`,
+          type: "ghl",
+          action: "email",
+          entityType: "email",
+          entityId: e.id,
+          details: { subject: e.subject, direction: e.direction, status: e.status },
+          createdAt: e.createdAt,
+        });
+      });
+
+      const contactCalls = await storage.getCallLogs(contactId);
+      contactCalls.forEach(c => {
+        events.push({
+          id: `call_${c.id}`,
+          type: "call",
+          action: "call_logged",
+          entityType: "call",
+          entityId: c.id,
+          details: { outcome: c.outcome, duration: c.duration, notes: (c as any).notes },
+          createdAt: c.createdAt,
+        });
+      });
+
+      events.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      res.json(events);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === CALENDAR EVENTS ===
+  app.get("/api/calendar-events", isAuthenticated, async (req, res) => {
+    try {
+      const { start, end } = req.query;
+      if (start && end) {
+        const events = await storage.getCalendarEventsByDateRange(new Date(start as string), new Date(end as string));
+        res.json(events);
+      } else {
+        const events = await storage.getCalendarEvents();
+        res.json(events);
+      }
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/calendar-events", isAuthenticated, async (req, res) => {
+    try {
+      const input = insertCalendarEventSchema.parse(req.body);
+      const event = await storage.createCalendarEvent(input);
+      res.status(201).json(event);
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
+  });
+
+  app.put("/api/calendar-events/:id", isAuthenticated, async (req, res) => {
+    try {
+      const updated = await storage.updateCalendarEvent(Number(req.params.id), req.body);
+      if (!updated) return res.status(404).json({ message: "Not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/calendar-events/:id", isAuthenticated, async (req, res) => {
+    try {
+      await storage.deleteCalendarEvent(Number(req.params.id));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === FORECASTING ===
+  app.get("/api/forecasting/summary", isAuthenticated, async (req, res) => {
+    try {
+      const deals = await storage.getDeals();
+      const activeDeals = deals.filter(d => d.pipeline === "sales" && d.stage !== "Closed Lost");
+
+      const stageWeights: Record<string, number> = {
+        "New Lead": 0.1, "Contacted": 0.2, "Statement Collected": 0.4,
+        "Proposal": 0.6, "Negotiation": 0.75, "Closed Won": 1.0, "Closed Lost": 0
+      };
+
+      let totalPipeline = 0;
+      let weightedForecast = 0;
+      const stageBreakdown: Record<string, { count: number; volume: number; profit: number; weight: number }> = {};
+
+      activeDeals.forEach(d => {
+        const profit = parseFloat(d.estimatedGrossProfitMonthly || "0");
+        const volume = parseFloat(d.totalVolume || "0");
+        const weight = stageWeights[d.stage] || 0.1;
+
+        totalPipeline += profit;
+        weightedForecast += profit * weight;
+
+        if (!stageBreakdown[d.stage]) {
+          stageBreakdown[d.stage] = { count: 0, volume: 0, profit: 0, weight: weight * 100 };
+        }
+        stageBreakdown[d.stage].count++;
+        stageBreakdown[d.stage].volume += volume;
+        stageBreakdown[d.stage].profit += profit;
+      });
+
+      const now = new Date();
+      const thisMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      const nextMonthEnd = new Date(now.getFullYear(), now.getMonth() + 2, 0);
+
+      const thisMonth = activeDeals.filter(d => d.nextFollowUp && new Date(d.nextFollowUp) <= thisMonthEnd)
+        .reduce((sum, d) => sum + parseFloat(d.estimatedGrossProfitMonthly || "0") * (stageWeights[d.stage] || 0.1), 0);
+      const nextMonth = activeDeals.filter(d => d.nextFollowUp && new Date(d.nextFollowUp) > thisMonthEnd && new Date(d.nextFollowUp) <= nextMonthEnd)
+        .reduce((sum, d) => sum + parseFloat(d.estimatedGrossProfitMonthly || "0") * (stageWeights[d.stage] || 0.1), 0);
+
+      res.json({ totalPipeline, weightedForecast, thisMonthForecast: thisMonth, nextMonthForecast: nextMonth, stageBreakdown });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === ADMIN: USER MANAGEMENT ===
+  app.get("/api/admin/users", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+    const allUsers = await db.select({
+      id: users.id,
+      email: users.email,
+      firstName: users.firstName,
+      lastName: users.lastName,
+      role: users.role,
+      authProvider: users.authProvider,
+      emailVerified: users.emailVerified,
+      createdAt: users.createdAt,
+    }).from(users).orderBy(desc(users.createdAt));
+    res.json(allUsers);
+  });
+
+  app.put("/api/admin/users/:id/role", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+    const { role } = req.body;
+    if (!['admin', 'manager', 'agent', 'merchant'].includes(role)) {
+      return res.status(400).json({ message: "Invalid role" });
+    }
+    const [updated] = await db.update(users).set({ role, updatedAt: new Date() }).where(eq(users.id, String(req.params.id))).returning();
+    if (!updated) return res.status(404).json({ message: "User not found" });
+    const { passwordHash, ...safeUser } = updated;
+    res.json(safeUser);
+  });
+
+  // === DATA DELETE REQUESTS ===
+  app.post("/api/data-requests", async (req, res) => {
+    try {
+      const input = insertDataDeleteRequestSchema.parse(req.body);
+      const request = await storage.createDataDeleteRequest(input);
+      res.status(201).json(request);
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
+  });
+
+  app.get("/api/data-requests", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+    const requests = await storage.getDataDeleteRequests();
+    res.json(requests);
+  });
+
+  app.put("/api/data-requests/:id", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+    const updated = await storage.updateDataDeleteRequest(Number(req.params.id), req.body);
+    if (!updated) return res.status(404).json({ message: "Not found" });
+    res.json(updated);
   });
 
   return httpServer;

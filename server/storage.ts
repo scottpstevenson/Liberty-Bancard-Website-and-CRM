@@ -4,8 +4,8 @@ import {
   messageTemplates, collateralPackets, ghlActivityLog, slaConfigs,
   prospects, prospectLists, enrichmentJobs, campaigns, campaignSteps, outboundMessages, notes,
   emailLogs, callLogs, stageAutomationRules, followUpSequences, sequenceSteps, sequenceEnrollments,
-  sunbizEntities,
-  merchantApplications, merchantProfiles, equipmentOrders, agents, residualReports, merchantResiduals,
+  sunbizEntities, consentAuditLogs, calendarEvents,
+  merchantApplications, merchantProfiles, equipmentOrders, agents, agentQuotas, residualReports, merchantResiduals,
   healthAlerts, dealCompetitors, partners, referrals, knowledgeBase, reviewRequests, onboardingSteps,
   type InsertContact, type UpdateContactRequest,
   type InsertCompany,
@@ -35,6 +35,7 @@ import {
   type InsertMerchantProfile, type MerchantProfile,
   type InsertEquipmentOrder, type EquipmentOrder,
   type InsertAgent, type Agent,
+  type InsertAgentQuota, type AgentQuota,
   type InsertResidualReport, type ResidualReport,
   type InsertMerchantResidual, type MerchantResidual,
   type InsertHealthAlert, type HealthAlert,
@@ -44,9 +45,13 @@ import {
   type InsertKnowledgeBaseArticle, type KnowledgeBaseArticle,
   type InsertReviewRequest, type ReviewRequest,
   type InsertOnboardingStep, type OnboardingStep,
+  type InsertConsentAuditLog, type ConsentAuditLog,
+  type CalendarEvent, type InsertCalendarEvent,
   systemSettings,
+  dataDeleteRequests,
+  type DataDeleteRequest, type InsertDataDeleteRequest,
 } from "@shared/schema";
-import { eq, desc, and, lt, isNull, ne, sql, asc } from "drizzle-orm";
+import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte } from "drizzle-orm";
 
 export interface IStorage {
   getContacts(): Promise<typeof contacts.$inferSelect[]>;
@@ -276,6 +281,25 @@ export interface IStorage {
   getOnboardingStepsByApplication(applicationId: number): Promise<OnboardingStep[]>;
   createOnboardingStep(step: InsertOnboardingStep): Promise<OnboardingStep>;
   updateOnboardingStep(id: number, updates: Partial<InsertOnboardingStep>): Promise<OnboardingStep | undefined>;
+
+  getConsentAuditLogs(): Promise<ConsentAuditLog[]>;
+  getConsentAuditLogsByContact(contactId: number): Promise<ConsentAuditLog[]>;
+  createConsentAuditLog(log: InsertConsentAuditLog): Promise<ConsentAuditLog>;
+
+  getCalendarEvents(): Promise<CalendarEvent[]>;
+  getCalendarEventsByDateRange(start: Date, end: Date): Promise<CalendarEvent[]>;
+  createCalendarEvent(event: InsertCalendarEvent): Promise<CalendarEvent>;
+  updateCalendarEvent(id: number, data: Partial<InsertCalendarEvent>): Promise<CalendarEvent | undefined>;
+  deleteCalendarEvent(id: number): Promise<void>;
+
+  getAgentQuotas(): Promise<AgentQuota[]>;
+  getAgentQuotasByAgent(agentId: number): Promise<AgentQuota[]>;
+  createAgentQuota(quota: InsertAgentQuota): Promise<AgentQuota>;
+  updateAgentQuota(id: number, data: Partial<AgentQuota>): Promise<AgentQuota | undefined>;
+
+  getDataDeleteRequests(): Promise<DataDeleteRequest[]>;
+  createDataDeleteRequest(req: InsertDataDeleteRequest): Promise<DataDeleteRequest>;
+  updateDataDeleteRequest(id: number, data: Partial<DataDeleteRequest>): Promise<DataDeleteRequest | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1229,6 +1253,75 @@ export class DatabaseStorage implements IStorage {
 
   async updateOnboardingStep(id: number, updates: Partial<InsertOnboardingStep>) {
     const [updated] = await db.update(onboardingSteps).set(updates).where(eq(onboardingSteps.id, id)).returning();
+    return updated;
+  }
+
+  async getConsentAuditLogs(): Promise<ConsentAuditLog[]> {
+    return db.select().from(consentAuditLogs).orderBy(desc(consentAuditLogs.createdAt));
+  }
+
+  async getConsentAuditLogsByContact(contactId: number): Promise<ConsentAuditLog[]> {
+    return db.select().from(consentAuditLogs).where(eq(consentAuditLogs.contactId, contactId)).orderBy(desc(consentAuditLogs.createdAt));
+  }
+
+  async createConsentAuditLog(log: InsertConsentAuditLog): Promise<ConsentAuditLog> {
+    const [created] = await db.insert(consentAuditLogs).values(log).returning();
+    return created;
+  }
+
+  async getCalendarEvents(): Promise<CalendarEvent[]> {
+    return db.select().from(calendarEvents).orderBy(desc(calendarEvents.startTime));
+  }
+
+  async getCalendarEventsByDateRange(start: Date, end: Date): Promise<CalendarEvent[]> {
+    return db.select().from(calendarEvents)
+      .where(and(gte(calendarEvents.startTime, start), lte(calendarEvents.startTime, end)))
+      .orderBy(asc(calendarEvents.startTime));
+  }
+
+  async createCalendarEvent(event: InsertCalendarEvent): Promise<CalendarEvent> {
+    const [created] = await db.insert(calendarEvents).values(event).returning();
+    return created;
+  }
+
+  async updateCalendarEvent(id: number, data: Partial<InsertCalendarEvent>): Promise<CalendarEvent | undefined> {
+    const [updated] = await db.update(calendarEvents).set(data).where(eq(calendarEvents.id, id)).returning();
+    return updated;
+  }
+
+  async deleteCalendarEvent(id: number): Promise<void> {
+    await db.delete(calendarEvents).where(eq(calendarEvents.id, id));
+  }
+
+  async getAgentQuotas(): Promise<AgentQuota[]> {
+    return db.select().from(agentQuotas).orderBy(desc(agentQuotas.createdAt));
+  }
+
+  async getAgentQuotasByAgent(agentId: number): Promise<AgentQuota[]> {
+    return db.select().from(agentQuotas).where(eq(agentQuotas.agentId, agentId)).orderBy(desc(agentQuotas.createdAt));
+  }
+
+  async createAgentQuota(quota: InsertAgentQuota): Promise<AgentQuota> {
+    const [created] = await db.insert(agentQuotas).values(quota).returning();
+    return created;
+  }
+
+  async updateAgentQuota(id: number, data: Partial<AgentQuota>): Promise<AgentQuota | undefined> {
+    const [updated] = await db.update(agentQuotas).set(data).where(eq(agentQuotas.id, id)).returning();
+    return updated;
+  }
+
+  async getDataDeleteRequests(): Promise<DataDeleteRequest[]> {
+    return db.select().from(dataDeleteRequests).orderBy(desc(dataDeleteRequests.createdAt));
+  }
+
+  async createDataDeleteRequest(req: InsertDataDeleteRequest): Promise<DataDeleteRequest> {
+    const [created] = await db.insert(dataDeleteRequests).values(req).returning();
+    return created;
+  }
+
+  async updateDataDeleteRequest(id: number, data: Partial<DataDeleteRequest>): Promise<DataDeleteRequest | undefined> {
+    const [updated] = await db.update(dataDeleteRequests).set(data).where(eq(dataDeleteRequests.id, id)).returning();
     return updated;
   }
 

@@ -10,8 +10,9 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, AlertTriangle, Sparkles, Loader2, ChevronDown, ChevronRight } from "lucide-react";
+import { Plus, AlertTriangle, Sparkles, Loader2, ChevronDown, ChevronRight, Download } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { exportToCSV } from "@/lib/export-csv";
 import type { Ticket, Contact } from "@shared/schema";
 import { TICKET_CATEGORIES, SUPPORT_STAGES } from "@shared/schema";
 
@@ -165,6 +166,32 @@ export default function Tickets() {
     <div className="space-y-6" data-testid="tickets-page">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <h2 className="text-2xl font-bold" data-testid="text-tickets-title">Support Tickets</h2>
+        <div className="flex items-center gap-3 flex-wrap">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              const exportData = (tickets || []).map(t => ({
+                subject: t.subject,
+                status: t.status || "",
+                priority: t.priority || "",
+                category: t.category || "",
+                assignedTo: t.assignedTo || "",
+                createdAt: t.createdAt ? new Date(t.createdAt).toLocaleDateString() : "",
+              }));
+              exportToCSV(exportData, "tickets", [
+                { key: "subject", label: "Subject" },
+                { key: "status", label: "Status" },
+                { key: "priority", label: "Priority" },
+                { key: "category", label: "Category" },
+                { key: "assignedTo", label: "Assigned To" },
+                { key: "createdAt", label: "Created At" },
+              ]);
+            }}
+            data-testid="button-export-tickets"
+          >
+            <Download className="w-4 h-4 mr-1" /> Export Tickets
+          </Button>
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
           <DialogTrigger asChild>
             <Button data-testid="button-new-ticket" className="gap-2">
@@ -248,6 +275,7 @@ export default function Tickets() {
             </div>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       <Card>

@@ -12,6 +12,8 @@ import {
   TableCell,
 } from "@/components/ui/table";
 import { useQuery } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
+import { exportToCSV } from "@/lib/export-csv";
 import {
   DollarSign,
   TrendingUp,
@@ -21,6 +23,7 @@ import {
   Search,
   BarChart3,
   Percent,
+  Download,
 } from "lucide-react";
 
 interface ResidualReport {
@@ -177,11 +180,27 @@ export default function ResidualRevenue() {
 
   return (
     <div className="space-y-8" data-testid="page-residual-revenue">
-      <div data-testid="section-header">
-        <h1 className="text-2xl font-bold" data-testid="text-page-title">Revenue Dashboard</h1>
-        <p className="text-muted-foreground mt-1" data-testid="text-page-subtitle">
-          Track monthly revenue, portfolio performance, and agent commissions
-        </p>
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4" data-testid="section-header">
+        <div>
+          <h1 className="text-2xl font-bold" data-testid="text-page-title">Revenue Dashboard</h1>
+          <p className="text-muted-foreground mt-1" data-testid="text-page-subtitle">
+            Track monthly revenue, portfolio performance, and agent commissions
+          </p>
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => exportToCSV(filteredMerchants, "residual_revenue", [
+            { key: "merchantName", label: "Merchant" },
+            { key: "mid", label: "MID" },
+            { key: "volume", label: "Volume" },
+            { key: "revenue", label: "Revenue" },
+            { key: "revenueChange", label: "Change %" },
+          ])}
+          data-testid="button-export-revenue"
+        >
+          <Download className="w-4 h-4 mr-1" /> Export Revenue Data
+        </Button>
       </div>
 
       {!hasData && !reportsLoading && (

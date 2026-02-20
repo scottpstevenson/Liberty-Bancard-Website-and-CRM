@@ -238,13 +238,43 @@ function OnboardingTab({ dealId }: { dealId: number | null | undefined }) {
 
 function DocumentsTab({ contactId }: { contactId: number | null | undefined }) {
   const { toast } = useToast();
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+
   const { data: allDocuments, isLoading } = useQuery<DocType[]>({
     queryKey: ["/api/documents"],
   });
 
-  const documents = contactId
-    ? allDocuments?.filter((d) => d.contactId === contactId)
-    : [];
+  const documents = allDocuments?.filter(
+    (d) => d.accessScope === "merchant" || d.type === "merchant_statement" || (contactId && d.contactId === contactId)
+  ) || [];
+
+  const handleUpload = async () => {
+    if (!selectedFile) return;
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", selectedFile);
+      const res = await fetch("/api/merchant-portal/upload-statement", {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || "Upload failed");
+      }
+      toast({ title: "Statement uploaded", description: `${selectedFile.name} has been uploaded successfully.` });
+      setSelectedFile(null);
+      const fileInput = document.querySelector('[data-testid="input-upload-file"]') as HTMLInputElement;
+      if (fileInput) fileInput.value = "";
+      queryClient.invalidateQueries({ queryKey: ["/api/documents"] });
+    } catch (err: any) {
+      toast({ title: "Upload failed", description: err.message || "Something went wrong.", variant: "destructive" });
+    } finally {
+      setUploading(false);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -258,17 +288,32 @@ function DocumentsTab({ contactId }: { contactId: number | null | undefined }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
-        <Button
-          variant="outline"
-          onClick={() => toast({ title: "Coming soon", description: "Document upload will be available soon." })}
-          data-testid="button-upload-document"
-        >
-          <Upload className="w-4 h-4 mr-2" />
-          Upload Document
-        </Button>
-      </div>
+      <Card data-testid="card-upload-section">
+        <CardHeader>
+          <CardTitle className="text-base">Upload Processing Statement</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-4 flex-wrap">
+            <Input
+              type="file"
+              accept=".pdf,.png,.jpg,.jpeg,.csv"
+              onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+              data-testid="input-upload-file"
+            />
+            <Button
+              onClick={handleUpload}
+              disabled={!selectedFile || uploading}
+              data-testid="button-upload-statement"
+            >
+              {uploading ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Uploading...</> : <><Upload className="w-4 h-4 mr-2" />Upload Statement</>}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
       <Card data-testid="card-documents-list">
+        <CardHeader>
+          <CardTitle className="text-base">Uploaded Documents</CardTitle>
+        </CardHeader>
         <CardContent className="p-0 overflow-x-auto">
           <Table className="min-w-[500px]">
             <TableHeader>
@@ -276,12 +321,13 @@ function DocumentsTab({ contactId }: { contactId: number | null | undefined }) {
                 <TableHead>File Name</TableHead>
                 <TableHead>Type</TableHead>
                 <TableHead>Upload Date</TableHead>
+                <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(!documents || documents.length === 0) ? (
+              {documents.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={3} className="text-center h-24 text-muted-foreground" data-testid="text-no-documents">
+                  <TableCell colSpan={4} className="text-center h-24 text-muted-foreground" data-testid="text-no-documents">
                     No documents uploaded yet
                   </TableCell>
                 </TableRow>
@@ -294,8 +340,21 @@ function DocumentsTab({ contactId }: { contactId: number | null | undefined }) {
                         {doc.fileName}
                       </div>
                     </TableCell>
-                    <TableCell data-testid={`text-doc-type-${doc.id}`}>{doc.type}</TableCell>
+                    <TableCell data-testid={`text-doc-type-${doc.id}`}>
+                      <Badge variant="secondary">{doc.type}</Badge>
+                    </TableCell>
                     <TableCell data-testid={`text-doc-date-${doc.id}`}>{formatDate(doc.createdAt)}</TableCell>
+                    <TableCell>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => window.open(`/api/documents/download/${doc.id}`, "_blank")}
+                        data-testid={`button-download-doc-${doc.id}`}
+                      >
+                        <FileText className="w-4 h-4 mr-1" />
+                        Download
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 ))
               )}

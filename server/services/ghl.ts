@@ -163,6 +163,38 @@ export async function sendGhlEmail(params: {
   }
 }
 
+export async function sendGhlEmailForMerchant(params: {
+  email: string;
+  subject: string;
+  body: string;
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    const config = getConfig();
+    if (!config) throw new Error("GHL not configured");
+
+    const emailPayload = {
+      type: "Email",
+      email: params.email,
+      subject: params.subject,
+      html: params.body,
+    };
+
+    const result = await ghlFetch("/conversations/messages", {
+      method: "POST",
+      body: JSON.stringify(emailPayload),
+    });
+
+    if (result?.messageId) trackOutboundMessageId(result.messageId);
+
+    console.log(`[GHL] Welcome email sent to ${params.email} - Subject: ${params.subject}`);
+
+    return { success: true };
+  } catch (err: any) {
+    console.error(`[GHL] Welcome email failed for ${params.email}:`, err.message);
+    return { success: false, error: err.message };
+  }
+}
+
 export async function sendGhlSms(params: {
   contactId: number;
   dealId?: number;

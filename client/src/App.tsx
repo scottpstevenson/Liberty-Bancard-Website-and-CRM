@@ -14,6 +14,9 @@ import { CookieConsent } from "@/components/CookieConsent";
 
 import Login from "@/pages/Login";
 import Signup from "@/pages/Signup";
+import ForgotPassword from "@/pages/ForgotPassword";
+import ResetPassword from "@/pages/ResetPassword";
+import VerifyEmail from "@/pages/VerifyEmail";
 import Home from "@/pages/Home";
 import GetStarted from "@/pages/GetStarted";
 import UploadStatement from "@/pages/UploadStatement";
@@ -86,6 +89,13 @@ import ReferralProgram from "@/pages/dashboard/ReferralProgram";
 import KnowledgeBase from "@/pages/dashboard/KnowledgeBase";
 import ReviewRequests from "@/pages/dashboard/ReviewRequests";
 import ResidualRevenue from "@/pages/dashboard/ResidualRevenue";
+import ConsentAudit from "@/pages/dashboard/ConsentAudit";
+import UserManagement from "@/pages/dashboard/UserManagement";
+import Calendar from "@/pages/dashboard/Calendar";
+import Forecasting from "@/pages/dashboard/Forecasting";
+import PciAssessment from "@/pages/dashboard/PciAssessment";
+import DataRequests from "@/pages/dashboard/DataRequests";
+import DataRetention from "@/pages/DataRetention";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { user, isLoading } = useAuth();
@@ -116,6 +126,9 @@ function Router() {
     <Switch>
       <Route path="/login" component={Login} />
       <Route path="/signup" component={Signup} />
+      <Route path="/forgot-password" component={ForgotPassword} />
+      <Route path="/reset-password" component={ResetPassword} />
+      <Route path="/verify-email" component={VerifyEmail} />
       <Route path="/" component={Home} />
       <Route path="/get-started" component={GetStarted} />
       <Route path="/upload-statement" component={UploadStatement} />
@@ -141,6 +154,7 @@ function Router() {
       <Route path="/testimonials-disclosure" component={TestimonialsDisclosure} />
       <Route path="/law-enforcement" component={LawEnforcementGuidelines} />
       <Route path="/dispute-resolution" component={DisputeResolution} />
+      <Route path="/data-retention" component={DataRetention} />
       <Route path="/thanks-statement" component={ThanksStatement} />
       <Route path="/thanks-estimate" component={ThanksEstimate} />
       <Route path="/thanks-call" component={ThanksCall} />
@@ -273,6 +287,24 @@ function Router() {
       <Route path="/dashboard/knowledge-base">
         <ProtectedRoute component={KnowledgeBase} />
       </Route>
+      <Route path="/dashboard/consent-audit">
+        <ProtectedRoute component={ConsentAudit} />
+      </Route>
+      <Route path="/dashboard/calendar">
+        <ProtectedRoute component={Calendar} />
+      </Route>
+      <Route path="/dashboard/user-management">
+        <ProtectedRoute component={UserManagement} />
+      </Route>
+      <Route path="/dashboard/forecasting">
+        <ProtectedRoute component={Forecasting} />
+      </Route>
+      <Route path="/dashboard/pci-assessment">
+        <ProtectedRoute component={PciAssessment} />
+      </Route>
+      <Route path="/dashboard/data-requests">
+        <ProtectedRoute component={DataRequests} />
+      </Route>
 
       <Route component={NotFound} />
     </Switch>
@@ -283,7 +315,7 @@ function PublicLayout() {
   const [location] = useLocation();
   const isDashboard = location.startsWith("/dashboard");
   const isThanksPage = location.startsWith("/thanks");
-  const isAuthPage = location === "/login" || location === "/signup";
+  const isAuthPage = location === "/login" || location === "/signup" || location === "/forgot-password" || location === "/reset-password" || location === "/verify-email";
 
   return (
     <>

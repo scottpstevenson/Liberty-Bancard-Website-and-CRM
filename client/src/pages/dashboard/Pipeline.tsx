@@ -10,8 +10,9 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Plus, Calendar, Sparkles, Loader2 } from "lucide-react";
+import { Plus, Calendar, Sparkles, Loader2, Download } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { exportToCSV } from "@/lib/export-csv";
 import type { Deal, Contact } from "@shared/schema";
 import { SALES_STAGES, OFFER_PATHS } from "@shared/schema";
 
@@ -179,6 +180,37 @@ export default function Pipeline() {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <h2 className="text-2xl font-bold" data-testid="text-pipeline-title">Sales Pipeline</h2>
         <div className="flex items-center gap-3 flex-wrap">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              const exportData = (deals || []).map(d => ({
+                contact: getContactName(d.contactId),
+                company: getCompanyName(d.contactId),
+                pipeline: d.pipeline,
+                stage: d.stage,
+                priorityScore: d.priorityScore,
+                estVolume: d.totalVolume || "",
+                estProfit: d.estimatedGrossProfitMonthly || "",
+                followUp: d.nextFollowUp ? new Date(d.nextFollowUp).toLocaleDateString() : "",
+                createdAt: d.createdAt ? new Date(d.createdAt).toLocaleDateString() : "",
+              }));
+              exportToCSV(exportData, "deals", [
+                { key: "contact", label: "Contact" },
+                { key: "company", label: "Company" },
+                { key: "pipeline", label: "Pipeline" },
+                { key: "stage", label: "Stage" },
+                { key: "priorityScore", label: "Priority Score" },
+                { key: "estVolume", label: "Est. Volume" },
+                { key: "estProfit", label: "Est. Profit" },
+                { key: "followUp", label: "Follow-up" },
+                { key: "createdAt", label: "Created At" },
+              ]);
+            }}
+            data-testid="button-export-deals"
+          >
+            <Download className="w-4 h-4 mr-1" /> Export Deals
+          </Button>
           <Button
             variant="outline"
             data-testid="button-ai-auto-progress"

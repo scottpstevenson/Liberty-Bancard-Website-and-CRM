@@ -44,6 +44,13 @@ export default function Overview() {
   const { data: contacts } = useQuery<Contact[]>({ queryKey: ["/api/contacts"] });
   const { data: deals } = useQuery<Deal[]>({ queryKey: ["/api/deals"] });
 
+  const { data: comparative } = useQuery<{
+    newDeals: { current: number; previous: number; change: number };
+    newContacts: { current: number; previous: number; change: number };
+    closedWon: { current: number; previous: number; change: number };
+    tickets: { current: number; previous: number; change: number };
+  }>({ queryKey: ["/api/kpi/comparative"] });
+
   if (kpiLoading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -236,6 +243,38 @@ export default function Overview() {
           </CardContent>
         </Card>
       </div>
+
+      {comparative && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" data-testid="section-comparative">
+          {[
+            { label: "New Deals", data: comparative.newDeals, icon: TrendingUp },
+            { label: "New Contacts", data: comparative.newContacts, icon: Users },
+            { label: "Closed Won", data: comparative.closedWon, icon: CheckCircle },
+            { label: "Support Tickets", data: comparative.tickets, icon: Ticket },
+          ].map((item) => (
+            <Card key={item.label} data-testid={`card-compare-${item.label.toLowerCase().replace(/\s/g, "-")}`}>
+              <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">{item.label}</CardTitle>
+                <item.icon className="w-4 h-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{item.data.current}</div>
+                <div className="flex items-center gap-1 text-xs flex-wrap">
+                  {item.data.change >= 0 ? (
+                    <ArrowUpRight className="w-3 h-3 text-green-600" />
+                  ) : (
+                    <ArrowUpRight className="w-3 h-3 text-red-600 rotate-90" />
+                  )}
+                  <span className={item.data.change >= 0 ? "text-green-600" : "text-red-600"}>
+                    {item.data.change > 0 ? "+" : ""}{item.data.change}%
+                  </span>
+                  <span className="text-muted-foreground">vs last month ({item.data.previous})</span>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <Card data-testid="card-kpi-contacts">

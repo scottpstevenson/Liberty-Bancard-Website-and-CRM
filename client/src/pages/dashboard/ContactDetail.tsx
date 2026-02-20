@@ -151,9 +151,9 @@ export default function ContactDetail() {
   });
 
   const { data: activityEvents } = useQuery<ActivityEvent[]>({
-    queryKey: ["/api/activity", "contact", contactId],
+    queryKey: ["/api/contacts", contactId, "activity"],
     queryFn: async () => {
-      const res = await fetch(`/api/activity?entityType=contact&entityId=${contactId}`, { credentials: "include" });
+      const res = await fetch(`/api/contacts/${contactId}/activity`, { credentials: "include" });
       if (!res.ok) return [];
       return res.json();
     },
