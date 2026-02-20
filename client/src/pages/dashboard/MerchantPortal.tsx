@@ -23,6 +23,7 @@ import { Link } from "wouter";
 import type { MerchantProfile, OnboardingStep, Ticket } from "@shared/schema";
 import type { Document as DocType } from "@shared/schema";
 import { HelpCenter } from "@/components/HelpCenter";
+import merchantVideo from "@assets/videos/merchant-explainer.mp4";
 
 type TabKey = "guide" | "account" | "onboarding" | "documents" | "support";
 
@@ -430,6 +431,23 @@ function GettingStartedTab() {
           </p>
         </CardHeader>
         <CardContent className="space-y-3">
+          <div className="rounded-lg overflow-hidden border bg-black" data-testid="merchant-video">
+            <video
+              src={merchantVideo}
+              controls
+              className="w-full aspect-video"
+              poster=""
+              preload="metadata"
+              data-testid="video-merchant-explainer"
+            >
+              Your browser does not support video playback.
+            </video>
+            <div className="bg-muted/50 px-4 py-2">
+              <p className="text-xs font-medium">Welcome to Liberty Bancard</p>
+              <p className="text-[11px] text-muted-foreground">Watch this short video to learn what to expect as a new merchant and how to get the most from your account.</p>
+            </div>
+          </div>
+
           {sections.map((section, i) => {
             const Icon = section.icon;
             const isExpanded = expandedSection === i;

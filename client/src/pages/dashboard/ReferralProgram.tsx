@@ -19,6 +19,7 @@ import { Users, Handshake, DollarSign, Award, Plus, PlayCircle, Target, BookOpen
 import type { Partner, Referral } from "@shared/schema";
 import { PARTNER_TYPES, REFERRAL_STATUSES } from "@shared/schema";
 import { HelpCenter } from "@/components/HelpCenter";
+import referralVideo from "@assets/videos/referral-explainer.mp4";
 
 const partnerFormSchema = z.object({
   companyName: z.string().min(1, "Required"),
@@ -143,6 +144,23 @@ function ReferralExplainer() {
 
         {expanded && (
           <div className="mt-4 space-y-4" data-testid="explainer-content">
+            <div className="rounded-lg overflow-hidden border bg-black" data-testid="referral-video">
+              <video
+                src={referralVideo}
+                controls
+                className="w-full aspect-video"
+                poster=""
+                preload="metadata"
+                data-testid="video-referral-explainer"
+              >
+                Your browser does not support video playback.
+              </video>
+              <div className="bg-muted/50 px-4 py-2">
+                <p className="text-xs font-medium">Referral Program Overview</p>
+                <p className="text-[11px] text-muted-foreground">Watch this short explainer to learn how to earn commissions by referring merchants to Liberty Bancard.</p>
+              </div>
+            </div>
+
             {guides.map((guide, i) => {
               const Icon = guide.icon;
               return (
