@@ -1610,3 +1610,93 @@ export const ONBOARDING_STEP_NAMES = [
   "First Batch Processed",
   "Go-Live Complete",
 ] as const;
+
+export const consentAuditLogs = pgTable("consent_audit_logs", {
+  id: serial("id").primaryKey(),
+  contactId: integer("contact_id").references(() => contacts.id),
+  userId: text("user_id"),
+  channel: text("channel").notNull(),
+  action: text("action").notNull(),
+  consented: boolean("consented").notNull(),
+  source: text("source"),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  details: jsonb("details"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertConsentAuditLogSchema = createInsertSchema(consentAuditLogs).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type ConsentAuditLog = typeof consentAuditLogs.$inferSelect;
+export type InsertConsentAuditLog = z.infer<typeof insertConsentAuditLogSchema>;
+
+export const calendarEvents = pgTable("calendar_events", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  description: text("description"),
+  startTime: timestamp("start_time").notNull(),
+  endTime: timestamp("end_time").notNull(),
+  allDay: boolean("all_day").default(false),
+  type: text("type").default("meeting"),
+  contactId: integer("contact_id").references(() => contacts.id),
+  dealId: integer("deal_id").references(() => deals.id),
+  ownerId: text("owner_id"),
+  location: text("location"),
+  ghlEventId: text("ghl_event_id"),
+  status: text("status").default("scheduled"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertCalendarEventSchema = createInsertSchema(calendarEvents).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type CalendarEvent = typeof calendarEvents.$inferSelect;
+export type InsertCalendarEvent = z.infer<typeof insertCalendarEventSchema>;
+
+export const agentQuotas = pgTable("agent_quotas", {
+  id: serial("id").primaryKey(),
+  agentId: integer("agent_id").references(() => agents.id),
+  period: text("period").notNull(),
+  periodStart: timestamp("period_start").notNull(),
+  periodEnd: timestamp("period_end").notNull(),
+  targetDeals: integer("target_deals").default(0),
+  targetRevenue: text("target_revenue").default("0"),
+  targetVolume: text("target_volume").default("0"),
+  actualDeals: integer("actual_deals").default(0),
+  actualRevenue: text("actual_revenue").default("0"),
+  actualVolume: text("actual_volume").default("0"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertAgentQuotaSchema = createInsertSchema(agentQuotas).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type AgentQuota = typeof agentQuotas.$inferSelect;
+export type InsertAgentQuota = z.infer<typeof insertAgentQuotaSchema>;
+
+export const dataDeleteRequests = pgTable("data_delete_requests", {
+  id: serial("id").primaryKey(),
+  email: text("email").notNull(),
+  fullName: text("full_name").notNull(),
+  requestType: text("request_type").notNull(),
+  description: text("description"),
+  status: text("status").default("pending"),
+  processedBy: text("processed_by"),
+  processedAt: timestamp("processed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertDataDeleteRequestSchema = createInsertSchema(dataDeleteRequests).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type DataDeleteRequest = typeof dataDeleteRequests.$inferSelect;
+export type InsertDataDeleteRequest = z.infer<typeof insertDataDeleteRequestSchema>;

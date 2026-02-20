@@ -22,6 +22,12 @@ export const users = pgTable("users", {
   passwordHash: varchar("password_hash"),
   role: varchar("role").default("merchant"),
   authProvider: varchar("auth_provider").default("local"),
+  emailVerified: timestamp("email_verified"),
+  verificationToken: varchar("verification_token"),
+  verificationExpiresAt: timestamp("verification_expires_at"),
+  resetToken: varchar("reset_token"),
+  resetExpiresAt: timestamp("reset_expires_at"),
+  agentId: varchar("agent_id"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
