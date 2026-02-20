@@ -15,9 +15,10 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Users, Handshake, DollarSign, Award, Plus } from "lucide-react";
+import { Users, Handshake, DollarSign, Award, Plus, PlayCircle, Target, BookOpen, TrendingUp, Star, ChevronDown, ChevronUp } from "lucide-react";
 import type { Partner, Referral } from "@shared/schema";
 import { PARTNER_TYPES, REFERRAL_STATUSES } from "@shared/schema";
+import { HelpCenter } from "@/components/HelpCenter";
 
 const partnerFormSchema = z.object({
   companyName: z.string().min(1, "Required"),
@@ -84,6 +85,85 @@ function referralStatusColor(status: string): string {
 
 function formatPartnerType(type: string): string {
   return type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function ReferralExplainer() {
+  const [expanded, setExpanded] = useState(false);
+
+  const guides = [
+    {
+      icon: PlayCircle,
+      title: "What Is Liberty Bancard's Referral Program?",
+      color: "text-blue-600 dark:text-blue-400",
+      bg: "bg-blue-100 dark:bg-blue-900",
+      content: "Our referral program lets you earn commissions by connecting businesses with Liberty Bancard's payment processing solutions. Whether you're an ISO agent, bank partner, or business referrer, you earn when your referrals become merchants. We handle the sales process, onboarding, and ongoing support — you just make the introduction.",
+    },
+    {
+      icon: Target,
+      title: "How It Works: Step by Step",
+      color: "text-green-600 dark:text-green-400",
+      bg: "bg-green-100 dark:bg-green-900",
+      content: "1. Register as a partner using the 'Add Partner' button above.\n2. Submit referrals with basic contact details — name, email, phone, and business name.\n3. Our sales team reaches out, reviews their statement, and presents a savings proposal.\n4. When the merchant signs up, your referral status updates to 'Converted.'\n5. You earn your commission based on your agreed-upon structure (flat fee, percentage, or bonus).\n\nTrack everything in real time right here on this dashboard.",
+    },
+    {
+      icon: Star,
+      title: "Best Practices for Sales Referrals",
+      color: "text-amber-600 dark:text-amber-400",
+      bg: "bg-amber-100 dark:bg-amber-900",
+      content: "• Lead with value: Tell the merchant we do a free, no-obligation statement review that typically finds $200–$500/month in savings.\n• Warm introductions convert best: A quick email intro or 3-way call dramatically increases close rates.\n• Focus on pain points: Ask if they're happy with their current rates, customer service, or terminal reliability.\n• Quality over quantity: One qualified referral with a processing statement is worth more than ten cold leads.\n• Follow up: Check your referral status here and ask us for updates — engaged partners close more deals.",
+    },
+    {
+      icon: TrendingUp,
+      title: "Commission & Payout Structure",
+      color: "text-emerald-600 dark:text-emerald-400",
+      bg: "bg-emerald-100 dark:bg-emerald-900",
+      content: "• Standard referral bonus: Flat fee per converted merchant (varies by partner agreement).\n• Residual commissions: Ongoing monthly percentage of processing revenue for ISO/agent partners.\n• Tiered bonuses: Volume incentives when you hit referral milestones.\n• Payouts tracked automatically in your Total Payouts column — no chasing checks.\n\nAll commission terms are set when you register as a partner. Contact us to discuss custom structures.",
+    },
+  ];
+
+  return (
+    <Card data-testid="referral-explainer">
+      <CardContent className="p-4">
+        <button
+          className="w-full flex items-center justify-between gap-2"
+          onClick={() => setExpanded(!expanded)}
+          data-testid="btn-toggle-explainer"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+              <BookOpen className="w-5 h-5 text-primary" />
+            </div>
+            <div className="text-left">
+              <p className="text-sm font-semibold">Referral Program Guide & Best Practices</p>
+              <p className="text-xs text-muted-foreground">Learn how to maximize your referral earnings</p>
+            </div>
+          </div>
+          {expanded ? <ChevronUp className="w-5 h-5 text-muted-foreground" /> : <ChevronDown className="w-5 h-5 text-muted-foreground" />}
+        </button>
+
+        {expanded && (
+          <div className="mt-4 space-y-4" data-testid="explainer-content">
+            {guides.map((guide, i) => {
+              const Icon = guide.icon;
+              return (
+                <div key={i} className="border rounded-lg p-4" data-testid={`guide-section-${i}`}>
+                  <div className="flex items-start gap-3">
+                    <div className={`w-9 h-9 rounded-lg ${guide.bg} flex items-center justify-center shrink-0 mt-0.5`}>
+                      <Icon className={`w-4.5 h-4.5 ${guide.color}`} />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-semibold mb-2">{guide.title}</h4>
+                      <p className="text-sm text-muted-foreground whitespace-pre-line leading-relaxed">{guide.content}</p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 export default function ReferralProgram() {
@@ -520,6 +600,10 @@ export default function ReferralProgram() {
           </Card>
         </>
       )}
+
+      <ReferralExplainer />
+
+      <HelpCenter context="referral" />
     </div>
   );
 }

@@ -16,15 +16,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   User, ClipboardList, FileText, Headphones,
   CheckCircle, Circle, Loader2, Plus, Upload,
-  Calendar, Hash, CreditCard, Activity, ArrowRight
+  Calendar, Hash, CreditCard, Activity, ArrowRight,
+  PlayCircle, BookOpen, ChevronDown, ChevronUp, Shield, Clock, Zap, Star
 } from "lucide-react";
 import { Link } from "wouter";
 import type { MerchantProfile, OnboardingStep, Ticket } from "@shared/schema";
 import type { Document as DocType } from "@shared/schema";
+import { HelpCenter } from "@/components/HelpCenter";
 
-type TabKey = "account" | "onboarding" | "documents" | "support";
+type TabKey = "guide" | "account" | "onboarding" | "documents" | "support";
 
 const TABS: { key: TabKey; label: string; icon: typeof User }[] = [
+  { key: "guide", label: "Getting Started", icon: BookOpen },
   { key: "account", label: "My Account", icon: User },
   { key: "onboarding", label: "Onboarding Progress", icon: ClipboardList },
   { key: "documents", label: "My Documents", icon: FileText },
@@ -366,6 +369,99 @@ function DocumentsTab({ contactId }: { contactId: number | null | undefined }) {
   );
 }
 
+function GettingStartedTab() {
+  const [expandedSection, setExpandedSection] = useState<number | null>(null);
+
+  const sections = [
+    {
+      icon: PlayCircle,
+      title: "Welcome to Liberty Bancard",
+      color: "text-blue-600 dark:text-blue-400",
+      bg: "bg-blue-100 dark:bg-blue-900",
+      content: "Liberty Bancard is your payment processing partner. We specialize in finding real savings on your credit card processing costs through our proprietary statement review process. Unlike other processors, we don't just sell you a rate — we prove your real cost and fix it.\n\nThis portal is your home base to track your application, onboarding progress, uploaded documents, and get support whenever you need it.",
+    },
+    {
+      icon: Clock,
+      title: "What to Expect: Your Onboarding Timeline",
+      color: "text-green-600 dark:text-green-400",
+      bg: "bg-green-100 dark:bg-green-900",
+      content: "Day 1–2: Application review and underwriting — we verify your business details and processing history.\n\nDay 3–5: Account approval and terminal/gateway setup — your MID (Merchant ID) is assigned.\n\nDay 5–7: Go-live — your new processing begins. You'll see your first batch settlement within 24–48 hours.\n\nDay 14: First check-in — we review your first two weeks of processing to ensure everything is running smoothly.\n\nDay 30: Full review — we compare your actual savings against your old statement to confirm results.",
+    },
+    {
+      icon: FileText,
+      title: "Documents You May Need",
+      color: "text-amber-600 dark:text-amber-400",
+      bg: "bg-amber-100 dark:bg-amber-900",
+      content: "• Recent processing statement (last 3 months preferred)\n• Voided check or bank letter for deposit account\n• Government-issued ID for business owner(s)\n• Business license or articles of incorporation\n• Tax ID / EIN documentation\n\nYou can upload any of these in the 'My Documents' tab. Our team will let you know if anything else is needed.",
+    },
+    {
+      icon: Shield,
+      title: "Security & Compliance",
+      color: "text-purple-600 dark:text-purple-400",
+      bg: "bg-purple-100 dark:bg-purple-900",
+      content: "Your data is protected with bank-level encryption. We never store full card numbers or sensitive authentication data. Our platform is designed to support PCI DSS compliance, and we'll guide you through a simple self-assessment to make sure your business stays compliant.\n\nAll communications are logged for your protection, and you can request copies of any documents or data at any time.",
+    },
+    {
+      icon: Zap,
+      title: "Getting the Most from Your Account",
+      color: "text-orange-600 dark:text-orange-400",
+      bg: "bg-orange-100 dark:bg-orange-900",
+      content: "• Check your onboarding progress regularly — each step gets you closer to go-live.\n• Upload your processing statement early — it speeds up the savings analysis.\n• Use the Support tab to create tickets for any issues — our team responds within 4 business hours.\n• Ask about our Cash Discount and Surcharging programs — they can eliminate processing costs entirely for qualifying merchants.\n• Refer other business owners through our referral program and earn bonuses.",
+    },
+    {
+      icon: Star,
+      title: "Why Merchants Choose Liberty Bancard",
+      color: "text-emerald-600 dark:text-emerald-400",
+      bg: "bg-emerald-100 dark:bg-emerald-900",
+      content: "• Free statement review with transparent savings analysis — no obligation.\n• Multiple program options: Cash Discount, Interchange Plus, and Tiered Reduction.\n• Dedicated account manager for ongoing support.\n• Next-day funding available for qualifying merchants.\n• No long-term contracts or hidden fees — we earn your business every month.\n• 24/7 terminal support and rapid equipment replacement.",
+    },
+  ];
+
+  return (
+    <div className="space-y-4" data-testid="getting-started-tab">
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <BookOpen className="w-5 h-5 text-primary" />
+            Getting Started with Liberty Bancard
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Everything you need to know about your merchant account, onboarding process, and what to expect.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {sections.map((section, i) => {
+            const Icon = section.icon;
+            const isExpanded = expandedSection === i;
+            return (
+              <div key={i} className="border rounded-lg overflow-hidden" data-testid={`guide-section-${i}`}>
+                <button
+                  className="w-full flex items-center gap-3 p-4 hover:bg-muted/50 transition-colors"
+                  onClick={() => setExpandedSection(isExpanded ? null : i)}
+                  data-testid={`guide-toggle-${i}`}
+                >
+                  <div className={`w-9 h-9 rounded-lg ${section.bg} flex items-center justify-center shrink-0`}>
+                    <Icon className={`w-4.5 h-4.5 ${section.color}`} />
+                  </div>
+                  <span className="text-sm font-semibold text-left flex-1">{section.title}</span>
+                  {isExpanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+                </button>
+                {isExpanded && (
+                  <div className="px-4 pb-4 pl-16">
+                    <p className="text-sm text-muted-foreground whitespace-pre-line leading-relaxed">{section.content}</p>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </CardContent>
+      </Card>
+
+      <HelpCenter context="merchant" />
+    </div>
+  );
+}
+
 function SupportTab({ contactId }: { contactId: number | null | undefined }) {
   const { toast } = useToast();
   const [createOpen, setCreateOpen] = useState(false);
@@ -520,7 +616,7 @@ function SupportTab({ contactId }: { contactId: number | null | undefined }) {
 }
 
 export default function MerchantPortal() {
-  const [activeTab, setActiveTab] = useState<TabKey>("account");
+  const [activeTab, setActiveTab] = useState<TabKey>("guide");
   const { user } = useAuth();
 
   const { data: profile, isLoading: profileLoading } = useQuery<MerchantProfile | null>({
@@ -562,6 +658,9 @@ export default function MerchantPortal() {
       </div>
 
       <div data-testid={`tab-content-${activeTab}`}>
+        {activeTab === "guide" && (
+          <GettingStartedTab />
+        )}
         {activeTab === "account" && (
           <AccountTab profile={profile} isLoading={profileLoading} />
         )}
