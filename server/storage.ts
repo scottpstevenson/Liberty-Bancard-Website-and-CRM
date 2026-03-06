@@ -970,6 +970,13 @@ export class DatabaseStorage implements IStorage {
     return result?.count || 0;
   }
 
+  async getSunbizEntitiesNeedingEnrichment(limit: number = 200) {
+    return await db.select().from(sunbizEntities)
+      .where(sql`(vertical IS NULL OR vertical = 'Other' OR vertical = '' OR score = 'cold' OR email IS NULL) AND enrichment_status != 'processing'`)
+      .orderBy(sunbizEntities.id)
+      .limit(limit);
+  }
+
   async getSunbizAggregateStats(): Promise<{
     total: number; enriched: number; pending: number; withEmail: number; withPhone: number;
     hot: number; warm: number; cold: number; unqualified: number; classified: number; pendingPromotion: number;

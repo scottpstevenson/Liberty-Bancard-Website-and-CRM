@@ -13,7 +13,7 @@ function getOpenAI() {
 async function fetchWebsite(url: string): Promise<string | null> {
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
+    const timeout = setTimeout(() => controller.abort(), 4000);
     const cleanUrl = url.startsWith("http") ? url : `https://${url}`;
     const response = await fetch(cleanUrl, {
       signal: controller.signal,
@@ -44,7 +44,7 @@ async function fetchContactPages(domain: string): Promise<string> {
     if (combined.length > 6000) break;
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5000);
+      const timeout = setTimeout(() => controller.abort(), 3000);
       const response = await fetch(`https://${cleanDomain}${path}`, {
         signal: controller.signal,
         headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" },
@@ -146,11 +146,12 @@ async function tryFindWebsite(companyName: string, city?: string): Promise<strin
   for (const domain of candidates) {
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5000);
+      const timeout = setTimeout(() => controller.abort(), 2500);
       const response = await fetch(`https://${domain}`, {
         signal: controller.signal,
         headers: { "User-Agent": "Mozilla/5.0 (compatible; LibertyBancardBot/1.0)" },
         method: "HEAD",
+        redirect: "manual",
       });
       clearTimeout(timeout);
       if (response.ok || response.status === 301 || response.status === 302) {
@@ -282,14 +283,16 @@ export async function enrichSunbizEntity(entityId: number): Promise<SunbizEntity
 
   const aiResult = await enrichWithAI(entity, websiteText, foundEmails, foundPhones);
 
+  const aiFailed = aiResult.aiSummary === "AI enrichment failed";
+
   const officers = (entity.officers as any[]) || [];
   const ownerOfficer = officers.find((o: any) =>
     /president|ceo|owner|managing|principal|organizer|director|manager|member/i.test(o.title)
   ) || officers[0];
 
   const updates: Record<string, any> = {
-    enrichmentStatus: "enriched",
-    enrichedAt: new Date(),
+    enrichmentStatus: aiFailed ? "pending" : "enriched",
+    enrichedAt: aiFailed ? undefined : new Date(),
   };
 
   if (website) updates.website = website;

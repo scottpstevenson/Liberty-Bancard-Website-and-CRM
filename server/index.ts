@@ -7,6 +7,7 @@ import { seedDefaultData } from "./services/seed-workflows";
 import { seedSequences } from "./services/seed-sequences";
 import { seedVerticalCampaigns } from "./services/seed-vertical-campaigns";
 import { seedStageRules, seedDemoProspects } from "./services/seed-automation";
+import { startDailyOutreachWorker } from "./services/daily-outreach";
 
 const app = express();
 const httpServer = createServer(app);
@@ -109,6 +110,7 @@ app.use((req, res, next) => {
       seedStageRules();
       seedDemoProspects();
       startSlaWorker();
+      startDailyOutreachWorker();
     },
   );
 })();

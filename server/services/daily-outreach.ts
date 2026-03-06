@@ -179,10 +179,7 @@ export async function reEnrichAllSunbizEntities(limit: number = 200): Promise<{
   phonesFound: number;
   errors: number;
 }> {
-  const allEntities = await storage.getSunbizEntities();
-  const toProcess = allEntities
-    .filter(e => !e.vertical || e.vertical === "Other" || e.score === "cold" || !e.email)
-    .slice(0, limit);
+  const toProcess = await storage.getSunbizEntitiesNeedingEnrichment(limit);
 
   console.log(`[Re-Enrich] Starting re-enrichment for ${toProcess.length} entities...`);
 
@@ -207,6 +204,7 @@ export async function reEnrichAllSunbizEntities(limit: number = 200): Promise<{
     try {
       await storage.updateSunbizEntity(entity.id, { enrichmentStatus: "pending" });
 
+      console.log(`[Re-Enrich] Processing entity ${entity.id}: ${entity.entityName}...`);
       const result = await enrichSunbizEntity(entity.id);
       processed++;
 
@@ -214,7 +212,13 @@ export async function reEnrichAllSunbizEntities(limit: number = 200): Promise<{
         if (result.vertical && result.vertical !== "Other") classified++;
         if (result.email) emailsFound++;
         if (result.phone) phonesFound++;
+        console.log(`[Re-Enrich] Entity ${entity.id} → ${result.vertical || 'unclassified'} / ${result.score} ${result.email ? '(email found)' : ''}`);
       }
+
+      await storage.setSystemSetting("enrichment_progress", {
+        status: "running", total: toProcess.length, processed, classified, emailsFound, phonesFound, errors,
+        lastUpdate: new Date().toISOString(),
+      });
 
       if (processed % 10 === 0) {
         console.log(`[Re-Enrich] Progress: ${processed}/${toProcess.length} (${classified} classified, ${emailsFound} emails, ${phonesFound} phones)`);
