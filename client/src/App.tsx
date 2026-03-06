@@ -78,6 +78,7 @@ import LeadGenCleaner from "@/pages/dashboard/LeadGenCleaner";
 import LeadIntelligence from "@/pages/dashboard/LeadIntelligence";
 import StatementReview from "@/pages/dashboard/StatementReview";
 import Outreach from "@/pages/dashboard/Outreach";
+import OutreachCommand from "@/pages/dashboard/OutreachCommand";
 import LeadEngine from "@/pages/dashboard/LeadEngine";
 import LeadCommandCenter from "@/pages/dashboard/LeadCommandCenter";
 import BlazeIntegration from "@/pages/dashboard/BlazeIntegration";
@@ -258,6 +259,9 @@ function Router() {
       </Route>
       <Route path="/dashboard/outreach">
         <ProtectedRoute component={Outreach} />
+      </Route>
+      <Route path="/dashboard/outreach-command">
+        <ProtectedRoute component={OutreachCommand} />
       </Route>
       <Route path="/dashboard/lead-engine">
         <ProtectedRoute component={LeadEngine} />

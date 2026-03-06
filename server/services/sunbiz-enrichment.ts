@@ -17,7 +17,7 @@ async function fetchWebsite(url: string): Promise<string | null> {
     const cleanUrl = url.startsWith("http") ? url : `https://${url}`;
     const response = await fetch(cleanUrl, {
       signal: controller.signal,
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; LibertyBancardBot/1.0)" },
+      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" },
       redirect: "follow",
     });
     clearTimeout(timeout);
@@ -33,6 +33,40 @@ async function fetchWebsite(url: string): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+async function fetchContactPages(domain: string): Promise<string> {
+  const contactPaths = ["/contact", "/contact-us", "/about", "/about-us", "/team", "/staff"];
+  const cleanDomain = domain.replace(/^https?:\/\//, "").replace(/\/$/, "");
+  let combined = "";
+
+  for (const path of contactPaths) {
+    if (combined.length > 6000) break;
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      const response = await fetch(`https://${cleanDomain}${path}`, {
+        signal: controller.signal,
+        headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" },
+        redirect: "follow",
+      });
+      clearTimeout(timeout);
+      if (response.ok) {
+        const html = await response.text();
+        const text = html
+          .replace(/<script[\s\S]*?<\/script>/gi, "")
+          .replace(/<style[\s\S]*?<\/style>/gi, "")
+          .replace(/<[^>]+>/g, " ")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 2000);
+        if (text.length > 50) combined += ` [${path}] ${text}`;
+      }
+    } catch {
+      continue;
+    }
+  }
+  return combined;
 }
 
 function extractContactFromHtml(html: string): { emails: string[]; phones: string[] } {
@@ -58,30 +92,53 @@ function extractContactFromHtml(html: string): { emails: string[]; phones: strin
 }
 
 function guessWebsiteDomain(companyName: string, city?: string): string[] {
+  const suffixRegex = /\b(LLC|INC|CORP|CORPORATION|COMPANY|CO|LTD|LP|LLP|PLLC|PA|PC|GROUP|HOLDINGS|ENTERPRISES|SERVICES|SOLUTIONS|INTERNATIONAL|PARTNERS|ASSOCIATES|OF\s+FLORIDA|OF\s+FL)\b/gi;
+
   const baseName = companyName
-    .replace(/\b(LLC|INC|CORP|CORPORATION|COMPANY|CO|LTD|LP|LLP|PLLC|PA|PC|GROUP|HOLDINGS|ENTERPRISES|SERVICES|SOLUTIONS|INTERNATIONAL|PARTNERS|ASSOCIATES)\b/gi, "")
+    .replace(suffixRegex, "")
     .replace(/[^a-zA-Z0-9\s]/g, "")
     .trim()
     .toLowerCase()
     .replace(/\s+/g, "");
 
   const withDash = companyName
-    .replace(/\b(LLC|INC|CORP|CORPORATION|COMPANY|CO|LTD|LP|LLP|PLLC|PA|PC|GROUP|HOLDINGS|ENTERPRISES|SERVICES|SOLUTIONS|INTERNATIONAL|PARTNERS|ASSOCIATES)\b/gi, "")
+    .replace(suffixRegex, "")
     .replace(/[^a-zA-Z0-9\s]/g, "")
     .trim()
     .toLowerCase()
     .replace(/\s+/g, "-");
 
+  const words = companyName
+    .replace(suffixRegex, "")
+    .replace(/[^a-zA-Z0-9\s]/g, "")
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(w => w.length > 1);
+
+  const initials = words.map(w => w[0]).join("");
+
   const domains: string[] = [];
-  if (baseName) {
+  if (baseName && baseName.length > 2) {
     domains.push(`${baseName}.com`);
     domains.push(`${withDash}.com`);
-    if (baseName !== withDash) {
-      domains.push(`${baseName}.net`);
-      domains.push(`${withDash}.net`);
+    domains.push(`${baseName}.net`);
+    domains.push(`${withDash}.net`);
+    domains.push(`${baseName}.org`);
+    domains.push(`${baseName}.biz`);
+    if (city) {
+      const cleanCity = city.toLowerCase().replace(/[^a-z]/g, "");
+      domains.push(`${baseName}${cleanCity}.com`);
+      domains.push(`${baseName}fl.com`);
+    }
+    if (initials.length >= 2 && initials.length <= 5) {
+      domains.push(`${initials}.com`);
+    }
+    if (words.length >= 2) {
+      domains.push(`${words[0]}${words[1]}.com`);
     }
   }
-  return domains;
+  return [...new Set(domains)];
 }
 
 async function tryFindWebsite(companyName: string, city?: string): Promise<string | null> {
@@ -202,6 +259,24 @@ export async function enrichSunbizEntity(entityId: number): Promise<SunbizEntity
       const extracted = extractContactFromHtml(rawHtml);
       foundEmails = extracted.emails;
       foundPhones = extracted.phones;
+    }
+
+    if (foundEmails.length === 0 || foundPhones.length === 0) {
+      const contactPageText = await fetchContactPages(website);
+      if (contactPageText) {
+        const contactExtracted = extractContactFromHtml(contactPageText);
+        if (contactExtracted.emails.length > 0) {
+          foundEmails = [...new Set([...foundEmails, ...contactExtracted.emails])];
+        }
+        if (contactExtracted.phones.length > 0) {
+          foundPhones = [...new Set([...foundPhones, ...contactExtracted.phones])];
+        }
+        if (websiteText) {
+          websiteText += " " + contactPageText.slice(0, 2000);
+        } else {
+          websiteText = contactPageText;
+        }
+      }
     }
   }
 

@@ -104,6 +104,7 @@ const automationItems: MenuItem[] = [
 ];
 
 const leadGenItems: MenuItem[] = [
+  { icon: Rocket, label: "Outreach Command", href: "/dashboard/outreach-command", roles: ["admin", "manager"] },
   { icon: Brain, label: "Lead Command Center", href: "/dashboard/lead-command-center", roles: ["admin", "manager"] },
   { icon: Target, label: "Prospects", href: "/dashboard/prospects", roles: ["admin", "manager"] },
   { icon: FileSearch, label: "Sunbiz Lead Gen", href: "/dashboard/lead-gen", roles: ["admin", "manager"] },

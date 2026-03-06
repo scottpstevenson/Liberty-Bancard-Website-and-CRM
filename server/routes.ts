@@ -18,7 +18,8 @@ import { generateDealBlueprint } from "./services/deal-blueprint";
 import { routeContact, getRoutingRecommendation, checkCompliance } from "./services/smart-router";
 import { parseSunbizCsv, searchSunbiz, getEntityDetail, streamCorevtFromZip } from "./services/sunbiz-scraper";
 import { getEmailSignatureHtml, getEmailSignaturePlainText, getStoredSignature, saveSignature } from "./services/email-signatures";
-import { reEnrichAllSunbizEntities, promoteQualifiedToContacts, runDailyOutreach, startDailyOutreachWorker, stopDailyOutreachWorker } from "./services/daily-outreach";
+import { reEnrichAllSunbizEntities, promoteQualifiedToContacts, runDailyOutreach, startDailyOutreachWorker, stopDailyOutreachWorker, importFullCorevt, isWorkerRunning } from "./services/daily-outreach";
+import { syncContactToGhl, fullSyncToGhl, fullSyncFromGhl, syncDealToGhl, getGhlSyncStatus } from "./services/ghl-sync";
 import { enrichSunbizEntity, processSunbizEnrichmentQueue, convertToProspect } from "./services/sunbiz-enrichment";
 import { estimateFromDeal, estimateFromContact, estimateFromProspect } from "./services/volume-estimator";
 import { insertSunbizEntitySchema } from "@shared/schema";
@@ -4825,12 +4826,32 @@ Notes: ${deal.notes || "None"}`
     res.json(signatures);
   });
 
+  // === FULL COREVT IMPORT ===
+  app.post("/api/sunbiz/import-corevt-full", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+    const maxRecords = Number(req.body.maxRecords) || Infinity;
+    const onlyActive = req.body.onlyActive !== false;
+    res.json({ message: `Full corevt import started (max: ${maxRecords === Infinity ? 'unlimited' : maxRecords}, active only: ${onlyActive})`, started: true });
+    importFullCorevt({ maxRecords, onlyActive }).catch(err => console.error("[Import API] Error:", err));
+  });
+
+  app.get("/api/sunbiz/import-progress", isAuthenticated, async (req, res) => {
+    const progress = await storage.getSystemSetting("corevt_import_progress");
+    const entityCount = await storage.getSunbizEntityCount();
+    res.json({ progress: progress || { status: "idle" }, totalInDb: entityCount });
+  });
+
   // === BATCH RE-ENRICHMENT & CLASSIFICATION ===
   app.post("/api/sunbiz/re-enrich-all", isAuthenticated, async (req, res) => {
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
     const limit = Number(req.body.limit) || 200;
-    res.json({ message: `Re-enrichment started for up to ${limit} entities. Check server logs for progress.`, started: true });
+    res.json({ message: `Re-enrichment started for up to ${limit} entities.`, started: true });
     reEnrichAllSunbizEntities(limit).catch(err => console.error("[Re-Enrich API] Error:", err));
+  });
+
+  app.get("/api/sunbiz/enrichment-progress", isAuthenticated, async (req, res) => {
+    const progress = await storage.getSystemSetting("enrichment_progress");
+    res.json(progress || { status: "idle" });
   });
 
   app.post("/api/sunbiz/promote-qualified", isAuthenticated, async (req, res) => {
@@ -4839,10 +4860,40 @@ Notes: ${deal.notes || "None"}`
     res.json(result);
   });
 
+  // === GHL 2-WAY SYNC ===
+  app.get("/api/ghl/sync-status", isAuthenticated, async (req, res) => {
+    const status = await getGhlSyncStatus();
+    res.json(status);
+  });
+
+  app.post("/api/ghl/sync-all-to-ghl", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
+    res.json({ message: "Syncing all contacts to GHL...", started: true });
+    fullSyncToGhl().catch(err => console.error("[GHL Sync API] Error:", err));
+  });
+
+  app.post("/api/ghl/sync-all-from-ghl", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
+    res.json({ message: "Syncing contacts from GHL...", started: true });
+    fullSyncFromGhl().catch(err => console.error("[GHL Sync API] Error:", err));
+  });
+
+  app.post("/api/ghl/sync-contact/:id", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
+    const result = await syncContactToGhl(Number(req.params.id));
+    res.json(result);
+  });
+
+  app.post("/api/ghl/sync-deal/:id", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
+    const result = await syncDealToGhl(Number(req.params.id));
+    res.json(result);
+  });
+
   // === DAILY OUTREACH AUTOMATION ===
   app.post("/api/outreach/run-daily", isAuthenticated, async (req, res) => {
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
-    res.json({ message: "Daily outreach cycle started. Check server logs for progress.", started: true });
+    res.json({ message: "Daily outreach cycle started.", started: true });
     runDailyOutreach().catch(err => console.error("[Daily Outreach API] Error:", err));
   });
 
@@ -4860,51 +4911,35 @@ Notes: ${deal.notes || "None"}`
   });
 
   app.get("/api/outreach/status", isAuthenticated, async (req, res) => {
-    const entities = await storage.getSunbizEntities();
-    const prospects = await storage.getProspects();
-    const contacts = await storage.getContacts();
+    const [entityStats, verticalBreakdown, prospectStats, contactStats, dealStats, ghlStatus, importProgress, enrichmentProgress, lastOutreachRun, workerStatus] = await Promise.all([
+      storage.getSunbizAggregateStats(),
+      storage.getSunbizVerticalBreakdown(),
+      storage.getProspectAggregateStats(),
+      storage.getContactAggregateStats(),
+      storage.getDealAggregateStats(),
+      getGhlSyncStatus(),
+      storage.getSystemSetting("corevt_import_progress"),
+      storage.getSystemSetting("enrichment_progress"),
+      storage.getSystemSetting("daily_outreach_last_run"),
+      storage.getSystemSetting("outreach_worker_status"),
+    ]);
+
     const campaigns = await storage.getCampaigns();
-
-    const entityStats = {
-      total: entities.length,
-      enriched: entities.filter(e => e.enrichmentStatus === "enriched").length,
-      withEmail: entities.filter(e => e.email).length,
-      withPhone: entities.filter(e => e.phone).length,
-      hot: entities.filter(e => e.score === "hot").length,
-      warm: entities.filter(e => e.score === "warm").length,
-      cold: entities.filter(e => e.score === "cold").length,
-      unqualified: entities.filter(e => e.score === "unqualified").length,
-      classified: entities.filter(e => e.vertical && e.vertical !== "Other").length,
-      pendingPromotion: entities.filter(e => (e.score === "hot" || e.score === "warm") && e.email && !e.prospectId).length,
-    };
-
-    const prospectStats = {
-      total: prospects.length,
-      withEmail: prospects.filter(p => p.email).length,
-      converted: prospects.filter(p => p.status === "converted").length,
-      qualified: prospects.filter(p => p.qualificationScore && ["A", "B"].includes(p.qualificationScore)).length,
-    };
-
-    const contactStats = {
-      total: contacts.length,
-      fromSunbiz: contacts.filter(c => c.referralSource === "sunbiz_enrichment" || c.tags?.includes("sunbiz")).length,
-      newLeads: contacts.filter(c => c.status === "New").length,
-    };
-
     const activeCampaigns = campaigns.filter(c => c.status === "active").length;
-
-    const verticalBreakdown: Record<string, number> = {};
-    for (const e of entities) {
-      const v = e.vertical || "Unclassified";
-      verticalBreakdown[v] = (verticalBreakdown[v] || 0) + 1;
-    }
 
     res.json({
       entities: entityStats,
       prospects: prospectStats,
       contacts: contactStats,
+      deals: dealStats,
       activeCampaigns,
       verticalBreakdown,
+      ghlSync: ghlStatus,
+      importProgress: importProgress || { status: "idle" },
+      enrichmentProgress: enrichmentProgress || { status: "idle" },
+      lastOutreachRun,
+      workerRunning: isWorkerRunning(),
+      workerStatus,
     });
   });
 

@@ -960,6 +960,98 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(sunbizEntities).where(eq(sunbizEntities.enrichmentStatus, status)).orderBy(desc(sunbizEntities.createdAt));
   }
 
+  async getExistingFilingNumbers(): Promise<Set<string>> {
+    const results = await db.select({ filingNumber: sunbizEntities.filingNumber }).from(sunbizEntities).where(sql`filing_number IS NOT NULL`);
+    return new Set(results.map(r => r.filingNumber!).filter(Boolean));
+  }
+
+  async getSunbizEntityCount(): Promise<number> {
+    const [result] = await db.select({ count: sql<number>`count(*)::int` }).from(sunbizEntities);
+    return result?.count || 0;
+  }
+
+  async getSunbizAggregateStats(): Promise<{
+    total: number; enriched: number; pending: number; withEmail: number; withPhone: number;
+    hot: number; warm: number; cold: number; unqualified: number; classified: number; pendingPromotion: number;
+  }> {
+    const result = await db.execute(sql`
+      SELECT
+        COUNT(*)::int as total,
+        COUNT(*) FILTER (WHERE enrichment_status = 'enriched')::int as enriched,
+        COUNT(*) FILTER (WHERE enrichment_status = 'pending')::int as pending,
+        COUNT(*) FILTER (WHERE email IS NOT NULL)::int as with_email,
+        COUNT(*) FILTER (WHERE phone IS NOT NULL)::int as with_phone,
+        COUNT(*) FILTER (WHERE score = 'hot')::int as hot,
+        COUNT(*) FILTER (WHERE score = 'warm')::int as warm,
+        COUNT(*) FILTER (WHERE score = 'cold')::int as cold,
+        COUNT(*) FILTER (WHERE score = 'unqualified')::int as unqualified,
+        COUNT(*) FILTER (WHERE vertical IS NOT NULL AND vertical != 'Other')::int as classified,
+        COUNT(*) FILTER (WHERE (score = 'hot' OR score = 'warm') AND email IS NOT NULL AND prospect_id IS NULL)::int as pending_promotion
+      FROM sunbiz_entities
+    `);
+    const row = ((result as any).rows || [])[0] || {};
+    return {
+      total: Number(row.total) || 0, enriched: Number(row.enriched) || 0, pending: Number(row.pending) || 0,
+      withEmail: Number(row.with_email) || 0, withPhone: Number(row.with_phone) || 0,
+      hot: Number(row.hot) || 0, warm: Number(row.warm) || 0, cold: Number(row.cold) || 0,
+      unqualified: Number(row.unqualified) || 0, classified: Number(row.classified) || 0,
+      pendingPromotion: Number(row.pending_promotion) || 0,
+    };
+  }
+
+  async getSunbizVerticalBreakdown(): Promise<Record<string, number>> {
+    const result = await db.execute(sql`
+      SELECT COALESCE(vertical, 'Unclassified') as v, COUNT(*)::int as c
+      FROM sunbiz_entities GROUP BY COALESCE(vertical, 'Unclassified') ORDER BY c DESC
+    `);
+    const breakdown: Record<string, number> = {};
+    for (const row of (result as any).rows || []) {
+      breakdown[row.v] = Number(row.c);
+    }
+    return breakdown;
+  }
+
+  async getContactAggregateStats(): Promise<{ total: number; fromSunbiz: number; newLeads: number; syncedToGhl: number }> {
+    const result = await db.execute(sql`
+      SELECT
+        COUNT(*)::int as total,
+        COUNT(*) FILTER (WHERE referral_source = 'sunbiz_enrichment' OR 'sunbiz' = ANY(tags))::int as from_sunbiz,
+        COUNT(*) FILTER (WHERE status = 'New')::int as new_leads,
+        COUNT(*) FILTER (WHERE ghl_contact_id IS NOT NULL)::int as synced_to_ghl
+      FROM contacts WHERE archived_at IS NULL
+    `);
+    const row = ((result as any).rows || [])[0] || {};
+    return { total: Number(row.total) || 0, fromSunbiz: Number(row.from_sunbiz) || 0, newLeads: Number(row.new_leads) || 0, syncedToGhl: Number(row.synced_to_ghl) || 0 };
+  }
+
+  async getDealAggregateStats(): Promise<{ total: number; fromSunbiz: number; newLead: number; contacted: number; qualified: number; won: number }> {
+    const result = await db.execute(sql`
+      SELECT
+        COUNT(*)::int as total,
+        COUNT(*) FILTER (WHERE lead_source = 'sunbiz_enrichment' OR notes LIKE '%Sunbiz%')::int as from_sunbiz,
+        COUNT(*) FILTER (WHERE stage = 'New Lead')::int as new_lead,
+        COUNT(*) FILTER (WHERE stage = 'Contacted')::int as contacted,
+        COUNT(*) FILTER (WHERE stage = 'Qualified')::int as qualified,
+        COUNT(*) FILTER (WHERE stage = 'Won' OR stage = 'Closed Won')::int as won
+      FROM deals WHERE archived_at IS NULL
+    `);
+    const row = ((result as any).rows || [])[0] || {};
+    return { total: Number(row.total) || 0, fromSunbiz: Number(row.from_sunbiz) || 0, newLead: Number(row.new_lead) || 0, contacted: Number(row.contacted) || 0, qualified: Number(row.qualified) || 0, won: Number(row.won) || 0 };
+  }
+
+  async getProspectAggregateStats(): Promise<{ total: number; withEmail: number; converted: number; qualified: number }> {
+    const result = await db.execute(sql`
+      SELECT
+        COUNT(*)::int as total,
+        COUNT(*) FILTER (WHERE email IS NOT NULL)::int as with_email,
+        COUNT(*) FILTER (WHERE status = 'converted')::int as converted,
+        COUNT(*) FILTER (WHERE qualification_score IN ('A', 'B'))::int as qualified
+      FROM prospects
+    `);
+    const row = ((result as any).rows || [])[0] || {};
+    return { total: Number(row.total) || 0, withEmail: Number(row.with_email) || 0, converted: Number(row.converted) || 0, qualified: Number(row.qualified) || 0 };
+  }
+
   async getSunbizStats(listId?: number) {
     const condition = listId ? sql`list_id = ${listId}` : sql`1=1`;
     const result = await db.execute(sql`

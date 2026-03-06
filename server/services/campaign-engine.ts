@@ -2,12 +2,13 @@ import { storage } from "../storage";
 import type { Prospect, Campaign } from "@shared/schema";
 import OpenAI from "openai";
 import { sendGhlEmail, isGhlConfigured } from "./ghl";
+import { getEmailSignatureHtml } from "./email-signatures";
 
 function getOpenAI() {
   return new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
 }
 
-const DAILY_SEND_LIMIT = 2000;
+const DEFAULT_QUEUE_LIMIT = 2000;
 const SEND_INTERVAL_MS = 45000;
 
 async function generatePersonalizedEmail(
@@ -82,7 +83,7 @@ Return JSON: { "subject": "...", "body": "..." }`;
   return { subject, body };
 }
 
-export async function queueCampaignMessages(campaignId: number): Promise<number> {
+export async function queueCampaignMessages(campaignId: number, maxToQueue?: number): Promise<number> {
   const campaign = await storage.getCampaign(campaignId);
   if (!campaign || campaign.status !== "active") return 0;
 
@@ -142,25 +143,32 @@ export async function queueCampaignMessages(campaignId: number): Promise<number>
     });
 
     queued++;
-    if (queued >= DAILY_SEND_LIMIT) break;
+    const limit = maxToQueue ?? DEFAULT_QUEUE_LIMIT;
+    if (queued >= limit) break;
   }
 
   return queued;
 }
 
-export async function processSendQueue(): Promise<{ sent: number; failed: number }> {
+export async function processSendQueue(maxToSend?: number): Promise<{ sent: number; failed: number }> {
   if (!isGhlConfigured()) {
     return { sent: 0, failed: 0 };
   }
 
-  const messages = await storage.getQueuedMessages(50);
+  const fetchLimit = maxToSend ? Math.min(maxToSend, 50) : 50;
+  const messages = await storage.getQueuedMessages(fetchLimit);
   const now = new Date();
   const ready = messages.filter(m => !m.scheduledFor || new Date(m.scheduledFor).getTime() <= now.getTime());
+
+  const { getStoredSignature } = await import("./email-signatures");
+  const storedSig = await getStoredSignature("sales");
 
   let sent = 0;
   let failed = 0;
 
   for (const msg of ready) {
+    if (maxToSend !== undefined && sent >= maxToSend) break;
+
     try {
       const prospect = await storage.getProspect(msg.prospectId!);
       if (!prospect || !prospect.email) {
@@ -186,13 +194,16 @@ export async function processSendQueue(): Promise<{ sent: number; failed: number
         body = personalized.body;
       }
 
-      await sendGhlEmail({ contactId: prospect.contactId || 0, subject, body });
+      const signature = getEmailSignatureHtml("sales", storedSig);
+      const bodyWithSig = body + signature;
+
+      await sendGhlEmail({ contactId: prospect.contactId || 0, subject, body: bodyWithSig });
 
       await storage.updateOutboundMessage(msg.id, {
         status: "sent",
         sentAt: new Date(),
         personalizedSubject: subject,
-        personalizedBody: body,
+        personalizedBody: bodyWithSig,
       });
 
       await storage.updateProspect(prospect.id, {
