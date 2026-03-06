@@ -10,11 +10,20 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Plus, Calendar, Sparkles, Loader2, Download } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Plus, Calendar, Sparkles, Loader2, Download, ChevronDown, Archive, Settings, ArrowUp, ArrowDown, Pencil, Trash2, RotateCcw, MoreVertical } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { exportToCSV } from "@/lib/export-csv";
-import type { Deal, Contact } from "@shared/schema";
+import type { Deal, Contact, PipelineStage } from "@shared/schema";
 import { SALES_STAGES, OFFER_PATHS } from "@shared/schema";
+import Comments from "@/components/Comments";
+import SavedFilterBar from "@/components/SavedFilterBar";
 
 const STAGE_COLORS: Record<string, string> = {
   "New Lead": "bg-blue-500",
@@ -28,11 +37,25 @@ const STAGE_COLORS: Record<string, string> = {
   "Closed Lost": "bg-red-500",
 };
 
+const PRESET_COLORS = [
+  "#3b82f6", "#6366f1", "#8b5cf6", "#06b6d4", "#f59e0b",
+  "#f97316", "#64748b", "#16a34a", "#ef4444", "#ec4899",
+  "#14b8a6", "#84cc16",
+];
+
 export default function Pipeline() {
   const { toast } = useToast();
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedDeal, setSelectedDeal] = useState<Deal | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [configOpen, setConfigOpen] = useState(false);
+  const [configPipeline, setConfigPipeline] = useState("sales");
+  const [addStageName, setAddStageName] = useState("");
+  const [addStageColor, setAddStageColor] = useState("#6366f1");
+  const [editingStage, setEditingStage] = useState<PipelineStage | null>(null);
+  const [editStageName, setEditStageName] = useState("");
+  const [editStageColor, setEditStageColor] = useState("");
+  const [deleteConfirmStage, setDeleteConfirmStage] = useState<PipelineStage | null>(null);
 
   const [newDeal, setNewDeal] = useState({
     contactId: "",
@@ -41,6 +64,9 @@ export default function Pipeline() {
     offerPath: "",
     notes: "",
   });
+
+  const [selectedDealIds, setSelectedDealIds] = useState<Set<number>>(new Set());
+  const [showArchived, setShowArchived] = useState(false);
 
   const [editStage, setEditStage] = useState("");
   const [editNotes, setEditNotes] = useState("");
@@ -63,6 +89,141 @@ export default function Pipeline() {
       return res.json();
     },
   });
+
+  const { data: pipelineStages } = useQuery<PipelineStage[]>({
+    queryKey: ["/api/pipeline-stages", configPipeline],
+    queryFn: async () => {
+      const res = await fetch(`/api/pipeline-stages?pipeline=${configPipeline}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch pipeline stages");
+      return res.json();
+    },
+  });
+
+  const createStageMutation = useMutation({
+    mutationFn: async (data: { pipeline: string; stageName: string; color: string; sortOrder: number }) => {
+      const res = await apiRequest("POST", "/api/pipeline-stages", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/pipeline-stages"] });
+      setAddStageName("");
+      setAddStageColor("#6366f1");
+      toast({ title: "Stage created" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to create stage", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const updateStageMutation = useMutation({
+    mutationFn: async ({ id, ...data }: { id: number; stageName?: string; color?: string }) => {
+      const res = await apiRequest("PUT", `/api/pipeline-stages/${id}`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/pipeline-stages"] });
+      setEditingStage(null);
+      toast({ title: "Stage updated" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to update stage", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const deleteStageMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("DELETE", `/api/pipeline-stages/${id}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/pipeline-stages"] });
+      setDeleteConfirmStage(null);
+      toast({ title: "Stage deleted" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to delete stage", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const reorderStagesMutation = useMutation({
+    mutationFn: async (stages: { id: number; sortOrder: number }[]) => {
+      const res = await apiRequest("POST", "/api/pipeline-stages/reorder", { stages });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/pipeline-stages"] });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to reorder stages", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const archiveDealMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("POST", `/api/deals/${id}/archive`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/deals"] });
+      toast({ title: "Deal archived" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to archive deal", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const restoreDealMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("POST", `/api/deals/${id}/restore`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/deals"] });
+      toast({ title: "Deal restored" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to restore deal", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const sortedStages = (pipelineStages || []).slice().sort((a, b) => a.sortOrder - b.sortOrder);
+
+  const getDealsInStage = (stageName: string) => {
+    return (deals || []).filter((d) => d.stage === stageName).length;
+  };
+
+  const handleAddStage = () => {
+    if (!addStageName.trim()) return;
+    const maxOrder = sortedStages.length > 0 ? Math.max(...sortedStages.map((s) => s.sortOrder)) : -1;
+    createStageMutation.mutate({
+      pipeline: configPipeline,
+      stageName: addStageName.trim(),
+      color: addStageColor,
+      sortOrder: maxOrder + 1,
+    });
+  };
+
+  const handleMoveStage = (stage: PipelineStage, direction: "up" | "down") => {
+    const idx = sortedStages.findIndex((s) => s.id === stage.id);
+    if (direction === "up" && idx <= 0) return;
+    if (direction === "down" && idx >= sortedStages.length - 1) return;
+    const swapIdx = direction === "up" ? idx - 1 : idx + 1;
+    const reordered = sortedStages.map((s, i) => {
+      if (i === idx) return { id: s.id, sortOrder: swapIdx };
+      if (i === swapIdx) return { id: s.id, sortOrder: idx };
+      return { id: s.id, sortOrder: i };
+    });
+    reorderStagesMutation.mutate(reordered);
+  };
+
+  const handleSaveEditStage = () => {
+    if (!editingStage || !editStageName.trim()) return;
+    updateStageMutation.mutate({
+      id: editingStage.id,
+      stageName: editStageName.trim(),
+      color: editStageColor,
+    });
+  };
 
   const createDealMutation = useMutation({
     mutationFn: async (data: Record<string, unknown>) => {
@@ -114,6 +275,59 @@ export default function Pipeline() {
     },
   });
 
+  const bulkStageMutation = useMutation({
+    mutationFn: async ({ dealIds, stage }: { dealIds: number[]; stage: string }) => {
+      const res = await apiRequest("POST", "/api/deals/bulk-stage", { dealIds, stage });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/deals"] });
+      setSelectedDealIds(new Set());
+      toast({ title: "Deals moved successfully" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to move deals", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const bulkArchiveMutation = useMutation({
+    mutationFn: async (dealIds: number[]) => {
+      const results = await Promise.all(
+        dealIds.map((id) => apiRequest("POST", `/api/deals/${id}/archive`))
+      );
+      return results;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/deals"] });
+      setSelectedDealIds(new Set());
+      toast({ title: "Deals archived successfully" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to archive deals", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const toggleDealSelection = (dealId: number) => {
+    setSelectedDealIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(dealId)) {
+        next.delete(dealId);
+      } else {
+        next.add(dealId);
+      }
+      return next;
+    });
+  };
+
+  const toggleAllDeals = () => {
+    if (!deals) return;
+    if (selectedDealIds.size === deals.length) {
+      setSelectedDealIds(new Set());
+    } else {
+      setSelectedDealIds(new Set(deals.map((d) => d.id)));
+    }
+  };
+
   const contactsMap = new Map<number, Contact>();
   contacts?.forEach((c) => contactsMap.set(c.id, c));
 
@@ -164,7 +378,12 @@ export default function Pipeline() {
   };
 
   const getDealsByStage = (stage: string) => {
-    return deals?.filter((d) => d.stage === stage) || [];
+    return deals?.filter((d) => {
+      if (d.stage !== stage) return false;
+      const isArchived = !!(d as any).archivedAt;
+      if (!showArchived && isArchived) return false;
+      return true;
+    }) || [];
   };
 
   if (dealsLoading) {
@@ -180,6 +399,16 @@ export default function Pipeline() {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <h2 className="text-2xl font-bold" data-testid="text-pipeline-title">Sales Pipeline</h2>
         <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-2" data-testid="toggle-show-archived-deals">
+            <Switch
+              checked={showArchived}
+              onCheckedChange={setShowArchived}
+              data-testid="switch-show-archived-deals"
+            />
+            <Label className="text-sm cursor-pointer" onClick={() => setShowArchived(!showArchived)}>
+              Show Archived
+            </Label>
+          </div>
           <Button
             size="sm"
             variant="outline"
@@ -220,6 +449,15 @@ export default function Pipeline() {
           >
             {autoProgressMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
             AI Auto-Progress
+          </Button>
+          <Button
+            variant="outline"
+            data-testid="button-configure-stages"
+            className="gap-2"
+            onClick={() => setConfigOpen(true)}
+          >
+            <Settings className="w-4 h-4" />
+            Configure Stages
           </Button>
           <Dialog open={createOpen} onOpenChange={setCreateOpen}>
             <DialogTrigger asChild>
@@ -301,6 +539,63 @@ export default function Pipeline() {
         </div>
       </div>
 
+      {selectedDealIds.size > 0 && (
+        <div className="flex items-center gap-3 flex-wrap" data-testid="pipeline-bulk-bar">
+          <span className="text-sm text-muted-foreground" data-testid="text-selected-count">
+            {selectedDealIds.size} deal{selectedDealIds.size > 1 ? "s" : ""} selected
+          </span>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" className="gap-2" data-testid="button-bulk-actions">
+                Bulk Actions
+                <ChevronDown className="w-4 h-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger data-testid="button-bulk-move-stage">
+                  Move to Stage
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  {SALES_STAGES.map((stage) => (
+                    <DropdownMenuItem
+                      key={stage}
+                      data-testid={`button-bulk-stage-${stage.replace(/\s+/g, "-").toLowerCase()}`}
+                      onClick={() => bulkStageMutation.mutate({ dealIds: Array.from(selectedDealIds), stage })}
+                    >
+                      {stage}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+              <DropdownMenuItem
+                data-testid="button-bulk-archive"
+                onClick={() => bulkArchiveMutation.mutate(Array.from(selectedDealIds))}
+              >
+                <Archive className="w-4 h-4 mr-2" />
+                Archive Selected
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setSelectedDealIds(new Set())}
+            data-testid="button-clear-selection"
+          >
+            Clear Selection
+          </Button>
+        </div>
+      )}
+
+      <SavedFilterBar
+        entityType="deal"
+        currentFilters={{ showArchived: String(showArchived) }}
+        onApplyFilter={(filters) => {
+          setShowArchived(filters.showArchived === "true");
+        }}
+      />
+
       <ScrollArea className="w-full" data-testid="pipeline-board">
         <div className="flex gap-4 pb-4" style={{ minWidth: `${SALES_STAGES.length * 280}px` }}>
           {SALES_STAGES.map((stage) => {
@@ -316,17 +611,56 @@ export default function Pipeline() {
                   </Badge>
                 </div>
                 <div className="space-y-3 min-h-[200px]">
-                  {stageDeals.map((deal) => (
+                  {stageDeals.map((deal) => {
+                    const isDealArchived = !!(deal as any).archivedAt;
+                    return (
                     <Card
                       key={deal.id}
-                      className="cursor-pointer hover-elevate"
+                      className={`cursor-pointer hover-elevate ${isDealArchived ? "opacity-50" : ""}`}
                       onClick={() => openDealDetail(deal)}
                       data-testid={`card-deal-${deal.id}`}
                     >
                       <CardContent className="p-3 space-y-2">
-                        <div className="font-medium text-sm" data-testid={`text-deal-contact-${deal.id}`}>
-                          {getContactName(deal.contactId)}
+                        <div className="flex items-start gap-2">
+                          <Checkbox
+                            checked={selectedDealIds.has(deal.id)}
+                            onCheckedChange={() => toggleDealSelection(deal.id)}
+                            onClick={(e) => e.stopPropagation()}
+                            data-testid={`checkbox-deal-${deal.id}`}
+                          />
+                          <div className={`font-medium text-sm flex-1 ${isDealArchived ? "line-through" : ""}`} data-testid={`text-deal-contact-${deal.id}`}>
+                            {getContactName(deal.contactId)}
+                          </div>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={(e) => e.stopPropagation()} data-testid={`button-deal-actions-${deal.id}`}>
+                                <MoreVertical className="h-3 w-3" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              {isDealArchived ? (
+                                <DropdownMenuItem
+                                  onClick={(e) => { e.stopPropagation(); restoreDealMutation.mutate(deal.id); }}
+                                  data-testid={`menu-restore-deal-${deal.id}`}
+                                >
+                                  <RotateCcw className="w-4 h-4 mr-2" /> Restore
+                                </DropdownMenuItem>
+                              ) : (
+                                <DropdownMenuItem
+                                  onClick={(e) => { e.stopPropagation(); archiveDealMutation.mutate(deal.id); }}
+                                  data-testid={`menu-archive-deal-${deal.id}`}
+                                >
+                                  <Archive className="w-4 h-4 mr-2" /> Archive
+                                </DropdownMenuItem>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </div>
+                        {isDealArchived && (
+                          <Badge variant="outline" className="text-xs no-default-hover-elevate no-default-active-elevate" data-testid={`badge-archived-deal-${deal.id}`}>
+                            <Archive className="w-3 h-3 mr-1" /> Archived
+                          </Badge>
+                        )}
                         {getCompanyName(deal.contactId) && (
                           <div className="text-xs text-muted-foreground" data-testid={`text-deal-company-${deal.id}`}>
                             {getCompanyName(deal.contactId)}
@@ -343,7 +677,8 @@ export default function Pipeline() {
                         </div>
                       </CardContent>
                     </Card>
-                  ))}
+                    );
+                  })}
                   {stageDeals.length === 0 && (
                     <div className="text-xs text-muted-foreground text-center py-8">No deals</div>
                   )}
@@ -356,7 +691,7 @@ export default function Pipeline() {
       </ScrollArea>
 
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent className="max-w-md" data-testid="dialog-deal-detail">
+        <DialogContent className="max-w-lg" data-testid="dialog-deal-detail">
           <DialogHeader>
             <DialogTitle>Deal Details</DialogTitle>
           </DialogHeader>
@@ -425,7 +760,31 @@ export default function Pipeline() {
                 />
               </div>
 
+              {(selectedDeal as any).archivedAt && (
+                <div className="flex items-center gap-2 p-2 rounded-md bg-muted">
+                  <Archive className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground flex-1">This deal is archived</span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => { restoreDealMutation.mutate(selectedDeal.id); setDetailOpen(false); }}
+                    data-testid="button-restore-deal-detail"
+                  >
+                    <RotateCcw className="w-4 h-4 mr-1" /> Restore
+                  </Button>
+                </div>
+              )}
+
               <div className="flex justify-end gap-2 pt-2">
+                {!(selectedDeal as any).archivedAt && (
+                  <Button
+                    variant="outline"
+                    onClick={() => { archiveDealMutation.mutate(selectedDeal.id); setDetailOpen(false); }}
+                    data-testid="button-archive-deal-detail"
+                  >
+                    <Archive className="w-4 h-4 mr-1" /> Archive
+                  </Button>
+                )}
                 <Button variant="outline" onClick={() => setDetailOpen(false)} data-testid="button-cancel-edit">
                   Cancel
                 </Button>
@@ -433,10 +792,200 @@ export default function Pipeline() {
                   {updateDealMutation.isPending ? "Saving..." : "Save Changes"}
                 </Button>
               </div>
+
+              <div className="border-t pt-4">
+                <Comments entityType="deal" entityId={selectedDeal.id} />
+              </div>
             </div>
           )}
         </DialogContent>
       </Dialog>
+
+      <Dialog open={configOpen} onOpenChange={setConfigOpen}>
+        <DialogContent className="max-w-lg" data-testid="dialog-configure-stages">
+          <DialogHeader>
+            <DialogTitle>Configure Pipeline Stages</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div className="space-y-2">
+              <Label>Pipeline</Label>
+              <Select value={configPipeline} onValueChange={setConfigPipeline}>
+                <SelectTrigger data-testid="select-config-pipeline">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="sales">Sales</SelectItem>
+                  <SelectItem value="onboarding">Onboarding</SelectItem>
+                  <SelectItem value="support">Support</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Current Stages</Label>
+              {sortedStages.length === 0 ? (
+                <div className="text-sm text-muted-foreground py-4 text-center" data-testid="text-no-stages">
+                  No custom stages configured for this pipeline.
+                </div>
+              ) : (
+                <div className="space-y-2" data-testid="stage-list">
+                  {sortedStages.map((stage, idx) => {
+                    const dealCount = getDealsInStage(stage.stageName);
+                    return (
+                      <div
+                        key={stage.id}
+                        className="flex items-center gap-2 p-2 border rounded-md"
+                        data-testid={`stage-config-item-${stage.id}`}
+                      >
+                        <div
+                          className="w-4 h-4 rounded-sm flex-shrink-0"
+                          style={{ backgroundColor: stage.color || "#6366f1" }}
+                          data-testid={`stage-color-${stage.id}`}
+                        />
+                        {editingStage?.id === stage.id ? (
+                          <div className="flex-1 flex items-center gap-2 flex-wrap">
+                            <Input
+                              value={editStageName}
+                              onChange={(e) => setEditStageName(e.target.value)}
+                              className="flex-1"
+                              data-testid="input-edit-stage-name"
+                            />
+                            <div className="flex items-center gap-1 flex-wrap">
+                              {PRESET_COLORS.map((c) => (
+                                <button
+                                  key={c}
+                                  className={`w-5 h-5 rounded-sm border-2 ${editStageColor === c ? "border-foreground" : "border-transparent"}`}
+                                  style={{ backgroundColor: c }}
+                                  onClick={() => setEditStageColor(c)}
+                                  data-testid={`color-edit-${c.replace("#", "")}`}
+                                />
+                              ))}
+                            </div>
+                            <div className="flex gap-1">
+                              <Button size="sm" onClick={handleSaveEditStage} disabled={updateStageMutation.isPending} data-testid="button-save-stage-edit">
+                                Save
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={() => setEditingStage(null)} data-testid="button-cancel-stage-edit">
+                                Cancel
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <span className="flex-1 text-sm font-medium" data-testid={`text-stage-name-${stage.id}`}>
+                              {stage.stageName}
+                            </span>
+                            {dealCount > 0 && (
+                              <Badge variant="secondary" className="text-xs no-default-hover-elevate no-default-active-elevate" data-testid={`badge-stage-deals-${stage.id}`}>
+                                {dealCount} deal{dealCount !== 1 ? "s" : ""}
+                              </Badge>
+                            )}
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => handleMoveStage(stage, "up")}
+                              disabled={idx === 0 || reorderStagesMutation.isPending}
+                              data-testid={`button-move-up-${stage.id}`}
+                            >
+                              <ArrowUp className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => handleMoveStage(stage, "down")}
+                              disabled={idx === sortedStages.length - 1 || reorderStagesMutation.isPending}
+                              data-testid={`button-move-down-${stage.id}`}
+                            >
+                              <ArrowDown className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => {
+                                setEditingStage(stage);
+                                setEditStageName(stage.stageName);
+                                setEditStageColor(stage.color || "#6366f1");
+                              }}
+                              data-testid={`button-edit-stage-${stage.id}`}
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => setDeleteConfirmStage(stage)}
+                              data-testid={`button-delete-stage-${stage.id}`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2 border-t pt-4">
+              <Label>Add New Stage</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  value={addStageName}
+                  onChange={(e) => setAddStageName(e.target.value)}
+                  placeholder="Stage name"
+                  className="flex-1"
+                  data-testid="input-add-stage-name"
+                  onKeyDown={(e) => { if (e.key === "Enter") handleAddStage(); }}
+                />
+                <Button
+                  onClick={handleAddStage}
+                  disabled={!addStageName.trim() || createStageMutation.isPending}
+                  data-testid="button-add-stage"
+                  className="gap-1"
+                >
+                  {createStageMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                  Add
+                </Button>
+              </div>
+              <div className="flex items-center gap-1 flex-wrap">
+                {PRESET_COLORS.map((c) => (
+                  <button
+                    key={c}
+                    className={`w-5 h-5 rounded-sm border-2 ${addStageColor === c ? "border-foreground" : "border-transparent"}`}
+                    style={{ backgroundColor: c }}
+                    onClick={() => setAddStageColor(c)}
+                    data-testid={`color-add-${c.replace("#", "")}`}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={!!deleteConfirmStage} onOpenChange={(open) => { if (!open) setDeleteConfirmStage(null); }}>
+        <AlertDialogContent data-testid="dialog-delete-stage-confirm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Stage</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteConfirmStage && getDealsInStage(deleteConfirmStage.stageName) > 0
+                ? `Warning: There are ${getDealsInStage(deleteConfirmStage.stageName)} deal(s) currently in the "${deleteConfirmStage.stageName}" stage. Deleting this stage will not move those deals automatically. Are you sure you want to delete it?`
+                : `Are you sure you want to delete the "${deleteConfirmStage?.stageName}" stage? This action cannot be undone.`
+              }
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-stage">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => { if (deleteConfirmStage) deleteStageMutation.mutate(deleteConfirmStage.id); }}
+              data-testid="button-confirm-delete-stage"
+            >
+              {deleteStageMutation.isPending ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

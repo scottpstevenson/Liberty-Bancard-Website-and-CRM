@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { useParams, useLocation } from "wouter";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useUpdateContact } from "@/hooks/use-contacts";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Contact, Deal, Ticket as TicketType, Task as TaskType, Note } from "@shared/schema";
+import type { Contact, Deal, Ticket as TicketType, Task as TaskType, Note, Company, ContactCompany } from "@shared/schema";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,8 +18,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   ArrowLeft, Edit2, Save, X, Plus, StickyNote, TrendingUp, CheckSquare,
   Ticket, Mail, Phone, Building2, UserPlus, MessageSquare, Zap,
-  AlertTriangle, Sparkles, Activity, ArrowRight, Clock,
+  AlertTriangle, Sparkles, Activity, ArrowRight, Clock, Link2, Trash2, Star,
 } from "lucide-react";
+import Comments from "@/components/Comments";
 
 interface ActivityEvent {
   id: string;
@@ -140,6 +141,14 @@ export default function ContactDetail() {
   const [showTaskDialog, setShowTaskDialog] = useState(false);
   const [taskForm, setTaskForm] = useState({ title: "", description: "", dueDate: "" });
 
+  const [showCompanyDialog, setShowCompanyDialog] = useState(false);
+  const [companyMode, setCompanyMode] = useState<"existing" | "new">("existing");
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string>("");
+  const [companyRole, setCompanyRole] = useState("");
+  const [companyIsPrimary, setCompanyIsPrimary] = useState(false);
+  const [newCompanyForm, setNewCompanyForm] = useState({ legalName: "", dba: "", vertical: "", website: "" });
+  const [companySearch, setCompanySearch] = useState("");
+
   const { data, isLoading, error } = useQuery<ContactDetailData>({
     queryKey: ["/api/contacts", contactId, "detail"],
     queryFn: async () => {
@@ -168,6 +177,83 @@ export default function ContactDetail() {
       return res.json();
     },
     enabled: !!contactId,
+  });
+
+  const { data: contactCompanies = [] } = useQuery<ContactCompany[]>({
+    queryKey: ["/api/contacts", contactId, "companies"],
+    queryFn: async () => {
+      const res = await fetch(`/api/contacts/${contactId}/companies`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!contactId,
+  });
+
+  const { data: allCompanies = [] } = useQuery<Company[]>({
+    queryKey: ["/api/companies"],
+  });
+
+  const addCompanyAssociation = useMutation({
+    mutationFn: async (body: { companyId: number; role?: string; isPrimary?: boolean }) => {
+      const res = await apiRequest("POST", `/api/contacts/${contactId}/companies`, body);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/contacts", contactId, "companies"] });
+      setShowCompanyDialog(false);
+      setSelectedCompanyId("");
+      setCompanyRole("");
+      setCompanyIsPrimary(false);
+      setNewCompanyForm({ legalName: "", dba: "", vertical: "", website: "" });
+      toast({ title: "Company linked" });
+    },
+    onError: () => {
+      toast({ title: "Failed to link company", variant: "destructive" });
+    },
+  });
+
+  const removeCompanyAssociation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/contact-companies/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/contacts", contactId, "companies"] });
+      toast({ title: "Company unlinked" });
+    },
+    onError: () => {
+      toast({ title: "Failed to unlink company", variant: "destructive" });
+    },
+  });
+
+  const createAndLinkCompany = useMutation({
+    mutationFn: async () => {
+      const companyRes = await apiRequest("POST", "/api/companies", {
+        legalName: newCompanyForm.legalName,
+        dba: newCompanyForm.dba || undefined,
+        vertical: newCompanyForm.vertical || undefined,
+        website: newCompanyForm.website || undefined,
+      });
+      const company = await companyRes.json();
+      const linkRes = await apiRequest("POST", `/api/contacts/${contactId}/companies`, {
+        companyId: company.id,
+        role: companyRole || undefined,
+        isPrimary: companyIsPrimary,
+      });
+      return linkRes.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/contacts", contactId, "companies"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
+      setShowCompanyDialog(false);
+      setSelectedCompanyId("");
+      setCompanyRole("");
+      setCompanyIsPrimary(false);
+      setNewCompanyForm({ legalName: "", dba: "", vertical: "", website: "" });
+      toast({ title: "Company created and linked" });
+    },
+    onError: () => {
+      toast({ title: "Failed to create company", variant: "destructive" });
+    },
   });
 
   if (isLoading) {
@@ -452,6 +538,75 @@ export default function ContactDetail() {
         </CardContent>
       </Card>
 
+      {/* Associated Companies */}
+      <Card data-testid="section-associated-companies">
+        <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Building2 className="h-4 w-4" /> Associated Companies
+          </CardTitle>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setCompanyMode("existing");
+              setShowCompanyDialog(true);
+            }}
+            data-testid="button-add-company"
+          >
+            <Link2 className="h-4 w-4 mr-1" /> Link Company
+          </Button>
+        </CardHeader>
+        <CardContent>
+          {contactCompanies.length === 0 ? (
+            <p className="text-sm text-muted-foreground" data-testid="text-no-companies">No companies linked yet</p>
+          ) : (
+            <div className="space-y-2">
+              {contactCompanies.map(cc => {
+                const company = allCompanies.find(c => c.id === cc.companyId);
+                return (
+                  <div
+                    key={cc.id}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3"
+                    data-testid={`company-association-${cc.id}`}
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Building2 className="h-4 w-4 text-muted-foreground" />
+                      <span className="font-medium" data-testid={`text-company-name-${cc.id}`}>
+                        {company?.legalName || `Company #${cc.companyId}`}
+                      </span>
+                      {company?.dba && (
+                        <span className="text-sm text-muted-foreground" data-testid={`text-company-dba-${cc.id}`}>
+                          (DBA: {company.dba})
+                        </span>
+                      )}
+                      {cc.role && (
+                        <Badge variant="outline" data-testid={`badge-company-role-${cc.id}`}>
+                          {cc.role}
+                        </Badge>
+                      )}
+                      {cc.isPrimary && (
+                        <Badge variant="default" data-testid={`badge-company-primary-${cc.id}`}>
+                          <Star className="h-3 w-3 mr-1" /> Primary
+                        </Badge>
+                      )}
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => removeCompanyAssociation.mutate(cc.id)}
+                      disabled={removeCompanyAssociation.isPending}
+                      data-testid={`button-remove-company-${cc.id}`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Quick actions */}
       <div className="flex flex-wrap gap-2" data-testid="section-quick-actions">
         <Button variant="outline" onClick={() => { setActiveTab("notes"); }} data-testid="button-add-note">
@@ -477,6 +632,7 @@ export default function ContactDetail() {
           <TabsTrigger value="tasks" data-testid="tab-tasks">Tasks ({tasks.length})</TabsTrigger>
           <TabsTrigger value="notes" data-testid="tab-notes">Notes ({sortedNotes.length})</TabsTrigger>
           <TabsTrigger value="activity" data-testid="tab-activity">Activity</TabsTrigger>
+          <TabsTrigger value="comments" data-testid="tab-comments">Comments</TabsTrigger>
         </TabsList>
 
         {/* Overview Tab */}
@@ -704,6 +860,14 @@ export default function ContactDetail() {
         <TabsContent value="activity" data-testid="tab-content-activity">
           <ActivityTimelineFull events={activityEvents ?? []} />
         </TabsContent>
+
+        <TabsContent value="comments" data-testid="tab-content-comments">
+          <Card>
+            <CardContent className="pt-4">
+              <Comments entityType="contact" entityId={contactId} />
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
 
       {/* Create Deal Dialog */}
@@ -854,6 +1018,184 @@ export default function ContactDetail() {
               <Button onClick={createTask} disabled={!taskForm.title} data-testid="button-submit-task">
                 Create Task
               </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Link Company Dialog */}
+      <Dialog open={showCompanyDialog} onOpenChange={setShowCompanyDialog}>
+        <DialogContent data-testid="dialog-link-company">
+          <DialogHeader>
+            <DialogTitle>Link Company</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="flex gap-2">
+              <Button
+                variant={companyMode === "existing" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setCompanyMode("existing")}
+                data-testid="button-mode-existing"
+              >
+                Select Existing
+              </Button>
+              <Button
+                variant={companyMode === "new" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setCompanyMode("new")}
+                data-testid="button-mode-new"
+              >
+                Create New
+              </Button>
+            </div>
+
+            {companyMode === "existing" ? (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Search Company</label>
+                <Input
+                  value={companySearch}
+                  onChange={e => setCompanySearch(e.target.value)}
+                  placeholder="Search by name..."
+                  data-testid="input-company-search"
+                />
+                <div className="max-h-40 overflow-y-auto border rounded-md">
+                  {allCompanies
+                    .filter(c => {
+                      if (!companySearch) return true;
+                      const q = companySearch.toLowerCase();
+                      return (
+                        c.legalName.toLowerCase().includes(q) ||
+                        (c.dba && c.dba.toLowerCase().includes(q))
+                      );
+                    })
+                    .filter(c => !contactCompanies.some(cc => cc.companyId === c.id))
+                    .map(c => (
+                      <div
+                        key={c.id}
+                        className={`flex items-center gap-2 p-2 cursor-pointer hover-elevate ${selectedCompanyId === String(c.id) ? "bg-accent" : ""}`}
+                        onClick={() => setSelectedCompanyId(String(c.id))}
+                        data-testid={`company-option-${c.id}`}
+                      >
+                        <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate">{c.legalName}</p>
+                          {c.dba && <p className="text-xs text-muted-foreground truncate">DBA: {c.dba}</p>}
+                        </div>
+                      </div>
+                    ))}
+                  {allCompanies.filter(c => {
+                    if (!companySearch) return true;
+                    const q = companySearch.toLowerCase();
+                    return c.legalName.toLowerCase().includes(q) || (c.dba && c.dba.toLowerCase().includes(q));
+                  }).filter(c => !contactCompanies.some(cc => cc.companyId === c.id)).length === 0 && (
+                    <p className="text-sm text-muted-foreground p-3 text-center">No companies found</p>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Legal Name *</label>
+                  <Input
+                    value={newCompanyForm.legalName}
+                    onChange={e => setNewCompanyForm(p => ({ ...p, legalName: e.target.value }))}
+                    placeholder="Company legal name"
+                    data-testid="input-new-company-name"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">DBA</label>
+                  <Input
+                    value={newCompanyForm.dba}
+                    onChange={e => setNewCompanyForm(p => ({ ...p, dba: e.target.value }))}
+                    placeholder="Doing business as"
+                    data-testid="input-new-company-dba"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Vertical</label>
+                  <Select value={newCompanyForm.vertical} onValueChange={v => setNewCompanyForm(p => ({ ...p, vertical: v }))}>
+                    <SelectTrigger data-testid="select-new-company-vertical">
+                      <SelectValue placeholder="Select vertical" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Medical/Dental/Medspa">Medical/Dental/Medspa</SelectItem>
+                      <SelectItem value="Automotive">Automotive</SelectItem>
+                      <SelectItem value="Restaurant">Restaurant</SelectItem>
+                      <SelectItem value="Home Services">Home Services</SelectItem>
+                      <SelectItem value="Retail">Retail</SelectItem>
+                      <SelectItem value="Other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Website</label>
+                  <Input
+                    value={newCompanyForm.website}
+                    onChange={e => setNewCompanyForm(p => ({ ...p, website: e.target.value }))}
+                    placeholder="https://..."
+                    data-testid="input-new-company-website"
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Role</label>
+              <Select value={companyRole} onValueChange={setCompanyRole}>
+                <SelectTrigger data-testid="select-company-role">
+                  <SelectValue placeholder="Select role" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Owner">Owner</SelectItem>
+                  <SelectItem value="Manager">Manager</SelectItem>
+                  <SelectItem value="Employee">Employee</SelectItem>
+                  <SelectItem value="Partner">Partner</SelectItem>
+                  <SelectItem value="Consultant">Consultant</SelectItem>
+                  <SelectItem value="Other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="company-primary"
+                checked={companyIsPrimary}
+                onChange={e => setCompanyIsPrimary(e.target.checked)}
+                className="rounded border-input"
+                data-testid="checkbox-company-primary"
+              />
+              <label htmlFor="company-primary" className="text-sm font-medium cursor-pointer">
+                Primary Company
+              </label>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setShowCompanyDialog(false)} data-testid="button-cancel-company">
+                Cancel
+              </Button>
+              {companyMode === "existing" ? (
+                <Button
+                  onClick={() => addCompanyAssociation.mutate({
+                    companyId: Number(selectedCompanyId),
+                    role: companyRole || undefined,
+                    isPrimary: companyIsPrimary,
+                  })}
+                  disabled={!selectedCompanyId || addCompanyAssociation.isPending}
+                  data-testid="button-submit-link-company"
+                >
+                  Link Company
+                </Button>
+              ) : (
+                <Button
+                  onClick={() => createAndLinkCompany.mutate()}
+                  disabled={!newCompanyForm.legalName || createAndLinkCompany.isPending}
+                  data-testid="button-submit-create-company"
+                >
+                  Create & Link
+                </Button>
+              )}
             </div>
           </div>
         </DialogContent>

@@ -5,9 +5,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { CheckCheck, AlertTriangle, Info, AlertCircle } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
+import { CheckCheck, AlertTriangle, Info, AlertCircle, Settings, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import type { Notification } from "@shared/schema";
+import type { Notification, NotificationPreference } from "@shared/schema";
+import { NOTIFICATION_EVENT_TYPES } from "@shared/schema";
 
 function getTypeIcon(type: string | null) {
   switch (type) {
@@ -33,9 +36,17 @@ function getTypeLabel(type: string | null): string {
   }
 }
 
+function formatEventType(eventType: string): string {
+  return eventType
+    .split("_")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
 export default function Notifications() {
   const { toast } = useToast();
   const [filterType, setFilterType] = useState<string>("all");
+  const [prefsOpen, setPrefsOpen] = useState(false);
 
   const { data: notifications, isLoading } = useQuery<Notification[]>({
     queryKey: ["/api/notifications"],
@@ -44,6 +55,10 @@ export default function Notifications() {
       if (!res.ok) throw new Error("Failed to fetch notifications");
       return res.json();
     },
+  });
+
+  const { data: preferences, isLoading: prefsLoading } = useQuery<NotificationPreference[]>({
+    queryKey: ["/api/notification-preferences"],
   });
 
   const markReadMutation = useMutation({
@@ -60,8 +75,7 @@ export default function Notifications() {
 
   const markAllReadMutation = useMutation({
     mutationFn: async () => {
-      const unread = notifications?.filter((n) => !n.read) || [];
-      await Promise.all(unread.map((n) => apiRequest("PUT", `/api/notifications/${n.id}/read`)));
+      await apiRequest("PUT", "/api/notifications/mark-all-read");
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
@@ -72,12 +86,43 @@ export default function Notifications() {
     },
   });
 
+  const clearAllMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("DELETE", "/api/notifications/clear-all");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
+      toast({ title: "All notifications cleared" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to clear notifications", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const togglePrefMutation = useMutation({
+    mutationFn: async ({ eventType, enabled }: { eventType: string; enabled: boolean }) => {
+      await apiRequest("PUT", "/api/notification-preferences", { eventType, enabled });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/notification-preferences"] });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to update preference", description: err.message, variant: "destructive" });
+    },
+  });
+
   const unreadCount = notifications?.filter((n) => !n.read).length || 0;
+  const totalCount = notifications?.length || 0;
 
   const filteredNotifications = notifications?.filter((n) => {
     if (filterType === "all") return true;
     return n.type === filterType;
   }) || [];
+
+  function isPrefEnabled(eventType: string): boolean {
+    const pref = preferences?.find((p) => p.eventType === eventType);
+    return pref ? !!pref.enabled : true;
+  }
 
   if (isLoading) {
     return (
@@ -122,6 +167,59 @@ export default function Notifications() {
               Mark All Read
             </Button>
           )}
+          {totalCount > 0 && (
+            <Button
+              variant="outline"
+              onClick={() => clearAllMutation.mutate()}
+              disabled={clearAllMutation.isPending}
+              className="gap-2"
+              data-testid="button-clear-all"
+            >
+              <Trash2 className="w-4 h-4" />
+              Clear All
+            </Button>
+          )}
+          <Dialog open={prefsOpen} onOpenChange={setPrefsOpen}>
+            <DialogTrigger asChild>
+              <Button
+                variant="outline"
+                size="icon"
+                data-testid="button-notification-settings"
+              >
+                <Settings className="w-4 h-4" />
+              </Button>
+            </DialogTrigger>
+            <DialogContent data-testid="dialog-notification-preferences">
+              <DialogHeader>
+                <DialogTitle data-testid="text-preferences-title">Notification Preferences</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 py-2">
+                {prefsLoading ? (
+                  <div className="text-muted-foreground text-sm">Loading preferences...</div>
+                ) : (
+                  NOTIFICATION_EVENT_TYPES.map((eventType) => (
+                    <div
+                      key={eventType}
+                      className="flex items-center justify-between gap-4"
+                      data-testid={`pref-row-${eventType}`}
+                    >
+                      <span className="text-sm" data-testid={`text-pref-label-${eventType}`}>
+                        {formatEventType(eventType)}
+                      </span>
+                      <Switch
+                        checked={isPrefEnabled(eventType)}
+                        onCheckedChange={(checked) =>
+                          togglePrefMutation.mutate({ eventType, enabled: checked })
+                        }
+                        disabled={togglePrefMutation.isPending}
+                        data-testid={`switch-pref-${eventType}`}
+                      />
+                    </div>
+                  ))
+                )}
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
 

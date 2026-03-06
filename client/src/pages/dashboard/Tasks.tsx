@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, Fragment } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -9,8 +9,12 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, ArrowRight, Sparkles, Loader2 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Plus, ArrowRight, Sparkles, Loader2, ChevronDown, UserPlus, CheckCircle, Trash2, MessageSquare } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import Comments from "@/components/Comments";
+import SavedFilterBar from "@/components/SavedFilterBar";
 import type { Task } from "@shared/schema";
 
 const STATUS_OPTIONS = ["pending", "in_progress", "completed"] as const;
@@ -68,6 +72,10 @@ export default function Tasks() {
   const { toast } = useToast();
   const [createOpen, setCreateOpen] = useState(false);
   const [filterStatus, setFilterStatus] = useState<string>("all");
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<number>>(new Set());
+  const [bulkAssignOpen, setBulkAssignOpen] = useState(false);
+  const [bulkAssignTo, setBulkAssignTo] = useState("");
+  const [expandedTaskId, setExpandedTaskId] = useState<number | null>(null);
 
   const [newTask, setNewTask] = useState({
     title: "",
@@ -133,6 +141,71 @@ export default function Tasks() {
     },
   });
 
+  const bulkAssignMutation = useMutation({
+    mutationFn: async ({ taskIds, assignedTo }: { taskIds: number[]; assignedTo: string }) => {
+      const res = await apiRequest("POST", "/api/tasks/bulk-assign", { taskIds, assignedTo });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      setSelectedTaskIds(new Set());
+      setBulkAssignOpen(false);
+      setBulkAssignTo("");
+      toast({ title: "Tasks assigned successfully" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to assign tasks", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const bulkCompleteMutation = useMutation({
+    mutationFn: async (taskIds: number[]) => {
+      const results = await Promise.all(
+        taskIds.map((id) =>
+          apiRequest("PUT", `/api/tasks/${id}`, { status: "completed", completedAt: new Date().toISOString() })
+        )
+      );
+      return results;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      setSelectedTaskIds(new Set());
+      toast({ title: "Tasks marked as complete" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to complete tasks", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (taskIds: number[]) => {
+      const results = await Promise.all(
+        taskIds.map((id) => apiRequest("DELETE", `/api/tasks/${id}`))
+      );
+      return results;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      setSelectedTaskIds(new Set());
+      toast({ title: "Tasks deleted successfully" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to delete tasks", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const toggleTaskSelection = (taskId: number) => {
+    setSelectedTaskIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(taskId)) {
+        next.delete(taskId);
+      } else {
+        next.add(taskId);
+      }
+      return next;
+    });
+  };
+
   const handleCreateTask = () => {
     if (!newTask.title) {
       toast({ title: "Title is required", variant: "destructive" });
@@ -163,6 +236,14 @@ export default function Tasks() {
     if (filterStatus === "all") return true;
     return t.status === filterStatus;
   }) || [];
+
+  const toggleAllTasks = () => {
+    if (selectedTaskIds.size === filteredTasks.length && filteredTasks.length > 0) {
+      setSelectedTaskIds(new Set());
+    } else {
+      setSelectedTaskIds(new Set(filteredTasks.map((t) => t.id)));
+    }
+  };
 
   if (isLoading) {
     return (
@@ -304,10 +385,104 @@ export default function Tasks() {
         </div>
       </div>
 
+      {selectedTaskIds.size > 0 && (
+        <div className="flex items-center gap-3 flex-wrap" data-testid="tasks-bulk-bar">
+          <span className="text-sm text-muted-foreground" data-testid="text-tasks-selected-count">
+            {selectedTaskIds.size} task{selectedTaskIds.size > 1 ? "s" : ""} selected
+          </span>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" className="gap-2" data-testid="button-task-bulk-actions">
+                Bulk Actions
+                <ChevronDown className="w-4 h-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuItem
+                data-testid="button-bulk-assign"
+                onClick={() => setBulkAssignOpen(true)}
+              >
+                <UserPlus className="w-4 h-4 mr-2" />
+                Assign To
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                data-testid="button-bulk-complete"
+                onClick={() => bulkCompleteMutation.mutate(Array.from(selectedTaskIds))}
+              >
+                <CheckCircle className="w-4 h-4 mr-2" />
+                Mark Complete
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                data-testid="button-bulk-delete"
+                className="text-destructive"
+                onClick={() => bulkDeleteMutation.mutate(Array.from(selectedTaskIds))}
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Delete Selected
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setSelectedTaskIds(new Set())}
+            data-testid="button-clear-task-selection"
+          >
+            Clear Selection
+          </Button>
+        </div>
+      )}
+
+      <Dialog open={bulkAssignOpen} onOpenChange={setBulkAssignOpen}>
+        <DialogContent data-testid="dialog-bulk-assign">
+          <DialogHeader>
+            <DialogTitle>Assign {selectedTaskIds.size} Task{selectedTaskIds.size > 1 ? "s" : ""}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div className="space-y-2">
+              <Label>Assign To</Label>
+              <Input
+                value={bulkAssignTo}
+                onChange={(e) => setBulkAssignTo(e.target.value)}
+                placeholder="Enter name"
+                data-testid="input-bulk-assign-to"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => setBulkAssignOpen(false)} data-testid="button-cancel-bulk-assign">
+                Cancel
+              </Button>
+              <Button
+                onClick={() => bulkAssignMutation.mutate({ taskIds: Array.from(selectedTaskIds), assignedTo: bulkAssignTo })}
+                disabled={!bulkAssignTo || bulkAssignMutation.isPending}
+                data-testid="button-submit-bulk-assign"
+              >
+                {bulkAssignMutation.isPending ? "Assigning..." : "Assign"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <SavedFilterBar
+        entityType="task"
+        currentFilters={{ filterStatus }}
+        onApplyFilter={(filters) => {
+          setFilterStatus(String(filters.filterStatus || "all"));
+        }}
+      />
+
       <div className="border rounded-md overflow-x-auto" data-testid="tasks-table">
         <Table className="min-w-[600px]">
           <TableHeader>
             <TableRow>
+              <TableHead className="w-10">
+                <Checkbox
+                  checked={filteredTasks.length > 0 && selectedTaskIds.size === filteredTasks.length}
+                  onCheckedChange={toggleAllTasks}
+                  data-testid="checkbox-select-all-tasks"
+                />
+              </TableHead>
               <TableHead>Title</TableHead>
               <TableHead>Assigned To</TableHead>
               <TableHead>Due Date</TableHead>
@@ -320,7 +495,7 @@ export default function Tasks() {
           <TableBody>
             {filteredTasks.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
                   No tasks found
                 </TableCell>
               </TableRow>
@@ -329,7 +504,15 @@ export default function Tasks() {
               const overdue = isOverdue(task);
               const nextStatus = getNextStatus(task.status);
               return (
-                <TableRow key={task.id} data-testid={`row-task-${task.id}`}>
+                <Fragment key={task.id}>
+                <TableRow data-testid={`row-task-${task.id}`}>
+                  <TableCell>
+                    <Checkbox
+                      checked={selectedTaskIds.has(task.id)}
+                      onCheckedChange={() => toggleTaskSelection(task.id)}
+                      data-testid={`checkbox-task-${task.id}`}
+                    />
+                  </TableCell>
                   <TableCell>
                     <div className="space-y-1">
                       <div className="font-medium" data-testid={`text-task-title-${task.id}`}>{task.title}</div>
@@ -383,9 +566,26 @@ export default function Tasks() {
                         {getStatusLabel(nextStatus)}
                       </Button>
                     )}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="gap-1"
+                      onClick={() => setExpandedTaskId(expandedTaskId === task.id ? null : task.id)}
+                      data-testid={`button-comments-${task.id}`}
+                    >
+                      <MessageSquare className="w-3 h-3" />
+                    </Button>
                   </TableCell>
                 </TableRow>
-              );
+                {expandedTaskId === task.id && (
+                  <TableRow data-testid={`row-task-comments-${task.id}`}>
+                    <TableCell colSpan={7} className="p-4">
+                      <Comments entityType="task" entityId={task.id} />
+                    </TableCell>
+                  </TableRow>
+                )}
+              </Fragment>
+            );
             })}
           </TableBody>
         </Table>

@@ -8,7 +8,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Search, Plus, MoreHorizontal, UserPlus, Mail, MessageSquare, Zap, AlertTriangle, Sparkles, Activity, ArrowRight, Clock, TrendingUp, Ticket, Download, CheckSquare, ExternalLink } from "lucide-react";
+import { Search, Plus, MoreHorizontal, UserPlus, Mail, MessageSquare, Zap, AlertTriangle, Sparkles, Activity, ArrowRight, Clock, TrendingUp, Ticket, Download, CheckSquare, ExternalLink, Users, Merge, ChevronRight, Archive, RotateCcw } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { useLocation } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -16,9 +17,12 @@ import { z } from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
-import { apiRequest } from "@/lib/queryClient";
+import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { exportToCSV } from "@/lib/export-csv";
 import { useToast } from "@/hooks/use-toast";
+import SavedFilterBar from "@/components/SavedFilterBar";
 
 const formSchema = z.object({
   firstName: z.string().min(1, "Required"),
@@ -186,16 +190,231 @@ function ActivityTimeline({ entityType, entityId }: { entityType: string; entity
   );
 }
 
+interface DuplicateGroup {
+  email: string;
+  phone: string;
+  contacts: any[];
+}
+
+function DuplicateFinderDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  const { toast } = useToast();
+  const [selectedGroup, setSelectedGroup] = useState<DuplicateGroup | null>(null);
+  const [primaryId, setPrimaryId] = useState<string>("");
+
+  const { data: duplicates, isLoading } = useQuery<DuplicateGroup[]>({
+    queryKey: ["/api/contacts/duplicates"],
+    enabled: open,
+  });
+
+  const mergeMutation = useMutation({
+    mutationFn: async ({ primaryId, duplicateId }: { primaryId: number; duplicateId: number }) => {
+      const res = await apiRequest("POST", "/api/contacts/merge", { primaryId, duplicateId });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Contacts merged", description: "Duplicate contact has been merged into the primary record." });
+      queryClient.invalidateQueries({ queryKey: ["/api/contacts/duplicates"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
+      setSelectedGroup(null);
+      setPrimaryId("");
+    },
+    onError: (err: any) => {
+      toast({ title: "Merge failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const handleMerge = () => {
+    if (!selectedGroup || !primaryId) return;
+    const primary = Number(primaryId);
+    const duplicateIds = selectedGroup.contacts.filter(c => c.id !== primary).map(c => c.id);
+    for (const dupId of duplicateIds) {
+      mergeMutation.mutate({ primaryId: primary, duplicateId: dupId });
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) { setSelectedGroup(null); setPrimaryId(""); } }}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle data-testid="text-duplicates-title">
+            {selectedGroup ? "Merge Duplicate Contacts" : "Potential Duplicate Contacts"}
+          </DialogTitle>
+        </DialogHeader>
+
+        {!selectedGroup ? (
+          <div className="space-y-2">
+            {isLoading ? (
+              <div className="space-y-3 py-4" data-testid="duplicates-loading">
+                {[1, 2, 3].map(i => (
+                  <Skeleton key={i} className="h-16 w-full" />
+                ))}
+              </div>
+            ) : !duplicates || duplicates.length === 0 ? (
+              <div className="py-8 text-center text-sm text-muted-foreground" data-testid="text-no-duplicates">
+                No duplicate contacts found. Your records are clean.
+              </div>
+            ) : (
+              <div className="max-h-[400px] overflow-y-auto">
+                <div className="space-y-2 pr-1">
+                  {duplicates.map((group, idx) => (
+                    <Card
+                      key={idx}
+                      className="hover-elevate cursor-pointer"
+                      onClick={() => { setSelectedGroup(group); setPrimaryId(String(group.contacts[0]?.id || "")); }}
+                      data-testid={`duplicate-group-${idx}`}
+                    >
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Badge variant="secondary" className="shrink-0" data-testid={`badge-duplicate-count-${idx}`}>
+                                {group.contacts.length} matches
+                              </Badge>
+                              {group.email && (
+                                <span className="text-sm text-muted-foreground truncate" data-testid={`text-dup-email-${idx}`}>
+                                  {group.email}
+                                </span>
+                              )}
+                              {group.phone && (
+                                <span className="text-sm text-muted-foreground truncate" data-testid={`text-dup-phone-${idx}`}>
+                                  {group.phone}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex gap-2 mt-1 flex-wrap">
+                              {group.contacts.map((c: any) => (
+                                <span key={c.id} className="text-sm font-medium" data-testid={`text-dup-name-${c.id}`}>
+                                  {c.firstName} {c.lastName}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                          <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <Button variant="ghost" size="sm" onClick={() => { setSelectedGroup(null); setPrimaryId(""); }} data-testid="button-back-to-list">
+              Back to list
+            </Button>
+
+            <div>
+              <p className="text-sm font-medium mb-2">Select the primary record to keep:</p>
+              <div className="space-y-2" data-testid="radio-primary-select">
+                {selectedGroup.contacts.map((c: any) => (
+                  <Card
+                    key={c.id}
+                    className={`cursor-pointer ${primaryId === String(c.id) ? "border-primary" : ""}`}
+                    onClick={() => setPrimaryId(String(c.id))}
+                    data-testid={`merge-candidate-${c.id}`}
+                  >
+                    <CardContent className="p-4">
+                      <div className="flex items-start gap-3">
+                        <input
+                          type="radio"
+                          name="primary-contact"
+                          value={String(c.id)}
+                          checked={primaryId === String(c.id)}
+                          onChange={() => setPrimaryId(String(c.id))}
+                          className="mt-1"
+                          data-testid={`radio-contact-${c.id}`}
+                        />
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium">{c.firstName} {c.lastName}</span>
+                            {primaryId === String(c.id) && (
+                              <Badge variant="default" data-testid={`badge-primary-${c.id}`}>Primary</Badge>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2 text-sm text-muted-foreground">
+                            <span data-testid={`merge-email-${c.id}`}>Email: {c.email || "N/A"}</span>
+                            <span data-testid={`merge-phone-${c.id}`}>Phone: {c.phone || "N/A"}</span>
+                            <span data-testid={`merge-company-${c.id}`}>Company: {c.companyName || "N/A"}</span>
+                            <span data-testid={`merge-status-${c.id}`}>Status: {c.status || "N/A"}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-md border p-3 bg-muted/50" data-testid="merge-preview">
+              <p className="text-sm font-medium mb-1">Merge Preview</p>
+              <p className="text-xs text-muted-foreground">
+                All deals, tickets, tasks, and documents from duplicate records will be reassigned to the primary contact.
+                Duplicate records will be archived with a merge note.
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => { setSelectedGroup(null); setPrimaryId(""); }} data-testid="button-merge-cancel">
+                Cancel
+              </Button>
+              <Button
+                onClick={handleMerge}
+                disabled={!primaryId || mergeMutation.isPending}
+                data-testid="button-confirm-merge"
+              >
+                <Merge className="h-4 w-4 mr-2" />
+                {mergeMutation.isPending ? "Merging..." : "Confirm Merge"}
+              </Button>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function Contacts() {
   const { data: contacts, isLoading } = useContacts();
   const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [selectedContact, setSelectedContact] = useState<any>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [duplicatesOpen, setDuplicatesOpen] = useState(false);
   const [, setLocation] = useLocation();
+  const [showArchived, setShowArchived] = useState(false);
   const createContact = useCreateContact();
   const updateContact = useUpdateContact();
   const { toast } = useToast();
+
+  const archiveContactMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("POST", `/api/contacts/${id}/archive`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
+      toast({ title: "Contact archived" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to archive contact", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const restoreContactMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("POST", `/api/contacts/${id}/restore`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
+      toast({ title: "Contact restored" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to restore contact", description: err.message, variant: "destructive" });
+    },
+  });
 
   const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
   const [bulkChannel, setBulkChannel] = useState<"email" | "sms">("email");
@@ -242,11 +461,24 @@ export default function Contacts() {
     form.reset();
   };
 
-  const filteredContacts = contacts?.filter((c: any) => 
-    c.firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    c.lastName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    c.companyName?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredContacts = contacts?.filter((c: any) => {
+    const matchesSearch = c.firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      c.lastName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      c.companyName?.toLowerCase().includes(searchTerm.toLowerCase());
+    const isArchived = !!c.archivedAt;
+    if (!showArchived && isArchived) return false;
+    if (statusFilter && c.status !== statusFilter) return false;
+    return matchesSearch;
+  });
+
+  const contactsFilterState = { searchTerm, statusFilter, showArchived: String(showArchived) };
+
+  const handleApplySavedFilter = (filters: Record<string, unknown>) => {
+    setSearchTerm(String(filters.searchTerm || ""));
+    setStatusFilter(String(filters.statusFilter || ""));
+    if (filters.showArchived === "true") setShowArchived(true);
+    else setShowArchived(false);
+  };
 
   const toggleSelect = (id: number, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -298,6 +530,16 @@ export default function Contacts() {
         </div>
         
         <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2" data-testid="toggle-show-archived-contacts">
+            <Switch
+              checked={showArchived}
+              onCheckedChange={setShowArchived}
+              data-testid="switch-show-archived-contacts"
+            />
+            <Label className="text-sm cursor-pointer" onClick={() => setShowArchived(!showArchived)}>
+              Show Archived
+            </Label>
+          </div>
           {selectedIds.size > 0 && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -313,6 +555,9 @@ export default function Contacts() {
               </DropdownMenuContent>
             </DropdownMenu>
           )}
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => setDuplicatesOpen(true)} data-testid="button-find-duplicates">
+            <Users className="w-4 h-4" /> Find Duplicates
+          </Button>
           <Button variant="outline" size="sm" className="gap-2" onClick={() => exportToCSV(filteredContacts || [], "contacts", [
             { key: "firstName", label: "First Name" },
             { key: "lastName", label: "Last Name" },
@@ -423,6 +668,12 @@ export default function Contacts() {
         </div>
       )}
 
+      <SavedFilterBar
+        entityType="contact"
+        currentFilters={contactsFilterState}
+        onApplyFilter={handleApplySavedFilter}
+      />
+
       <Card>
         <CardContent className="p-0 overflow-x-auto">
           <Table className="min-w-[700px]">
@@ -453,10 +704,11 @@ export default function Contacts() {
                   <TableCell colSpan={7} className="text-center h-24 text-muted-foreground">No contacts found</TableCell>
                 </TableRow>
               ) : (
-                filteredContacts?.map((contact: any) => (
-                  <TableRow
+                filteredContacts?.map((contact: any) => {
+                  const isArchived = !!contact.archivedAt;
+                  return (<TableRow
                     key={contact.id}
-                    className="cursor-pointer"
+                    className={`cursor-pointer ${isArchived ? "opacity-50" : ""}`}
                     onClick={() => setLocation(`/dashboard/contacts/${contact.id}`)}
                     data-testid={`contact-row-${contact.id}`}
                   >
@@ -478,7 +730,12 @@ export default function Contacts() {
                         <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-bold shrink-0">
                           {contact.firstName[0]}{contact.lastName[0]}
                         </div>
-                        <span>{contact.firstName} {contact.lastName}</span>
+                        <span className={isArchived ? "line-through" : ""}>{contact.firstName} {contact.lastName}</span>
+                        {isArchived && (
+                          <Badge variant="outline" className="text-xs no-default-hover-elevate no-default-active-elevate" data-testid={`badge-archived-contact-${contact.id}`}>
+                            <Archive className="w-3 h-3 mr-1" /> Archived
+                          </Badge>
+                        )}
                       </div>
                     </TableCell>
                     <TableCell>{contact.companyName}</TableCell>
@@ -502,6 +759,16 @@ export default function Contacts() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
+                        {isArchived && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={(e) => { e.stopPropagation(); restoreContactMutation.mutate(contact.id); }}
+                            data-testid={`button-restore-contact-${contact.id}`}
+                          >
+                            <RotateCcw className="h-4 w-4" />
+                          </Button>
+                        )}
                         <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); setLocation(`/dashboard/contacts/${contact.id}`); }} data-testid={`button-view-${contact.id}`}>
                           <ExternalLink className="h-4 w-4" />
                         </Button>
@@ -521,17 +788,35 @@ export default function Contacts() {
                             <DropdownMenuItem onClick={(e) => { e.stopPropagation(); updateContact.mutate({ id: contact.id, status: "Lost" }); }}>
                               Mark Lost
                             </DropdownMenuItem>
+                            {isArchived ? (
+                              <DropdownMenuItem
+                                onClick={(e) => { e.stopPropagation(); restoreContactMutation.mutate(contact.id); }}
+                                data-testid={`menu-restore-contact-${contact.id}`}
+                              >
+                                <RotateCcw className="w-4 h-4 mr-2" /> Restore
+                              </DropdownMenuItem>
+                            ) : (
+                              <DropdownMenuItem
+                                onClick={(e) => { e.stopPropagation(); archiveContactMutation.mutate(contact.id); }}
+                                data-testid={`menu-archive-contact-${contact.id}`}
+                              >
+                                <Archive className="w-4 h-4 mr-2" /> Archive
+                              </DropdownMenuItem>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </div>
                     </TableCell>
                   </TableRow>
-                ))
+                  );
+                })
               )}
             </TableBody>
           </Table>
         </CardContent>
       </Card>
+
+      <DuplicateFinderDialog open={duplicatesOpen} onOpenChange={setDuplicatesOpen} />
 
       <Dialog open={bulkDialogOpen} onOpenChange={(open) => { setBulkDialogOpen(open); if (!open) setBulkResults(null); }}>
         <DialogContent>

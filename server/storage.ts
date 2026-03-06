@@ -50,8 +50,15 @@ import {
   systemSettings,
   dataDeleteRequests,
   type DataDeleteRequest, type InsertDataDeleteRequest,
+  comments, ticketComments, contactCompanies, pipelineStages, notificationPreferences, savedFilters,
+  type Comment, type InsertComment,
+  type TicketComment, type InsertTicketComment,
+  type ContactCompany, type InsertContactCompany,
+  type PipelineStage, type InsertPipelineStage,
+  type NotificationPreference, type InsertNotificationPreference,
+  type SavedFilter, type InsertSavedFilter,
 } from "@shared/schema";
-import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte } from "drizzle-orm";
+import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike } from "drizzle-orm";
 
 export interface IStorage {
   getContacts(): Promise<typeof contacts.$inferSelect[]>;
@@ -300,6 +307,44 @@ export interface IStorage {
   getDataDeleteRequests(): Promise<DataDeleteRequest[]>;
   createDataDeleteRequest(req: InsertDataDeleteRequest): Promise<DataDeleteRequest>;
   updateDataDeleteRequest(id: number, data: Partial<DataDeleteRequest>): Promise<DataDeleteRequest | undefined>;
+
+  getComments(entityType: string, entityId: number): Promise<Comment[]>;
+  createComment(comment: InsertComment): Promise<Comment>;
+  deleteComment(id: number): Promise<void>;
+  updateComment(id: number, updates: Partial<InsertComment>): Promise<Comment | undefined>;
+
+  getTicketComments(ticketId: number): Promise<TicketComment[]>;
+  createTicketComment(comment: InsertTicketComment): Promise<TicketComment>;
+
+  getContactCompanies(contactId: number): Promise<ContactCompany[]>;
+  addContactCompany(link: InsertContactCompany): Promise<ContactCompany>;
+  removeContactCompany(id: number): Promise<void>;
+
+  getPipelineStages(pipeline?: string): Promise<PipelineStage[]>;
+  createPipelineStage(stage: InsertPipelineStage): Promise<PipelineStage>;
+  updatePipelineStage(id: number, updates: Partial<InsertPipelineStage>): Promise<PipelineStage | undefined>;
+  deletePipelineStage(id: number): Promise<void>;
+
+  getNotificationPreferences(userId: string): Promise<NotificationPreference[]>;
+  upsertNotificationPreference(pref: InsertNotificationPreference): Promise<NotificationPreference>;
+
+  getSavedFilters(userId: string, entityType?: string): Promise<SavedFilter[]>;
+  createSavedFilter(filter: InsertSavedFilter): Promise<SavedFilter>;
+  deleteSavedFilter(id: number): Promise<void>;
+
+  archiveContact(id: number): Promise<typeof contacts.$inferSelect | undefined>;
+  restoreContact(id: number): Promise<typeof contacts.$inferSelect | undefined>;
+  archiveDeal(id: number): Promise<typeof deals.$inferSelect | undefined>;
+  restoreDeal(id: number): Promise<typeof deals.$inferSelect | undefined>;
+
+  markAllNotificationsRead(userId?: string): Promise<void>;
+  clearAllNotifications(userId?: string): Promise<void>;
+  bulkUpdateDealStage(dealIds: number[], stage: string): Promise<void>;
+  bulkAssignTasks(taskIds: number[], assignedTo: string): Promise<void>;
+  deleteTask(id: number): Promise<void>;
+
+  findDuplicateContacts(): Promise<{ email: string; phone: string; contacts: typeof contacts.$inferSelect[] }[]>;
+  mergeContacts(primaryId: number, duplicateId: number): Promise<typeof contacts.$inferSelect | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1337,6 +1382,194 @@ export class DatabaseStorage implements IStorage {
     } else {
       await db.insert(systemSettings).values({ key, value, updatedAt: new Date() });
     }
+  }
+
+  async getComments(entityType: string, entityId: number): Promise<Comment[]> {
+    return db.select().from(comments).where(and(eq(comments.entityType, entityType), eq(comments.entityId, entityId))).orderBy(asc(comments.createdAt));
+  }
+
+  async createComment(comment: InsertComment): Promise<Comment> {
+    const [created] = await db.insert(comments).values(comment).returning();
+    return created;
+  }
+
+  async deleteComment(id: number): Promise<void> {
+    await db.delete(comments).where(eq(comments.id, id));
+  }
+
+  async updateComment(id: number, updates: Partial<InsertComment>): Promise<Comment | undefined> {
+    const [updated] = await db.update(comments).set({ ...updates, updatedAt: new Date() }).where(eq(comments.id, id)).returning();
+    return updated;
+  }
+
+  async getTicketComments(ticketId: number): Promise<TicketComment[]> {
+    return db.select().from(ticketComments).where(eq(ticketComments.ticketId, ticketId)).orderBy(asc(ticketComments.createdAt));
+  }
+
+  async createTicketComment(comment: InsertTicketComment): Promise<TicketComment> {
+    const [created] = await db.insert(ticketComments).values(comment).returning();
+    return created;
+  }
+
+  async getContactCompanies(contactId: number): Promise<ContactCompany[]> {
+    return db.select().from(contactCompanies).where(eq(contactCompanies.contactId, contactId)).orderBy(desc(contactCompanies.createdAt));
+  }
+
+  async addContactCompany(link: InsertContactCompany): Promise<ContactCompany> {
+    const [created] = await db.insert(contactCompanies).values(link).returning();
+    return created;
+  }
+
+  async removeContactCompany(id: number): Promise<void> {
+    await db.delete(contactCompanies).where(eq(contactCompanies.id, id));
+  }
+
+  async getPipelineStages(pipeline?: string): Promise<PipelineStage[]> {
+    if (pipeline) {
+      return db.select().from(pipelineStages).where(eq(pipelineStages.pipeline, pipeline)).orderBy(asc(pipelineStages.sortOrder));
+    }
+    return db.select().from(pipelineStages).orderBy(asc(pipelineStages.pipeline), asc(pipelineStages.sortOrder));
+  }
+
+  async createPipelineStage(stage: InsertPipelineStage): Promise<PipelineStage> {
+    const [created] = await db.insert(pipelineStages).values(stage).returning();
+    return created;
+  }
+
+  async updatePipelineStage(id: number, updates: Partial<InsertPipelineStage>): Promise<PipelineStage | undefined> {
+    const [updated] = await db.update(pipelineStages).set(updates).where(eq(pipelineStages.id, id)).returning();
+    return updated;
+  }
+
+  async deletePipelineStage(id: number): Promise<void> {
+    await db.delete(pipelineStages).where(eq(pipelineStages.id, id));
+  }
+
+  async getNotificationPreferences(userId: string): Promise<NotificationPreference[]> {
+    return db.select().from(notificationPreferences).where(eq(notificationPreferences.userId, userId));
+  }
+
+  async upsertNotificationPreference(pref: InsertNotificationPreference): Promise<NotificationPreference> {
+    const existing = await db.select().from(notificationPreferences).where(and(eq(notificationPreferences.userId, pref.userId), eq(notificationPreferences.eventType, pref.eventType)));
+    if (existing.length > 0) {
+      const [updated] = await db.update(notificationPreferences).set({ enabled: pref.enabled }).where(eq(notificationPreferences.id, existing[0].id)).returning();
+      return updated;
+    }
+    const [created] = await db.insert(notificationPreferences).values(pref).returning();
+    return created;
+  }
+
+  async getSavedFilters(userId: string, entityType?: string): Promise<SavedFilter[]> {
+    if (entityType) {
+      return db.select().from(savedFilters).where(and(eq(savedFilters.userId, userId), eq(savedFilters.entityType, entityType))).orderBy(desc(savedFilters.createdAt));
+    }
+    return db.select().from(savedFilters).where(eq(savedFilters.userId, userId)).orderBy(desc(savedFilters.createdAt));
+  }
+
+  async createSavedFilter(filter: InsertSavedFilter): Promise<SavedFilter> {
+    const [created] = await db.insert(savedFilters).values(filter).returning();
+    return created;
+  }
+
+  async deleteSavedFilter(id: number): Promise<void> {
+    await db.delete(savedFilters).where(eq(savedFilters.id, id));
+  }
+
+  async archiveContact(id: number) {
+    const [updated] = await db.update(contacts).set({ archivedAt: new Date() }).where(eq(contacts.id, id)).returning();
+    return updated;
+  }
+
+  async restoreContact(id: number) {
+    const [updated] = await db.update(contacts).set({ archivedAt: null }).where(eq(contacts.id, id)).returning();
+    return updated;
+  }
+
+  async archiveDeal(id: number) {
+    const [updated] = await db.update(deals).set({ archivedAt: new Date() }).where(eq(deals.id, id)).returning();
+    return updated;
+  }
+
+  async restoreDeal(id: number) {
+    const [updated] = await db.update(deals).set({ archivedAt: null }).where(eq(deals.id, id)).returning();
+    return updated;
+  }
+
+  async markAllNotificationsRead(userId?: string): Promise<void> {
+    if (userId) {
+      await db.update(notifications).set({ read: true }).where(and(eq(notifications.recipientId, userId), eq(notifications.read, false)));
+    } else {
+      await db.update(notifications).set({ read: true }).where(eq(notifications.read, false));
+    }
+  }
+
+  async clearAllNotifications(userId?: string): Promise<void> {
+    if (userId) {
+      await db.delete(notifications).where(eq(notifications.recipientId, userId));
+    } else {
+      await db.delete(notifications);
+    }
+  }
+
+  async bulkUpdateDealStage(dealIds: number[], stage: string): Promise<void> {
+    await db.update(deals).set({ stage, updatedAt: new Date() }).where(inArray(deals.id, dealIds));
+  }
+
+  async bulkAssignTasks(taskIds: number[], assignedTo: string): Promise<void> {
+    await db.update(tasks).set({ assignedTo }).where(inArray(tasks.id, taskIds));
+  }
+
+  async deleteTask(id: number): Promise<void> {
+    await db.delete(tasks).where(eq(tasks.id, id));
+  }
+
+  async findDuplicateContacts() {
+    const allContacts = await db.select().from(contacts).where(isNull(contacts.archivedAt)).orderBy(desc(contacts.createdAt));
+    const emailMap = new Map<string, typeof allContacts>();
+    const phoneMap = new Map<string, typeof allContacts>();
+    for (const c of allContacts) {
+      const email = c.email?.toLowerCase().trim();
+      if (email) {
+        if (!emailMap.has(email)) emailMap.set(email, []);
+        emailMap.get(email)!.push(c);
+      }
+      const phone = c.phone?.replace(/\D/g, '');
+      if (phone && phone.length >= 10) {
+        if (!phoneMap.has(phone)) phoneMap.set(phone, []);
+        phoneMap.get(phone)!.push(c);
+      }
+    }
+    const duplicates: { email: string; phone: string; contacts: typeof allContacts }[] = [];
+    const seen = new Set<number>();
+    for (const [email, group] of emailMap) {
+      if (group.length > 1) {
+        const ids = group.map(c => c.id);
+        if (ids.some(id => seen.has(id))) continue;
+        ids.forEach(id => seen.add(id));
+        duplicates.push({ email, phone: '', contacts: group });
+      }
+    }
+    for (const [phone, group] of phoneMap) {
+      if (group.length > 1) {
+        const ids = group.map(c => c.id);
+        if (ids.some(id => seen.has(id))) continue;
+        ids.forEach(id => seen.add(id));
+        duplicates.push({ email: '', phone, contacts: group });
+      }
+    }
+    return duplicates;
+  }
+
+  async mergeContacts(primaryId: number, duplicateId: number) {
+    const primary = await this.getContact(primaryId);
+    const duplicate = await this.getContact(duplicateId);
+    if (!primary || !duplicate) return undefined;
+    await db.update(deals).set({ contactId: primaryId }).where(eq(deals.contactId, duplicateId));
+    await db.update(tickets).set({ contactId: primaryId }).where(eq(tickets.contactId, duplicateId));
+    await db.update(tasks).set({ contactId: primaryId }).where(eq(tasks.contactId, duplicateId));
+    await db.update(documents).set({ contactId: primaryId }).where(eq(documents.contactId, duplicateId));
+    await db.update(contacts).set({ archivedAt: new Date(), notes: `[Merged into Contact #${primaryId}] ${duplicate.notes || ''}` }).where(eq(contacts.id, duplicateId));
+    return primary;
   }
 }
 

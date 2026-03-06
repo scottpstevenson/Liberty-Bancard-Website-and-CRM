@@ -7,7 +7,7 @@ import { users } from "@shared/schema";
 import { eq, desc } from "drizzle-orm";
 import { registerAudioRoutes } from "./replit_integrations/audio/routes";
 import { z } from "zod";
-import { insertContactSchema, insertDealSchema, insertTicketSchema, insertTaskSchema, insertCompanySchema, insertDocumentSchema, insertNotificationSchema, insertWorkflowSchema, insertRfiSchema, insertMessageTemplateSchema, insertCollateralPacketSchema, insertSlaConfigSchema, insertProspectSchema, insertProspectListSchema, insertEnrichmentJobSchema, insertCampaignSchema, insertCampaignStepSchema, insertOutboundMessageSchema, insertNoteSchema, insertEmailLogSchema, insertCallLogSchema, insertStageAutomationRuleSchema, insertFollowUpSequenceSchema, insertSequenceStepSchema, insertSequenceEnrollmentSchema, insertMerchantApplicationSchema, insertEquipmentOrderSchema, insertAgentSchema, insertResidualReportSchema, insertMerchantResidualSchema, insertHealthAlertSchema, insertDealCompetitorSchema, insertPartnerSchema, insertReferralSchema, insertKnowledgeBaseSchema, insertReviewRequestSchema, insertOnboardingStepSchema, insertMerchantProfileSchema, insertConsentAuditLogSchema, insertCalendarEventSchema, insertAgentQuotaSchema, insertDataDeleteRequestSchema } from "@shared/schema";
+import { insertContactSchema, insertDealSchema, insertTicketSchema, insertTaskSchema, insertCompanySchema, insertDocumentSchema, insertNotificationSchema, insertWorkflowSchema, insertRfiSchema, insertMessageTemplateSchema, insertCollateralPacketSchema, insertSlaConfigSchema, insertProspectSchema, insertProspectListSchema, insertEnrichmentJobSchema, insertCampaignSchema, insertCampaignStepSchema, insertOutboundMessageSchema, insertNoteSchema, insertEmailLogSchema, insertCallLogSchema, insertStageAutomationRuleSchema, insertFollowUpSequenceSchema, insertSequenceStepSchema, insertSequenceEnrollmentSchema, insertMerchantApplicationSchema, insertEquipmentOrderSchema, insertAgentSchema, insertResidualReportSchema, insertMerchantResidualSchema, insertHealthAlertSchema, insertDealCompetitorSchema, insertPartnerSchema, insertReferralSchema, insertKnowledgeBaseSchema, insertReviewRequestSchema, insertOnboardingStepSchema, insertMerchantProfileSchema, insertConsentAuditLogSchema, insertCalendarEventSchema, insertAgentQuotaSchema, insertDataDeleteRequestSchema, insertCommentSchema, insertTicketCommentSchema, insertContactCompanySchema, insertPipelineStageSchema, insertNotificationPreferenceSchema, insertSavedFilterSchema } from "@shared/schema";
 import { isGhlConfigured, getGhlStatus, sendGhlEmail, sendGhlSms, sendTemplatedMessage, upsertGhlContact, handleGhlWebhook, getCalendarBookingUrl, sendDocumentForEsign, getDocumentStatus } from "./services/ghl";
 import { enrichProspect, runEnrichmentJob, processEnrichmentQueue } from "./services/enrichment";
 import { queueCampaignMessages, processSendQueue, getCampaignAnalytics } from "./services/campaign-engine";
@@ -17,6 +17,8 @@ import { scoreContact } from "./services/lead-scoring";
 import { generateDealBlueprint } from "./services/deal-blueprint";
 import { routeContact, getRoutingRecommendation, checkCompliance } from "./services/smart-router";
 import { parseSunbizCsv, searchSunbiz, getEntityDetail, streamCorevtFromZip } from "./services/sunbiz-scraper";
+import { getEmailSignatureHtml, getEmailSignaturePlainText, getStoredSignature, saveSignature } from "./services/email-signatures";
+import { reEnrichAllSunbizEntities, promoteQualifiedToContacts, runDailyOutreach, startDailyOutreachWorker, stopDailyOutreachWorker } from "./services/daily-outreach";
 import { enrichSunbizEntity, processSunbizEnrichmentQueue, convertToProspect } from "./services/sunbiz-enrichment";
 import { estimateFromDeal, estimateFromContact, estimateFromProspect } from "./services/volume-estimator";
 import { insertSunbizEntitySchema } from "@shared/schema";
@@ -4487,6 +4489,423 @@ Notes: ${deal.notes || "None"}`
     const updated = await storage.updateDataDeleteRequest(Number(req.params.id), req.body);
     if (!updated) return res.status(404).json({ message: "Not found" });
     res.json(updated);
+  });
+
+  // === COMMENTS (Threaded) ===
+  app.get("/api/comments", isAuthenticated, async (req, res) => {
+    const { entityType, entityId } = req.query;
+    if (!entityType || !entityId) return res.status(400).json({ message: "entityType and entityId required" });
+    const result = await storage.getComments(String(entityType), Number(entityId));
+    res.json(result);
+  });
+
+  app.post("/api/comments", isAuthenticated, async (req, res) => {
+    try {
+      const input = insertCommentSchema.parse(req.body);
+      const comment = await storage.createComment({
+        ...input,
+        authorId: (req.user as any)?.id || null,
+        authorName: (req.user as any)?.firstName ? `${(req.user as any).firstName} ${(req.user as any).lastName || ''}`.trim() : (req.user as any)?.email || 'System',
+      });
+      res.status(201).json(comment);
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
+  });
+
+  app.delete("/api/comments/:id", isAuthenticated, async (req, res) => {
+    await storage.deleteComment(Number(req.params.id));
+    res.json({ success: true });
+  });
+
+  app.put("/api/comments/:id", isAuthenticated, async (req, res) => {
+    const updated = await storage.updateComment(Number(req.params.id), req.body);
+    if (!updated) return res.status(404).json({ message: "Not found" });
+    res.json(updated);
+  });
+
+  // === TICKET COMMENTS (Conversation Threading) ===
+  app.get("/api/tickets/:id/comments", isAuthenticated, async (req, res) => {
+    const result = await storage.getTicketComments(Number(req.params.id));
+    res.json(result);
+  });
+
+  app.post("/api/tickets/:id/comments", isAuthenticated, async (req, res) => {
+    try {
+      const input = insertTicketCommentSchema.parse({
+        ...req.body,
+        ticketId: Number(req.params.id),
+      });
+      const comment = await storage.createTicketComment({
+        ...input,
+        authorId: (req.user as any)?.id || null,
+        authorName: (req.user as any)?.firstName ? `${(req.user as any).firstName} ${(req.user as any).lastName || ''}`.trim() : (req.user as any)?.email || 'System',
+      });
+      res.status(201).json(comment);
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
+  });
+
+  // === CONTACT-COMPANY ASSOCIATIONS ===
+  app.get("/api/contacts/:id/companies", isAuthenticated, async (req, res) => {
+    const result = await storage.getContactCompanies(Number(req.params.id));
+    res.json(result);
+  });
+
+  app.post("/api/contacts/:id/companies", isAuthenticated, async (req, res) => {
+    try {
+      const input = insertContactCompanySchema.parse({
+        ...req.body,
+        contactId: Number(req.params.id),
+      });
+      const link = await storage.addContactCompany(input);
+      res.status(201).json(link);
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
+  });
+
+  app.delete("/api/contact-companies/:id", isAuthenticated, async (req, res) => {
+    await storage.removeContactCompany(Number(req.params.id));
+    res.json({ success: true });
+  });
+
+  // === PIPELINE STAGES CONFIGURATION ===
+  app.get("/api/pipeline-stages", isAuthenticated, async (req, res) => {
+    const pipeline = req.query.pipeline ? String(req.query.pipeline) : undefined;
+    const stages = await storage.getPipelineStages(pipeline);
+    res.json(stages);
+  });
+
+  app.post("/api/pipeline-stages", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
+    try {
+      const input = insertPipelineStageSchema.parse(req.body);
+      const stage = await storage.createPipelineStage(input);
+      res.status(201).json(stage);
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
+  });
+
+  app.put("/api/pipeline-stages/:id", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
+    const updated = await storage.updatePipelineStage(Number(req.params.id), req.body);
+    if (!updated) return res.status(404).json({ message: "Not found" });
+    res.json(updated);
+  });
+
+  app.delete("/api/pipeline-stages/:id", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
+    await storage.deletePipelineStage(Number(req.params.id));
+    res.json({ success: true });
+  });
+
+  app.post("/api/pipeline-stages/reorder", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
+    const { stages } = req.body;
+    if (!Array.isArray(stages)) return res.status(400).json({ message: "stages array required" });
+    for (const s of stages) {
+      await storage.updatePipelineStage(s.id, { sortOrder: s.sortOrder });
+    }
+    res.json({ success: true });
+  });
+
+  // === NOTIFICATION PREFERENCES ===
+  app.get("/api/notification-preferences", isAuthenticated, async (req, res) => {
+    const userId = (req.user as any)?.id;
+    const prefs = await storage.getNotificationPreferences(userId);
+    res.json(prefs);
+  });
+
+  app.put("/api/notification-preferences", isAuthenticated, async (req, res) => {
+    const userId = (req.user as any)?.id;
+    const { eventType, enabled } = req.body;
+    if (!eventType) return res.status(400).json({ message: "eventType required" });
+    const pref = await storage.upsertNotificationPreference({ userId, eventType, enabled: !!enabled });
+    res.json(pref);
+  });
+
+  // === MARK ALL NOTIFICATIONS READ ===
+  app.put("/api/notifications/mark-all-read", isAuthenticated, async (req, res) => {
+    const userId = (req.user as any)?.id;
+    await storage.markAllNotificationsRead(userId);
+    res.json({ success: true });
+  });
+
+  app.delete("/api/notifications/clear-all", isAuthenticated, async (req, res) => {
+    const userId = (req.user as any)?.id;
+    await storage.clearAllNotifications(userId);
+    res.json({ success: true });
+  });
+
+  // === SAVED FILTERS ===
+  app.get("/api/saved-filters", isAuthenticated, async (req, res) => {
+    const userId = (req.user as any)?.id;
+    const entityType = req.query.entityType ? String(req.query.entityType) : undefined;
+    const filters = await storage.getSavedFilters(userId, entityType);
+    res.json(filters);
+  });
+
+  app.post("/api/saved-filters", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any)?.id;
+      const input = insertSavedFilterSchema.parse({ ...req.body, userId });
+      const filter = await storage.createSavedFilter(input);
+      res.status(201).json(filter);
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
+  });
+
+  app.delete("/api/saved-filters/:id", isAuthenticated, async (req, res) => {
+    await storage.deleteSavedFilter(Number(req.params.id));
+    res.json({ success: true });
+  });
+
+  // === ARCHIVE / RESTORE ===
+  app.post("/api/contacts/:id/archive", isAuthenticated, async (req, res) => {
+    const result = await storage.archiveContact(Number(req.params.id));
+    if (!result) return res.status(404).json({ message: "Not found" });
+    await storage.createAuditLog({ action: "contact_archived", entityType: "contact", entityId: result.id, userId: (req.user as any)?.id });
+    res.json(result);
+  });
+
+  app.post("/api/contacts/:id/restore", isAuthenticated, async (req, res) => {
+    const result = await storage.restoreContact(Number(req.params.id));
+    if (!result) return res.status(404).json({ message: "Not found" });
+    res.json(result);
+  });
+
+  app.post("/api/deals/:id/archive", isAuthenticated, async (req, res) => {
+    const result = await storage.archiveDeal(Number(req.params.id));
+    if (!result) return res.status(404).json({ message: "Not found" });
+    await storage.createAuditLog({ action: "deal_archived", entityType: "deal", entityId: result.id, userId: (req.user as any)?.id });
+    res.json(result);
+  });
+
+  app.post("/api/deals/:id/restore", isAuthenticated, async (req, res) => {
+    const result = await storage.restoreDeal(Number(req.params.id));
+    if (!result) return res.status(404).json({ message: "Not found" });
+    res.json(result);
+  });
+
+  // === BULK OPERATIONS ===
+  app.post("/api/deals/bulk-stage", isAuthenticated, async (req, res) => {
+    const { dealIds, stage } = req.body;
+    if (!Array.isArray(dealIds) || !stage) return res.status(400).json({ message: "dealIds array and stage required" });
+    await storage.bulkUpdateDealStage(dealIds, stage);
+    await storage.createAuditLog({ action: "bulk_stage_update", entityType: "deal", details: { dealIds, stage }, userId: (req.user as any)?.id });
+    res.json({ success: true, count: dealIds.length });
+  });
+
+  app.post("/api/tasks/bulk-assign", isAuthenticated, async (req, res) => {
+    const { taskIds, assignedTo } = req.body;
+    if (!Array.isArray(taskIds) || !assignedTo) return res.status(400).json({ message: "taskIds array and assignedTo required" });
+    await storage.bulkAssignTasks(taskIds, assignedTo);
+    res.json({ success: true, count: taskIds.length });
+  });
+
+  app.delete("/api/tasks/:id", isAuthenticated, async (req, res) => {
+    await storage.deleteTask(Number(req.params.id));
+    res.json({ success: true });
+  });
+
+  // === DUPLICATE DETECTION & MERGE ===
+  app.get("/api/contacts/duplicates", isAuthenticated, async (req, res) => {
+    const duplicates = await storage.findDuplicateContacts();
+    res.json(duplicates);
+  });
+
+  app.post("/api/contacts/merge", isAuthenticated, async (req, res) => {
+    const { primaryId, duplicateId } = req.body;
+    if (!primaryId || !duplicateId) return res.status(400).json({ message: "primaryId and duplicateId required" });
+    const result = await storage.mergeContacts(Number(primaryId), Number(duplicateId));
+    if (!result) return res.status(404).json({ message: "Contact not found" });
+    await storage.createAuditLog({ action: "contacts_merged", entityType: "contact", entityId: result.id, details: { mergedFrom: duplicateId }, userId: (req.user as any)?.id });
+    res.json(result);
+  });
+
+  // === ADVANCED SEARCH ===
+  app.get("/api/search/advanced", isAuthenticated, async (req, res) => {
+    const { q, dateFrom, dateTo, assignedTo, entityType, tags } = req.query;
+    const query = String(q || '').toLowerCase().trim();
+    const results: any = { contacts: [], deals: [], tickets: [], tasks: [] };
+
+    if (!entityType || entityType === 'contact') {
+      const allContacts = await storage.getContacts();
+      results.contacts = allContacts.filter(c => {
+        if (query && !`${c.firstName} ${c.lastName} ${c.email} ${c.companyName || ''}`.toLowerCase().includes(query)) return false;
+        if (dateFrom && new Date(c.createdAt!) < new Date(String(dateFrom))) return false;
+        if (dateTo && new Date(c.createdAt!) > new Date(String(dateTo))) return false;
+        if (tags) {
+          const tagList = String(tags).split(',');
+          if (!c.tags?.some(t => tagList.includes(t))) return false;
+        }
+        return true;
+      }).slice(0, 50);
+    }
+
+    if (!entityType || entityType === 'deal') {
+      const allDeals = await storage.getDeals();
+      results.deals = allDeals.filter(d => {
+        if (query && !`${d.stage} ${d.pipeline} ${d.notes || ''} ${d.owner || ''}`.toLowerCase().includes(query)) return false;
+        if (assignedTo && d.owner !== String(assignedTo)) return false;
+        if (dateFrom && new Date(d.createdAt!) < new Date(String(dateFrom))) return false;
+        if (dateTo && new Date(d.createdAt!) > new Date(String(dateTo))) return false;
+        return true;
+      }).slice(0, 50);
+    }
+
+    if (!entityType || entityType === 'ticket') {
+      const allTickets = await storage.getTickets();
+      results.tickets = allTickets.filter(t => {
+        if (query && !`${t.subject} ${t.description} ${t.category || ''}`.toLowerCase().includes(query)) return false;
+        if (assignedTo && t.assignedTo !== String(assignedTo)) return false;
+        if (dateFrom && new Date(t.createdAt!) < new Date(String(dateFrom))) return false;
+        if (dateTo && new Date(t.createdAt!) > new Date(String(dateTo))) return false;
+        return true;
+      }).slice(0, 50);
+    }
+
+    if (!entityType || entityType === 'task') {
+      const allTasks = await storage.getTasks();
+      results.tasks = allTasks.filter(t => {
+        if (query && !`${t.title} ${t.description || ''}`.toLowerCase().includes(query)) return false;
+        if (assignedTo && t.assignedTo !== String(assignedTo)) return false;
+        if (dateFrom && new Date(t.createdAt!) < new Date(String(dateFrom))) return false;
+        if (dateTo && new Date(t.createdAt!) > new Date(String(dateTo))) return false;
+        return true;
+      }).slice(0, 50);
+    }
+
+    res.json(results);
+  });
+
+  // === EMAIL SIGNATURES ===
+  app.get("/api/email-signatures/:type", isAuthenticated, async (req, res) => {
+    const type = req.params.type as "sales" | "support" | "onboarding";
+    const sig = await getStoredSignature(type);
+    res.json({
+      signature: sig,
+      html: getEmailSignatureHtml(type, sig),
+      plainText: getEmailSignaturePlainText(type, sig),
+    });
+  });
+
+  app.put("/api/email-signatures/:type", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
+    const type = req.params.type;
+    await saveSignature(type, req.body);
+    const sig = await getStoredSignature(type);
+    res.json({
+      signature: sig,
+      html: getEmailSignatureHtml(type as any, sig),
+      plainText: getEmailSignaturePlainText(type as any, sig),
+    });
+  });
+
+  app.get("/api/email-signatures", isAuthenticated, async (req, res) => {
+    const types = ["sales", "support", "onboarding"];
+    const signatures: Record<string, any> = {};
+    for (const type of types) {
+      const sig = await getStoredSignature(type);
+      signatures[type] = {
+        signature: sig,
+        html: getEmailSignatureHtml(type as any, sig),
+        plainText: getEmailSignaturePlainText(type as any, sig),
+      };
+    }
+    res.json(signatures);
+  });
+
+  // === BATCH RE-ENRICHMENT & CLASSIFICATION ===
+  app.post("/api/sunbiz/re-enrich-all", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
+    const limit = Number(req.body.limit) || 200;
+    res.json({ message: `Re-enrichment started for up to ${limit} entities. Check server logs for progress.`, started: true });
+    reEnrichAllSunbizEntities(limit).catch(err => console.error("[Re-Enrich API] Error:", err));
+  });
+
+  app.post("/api/sunbiz/promote-qualified", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
+    const result = await promoteQualifiedToContacts();
+    res.json(result);
+  });
+
+  // === DAILY OUTREACH AUTOMATION ===
+  app.post("/api/outreach/run-daily", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
+    res.json({ message: "Daily outreach cycle started. Check server logs for progress.", started: true });
+    runDailyOutreach().catch(err => console.error("[Daily Outreach API] Error:", err));
+  });
+
+  app.post("/api/outreach/start-worker", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+    const intervalMinutes = Number(req.body.intervalMinutes) || 60;
+    startDailyOutreachWorker(intervalMinutes);
+    res.json({ message: `Outreach worker started (runs every ${intervalMinutes} minutes)`, started: true });
+  });
+
+  app.post("/api/outreach/stop-worker", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+    stopDailyOutreachWorker();
+    res.json({ message: "Outreach worker stopped", stopped: true });
+  });
+
+  app.get("/api/outreach/status", isAuthenticated, async (req, res) => {
+    const entities = await storage.getSunbizEntities();
+    const prospects = await storage.getProspects();
+    const contacts = await storage.getContacts();
+    const campaigns = await storage.getCampaigns();
+
+    const entityStats = {
+      total: entities.length,
+      enriched: entities.filter(e => e.enrichmentStatus === "enriched").length,
+      withEmail: entities.filter(e => e.email).length,
+      withPhone: entities.filter(e => e.phone).length,
+      hot: entities.filter(e => e.score === "hot").length,
+      warm: entities.filter(e => e.score === "warm").length,
+      cold: entities.filter(e => e.score === "cold").length,
+      unqualified: entities.filter(e => e.score === "unqualified").length,
+      classified: entities.filter(e => e.vertical && e.vertical !== "Other").length,
+      pendingPromotion: entities.filter(e => (e.score === "hot" || e.score === "warm") && e.email && !e.prospectId).length,
+    };
+
+    const prospectStats = {
+      total: prospects.length,
+      withEmail: prospects.filter(p => p.email).length,
+      converted: prospects.filter(p => p.status === "converted").length,
+      qualified: prospects.filter(p => p.qualificationScore && ["A", "B"].includes(p.qualificationScore)).length,
+    };
+
+    const contactStats = {
+      total: contacts.length,
+      fromSunbiz: contacts.filter(c => c.referralSource === "sunbiz_enrichment" || c.tags?.includes("sunbiz")).length,
+      newLeads: contacts.filter(c => c.status === "New").length,
+    };
+
+    const activeCampaigns = campaigns.filter(c => c.status === "active").length;
+
+    const verticalBreakdown: Record<string, number> = {};
+    for (const e of entities) {
+      const v = e.vertical || "Unclassified";
+      verticalBreakdown[v] = (verticalBreakdown[v] || 0) + 1;
+    }
+
+    res.json({
+      entities: entityStats,
+      prospects: prospectStats,
+      contacts: contactStats,
+      activeCampaigns,
+      verticalBreakdown,
+    });
   });
 
   return httpServer;

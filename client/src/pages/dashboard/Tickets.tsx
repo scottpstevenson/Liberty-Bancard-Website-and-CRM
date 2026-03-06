@@ -10,10 +10,14 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, AlertTriangle, Sparkles, Loader2, ChevronDown, ChevronRight, Download } from "lucide-react";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Switch } from "@/components/ui/switch";
+import { Separator } from "@/components/ui/separator";
+import { Plus, AlertTriangle, Sparkles, Loader2, Download, Send, Lock, Globe } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { exportToCSV } from "@/lib/export-csv";
-import type { Ticket, Contact } from "@shared/schema";
+import SavedFilterBar from "@/components/SavedFilterBar";
+import type { Ticket, Contact, TicketComment } from "@shared/schema";
 import { TICKET_CATEGORIES, SUPPORT_STAGES } from "@shared/schema";
 
 function getPriorityVariant(priority: string | null): "destructive" | "secondary" {
@@ -36,6 +40,159 @@ function isSlaBreached(ticket: Ticket): boolean {
   return new Date() > new Date(ticket.slaDeadline);
 }
 
+function getInitials(name: string | null | undefined): string {
+  if (!name) return "?";
+  return name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
+}
+
+function formatTimestamp(date: string | Date | null | undefined): string {
+  if (!date) return "";
+  const d = new Date(date);
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function TicketConversation({ ticket }: { ticket: Ticket }) {
+  const { toast } = useToast();
+  const [replyContent, setReplyContent] = useState("");
+  const [isInternal, setIsInternal] = useState(false);
+
+  const { data: comments, isLoading: commentsLoading } = useQuery<TicketComment[]>({
+    queryKey: ["/api/tickets", ticket.id, "comments"],
+    queryFn: async () => {
+      const res = await fetch(`/api/tickets/${ticket.id}/comments`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch comments");
+      return res.json();
+    },
+  });
+
+  const addCommentMutation = useMutation({
+    mutationFn: async (data: { content: string; isInternal: boolean }) => {
+      const res = await apiRequest("POST", `/api/tickets/${ticket.id}/comments`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tickets", ticket.id, "comments"] });
+      setReplyContent("");
+      toast({ title: "Reply added" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to add reply", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const handleSubmitReply = () => {
+    if (!replyContent.trim()) return;
+    addCommentMutation.mutate({ content: replyContent.trim(), isInternal });
+  };
+
+  return (
+    <div className="space-y-4" data-testid="ticket-conversation">
+      <div className="flex items-center gap-2">
+        <h4 className="text-sm font-semibold">Conversation</h4>
+        <Badge variant="secondary" className="text-xs no-default-hover-elevate" data-testid="badge-comment-count">
+          {comments?.length ?? 0}
+        </Badge>
+      </div>
+
+      <div className="space-y-3 max-h-64 overflow-y-auto pr-1" data-testid="conversation-thread">
+        {commentsLoading ? (
+          <div className="flex items-center justify-center py-6 text-muted-foreground text-sm">
+            <Loader2 className="w-4 h-4 animate-spin mr-2" />
+            Loading conversation...
+          </div>
+        ) : !comments || comments.length === 0 ? (
+          <div className="text-center py-6 text-muted-foreground text-sm" data-testid="text-no-comments">
+            No replies yet. Start the conversation below.
+          </div>
+        ) : (
+          comments.map((comment) => (
+            <div
+              key={comment.id}
+              className={`flex gap-3 ${comment.isInternal ? "opacity-80" : ""}`}
+              data-testid={`comment-${comment.id}`}
+            >
+              <Avatar className="h-8 w-8 shrink-0">
+                <AvatarFallback className="text-xs" data-testid={`avatar-comment-${comment.id}`}>
+                  {getInitials(comment.authorName)}
+                </AvatarFallback>
+              </Avatar>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-medium" data-testid={`text-comment-author-${comment.id}`}>
+                    {comment.authorName || "Unknown"}
+                  </span>
+                  <span className="text-xs text-muted-foreground" data-testid={`text-comment-time-${comment.id}`}>
+                    {formatTimestamp(comment.createdAt)}
+                  </span>
+                  {comment.isInternal ? (
+                    <Badge variant="outline" className="text-xs gap-1 no-default-hover-elevate" data-testid={`badge-internal-${comment.id}`}>
+                      <Lock className="w-3 h-3" />
+                      Internal
+                    </Badge>
+                  ) : (
+                    <Badge variant="secondary" className="text-xs gap-1 no-default-hover-elevate" data-testid={`badge-external-${comment.id}`}>
+                      <Globe className="w-3 h-3" />
+                      External
+                    </Badge>
+                  )}
+                </div>
+                <p className="text-sm mt-1 whitespace-pre-wrap" data-testid={`text-comment-content-${comment.id}`}>
+                  {comment.content}
+                </p>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      <Separator />
+
+      <div className="space-y-3" data-testid="reply-form">
+        <Textarea
+          value={replyContent}
+          onChange={(e) => setReplyContent(e.target.value)}
+          placeholder={isInternal ? "Add an internal note..." : "Type your reply..."}
+          className="resize-none"
+          data-testid="input-reply-content"
+        />
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2">
+            <Switch
+              checked={isInternal}
+              onCheckedChange={setIsInternal}
+              data-testid="switch-internal-note"
+            />
+            <Label className="text-sm cursor-pointer" data-testid="label-internal-note">
+              {isInternal ? "Internal note" : "External reply"}
+            </Label>
+            {isInternal && (
+              <Lock className="w-3.5 h-3.5 text-muted-foreground" />
+            )}
+          </div>
+          <Button
+            onClick={handleSubmitReply}
+            disabled={!replyContent.trim() || addCommentMutation.isPending}
+            className="gap-2"
+            data-testid="button-submit-reply"
+          >
+            {addCommentMutation.isPending ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Send className="w-4 h-4" />
+            )}
+            {isInternal ? "Add Note" : "Send Reply"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Tickets() {
   const { toast } = useToast();
   const [createOpen, setCreateOpen] = useState(false);
@@ -52,7 +209,6 @@ export default function Tickets() {
 
   const [editStatus, setEditStatus] = useState("");
   const [editAssignedTo, setEditAssignedTo] = useState("");
-  const [editNotes, setEditNotes] = useState("");
   const [aiResult, setAiResult] = useState<{category: string; priority: string; suggestedResponse: string; tags: string[]; estimatedResolutionHours: number} | null>(null);
 
   const { data: tickets, isLoading } = useQuery<Ticket[]>({
@@ -96,8 +252,6 @@ export default function Tickets() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
-      setDetailOpen(false);
-      setSelectedTicket(null);
       toast({ title: "Ticket updated successfully" });
     },
     onError: (err: Error) => {
@@ -142,12 +296,10 @@ export default function Tickets() {
     const updates: Record<string, unknown> = {};
     if (editStatus && editStatus !== selectedTicket.status) updates.status = editStatus;
     if (editAssignedTo !== (selectedTicket.assignedTo || "")) updates.assignedTo = editAssignedTo || null;
-    if (editNotes) updates.description = `${selectedTicket.description}\n\n---\nUpdate: ${editNotes}`;
     if (editStatus === "Resolved" && selectedTicket.status !== "Resolved") {
       updates.resolvedAt = new Date().toISOString();
     }
     if (Object.keys(updates).length === 0) {
-      setDetailOpen(false);
       return;
     }
     updateTicketMutation.mutate({ id: selectedTicket.id, ...updates });
@@ -157,7 +309,6 @@ export default function Tickets() {
     setSelectedTicket(ticket);
     setEditStatus(ticket.status || "New Ticket");
     setEditAssignedTo(ticket.assignedTo || "");
-    setEditNotes("");
     setAiResult(null);
     setDetailOpen(true);
   };
@@ -278,6 +429,12 @@ export default function Tickets() {
         </div>
       </div>
 
+      <SavedFilterBar
+        entityType="ticket"
+        currentFilters={{}}
+        onApplyFilter={() => {}}
+      />
+
       <Card>
         <CardContent className="p-0 overflow-x-auto">
           <Table data-testid="table-tickets" className="min-w-[700px]">
@@ -345,7 +502,7 @@ export default function Tickets() {
       </Card>
 
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent className="max-w-md" data-testid="dialog-ticket-detail">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" data-testid="dialog-ticket-detail">
           <DialogHeader>
             <DialogTitle>Ticket #{selectedTicket?.id}</DialogTitle>
           </DialogHeader>
@@ -413,41 +570,33 @@ export default function Tickets() {
                 )}
               </div>
 
-              <div className="space-y-2">
-                <Label>Status</Label>
-                <Select value={editStatus} onValueChange={setEditStatus}>
-                  <SelectTrigger data-testid="select-edit-status">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {SUPPORT_STAGES.map((s) => (
-                      <SelectItem key={s} value={s}>{s}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Status</Label>
+                  <Select value={editStatus} onValueChange={setEditStatus}>
+                    <SelectTrigger data-testid="select-edit-status">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {SUPPORT_STAGES.map((s) => (
+                        <SelectItem key={s} value={s}>{s}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Assigned To</Label>
+                  <Input
+                    value={editAssignedTo}
+                    onChange={(e) => setEditAssignedTo(e.target.value)}
+                    placeholder="Assign to..."
+                    data-testid="input-edit-assigned-to"
+                  />
+                </div>
               </div>
 
-              <div className="space-y-2">
-                <Label>Assigned To</Label>
-                <Input
-                  value={editAssignedTo}
-                  onChange={(e) => setEditAssignedTo(e.target.value)}
-                  placeholder="Assign to..."
-                  data-testid="input-edit-assigned-to"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label>Add Note</Label>
-                <Textarea
-                  value={editNotes}
-                  onChange={(e) => setEditNotes(e.target.value)}
-                  placeholder="Add a note..."
-                  data-testid="input-edit-ticket-notes"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
+              <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={() => setDetailOpen(false)} data-testid="button-cancel-ticket-edit">
                   Cancel
                 </Button>
@@ -455,6 +604,10 @@ export default function Tickets() {
                   {updateTicketMutation.isPending ? "Saving..." : "Save Changes"}
                 </Button>
               </div>
+
+              <Separator />
+
+              <TicketConversation ticket={selectedTicket} />
             </div>
           )}
         </DialogContent>

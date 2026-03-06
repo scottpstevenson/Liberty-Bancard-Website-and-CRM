@@ -59,12 +59,14 @@ export const contacts = pgTable("contacts", {
   coolingUntil: timestamp("cooling_until"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+  archivedAt: timestamp("archived_at"),
 });
 
 export const insertContactSchema = createInsertSchema(contacts).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
+  archivedAt: true,
 });
 
 export const companies = pgTable("companies", {
@@ -144,12 +146,14 @@ export const deals = pgTable("deals", {
   closedAt: timestamp("closed_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+  archivedAt: timestamp("archived_at"),
 });
 
 export const insertDealSchema = createInsertSchema(deals).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
+  archivedAt: true,
 });
 
 export const tickets = pgTable("tickets", {
@@ -1700,3 +1704,132 @@ export const insertDataDeleteRequestSchema = createInsertSchema(dataDeleteReques
 
 export type DataDeleteRequest = typeof dataDeleteRequests.$inferSelect;
 export type InsertDataDeleteRequest = z.infer<typeof insertDataDeleteRequestSchema>;
+
+export const comments = pgTable("comments", {
+  id: serial("id").primaryKey(),
+  entityType: text("entity_type").notNull(),
+  entityId: integer("entity_id").notNull(),
+  parentId: integer("parent_id"),
+  content: text("content").notNull(),
+  authorId: text("author_id"),
+  authorName: text("author_name"),
+  mentions: jsonb("mentions"),
+  pinned: boolean("pinned").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertCommentSchema = createInsertSchema(comments).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type Comment = typeof comments.$inferSelect;
+export type InsertComment = z.infer<typeof insertCommentSchema>;
+
+export const ticketComments = pgTable("ticket_comments", {
+  id: serial("id").primaryKey(),
+  ticketId: integer("ticket_id").references(() => tickets.id),
+  content: text("content").notNull(),
+  authorId: text("author_id"),
+  authorName: text("author_name"),
+  isInternal: boolean("is_internal").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertTicketCommentSchema = createInsertSchema(ticketComments).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type TicketComment = typeof ticketComments.$inferSelect;
+export type InsertTicketComment = z.infer<typeof insertTicketCommentSchema>;
+
+export const contactCompanies = pgTable("contact_companies", {
+  id: serial("id").primaryKey(),
+  contactId: integer("contact_id").references(() => contacts.id),
+  companyId: integer("company_id").references(() => companies.id),
+  role: text("role").default("Owner"),
+  isPrimary: boolean("is_primary").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertContactCompanySchema = createInsertSchema(contactCompanies).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type ContactCompany = typeof contactCompanies.$inferSelect;
+export type InsertContactCompany = z.infer<typeof insertContactCompanySchema>;
+
+export const pipelineStages = pgTable("pipeline_stages", {
+  id: serial("id").primaryKey(),
+  pipeline: text("pipeline").notNull(),
+  stageName: text("stage_name").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  color: text("color").default("#6366f1"),
+  isDefault: boolean("is_default").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertPipelineStageSchema = createInsertSchema(pipelineStages).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type PipelineStage = typeof pipelineStages.$inferSelect;
+export type InsertPipelineStage = z.infer<typeof insertPipelineStageSchema>;
+
+export const notificationPreferences = pgTable("notification_preferences", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  eventType: text("event_type").notNull(),
+  enabled: boolean("enabled").default(true),
+});
+
+export const insertNotificationPreferenceSchema = createInsertSchema(notificationPreferences).omit({
+  id: true,
+});
+
+export type NotificationPreference = typeof notificationPreferences.$inferSelect;
+export type InsertNotificationPreference = z.infer<typeof insertNotificationPreferenceSchema>;
+
+export const savedFilters = pgTable("saved_filters", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  name: text("name").notNull(),
+  entityType: text("entity_type").notNull(),
+  filters: jsonb("filters").notNull(),
+  isDefault: boolean("is_default").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertSavedFilterSchema = createInsertSchema(savedFilters).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type SavedFilter = typeof savedFilters.$inferSelect;
+export type InsertSavedFilter = z.infer<typeof insertSavedFilterSchema>;
+
+export const NOTIFICATION_EVENT_TYPES = [
+  "deal_created",
+  "deal_stage_changed",
+  "ticket_created",
+  "ticket_updated",
+  "task_assigned",
+  "task_due_soon",
+  "sla_breach",
+  "contact_created",
+  "mention",
+  "comment_reply",
+] as const;
+
+export const CONTACT_COMPANY_ROLES = [
+  "Owner",
+  "Manager",
+  "Authorized Signer",
+  "Bookkeeper",
+  "Other",
+] as const;
