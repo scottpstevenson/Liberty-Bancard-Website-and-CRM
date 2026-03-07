@@ -27,10 +27,12 @@ import {
   Plus,
   X,
 } from "lucide-react";
-import terminalHero from "@assets/images/liberty-terminal-hero.png";
-import terminalTap from "@assets/images/liberty-terminal-tap.png";
-import terminalAngle from "@assets/images/liberty-terminal-angle.png";
-import terminalStand from "@assets/images/liberty-terminal-stand.png";
+import imgCloverFlex3 from "@assets/images/terminal-clover-flex-3.png";
+import imgCloverMini3 from "@assets/images/terminal-clover-mini-3.png";
+import imgCloverStationDuo from "@assets/images/terminal-clover-station-duo.png";
+import imgDejavooQD4 from "@assets/images/terminal-dejavoo-qd4.png";
+import imgPaxA920 from "@assets/images/terminal-pax-a920.png";
+import imgSwipeSimpleB250 from "@assets/images/terminal-swipesimple-b250.png";
 
 interface ShopTerminal {
   id: string;
@@ -57,7 +59,7 @@ const shopTerminals: ShopTerminal[] = [
     brand: "Clover",
     tagline: "All-in-one handheld POS",
     shortDescription: "Powerful handheld POS with built-in printer, barcode scanner, and 4G LTE. Take payments anywhere — tableside, curbside, or on the go.",
-    image: terminalHero,
+    image: imgCloverFlex3,
     popular: true,
     price: null,
     priceLabel: "Custom Quote",
@@ -86,7 +88,7 @@ const shopTerminals: ShopTerminal[] = [
     brand: "Clover",
     tagline: "Compact countertop powerhouse",
     shortDescription: "Full POS functionality in a compact 8\" countertop form. Built-in printer, fingerprint login, and the complete Clover ecosystem.",
-    image: terminalAngle,
+    image: imgCloverMini3,
     price: null,
     priceLabel: "Custom Quote",
     monthlyFee: "Varies by plan",
@@ -114,7 +116,7 @@ const shopTerminals: ShopTerminal[] = [
     brand: "Clover",
     tagline: "Full register experience",
     shortDescription: "Flagship dual-screen POS: 14\" merchant display + 8\" customer screen. Cash drawer, printer, and full suite included. The complete register.",
-    image: terminalStand,
+    image: imgCloverStationDuo,
     price: null,
     priceLabel: "Custom Quote",
     monthlyFee: "Varies by plan",
@@ -142,7 +144,7 @@ const shopTerminals: ShopTerminal[] = [
     brand: "Dejavoo",
     tagline: "Rugged mobile smart terminal",
     shortDescription: "Built tough for the field. Android-based smart terminal with dual SIM, long battery, and drop-resistant design. Perfect for delivery, contractors, and mobile merchants.",
-    image: terminalTap,
+    image: imgDejavooQD4,
     popular: true,
     price: 299,
     priceLabel: "$299",
