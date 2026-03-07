@@ -633,7 +633,7 @@ export default function Pipeline() {
                           </div>
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={(e) => e.stopPropagation()} data-testid={`button-deal-actions-${deal.id}`}>
+                              <Button variant="ghost" size="icon" className="shrink-0" onClick={(e) => e.stopPropagation()} data-testid={`button-deal-actions-${deal.id}`}>
                                 <MoreVertical className="h-3 w-3" />
                               </Button>
                             </DropdownMenuTrigger>
@@ -691,13 +691,13 @@ export default function Pipeline() {
       </ScrollArea>
 
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent className="max-w-lg" data-testid="dialog-deal-detail">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto" data-testid="dialog-deal-detail">
           <DialogHeader>
             <DialogTitle>Deal Details</DialogTitle>
           </DialogHeader>
           {selectedDeal && (
             <div className="space-y-4 pt-2">
-              <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                 <div>
                   <span className="text-muted-foreground">Contact</span>
                   <div className="font-medium" data-testid="text-detail-contact">{getContactName(selectedDeal.contactId)}</div>
@@ -802,7 +802,7 @@ export default function Pipeline() {
       </Dialog>
 
       <Dialog open={configOpen} onOpenChange={setConfigOpen}>
-        <DialogContent className="max-w-lg" data-testid="dialog-configure-stages">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto" data-testid="dialog-configure-stages">
           <DialogHeader>
             <DialogTitle>Configure Pipeline Stages</DialogTitle>
           </DialogHeader>

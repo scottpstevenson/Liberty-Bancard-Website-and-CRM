@@ -309,7 +309,7 @@ export default function Tasks() {
                     data-testid="input-task-description"
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Assigned To</Label>
                     <Input
@@ -342,7 +342,7 @@ export default function Tasks() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div className="space-y-2">
                     <Label>Deal ID</Label>
                     <Input

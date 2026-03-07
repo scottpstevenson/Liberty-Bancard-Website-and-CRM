@@ -331,10 +331,14 @@ export default function TerminalShop() {
               <p className="text-muted-foreground mb-2">
                 Thank you, {form.firstName}! We've received your equipment request.
               </p>
-              <p className="text-muted-foreground mb-8">
+              <p className="text-muted-foreground mb-2">
                 A team member will reach out within 1 business day to finalize your order, review pricing, and coordinate setup.
               </p>
-              <div className="bg-muted/50 rounded-lg p-4 mb-8 text-left">
+              <div className="inline-flex items-center gap-2 bg-primary/10 text-primary rounded-full px-4 py-2 text-sm font-medium mb-8" data-testid="text-processing-time">
+                <Truck className="w-4 h-4" />
+                24-hour setup & testing before shipment
+              </div>
+              <div className="bg-muted/50 rounded-lg p-4 mb-4 text-left">
                 <h3 className="font-semibold text-sm mb-3">Order Summary</h3>
                 {cart.map((item) => {
                   const t = shopTerminals.find((t) => t.id === item.terminalId);
@@ -345,6 +349,23 @@ export default function TerminalShop() {
                     </div>
                   );
                 })}
+              </div>
+              <div className="bg-muted/30 rounded-lg p-4 mb-8 text-left">
+                <h3 className="font-semibold text-sm mb-2">What Happens Next</h3>
+                <ol className="space-y-2 text-sm text-muted-foreground">
+                  <li className="flex items-start gap-2">
+                    <span className="bg-primary/10 text-primary rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">1</span>
+                    <span>We confirm your order and processing program within 1 business day</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="bg-primary/10 text-primary rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">2</span>
+                    <span>Your terminal is programmed with your merchant account and tested for 24 hours</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="bg-primary/10 text-primary rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">3</span>
+                    <span>Terminal ships pre-configured — plug in and start accepting payments</span>
+                  </li>
+                </ol>
               </div>
               <div className="flex gap-4 justify-center flex-wrap">
                 <Link href="/" data-testid="link-back-home">
@@ -490,8 +511,8 @@ export default function TerminalShop() {
                       <Truck className="w-5 h-5 text-primary" />
                     </div>
                     <div>
-                      <h3 className="font-semibold text-foreground mb-1">Pre-Configured & Ready</h3>
-                      <p className="text-sm text-muted-foreground">Every terminal ships programmed with your merchant account. Plug in and start accepting payments immediately.</p>
+                      <h3 className="font-semibold text-foreground mb-1">24-Hour Setup & Testing</h3>
+                      <p className="text-sm text-muted-foreground">Every terminal goes through 24 hours of hands-on setup and testing before shipping. We program your merchant account, test all payment types, and verify connectivity so it works on arrival.</p>
                     </div>
                   </div>
                   <div className="flex items-start gap-4">
@@ -641,46 +662,48 @@ export default function TerminalShop() {
                       return (
                         <Card key={item.terminalId} data-testid={`card-cart-${item.terminalId}`}>
                           <CardContent className="p-4">
-                            <div className="flex items-center gap-4">
-                              <div className="w-16 h-16 bg-muted/30 rounded-lg flex items-center justify-center shrink-0">
-                                <img src={t.image} alt={t.name} className="max-h-12 w-auto object-contain" />
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+                              <div className="flex items-center gap-3 flex-1 min-w-0">
+                                <div className="w-14 h-14 sm:w-16 sm:h-16 bg-muted/30 rounded-lg flex items-center justify-center shrink-0">
+                                  <img src={t.image} alt={t.name} className="max-h-10 sm:max-h-12 w-auto object-contain" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <h3 className="font-semibold text-foreground truncate">{t.name}</h3>
+                                  <p className="text-sm text-muted-foreground">{t.brand} · {t.priceLabel}</p>
+                                </div>
                               </div>
-                              <div className="flex-1 min-w-0">
-                                <h3 className="font-semibold text-foreground">{t.name}</h3>
-                                <p className="text-sm text-muted-foreground">{t.brand} · {t.priceLabel}</p>
-                              </div>
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center justify-between sm:justify-end gap-2">
+                                <div className="flex items-center gap-2">
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    onClick={() => updateQuantity(item.terminalId, -1)}
+                                    data-testid={`button-qty-minus-${item.terminalId}`}
+                                  >
+                                    <Minus className="w-3 h-3" />
+                                  </Button>
+                                  <span className="w-8 text-center font-medium text-foreground" data-testid={`text-qty-${item.terminalId}`}>
+                                    {item.quantity}
+                                  </span>
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    onClick={() => updateQuantity(item.terminalId, 1)}
+                                    data-testid={`button-qty-plus-${item.terminalId}`}
+                                  >
+                                    <Plus className="w-3 h-3" />
+                                  </Button>
+                                </div>
                                 <Button
-                                  variant="outline"
+                                  variant="ghost"
                                   size="icon"
-                                  className="h-8 w-8"
-                                  onClick={() => updateQuantity(item.terminalId, -1)}
-                                  data-testid={`button-qty-minus-${item.terminalId}`}
+                                  className="text-muted-foreground"
+                                  onClick={() => removeFromCart(item.terminalId)}
+                                  data-testid={`button-remove-${item.terminalId}`}
                                 >
-                                  <Minus className="w-3 h-3" />
-                                </Button>
-                                <span className="w-8 text-center font-medium text-foreground" data-testid={`text-qty-${item.terminalId}`}>
-                                  {item.quantity}
-                                </span>
-                                <Button
-                                  variant="outline"
-                                  size="icon"
-                                  className="h-8 w-8"
-                                  onClick={() => updateQuantity(item.terminalId, 1)}
-                                  data-testid={`button-qty-plus-${item.terminalId}`}
-                                >
-                                  <Plus className="w-3 h-3" />
+                                  <X className="w-4 h-4" />
                                 </Button>
                               </div>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                                onClick={() => removeFromCart(item.terminalId)}
-                                data-testid={`button-remove-${item.terminalId}`}
-                              >
-                                <X className="w-4 h-4" />
-                              </Button>
                             </div>
                           </CardContent>
                         </Card>
@@ -688,10 +711,18 @@ export default function TerminalShop() {
                     })}
                   </div>
 
+                  <Card className="mb-4">
+                    <CardContent className="p-4">
+                      <div className="flex items-start gap-2 text-sm text-muted-foreground">
+                        <Truck className="w-4 h-4 mt-0.5 shrink-0 text-primary" />
+                        <span><strong className="text-foreground">24-Hour Setup & Testing:</strong> Every terminal goes through hands-on configuration, payment testing, and connectivity verification before shipping. Expect shipment within 1-2 business days.</span>
+                      </div>
+                    </CardContent>
+                  </Card>
                   <Card className="mb-6">
                     <CardContent className="p-4">
                       <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <CreditCard className="w-4 h-4" />
+                        <CreditCard className="w-4 h-4 shrink-0" />
                         <span>Final pricing confirmed by our team based on your processing program. No surprise charges.</span>
                       </div>
                     </CardContent>
@@ -731,7 +762,7 @@ export default function TerminalShop() {
               </p>
 
               <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="text-sm font-medium text-foreground mb-1.5 block">First Name *</label>
                     <Input
@@ -807,8 +838,12 @@ export default function TerminalShop() {
                         </div>
                       );
                     })}
-                    <div className="border-t border-border mt-2 pt-2">
+                    <div className="border-t border-border mt-2 pt-2 space-y-1">
                       <p className="text-xs text-muted-foreground">Final pricing confirmed after review. No payment collected now.</p>
+                      <div className="flex items-center gap-1.5 text-xs text-primary">
+                        <Truck className="w-3 h-3" />
+                        <span>24-hour setup & testing before shipment</span>
+                      </div>
                     </div>
                   </CardContent>
                 </Card>

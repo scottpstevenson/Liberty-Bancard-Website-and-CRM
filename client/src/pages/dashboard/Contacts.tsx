@@ -332,7 +332,7 @@ function DuplicateFinderDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                               <Badge variant="default" data-testid={`badge-primary-${c.id}`}>Primary</Badge>
                             )}
                           </div>
-                          <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2 text-sm text-muted-foreground">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 mt-2 text-sm text-muted-foreground">
                             <span data-testid={`merge-email-${c.id}`}>Email: {c.email || "N/A"}</span>
                             <span data-testid={`merge-phone-${c.id}`}>Phone: {c.phone || "N/A"}</span>
                             <span data-testid={`merge-company-${c.id}`}>Company: {c.companyName || "N/A"}</span>
@@ -582,7 +582,7 @@ export default function Contacts() {
             </DialogHeader>
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <FormField
                     control={form.control}
                     name="firstName"

@@ -422,7 +422,7 @@ export default function Home() {
             </p>
             <div className="relative">
               <div className="hidden md:block absolute top-6 left-0 right-0 h-0.5 bg-border" />
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4 sm:gap-6">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 sm:gap-6">
                 {[
                   { day: "Day 0", title: "Upload", desc: "Statement uploaded, review begins" },
                   { day: "Day 1", title: "Review", desc: "Line-item breakdown delivered" },
@@ -685,7 +685,7 @@ export default function Home() {
         </section>
 
         {/* SECTION 7.5: Platform Preview */}
-        <section className="bg-background bg-grid py-20" data-testid="section-platform-preview">
+        <section className="bg-background bg-grid py-20 overflow-hidden" data-testid="section-platform-preview">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
               <div>

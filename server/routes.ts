@@ -718,14 +718,33 @@ export async function registerRoutes(
       });
 
       const itemSummary = validatedItems.map((i: any) => `${i.name} x${i.quantity} (${i.price})`).join(", ");
+      const primaryTerminal = validatedItems[0]?.name || "Unknown";
+      const allTerminals = validatedItems.map((i: any) => i.name).join(", ");
+      const orderedAt = new Date();
+
       const deal = await storage.createDeal({
         contactId: contact.id, pipeline: "sales", stage: "New Lead",
         notes: `Equipment order: ${itemSummary}. ${safeMessage}`.trim(),
+        terminalRecommendation: allTerminals,
+        terminalStatus: "Ordered — 24hr setup & testing before ship",
+        hardwarePackage: allTerminals,
       });
+
+      for (const item of validatedItems) {
+        await storage.createEquipmentOrder({
+          dealId: deal.id,
+          contactId: contact.id,
+          equipmentType: item.name,
+          quantity: item.quantity,
+          status: "pending",
+          orderedAt,
+          notes: `Price: ${item.price}. 24-hour setup & testing period before shipment.`,
+        });
+      }
 
       await storage.createTask({
         dealId: deal.id, contactId: contact.id,
-        title: `Equipment order: ${itemSummary}`.slice(0, 255),
+        title: `Setup & test terminal: ${primaryTerminal} (24hr processing)`.slice(0, 255),
         assignedTo: "Scott Stevenson",
         priority: "high", status: "open",
       });

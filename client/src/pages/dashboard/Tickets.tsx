@@ -388,7 +388,7 @@ export default function Tickets() {
                   data-testid="input-ticket-description"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Category</Label>
                   <Select value={newTicket.category} onValueChange={(v) => setNewTicket({ ...newTicket, category: v })}>
@@ -516,7 +516,7 @@ export default function Tickets() {
                 <div className="text-sm text-muted-foreground">Description</div>
                 <div className="text-sm whitespace-pre-wrap" data-testid="text-detail-description">{selectedTicket.description}</div>
               </div>
-              <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                 <div>
                   <span className="text-muted-foreground">Category</span>
                   <div className="font-medium" data-testid="text-detail-category">{selectedTicket.category}</div>
@@ -570,7 +570,7 @@ export default function Tickets() {
                 )}
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Status</Label>
                   <Select value={editStatus} onValueChange={setEditStatus}>

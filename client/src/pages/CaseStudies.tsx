@@ -422,7 +422,7 @@ export default function CaseStudies() {
                           </Badge>
                         </div>
 
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                           <div data-testid={`stat-volume-${cs.id}`}>
                             <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">
                               Monthly Volume
