@@ -208,7 +208,7 @@ export interface IStorage {
   createSunbizEntity(entity: InsertSunbizEntity): Promise<SunbizEntity>;
   createSunbizEntitiesBulk(entities: InsertSunbizEntity[]): Promise<SunbizEntity[]>;
   updateSunbizEntity(id: number, updates: UpdateSunbizEntityRequest): Promise<SunbizEntity | undefined>;
-  getSunbizEntitiesByStatus(status: string): Promise<SunbizEntity[]>;
+  getSunbizEntitiesByStatus(status: string, limit?: number): Promise<SunbizEntity[]>;
   getSunbizStats(listId?: number): Promise<{total: number, enriched: number, pending: number, withEmail: number, withPhone: number, withWebsite: number}>;
 
   getMerchantApplications(): Promise<MerchantApplication[]>;
@@ -956,7 +956,10 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async getSunbizEntitiesByStatus(status: string) {
+  async getSunbizEntitiesByStatus(status: string, limit?: number) {
+    if (limit) {
+      return await db.select().from(sunbizEntities).where(eq(sunbizEntities.enrichmentStatus, status)).orderBy(sunbizEntities.id).limit(limit);
+    }
     return await db.select().from(sunbizEntities).where(eq(sunbizEntities.enrichmentStatus, status)).orderBy(desc(sunbizEntities.createdAt));
   }
 
@@ -972,8 +975,8 @@ export class DatabaseStorage implements IStorage {
 
   async getSunbizEntitiesNeedingEnrichment(limit: number = 200) {
     return await db.select().from(sunbizEntities)
-      .where(sql`(vertical IS NULL OR vertical = 'Other' OR vertical = '' OR score = 'cold' OR email IS NULL) AND enrichment_status != 'processing'`)
-      .orderBy(sunbizEntities.id)
+      .where(sql`enrichment_status = 'enriched' AND (email IS NULL OR email = '') AND (score = 'hot' OR score = 'warm') AND (website IS NULL OR website = '')`)
+      .orderBy(sql`CASE WHEN score = 'hot' THEN 0 ELSE 1 END, id`)
       .limit(limit);
   }
 

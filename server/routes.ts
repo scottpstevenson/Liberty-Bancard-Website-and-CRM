@@ -20,7 +20,7 @@ import { parseSunbizCsv, searchSunbiz, getEntityDetail, streamCorevtFromZip } fr
 import { getEmailSignatureHtml, getEmailSignaturePlainText, getStoredSignature, saveSignature } from "./services/email-signatures";
 import { reEnrichAllSunbizEntities, promoteQualifiedToContacts, runDailyOutreach, startDailyOutreachWorker, stopDailyOutreachWorker, importFullCorevt, isWorkerRunning } from "./services/daily-outreach";
 import { syncContactToGhl, fullSyncToGhl, fullSyncFromGhl, syncDealToGhl, getGhlSyncStatus } from "./services/ghl-sync";
-import { enrichSunbizEntity, processSunbizEnrichmentQueue, convertToProspect } from "./services/sunbiz-enrichment";
+import { enrichSunbizEntity, processSunbizEnrichmentQueue, convertToProspect, runBulkFastClassification } from "./services/sunbiz-enrichment";
 import { estimateFromDeal, estimateFromContact, estimateFromProspect } from "./services/volume-estimator";
 import { insertSunbizEntitySchema } from "@shared/schema";
 import multer from "multer";
@@ -4919,6 +4919,17 @@ Notes: ${deal.notes || "None"}`
     const progress = await storage.getSystemSetting("corevt_import_progress");
     const entityCount = await storage.getSunbizEntityCount();
     res.json({ progress: progress || { status: "idle" }, totalInDb: entityCount });
+  });
+
+  app.post("/api/sunbiz/fast-classify", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+    res.json({ message: "Bulk fast classification started for all pending entities.", started: true });
+    runBulkFastClassification().catch(err => console.error("[FastClassify API] Error:", err));
+  });
+
+  app.get("/api/sunbiz/classify-progress", isAuthenticated, async (req, res) => {
+    const progress = await storage.getSystemSetting("bulk_classify_progress");
+    res.json({ progress: progress || { status: "idle" } });
   });
 
   // === BATCH RE-ENRICHMENT & CLASSIFICATION ===

@@ -224,6 +224,7 @@ Provide JSON:
 
     const result = JSON.parse(content);
     return {
+      ownerName: result.ownerName || undefined,
       ownerEmail: result.bestEmail || undefined,
       ownerPhone: result.bestPhone || undefined,
       email: result.bestEmail || (foundEmails[0] || undefined),
@@ -298,7 +299,8 @@ export async function enrichSunbizEntity(entityId: number): Promise<SunbizEntity
   if (website) updates.website = website;
   if (aiResult.email || foundEmails[0]) updates.email = aiResult.email || foundEmails[0];
   if (aiResult.phone || foundPhones[0]) updates.phone = aiResult.phone || foundPhones[0];
-  if (ownerOfficer) updates.ownerName = ownerOfficer.name;
+  if (aiResult.ownerName) updates.ownerName = aiResult.ownerName;
+  else if (ownerOfficer) updates.ownerName = ownerOfficer.name;
   if (aiResult.ownerEmail) updates.ownerEmail = aiResult.ownerEmail;
   if (aiResult.ownerPhone) updates.ownerPhone = aiResult.ownerPhone;
   if (aiResult.vertical) updates.vertical = aiResult.vertical;
@@ -314,6 +316,150 @@ export async function enrichSunbizEntity(entityId: number): Promise<SunbizEntity
 
   const updated = await storage.updateSunbizEntity(entityId, updates);
   return updated || entity;
+}
+
+const VERTICAL_KEYWORDS: Record<string, string[]> = {
+  "Restaurant": ["restaurant", "grill", "pizza", "sushi", "cafe", "bistro", "diner", "taco", "burrito", "bbq", "bakery", "catering", "food truck", "steakhouse", "seafood", "wings", "sandwich", "deli", "donut", "cupcake", "ice cream", "frozen yogurt", "juice bar", "smoothie", "coffee shop", "brewpub", "taproom", "bar & grill", "cantina", "trattoria", "ramen", "pho", "thai", "chinese", "indian", "japanese", "mexican", "italian", "mediterranean", "bagel"],
+  "Retail": ["store", "shop", "boutique", "mart", "outlet", "wholesale", "retail", "gallery", "market", "emporium", "supermarket", "convenience", "gift shop", "antique", "thrift", "consignment", "furniture store", "hardware", "pet store", "toy store", "book store", "clothing", "apparel", "shoes", "jewelry store", "florist", "flower shop", "wine shop", "liquor store", "smoke shop", "vape"],
+  "Healthcare": ["medical", "dental", "clinic", "doctor", "physician", "healthcare", "health care", "therapy", "chiropractic", "chiropractor", "dermatology", "dermatologist", "optometry", "ophthalmology", "pediatric", "orthopedic", "cardiology", "neurology", "urgent care", "pharmacy", "physical therapy", "mental health", "counseling", "psychiatry", "veterinary", "vet clinic", "animal hospital", "wellness center", "medspa", "med spa", "aesthetic", "cosmetic surgery", "plastic surgery", "orthodont"],
+  "Salon/Spa": ["salon", "barbershop", "barber", "spa", "nails", "nail salon", "beauty", "hair", "lashes", "waxing", "tanning", "skincare", "makeup", "tattoo", "piercing", "massage"],
+  "Auto": ["auto", "automotive", "car wash", "tire", "mechanic", "body shop", "collision", "transmission", "brake", "muffler", "oil change", "lube", "detailing", "auto repair", "car dealer", "used car", "truck", "motorcycle", "marine", "boat"],
+  "Construction": ["construction", "roofing", "plumbing", "plumber", "electric", "electrician", "hvac", "air conditioning", "heating", "cooling", "painting", "painter", "flooring", "carpet", "tile", "concrete", "masonry", "framing", "drywall", "demolition", "excavation", "paving", "landscaping", "lawn", "tree service", "pool", "fence", "remodeling", "renovation", "general contractor", "handyman", "pest control", "cleaning service", "janitorial", "pressure washing"],
+  "Real Estate": ["real estate", "realty", "property", "properties", "mortgage", "title", "escrow", "appraisal", "brokerage"],
+  "Legal": ["law firm", "attorney", "lawyer", "legal", "law office", "law group", "paralegal", "notary"],
+  "Accounting": ["accounting", "accountant", "cpa", "bookkeeping", "tax service", "tax prep", "payroll"],
+  "Professional Services": ["consulting", "consultant", "advisory", "management", "marketing", "advertising", "design", "architect", "engineering", "staffing", "recruiting", "insurance", "financial", "investment", "wealth management"],
+  "E-commerce": ["online", "e-commerce", "ecommerce", "digital", "web store", "marketplace"],
+};
+
+const UNQUALIFIED_KEYWORDS = [
+  "holding", "holdings", "trust", "investment", "investments", "capital", "ventures", "venture",
+  "asset", "assets", "fund", "funding", "equity", "securities", "financial group",
+  "management company", "management corp", "real estate investment", "reit",
+  "llc series", "shell", "dormant", "dissolved", "inactive",
+  "not for profit", "nonprofit", "non-profit", "charity", "charitable", "foundation",
+  "church", "ministry", "temple", "mosque", "synagogue", "congregation",
+  "association", "homeowner", "hoa", "condominium", "condo assoc",
+  "government", "county", "municipal", "state of", "federal",
+];
+
+function classifyByName(entityName: string, officers: any[]): {
+  vertical: string;
+  score: string;
+  ownerName: string | null;
+  aiSummary: string;
+} {
+  const lower = entityName.toLowerCase();
+
+  for (const kw of UNQUALIFIED_KEYWORDS) {
+    if (lower.includes(kw)) {
+      return { vertical: "Other", score: "unqualified", ownerName: extractOwnerFromOfficers(officers), aiSummary: `Likely holding/investment/nonprofit entity: ${entityName}` };
+    }
+  }
+
+  for (const [vertical, keywords] of Object.entries(VERTICAL_KEYWORDS)) {
+    for (const kw of keywords) {
+      if (lower.includes(kw)) {
+        const score = ["Restaurant", "Retail", "Healthcare", "Salon/Spa", "Auto"].includes(vertical) ? "hot" : "warm";
+        return {
+          vertical,
+          score,
+          ownerName: extractOwnerFromOfficers(officers),
+          aiSummary: `${vertical} business identified by name: ${entityName}. ${score === "hot" ? "High likelihood of card processing." : "Moderate card processing potential."}`,
+        };
+      }
+    }
+  }
+
+  return {
+    vertical: "Other",
+    score: "cold",
+    ownerName: extractOwnerFromOfficers(officers),
+    aiSummary: `Business type unclear from name: ${entityName}. Needs deeper enrichment.`,
+  };
+}
+
+function extractOwnerFromOfficers(officers: any[]): string | null {
+  if (!officers || officers.length === 0) return null;
+  const owner = officers.find((o: any) =>
+    /president|ceo|owner|managing|principal|organizer|director|manager|member/i.test(o.title || "")
+  ) || officers[0];
+  return owner?.name || null;
+}
+
+export async function fastClassifyBatch(batchSize: number = 500): Promise<{ processed: number; classified: number }> {
+  const batch = await storage.getSunbizEntitiesByStatus("pending", batchSize);
+
+  let processed = 0;
+  let classified = 0;
+
+  for (const entity of batch) {
+    try {
+      const officers = (entity.officers as any[]) || [];
+      const result = classifyByName(entity.entityName, officers);
+
+      await storage.updateSunbizEntity(entity.id, {
+        enrichmentStatus: "enriched",
+        enrichedAt: new Date(),
+        vertical: result.vertical,
+        score: result.score,
+        ownerName: result.ownerName || undefined,
+        aiSummary: result.aiSummary,
+      });
+
+      processed++;
+      if (result.vertical !== "Other") classified++;
+    } catch (err) {
+      console.error(`[FastClassify] Failed for entity ${entity.id}:`, err);
+    }
+  }
+
+  return { processed, classified };
+}
+
+export async function runBulkFastClassification(): Promise<{ total: number; classified: number; rounds: number }> {
+  let total = 0;
+  let totalClassified = 0;
+  let rounds = 0;
+
+  const countResult = await storage.getSunbizEntitiesByStatus("pending", 1);
+  const totalPending = countResult.length > 0 ? await storage.getSunbizEntityCount() : 0;
+  console.log(`[BulkClassify] Starting fast classification (estimated ${totalPending} pending entities)...`);
+
+  while (true) {
+    const { processed, classified } = await fastClassifyBatch(1000);
+    if (processed === 0) break;
+
+    total += processed;
+    totalClassified += classified;
+    rounds++;
+
+    if (rounds % 10 === 0) {
+      console.log(`[BulkClassify] Progress: ${total}/${totalPending} processed, ${totalClassified} classified to vertical`);
+      await storage.setSystemSetting("bulk_classify_progress", {
+        status: "running",
+        total: totalPending,
+        processed: total,
+        classified: totalClassified,
+        rounds,
+        lastUpdate: new Date().toISOString(),
+      });
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+
+  await storage.setSystemSetting("bulk_classify_progress", {
+    status: "complete",
+    total: totalPending,
+    processed: total,
+    classified: totalClassified,
+    rounds,
+    completedAt: new Date().toISOString(),
+  });
+
+  console.log(`[BulkClassify] Complete: ${total} processed, ${totalClassified} classified in ${rounds} rounds`);
+  return { total, classified: totalClassified, rounds };
 }
 
 export async function processSunbizEnrichmentQueue(limit: number = 5): Promise<number> {

@@ -202,8 +202,6 @@ export async function reEnrichAllSunbizEntities(limit: number = 200): Promise<{
 
   for (const entity of toProcess) {
     try {
-      await storage.updateSunbizEntity(entity.id, { enrichmentStatus: "pending" });
-
       console.log(`[Re-Enrich] Processing entity ${entity.id}: ${entity.entityName}...`);
       const result = await enrichSunbizEntity(entity.id);
       processed++;
