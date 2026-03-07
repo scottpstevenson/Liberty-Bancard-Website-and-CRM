@@ -109,6 +109,7 @@ import BlogPost from "@/pages/BlogPost";
 import IndustryPage from "@/pages/IndustryPage";
 import HelpCenter from "@/pages/HelpCenter";
 import Equipment from "@/pages/Equipment";
+import TerminalShop from "@/pages/TerminalShop";
 import HelpArticle from "@/pages/HelpArticle";
 import CostQuiz from "@/pages/sales/CostQuiz";
 import SalesOnePager from "@/pages/sales/SalesOnePager";
@@ -184,6 +185,7 @@ function Router() {
       <Route path="/thanks-support" component={ThanksSupport} />
       <Route path="/merchant-application" component={MerchantApplication} />
       <Route path="/equipment" component={Equipment} />
+      <Route path="/shop" component={TerminalShop} />
       <Route path="/savings-calculator" component={SavingsCalculator} />
       <Route path="/compare-rates" component={RateComparison} />
       <Route path="/compare/:competitor" component={CompareVs} />

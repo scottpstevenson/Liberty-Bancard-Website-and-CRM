@@ -685,6 +685,67 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/equipment-order", async (req, res) => {
+    try {
+      const { firstName, lastName, email, phone, businessName, message, items } = req.body;
+      if (!firstName || typeof firstName !== "string" || firstName.length > 100) {
+        return res.status(400).json({ message: "Valid first name is required" });
+      }
+      if (!email || typeof email !== "string" || !email.includes("@") || email.length > 200) {
+        return res.status(400).json({ message: "Valid email is required" });
+      }
+      if (!phone || typeof phone !== "string" || phone.length > 30) {
+        return res.status(400).json({ message: "Valid phone number is required" });
+      }
+      if (!Array.isArray(items) || items.length === 0 || items.length > 20) {
+        return res.status(400).json({ message: "At least one item is required" });
+      }
+      const validatedItems = items.map((i: any) => ({
+        name: String(i.name || "").slice(0, 100),
+        quantity: Math.min(Math.max(1, Number(i.quantity) || 1), 50),
+        price: String(i.price || "").slice(0, 50),
+      }));
+
+      const safeLastName = String(lastName || "").slice(0, 100);
+      const safeBusiness = String(businessName || "").slice(0, 200);
+      const safeMessage = String(message || "").slice(0, 1000);
+
+      const contact = await storage.createContact({
+        firstName: firstName.slice(0, 100), lastName: safeLastName, email: email.slice(0, 200), phone: phone.slice(0, 30),
+        companyName: safeBusiness,
+        status: "New",
+        tags: ["src_website", "lead_equipment_order", ...validatedItems.slice(0, 5).map((i: any) => `equip_${i.name.toLowerCase().replace(/[^a-z0-9]/g, "_")}`)],
+      });
+
+      const itemSummary = validatedItems.map((i: any) => `${i.name} x${i.quantity} (${i.price})`).join(", ");
+      const deal = await storage.createDeal({
+        contactId: contact.id, pipeline: "sales", stage: "New Lead",
+        notes: `Equipment order: ${itemSummary}. ${safeMessage}`.trim(),
+      });
+
+      await storage.createTask({
+        dealId: deal.id, contactId: contact.id,
+        title: `Equipment order: ${itemSummary}`.slice(0, 255),
+        assignedTo: "Scott Stevenson",
+        priority: "high", status: "open",
+      });
+
+      await storage.createNotification({
+        channel: "#sales", title: "Equipment Order Received",
+        message: `${firstName} ${safeLastName} ordered: ${itemSummary}`.slice(0, 500),
+        type: "alert",
+      });
+
+      scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
+      routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
+      autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "equipment_order" }).catch(err => console.error("Auto-enroll error:", err));
+      triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: deal.id }, { formType: "equipment_order" }).catch(err => console.error("Workflow trigger error:", err));
+      res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id });
+    } catch (err: any) {
+      res.status(400).json({ message: err.message || "Invalid submission" });
+    }
+  });
+
   // === RFIs ===
   app.get("/api/rfis", async (req, res) => {
     const allRfis = await storage.getRfis();
