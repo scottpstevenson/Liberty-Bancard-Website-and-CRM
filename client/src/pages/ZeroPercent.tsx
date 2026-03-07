@@ -21,8 +21,8 @@ import {
   Calendar,
   ArrowRight,
 } from "lucide-react";
-import terminalHero from "@assets/images/liberty-terminal-hero.png";
-import terminalTap from "@assets/images/liberty-terminal-tap.png";
+import imgCloverFlex3 from "@assets/images/terminal-clover-flex-3.png";
+import imgPaxA920 from "@assets/images/terminal-pax-a920.png";
 
 const approaches = [
   {
@@ -272,8 +272,8 @@ export default function ZeroPercent() {
             <div className="reveal max-w-5xl mx-auto">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-10 items-center">
                 <div className="flex flex-col gap-4 items-center order-2 md:order-1">
-                  <img src={terminalHero} alt="Liberty Smart Terminal" className="w-full max-w-xs rounded-md object-contain" data-testid="img-zero-terminal-hero" />
-                  <img src={terminalTap} alt="Contactless tap payment on Liberty Smart Terminal" className="w-full max-w-xs rounded-md object-cover" data-testid="img-zero-terminal-tap" />
+                  <img src={imgCloverFlex3} alt="Clover Flex 3 payment terminal" className="w-full max-w-xs rounded-md object-contain" data-testid="img-zero-terminal-hero" />
+                  <img src={imgPaxA920} alt="PAX A920 smart payment terminal" className="w-full max-w-xs rounded-md object-cover" data-testid="img-zero-terminal-tap" />
                 </div>
                 <div className="order-1 md:order-2">
                   <h2

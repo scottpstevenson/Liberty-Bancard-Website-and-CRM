@@ -42,7 +42,7 @@ import {
   ArrowRight,
   Sparkles,
 } from "lucide-react";
-import terminalHero from "@assets/images/liberty-terminal-hero.png";
+import imgCloverFlex3 from "@assets/images/terminal-clover-flex-3.png";
 import heroSecure from "@assets/images/hero-secure.jpg";
 
 const uploadSchema = z.object({
@@ -642,7 +642,7 @@ export default function UploadStatement() {
           <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 reveal">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
               <div className="flex justify-center reveal reveal-delay-1">
-                <img src={terminalHero} alt="Liberty Smart Terminal" className="w-full max-w-[240px] rounded-md object-contain" data-testid="img-upload-terminal" />
+                <img src={imgCloverFlex3} alt="Clover Flex 3 payment terminal" className="w-full max-w-[240px] rounded-md object-contain" data-testid="img-upload-terminal" />
               </div>
               <div className="reveal reveal-delay-2">
                 <h2 className="text-2xl font-bold text-foreground mb-3" data-testid="text-terminal-promo-heading">

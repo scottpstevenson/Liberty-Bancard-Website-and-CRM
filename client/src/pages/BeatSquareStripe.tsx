@@ -21,8 +21,8 @@ import {
   X,
   Minus,
 } from "lucide-react";
-import terminalHero from "@assets/images/liberty-terminal-hero.png";
-import terminalTap from "@assets/images/liberty-terminal-tap.png";
+import imgCloverFlex3 from "@assets/images/terminal-clover-flex-3.png";
+import imgPaxA920 from "@assets/images/terminal-pax-a920.png";
 
 const comparisonTable = [
   { feature: "Interchange passthrough pricing", square: false, stripe: false, liberty: true },
@@ -334,8 +334,8 @@ export default function BeatSquareStripe() {
                       </p>
                     </div>
                     <div className="flex flex-col gap-4 items-center">
-                      <img src={terminalHero} alt="Liberty Smart Terminal" className="w-full max-w-xs rounded-md object-contain" data-testid="img-terminal-hero" />
-                      <img src={terminalTap} alt="Contactless tap payment on Liberty Smart Terminal" className="w-full max-w-xs rounded-md object-cover" data-testid="img-terminal-tap" />
+                      <img src={imgCloverFlex3} alt="Clover Flex 3 payment terminal" className="w-full max-w-xs rounded-md object-contain" data-testid="img-terminal-hero" />
+                      <img src={imgPaxA920} alt="PAX A920 smart payment terminal" className="w-full max-w-xs rounded-md object-cover" data-testid="img-terminal-tap" />
                     </div>
                   </div>
                 </CardContent>

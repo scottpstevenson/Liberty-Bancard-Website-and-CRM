@@ -24,10 +24,10 @@ import {
   BookOpen,
   FolderOpen,
 } from "lucide-react";
-import terminalHero from "@assets/images/liberty-terminal-hero.png";
-import terminalTap from "@assets/images/liberty-terminal-tap.png";
-import terminalAngle from "@assets/images/liberty-terminal-angle.png";
-import terminalStand from "@assets/images/liberty-terminal-stand.png";
+import imgCloverFlex3 from "@assets/images/terminal-clover-flex-3.png";
+import imgCloverMini3 from "@assets/images/terminal-clover-mini-3.png";
+import imgCloverStationDuo from "@assets/images/terminal-clover-station-duo.png";
+import imgPaxA920 from "@assets/images/terminal-pax-a920.png";
 import verticalMedical from "@assets/images/vertical-medical.jpg";
 import verticalAuto from "@assets/images/vertical-auto.jpg";
 import verticalRestaurant from "@assets/images/vertical-restaurant.jpg";
@@ -316,10 +316,10 @@ const contentMap: Record<string, ContentPage> = {
       { label: "Warranty", value: "2 Years" },
     ],
     images: [
-      { src: terminalHero, alt: "Liberty Smart Terminal - product view", caption: "Liberty Smart Terminal - countertop payment device" },
-      { src: terminalStand, alt: "Liberty Smart Terminal on countertop stand", caption: "Countertop stand for customer-facing checkout" },
-      { src: terminalTap, alt: "Liberty Smart Terminal - contactless tap payment in use", caption: "Contactless tap payment - fast and secure" },
-      { src: terminalAngle, alt: "Liberty Smart Terminal with external card reader", caption: "Compact design with full payment acceptance" },
+      { src: imgCloverFlex3, alt: "Clover Flex 3 handheld POS terminal", caption: "Clover Flex 3 - portable all-in-one payment device" },
+      { src: imgCloverStationDuo, alt: "Clover Station Duo full register system", caption: "Clover Station Duo - complete countertop register" },
+      { src: imgCloverMini3, alt: "Clover Mini 3 compact countertop POS", caption: "Clover Mini 3 - compact and powerful" },
+      { src: imgPaxA920, alt: "PAX A920 smart payment terminal", caption: "PAX A920 - sleek smart terminal" },
     ],
   },
 

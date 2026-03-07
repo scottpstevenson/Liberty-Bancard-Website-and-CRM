@@ -34,7 +34,7 @@ import {
   Zap,
   ShieldCheck,
 } from "lucide-react";
-import terminalHero from "@assets/images/liberty-terminal-hero.png";
+import imgCloverFlex3 from "@assets/images/terminal-clover-flex-3.png";
 
 const TOTAL_STEPS = 6;
 
@@ -465,7 +465,7 @@ export default function GetStarted() {
                 {step === 4 && (
                   <div data-testid="step-terminal">
                     <div className="flex justify-center mb-6">
-                      <img src={terminalHero} alt="Liberty Smart Terminal" className="w-40 rounded-md object-contain" data-testid="img-quiz-terminal" />
+                      <img src={imgCloverFlex3} alt="Clover Flex 3 payment terminal" className="w-40 rounded-md object-contain" data-testid="img-quiz-terminal" />
                     </div>
                     <p className="text-sm text-muted-foreground mb-4">
                       We offer the Liberty Smart Terminal - free for qualifying merchants.* Tap, dip, swipe, and manual key.

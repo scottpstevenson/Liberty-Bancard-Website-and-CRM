@@ -49,10 +49,10 @@ import {
 import logoBlue from "@assets/logo-blue.png";
 import heroBg from "@assets/images/hero-bg.png";
 import teamCollab from "@assets/images/team-collab.png";
-import terminalDevice from "@assets/images/liberty-terminal-hero.png";
-import terminalTap from "@assets/images/liberty-terminal-tap.png";
-import terminalAngle from "@assets/images/liberty-terminal-angle.png";
-import terminalStand from "@assets/images/liberty-terminal-stand.png";
+import imgCloverFlex3 from "@assets/images/terminal-clover-flex-3.png";
+import imgCloverMini3 from "@assets/images/terminal-clover-mini-3.png";
+import imgCloverStationDuo from "@assets/images/terminal-clover-station-duo.png";
+import imgPaxA920 from "@assets/images/terminal-pax-a920.png";
 import dashboardPreview from "@assets/images/dashboard-preview.png";
 
 function useCountUp(end: number, duration: number = 2000, suffix: string = "") {
@@ -660,7 +660,7 @@ export default function Home() {
                 </CardHeader>
                 <CardContent>
                   <div className="rounded-md overflow-hidden mb-3">
-                    <img src={terminalDevice} alt="Liberty Smart Terminal" className="w-full h-48 object-contain bg-muted/50 p-2" data-testid="img-home-terminal" />
+                    <img src={imgCloverFlex3} alt="Clover Flex 3 payment terminal" className="w-full h-48 object-contain bg-muted/50 p-2" data-testid="img-home-terminal" />
                   </div>
                   <ul className="space-y-2 text-sm text-muted-foreground">
                     <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Tap, dip, swipe, manual key</li>
@@ -797,10 +797,10 @@ export default function Home() {
                 <p className="text-xs text-muted-foreground mt-3">*Eligibility, underwriting, card brand rules, and applicable laws apply.</p>
               </div>
               <div className="grid grid-cols-2 gap-4">
-                <img src={terminalDevice} alt="Liberty Smart Terminal - front view" className="w-full rounded-md object-contain" data-testid="img-showcase-hero" />
-                <img src={terminalStand} alt="Liberty Smart Terminal on countertop stand" className="w-full rounded-md object-contain" data-testid="img-showcase-stand" />
-                <img src={terminalAngle} alt="Liberty Smart Terminal with card reader" className="w-full rounded-md object-contain" data-testid="img-showcase-angle" />
-                <img src={terminalTap} alt="Contactless tap payment on Liberty Smart Terminal" className="w-full rounded-md object-cover" data-testid="img-showcase-tap" />
+                <img src={imgCloverFlex3} alt="Clover Flex 3 handheld POS terminal" className="w-full rounded-md object-contain" data-testid="img-showcase-hero" />
+                <img src={imgCloverStationDuo} alt="Clover Station Duo full register system" className="w-full rounded-md object-contain" data-testid="img-showcase-stand" />
+                <img src={imgCloverMini3} alt="Clover Mini 3 countertop POS" className="w-full rounded-md object-contain" data-testid="img-showcase-angle" />
+                <img src={imgPaxA920} alt="PAX A920 smart payment terminal" className="w-full rounded-md object-contain" data-testid="img-showcase-tap" />
               </div>
             </div>
           </div>

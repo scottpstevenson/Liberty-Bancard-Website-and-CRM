@@ -19,10 +19,12 @@ import {
   Phone,
   ShoppingCart,
 } from "lucide-react";
-import terminalHero from "@assets/images/liberty-terminal-hero.png";
-import terminalTap from "@assets/images/liberty-terminal-tap.png";
-import terminalAngle from "@assets/images/liberty-terminal-angle.png";
-import terminalStand from "@assets/images/liberty-terminal-stand.png";
+import imgCloverFlex3 from "@assets/images/terminal-clover-flex-3.png";
+import imgCloverMini3 from "@assets/images/terminal-clover-mini-3.png";
+import imgCloverStationDuo from "@assets/images/terminal-clover-station-duo.png";
+import imgDejavooQD4 from "@assets/images/terminal-dejavoo-qd4.png";
+import imgPaxA920 from "@assets/images/terminal-pax-a920.png";
+import imgSwipeSimpleB250 from "@assets/images/terminal-swipesimple-b250.png";
 
 interface Terminal {
   id: string;
@@ -47,7 +49,7 @@ const terminals: Terminal[] = [
     brand: "Clover",
     tagline: "All-in-one handheld POS",
     description: "The Clover Flex 3 is a powerful, portable point-of-sale system that fits in your hand. Built-in printer, camera for barcode scanning, and a full suite of business management tools. Perfect for tableside service, line-busting, or mobile businesses.",
-    image: terminalHero,
+    image: imgCloverFlex3,
     popular: true,
     price: "Contact for pricing",
     monthlyFee: "Varies by plan",
@@ -80,7 +82,7 @@ const terminals: Terminal[] = [
     brand: "Clover",
     tagline: "Compact countertop powerhouse",
     description: "The Clover Mini 3 brings full POS functionality to a compact countertop form factor. An 8-inch touchscreen, built-in printer, and access to the complete Clover ecosystem make it the ideal solution for businesses that need power without bulk.",
-    image: terminalAngle,
+    image: imgCloverMini3,
     price: "Contact for pricing",
     monthlyFee: "Varies by plan",
     features: [
@@ -112,7 +114,7 @@ const terminals: Terminal[] = [
     brand: "Clover",
     tagline: "Full-featured POS station",
     description: "The Clover Station Duo is the flagship countertop POS system with dual screens — a merchant-facing display and a customer-facing touchscreen. Cash drawer, receipt printer, and the full Clover software suite deliver a complete register experience.",
-    image: terminalStand,
+    image: imgCloverStationDuo,
     price: "Contact for pricing",
     monthlyFee: "Varies by plan",
     features: [
@@ -144,7 +146,7 @@ const terminals: Terminal[] = [
     brand: "Dejavoo",
     tagline: "Rugged mobile smart terminal",
     description: "The Dejavoo QD4 is a versatile Android-based smart terminal built for businesses that need reliable payment processing on the go. Its rugged design, long battery life, and dual connectivity make it a workhorse for field service, delivery, and pop-up operations.",
-    image: terminalTap,
+    image: imgDejavooQD4,
     popular: true,
     price: "Contact for pricing",
     monthlyFee: "$0/month with processing",
@@ -177,7 +179,7 @@ const terminals: Terminal[] = [
     brand: "PAX",
     tagline: "Smart Android terminal",
     description: "The PAX A920 is a sleek, Android-powered smart terminal that combines elegant design with powerful performance. Its 5-inch HD display, fast processor, and all-day battery make it one of the most popular smart terminals on the market for merchants who want speed and style.",
-    image: terminalHero,
+    image: imgPaxA920,
     popular: true,
     price: "Contact for pricing",
     monthlyFee: "$0/month with processing",
@@ -210,7 +212,7 @@ const terminals: Terminal[] = [
     brand: "SwipeSimple",
     tagline: "Mobile payments made simple",
     description: "SwipeSimple turns any smartphone or tablet into a full payment terminal. With the SwipeSimple card reader and app, you can accept chip, swipe, and contactless payments anywhere. No bulky hardware, no long-term commitments — just simple, affordable mobile payment processing.",
-    image: terminalTap,
+    image: imgSwipeSimpleB250,
     price: "Reader from $49",
     monthlyFee: "$0/month",
     features: [
