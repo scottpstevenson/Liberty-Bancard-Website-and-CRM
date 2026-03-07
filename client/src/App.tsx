@@ -109,6 +109,8 @@ import IndustryPage from "@/pages/IndustryPage";
 import HelpCenter from "@/pages/HelpCenter";
 import Equipment from "@/pages/Equipment";
 import HelpArticle from "@/pages/HelpArticle";
+import CostQuiz from "@/pages/sales/CostQuiz";
+import SalesOnePager from "@/pages/sales/SalesOnePager";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { user, isLoading } = useAuth();
@@ -185,6 +187,10 @@ function Router() {
       <Route path="/help/:category/:slug" component={HelpArticle} />
       <Route path="/help/:category" component={HelpArticle} />
       <Route path="/help" component={HelpCenter} />
+
+      {/* Sales Landing Pages (hidden, noindex) */}
+      <Route path="/quiz/processing-cost" component={CostQuiz} />
+      <Route path="/sales/:slug" component={SalesOnePager} />
 
       {/* Industry Pages */}
       <Route path="/industries/:slug" component={IndustryPage} />
