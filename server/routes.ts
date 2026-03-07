@@ -4935,7 +4935,7 @@ Notes: ${deal.notes || "None"}`
   // === BATCH RE-ENRICHMENT & CLASSIFICATION ===
   app.post("/api/sunbiz/re-enrich-all", isAuthenticated, async (req, res) => {
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
-    const limit = Number(req.body.limit) || 200;
+    const limit = Number(req.body?.limit) || 200;
     res.json({ message: `Re-enrichment started for up to ${limit} entities.`, started: true });
     reEnrichAllSunbizEntities(limit).catch(err => console.error("[Re-Enrich API] Error:", err));
   });
