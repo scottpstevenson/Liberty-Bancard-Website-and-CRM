@@ -1,3 +1,4 @@
+import { useState, useMemo } from "react";
 import { Link } from "wouter";
 import { SEO } from "@/components/SEO";
 import { Navbar } from "@/components/Navbar";
@@ -5,18 +6,43 @@ import { Footer } from "@/components/Footer";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, Clock, User } from "lucide-react";
-import { blogPosts } from "@/lib/blog-data";
+import { ArrowRight, Clock, User, Search } from "lucide-react";
+import { allBlogPosts, blogCategories } from "@/lib/all-blog-data";
+
+const POSTS_PER_PAGE = 12;
 
 export default function Blog() {
-  const featured = blogPosts[0];
-  const rest = blogPosts.slice(1);
+  const [activeCategory, setActiveCategory] = useState<string>("All");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [visibleCount, setVisibleCount] = useState(POSTS_PER_PAGE);
+
+  const filtered = useMemo(() => {
+    let posts = allBlogPosts;
+    if (activeCategory !== "All") {
+      posts = posts.filter((p) => p.category === activeCategory);
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      posts = posts.filter(
+        (p) =>
+          p.title.toLowerCase().includes(q) ||
+          p.excerpt.toLowerCase().includes(q) ||
+          p.keywords.toLowerCase().includes(q)
+      );
+    }
+    return posts;
+  }, [activeCategory, searchQuery]);
+
+  const featured = activeCategory === "All" && !searchQuery ? allBlogPosts[0] : null;
+  const displayPosts = featured ? filtered.slice(1) : filtered;
+  const visible = displayPosts.slice(0, visibleCount);
+  const hasMore = visibleCount < displayPosts.length;
 
   return (
     <div className="min-h-screen flex flex-col font-body">
       <SEO
         title="Blog - Payment Processing Insights"
-        description="Expert guides on credit card processing, merchant services, PCI compliance, and saving money on payment fees. Free resources for business owners."
+        description="Expert guides on credit card processing, merchant services, PCI compliance, and saving money on payment fees. 50+ free resources for business owners."
         path="/blog"
         keywords="payment processing blog, credit card processing tips, merchant services guide, PCI compliance, interchange fees"
         breadcrumbs={[{ name: "Blog", path: "/blog" }]}
@@ -41,9 +67,46 @@ export default function Blog() {
             <h1 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-3" data-testid="text-blog-heading">
               Payment Processing Insights
             </h1>
-            <p className="text-muted-foreground max-w-2xl mb-12" data-testid="text-blog-subheading">
+            <p className="text-muted-foreground max-w-2xl mb-8" data-testid="text-blog-subheading">
               Expert guides to help you understand your processing costs, avoid hidden fees, and make smarter decisions about merchant services.
             </p>
+
+            <div className="flex flex-col sm:flex-row gap-4 mb-8">
+              <div className="relative flex-1 max-w-md">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder="Search articles..."
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setVisibleCount(POSTS_PER_PAGE);
+                  }}
+                  className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  data-testid="input-blog-search"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2 mb-10">
+              <button
+                onClick={() => { setActiveCategory("All"); setVisibleCount(POSTS_PER_PAGE); }}
+                className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${activeCategory === "All" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}
+                data-testid="button-category-all"
+              >
+                All ({allBlogPosts.length})
+              </button>
+              {blogCategories.map((cat) => (
+                <button
+                  key={cat}
+                  onClick={() => { setActiveCategory(cat); setVisibleCount(POSTS_PER_PAGE); }}
+                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${activeCategory === cat ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}
+                  data-testid={`button-category-${cat.toLowerCase().replace(/\s+/g, "-")}`}
+                >
+                  {cat} ({allBlogPosts.filter((p) => p.category === cat).length})
+                </button>
+              ))}
+            </div>
 
             {featured && (
               <Link href={`/blog/${featured.slug}`} data-testid="link-featured-post">
@@ -81,8 +144,14 @@ export default function Blog() {
               </Link>
             )}
 
+            {filtered.length === 0 && (
+              <div className="text-center py-16">
+                <p className="text-muted-foreground text-lg" data-testid="text-no-results">No articles found matching your search.</p>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {rest.map((post) => (
+              {visible.map((post) => (
                 <Link key={post.slug} href={`/blog/${post.slug}`} data-testid={`link-post-${post.slug}`}>
                   <Card className="hover-elevate h-full">
                     <CardContent className="p-6 flex flex-col h-full">
@@ -107,6 +176,19 @@ export default function Blog() {
                 </Link>
               ))}
             </div>
+
+            {hasMore && (
+              <div className="text-center mt-10">
+                <Button
+                  variant="outline"
+                  size="lg"
+                  onClick={() => setVisibleCount((c) => c + POSTS_PER_PAGE)}
+                  data-testid="button-load-more"
+                >
+                  Load More Articles ({displayPosts.length - visibleCount} remaining)
+                </Button>
+              </div>
+            )}
           </div>
         </section>
 

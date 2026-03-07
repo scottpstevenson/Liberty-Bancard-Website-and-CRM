@@ -4986,6 +4986,10 @@ Notes: ${deal.notes || "None"}`
       { url: "/law-enforcement", priority: "0.2", changefreq: "yearly" },
       { url: "/dispute-resolution", priority: "0.2", changefreq: "yearly" },
       { url: "/data-retention", priority: "0.2", changefreq: "yearly" },
+      { url: "/tcpa-consent", priority: "0.2", changefreq: "yearly" },
+      { url: "/refund-policy", priority: "0.3", changefreq: "yearly" },
+      { url: "/california-privacy", priority: "0.3", changefreq: "yearly" },
+      { url: "/ada-compliance", priority: "0.3", changefreq: "yearly" },
     ];
 
     const blogSlugs = [
@@ -4997,6 +5001,48 @@ Notes: ${deal.notes || "None"}`
       "interchange-plus-vs-flat-rate",
       "pci-compliance-checklist-small-business",
       "how-much-does-credit-card-processing-cost",
+      "what-is-interchange-plus-pricing",
+      "emv-chip-cards-explained",
+      "contactless-payments-nfc-apple-pay-google-pay",
+      "understanding-chargebacks-prevention-response-recovery",
+      "ach-vs-credit-card-processing",
+      "what-is-a-payment-gateway-how-it-works",
+      "level-2-level-3-processing-b2b-savings",
+      "keyed-vs-swiped-transactions-entry-method-matters",
+      "payment-processing-ecommerce-complete-guide",
+      "mobile-payment-solutions-field-service",
+      "accept-payments-trade-shows-pop-up-events",
+      "restaurant-payment-processing-tips-pos-savings",
+      "healthcare-payment-processing-hipaa-compliance",
+      "salon-spa-payment-solutions-booking-tips-recurring",
+      "auto-repair-shop-payment-processing-invoicing",
+      "construction-industry-payments-progress-billing",
+      "pci-dss-4-what-changed-merchants",
+      "how-to-prevent-credit-card-fraud-business",
+      "tokenization-vs-encryption-payment-data",
+      "tcpa-compliance-merchant-services-text-call-rules",
+      "ada-website-compliance-payment-pages",
+      "surcharging-laws-by-state",
+      "data-breach-response-plan-small-business",
+      "understanding-pci-self-assessment-questionnaire-saq",
+      "how-to-negotiate-lower-credit-card-processing-rates",
+      "dual-pricing-vs-cash-discount-which-program-is-right",
+      "true-cost-of-free-payment-processing-offers",
+      "when-to-switch-payment-processors-warning-signs",
+      "processing-volume-tiers-how-higher-volume-gets-better-rates",
+      "same-day-vs-next-day-funding-settlement-speed-explained",
+      "merchant-account-reserves-what-they-are-how-to-avoid",
+      "annual-fee-pci-fee-statement-fee-breaking-down-monthly-charges",
+      "pos-system-buying-guide-2025",
+      "virtual-terminal-vs-payment-gateway",
+      "recurring-billing-subscription-payment-processing",
+      "payment-processing-for-nonprofits",
+      "multi-location-payment-processing",
+      "international-payment-processing",
+      "payment-processing-trends-2025",
+      "how-to-read-effective-rate",
+      "integrated-vs-non-integrated-payments",
+      "buy-now-pay-later-for-merchants-bnpl",
     ];
 
     let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
@@ -5018,6 +5064,38 @@ Notes: ${deal.notes || "None"}`
       xml += `    <changefreq>monthly</changefreq>\n`;
       xml += `    <priority>0.7</priority>\n`;
       xml += `  </url>\n`;
+    }
+
+    xml += `  <url>\n`;
+    xml += `    <loc>${baseUrl}/help</loc>\n`;
+    xml += `    <lastmod>${today}</lastmod>\n`;
+    xml += `    <changefreq>monthly</changefreq>\n`;
+    xml += `    <priority>0.7</priority>\n`;
+    xml += `  </url>\n`;
+
+    const helpArticles: { category: string; slugs: string[] }[] = [
+      { category: "getting-started", slugs: ["setting-up-your-merchant-account", "running-your-first-transaction", "connecting-your-pos-system", "understanding-your-pricing", "next-day-funding-setup"] },
+      { category: "billing-statements", slugs: ["reading-your-monthly-statement", "understanding-processing-fees", "disputing-a-charge-on-your-statement", "managing-chargebacks", "understanding-refunds-and-credits"] },
+      { category: "technical-support", slugs: ["terminal-troubleshooting", "gateway-setup-configuration", "resolving-batch-settlement-issues", "wifi-and-network-connectivity", "contactless-and-nfc-troubleshooting"] },
+      { category: "account-management", slugs: ["updating-business-information", "adding-users-and-permissions", "changing-your-processing-settings", "adding-a-new-location", "closing-or-pausing-your-account"] },
+      { category: "compliance-security", slugs: ["pci-compliance-basics", "protecting-customer-data", "fraud-prevention-tips", "handling-a-data-breach", "understanding-emv-and-liability-shift"] },
+      { category: "general-faq", slugs: ["what-is-payment-processing", "how-long-does-approval-take", "what-are-interchange-fees", "do-i-need-a-contract", "what-is-a-merchant-id", "can-i-accept-amex", "what-is-a-cash-discount-program", "how-to-read-your-rate", "what-is-next-day-funding", "how-to-switch-processors", "what-is-pci-compliance"] },
+    ];
+    for (const group of helpArticles) {
+      xml += `  <url>\n`;
+      xml += `    <loc>${baseUrl}/help/${group.category}</loc>\n`;
+      xml += `    <lastmod>${today}</lastmod>\n`;
+      xml += `    <changefreq>monthly</changefreq>\n`;
+      xml += `    <priority>0.6</priority>\n`;
+      xml += `  </url>\n`;
+      for (const slug of group.slugs) {
+        xml += `  <url>\n`;
+        xml += `    <loc>${baseUrl}/help/${group.category}/${slug}</loc>\n`;
+        xml += `    <lastmod>${today}</lastmod>\n`;
+        xml += `    <changefreq>monthly</changefreq>\n`;
+        xml += `    <priority>0.5</priority>\n`;
+        xml += `  </url>\n`;
+      }
     }
 
     xml += `</urlset>`;

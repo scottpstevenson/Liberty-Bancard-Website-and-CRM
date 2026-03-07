@@ -97,11 +97,17 @@ import Forecasting from "@/pages/dashboard/Forecasting";
 import PciAssessment from "@/pages/dashboard/PciAssessment";
 import DataRequests from "@/pages/dashboard/DataRequests";
 import DataRetention from "@/pages/DataRetention";
+import TCPAConsent from "@/pages/TCPAConsent";
+import RefundPolicy from "@/pages/RefundPolicy";
+import CaliforniaPrivacy from "@/pages/CaliforniaPrivacy";
+import ADACompliance from "@/pages/ADACompliance";
 import SavingsCalculator from "@/pages/SavingsCalculator";
 import RateComparison from "@/pages/RateComparison";
 import Blog from "@/pages/Blog";
 import BlogPost from "@/pages/BlogPost";
 import IndustryPage from "@/pages/IndustryPage";
+import HelpCenter from "@/pages/HelpCenter";
+import HelpArticle from "@/pages/HelpArticle";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { user, isLoading } = useAuth();
@@ -161,6 +167,10 @@ function Router() {
       <Route path="/law-enforcement" component={LawEnforcementGuidelines} />
       <Route path="/dispute-resolution" component={DisputeResolution} />
       <Route path="/data-retention" component={DataRetention} />
+      <Route path="/tcpa-consent" component={TCPAConsent} />
+      <Route path="/refund-policy" component={RefundPolicy} />
+      <Route path="/california-privacy" component={CaliforniaPrivacy} />
+      <Route path="/ada-compliance" component={ADACompliance} />
       <Route path="/thanks-statement" component={ThanksStatement} />
       <Route path="/thanks-estimate" component={ThanksEstimate} />
       <Route path="/thanks-call" component={ThanksCall} />
@@ -170,6 +180,9 @@ function Router() {
       <Route path="/compare-rates" component={RateComparison} />
       <Route path="/blog/:slug" component={BlogPost} />
       <Route path="/blog" component={Blog} />
+      <Route path="/help/:category/:slug" component={HelpArticle} />
+      <Route path="/help/:category" component={HelpArticle} />
+      <Route path="/help" component={HelpCenter} />
 
       {/* Industry Pages */}
       <Route path="/industries/:slug" component={IndustryPage} />

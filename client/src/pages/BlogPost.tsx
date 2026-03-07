@@ -6,8 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, ArrowRight, Clock, User, Calendar, Upload } from "lucide-react";
-import { blogPosts } from "@/lib/blog-data";
-import type { BlogSection } from "@/lib/blog-data";
+import { allBlogPosts } from "@/lib/all-blog-data";
+import type { BlogSection } from "@/lib/all-blog-data";
 
 function renderSection(section: BlogSection, index: number) {
   switch (section.type) {
@@ -86,7 +86,7 @@ function renderSection(section: BlogSection, index: number) {
 
 export default function BlogPost() {
   const params = useParams<{ slug: string }>();
-  const post = blogPosts.find((p) => p.slug === params.slug);
+  const post = allBlogPosts.find((p) => p.slug === params.slug);
 
   if (!post) {
     return (
@@ -111,11 +111,11 @@ export default function BlogPost() {
     );
   }
 
-  const currentIndex = blogPosts.findIndex((p) => p.slug === post.slug);
-  const prevPost = currentIndex > 0 ? blogPosts[currentIndex - 1] : null;
-  const nextPost = currentIndex < blogPosts.length - 1 ? blogPosts[currentIndex + 1] : null;
+  const currentIndex = allBlogPosts.findIndex((p) => p.slug === post.slug);
+  const prevPost = currentIndex > 0 ? allBlogPosts[currentIndex - 1] : null;
+  const nextPost = currentIndex < allBlogPosts.length - 1 ? allBlogPosts[currentIndex + 1] : null;
 
-  const relatedPosts = blogPosts
+  const relatedPosts = allBlogPosts
     .filter((p) => p.slug !== post.slug)
     .slice(0, 3);
 

@@ -27,6 +27,7 @@ const industryLinks = [
 
 const resourceLinks = [
   { name: "Blog", href: "/blog" },
+  { name: "Help Center", href: "/help" },
   { name: "Savings Calculator", href: "/savings-calculator" },
   { name: "Compare Rates", href: "/compare-rates" },
   { name: "About & Contact", href: "/about-contact" },

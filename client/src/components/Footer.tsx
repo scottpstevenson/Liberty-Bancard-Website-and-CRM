@@ -9,6 +9,7 @@ export function Footer() {
     { label: "Upload Statement", href: "/upload-statement" },
     { label: "About & Contact", href: "/about-contact" },
     { label: "Support", href: "/support" },
+    { label: "Help Center", href: "/help" },
     { label: "Merchant Application", href: "/merchant-application" },
   ];
 
@@ -64,6 +65,11 @@ export function Footer() {
     { label: "Testimonials Disclosure", href: "/testimonials-disclosure" },
     { label: "Law Enforcement Guidelines", href: "/law-enforcement" },
     { label: "Dispute Resolution", href: "/dispute-resolution" },
+    { label: "Data Retention", href: "/data-retention" },
+    { label: "TCPA Consent", href: "/tcpa-consent" },
+    { label: "Refund Policy", href: "/refund-policy" },
+    { label: "California Privacy (CCPA)", href: "/california-privacy" },
+    { label: "ADA Compliance", href: "/ada-compliance" },
   ];
 
   return (
