@@ -1,0 +1,403 @@
+import { SEO, getServiceSchema } from "@/components/SEO";
+import { Navbar } from "@/components/Navbar";
+import { Footer } from "@/components/Footer";
+import { useScrollReveal } from "@/hooks/use-scroll-reveal";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Link } from "wouter";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import {
+  Upload,
+  ArrowRight,
+  CheckCircle2,
+  X,
+  Minus,
+  BarChart3,
+  ShieldCheck,
+  Headphones,
+  DollarSign,
+  Calculator,
+} from "lucide-react";
+
+const processors = [
+  {
+    name: "Liberty Bancard",
+    highlight: true,
+    pricing: "Interchange + 0.15-0.40%",
+    monthlyFee: "$0 - $9.95",
+    contractTerms: "No long-term contract",
+    earlyTermination: "None",
+    pciCompliance: "Included",
+    nextDayFunding: true,
+    dedicatedSupport: true,
+    statementReview: true,
+    freeTerminal: true,
+    cashDiscount: true,
+    transparentPricing: true,
+    customReporting: true,
+    onboardingSupport: true,
+    bestFor: "Businesses processing $5K+/month wanting transparent pricing",
+  },
+  {
+    name: "Square",
+    highlight: false,
+    pricing: "2.6% + $0.10 flat",
+    monthlyFee: "$0",
+    contractTerms: "No contract",
+    earlyTermination: "None",
+    pciCompliance: "Included",
+    nextDayFunding: false,
+    dedicatedSupport: false,
+    statementReview: false,
+    freeTerminal: false,
+    cashDiscount: false,
+    transparentPricing: false,
+    customReporting: false,
+    onboardingSupport: false,
+    bestFor: "Very small businesses, occasional sellers, mobile vendors",
+  },
+  {
+    name: "Stripe",
+    highlight: false,
+    pricing: "2.9% + $0.30 online",
+    monthlyFee: "$0",
+    contractTerms: "No contract",
+    earlyTermination: "None",
+    pciCompliance: "Self-managed",
+    nextDayFunding: false,
+    dedicatedSupport: false,
+    statementReview: false,
+    freeTerminal: false,
+    cashDiscount: false,
+    transparentPricing: false,
+    customReporting: false,
+    onboardingSupport: false,
+    bestFor: "Developers, SaaS companies, online-only businesses",
+  },
+  {
+    name: "Clover",
+    highlight: false,
+    pricing: "2.3-3.5% + $0.10",
+    monthlyFee: "$14.95+",
+    contractTerms: "36-month typical",
+    earlyTermination: "$250-500",
+    pciCompliance: "Extra fee",
+    nextDayFunding: false,
+    dedicatedSupport: false,
+    statementReview: false,
+    freeTerminal: false,
+    cashDiscount: false,
+    transparentPricing: false,
+    customReporting: true,
+    onboardingSupport: false,
+    bestFor: "Retail businesses wanting POS features built in",
+  },
+  {
+    name: "Toast",
+    highlight: false,
+    pricing: "2.49-3.69% + $0.15",
+    monthlyFee: "$0-$69+",
+    contractTerms: "24-36 month",
+    earlyTermination: "Up to $10K+",
+    pciCompliance: "Included",
+    nextDayFunding: false,
+    dedicatedSupport: false,
+    statementReview: false,
+    freeTerminal: false,
+    cashDiscount: false,
+    transparentPricing: false,
+    customReporting: true,
+    onboardingSupport: true,
+    bestFor: "Restaurants wanting all-in-one POS and processing",
+  },
+];
+
+const featureRows: { label: string; key: keyof typeof processors[0]; tooltip?: string }[] = [
+  { label: "Pricing Model", key: "pricing" },
+  { label: "Monthly Fee", key: "monthlyFee" },
+  { label: "Contract Terms", key: "contractTerms" },
+  { label: "Early Termination Fee", key: "earlyTermination" },
+  { label: "PCI Compliance", key: "pciCompliance" },
+  { label: "Next-Day Funding*", key: "nextDayFunding" },
+  { label: "Dedicated Human Support", key: "dedicatedSupport" },
+  { label: "Free Statement Review", key: "statementReview" },
+  { label: "Free Terminal*", key: "freeTerminal" },
+  { label: "Cash Discount / 0% Programs*", key: "cashDiscount" },
+  { label: "Interchange Passthrough", key: "transparentPricing" },
+  { label: "Guided Onboarding", key: "onboardingSupport" },
+];
+
+const volumeExamples = [
+  { volume: "$10,000/mo", square: "$270", stripe: "$320", clover: "$280", toast: "$264", liberty: "$210*" },
+  { volume: "$25,000/mo", square: "$675", stripe: "$800", clover: "$625", toast: "$637", liberty: "$475*" },
+  { volume: "$50,000/mo", square: "$1,350", stripe: "$1,600", clover: "$1,200", toast: "$1,260", liberty: "$875*" },
+  { volume: "$100,000/mo", square: "$2,700", stripe: "$3,200", clover: "$2,400", toast: "$2,535", liberty: "$1,650*" },
+];
+
+const faqItems = [
+  {
+    question: "Why is Liberty Bancard's rate so much lower?",
+    answer: "Liberty Bancard uses interchange-plus pricing, which passes through the actual card network cost and adds a small, transparent markup. Flat-rate processors like Square charge the same rate on all transactions, which means you overpay significantly on debit cards and other lower-cost card types.",
+  },
+  {
+    question: "Are there hidden fees with Liberty Bancard?",
+    answer: "No. Our pricing is transparent and statement-based. Before you sign up, we review your current statement and show you exactly what you'd pay. There are no PCI non-compliance fees, no annual fees, and no junk charges.",
+  },
+  {
+    question: "Is Square or Stripe ever the better choice?",
+    answer: "For very low-volume sellers (under $3,000/month) or businesses that only sell occasionally, flat-rate processors can be simpler. But for any business processing more than $5,000/month, interchange-plus pricing almost always saves money.",
+  },
+  {
+    question: "What about Clover and Toast's POS features?",
+    answer: "Clover and Toast bundle POS software with processing, which can be convenient but locks you into their processing rates (often with long-term contracts). Liberty Bancard partners with compatible POS systems so you get the features you need without overpaying on processing.",
+  },
+  {
+    question: "How do I know my actual savings?",
+    answer: "Upload your current processing statement and we'll provide a line-by-line breakdown showing your actual effective rate and what you'd pay with Liberty Bancard. It's free, takes 30 seconds, and you keep the analysis regardless.",
+  },
+];
+
+function FeatureCell({ value }: { value: string | boolean }) {
+  if (typeof value === "boolean") {
+    return value ? (
+      <CheckCircle2 className="w-4 h-4 text-emerald-500 mx-auto" />
+    ) : (
+      <X className="w-4 h-4 text-muted-foreground/40 mx-auto" />
+    );
+  }
+  return <span className="text-xs text-foreground">{value}</span>;
+}
+
+const structuredData = {
+  "@context": "https://schema.org",
+  "@type": "WebPage",
+  "name": "Payment Processor Comparison - Liberty Bancard vs Square vs Stripe vs Clover vs Toast",
+  "url": "https://libertybancard.com/compare-rates",
+  "description": "Compare payment processing fees, features, and contract terms. See how Liberty Bancard's interchange-plus pricing compares to Square, Stripe, Clover, and Toast.",
+  "mainEntity": {
+    "@type": "Table",
+    "about": "Payment Processor Comparison"
+  }
+};
+
+export default function RateComparison() {
+  const containerRef = useScrollReveal();
+
+  return (
+    <div className="min-h-screen flex flex-col font-body">
+      <SEO
+        title="Compare Payment Processing Rates - Liberty Bancard vs Square vs Stripe"
+        description="Compare payment processing fees, features, and contract terms. See how Liberty Bancard's interchange-plus pricing stacks up against Square, Stripe, Clover, and Toast."
+        path="/compare-rates"
+        keywords="payment processor comparison, square vs stripe vs clover, credit card processing rates comparison"
+        breadcrumbs={[{ name: "Compare Rates", path: "/compare-rates" }]}
+        structuredData={[getServiceSchema("Payment Processor Rate Comparison", "Compare payment processing fees, features, and contract terms across major processors.", "/compare-rates")]}
+      />
+      <Navbar />
+
+      <main className="flex-grow pt-28" ref={containerRef}>
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }} />
+
+        <section className="relative overflow-hidden" data-testid="section-compare-hero">
+          <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />
+          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 lg:py-20">
+            <div className="text-center max-w-3xl mx-auto">
+              <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-sm text-white/90 text-sm font-medium px-3 py-1.5 rounded-md mb-6 border border-white/10" data-testid="text-compare-badge">
+                <BarChart3 className="w-4 h-4" />
+                Side-by-Side Comparison
+              </div>
+              <h1 className="text-3xl md:text-4xl lg:text-5xl font-display font-bold text-white mb-4" data-testid="text-compare-heading">
+                Payment Processor Comparison
+              </h1>
+              <p className="text-lg text-white/80 mb-2" data-testid="text-compare-subheading">
+                Compare Liberty Bancard vs Square vs Stripe vs Clover vs Toast. See fees, features, and contract terms side by side.
+              </p>
+              <p className="text-xs text-white/50" data-testid="text-compare-disclaimer">
+                *Rate estimates based on publicly available pricing and common merchant scenarios. Actual rates vary. No savings claims without statement review.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section className="bg-background py-16" data-testid="section-comparison-table">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <h2 className="reveal text-2xl md:text-3xl font-display font-bold text-foreground text-center mb-8" data-testid="text-features-heading">
+              Features & Pricing Comparison
+            </h2>
+            <div className="reveal overflow-x-auto -mx-4 px-4">
+              <table className="w-full min-w-[700px] border-collapse" data-testid="table-comparison">
+                <thead>
+                  <tr>
+                    <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider p-3 border-b border-border w-48">
+                      Feature
+                    </th>
+                    {processors.map((p) => (
+                      <th
+                        key={p.name}
+                        className={`text-center text-xs font-semibold uppercase tracking-wider p-3 border-b border-border ${
+                          p.highlight ? "text-primary bg-primary/5" : "text-muted-foreground"
+                        }`}
+                        data-testid={`th-${p.name.toLowerCase().replace(/\s/g, "-")}`}
+                      >
+                        {p.name}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {featureRows.map((row, i) => (
+                    <tr key={row.key} className={i % 2 === 0 ? "bg-muted/20" : ""}>
+                      <td className="text-sm font-medium text-foreground p-3 border-b border-border/50" data-testid={`label-${row.key}`}>
+                        {row.label}
+                      </td>
+                      {processors.map((p) => (
+                        <td
+                          key={p.name}
+                          className={`text-center p-3 border-b border-border/50 ${
+                            p.highlight ? "bg-primary/5" : ""
+                          }`}
+                          data-testid={`cell-${row.key}-${p.name.toLowerCase().replace(/\s/g, "-")}`}
+                        >
+                          <FeatureCell value={p[row.key] as string | boolean} />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                  <tr>
+                    <td className="text-sm font-medium text-foreground p-3 border-b border-border/50">Best For</td>
+                    {processors.map((p) => (
+                      <td
+                        key={p.name}
+                        className={`text-center p-3 border-b border-border/50 ${p.highlight ? "bg-primary/5" : ""}`}
+                      >
+                        <span className="text-xs text-muted-foreground">{p.bestFor}</span>
+                      </td>
+                    ))}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section className="bg-muted/30 py-16" data-testid="section-cost-examples">
+          <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+            <h2 className="reveal text-2xl md:text-3xl font-display font-bold text-foreground text-center mb-4" data-testid="text-cost-heading">
+              Monthly Cost Comparison by Volume
+            </h2>
+            <p className="text-center text-muted-foreground mb-8 max-w-2xl mx-auto text-sm">
+              Estimated monthly processing fees based on typical card mix. Actual costs vary.
+            </p>
+            <div className="reveal overflow-x-auto -mx-4 px-4">
+              <table className="w-full min-w-[600px] border-collapse" data-testid="table-volume">
+                <thead>
+                  <tr>
+                    <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider p-3 border-b border-border">Volume</th>
+                    <th className="text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider p-3 border-b border-border">Square</th>
+                    <th className="text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider p-3 border-b border-border">Stripe</th>
+                    <th className="text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider p-3 border-b border-border">Clover</th>
+                    <th className="text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider p-3 border-b border-border">Toast</th>
+                    <th className="text-center text-xs font-semibold text-primary uppercase tracking-wider p-3 border-b border-border bg-primary/5">Liberty Bancard</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {volumeExamples.map((row, i) => (
+                    <tr key={i} className={i % 2 === 0 ? "bg-muted/20" : ""} data-testid={`row-volume-${i}`}>
+                      <td className="text-sm font-medium text-foreground p-3 border-b border-border/50">{row.volume}</td>
+                      <td className="text-center text-sm text-foreground p-3 border-b border-border/50">{row.square}</td>
+                      <td className="text-center text-sm text-foreground p-3 border-b border-border/50">{row.stripe}</td>
+                      <td className="text-center text-sm text-foreground p-3 border-b border-border/50">{row.clover}</td>
+                      <td className="text-center text-sm text-foreground p-3 border-b border-border/50">{row.toast}</td>
+                      <td className="text-center text-sm font-semibold text-emerald-600 dark:text-emerald-400 p-3 border-b border-border/50 bg-primary/5">{row.liberty}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-[10px] text-muted-foreground text-center mt-4">
+              *Illustrative estimates. Liberty Bancard rates based on interchange-plus pricing for qualifying merchants. Actual costs depend on card mix, transaction types, and underwriting. Eligibility, card brand rules, and applicable laws apply.
+            </p>
+          </div>
+        </section>
+
+        <section className="bg-background py-16" data-testid="section-why-liberty">
+          <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+            <h2 className="reveal text-2xl md:text-3xl font-display font-bold text-foreground text-center mb-10" data-testid="text-why-liberty-heading">
+              Why Merchants Switch to Liberty Bancard
+            </h2>
+            <div className="reveal grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {[
+                { icon: DollarSign, title: "Interchange-Plus Pricing", desc: "Pay the actual card cost plus a small markup. No bundled rates, no tiered pricing tricks." },
+                { icon: ShieldCheck, title: "No Long-Term Contracts", desc: "Earn your business every month. No early termination fees for most merchants." },
+                { icon: Headphones, title: "Real Human Support", desc: "Call and talk to a real person who knows your account. No call centers, no ticket queues." },
+                { icon: BarChart3, title: "Statement-Based Analysis", desc: "We review your actual statement before recommending anything. Real numbers, not guesses." },
+                { icon: Calculator, title: "0% Processing Programs*", desc: "Cash discount and compliant surcharging programs for eligible merchants." },
+                { icon: CheckCircle2, title: "Fast Onboarding", desc: "From upload to live processing in as little as 48 hours. We handle the heavy lifting." },
+              ].map((item, i) => (
+                <Card key={i} data-testid={`card-why-liberty-${i}`}>
+                  <CardContent className="p-5">
+                    <item.icon className="w-8 h-8 text-primary mb-3" />
+                    <h3 className="font-display font-bold text-foreground mb-2">{item.title}</h3>
+                    <p className="text-sm text-muted-foreground">{item.desc}</p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="bg-muted/30 py-16" data-testid="section-compare-faq">
+          <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+            <h2 className="reveal text-2xl md:text-3xl font-display font-bold text-foreground text-center mb-8" data-testid="text-compare-faq-heading">
+              Frequently Asked Questions
+            </h2>
+            <Accordion type="single" collapsible className="reveal space-y-2" data-testid="accordion-compare-faq">
+              {faqItems.map((item, i) => (
+                <AccordionItem key={i} value={`faq-${i}`} className="border border-border rounded-md px-4">
+                  <AccordionTrigger className="text-sm font-medium text-foreground text-left" data-testid={`compare-faq-trigger-${i}`}>
+                    {item.question}
+                  </AccordionTrigger>
+                  <AccordionContent className="text-sm text-muted-foreground" data-testid={`compare-faq-content-${i}`}>
+                    {item.answer}
+                  </AccordionContent>
+                </AccordionItem>
+              ))}
+            </Accordion>
+          </div>
+        </section>
+
+        <section className="bg-primary text-primary-foreground py-16" data-testid="section-compare-final-cta">
+          <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+            <h2 className="text-2xl md:text-3xl font-display font-bold mb-4" data-testid="text-compare-cta-heading">
+              Ready to See Your Actual Savings?
+            </h2>
+            <p className="text-primary-foreground/80 mb-8 max-w-xl mx-auto">
+              Upload your processing statement for a free, line-by-line comparison. Keep the analysis even if you don't switch.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-4 justify-center flex-wrap">
+              <Link href="/upload-statement" data-testid="link-compare-cta-upload">
+                <Button size="lg" className="gap-2 bg-white text-primary border-white">
+                  <Upload className="w-4 h-4" />
+                  Upload Statement - Free Review
+                </Button>
+              </Link>
+              <Link href="/savings-calculator" data-testid="link-compare-cta-calc">
+                <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
+                  <Calculator className="w-4 h-4" />
+                  Try Savings Calculator
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <Footer />
+    </div>
+  );
+}

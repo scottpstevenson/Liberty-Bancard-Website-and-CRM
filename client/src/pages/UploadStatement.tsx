@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { SEO } from "@/components/SEO";
+import { SEO, getServiceSchema } from "@/components/SEO";
 import { useLocation, Link } from "wouter";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
@@ -189,7 +189,7 @@ export default function UploadStatement() {
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      <SEO title="Upload Your Processing Statement" description="Upload your merchant processing statement for a free, no-obligation rate analysis. See exactly where your fees are going." path="/upload-statement" />
+      <SEO title="Upload Your Processing Statement" description="Upload your merchant processing statement for a free, no-obligation rate analysis. See exactly where your fees are going." path="/upload-statement" keywords="upload processing statement, free statement review, merchant fee analysis" breadcrumbs={[{ name: "Upload Statement", path: "/upload-statement" }]} structuredData={[getServiceSchema("Free Statement Review", "Upload your merchant processing statement for a free, no-obligation rate analysis.", "/upload-statement")]} />
       <Navbar />
 
       <main className="flex-grow pt-28" ref={containerRef}>

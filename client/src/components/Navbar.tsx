@@ -1,28 +1,48 @@
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
-import { Menu, X, Phone, Mail, Upload, Calendar, LayoutDashboard } from "lucide-react";
+import { Menu, X, Phone, Mail, Upload, Calendar, LayoutDashboard, ChevronDown } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import logoBlue from "@assets/logo-blue.png";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
-const navLinks = [
-  { name: "Home", href: "/" },
-  { name: "Get Started", href: "/get-started" },
-  { name: "0% Programs", href: "/0-percent-processing" },
+const solutionLinks = [
+  { name: "0% Processing Programs", href: "/0-percent-processing" },
   { name: "Beat Square & Stripe", href: "/beat-square-stripe" },
-  { name: "About", href: "/about-contact" },
+  { name: "Upload Statement", href: "/upload-statement" },
+  { name: "Get Started", href: "/get-started" },
+];
+
+const industryLinks = [
+  { name: "Restaurant", href: "/industries/restaurant-payment-processing" },
+  { name: "Retail", href: "/industries/retail-payment-processing" },
+  { name: "Healthcare", href: "/industries/healthcare-payment-processing" },
+  { name: "Salon & Spa", href: "/industries/salon-spa-payment-processing" },
+  { name: "Auto Repair", href: "/industries/auto-repair-payment-processing" },
+  { name: "Professional Services", href: "/industries/professional-services-payment-processing" },
+  { name: "E-Commerce", href: "/industries/ecommerce-payment-processing" },
+  { name: "Construction", href: "/industries/construction-payment-processing" },
+];
+
+const resourceLinks = [
+  { name: "Blog", href: "/blog" },
+  { name: "Savings Calculator", href: "/savings-calculator" },
+  { name: "Compare Rates", href: "/compare-rates" },
+  { name: "About & Contact", href: "/about-contact" },
+  { name: "Support", href: "/support" },
 ];
 
 export function Navbar() {
   const { user } = useAuth();
   const [location] = useLocation();
   const [isOpen, setIsOpen] = useState(false);
+  const [solutionsOpen, setSolutionsOpen] = useState(false);
+  const [industriesOpen, setIndustriesOpen] = useState(false);
+  const [resourcesOpen, setResourcesOpen] = useState(false);
 
   return (
     <nav className="fixed w-full z-50" data-testid="navbar">
-      {/* Top Bar */}
       <div className="bg-primary text-primary-foreground">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-end items-center h-8 gap-2 sm:gap-4 text-xs">
@@ -47,7 +67,6 @@ export function Navbar() {
         </div>
       </div>
 
-      {/* Compliance Microline */}
       <div className="bg-muted/80 border-b border-border/30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <p
@@ -59,11 +78,9 @@ export function Navbar() {
         </div>
       </div>
 
-      {/* Main Nav */}
       <div className="bg-background/80 backdrop-blur-md border-b border-border/50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16 gap-4">
-            {/* Logo */}
             <Link
               href="/"
               className="flex items-center shrink-0"
@@ -72,23 +89,146 @@ export function Navbar() {
               <img src={logoBlue} alt="Liberty Bancard" className="h-10 w-auto" />
             </Link>
 
-            {/* Desktop Nav Links */}
             <div className="hidden lg:flex items-center gap-6">
-              {navLinks.map((link) => (
-                <Link
-                  key={link.name}
-                  href={link.href}
+              <Link
+                href="/"
+                className={cn(
+                  "text-sm font-medium transition-colors",
+                  location === "/"
+                    ? "text-primary"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+                data-testid="link-nav-home"
+              >
+                Home
+              </Link>
+
+              <div
+                className="relative"
+                onMouseEnter={() => setSolutionsOpen(true)}
+                onMouseLeave={() => setSolutionsOpen(false)}
+              >
+                <button
                   className={cn(
-                    "text-sm font-medium transition-colors",
-                    location === link.href
+                    "text-sm font-medium transition-colors flex items-center gap-1",
+                    solutionLinks.some(l => location === l.href)
                       ? "text-primary"
                       : "text-muted-foreground hover:text-foreground"
                   )}
-                  data-testid={`link-nav-${link.href.replace(/\//g, "").replace(/-/g, "-") || "home"}`}
+                  data-testid="button-nav-solutions"
                 >
-                  {link.name}
-                </Link>
-              ))}
+                  Solutions
+                  <ChevronDown className="w-3.5 h-3.5" />
+                </button>
+                <div
+                  className={cn(
+                    "absolute top-full left-0 mt-1 w-56 bg-background border border-border rounded-md shadow-lg py-1 z-50 transition-all",
+                    solutionsOpen ? "opacity-100 visible" : "opacity-0 invisible"
+                  )}
+                >
+                  {solutionLinks.map((link) => (
+                    <Link
+                      key={link.name}
+                      href={link.href}
+                      className={cn(
+                        "block px-4 py-2.5 text-sm transition-colors",
+                        location === link.href
+                          ? "text-primary bg-primary/5"
+                          : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                      )}
+                      onClick={() => setSolutionsOpen(false)}
+                      data-testid={`link-nav-solution-${link.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                    >
+                      {link.name}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+
+              <div
+                className="relative"
+                onMouseEnter={() => setIndustriesOpen(true)}
+                onMouseLeave={() => setIndustriesOpen(false)}
+              >
+                <button
+                  className={cn(
+                    "text-sm font-medium transition-colors flex items-center gap-1",
+                    location.startsWith("/industries")
+                      ? "text-primary"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                  data-testid="button-nav-industries"
+                >
+                  Industries
+                  <ChevronDown className="w-3.5 h-3.5" />
+                </button>
+                <div
+                  className={cn(
+                    "absolute top-full left-0 mt-1 w-60 bg-background border border-border rounded-md shadow-lg py-1 z-50 transition-all",
+                    industriesOpen ? "opacity-100 visible" : "opacity-0 invisible"
+                  )}
+                >
+                  {industryLinks.map((link) => (
+                    <Link
+                      key={link.name}
+                      href={link.href}
+                      className={cn(
+                        "block px-4 py-2.5 text-sm transition-colors",
+                        location === link.href
+                          ? "text-primary bg-primary/5"
+                          : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                      )}
+                      onClick={() => setIndustriesOpen(false)}
+                      data-testid={`link-nav-industry-${link.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                    >
+                      {link.name}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+
+              <div
+                className="relative"
+                onMouseEnter={() => setResourcesOpen(true)}
+                onMouseLeave={() => setResourcesOpen(false)}
+              >
+                <button
+                  className={cn(
+                    "text-sm font-medium transition-colors flex items-center gap-1",
+                    resourceLinks.some(l => location === l.href)
+                      ? "text-primary"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                  data-testid="button-nav-resources"
+                >
+                  Resources
+                  <ChevronDown className="w-3.5 h-3.5" />
+                </button>
+                <div
+                  className={cn(
+                    "absolute top-full left-0 mt-1 w-52 bg-background border border-border rounded-md shadow-lg py-1 z-50 transition-all",
+                    resourcesOpen ? "opacity-100 visible" : "opacity-0 invisible"
+                  )}
+                >
+                  {resourceLinks.map((link) => (
+                    <Link
+                      key={link.name}
+                      href={link.href}
+                      className={cn(
+                        "block px-4 py-2.5 text-sm transition-colors",
+                        location === link.href
+                          ? "text-primary bg-primary/5"
+                          : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                      )}
+                      onClick={() => setResourcesOpen(false)}
+                      data-testid={`link-nav-resource-${link.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                    >
+                      {link.name}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+
               <Link
                 href="/dashboard"
                 className={cn(
@@ -104,7 +244,6 @@ export function Navbar() {
               </Link>
             </div>
 
-            {/* Desktop CTAs */}
             <div className="hidden lg:flex items-center gap-3">
               <ThemeToggle />
               <a href="#" data-testid="link-book-call">
@@ -121,7 +260,6 @@ export function Navbar() {
               </Link>
             </div>
 
-            {/* Mobile Menu Button */}
             <div className="lg:hidden">
               <Button
                 variant="ghost"
@@ -136,11 +274,27 @@ export function Navbar() {
           </div>
         </div>
 
-        {/* Mobile Menu */}
         {isOpen && (
           <div className="lg:hidden bg-background border-t border-border/50 animate-in slide-in-from-top-2 duration-200">
             <div className="max-w-7xl mx-auto px-4 py-4 flex flex-col gap-1">
-              {navLinks.map((link) => (
+              <Link
+                href="/"
+                className={cn(
+                  "px-3 py-2.5 rounded-md text-sm font-medium transition-colors",
+                  location === "/"
+                    ? "text-primary bg-primary/5"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                )}
+                onClick={() => setIsOpen(false)}
+                data-testid="link-mobile-nav-home"
+              >
+                Home
+              </Link>
+
+              <div className="h-px bg-border my-2" />
+
+              <p className="px-3 py-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Solutions</p>
+              {solutionLinks.map((link) => (
                 <Link
                   key={link.name}
                   href={link.href}
@@ -151,11 +305,54 @@ export function Navbar() {
                       : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
                   )}
                   onClick={() => setIsOpen(false)}
-                  data-testid={`link-mobile-nav-${link.href.replace(/\//g, "").replace(/-/g, "-") || "home"}`}
+                  data-testid={`link-mobile-solution-${link.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
                 >
                   {link.name}
                 </Link>
               ))}
+
+              <div className="h-px bg-border my-2" />
+
+              <p className="px-3 py-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Industries</p>
+              {industryLinks.map((link) => (
+                <Link
+                  key={link.name}
+                  href={link.href}
+                  className={cn(
+                    "px-3 py-2.5 rounded-md text-sm font-medium transition-colors",
+                    location === link.href
+                      ? "text-primary bg-primary/5"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                  )}
+                  onClick={() => setIsOpen(false)}
+                  data-testid={`link-mobile-industry-${link.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                >
+                  {link.name}
+                </Link>
+              ))}
+
+              <div className="h-px bg-border my-2" />
+
+              <p className="px-3 py-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Resources</p>
+              {resourceLinks.map((link) => (
+                <Link
+                  key={link.name}
+                  href={link.href}
+                  className={cn(
+                    "px-3 py-2.5 rounded-md text-sm font-medium transition-colors",
+                    location === link.href
+                      ? "text-primary bg-primary/5"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                  )}
+                  onClick={() => setIsOpen(false)}
+                  data-testid={`link-mobile-resource-${link.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                >
+                  {link.name}
+                </Link>
+              ))}
+
+              <div className="h-px bg-border my-2" />
+
               <Link
                 href="/dashboard"
                 className={cn(
@@ -173,7 +370,6 @@ export function Navbar() {
 
               <div className="h-px bg-border my-2" />
 
-              {/* Mobile Contact Info */}
               <div className="flex flex-col gap-2 px-3 py-2">
                 <a
                   href="tel:9542668214"
@@ -195,7 +391,6 @@ export function Navbar() {
 
               <div className="h-px bg-border my-2" />
 
-              {/* Mobile CTAs */}
               <div className="flex flex-col gap-2 px-3">
                 <a href="#" data-testid="link-mobile-book-call">
                   <Button variant="outline" className="w-full gap-2">

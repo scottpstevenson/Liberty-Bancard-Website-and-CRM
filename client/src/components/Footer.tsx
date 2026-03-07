@@ -1,16 +1,43 @@
 import { Link } from "wouter";
-import { Phone, Mail, Calendar, LayoutDashboard } from "lucide-react";
+import { Phone, Mail, Calendar } from "lucide-react";
 import logoWhite from "@assets/logo-white.png";
 
 export function Footer() {
   const quickLinks = [
     { label: "Home", href: "/" },
-    { label: "0% Programs", href: "/0-percent-processing" },
-    { label: "Beat Square & Stripe", href: "/beat-square-stripe" },
-    { label: "About", href: "/about-contact" },
-    { label: "Support", href: "/support" },
-    { label: "Upload Statement", href: "/upload-statement" },
     { label: "Get Started", href: "/get-started" },
+    { label: "Upload Statement", href: "/upload-statement" },
+    { label: "About & Contact", href: "/about-contact" },
+    { label: "Support", href: "/support" },
+    { label: "Merchant Application", href: "/merchant-application" },
+  ];
+
+  const solutionLinks = [
+    { label: "0% Processing Programs", href: "/0-percent-processing" },
+    { label: "Beat Square & Stripe", href: "/beat-square-stripe" },
+    { label: "Savings Calculator", href: "/savings-calculator" },
+    { label: "Compare Rates", href: "/compare-rates" },
+    { label: "Free Statement Review", href: "/upload-statement" },
+  ];
+
+  const industryFooterLinks = [
+    { label: "Restaurant", href: "/industries/restaurant-payment-processing" },
+    { label: "Retail", href: "/industries/retail-payment-processing" },
+    { label: "Healthcare", href: "/industries/healthcare-payment-processing" },
+    { label: "Salon & Spa", href: "/industries/salon-spa-payment-processing" },
+    { label: "Auto Repair", href: "/industries/auto-repair-payment-processing" },
+    { label: "Professional Services", href: "/industries/professional-services-payment-processing" },
+    { label: "E-Commerce", href: "/industries/ecommerce-payment-processing" },
+    { label: "Construction", href: "/industries/construction-payment-processing" },
+  ];
+
+  const blogLinks = [
+    { label: "All Articles", href: "/blog" },
+    { label: "How to Read Your Statement", href: "/blog/how-to-read-credit-card-processing-statement" },
+    { label: "Cash Discount vs Surcharging", href: "/blog/cash-discount-vs-surcharging" },
+    { label: "Hidden Fees Guide", href: "/blog/hidden-fees-payment-processing-guide" },
+    { label: "PCI Compliance Checklist", href: "/blog/pci-compliance-checklist-small-business" },
+    { label: "Interchange Plus vs Flat Rate", href: "/blog/interchange-plus-vs-flat-rate" },
   ];
 
   const platformLinks = [
@@ -42,52 +69,15 @@ export function Footer() {
   return (
     <footer className="bg-primary text-primary-foreground pt-16 pb-8" data-testid="footer">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-12 mb-12">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12 mb-12">
           <div>
             <Link href="/" data-testid="link-footer-logo">
               <img src={logoWhite} alt="Liberty Bancard" className="h-10 w-auto mb-4" />
             </Link>
-            <p className="text-primary-foreground/70 text-sm leading-relaxed" data-testid="text-footer-description">
+            <p className="text-primary-foreground/70 text-sm leading-relaxed mb-6" data-testid="text-footer-description">
               We don't sell a rate. We prove your real cost and fix it.
             </p>
-          </div>
-
-          <div>
-            <h4 className="font-semibold text-lg mb-4" data-testid="text-footer-quicklinks-heading">Quick Links</h4>
-            <ul className="space-y-3">
-              {quickLinks.map((link) => (
-                <li key={link.href}>
-                  <Link
-                    href={link.href}
-                    className="text-primary-foreground/70 text-sm hover:text-primary-foreground transition-colors"
-                    data-testid={`link-footer-${link.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
-                  >
-                    {link.label}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          <div>
-            <h4 className="font-semibold text-lg mb-4" data-testid="text-footer-platform-heading">Platform</h4>
-            <ul className="space-y-3">
-              {platformLinks.map((link) => (
-                <li key={link.href}>
-                  <Link
-                    href={link.href}
-                    className="text-primary-foreground/70 text-sm hover:text-primary-foreground transition-colors flex items-center gap-1.5"
-                    data-testid={`link-footer-${link.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
-                  >
-                    {link.label}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          <div>
-            <h4 className="font-semibold text-lg mb-4" data-testid="text-footer-contact-heading">Contact</h4>
+            <h4 className="font-semibold text-sm mb-3" data-testid="text-footer-contact-heading">Contact</h4>
             <ul className="space-y-3">
               <li>
                 <a
@@ -123,7 +113,86 @@ export function Footer() {
           </div>
 
           <div>
-            <h4 className="font-semibold text-lg mb-4" data-testid="text-footer-legal-heading">Legal</h4>
+            <h4 className="font-semibold text-lg mb-4" data-testid="text-footer-quicklinks-heading">Quick Links</h4>
+            <ul className="space-y-3">
+              {quickLinks.map((link) => (
+                <li key={link.href}>
+                  <Link
+                    href={link.href}
+                    className="text-primary-foreground/70 text-sm hover:text-primary-foreground transition-colors"
+                    data-testid={`link-footer-${link.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                  >
+                    {link.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+
+            <h4 className="font-semibold text-lg mt-8 mb-4" data-testid="text-footer-platform-heading">Platform</h4>
+            <ul className="space-y-3">
+              {platformLinks.map((link) => (
+                <li key={link.href}>
+                  <Link
+                    href={link.href}
+                    className="text-primary-foreground/70 text-sm hover:text-primary-foreground transition-colors"
+                    data-testid={`link-footer-${link.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                  >
+                    {link.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div>
+            <h4 className="font-semibold text-lg mb-4" data-testid="text-footer-solutions-heading">Solutions & Tools</h4>
+            <ul className="space-y-3">
+              {solutionLinks.map((link) => (
+                <li key={link.label}>
+                  <Link
+                    href={link.href}
+                    className="text-primary-foreground/70 text-sm hover:text-primary-foreground transition-colors"
+                    data-testid={`link-footer-solution-${link.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                  >
+                    {link.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+
+            <h4 className="font-semibold text-lg mt-8 mb-4" data-testid="text-footer-blog-heading">Blog & Resources</h4>
+            <ul className="space-y-3">
+              {blogLinks.map((link) => (
+                <li key={link.href}>
+                  <Link
+                    href={link.href}
+                    className="text-primary-foreground/70 text-sm hover:text-primary-foreground transition-colors"
+                    data-testid={`link-footer-blog-${link.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                  >
+                    {link.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div>
+            <h4 className="font-semibold text-lg mb-4" data-testid="text-footer-industries-heading">Industries</h4>
+            <ul className="space-y-3">
+              {industryFooterLinks.map((link) => (
+                <li key={link.href}>
+                  <Link
+                    href={link.href}
+                    className="text-primary-foreground/70 text-sm hover:text-primary-foreground transition-colors"
+                    data-testid={`link-footer-industry-${link.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                  >
+                    {link.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+
+            <h4 className="font-semibold text-lg mt-8 mb-4" data-testid="text-footer-legal-heading">Legal</h4>
             <ul className="space-y-3">
               {legalLinks.map((link) => (
                 <li key={link.href}>

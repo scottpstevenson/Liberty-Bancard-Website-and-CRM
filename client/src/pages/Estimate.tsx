@@ -110,7 +110,7 @@ export default function Estimate() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <SEO title="Quick Estimate Request" description="Get a quick processing cost estimate. Provide your monthly volume and current fees for a preliminary analysis." path="/estimate" />
+      <SEO title="Quick Estimate Request" description="Get a quick processing cost estimate. Provide your monthly volume and current fees for a preliminary analysis." path="/estimate" breadcrumbs={[{ name: "Quick Estimate", path: "/estimate" }]} />
       <Navbar />
 
       <main className="flex-grow pt-28" ref={containerRef}>

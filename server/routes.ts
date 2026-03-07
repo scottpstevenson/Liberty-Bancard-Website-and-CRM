@@ -4943,5 +4943,88 @@ Notes: ${deal.notes || "None"}`
     });
   });
 
+  app.get("/sitemap.xml", (_req, res) => {
+    const baseUrl = "https://libertybancard.com";
+    const today = new Date().toISOString().split("T")[0];
+
+    const publicPages: Array<{ url: string; priority: string; changefreq: string }> = [
+      { url: "/", priority: "1.0", changefreq: "weekly" },
+      { url: "/get-started", priority: "0.9", changefreq: "monthly" },
+      { url: "/upload-statement", priority: "0.9", changefreq: "monthly" },
+      { url: "/0-percent-processing", priority: "0.9", changefreq: "monthly" },
+      { url: "/beat-square-stripe", priority: "0.8", changefreq: "monthly" },
+      { url: "/about-contact", priority: "0.7", changefreq: "monthly" },
+      { url: "/estimate", priority: "0.8", changefreq: "monthly" },
+      { url: "/support", priority: "0.6", changefreq: "monthly" },
+      { url: "/merchant-application", priority: "0.8", changefreq: "monthly" },
+      { url: "/savings-calculator", priority: "0.8", changefreq: "monthly" },
+      { url: "/compare-rates", priority: "0.8", changefreq: "monthly" },
+      { url: "/blog", priority: "0.8", changefreq: "weekly" },
+      { url: "/industries/restaurant-payment-processing", priority: "0.8", changefreq: "monthly" },
+      { url: "/industries/retail-payment-processing", priority: "0.8", changefreq: "monthly" },
+      { url: "/industries/healthcare-payment-processing", priority: "0.8", changefreq: "monthly" },
+      { url: "/industries/salon-spa-payment-processing", priority: "0.8", changefreq: "monthly" },
+      { url: "/industries/auto-repair-payment-processing", priority: "0.8", changefreq: "monthly" },
+      { url: "/industries/professional-services-payment-processing", priority: "0.8", changefreq: "monthly" },
+      { url: "/industries/ecommerce-payment-processing", priority: "0.8", changefreq: "monthly" },
+      { url: "/industries/construction-payment-processing", priority: "0.8", changefreq: "monthly" },
+      { url: "/privacy-policy", priority: "0.3", changefreq: "yearly" },
+      { url: "/terms", priority: "0.3", changefreq: "yearly" },
+      { url: "/cookie-policy", priority: "0.3", changefreq: "yearly" },
+      { url: "/advertising-disclosure", priority: "0.2", changefreq: "yearly" },
+      { url: "/accessibility", priority: "0.3", changefreq: "yearly" },
+      { url: "/sms-terms", priority: "0.2", changefreq: "yearly" },
+      { url: "/esign-consent", priority: "0.2", changefreq: "yearly" },
+      { url: "/surcharging-disclosure", priority: "0.3", changefreq: "yearly" },
+      { url: "/merchant-policies", priority: "0.2", changefreq: "yearly" },
+      { url: "/regulatory-notices", priority: "0.2", changefreq: "yearly" },
+      { url: "/security-compliance", priority: "0.3", changefreq: "yearly" },
+      { url: "/do-not-sell", priority: "0.2", changefreq: "yearly" },
+      { url: "/data-processing-agreement", priority: "0.2", changefreq: "yearly" },
+      { url: "/responsible-ai", priority: "0.2", changefreq: "yearly" },
+      { url: "/testimonials-disclosure", priority: "0.2", changefreq: "yearly" },
+      { url: "/law-enforcement", priority: "0.2", changefreq: "yearly" },
+      { url: "/dispute-resolution", priority: "0.2", changefreq: "yearly" },
+      { url: "/data-retention", priority: "0.2", changefreq: "yearly" },
+    ];
+
+    const blogSlugs = [
+      "how-to-read-credit-card-processing-statement",
+      "cash-discount-vs-surcharging",
+      "hidden-fees-payment-processing-guide",
+      "how-to-switch-payment-processors",
+      "best-payment-processing-restaurants-2025",
+      "interchange-plus-vs-flat-rate",
+      "pci-compliance-checklist-small-business",
+      "how-much-does-credit-card-processing-cost",
+    ];
+
+    let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
+    xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
+
+    for (const page of publicPages) {
+      xml += `  <url>\n`;
+      xml += `    <loc>${baseUrl}${page.url}</loc>\n`;
+      xml += `    <lastmod>${today}</lastmod>\n`;
+      xml += `    <changefreq>${page.changefreq}</changefreq>\n`;
+      xml += `    <priority>${page.priority}</priority>\n`;
+      xml += `  </url>\n`;
+    }
+
+    for (const slug of blogSlugs) {
+      xml += `  <url>\n`;
+      xml += `    <loc>${baseUrl}/blog/${slug}</loc>\n`;
+      xml += `    <lastmod>${today}</lastmod>\n`;
+      xml += `    <changefreq>monthly</changefreq>\n`;
+      xml += `    <priority>0.7</priority>\n`;
+      xml += `  </url>\n`;
+    }
+
+    xml += `</urlset>`;
+
+    res.set("Content-Type", "application/xml");
+    res.send(xml);
+  });
+
   return httpServer;
 }

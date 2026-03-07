@@ -97,6 +97,11 @@ import Forecasting from "@/pages/dashboard/Forecasting";
 import PciAssessment from "@/pages/dashboard/PciAssessment";
 import DataRequests from "@/pages/dashboard/DataRequests";
 import DataRetention from "@/pages/DataRetention";
+import SavingsCalculator from "@/pages/SavingsCalculator";
+import RateComparison from "@/pages/RateComparison";
+import Blog from "@/pages/Blog";
+import BlogPost from "@/pages/BlogPost";
+import IndustryPage from "@/pages/IndustryPage";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { user, isLoading } = useAuth();
@@ -161,6 +166,13 @@ function Router() {
       <Route path="/thanks-call" component={ThanksCall} />
       <Route path="/thanks-support" component={ThanksSupport} />
       <Route path="/merchant-application" component={MerchantApplication} />
+      <Route path="/savings-calculator" component={SavingsCalculator} />
+      <Route path="/compare-rates" component={RateComparison} />
+      <Route path="/blog/:slug" component={BlogPost} />
+      <Route path="/blog" component={Blog} />
+
+      {/* Industry Pages */}
+      <Route path="/industries/:slug" component={IndustryPage} />
 
       {/* Asset Library & Packet Routes */}
       <Route path="/assets/:a/:b" component={AssetPage} />

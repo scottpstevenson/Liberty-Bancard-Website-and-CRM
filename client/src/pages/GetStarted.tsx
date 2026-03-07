@@ -341,7 +341,7 @@ export default function GetStarted() {
 
   return (
     <div className="min-h-screen flex flex-col font-body">
-      <SEO title="Get Started - Free Statement Analysis" description="Answer a few questions and get a personalized processing recommendation. Free statement review, no obligation." path="/get-started" />
+      <SEO title="Get Started - Free Statement Analysis" description="Answer a few questions and get a personalized processing recommendation. Free statement review, no obligation." path="/get-started" breadcrumbs={[{ name: "Get Started", path: "/get-started" }]} />
       <Navbar />
       <main className="flex-grow pt-28">
         <section className="relative overflow-hidden" data-testid="section-get-started-hero">
