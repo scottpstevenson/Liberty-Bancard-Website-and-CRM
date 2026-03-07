@@ -107,6 +107,7 @@ import Blog from "@/pages/Blog";
 import BlogPost from "@/pages/BlogPost";
 import IndustryPage from "@/pages/IndustryPage";
 import HelpCenter from "@/pages/HelpCenter";
+import Equipment from "@/pages/Equipment";
 import HelpArticle from "@/pages/HelpArticle";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
@@ -176,6 +177,7 @@ function Router() {
       <Route path="/thanks-call" component={ThanksCall} />
       <Route path="/thanks-support" component={ThanksSupport} />
       <Route path="/merchant-application" component={MerchantApplication} />
+      <Route path="/equipment" component={Equipment} />
       <Route path="/savings-calculator" component={SavingsCalculator} />
       <Route path="/compare-rates" component={RateComparison} />
       <Route path="/blog/:slug" component={BlogPost} />
