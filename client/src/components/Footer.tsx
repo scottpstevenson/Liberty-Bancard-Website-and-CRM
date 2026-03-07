@@ -18,6 +18,9 @@ export function Footer() {
     { label: "Beat Square & Stripe", href: "/beat-square-stripe" },
     { label: "Savings Calculator", href: "/savings-calculator" },
     { label: "Compare Rates", href: "/compare-rates" },
+    { label: "vs Square", href: "/compare/square" },
+    { label: "vs Stripe", href: "/compare/stripe" },
+    { label: "vs Toast", href: "/compare/toast" },
     { label: "Free Statement Review", href: "/upload-statement" },
   ];
 
@@ -34,8 +37,9 @@ export function Footer() {
 
   const blogLinks = [
     { label: "All Articles", href: "/blog" },
-    { label: "How to Read Your Statement", href: "/blog/how-to-read-credit-card-processing-statement" },
-    { label: "Cash Discount vs Surcharging", href: "/blog/cash-discount-vs-surcharging" },
+    { label: "FAQ", href: "/faq" },
+    { label: "Case Studies", href: "/case-studies" },
+    { label: "Why Liberty Bancard", href: "/why-liberty-bancard" },
     { label: "Hidden Fees Guide", href: "/blog/hidden-fees-payment-processing-guide" },
     { label: "PCI Compliance Checklist", href: "/blog/pci-compliance-checklist-small-business" },
     { label: "Interchange Plus vs Flat Rate", href: "/blog/interchange-plus-vs-flat-rate" },

@@ -27,7 +27,10 @@ const industryLinks = [
 
 const resourceLinks = [
   { name: "Blog", href: "/blog" },
+  { name: "FAQ", href: "/faq" },
   { name: "Help Center", href: "/help" },
+  { name: "Case Studies", href: "/case-studies" },
+  { name: "Why Liberty Bancard", href: "/why-liberty-bancard" },
   { name: "Savings Calculator", href: "/savings-calculator" },
   { name: "Compare Rates", href: "/compare-rates" },
   { name: "About & Contact", href: "/about-contact" },

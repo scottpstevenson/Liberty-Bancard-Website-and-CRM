@@ -48,6 +48,7 @@ import ThanksCall from "@/pages/ThanksCall";
 import ThanksSupport from "@/pages/ThanksSupport";
 import MerchantApplication from "@/pages/MerchantApplication";
 import AssetPage from "@/pages/AssetPage";
+import CompareVs from "@/pages/CompareVs";
 import NotFound from "@/pages/not-found";
 import { DashboardLayout } from "@/pages/DashboardLayout";
 import Overview from "@/pages/dashboard/Overview";
@@ -111,6 +112,9 @@ import Equipment from "@/pages/Equipment";
 import HelpArticle from "@/pages/HelpArticle";
 import CostQuiz from "@/pages/sales/CostQuiz";
 import SalesOnePager from "@/pages/sales/SalesOnePager";
+import WhyLiberty from "@/pages/WhyLiberty";
+import CaseStudies from "@/pages/CaseStudies";
+import FAQ from "@/pages/FAQ";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { user, isLoading } = useAuth();
@@ -182,6 +186,10 @@ function Router() {
       <Route path="/equipment" component={Equipment} />
       <Route path="/savings-calculator" component={SavingsCalculator} />
       <Route path="/compare-rates" component={RateComparison} />
+      <Route path="/compare/:competitor" component={CompareVs} />
+      <Route path="/why-liberty-bancard" component={WhyLiberty} />
+      <Route path="/case-studies" component={CaseStudies} />
+      <Route path="/faq" component={FAQ} />
       <Route path="/blog/:slug" component={BlogPost} />
       <Route path="/blog" component={Blog} />
       <Route path="/help/:category/:slug" component={HelpArticle} />
