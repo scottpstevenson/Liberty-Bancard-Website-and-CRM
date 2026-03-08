@@ -325,8 +325,37 @@ export async function registerRoutes(
   });
 
   app.put("/api/tickets/:id", async (req, res) => {
-    const updated = await storage.updateTicket(Number(req.params.id), req.body);
+    const ticketId = Number(req.params.id);
+    const existing = await storage.getTickets();
+    const oldTicket = existing.find(t => t.id === ticketId);
+    const updated = await storage.updateTicket(ticketId, req.body);
     if (!updated) return res.status(404).json({ message: "Not found" });
+
+    if (oldTicket && req.body.status && req.body.status !== oldTicket.status) {
+      let contact: any = null;
+      if (updated.contactId) {
+        contact = await storage.getContact(updated.contactId);
+      }
+      const merchantName = contact?.firstName || "there";
+
+      const statusMessages: Record<string, string> = {
+        "In Progress": `Hi ${merchantName} — just a quick heads up that we've picked this up and are actively working on it. You don't need to do anything right now — we'll follow up as soon as we have something for you.\n\nIf anything changes on your end in the meantime, feel free to reply here or give us a call at 954-266-8214.`,
+        "Waiting on Merchant": `Hey ${merchantName} — we've looked into this and we need a couple of things from your side before we can move forward. Check the notes above for details on what we need.\n\nNo rush, but the sooner we get that info the faster we can wrap this up for you. Just reply here or email support@libertybancard.com and we'll pick it right back up.`,
+        "Resolved": `Hi ${merchantName} — good news, this one's been taken care of. Here's a quick recap of what we did:\n\nIf everything looks good on your end, you're all set. If anything comes up again or doesn't seem right, just let us know — we're always here.\n\nThanks for your patience, and thanks for being with Liberty Bancard.`,
+        "Closed": `This ticket has been closed. If you need further help with this issue or anything else, you can always open a new request at libertybancard.com/support or call us at 954-266-8214.\n\nWe appreciate your business.`,
+      };
+
+      const statusMsg = statusMessages[req.body.status];
+      if (statusMsg) {
+        await storage.createTicketComment({
+          ticketId,
+          content: statusMsg,
+          authorName: "Liberty Bancard Support",
+          isInternal: false,
+        });
+      }
+    }
+
     res.json(updated);
   });
 
@@ -580,8 +609,8 @@ export async function registerRoutes(
   app.post("/api/public/support", async (req, res) => {
     try {
       const { name, businessName, email, mobile, issueType, priority, message: msg, consentSms } = req.body;
-      const nameParts = (name || "").split(" ");
-      const firstName = nameParts[0] || "";
+      const nameParts = (name || "").trim().split(" ").filter(Boolean);
+      const firstName = nameParts[0] || "there";
       const lastName = nameParts.slice(1).join(" ") || "";
 
       let contact = await storage.createContact({
@@ -611,6 +640,31 @@ export async function registerRoutes(
         priority: priority || "Normal",
         category: issueType || "Other",
       });
+
+      const ackMessages: Record<string, string> = {
+        "Funding / Deposits": `Hi ${firstName} — thanks for reaching out about a funding question. We know how important it is to have your deposits landing on time, so we're pulling up your account now.\n\nIf this is a same-day issue, feel free to call us directly at 954-266-8214 and we'll get right on it. Otherwise, someone from our team will follow up within a few hours with an update.\n\nHang tight — we're on it.`,
+        "Terminal": `Hey ${firstName} — we got your message about your terminal. Whether it's acting up, needs a reset, or you're looking at a replacement, we deal with this stuff daily so we'll get you sorted out.\n\nIf your terminal is completely down and you can't take payments, call us at 954-266-8214 so we can walk you through a fix right away. Otherwise, expect a reply from our tech team shortly.\n\nAppreciate your patience.`,
+        "Chargeback / Dispute": `Hi ${firstName} — thanks for letting us know about this. Chargebacks can be stressful, but the good news is we handle these all the time and we're going to walk you through exactly what to do.\n\nTime matters with disputes, so we've flagged this for priority review. A team member will reach out shortly with the specific documents you'll need and the steps to respond. In the meantime, don't worry — we've got your back on this.\n\nIf you have the transaction date and amount handy, that'll help us move faster.`,
+        "PCI Compliance": `Hey ${firstName} — good on you for staying on top of PCI compliance. A lot of merchants overlook this until there's a problem, so we're glad you reached out.\n\nOur compliance team will take a look at your account status and let you know exactly where things stand — whether you need to complete your annual questionnaire, update anything, or if you're already good to go.\n\nYou'll hear from us soon. If you have any compliance notices or letters you've received, feel free to forward them to support@libertybancard.com so we can reference them.`,
+      };
+      const ackText = ackMessages[issueType] || `Hi ${firstName} — thanks for reaching out. We received your request and a team member is reviewing it now.\n\nYou can expect a personal follow-up within a few hours during business hours. If you need something handled immediately, you're always welcome to call us at 954-266-8214.\n\nWe appreciate your patience — we'll be in touch soon.`;
+
+      await storage.createTicketComment({
+        ticketId: ticket.id,
+        content: ackText,
+        authorName: "Liberty Bancard Support",
+        isInternal: false,
+      });
+
+      await storage.createNotification({
+        channel: "#support",
+        title: `New ${priority || "Normal"} Support Ticket`,
+        message: `${firstName} ${lastName} (${businessName || "N/A"}) — ${issueType || "General"}: ${(msg || "").slice(0, 120)}`,
+        type: priority === "Urgent" ? "urgent" : "info",
+        metadata: { ticketId: ticket.id, contactId: contact.id },
+      });
+
+      triggerWorkflowsByEvent("ticket_created", { entityType: "ticket", entityId: ticket.id }).catch(err => console.error("Workflow trigger error:", err));
 
       res.status(201).json({ success: true, ticketId: ticket.id });
     } catch (err: any) {

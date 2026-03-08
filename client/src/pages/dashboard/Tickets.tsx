@@ -13,7 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
-import { Plus, AlertTriangle, Sparkles, Loader2, Download, Send, Lock, Globe } from "lucide-react";
+import { Plus, AlertTriangle, Sparkles, Loader2, Download, Send, Lock, Globe, MessageSquareText } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { exportToCSV } from "@/lib/export-csv";
 import SavedFilterBar from "@/components/SavedFilterBar";
@@ -56,10 +56,54 @@ function formatTimestamp(date: string | Date | null | undefined): string {
   });
 }
 
+const QUICK_REPLIES = [
+  {
+    label: "Acknowledge & Investigating",
+    category: "general",
+    text: "Thanks for the additional details — that's really helpful. I'm looking into this now and will have an update for you shortly. If anything else comes to mind in the meantime, feel free to add it here.",
+  },
+  {
+    label: "Request More Info",
+    category: "general",
+    text: "I want to make sure we get this right for you. Could you share a bit more detail? Specifically:\n\n- [What additional info is needed]\n\nOnce I have that, I can move this forward quickly. No rush — just reply here when you get a chance.",
+  },
+  {
+    label: "Terminal Troubleshooting",
+    category: "Terminal",
+    text: "Let's try a quick fix first — these usually do the trick:\n\n1. Hold the power button for 10 seconds to do a full restart\n2. Make sure the charging cable is firmly connected\n3. Check that your Wi-Fi is working (try loading a webpage on your phone)\n\nIf it's still not cooperating after that, let me know and we'll look at getting you a replacement. We don't want you losing sales over a terminal issue.",
+  },
+  {
+    label: "Deposit Timing Explanation",
+    category: "Funding / Deposits",
+    text: "I checked your account and here's what I'm seeing on the deposit side:\n\n- Your batch typically settles within [X] business days\n- The most recent batch was processed on [date]\n\nIf a specific deposit seems delayed or missing, send me the date and approximate amount and I'll trace it through the system. Sometimes it's just a bank processing delay, but I want to make sure everything's accounted for.",
+  },
+  {
+    label: "Chargeback Next Steps",
+    category: "Chargeback / Dispute",
+    text: "I've pulled up the dispute details. Here's what we need to respond with before the deadline:\n\n1. A signed copy of the receipt or invoice\n2. Proof of delivery or service completion (tracking number, signed work order, etc.)\n3. Any communication with the cardholder (emails, texts, etc.)\n\nI know gathering docs is a pain, but the stronger our response the better our chances of winning this. Forward what you have to support@libertybancard.com and I'll put the response package together for you.",
+  },
+  {
+    label: "PCI Compliance Guidance",
+    category: "PCI Compliance",
+    text: "I took a look at your PCI compliance status. Here's where things stand:\n\n- Your annual SAQ (Self-Assessment Questionnaire) is [due/overdue/current]\n- [Any specific compliance items]\n\nIf you need to complete or renew your SAQ, I can send you the direct link — it usually takes about 15-20 minutes. Staying current on this avoids the monthly non-compliance fee and keeps your account in good standing.\n\nLet me know if you'd like me to walk you through it.",
+  },
+  {
+    label: "Escalation Notice",
+    category: "general",
+    text: "I want to make sure this gets the attention it deserves, so I've brought in our senior team to take a closer look. They'll be reviewing everything we've discussed and will reach out directly.\n\nYou should hear from them within the next few hours. In the meantime, if anything urgent comes up, our direct line is 954-266-8214.",
+  },
+  {
+    label: "Follow-Up Check-In",
+    category: "general",
+    text: "Just checking in — wanted to make sure everything's been working smoothly since we last spoke. If the issue came back or if there's anything else on your mind, I'm here.\n\nOtherwise, I'll go ahead and close this out in a day or two. No action needed on your end if all is well.",
+  },
+];
+
 function TicketConversation({ ticket }: { ticket: Ticket }) {
   const { toast } = useToast();
   const [replyContent, setReplyContent] = useState("");
   const [isInternal, setIsInternal] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
 
   const { data: comments, isLoading: commentsLoading } = useQuery<TicketComment[]>({
     queryKey: ["/api/tickets", ticket.id, "comments"],
@@ -153,11 +197,45 @@ function TicketConversation({ ticket }: { ticket: Ticket }) {
       <Separator />
 
       <div className="space-y-3" data-testid="reply-form">
+        <div className="relative">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowTemplates(!showTemplates)}
+            className="gap-1.5 text-xs mb-2"
+            data-testid="button-quick-replies"
+          >
+            <MessageSquareText className="w-3.5 h-3.5" />
+            Quick Replies
+          </Button>
+          {showTemplates && (
+            <div className="absolute z-10 left-0 top-full mt-1 w-72 bg-popover border rounded-md shadow-lg max-h-64 overflow-y-auto" data-testid="quick-replies-dropdown">
+              {QUICK_REPLIES
+                .filter(qr => qr.category === "general" || qr.category === (ticket.category || ""))
+                .map((qr, i) => (
+                  <button
+                    key={i}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-accent transition-colors border-b last:border-b-0"
+                    onClick={() => {
+                      setReplyContent(qr.text);
+                      setShowTemplates(false);
+                      setIsInternal(false);
+                    }}
+                    data-testid={`quick-reply-${i}`}
+                  >
+                    <span className="font-medium text-foreground">{qr.label}</span>
+                    <span className="block text-xs text-muted-foreground mt-0.5 line-clamp-2">{qr.text.split("\n")[0]}</span>
+                  </button>
+                ))}
+            </div>
+          )}
+        </div>
         <Textarea
           value={replyContent}
           onChange={(e) => setReplyContent(e.target.value)}
           placeholder={isInternal ? "Add an internal note..." : "Type your reply..."}
           className="resize-none"
+          rows={4}
           data-testid="input-reply-content"
         />
         <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -250,8 +328,11 @@ export default function Tickets() {
       const res = await apiRequest("PUT", `/api/tickets/${id}`, data);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
+      if (variables.id) {
+        queryClient.invalidateQueries({ queryKey: ["/api/tickets", variables.id, "comments"] });
+      }
       toast({ title: "Ticket updated successfully" });
     },
     onError: (err: Error) => {
