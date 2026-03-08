@@ -15,7 +15,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Users, Handshake, DollarSign, Award, Plus, PlayCircle, Target, BookOpen, TrendingUp, Star, ChevronDown, ChevronUp } from "lucide-react";
+import { Users, Handshake, DollarSign, Award, Plus, PlayCircle, Target, BookOpen, TrendingUp, Star, ChevronDown, ChevronUp, Link2, CheckCircle, XCircle, Copy, ExternalLink, Eye } from "lucide-react";
 import type { Partner, Referral } from "@shared/schema";
 import { PARTNER_TYPES, REFERRAL_STATUSES } from "@shared/schema";
 import { HelpCenter } from "@/components/HelpCenter";
@@ -214,6 +214,34 @@ export default function ReferralProgram() {
     },
   });
 
+  const updatePartnerStatus = useMutation({
+    mutationFn: async ({ id, status }: { id: number; status: string }) => {
+      const res = await apiRequest("PATCH", `/api/partners/${id}`, { status });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/partners"] });
+      toast({ title: "Partner status updated" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const updatePartnerCommission = useMutation({
+    mutationFn: async ({ id, commissionPercent }: { id: number; commissionPercent: number }) => {
+      const res = await apiRequest("PATCH", `/api/partners/${id}`, { commissionPercent });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/partners"] });
+      toast({ title: "Commission rate updated" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
   const createReferral = useMutation({
     mutationFn: async (data: ReferralFormData) => {
       const res = await apiRequest("POST", "/api/referrals", data);
@@ -259,10 +287,13 @@ export default function ReferralProgram() {
   });
 
   const totalPartners = partners.length;
+  const affiliatePartners = partners.filter((p) => p.partnerType === "affiliate");
+  const pendingApproval = partners.filter((p) => p.status === "pending");
   const activeReferrals = referrals.filter((r) => r.status !== "lost" && r.status !== "paid").length;
   const totalConverted = referrals.filter((r) => r.status === "converted" || r.status === "paid").length;
   const conversionRate = referrals.length > 0 ? Math.round((totalConverted / referrals.length) * 100) : 0;
   const totalPayouts = partners.reduce((sum, p) => sum + parseFloat(p.totalPayouts || "0"), 0);
+  const totalClicks = partners.reduce((sum, p) => sum + ((p as any).totalClicks || 0), 0);
 
   const getPartnerName = (partnerId: number | null) => {
     if (!partnerId) return "—";
@@ -363,12 +394,41 @@ export default function ReferralProgram() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
         <KpiCard icon={Users} label="Total Partners" value={loadingPartners ? "..." : totalPartners} testId="kpi-total-partners" />
+        <KpiCard icon={Link2} label="Affiliates" value={loadingPartners ? "..." : affiliatePartners.length} testId="kpi-affiliates" />
+        <KpiCard icon={Eye} label="Link Clicks" value={loadingPartners ? "..." : totalClicks} testId="kpi-total-clicks" />
         <KpiCard icon={Handshake} label="Active Referrals" value={loadingReferrals ? "..." : activeReferrals} testId="kpi-active-referrals" />
         <KpiCard icon={Award} label="Conversion Rate" value={loadingReferrals ? "..." : `${conversionRate}%`} testId="kpi-conversion-rate" />
         <KpiCard icon={DollarSign} label="Total Payouts" value={loadingPartners ? "..." : `$${totalPayouts.toLocaleString()}`} testId="kpi-total-payouts" />
       </div>
+
+      {pendingApproval.length > 0 && (
+        <Card className="border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/20">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 text-amber-800 dark:text-amber-200">
+              <Users className="w-5 h-5" />
+              <span className="font-semibold">{pendingApproval.length} affiliate{pendingApproval.length > 1 ? "s" : ""} pending approval</span>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {pendingApproval.slice(0, 5).map((p) => (
+                <div key={p.id} className="flex items-center gap-2 bg-white dark:bg-background rounded px-3 py-1.5 text-sm border">
+                  <span>{p.contactName || p.companyName}</span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 px-2 text-green-600"
+                    onClick={() => updatePartnerStatus.mutate({ id: p.id, status: "active" })}
+                    data-testid={`button-quick-approve-${p.id}`}
+                  >
+                    <CheckCircle className="w-3.5 h-3.5 mr-1" /> Approve
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="flex gap-2">
         <Button
@@ -390,25 +450,26 @@ export default function ReferralProgram() {
       {activeTab === "partners" && (
         <Card>
           <CardContent className="p-0 overflow-x-auto">
-            <Table className="min-w-[900px]">
+            <Table className="min-w-[1100px]">
               <TableHeader>
                 <TableRow>
-                  <TableHead>Company Name</TableHead>
-                  <TableHead>Contact Name</TableHead>
+                  <TableHead>Company / Contact</TableHead>
                   <TableHead>Email</TableHead>
-                  <TableHead>Phone</TableHead>
-                  <TableHead>Partner Type</TableHead>
-                  <TableHead>Commission %</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Affiliate Code</TableHead>
+                  <TableHead>Commission</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Clicks</TableHead>
                   <TableHead>Referrals</TableHead>
                   <TableHead>Conversions</TableHead>
-                  <TableHead>Total Payouts</TableHead>
+                  <TableHead>Payouts</TableHead>
+                  <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loadingPartners ? (
                   <TableRow>
-                    <TableCell colSpan={10} className="text-center h-24">
+                    <TableCell colSpan={11} className="text-center h-24">
                       <div className="flex items-center justify-center gap-2">
                         <Skeleton className="h-4 w-32" />
                       </div>
@@ -416,31 +477,91 @@ export default function ReferralProgram() {
                   </TableRow>
                 ) : partners.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={10} className="text-center h-24 text-muted-foreground" data-testid="text-no-partners">
+                    <TableCell colSpan={11} className="text-center h-24 text-muted-foreground" data-testid="text-no-partners">
                       No partners yet
                     </TableCell>
                   </TableRow>
                 ) : (
                   partners.map((partner) => (
                     <TableRow key={partner.id} data-testid={`row-partner-${partner.id}`}>
-                      <TableCell className="font-medium" data-testid={`text-partner-company-${partner.id}`}>{partner.companyName}</TableCell>
-                      <TableCell>{partner.contactName || "—"}</TableCell>
+                      <TableCell data-testid={`text-partner-company-${partner.id}`}>
+                        <div className="font-medium">{partner.companyName}</div>
+                        <div className="text-xs text-muted-foreground">{partner.contactName || ""}</div>
+                      </TableCell>
                       <TableCell className="text-sm text-muted-foreground">{partner.email || "—"}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{partner.phone || "—"}</TableCell>
                       <TableCell>
                         <Badge variant={partnerTypeBadgeVariant(partner.partnerType || "referral")} data-testid={`badge-partner-type-${partner.id}`}>
                           {formatPartnerType(partner.partnerType || "referral")}
                         </Badge>
                       </TableCell>
-                      <TableCell>{partner.commissionPercent ?? 0}%</TableCell>
                       <TableCell>
-                        <Badge variant={partner.status === "active" ? "default" : "secondary"} data-testid={`badge-partner-status-${partner.id}`}>
-                          {partner.status || "active"}
+                        {(partner as any).affiliateCode ? (
+                          <button
+                            className="font-mono text-xs bg-muted px-2 py-1 rounded flex items-center gap-1 hover:bg-muted/80"
+                            onClick={() => {
+                              navigator.clipboard.writeText(`${window.location.origin}?ref=${(partner as any).affiliateCode}`);
+                              toast({ title: "Affiliate link copied!" });
+                            }}
+                            data-testid={`button-copy-affiliate-${partner.id}`}
+                          >
+                            {(partner as any).affiliateCode} <Copy className="w-3 h-3" />
+                          </button>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Select
+                          defaultValue={String(partner.commissionPercent ?? 10)}
+                          onValueChange={(val) => updatePartnerCommission.mutate({ id: partner.id, commissionPercent: Number(val) })}
+                        >
+                          <SelectTrigger className="w-[70px] h-8 text-xs" data-testid={`select-commission-${partner.id}`}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {[5, 10, 15, 20, 25, 30].map((pct) => (
+                              <SelectItem key={pct} value={String(pct)}>{pct}%</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={partner.status === "active" ? "default" : partner.status === "pending" ? "secondary" : "outline"} data-testid={`badge-partner-status-${partner.id}`}>
+                          {partner.status || "pending"}
                         </Badge>
                       </TableCell>
-                      <TableCell data-testid={`text-partner-referrals-${partner.id}`}>{partner.totalReferrals ?? 0}</TableCell>
-                      <TableCell data-testid={`text-partner-conversions-${partner.id}`}>{partner.totalConversions ?? 0}</TableCell>
+                      <TableCell className="text-center" data-testid={`text-partner-clicks-${partner.id}`}>{(partner as any).totalClicks ?? 0}</TableCell>
+                      <TableCell className="text-center" data-testid={`text-partner-referrals-${partner.id}`}>{partner.totalReferrals ?? 0}</TableCell>
+                      <TableCell className="text-center" data-testid={`text-partner-conversions-${partner.id}`}>{partner.totalConversions ?? 0}</TableCell>
                       <TableCell data-testid={`text-partner-payouts-${partner.id}`}>${parseFloat(partner.totalPayouts || "0").toLocaleString()}</TableCell>
+                      <TableCell>
+                        <div className="flex gap-1">
+                          {partner.status !== "active" && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 px-2 text-green-600"
+                              onClick={() => updatePartnerStatus.mutate({ id: partner.id, status: "active" })}
+                              data-testid={`button-approve-${partner.id}`}
+                              title="Approve"
+                            >
+                              <CheckCircle className="w-4 h-4" />
+                            </Button>
+                          )}
+                          {partner.status === "active" && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 px-2 text-red-600"
+                              onClick={() => updatePartnerStatus.mutate({ id: partner.id, status: "suspended" })}
+                              data-testid={`button-suspend-${partner.id}`}
+                              title="Suspend"
+                            >
+                              <XCircle className="w-4 h-4" />
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
                     </TableRow>
                   ))
                 )}

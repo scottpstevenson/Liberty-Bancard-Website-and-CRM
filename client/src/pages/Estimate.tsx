@@ -81,6 +81,7 @@ export default function Estimate() {
 
   const submitMutation = useMutation({
     mutationFn: async (data: EstimateFormData) => {
+      const refCode = localStorage.getItem("lb_ref_code") || undefined;
       const res = await apiRequest("POST", "/api/public/estimate", {
         contactName: data.contactName,
         email: data.email,
@@ -89,6 +90,7 @@ export default function Estimate() {
         totalFees: data.totalFees,
         currentProvider: data.currentProvider || undefined,
         notes: data.notes || undefined,
+        referralCode: refCode,
       });
       return res.json();
     },

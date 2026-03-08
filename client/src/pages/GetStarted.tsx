@@ -190,6 +190,7 @@ export default function GetStarted() {
     if (!canProceed()) return;
     setSubmitting(true);
     try {
+      const refCode = localStorage.getItem("lb_ref_code") || undefined;
       await apiRequest("POST", "/api/public/get-started", {
         goal,
         vertical,
@@ -201,6 +202,7 @@ export default function GetStarted() {
         email,
         phone,
         consentSms: consent,
+        referralCode: refCode,
       });
       setSubmitted(true);
     } catch (error: any) {

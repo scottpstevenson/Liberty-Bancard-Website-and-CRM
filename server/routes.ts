@@ -32,6 +32,27 @@ import os from "os";
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 const uploadLarge = multer({ dest: os.tmpdir(), limits: { fileSize: 300 * 1024 * 1024 } });
 
+async function trackReferral(referralCode: string | undefined, contactName: string, email: string, phone?: string, company?: string) {
+  if (!referralCode) return;
+  try {
+    const partner = await storage.getPartnerByCode(referralCode);
+    if (!partner) return;
+    await storage.createReferral({
+      partnerId: partner.id,
+      referredName: contactName,
+      referredEmail: email,
+      referredPhone: phone || null,
+      referredCompany: company || null,
+      status: "pending",
+      incentiveType: "commission",
+      notes: `Auto-tracked from website form`,
+    });
+    await storage.updatePartner(partner.id, { totalReferrals: (partner.totalReferrals || 0) + 1 } as any);
+  } catch (err) {
+    console.error("Referral tracking error:", err);
+  }
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -454,7 +475,7 @@ export async function registerRoutes(
   // === PUBLIC FORM SUBMISSIONS ===
   app.post("/api/public/statement-upload", async (req, res) => {
     try {
-      const { businessName, contactName, email, mobile, vertical, currentProvider, interestedIn0Percent, needTerminal, notes, consentSms } = req.body;
+      const { businessName, contactName, email, mobile, vertical, currentProvider, interestedIn0Percent, needTerminal, notes, consentSms, referralCode } = req.body;
       const nameParts = (contactName || "").split(" ");
       const firstName = nameParts[0] || "";
       const lastName = nameParts.slice(1).join(" ") || "";
@@ -507,6 +528,7 @@ export async function registerRoutes(
 
       await storage.createAuditLog({ action: "statement_uploaded", entityType: "contact", entityId: contact.id, details: { source: "website" } });
       await storage.updateDeal(deal.id, { statementReceived: true, docReadinessScore: 1 });
+      trackReferral(referralCode, contactName, email, mobile, businessName).catch(err => console.error("Referral tracking error:", err));
       scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
       autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "statement_upload" }).catch(err => console.error("Auto-enroll error:", err));
@@ -520,7 +542,7 @@ export async function registerRoutes(
 
   app.post("/api/public/estimate", async (req, res) => {
     try {
-      const { contactName, email, phone, monthlyVolume, totalFees, currentProvider, notes } = req.body;
+      const { contactName, email, phone, monthlyVolume, totalFees, currentProvider, notes, referralCode } = req.body;
       const nameParts = (contactName || "").split(" ");
       const firstName = nameParts[0] || "";
       const lastName = nameParts.slice(1).join(" ") || "";
@@ -544,6 +566,7 @@ export async function registerRoutes(
         type: "info",
       });
 
+      trackReferral(referralCode, contactName, email, phone).catch(err => console.error("Referral tracking error:", err));
       scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
       autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "estimate" }).catch(err => console.error("Auto-enroll error:", err));
@@ -597,7 +620,7 @@ export async function registerRoutes(
 
   app.post("/api/public/get-started", async (req, res) => {
     try {
-      const { goal, vertical, monthlyVolume, needTerminal, interestedIn0Percent, firstName, lastName, email, phone, consentSms } = req.body;
+      const { goal, vertical, monthlyVolume, needTerminal, interestedIn0Percent, firstName, lastName, email, phone, consentSms, referralCode } = req.body;
 
       let offerPath = "Not Sure";
       if (goal === "0% interest" || interestedIn0Percent) offerPath = "0% Program";
@@ -639,6 +662,7 @@ export async function registerRoutes(
         type: "info",
       });
 
+      trackReferral(referralCode, `${firstName} ${lastName}`, email, phone).catch(err => console.error("Referral tracking error:", err));
       scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
       generateDealBlueprint(deal.id).catch(err => console.error("Blueprint gen error:", err));
@@ -687,7 +711,7 @@ export async function registerRoutes(
 
   app.post("/api/equipment-order", async (req, res) => {
     try {
-      const { firstName, lastName, email, phone, businessName, message, items } = req.body;
+      const { firstName, lastName, email, phone, businessName, message, items, referralCode } = req.body;
       if (!firstName || typeof firstName !== "string" || firstName.length > 100) {
         return res.status(400).json({ message: "Valid first name is required" });
       }
@@ -755,6 +779,7 @@ export async function registerRoutes(
         type: "alert",
       });
 
+      trackReferral(referralCode, `${firstName} ${safeLastName}`, email, phone, safeBusiness).catch(err => console.error("Referral tracking error:", err));
       scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
       autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "equipment_order" }).catch(err => console.error("Auto-enroll error:", err));
@@ -4194,6 +4219,7 @@ Notes: ${deal.notes || "None"}`
   });
 
   app.post("/api/partners", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
     try {
       const input = insertPartnerSchema.parse(req.body);
       const partner = await storage.createPartner(input);
@@ -4205,8 +4231,14 @@ Notes: ${deal.notes || "None"}`
   });
 
   app.patch("/api/partners/:id", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
     try {
-      const updated = await storage.updatePartner(Number(req.params.id), req.body);
+      const { status, commissionPercent, notes } = req.body;
+      const updates: any = {};
+      if (status && ["active", "pending", "suspended", "inactive"].includes(status)) updates.status = status;
+      if (commissionPercent !== undefined) updates.commissionPercent = Math.min(Math.max(0, Number(commissionPercent) || 0), 100);
+      if (notes !== undefined) updates.notes = String(notes).slice(0, 2000);
+      const updated = await storage.updatePartner(Number(req.params.id), updates);
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
@@ -5052,6 +5084,7 @@ Notes: ${deal.notes || "None"}`
       { url: "/compare-rates", priority: "0.8", changefreq: "monthly" },
       { url: "/blog", priority: "0.8", changefreq: "weekly" },
       { url: "/faq", priority: "0.9", changefreq: "monthly" },
+      { url: "/affiliate", priority: "0.7", changefreq: "monthly" },
       { url: "/why-liberty-bancard", priority: "0.8", changefreq: "monthly" },
       { url: "/case-studies", priority: "0.8", changefreq: "monthly" },
       { url: "/compare/square", priority: "0.8", changefreq: "monthly" },
@@ -5201,6 +5234,126 @@ Notes: ${deal.notes || "None"}`
 
     res.set("Content-Type", "application/xml");
     res.send(xml);
+  });
+
+  app.post("/api/affiliate/signup", async (req, res) => {
+    try {
+      const { firstName, lastName, email, phone, companyName, website, howHeard } = req.body;
+      if (!firstName || typeof firstName !== "string" || firstName.length > 100) {
+        return res.status(400).json({ message: "Valid first name is required." });
+      }
+      if (!email || typeof email !== "string" || !email.includes("@") || email.length > 200) {
+        return res.status(400).json({ message: "Valid email is required." });
+      }
+      if (!phone || typeof phone !== "string" || phone.length > 30) {
+        return res.status(400).json({ message: "Valid phone number is required." });
+      }
+      const existing = await storage.getPartnerByEmail(email.toLowerCase());
+      if (existing) {
+        return res.status(409).json({ message: "An affiliate account with this email already exists." });
+      }
+      let code = "";
+      for (let attempt = 0; attempt < 5; attempt++) {
+        code = (firstName.slice(0, 3) + (lastName?.slice(0, 3) || "") + Math.random().toString(36).slice(2, 6)).toLowerCase().replace(/[^a-z0-9]/g, "");
+        const dup = await storage.getPartnerByCode(code);
+        if (!dup) break;
+      }
+      const partner = await storage.createPartner({
+        companyName: (companyName || `${firstName} ${lastName || ""}`.trim()).slice(0, 200),
+        contactName: `${firstName} ${lastName || ""}`.trim().slice(0, 200),
+        email: email.toLowerCase().slice(0, 200),
+        phone: phone.slice(0, 30),
+        partnerType: "affiliate",
+        affiliateCode: code,
+        status: "active",
+        commissionPercent: 10,
+        website: website ? String(website).slice(0, 500) : null,
+        howHeard: howHeard ? String(howHeard).slice(0, 500) : null,
+      });
+      res.status(201).json({
+        message: "Welcome to the Liberty Bancard Affiliate Program!",
+        affiliateCode: partner.affiliateCode,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/affiliate/stats/:code", async (req, res) => {
+    try {
+      const partner = await storage.getPartnerByCode(req.params.code);
+      if (!partner) return res.status(404).json({ message: "Affiliate not found." });
+      const referralsList = await storage.getReferralsByPartner(partner.id);
+      const pending = referralsList.filter(r => r.status === "pending" || r.status === "contacted").length;
+      const qualified = referralsList.filter(r => r.status === "qualified").length;
+      const converted = referralsList.filter(r => r.status === "converted" || r.status === "paid").length;
+      const totalEarnings = referralsList.filter(r => r.status === "paid").reduce((sum, r) => sum + parseFloat(r.incentiveAmount || "0"), 0);
+      const pendingEarnings = referralsList.filter(r => r.status === "converted").reduce((sum, r) => sum + parseFloat(r.incentiveAmount || "0"), 0);
+      res.json({
+        affiliate: {
+          name: partner.contactName,
+          code: partner.affiliateCode,
+          commissionPercent: partner.commissionPercent,
+          status: partner.status,
+          joinedAt: partner.createdAt,
+        },
+        stats: {
+          totalClicks: partner.totalClicks || 0,
+          totalReferrals: referralsList.length,
+          pending,
+          qualified,
+          converted,
+          conversionRate: referralsList.length > 0 ? Math.round((converted / referralsList.length) * 100) : 0,
+          totalEarnings: totalEarnings.toFixed(2),
+          pendingEarnings: pendingEarnings.toFixed(2),
+        },
+        recentReferrals: referralsList.slice(0, 20).map(r => ({
+          id: r.id,
+          status: r.status,
+          date: r.createdAt,
+        })),
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/affiliate/track-click", async (req, res) => {
+    try {
+      const { code } = req.body;
+      if (!code) return res.status(400).json({ message: "Code required" });
+      const partner = await storage.getPartnerByCode(code);
+      if (!partner) return res.status(404).json({ message: "Invalid affiliate code" });
+      await storage.updatePartner(partner.id, { totalClicks: (partner.totalClicks || 0) + 1 } as any);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/affiliate/referral", async (req, res) => {
+    try {
+      const { affiliateCode, name, email, phone, company, source } = req.body;
+      if (!affiliateCode || !name || !email) {
+        return res.status(400).json({ message: "Affiliate code, name, and email are required." });
+      }
+      const partner = await storage.getPartnerByCode(affiliateCode);
+      if (!partner) return res.status(404).json({ message: "Invalid affiliate code." });
+      const referral = await storage.createReferral({
+        partnerId: partner.id,
+        referredName: name,
+        referredEmail: email,
+        referredPhone: phone || null,
+        referredCompany: company || null,
+        status: "pending",
+        incentiveType: "commission",
+        notes: source ? `Source: ${source}` : null,
+      });
+      await storage.updatePartner(partner.id, { totalReferrals: (partner.totalReferrals || 0) + 1 } as any);
+      res.status(201).json({ success: true, referralId: referral.id });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   return httpServer;

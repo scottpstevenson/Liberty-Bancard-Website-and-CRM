@@ -294,10 +294,11 @@ export default function TerminalShop() {
         const t = shopTerminals.find((t) => t.id === item.terminalId);
         return { name: t?.name || "", quantity: Math.min(Math.max(1, item.quantity), 50), price: t?.priceLabel || "" };
       });
+      const refCode = localStorage.getItem("lb_ref_code") || undefined;
       const response = await fetch("/api/equipment-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, items: orderItems }),
+        body: JSON.stringify({ ...form, items: orderItems, referralCode: refCode }),
       });
       if (!response.ok) {
         const data = await response.json().catch(() => ({ message: "Something went wrong" }));

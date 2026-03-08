@@ -101,6 +101,7 @@ export default function UploadStatement() {
 
   const submitMutation = useMutation({
     mutationFn: async (data: UploadFormData) => {
+      const refCode = localStorage.getItem("lb_ref_code") || undefined;
       const res = await apiRequest("POST", "/api/public/statement-upload", {
         businessName: data.businessName,
         contactName: data.contactName,
@@ -112,6 +113,7 @@ export default function UploadStatement() {
         needTerminal: data.needTerminal,
         notes: data.notes || undefined,
         consentSms: data.consentSms,
+        referralCode: refCode,
       });
       return res.json();
     },

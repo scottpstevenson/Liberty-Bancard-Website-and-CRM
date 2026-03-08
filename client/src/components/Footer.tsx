@@ -11,6 +11,7 @@ export function Footer() {
     { label: "Support", href: "/support" },
     { label: "Help Center", href: "/help" },
     { label: "Merchant Application", href: "/merchant-application" },
+    { label: "Affiliate Program", href: "/affiliate" },
   ];
 
   const solutionLinks = [

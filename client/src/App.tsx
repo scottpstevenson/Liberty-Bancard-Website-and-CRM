@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Switch, Route, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -116,6 +117,7 @@ import SalesOnePager from "@/pages/sales/SalesOnePager";
 import WhyLiberty from "@/pages/WhyLiberty";
 import CaseStudies from "@/pages/CaseStudies";
 import FAQ from "@/pages/FAQ";
+import AffiliateProgram from "@/pages/AffiliateProgram";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { user, isLoading } = useAuth();
@@ -192,6 +194,7 @@ function Router() {
       <Route path="/why-liberty-bancard" component={WhyLiberty} />
       <Route path="/case-studies" component={CaseStudies} />
       <Route path="/faq" component={FAQ} />
+      <Route path="/affiliate" component={AffiliateProgram} />
       <Route path="/blog/:slug" component={BlogPost} />
       <Route path="/blog" component={Blog} />
       <Route path="/help/:category/:slug" component={HelpArticle} />
@@ -358,8 +361,25 @@ function Router() {
   );
 }
 
+function useReferralTracking() {
+  const [location] = useLocation();
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const ref = params.get("ref");
+    if (ref) {
+      localStorage.setItem("lb_ref_code", ref);
+      fetch("/api/affiliate/track-click", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: ref }),
+      }).catch(() => {});
+    }
+  }, [location]);
+}
+
 function PublicLayout() {
   const [location] = useLocation();
+  useReferralTracking();
   const isDashboard = location.startsWith("/dashboard");
   const isThanksPage = location.startsWith("/thanks");
   const isAuthPage = location === "/login" || location === "/signup" || location === "/forgot-password" || location === "/reset-password" || location === "/verify-email";
