@@ -28,7 +28,8 @@ The system is built on a modern web stack, prioritizing scalability, responsiven
 - **Hidden Sales Enablement Pages**: Noindexed pages for equipment catalog, processing cost quiz, and industry/angle one-pagers.
 - **SEO & Content Marketing**: Schema.org structured data across public pages. Blog with category filtering, search, and pagination. Help Center with search and structured data.
 - **Legal & Compliance Pages**: 22 legal/consent pages covering privacy, terms, e-sign, SMS, TCPA, surcharging, and regulatory notices.
-- **CRM Dashboard**: Modules for contact, sales pipeline (Kanban), support tickets, task management, notifications, and KPI digests.
+- **CRM Dashboard**: Modules for contact, sales pipeline (Kanban), support tickets (with auto-acknowledgment, status change notifications, and quick reply templates), task management, notifications, and KPI digests.
+- **Sales Call Follow-Up System** (`/dashboard/call-outcome`): Gated follow-up workflow — log call outcome, paste Fireflies/meeting recap, AI generates personalized email + SMS drafts using OpenAI, agent reviews/edits before approving send via GHL. Outcomes auto-update deal stage, create follow-up tasks, and enroll in outcome-specific sequences. Endpoints: `POST /api/call-follow-ups/generate` and `POST /api/call-follow-ups/send`. 25 total drip sequences including 4 call-specific: Post-Call Review Follow-Up, Proposal Follow-Up, No-Show Reschedule, Long-Term Nurture.
 - **AI Advisors**: Seven specialized AI advisors (Sales, Support, Onboarding, Marketing, Finance, Compliance, Executive).
 - **Workflow Automation**: Centralized workflow execution engine with various action types, triggered by events, and SLA enforcement.
 - **Profit Instrumentation**: Integrates merchant tier, risk, health score, average ticket, and estimated profit into deals, including a volume estimation engine.

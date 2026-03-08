@@ -1540,6 +1540,205 @@ const SEQUENCES: SequenceSeed[] = [
       },
     ],
   },
+  {
+    name: "Post-Call Review Follow-Up",
+    description: "Automated follow-up after a connected sales call where the merchant wants to see their savings review. Keeps momentum from the call.",
+    triggerType: "call_outcome",
+    triggerConfig: { outcome: "Connected - Send Review Summary" },
+    steps: [
+      {
+        stepOrder: 1,
+        actionType: "email",
+        delayDays: 1,
+        delayHours: 0,
+        subject: "Your savings breakdown is ready, {{contact.firstName}}",
+        body: emailBody([
+          `<p>Hi {{contact.firstName}},</p>`,
+          `<p>Following up from our call — I've put together the numbers we talked about, and I think you'll like what you see.</p>`,
+          `<p>Your current setup has some room for improvement, and I've mapped out exactly where the savings come from. No surprises, no hidden fees — just a cleaner rate structure that puts more money back in your pocket.</p>`,
+          `<p>I'll have the full breakdown over to you today. If you want to hop on a quick 10-minute call to walk through it together, grab a time here:</p>`,
+          `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Book a Review Call</a></p>`,
+          `<p>Talk soon,<br/>The Liberty Bancard Team</p>`,
+        ]),
+      },
+      {
+        stepOrder: 2,
+        actionType: "sms",
+        delayDays: 2,
+        delayHours: 4,
+        body: smsBody(`Hey {{contact.firstName}}, just sent over your savings breakdown by email. Take a look when you get a chance — I think the numbers will speak for themselves. Any questions, just text me back. - Liberty Bancard. Reply STOP to opt out`),
+      },
+      {
+        stepOrder: 3,
+        actionType: "email",
+        delayDays: 4,
+        delayHours: 0,
+        subject: "Quick question about your review",
+        body: emailBody([
+          `<p>Hi {{contact.firstName}},</p>`,
+          `<p>Just checking in — did you get a chance to look over the savings breakdown I sent? I know things get busy, so no pressure.</p>`,
+          `<p>If anything in there didn't make sense or you had questions about how the numbers work, I'm happy to walk through it. Even a quick 5-minute call can clear things up.</p>`,
+          `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Grab a Quick Call</a></p>`,
+          `<p>— Liberty Bancard</p>`,
+        ]),
+      },
+      {
+        stepOrder: 4,
+        actionType: "sms",
+        delayDays: 7,
+        delayHours: 0,
+        body: smsBody(`Hi {{contact.firstName}}, wanted to make sure your savings review didn't get buried. Happy to answer any questions — just reply here or call 954-266-8214. - Liberty Bancard. Reply STOP to opt out`),
+      },
+    ],
+  },
+  {
+    name: "Proposal Follow-Up",
+    description: "Follow-up sequence after sending a formal pricing proposal. Keeps the deal moving without being pushy.",
+    triggerType: "call_outcome",
+    triggerConfig: { outcome: "Connected - Needs Proposal" },
+    steps: [
+      {
+        stepOrder: 1,
+        actionType: "email",
+        delayDays: 1,
+        delayHours: 0,
+        subject: "Your proposal is on its way, {{contact.firstName}}",
+        body: emailBody([
+          `<p>Hi {{contact.firstName}},</p>`,
+          `<p>Great talking with you. As promised, I'm finalizing your custom pricing proposal based on everything we discussed.</p>`,
+          `<p>You should have it in your inbox shortly. It'll include a side-by-side comparison of your current rates versus what we can offer, so you can see exactly where the savings come from.</p>`,
+          `<p>Once you've had a chance to review it, let's jump on a quick call to go over any questions. No pressure — I just want to make sure everything makes sense.</p>`,
+          `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Schedule Proposal Review</a></p>`,
+          `<p>Talk soon,<br/>The Liberty Bancard Team</p>`,
+        ]),
+      },
+      {
+        stepOrder: 2,
+        actionType: "sms",
+        delayDays: 2,
+        delayHours: 0,
+        body: smsBody(`Hey {{contact.firstName}}, your pricing proposal is in your email. Take a look and let me know if anything jumps out — happy to walk through it anytime. - Liberty Bancard. Reply STOP to opt out`),
+      },
+      {
+        stepOrder: 3,
+        actionType: "email",
+        delayDays: 5,
+        delayHours: 0,
+        subject: "Had a chance to review your proposal?",
+        body: emailBody([
+          `<p>Hi {{contact.firstName}},</p>`,
+          `<p>Just following up on the proposal I sent over. I know these decisions take time, especially when you're comparing options.</p>`,
+          `<p>A few things that usually help merchants decide:</p>`,
+          `<ul><li>We handle all the switching — no downtime, no hassle</li><li>No long-term contracts or cancellation fees</li><li>Most merchants are fully transitioned within 5-7 business days</li></ul>`,
+          `<p>If you'd like to talk through anything or if the numbers need adjusting, I'm here. Sometimes a quick conversation is all it takes.</p>`,
+          `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Let's Talk</a></p>`,
+          `<p>— Liberty Bancard</p>`,
+        ]),
+      },
+      {
+        stepOrder: 4,
+        actionType: "sms",
+        delayDays: 8,
+        delayHours: 0,
+        body: smsBody(`Hi {{contact.firstName}}, just checking in on your proposal. If the pricing needs tweaking or you have questions, just text me back. No pressure. - Liberty Bancard. Reply STOP to opt out`),
+      },
+    ],
+  },
+  {
+    name: "No-Show Reschedule",
+    description: "Friendly reschedule sequence when a merchant misses a scheduled call. Understanding tone, no guilt trips.",
+    triggerType: "call_outcome",
+    triggerConfig: { outcome: "No Show" },
+    steps: [
+      {
+        stepOrder: 1,
+        actionType: "sms",
+        delayDays: 0,
+        delayHours: 1,
+        body: smsBody(`Hey {{contact.firstName}}, looks like we missed each other earlier. No worries — things come up. Want to reschedule? Just text me a time that works or grab a spot here: ${SALES_CALENDAR} - Liberty Bancard. Reply STOP to opt out`),
+      },
+      {
+        stepOrder: 2,
+        actionType: "email",
+        delayDays: 1,
+        delayHours: 0,
+        subject: "Let's find a better time, {{contact.firstName}}",
+        body: emailBody([
+          `<p>Hi {{contact.firstName}},</p>`,
+          `<p>We had a call scheduled but it looks like the timing didn't work out — totally understand, it happens.</p>`,
+          `<p>I still have some info I think would be really valuable for you, especially around what you're currently paying for processing. It's a quick conversation — usually 10-15 minutes.</p>`,
+          `<p>If you'd like to reschedule, just pick a time that's more convenient:</p>`,
+          `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Reschedule Call</a></p>`,
+          `<p>Or if you'd rather just chat over text, reply to this and I can share the highlights that way too.</p>`,
+          `<p>— Liberty Bancard</p>`,
+        ]),
+      },
+      {
+        stepOrder: 3,
+        actionType: "sms",
+        delayDays: 3,
+        delayHours: 0,
+        body: smsBody(`Hi {{contact.firstName}}, one more try — I had some good info for you about your processing costs. Want to reschedule a quick call? ${SALES_CALENDAR} - Liberty Bancard. Reply STOP to opt out`),
+      },
+    ],
+  },
+  {
+    name: "Long-Term Nurture",
+    description: "Low-touch nurture sequence for merchants who are interested but not ready to switch yet. Stays top of mind without being annoying.",
+    triggerType: "call_outcome",
+    triggerConfig: { outcome: "Not Now (Nurture)" },
+    steps: [
+      {
+        stepOrder: 1,
+        actionType: "email",
+        delayDays: 7,
+        delayHours: 0,
+        subject: "No rush — just staying in touch",
+        body: emailBody([
+          `<p>Hi {{contact.firstName}},</p>`,
+          `<p>I know the timing wasn't right when we last spoke, and that's completely fine. Just wanted to drop a quick note so you know I'm still here if anything changes.</p>`,
+          `<p>Whether it's your contract ending, fees going up, or you just want a second opinion on what you're paying — my door's always open.</p>`,
+          `<p>Wishing you a great month ahead.</p>`,
+          `<p>— Liberty Bancard</p>`,
+        ]),
+      },
+      {
+        stepOrder: 2,
+        actionType: "email",
+        delayDays: 30,
+        delayHours: 0,
+        subject: "Quick industry update for {{contact.firstName}}",
+        body: emailBody([
+          `<p>Hi {{contact.firstName}},</p>`,
+          `<p>Hope business is going well. I wanted to share something I've been seeing across the industry that might be relevant to you.</p>`,
+          `<p>A lot of merchants in your space have been switching to dual pricing (cash discount) programs — it's been a game-changer for profit margins. If you're curious about how it works or whether it'd make sense for your business, I'm happy to walk you through it. No strings attached.</p>`,
+          `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Let's Chat</a></p>`,
+          `<p>— Liberty Bancard</p>`,
+        ]),
+      },
+      {
+        stepOrder: 3,
+        actionType: "sms",
+        delayDays: 60,
+        delayHours: 0,
+        body: smsBody(`Hey {{contact.firstName}}, just checking in. If you ever want to revisit your processing setup, I'm a text away. No pressure. - Liberty Bancard. Reply STOP to opt out`),
+      },
+      {
+        stepOrder: 4,
+        actionType: "email",
+        delayDays: 90,
+        delayHours: 0,
+        subject: "Still here when you're ready, {{contact.firstName}}",
+        body: emailBody([
+          `<p>Hi {{contact.firstName}},</p>`,
+          `<p>It's been a few months since we connected, and I just wanted to check in. Sometimes the right time is when a contract comes up for renewal, or when you see a fee on your statement that doesn't look right.</p>`,
+          `<p>If that moment comes, you know where to find me. I can usually have a comparison ready within 24 hours of seeing your statement.</p>`,
+          `<p>Here's to a strong quarter ahead.</p>`,
+          `<p>— Liberty Bancard</p>`,
+        ]),
+      },
+    ],
+  },
 ];
 
 export async function seedSequences() {
@@ -1549,7 +1748,7 @@ export async function seedSequences() {
 
     const toSeed = SEQUENCES.filter(seq => !existingNames.has(seq.name));
     if (toSeed.length === 0) {
-      console.log(`[Seed] All ${SEQUENCES.length} sequences already exist, skipping seed.`);
+      console.log(`[Seed] All ${existingSequences.length} sequences already exist, skipping seed.`);
       return;
     }
 
@@ -1583,7 +1782,7 @@ export async function seedSequences() {
       console.log(`[Seed] Created sequence: "${seq.name}" (${seq.steps.length} steps)`);
     }
 
-    console.log("[Seed] All 21 sequences seeded successfully.");
+    console.log("[Seed] All 25 sequences seeded successfully.");
   } catch (error) {
     console.error("[Seed] Error seeding sequences:", error);
   }
