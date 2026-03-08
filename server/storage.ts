@@ -218,6 +218,12 @@ export interface IStorage {
     officers?: any; ownerName?: string; enrichmentData?: any; listId?: number; source?: string;
   }>): Promise<{ inserted: number; updated: number }>;
   getSunbizEntitiesByStatus(status: string, limit?: number): Promise<SunbizEntity[]>;
+  getSunbizEntitiesForAIClassification(limit?: number): Promise<SunbizEntity[]>;
+  getSunbizEntitiesNeedingEnrichment(limit?: number): Promise<SunbizEntity[]>;
+  getSunbizEnrichmentDashboard(): Promise<any>;
+  getSunbizDuplicates(limit?: number): Promise<Array<{ entityName: string; count: number; ids: number[] }>>;
+  mergeSunbizDuplicates(keepId: number, mergeIds: number[]): Promise<boolean>;
+  resetStuckProcessingEntities(): Promise<number>;
   searchSunbizEntitiesByNameCity(name: string, city?: string): Promise<SunbizEntity[]>;
   getSunbizStats(listId?: number): Promise<{total: number, enriched: number, pending: number, withEmail: number, withPhone: number, withWebsite: number}>;
 
@@ -1119,9 +1125,145 @@ export class DatabaseStorage implements IStorage {
 
   async getSunbizEntitiesNeedingEnrichment(limit: number = 200) {
     return await db.select().from(sunbizEntities)
-      .where(sql`enrichment_status = 'enriched' AND ((email IS NULL OR email = '') OR (phone IS NULL OR phone = '')) AND (score = 'hot' OR score = 'warm')`)
-      .orderBy(sql`CASE WHEN score = 'hot' THEN 0 WHEN email IS NULL AND phone IS NULL THEN 0 ELSE 1 END, id`)
+      .where(sql`(enrichment_status IN ('classified', 'pending', 'raw') OR (enrichment_status = 'enriched' AND (email IS NULL OR email = '') AND (phone IS NULL OR phone = '')))
+        AND (score = 'hot' OR score = 'warm')
+        AND entity_status = 'Active'`)
+      .orderBy(sql`CASE WHEN score = 'hot' THEN 0 ELSE 1 END, CASE WHEN enrichment_status = 'classified' THEN 0 WHEN enrichment_status = 'pending' THEN 1 ELSE 2 END, id`)
       .limit(limit);
+  }
+
+  async getSunbizEntitiesForAIClassification(limit: number = 25) {
+    return await db.select().from(sunbizEntities)
+      .where(sql`(enrichment_status = 'pending' OR enrichment_status = 'raw' OR enrichment_status IS NULL)
+        AND (vertical IS NULL OR vertical = '' OR vertical = 'Other')
+        AND entity_status = 'Active'
+        AND score != 'unqualified'`)
+      .orderBy(sql`id`)
+      .limit(limit);
+  }
+
+  async getSunbizEnrichmentDashboard(): Promise<{
+    total: number; active: number;
+    classified: number; unclassified: number;
+    withEmail: number; withPhone: number; withAddress: number; withOwner: number;
+    hot: number; warm: number; cold: number; unqualified: number;
+    enriched: number; processing: number; failed: number;
+    readyForOutreach: number;
+    verticals: Record<string, { total: number; withContact: number }>;
+  }> {
+    const result = await db.execute(sql`
+      SELECT
+        COUNT(*)::int as total,
+        COUNT(*) FILTER (WHERE entity_status = 'Active')::int as active,
+        COUNT(*) FILTER (WHERE vertical IS NOT NULL AND vertical != '' AND vertical != 'Other')::int as classified,
+        COUNT(*) FILTER (WHERE vertical IS NULL OR vertical = '' OR vertical = 'Other')::int as unclassified,
+        COUNT(*) FILTER (WHERE email IS NOT NULL AND email != '')::int as with_email,
+        COUNT(*) FILTER (WHERE phone IS NOT NULL AND phone != '')::int as with_phone,
+        COUNT(*) FILTER (WHERE principal_address IS NOT NULL AND principal_address != '')::int as with_address,
+        COUNT(*) FILTER (WHERE owner_name IS NOT NULL AND owner_name != '')::int as with_owner,
+        COUNT(*) FILTER (WHERE score = 'hot')::int as hot,
+        COUNT(*) FILTER (WHERE score = 'warm')::int as warm,
+        COUNT(*) FILTER (WHERE score = 'cold')::int as cold,
+        COUNT(*) FILTER (WHERE score = 'unqualified')::int as unqualified,
+        COUNT(*) FILTER (WHERE enrichment_status = 'enriched')::int as enriched,
+        COUNT(*) FILTER (WHERE enrichment_status = 'processing')::int as processing,
+        COUNT(*) FILTER (WHERE enrichment_status = 'failed')::int as failed,
+        COUNT(*) FILTER (WHERE (score = 'hot' OR score = 'warm') AND email IS NOT NULL AND email != '' AND phone IS NOT NULL AND phone != '')::int as ready_for_outreach
+      FROM sunbiz_entities
+    `);
+    const row = ((result as any).rows || [])[0] || {};
+
+    const vertResult = await db.execute(sql`
+      SELECT
+        COALESCE(vertical, 'Unclassified') as v,
+        COUNT(*)::int as total,
+        COUNT(*) FILTER (WHERE (email IS NOT NULL AND email != '') OR (phone IS NOT NULL AND phone != ''))::int as with_contact
+      FROM sunbiz_entities
+      WHERE entity_status = 'Active'
+      GROUP BY COALESCE(vertical, 'Unclassified')
+      ORDER BY total DESC
+    `);
+    const verticals: Record<string, { total: number; withContact: number }> = {};
+    for (const vr of (vertResult as any).rows || []) {
+      verticals[vr.v] = { total: Number(vr.total), withContact: Number(vr.with_contact) };
+    }
+
+    return {
+      total: Number(row.total) || 0,
+      active: Number(row.active) || 0,
+      classified: Number(row.classified) || 0,
+      unclassified: Number(row.unclassified) || 0,
+      withEmail: Number(row.with_email) || 0,
+      withPhone: Number(row.with_phone) || 0,
+      withAddress: Number(row.with_address) || 0,
+      withOwner: Number(row.with_owner) || 0,
+      hot: Number(row.hot) || 0,
+      warm: Number(row.warm) || 0,
+      cold: Number(row.cold) || 0,
+      unqualified: Number(row.unqualified) || 0,
+      enriched: Number(row.enriched) || 0,
+      processing: Number(row.processing) || 0,
+      failed: Number(row.failed) || 0,
+      readyForOutreach: Number(row.ready_for_outreach) || 0,
+      verticals,
+    };
+  }
+
+  async getSunbizDuplicates(limit: number = 100): Promise<Array<{ entityName: string; count: number; ids: number[] }>> {
+    const result = await db.execute(sql`
+      SELECT LOWER(entity_name) as entity_name, COUNT(*)::int as cnt, array_agg(id ORDER BY id) as ids
+      FROM sunbiz_entities
+      WHERE entity_status = 'Active'
+      GROUP BY LOWER(entity_name)
+      HAVING COUNT(*) > 1
+      ORDER BY cnt DESC
+      LIMIT ${limit}
+    `);
+    return ((result as any).rows || []).map((r: any) => ({
+      entityName: r.entity_name,
+      count: Number(r.cnt),
+      ids: r.ids,
+    }));
+  }
+
+  async mergeSunbizDuplicates(keepId: number, mergeIds: number[]): Promise<boolean> {
+    const keeper = await this.getSunbizEntity(keepId);
+    if (!keeper) return false;
+
+    for (const mergeId of mergeIds) {
+      if (mergeId === keepId) continue;
+      const dup = await this.getSunbizEntity(mergeId);
+      if (!dup) continue;
+
+      const updates: Record<string, any> = {};
+      if (!keeper.email && dup.email) updates.email = dup.email;
+      if (!keeper.phone && dup.phone) updates.phone = dup.phone;
+      if (!keeper.website && dup.website) updates.website = dup.website;
+      if (!keeper.ownerName && dup.ownerName) updates.ownerName = dup.ownerName;
+      if (!keeper.ownerEmail && dup.ownerEmail) updates.ownerEmail = dup.ownerEmail;
+      if (!keeper.ownerPhone && dup.ownerPhone) updates.ownerPhone = dup.ownerPhone;
+      if ((!keeper.vertical || keeper.vertical === 'Other') && dup.vertical && dup.vertical !== 'Other') {
+        updates.vertical = dup.vertical;
+        updates.score = dup.score;
+      }
+
+      if (Object.keys(updates).length > 0) {
+        await this.updateSunbizEntity(keepId, updates);
+      }
+
+      await db.update(sunbizEntities).set({ enrichmentStatus: 'merged', notes: `Merged into ${keepId}` } as any).where(eq(sunbizEntities.id, mergeId));
+    }
+    return true;
+  }
+
+  async resetStuckProcessingEntities(): Promise<number> {
+    const result = await db.execute(sql`
+      UPDATE sunbiz_entities
+      SET enrichment_status = 'classified'
+      WHERE enrichment_status = 'processing'
+        AND updated_at < NOW() - INTERVAL '30 minutes'
+    `);
+    return (result as any).rowCount || 0;
   }
 
   async getSunbizAggregateStats(): Promise<{

@@ -20,7 +20,7 @@ import { parseSunbizCsv, searchSunbiz, getEntityDetail, streamCorevtFromZip } fr
 import { getEmailSignatureHtml, getEmailSignaturePlainText, getStoredSignature, saveSignature } from "./services/email-signatures";
 import { reEnrichAllSunbizEntities, promoteQualifiedToContacts, runDailyOutreach, startDailyOutreachWorker, stopDailyOutreachWorker, importFullCorevt, importCordataEnrichment, isWorkerRunning, runMassEnrichment, isMassEnrichmentRunning } from "./services/daily-outreach";
 import { syncContactToGhl, fullSyncToGhl, fullSyncFromGhl, syncDealToGhl, getGhlSyncStatus } from "./services/ghl-sync";
-import { enrichSunbizEntity, processSunbizEnrichmentQueue, convertToProspect, runBulkFastClassification } from "./services/sunbiz-enrichment";
+import { enrichSunbizEntity, processSunbizEnrichmentQueue, convertToProspect, runBulkFastClassification, runBulkAIClassification, runDailyEnrichmentPipeline, isPipelineRunning, deepEnrichEntity, runAutoDeduplication } from "./services/sunbiz-enrichment";
 import { estimateFromDeal, estimateFromContact, estimateFromProspect } from "./services/volume-estimator";
 import { insertSunbizEntitySchema } from "@shared/schema";
 import multer from "multer";
@@ -5341,6 +5341,80 @@ Respond in this exact JSON format:
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
     const result = await promoteQualifiedToContacts();
     res.json(result);
+  });
+
+  app.post("/api/sunbiz/bulk-ai-classify", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+    const limit = Number(req.body?.limit) || 5000;
+    res.json({ message: `AI classification started for up to ${limit} entities.`, started: true });
+    runBulkAIClassification(limit).catch(err => console.error("[AI Classify API] Error:", err));
+  });
+
+  app.get("/api/sunbiz/ai-classify-progress", isAuthenticated, async (req, res) => {
+    const progress = await storage.getSystemSetting("ai_classify_progress");
+    res.json({ progress: progress || { status: "idle" } });
+  });
+
+  app.post("/api/sunbiz/run-pipeline", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+    if (isPipelineRunning()) return res.status(409).json({ message: "Pipeline is already running" });
+    const classifyLimit = Number(req.body?.classifyLimit) || 5000;
+    const enrichLimit = Number(req.body?.enrichLimit) || 1000;
+    res.json({ message: `Full pipeline started: classify ${classifyLimit}, enrich ${enrichLimit}.`, started: true });
+    runDailyEnrichmentPipeline({ classifyLimit, enrichLimit }).catch(err => console.error("[Pipeline API] Error:", err));
+  });
+
+  app.get("/api/sunbiz/pipeline-progress", isAuthenticated, async (req, res) => {
+    const progress = await storage.getSystemSetting("daily_pipeline_progress");
+    res.json({ progress: progress || { status: "idle" }, running: isPipelineRunning() });
+  });
+
+  app.post("/api/sunbiz/deep-enrich/:id", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
+    try {
+      const result = await deepEnrichEntity(Number(req.params.id));
+      res.json({ success: true, result });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Enrichment failed" });
+    }
+  });
+
+  app.post("/api/sunbiz/deduplicate", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+    const limit = Number(req.body?.limit) || 500;
+    const result = await runAutoDeduplication(limit);
+    res.json({ message: `Deduplication complete: checked ${result.checked} groups, merged ${result.merged} records.`, ...result });
+  });
+
+  app.get("/api/sunbiz/enrichment-dashboard", isAuthenticated, async (req, res) => {
+    try {
+      const dashboard = await storage.getSunbizEnrichmentDashboard();
+      const pipelineProgress = await storage.getSystemSetting("daily_pipeline_progress");
+      res.json({
+        ...dashboard,
+        pipeline: { progress: pipelineProgress || { status: "idle" }, running: isPipelineRunning() },
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Failed to fetch dashboard" });
+    }
+  });
+
+  app.get("/api/sunbiz/verticals", isAuthenticated, async (req, res) => {
+    try {
+      const dashboard = await storage.getSunbizEnrichmentDashboard();
+      const verticals = Object.entries(dashboard.verticals)
+        .filter(([name]) => name !== "Unclassified" && name !== "Other")
+        .map(([name, data]: [string, any]) => ({
+          name,
+          total: data.total,
+          withContact: data.withContact,
+          contactRate: data.total > 0 ? Math.round((data.withContact / data.total) * 100) : 0,
+        }))
+        .sort((a, b) => b.withContact - a.withContact);
+      res.json({ verticals, totalClassified: dashboard.classified, readyForOutreach: dashboard.readyForOutreach });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Failed to fetch verticals" });
+    }
   });
 
   // === GHL 2-WAY SYNC ===
