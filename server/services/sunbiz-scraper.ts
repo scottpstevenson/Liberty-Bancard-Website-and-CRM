@@ -852,45 +852,123 @@ export function parseCordataLine(line: string): CordataRecord | null {
 
 export async function downloadCordataFromSunbiz(destPath: string): Promise<boolean> {
   const { spawn } = await import("child_process");
+  const fs = await import("fs");
 
-  return new Promise((resolve) => {
-    console.log("[Cordata] Starting download from FL Sunbiz SFTP...");
+  const REMOTE_PATH = "/Public/doc/quarterly/cor/cordata.zip";
+  const MAX_RETRIES = 500;
+  const SESSION_TIMEOUT = 120_000;
 
-    const proc = spawn("sshpass", [
-      "-p", "PubAccess1845!",
-      "sftp", "-o", "StrictHostKeyChecking=no",
-      "-o", "ConnectTimeout=30",
-      "Public@sftp.floridados.gov"
-    ], { stdio: ["pipe", "pipe", "pipe"] });
+  function getRemoteSize(): Promise<number> {
+    return new Promise((resolve) => {
+      const proc = spawn("sshpass", [
+        "-p", "PubAccess1845!",
+        "sftp", "-o", "StrictHostKeyChecking=no",
+        "-o", "ConnectTimeout=30",
+        "-o", "PreferredAuthentications=password",
+        "Public@sftp.floridados.gov"
+      ], { stdio: ["pipe", "pipe", "pipe"] });
 
-    let stderr = "";
-    proc.stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
-    proc.stdout.on("data", (d: Buffer) => {
-      const msg = d.toString();
-      if (msg.includes("Fetching")) {
-        console.log("[Cordata] Download in progress...");
-      }
+      let output = "";
+      proc.stdout.on("data", (d: Buffer) => { output += d.toString(); });
+      proc.stderr.on("data", () => {});
+      proc.stdin.write(`ls -l ${REMOTE_PATH}\nbye\n`);
+
+      const timeout = setTimeout(() => { try { proc.kill("SIGKILL"); } catch {} }, 30000);
+
+      proc.on("close", () => {
+        clearTimeout(timeout);
+        const match = output.match(/(\d{10,})/);
+        resolve(match ? parseInt(match[1]) : 0);
+      });
+      proc.on("error", () => { clearTimeout(timeout); resolve(0); });
     });
+  }
 
-    proc.stdin.write(`get doc/quarterly/cor/cordata.zip ${destPath}\nbye\n`);
+  function runSftpReget(): Promise<{ gained: number; exitCode: number }> {
+    return new Promise((resolve) => {
+      const sizeBefore = fs.existsSync(destPath) ? fs.statSync(destPath).size : 0;
 
-    const timeout = setTimeout(() => {
-      console.log("[Cordata] Download timed out after 30 minutes");
-      proc.kill();
-      resolve(false);
-    }, 30 * 60 * 1000);
+      const proc = spawn("sshpass", [
+        "-p", "PubAccess1845!",
+        "sftp",
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "ConnectTimeout=30",
+        "-o", "ServerAliveInterval=5",
+        "-o", "ServerAliveCountMax=10",
+        "-o", "PreferredAuthentications=password",
+        "Public@sftp.floridados.gov"
+      ], { stdio: ["pipe", "pipe", "pipe"] });
 
-    proc.on("close", (code) => {
-      clearTimeout(timeout);
-      if (code === 0) {
-        console.log("[Cordata] Download completed successfully");
-        resolve(true);
-      } else {
-        console.error("[Cordata] Download failed:", stderr);
-        resolve(false);
-      }
+      proc.stderr.on("data", () => {});
+      proc.stdout.on("data", () => {});
+
+      proc.stdin.write(`reget ${REMOTE_PATH} ${destPath}\nbye\n`);
+
+      const timeout = setTimeout(() => {
+        try { proc.kill("SIGKILL"); } catch {}
+      }, SESSION_TIMEOUT);
+
+      proc.on("close", (code) => {
+        clearTimeout(timeout);
+        const sizeAfter = fs.existsSync(destPath) ? fs.statSync(destPath).size : 0;
+        resolve({ gained: sizeAfter - sizeBefore, exitCode: code || 0 });
+      });
+
+      proc.on("error", () => {
+        clearTimeout(timeout);
+        const sizeAfter = fs.existsSync(destPath) ? fs.statSync(destPath).size : 0;
+        resolve({ gained: sizeAfter - sizeBefore, exitCode: -1 });
+      });
     });
-  });
+  }
+
+  console.log("[Cordata] Starting resumable download from FL Sunbiz SFTP...");
+
+  const remoteSize = await getRemoteSize();
+  const targetSize = remoteSize > 0 ? remoteSize : 1_700_000_000;
+  console.log(`[Cordata] Remote file size: ${(targetSize / (1024 * 1024)).toFixed(0)} MB`);
+
+  let retries = 0;
+  let noProgressCount = 0;
+
+  while (retries < MAX_RETRIES) {
+    const currentSize = fs.existsSync(destPath) ? fs.statSync(destPath).size : 0;
+    const currentMB = (currentSize / (1024 * 1024)).toFixed(0);
+
+    if (currentSize >= targetSize) {
+      console.log(`[Cordata] Download complete: ${currentMB} MB`);
+      return true;
+    }
+
+    const { gained } = await runSftpReget();
+    retries++;
+
+    const newSize = fs.existsSync(destPath) ? fs.statSync(destPath).size : 0;
+    const newMB = (newSize / (1024 * 1024)).toFixed(0);
+    const gainedMB = (gained / (1024 * 1024)).toFixed(1);
+    const pct = ((newSize / targetSize) * 100).toFixed(1);
+
+    if (gained > 0) {
+      noProgressCount = 0;
+      if (retries % 5 === 0 || gained > 10_000_000) {
+        console.log(`[Cordata] Progress: ${newMB} / ${(targetSize / (1024*1024)).toFixed(0)} MB (${pct}%), session ${retries}`);
+      }
+    } else {
+      noProgressCount++;
+      if (noProgressCount > 30) {
+        console.error(`[Cordata] No progress after 30 consecutive attempts at ${newMB} MB`);
+        return false;
+      }
+      console.log(`[Cordata] No progress at ${newMB} MB (attempt ${noProgressCount}/30)`);
+      await new Promise(r => setTimeout(r, 3000));
+    }
+
+    await new Promise(r => setTimeout(r, 1000));
+  }
+
+  const finalSize = fs.existsSync(destPath) ? fs.statSync(destPath).size : 0;
+  console.log(`[Cordata] Download ended after ${retries} sessions: ${(finalSize / (1024 * 1024)).toFixed(0)} MB`);
+  return finalSize >= targetSize;
 }
 
 export async function* streamCordataFromZip(filePath: string, options?: {

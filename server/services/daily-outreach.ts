@@ -209,22 +209,18 @@ export async function importCordataEnrichment(options?: {
       console.log("[Cordata Import] Download complete");
     }
 
-    const existingFilings = await storage.getExistingFilingNumbers();
-    console.log(`[Cordata Import] ${existingFilings.size} entities in DB, starting cordata enrichment...`);
+    const startCount = await storage.getSunbizEntityCount();
+    console.log(`[Cordata Import] ${startCount} entities in DB, starting fast bulk upsert...`);
 
     await storage.setSystemSetting("cordata_import_progress", {
       status: "processing",
       startedAt: new Date().toISOString(),
       totalProcessed: 0,
-      totalUpdated: 0,
-      totalNew: 0,
-      totalSkipped: 0,
     });
 
     let totalProcessed = 0;
-    let totalUpdated = 0;
-    let totalNew = 0;
-    let totalSkipped = 0;
+    let totalUpserted = 0;
+    let totalErrors = 0;
     let batchCount = 0;
 
     const allLists = await storage.getProspectLists();
@@ -239,117 +235,74 @@ export async function importCordataEnrichment(options?: {
       });
     }
 
+    const officerTitles: Record<string, string> = {
+      P: "President", T: "Treasurer", C: "Chairman",
+      V: "Vice President", S: "Secretary", D: "Director",
+      M: "Manager", MGRM: "Manager/Member", AMBR: "Authorized Member",
+    };
+
     for await (const batch of streamCordataFromZip(filePath, { maxRecords, onlyActive: false })) {
-      const updateBatch: Array<{ filingNumber: string; data: any }> = [];
-      const newEntities: InsertSunbizEntity[] = [];
+      const upsertRecords: Array<{
+        filingNumber: string; entityName: string; feiEinNumber?: string;
+        entityType?: string; entityStatus?: string; filingDate?: string; lastEvent?: string;
+        principalAddress?: string; principalCity?: string; principalState?: string; principalZip?: string;
+        mailingAddress?: string; registeredAgentName?: string; registeredAgentAddress?: string;
+        officers?: any; ownerName?: string; enrichmentData?: any; listId?: number; source?: string;
+      }> = [];
 
       for (const rec of batch) {
-        const officerTitles: Record<string, string> = {
-          P: "President", T: "Treasurer", C: "Chairman",
-          V: "Vice President", S: "Secretary", D: "Director",
-          M: "Manager", MGRM: "Manager/Member", AMBR: "Authorized Member",
-        };
+        if (!rec.corporationNumber) continue;
 
         const officers = rec.officers.map(o => ({
           title: officerTitles[o.title.toUpperCase()] || o.title,
           name: toProperCase(o.name),
-          address: [
-            toProperCase(o.address),
-            toProperCase(o.city),
-            o.state,
-            o.zip
-          ].filter(Boolean).join(", "),
+          address: [toProperCase(o.address), toProperCase(o.city), o.state, o.zip].filter(Boolean).join(", "),
         }));
 
-        const raAddress = [
-          toProperCase(rec.registeredAgentAddress),
-          toProperCase(rec.registeredAgentCity),
-          rec.registeredAgentState,
-          rec.registeredAgentZip,
-        ].filter(Boolean).join(", ");
-
+        const raAddress = [toProperCase(rec.registeredAgentAddress), toProperCase(rec.registeredAgentCity), rec.registeredAgentState, rec.registeredAgentZip].filter(Boolean).join(", ");
         const principalAddr = [rec.principalAddress1, rec.principalAddress2].filter(Boolean).join(", ");
         const mailingAddr = [rec.mailAddress1, rec.mailAddress2].filter(Boolean).join(", ");
+        const ownerOfficer = officers.find((o: any) => ["President", "Manager", "Chairman", "Director"].includes(o.title));
 
-        const ownerOfficer = officers.find(o =>
-          ["President", "Manager", "Chairman", "Director"].includes(o.title)
-        );
-
-        const enrichmentData: Record<string, any> = {};
-        if (rec.annualReports.length > 0) {
-          enrichmentData.annualReports = rec.annualReports;
-        }
+        const enrichmentData: Record<string, any> = { cordataSource: true };
+        if (rec.annualReports.length > 0) enrichmentData.annualReports = rec.annualReports;
         if (rec.feiNumber) enrichmentData.feiNumber = rec.feiNumber;
-        enrichmentData.cordataSource = true;
 
-        if (existingFilings.has(rec.corporationNumber)) {
-          updateBatch.push({
-            filingNumber: rec.corporationNumber,
-            data: {
-              feiEinNumber: rec.feiNumber || undefined,
-              registeredAgentName: toProperCase(rec.registeredAgentName) || undefined,
-              registeredAgentAddress: raAddress || undefined,
-              officers: officers.length > 0 ? officers : undefined,
-              entityType: rec.filingType || undefined,
-              entityStatus: rec.status,
-              lastEvent: rec.lastTransactionDate ? `Last Transaction: ${rec.lastTransactionDate}` : undefined,
-              ownerName: ownerOfficer?.name || undefined,
-              principalAddress: principalAddr ? toProperCase(principalAddr) : undefined,
-              principalCity: toProperCase(rec.principalCity) || undefined,
-              principalState: rec.principalState || undefined,
-              principalZip: rec.principalZip || undefined,
-              mailingAddress: mailingAddr ? toProperCase(mailingAddr) : undefined,
-              enrichmentData,
-            },
-          });
-        } else {
-          existingFilings.add(rec.corporationNumber);
-          newEntities.push({
-            entityName: toProperCase(rec.corporationName) || "",
-            filingNumber: rec.corporationNumber,
-            feiEinNumber: rec.feiNumber || undefined,
-            entityType: rec.filingType || undefined,
-            entityStatus: rec.status,
-            filingDate: rec.fileDate || undefined,
-            principalAddress: principalAddr ? toProperCase(principalAddr) : undefined,
-            principalCity: toProperCase(rec.principalCity) || undefined,
-            principalState: rec.principalState || "FL",
-            principalZip: rec.principalZip || undefined,
-            mailingAddress: mailingAddr ? toProperCase(mailingAddr) : undefined,
-            registeredAgentName: toProperCase(rec.registeredAgentName) || undefined,
-            registeredAgentAddress: raAddress || undefined,
-            officers: officers.length > 0 ? officers : undefined,
-            ownerName: ownerOfficer?.name || undefined,
-            lastEvent: rec.lastTransactionDate ? `Last Transaction: ${rec.lastTransactionDate}` : undefined,
-            enrichmentData,
-            detailUrl: `https://search.sunbiz.org/Inquiry/CorporationSearch/SearchByName?searchNameOrder=${encodeURIComponent(rec.corporationName)}`,
-            listId: importList.id,
-            source: "cordata",
-            enrichmentStatus: "pending" as const,
-            searchQuery: "Sunbiz FL Cordata Import",
-          });
-        }
+        upsertRecords.push({
+          filingNumber: rec.corporationNumber,
+          entityName: toProperCase(rec.corporationName) || "",
+          feiEinNumber: rec.feiNumber || undefined,
+          entityType: rec.filingType || undefined,
+          entityStatus: rec.status,
+          filingDate: rec.fileDate || undefined,
+          lastEvent: rec.lastTransactionDate ? `Last Transaction: ${rec.lastTransactionDate}` : undefined,
+          principalAddress: principalAddr ? toProperCase(principalAddr) : undefined,
+          principalCity: toProperCase(rec.principalCity) || undefined,
+          principalState: rec.principalState || "FL",
+          principalZip: rec.principalZip || undefined,
+          mailingAddress: mailingAddr ? toProperCase(mailingAddr) : undefined,
+          registeredAgentName: toProperCase(rec.registeredAgentName) || undefined,
+          registeredAgentAddress: raAddress || undefined,
+          officers: officers.length > 0 ? officers : undefined,
+          ownerName: ownerOfficer?.name || undefined,
+          enrichmentData,
+          listId: importList.id,
+          source: "cordata",
+        });
       }
 
-      if (updateBatch.length > 0) {
-        totalUpdated += await storage.bulkUpdateSunbizEntitiesByFiling(updateBatch);
-      }
-
-      if (newEntities.length > 0) {
-        try {
-          const batchSize = 200;
-          for (let i = 0; i < newEntities.length; i += batchSize) {
-            const chunk = newEntities.slice(i, i + batchSize);
-            await storage.createSunbizEntitiesBulk(chunk);
-            totalNew += chunk.length;
-          }
-        } catch (err: any) {
-          console.error(`[Cordata Import] Batch insert error:`, err.message);
-          for (const entity of newEntities) {
-            try {
-              await storage.createSunbizEntity(entity);
-              totalNew++;
-            } catch { totalSkipped++; }
+      if (upsertRecords.length > 0) {
+        const UPSERT_CHUNK = 100;
+        for (let i = 0; i < upsertRecords.length; i += UPSERT_CHUNK) {
+          const chunk = upsertRecords.slice(i, i + UPSERT_CHUNK);
+          try {
+            const result = await storage.bulkUpsertSunbizEntities(chunk);
+            totalUpserted += result.inserted;
+          } catch (err: any) {
+            totalErrors += chunk.length;
+            if (totalErrors <= 5) {
+              console.error(`[Cordata Import] Upsert error: ${err.message?.substring(0, 300)}`);
+            }
           }
         }
       }
@@ -357,14 +310,13 @@ export async function importCordataEnrichment(options?: {
       totalProcessed += batch.length;
       batchCount++;
 
-      if (batchCount % 50 === 0) {
-        console.log(`[Cordata Import] Progress: ${totalProcessed} processed, ${totalUpdated} updated, ${totalNew} new, ${totalSkipped} skipped`);
+      if (batchCount === 1 || batchCount % 20 === 0) {
+        console.log(`[Cordata Import] Progress: ${totalProcessed.toLocaleString()} processed, ${totalUpserted.toLocaleString()} upserted, ${totalErrors} errors`);
         await storage.setSystemSetting("cordata_import_progress", {
           status: "processing",
           totalProcessed,
-          totalUpdated,
-          totalNew,
-          totalSkipped,
+          totalUpserted,
+          totalErrors,
           lastUpdate: new Date().toISOString(),
         });
       }
@@ -372,16 +324,20 @@ export async function importCordataEnrichment(options?: {
       if (totalProcessed >= maxRecords) break;
     }
 
+    const endCount = await storage.getSunbizEntityCount();
+    const newRecords = endCount - startCount;
+
     await storage.setSystemSetting("cordata_import_progress", {
       status: "complete",
       completedAt: new Date().toISOString(),
       totalProcessed,
-      totalUpdated,
-      totalNew,
-      totalSkipped,
+      totalUpserted,
+      totalErrors,
+      newRecords,
+      finalCount: endCount,
     });
 
-    console.log(`[Cordata Import] COMPLETE: ${totalProcessed} processed, ${totalUpdated} updated, ${totalNew} new, ${totalSkipped} skipped`);
+    console.log(`[Cordata Import] COMPLETE: ${totalProcessed.toLocaleString()} processed, ${totalUpserted.toLocaleString()} upserted, ${totalErrors} errors, ${newRecords.toLocaleString()} net new (${endCount.toLocaleString()} total)`);
   } catch (err: any) {
     console.error("[Cordata Import] Fatal error:", err);
     await storage.setSystemSetting("cordata_import_progress", {

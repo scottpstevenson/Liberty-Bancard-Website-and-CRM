@@ -1,4 +1,4 @@
-import { db } from "./db";
+import { db, pool } from "./db";
 import {
   contacts, companies, deals, tickets, tasks, documents, auditLogs, notifications, workflowRuns, workflows, rfis,
   messageTemplates, collateralPackets, ghlActivityLog, slaConfigs,
@@ -210,6 +210,13 @@ export interface IStorage {
   updateSunbizEntity(id: number, updates: UpdateSunbizEntityRequest): Promise<SunbizEntity | undefined>;
   updateSunbizEntityByFilingNumber(filingNumber: string, updates: UpdateSunbizEntityRequest): Promise<SunbizEntity | undefined>;
   bulkUpdateSunbizEntitiesByFiling(updates: Array<{ filingNumber: string; data: UpdateSunbizEntityRequest }>): Promise<number>;
+  bulkUpsertSunbizEntities(records: Array<{
+    filingNumber: string; entityName: string; feiEinNumber?: string; entityType?: string;
+    entityStatus?: string; filingDate?: string; lastEvent?: string;
+    principalAddress?: string; principalCity?: string; principalState?: string; principalZip?: string;
+    mailingAddress?: string; registeredAgentName?: string; registeredAgentAddress?: string;
+    officers?: any; ownerName?: string; enrichmentData?: any; listId?: number; source?: string;
+  }>): Promise<{ inserted: number; updated: number }>;
   getSunbizEntitiesByStatus(status: string, limit?: number): Promise<SunbizEntity[]>;
   getSunbizStats(listId?: number): Promise<{total: number, enriched: number, pending: number, withEmail: number, withPhone: number, withWebsite: number}>;
 
@@ -991,6 +998,92 @@ export class DatabaseStorage implements IStorage {
   async getExistingFilingNumbers(): Promise<Set<string>> {
     const results = await db.select({ filingNumber: sunbizEntities.filingNumber }).from(sunbizEntities).where(sql`filing_number IS NOT NULL`);
     return new Set(results.map(r => r.filingNumber!).filter(Boolean));
+  }
+
+  async bulkUpsertSunbizEntities(records: Array<{
+    filingNumber: string;
+    entityName: string;
+    feiEinNumber?: string;
+    entityType?: string;
+    entityStatus?: string;
+    filingDate?: string;
+    lastEvent?: string;
+    principalAddress?: string;
+    principalCity?: string;
+    principalState?: string;
+    principalZip?: string;
+    mailingAddress?: string;
+    registeredAgentName?: string;
+    registeredAgentAddress?: string;
+    officers?: any;
+    ownerName?: string;
+    enrichmentData?: any;
+    listId?: number;
+    source?: string;
+  }>): Promise<{ inserted: number; updated: number }> {
+    if (records.length === 0) return { inserted: 0, updated: 0 };
+
+    const COLS = 22;
+    const params: any[] = [];
+    const valueGroups: string[] = [];
+
+    for (let i = 0; i < records.length; i++) {
+      const r = records[i];
+      const base = i * COLS;
+      params.push(
+        r.filingNumber, r.entityName, r.feiEinNumber || null, r.entityType || null,
+        r.entityStatus || null, r.filingDate || null, r.lastEvent || null,
+        r.principalAddress || null, r.principalCity || null, r.principalState || 'FL', r.principalZip || null,
+        r.mailingAddress || null, r.registeredAgentName || null, r.registeredAgentAddress || null,
+        r.officers ? JSON.stringify(r.officers) : null, r.ownerName || null,
+        r.enrichmentData ? JSON.stringify(r.enrichmentData) : null,
+        r.listId || null, r.source || 'cordata', 'pending', new Date(), new Date()
+      );
+      const placeholders = Array.from({ length: COLS }, (_, j) => {
+        const idx = base + j + 1;
+        if (j === 14 || j === 16) return `$${idx}::jsonb`;
+        return `$${idx}`;
+      }).join(', ');
+      valueGroups.push(`(${placeholders})`);
+    }
+
+    const queryText = `
+      INSERT INTO sunbiz_entities (
+        filing_number, entity_name, fei_ein_number, entity_type,
+        entity_status, filing_date, last_event,
+        principal_address, principal_city, principal_state, principal_zip,
+        mailing_address, registered_agent_name, registered_agent_address,
+        officers, owner_name, enrichment_data,
+        list_id, source, enrichment_status, created_at, updated_at
+      ) VALUES ${valueGroups.join(', ')}
+      ON CONFLICT (filing_number) DO UPDATE SET
+        entity_name = COALESCE(EXCLUDED.entity_name, sunbiz_entities.entity_name),
+        fei_ein_number = COALESCE(EXCLUDED.fei_ein_number, sunbiz_entities.fei_ein_number),
+        entity_type = COALESCE(EXCLUDED.entity_type, sunbiz_entities.entity_type),
+        entity_status = COALESCE(EXCLUDED.entity_status, sunbiz_entities.entity_status),
+        last_event = COALESCE(EXCLUDED.last_event, sunbiz_entities.last_event),
+        principal_address = COALESCE(EXCLUDED.principal_address, sunbiz_entities.principal_address),
+        principal_city = COALESCE(EXCLUDED.principal_city, sunbiz_entities.principal_city),
+        principal_state = COALESCE(EXCLUDED.principal_state, sunbiz_entities.principal_state),
+        principal_zip = COALESCE(EXCLUDED.principal_zip, sunbiz_entities.principal_zip),
+        mailing_address = COALESCE(EXCLUDED.mailing_address, sunbiz_entities.mailing_address),
+        registered_agent_name = COALESCE(EXCLUDED.registered_agent_name, sunbiz_entities.registered_agent_name),
+        registered_agent_address = COALESCE(EXCLUDED.registered_agent_address, sunbiz_entities.registered_agent_address),
+        officers = COALESCE(EXCLUDED.officers, sunbiz_entities.officers),
+        owner_name = COALESCE(EXCLUDED.owner_name, sunbiz_entities.owner_name),
+        enrichment_data = COALESCE(EXCLUDED.enrichment_data, sunbiz_entities.enrichment_data),
+        updated_at = NOW()
+    `;
+
+    const client = await pool.connect();
+    try {
+      await client.query('SET statement_timeout = 120000');
+      const result = await client.query(queryText, params);
+      const totalAffected = result.rowCount || 0;
+      return { inserted: totalAffected, updated: 0 };
+    } finally {
+      client.release();
+    }
   }
 
   async getSunbizEntityCount(): Promise<number> {
