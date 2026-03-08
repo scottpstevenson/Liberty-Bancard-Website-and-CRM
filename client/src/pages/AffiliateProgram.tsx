@@ -28,6 +28,7 @@ import {
   MousePointerClick,
   UserPlus,
   Handshake,
+  Share,
 } from "lucide-react";
 
 type ViewMode = "info" | "signup" | "dashboard";
@@ -279,6 +280,134 @@ export default function AffiliateProgram() {
                 <li className="flex items-start gap-2"><CheckCircle className="w-4 h-4 text-primary mt-0.5 shrink-0" /> Mention our free statement analysis — it's an easy conversation starter</li>
               </ul>
             </div>
+
+            <Card className="mt-8" data-testid="card-quick-share">
+              <CardHeader className="flex flex-row items-center gap-3">
+                <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+                  <Share className="w-5 h-5 text-primary" />
+                </div>
+                <div>
+                  <CardTitle className="text-lg">Quick Share Panel</CardTitle>
+                  <p className="text-sm text-muted-foreground mt-1">Pre-written messages ready to share with your ref link</p>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">Industry-Specific Quiz Links</p>
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      { label: "Restaurant", value: "restaurant" },
+                      { label: "Retail", value: "retail" },
+                      { label: "Healthcare", value: "healthcare" },
+                      { label: "Automotive", value: "automotive" },
+                      { label: "Home Services", value: "home-services" },
+                    ].map((ind) => (
+                      <Button
+                        key={ind.value}
+                        variant="outline"
+                        size="sm"
+                        className="gap-1.5"
+                        onClick={() => {
+                          const link = `${baseUrl}/free-analysis?ref=${stats.affiliate.code}&industry=${ind.value}`;
+                          navigator.clipboard.writeText(link);
+                          toast({ title: `${ind.label} quiz link copied` });
+                        }}
+                        data-testid={`button-share-industry-${ind.value}`}
+                      >
+                        <Copy className="w-3 h-3" />
+                        {ind.label}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="border-t border-border pt-4">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">SMS Message</p>
+                  <Card>
+                    <CardContent className="p-3">
+                      <p className="text-sm text-foreground" data-testid="text-share-sms">
+                        Hey! Are you overpaying on credit card processing? Take this free 60-second quiz to see how much you could save: {baseUrl}/free-analysis?ref={stats.affiliate.code}
+                      </p>
+                    </CardContent>
+                  </Card>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 mt-2"
+                    onClick={() => {
+                      navigator.clipboard.writeText(`Hey! Are you overpaying on credit card processing? Take this free 60-second quiz to see how much you could save: ${baseUrl}/free-analysis?ref=${stats.affiliate.code}`);
+                      toast({ title: "SMS message copied" });
+                    }}
+                    data-testid="button-copy-sms"
+                  >
+                    <Copy className="w-3 h-3" /> Copy SMS
+                  </Button>
+                </div>
+
+                <div className="border-t border-border pt-4">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">Email Message</p>
+                  <Card>
+                    <CardContent className="p-3">
+                      <p className="text-sm font-semibold text-foreground mb-1">Subject: Are you overpaying on credit card processing?</p>
+                      <p className="text-sm text-foreground" data-testid="text-share-email">
+                        Hi there,{"\n\n"}I wanted to share something that could save your business real money. Liberty Bancard offers a free savings analysis that shows exactly how much you're overpaying on credit card processing.{"\n\n"}It takes 60 seconds — no obligation, and you keep the breakdown even if you don't switch.{"\n\n"}Check it out here: {baseUrl}/free-analysis?ref={stats.affiliate.code}{"\n\n"}Most businesses save 20-40% on processing fees. Worth a look!
+                      </p>
+                    </CardContent>
+                  </Card>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 mt-2"
+                    onClick={() => {
+                      const emailBody = `Hi there,\n\nI wanted to share something that could save your business real money. Liberty Bancard offers a free savings analysis that shows exactly how much you're overpaying on credit card processing.\n\nIt takes 60 seconds — no obligation, and you keep the breakdown even if you don't switch.\n\nCheck it out here: ${baseUrl}/free-analysis?ref=${stats.affiliate.code}\n\nMost businesses save 20-40% on processing fees. Worth a look!`;
+                      navigator.clipboard.writeText(emailBody);
+                      toast({ title: "Email message copied" });
+                    }}
+                    data-testid="button-copy-email"
+                  >
+                    <Copy className="w-3 h-3" /> Copy Email
+                  </Button>
+                </div>
+
+                <div className="border-t border-border pt-4">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">Social Media Post</p>
+                  <Card>
+                    <CardContent className="p-3">
+                      <p className="text-sm text-foreground" data-testid="text-share-social">
+                        Business owners: are you overpaying on credit card processing fees? Most are and don't even know it. Take this free 60-second quiz to find out how much you could save. No obligation. {baseUrl}/free-analysis?ref={stats.affiliate.code}
+                      </p>
+                    </CardContent>
+                  </Card>
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5"
+                      onClick={() => {
+                        const text = `Business owners: are you overpaying on credit card processing fees? Most are and don't even know it. Take this free 60-second quiz to find out how much you could save. No obligation. ${baseUrl}/free-analysis?ref=${stats.affiliate.code}`;
+                        navigator.clipboard.writeText(text);
+                        toast({ title: "Social post copied" });
+                      }}
+                      data-testid="button-copy-social"
+                    >
+                      <Copy className="w-3 h-3" /> Copy Post
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5"
+                      onClick={() => {
+                        const url = encodeURIComponent(`${baseUrl}/free-analysis?ref=${stats.affiliate.code}`);
+                        window.open(`https://www.facebook.com/sharer/sharer.php?u=${url}`, "_blank", "width=600,height=400");
+                      }}
+                      data-testid="button-share-facebook"
+                    >
+                      <ExternalLink className="w-3 h-3" /> Share on Facebook
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           </div>
         </main>
         <Footer />

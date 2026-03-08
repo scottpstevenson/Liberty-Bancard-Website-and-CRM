@@ -112,6 +112,7 @@ import HelpCenter from "@/pages/HelpCenter";
 import Equipment from "@/pages/Equipment";
 import TerminalShop from "@/pages/TerminalShop";
 import HelpArticle from "@/pages/HelpArticle";
+import FreeAnalysis from "@/pages/FreeAnalysis";
 import CostQuiz from "@/pages/sales/CostQuiz";
 import SalesOnePager from "@/pages/sales/SalesOnePager";
 import WhyLiberty from "@/pages/WhyLiberty";
@@ -200,6 +201,9 @@ function Router() {
       <Route path="/help/:category/:slug" component={HelpArticle} />
       <Route path="/help/:category" component={HelpArticle} />
       <Route path="/help" component={HelpCenter} />
+
+      {/* Free Analysis Landing Page */}
+      <Route path="/free-analysis" component={FreeAnalysis} />
 
       {/* Sales Landing Pages (hidden, noindex) */}
       <Route path="/quiz/processing-cost" component={CostQuiz} />

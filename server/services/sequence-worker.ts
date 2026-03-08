@@ -1,5 +1,6 @@
 import { storage } from "../storage";
 import { sendGhlEmail, sendGhlSms, isGhlConfigured } from "./ghl";
+import { getEmailSignatureHtml } from "./email-signatures";
 
 export async function processSequenceEnrollments(): Promise<{ processed: number; errors: number }> {
   let processed = 0;
@@ -58,6 +59,15 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
         const companyName = contact?.companyName || "your business";
         const email = contact?.email || "";
 
+        const industry = contact?.vertical || "your industry";
+        const monthlyVolume = contact?.monthlyVolume || "N/A";
+        const currentProcessor = contact?.currentProvider || "your current processor";
+        const estimatedSavings = contact?.estimatedResidual
+          ? `$${Math.round(Number(contact.estimatedResidual) * 12).toLocaleString()}`
+          : "significant savings";
+        const recommendedProgram = contact?.primaryOfferPath || "Wholesale";
+        const recommendedTerminal = deal?.terminalRecommendation || "Clover Flex 3";
+
         const interpolate = (text: string | null | undefined): string => {
           if (!text) return "";
           return text
@@ -67,19 +77,26 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
             .replace(/\{\{email\}\}/g, email)
             .replace(/\{\{contact\.firstName\}\}/g, firstName)
             .replace(/\{\{contact\.lastName\}\}/g, lastName)
-            .replace(/\{\{contact\.companyName\}\}/g, companyName);
+            .replace(/\{\{contact\.companyName\}\}/g, companyName)
+            .replace(/\{\{industry\}\}/g, industry)
+            .replace(/\{\{monthlyVolume\}\}/g, monthlyVolume)
+            .replace(/\{\{currentProcessor\}\}/g, currentProcessor)
+            .replace(/\{\{estimatedSavings\}\}/g, estimatedSavings)
+            .replace(/\{\{recommendedProgram\}\}/g, recommendedProgram)
+            .replace(/\{\{recommendedTerminal\}\}/g, recommendedTerminal);
         };
 
         let stepExecuted = false;
 
         switch (step.actionType) {
           case "email": {
+            const emailBody = interpolate(step.body) + getEmailSignatureHtml("sales");
             if (isGhlConfigured() && enrollment.contactId) {
               try {
                 await sendGhlEmail({
                   contactId: enrollment.contactId,
                   subject: interpolate(step.subject),
-                  body: interpolate(step.body),
+                  body: emailBody,
                 });
                 stepExecuted = true;
               } catch (emailErr) {
@@ -90,7 +107,7 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
               contactId: enrollment.contactId,
               direction: "outbound",
               subject: interpolate(step.subject),
-              body: interpolate(step.body),
+              body: emailBody,
               status: stepExecuted ? "sent" : "queued",
             });
             stepExecuted = true;

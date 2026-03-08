@@ -6,6 +6,7 @@ interface ScoreBreakdown {
   switchability: { score: number; max: 25; factors: Record<string, number> };
   uwConfidence: { score: number; max: 25; factors: Record<string, number> };
   engagement: { score: number; max: 20; factors: Record<string, number> };
+  quizBonus?: { score: number; max: 20; factors: Record<string, number> };
   total: number;
   tier: "hot" | "warm" | "cold" | "unqualified";
   summary: string;
@@ -283,6 +284,19 @@ async function calculateEngagement(contactId: number): Promise<{ score: number; 
   return { score, factors };
 }
 
+function calculateQuizBonus(contact: Contact): { score: number; factors: Record<string, number> } {
+  const factors: Record<string, number> = {};
+  let score = 0;
+
+  const tags = contact.tags || [];
+  if (tags.includes("lead_free_analysis") || tags.includes("src_quiz")) {
+    score += 20;
+    factors.quizCompletion = 20;
+  }
+
+  return { score, factors };
+}
+
 function determineTier(total: number): "hot" | "warm" | "cold" | "unqualified" {
   if (total >= 70) return "hot";
   if (total >= 45) return "warm";
@@ -324,7 +338,9 @@ export async function scoreContact(contactId: number): Promise<ScoreBreakdown | 
   const uwConfidence = calculateUnderwritingConfidence(contact, primaryDeal);
   const engagement = await calculateEngagement(contactId);
 
-  const total = revPotential.score + switchability.score + uwConfidence.score + engagement.score;
+  const quizBonus = calculateQuizBonus(contact);
+
+  const total = revPotential.score + switchability.score + uwConfidence.score + engagement.score + quizBonus.score;
   const tier = determineTier(total);
 
   const breakdown: ScoreBreakdown = {
@@ -332,6 +348,7 @@ export async function scoreContact(contactId: number): Promise<ScoreBreakdown | 
     switchability: { score: switchability.score, max: 25, factors: switchability.factors },
     uwConfidence: { score: uwConfidence.score, max: 25, factors: uwConfidence.factors },
     engagement: { score: engagement.score, max: 20, factors: engagement.factors },
+    quizBonus: { score: quizBonus.score, max: 20, factors: quizBonus.factors },
     total,
     tier,
     summary: "",

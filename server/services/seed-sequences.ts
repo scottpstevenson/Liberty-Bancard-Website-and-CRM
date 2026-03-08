@@ -1386,10 +1386,93 @@ const SEQUENCES: SequenceSeed[] = [
   },
 
   // ═══════════════════════════════════════════════════════
-  // 20) REFERRAL FLYWHEEL — MERCHANT TO MERCHANT (5 steps)
+  // 20) FREE ANALYSIS FOLLOW-UP (5 steps)
   // ═══════════════════════════════════════════════════════
   {
-    name: "20. Referral Flywheel — Merchant to Merchant",
+    name: "20. Free Analysis Follow-Up",
+    description: "Automated follow-up sequence for merchants who completed the free savings analysis quiz. Delivers personalized savings recap, social proof, terminal recommendations, and urgency-based close.",
+    triggerType: "form_submitted",
+    triggerConfig: { formType: "free_analysis", category: "sales", vertical: "all" },
+    steps: [
+      {
+        stepOrder: 1,
+        actionType: "email",
+        delayDays: 0,
+        delayHours: 0,
+        subject: "Your personalized savings estimate is ready",
+        body: emailBody([
+          `<p>Hi {{firstName}},</p>`,
+          `<p>Thanks for completing your free savings analysis with Liberty Bancard.</p>`,
+          `<p>Here's a quick recap of what we found:</p>`,
+          `<ul><li><strong>Your Industry:</strong> {{industry}}</li><li><strong>Monthly Volume:</strong> {{monthlyVolume}}</li><li><strong>Current Processor:</strong> {{currentProcessor}}</li><li><strong>Estimated Annual Savings:</strong> {{estimatedSavings}}</li><li><strong>Recommended Program:</strong> {{recommendedProgram}}</li></ul>`,
+          `<p>These numbers are based on industry averages for your business type. To get an exact breakdown, upload a recent processing statement and we'll show you line by line where you're overpaying.</p>`,
+          `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Upload a Statement for Exact Savings</a></p>`,
+          `<p>— Liberty Bancard</p>`,
+        ]),
+      },
+      {
+        stepOrder: 2,
+        actionType: "sms",
+        delayDays: 1,
+        delayHours: 0,
+        body: smsBody(`Hey {{firstName}}, your savings estimate from Liberty Bancard is ready. Based on your info, you could save significantly on processing. Want us to do a detailed review?\n— Liberty Bancard`),
+      },
+      {
+        stepOrder: 3,
+        actionType: "email",
+        delayDays: 3,
+        delayHours: 0,
+        subject: "How businesses like yours are saving thousands",
+        body: emailBody([
+          `<p>Hi {{firstName}},</p>`,
+          `<p>We work with hundreds of businesses in your industry, and the results speak for themselves:</p>`,
+          `<ul><li>A {{industry}} business processing $` + `{{monthlyVolume}}/mo saved over 25% on fees after switching</li><li>Another eliminated all hidden charges and saved $400/mo in junk fees alone</li><li>One owner switched to our 0% processing program and now pays nothing on card transactions</li></ul>`,
+          `<p>Every business is different, but the pattern is clear — most merchants are overpaying without realizing it.</p>`,
+          `<p>Want to see if your savings estimate holds up with a real statement review?</p>`,
+          `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Get Your Detailed Review</a></p>`,
+          `<p>— Liberty Bancard</p>`,
+        ]),
+      },
+      {
+        stepOrder: 4,
+        actionType: "email",
+        delayDays: 5,
+        delayHours: 0,
+        subject: "The right terminal makes a difference — here's our pick for you",
+        body: emailBody([
+          `<p>Hi {{firstName}},</p>`,
+          `<p>Based on your business type and volume, we recommend the <strong>{{recommendedTerminal}}</strong>.</p>`,
+          `<p>Here's why it's a great fit:</p>`,
+          `<ul><li>Optimized for {{industry}} businesses</li><li>Supports tap, chip, swipe, and contactless payments</li><li>Built-in receipt printing and reporting</li><li>Easy setup — most merchants are live in under an hour</li></ul>`,
+          `<p>Right now, qualifying merchants can get a free terminal with signup — no hidden fees, no long-term contracts.</p>`,
+          `<p><a href="https://libertybancard.com/terminals" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Browse Terminals &amp; Equipment</a></p>`,
+          `<p>— Liberty Bancard</p>`,
+        ]),
+      },
+      {
+        stepOrder: 5,
+        actionType: "email",
+        delayDays: 7,
+        delayHours: 0,
+        subject: "Your savings estimate expires soon — lock in your rate",
+        body: emailBody([
+          `<p>Hi {{firstName}},</p>`,
+          `<p>Just a heads-up — the savings estimate we prepared for you is based on current interchange rates and our promotional pricing.</p>`,
+          `<p>Here's what you get when you complete your application this week:</p>`,
+          `<ul><li>Locked-in wholesale rates with no markup surprises</li><li>Free terminal ({{recommendedTerminal}}) with approved application</li><li>Waived setup and activation fees</li><li>Same-day or next-day funding available</li></ul>`,
+          `<p>Your estimated annual savings of <strong>{{estimatedSavings}}</strong> is real money back in your pocket — but we can only guarantee this pricing for a limited time.</p>`,
+          `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Complete Your Application Now</a></p>`,
+          `<p>— Liberty Bancard</p>`,
+        ]),
+      },
+    ],
+  },
+
+  // ═══════════════════════════════════════════════════════
+  // 21) REFERRAL FLYWHEEL — MERCHANT TO MERCHANT (5 steps)
+  // ═══════════════════════════════════════════════════════
+  {
+    name: "21. Referral Flywheel — Merchant to Merchant",
     description: "Turn signed merchants into referrers with referral credits, easy intro templates, and success spotlight stories.",
     triggerType: "manual",
     triggerConfig: { category: "referral", vertical: "all" },
@@ -1500,7 +1583,7 @@ export async function seedSequences() {
       console.log(`[Seed] Created sequence: "${seq.name}" (${seq.steps.length} steps)`);
     }
 
-    console.log("[Seed] All 20 sequences seeded successfully.");
+    console.log("[Seed] All 21 sequences seeded successfully.");
   } catch (error) {
     console.error("[Seed] Error seeding sequences:", error);
   }

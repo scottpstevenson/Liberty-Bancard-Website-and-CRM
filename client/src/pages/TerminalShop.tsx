@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
+import { trackConversion } from "@/lib/tracking";
 import {
   Check,
   Star,
@@ -27,6 +28,7 @@ import {
   Plus,
   X,
 } from "lucide-react";
+import { PromoBanner, PromoList } from "@/components/PromoBanner";
 import imgCloverFlex3 from "@assets/images/terminal-clover-flex-3.png";
 import imgCloverMini3 from "@assets/images/terminal-clover-mini-3.png";
 import imgCloverStationDuo from "@assets/images/terminal-clover-station-duo.png";
@@ -240,6 +242,7 @@ export default function TerminalShop() {
   const [selectedTerminal, setSelectedTerminal] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [promoCode, setPromoCode] = useState("");
   const [form, setForm] = useState({
     firstName: "",
     lastName: "",
@@ -298,13 +301,14 @@ export default function TerminalShop() {
       const response = await fetch("/api/equipment-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, items: orderItems, referralCode: refCode }),
+        body: JSON.stringify({ ...form, items: orderItems, referralCode: refCode, promoCode: promoCode || undefined }),
       });
       if (!response.ok) {
         const data = await response.json().catch(() => ({ message: "Something went wrong" }));
         toast({ title: data.message || "Submission failed", variant: "destructive" });
         return;
       }
+      trackConversion("equipment_order");
       setSubmitted(true);
     } catch {
       toast({ title: "Network error — please try again", variant: "destructive" });
@@ -404,6 +408,8 @@ export default function TerminalShop() {
       <Navbar />
 
       <main className="flex-grow pt-28">
+        <PromoBanner variant="bar" promoId="free-terminal" showCountdown />
+
         {step === "browse" && !detail && (
           <>
             <section className="bg-gradient-to-br from-primary/5 via-background to-primary/10 py-16">
@@ -528,6 +534,15 @@ export default function TerminalShop() {
                     </div>
                   </div>
                 </div>
+              </div>
+            </section>
+
+            <section className="py-12">
+              <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+                <h2 className="text-xl font-display font-bold text-foreground mb-4 text-center" data-testid="text-active-promos-heading">
+                  Current Promotions
+                </h2>
+                <PromoList />
               </div>
             </section>
           </>
@@ -826,6 +841,16 @@ export default function TerminalShop() {
                     placeholder="Any specific requirements, questions about programs, or preferred delivery date..."
                     rows={3}
                     data-testid="input-message"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium text-foreground mb-1.5 block">Promo Code</label>
+                  <Input
+                    value={promoCode}
+                    onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
+                    placeholder="Enter promo code (optional)"
+                    data-testid="input-promo-code"
                   />
                 </div>
 

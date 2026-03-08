@@ -151,7 +151,9 @@ function filterRows(rows: UnifiedRow[], search: string, scoreFilter: string, sta
     }
     if (scoreFilter !== "all" && r.score !== scoreFilter) return false;
     if (statusFilter !== "all" && r.enrichmentStatus !== statusFilter) return false;
-    if (sourceFilter !== "all" && r.source !== sourceFilter) return false;
+    if (sourceFilter === "quiz_lead") {
+      if (!r.tags.some(t => t === "quiz_lead_linked" || t === "lead_free_analysis" || t === "src_quiz")) return false;
+    } else if (sourceFilter !== "all" && r.source !== sourceFilter) return false;
     return true;
   });
 }
@@ -915,6 +917,7 @@ export default function LeadCommandCenter() {
                 <SelectItem value="all">All Sources</SelectItem>
                 <SelectItem value="sunbiz">Sunbiz</SelectItem>
                 <SelectItem value="prospect">Prospect</SelectItem>
+                <SelectItem value="quiz_lead">Quiz Lead</SelectItem>
               </SelectContent>
             </Select>
           </div>

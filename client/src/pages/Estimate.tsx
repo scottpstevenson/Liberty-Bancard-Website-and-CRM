@@ -31,6 +31,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { Loader2, Upload, ArrowRight, Calculator, TrendingDown } from "lucide-react";
 import heroAnalytics from "@assets/images/hero-analytics.jpg";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
+import { trackConversion } from "@/lib/tracking";
 
 const estimateSchema = z.object({
   contactName: z.string().min(1, "Your name is required"),
@@ -95,6 +96,7 @@ export default function Estimate() {
       return res.json();
     },
     onSuccess: () => {
+      trackConversion("estimate_request");
       setLocation("/thanks-estimate");
     },
     onError: (error: Error) => {

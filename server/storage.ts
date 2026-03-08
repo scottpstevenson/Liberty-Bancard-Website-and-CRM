@@ -218,6 +218,7 @@ export interface IStorage {
     officers?: any; ownerName?: string; enrichmentData?: any; listId?: number; source?: string;
   }>): Promise<{ inserted: number; updated: number }>;
   getSunbizEntitiesByStatus(status: string, limit?: number): Promise<SunbizEntity[]>;
+  searchSunbizEntitiesByNameCity(name: string, city?: string): Promise<SunbizEntity[]>;
   getSunbizStats(listId?: number): Promise<{total: number, enriched: number, pending: number, withEmail: number, withPhone: number, withWebsite: number}>;
 
   getMerchantApplications(): Promise<MerchantApplication[]>;
@@ -972,6 +973,31 @@ export class DatabaseStorage implements IStorage {
       return await db.select().from(sunbizEntities).where(eq(sunbizEntities.enrichmentStatus, status)).orderBy(sunbizEntities.id).limit(limit);
     }
     return await db.select().from(sunbizEntities).where(eq(sunbizEntities.enrichmentStatus, status)).orderBy(desc(sunbizEntities.createdAt));
+  }
+
+  async searchSunbizEntitiesByNameCity(name: string, city?: string): Promise<SunbizEntity[]> {
+    const cleanName = name.replace(/\b(LLC|INC|CORP|CORPORATION|COMPANY|CO|LTD|LP|LLP|PLLC)\b\.*/gi, "").trim();
+    if (!cleanName) return [];
+    const pattern = `%${cleanName}%`;
+    if (city) {
+      return await db.select().from(sunbizEntities)
+        .where(and(
+          or(
+            ilike(sunbizEntities.entityName, pattern),
+            ilike(sunbizEntities.dba, pattern)
+          ),
+          ilike(sunbizEntities.principalCity, city)
+        ))
+        .orderBy(desc(sunbizEntities.enrichmentStatus))
+        .limit(5);
+    }
+    return await db.select().from(sunbizEntities)
+      .where(or(
+        ilike(sunbizEntities.entityName, pattern),
+        ilike(sunbizEntities.dba, pattern)
+      ))
+      .orderBy(desc(sunbizEntities.enrichmentStatus))
+      .limit(5);
   }
 
   async updateSunbizEntityByFilingNumber(filingNumber: string, updates: UpdateSunbizEntityRequest) {

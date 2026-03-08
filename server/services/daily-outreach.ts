@@ -528,6 +528,50 @@ export async function promoteQualifiedToContacts(): Promise<{
   return { promoted, skipped, dealsCreated };
 }
 
+export async function processQuizLeadsForSunbizMatch(): Promise<number> {
+  try {
+    const contacts = await storage.getContacts();
+    const quizLeads = contacts.filter(c => {
+      const tags = c.tags || [];
+      return tags.includes("lead_free_analysis") && !tags.includes("sunbiz_matched") && !tags.includes("sunbiz_no_match");
+    });
+
+    let matched = 0;
+    for (const contact of quizLeads.slice(0, 50)) {
+      try {
+        const searchName = contact.companyName || `${contact.firstName} ${contact.lastName}`;
+        const matches = await storage.searchSunbizEntitiesByNameCity(searchName);
+        if (matches.length > 0) {
+          const match = matches[0];
+          const enrichUpdates: Record<string, any> = {};
+          if (match.vertical && !contact.vertical) enrichUpdates.vertical = match.vertical;
+          const existingTags = contact.tags || [];
+          enrichUpdates.tags = [...existingTags, "sunbiz_matched"];
+          enrichUpdates.notes = `${contact.notes || ""}\nSunbiz Match: ${match.entityName} (Filing: ${match.filingNumber || "N/A"})`.trim();
+          if (match.aiSummary) {
+            enrichUpdates.notes = `${enrichUpdates.notes}\nSunbiz AI: ${match.aiSummary}`.trim();
+          }
+          await storage.updateContact(contact.id, enrichUpdates);
+          await storage.updateSunbizEntity(match.id, {
+            tags: [...(match.tags || []), "quiz_lead_linked"],
+            notes: `${match.notes || ""}\nLinked to quiz contact #${contact.id} (${contact.firstName} ${contact.lastName})`.trim(),
+          });
+          matched++;
+        } else {
+          const existingTags = contact.tags || [];
+          await storage.updateContact(contact.id, { tags: [...existingTags, "sunbiz_no_match"] });
+        }
+      } catch (err) {
+        console.error(`[Quiz Lead Match] Error for contact ${contact.id}:`, err);
+      }
+    }
+    return matched;
+  } catch (err) {
+    console.error("[Quiz Lead Match] Error:", err);
+    return 0;
+  }
+}
+
 export async function runDailyOutreach(): Promise<{
   enriched: number;
   promoted: number;
@@ -549,6 +593,10 @@ export async function runDailyOutreach(): Promise<{
 
   console.log(`[Daily Outreach] Step 2: Promoting qualified leads to contacts...`);
   const promoteResult = await promoteQualifiedToContacts();
+
+  console.log(`[Daily Outreach] Step 2b: Processing quiz leads for Sunbiz matching...`);
+  const quizLeadsProcessed = await processQuizLeadsForSunbizMatch();
+  console.log(`[Daily Outreach] Quiz leads matched: ${quizLeadsProcessed}`);
 
   console.log(`[Daily Outreach] Step 3: Queueing campaign messages (up to ${remaining})...`);
   let totalQueued = 0;

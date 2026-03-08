@@ -5334,6 +5334,21 @@ Notes: ${deal.notes || "None"}`
     }
   });
 
+  app.get("/api/affiliate/public/:code", async (req, res) => {
+    try {
+      const partner = await storage.getPartnerByCode(req.params.code);
+      if (!partner || partner.status !== "active") {
+        return res.status(404).json({ message: "Affiliate not found" });
+      }
+      res.json({
+        name: partner.contactName,
+        company: partner.companyName || undefined,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/affiliate/track-click", async (req, res) => {
     try {
       const { code } = req.body;
@@ -5344,6 +5359,216 @@ Notes: ${deal.notes || "None"}`
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/public/free-analysis", async (req, res) => {
+    try {
+      const {
+        businessType, industry, monthlyVolume, currentProcessor,
+        painPoint, painPoints: painPointsArr,
+        firstName, lastName, email, phone, companyName,
+        consentSms, consentEmail, referralCode,
+        utmSource, utmMedium, utmCampaign, utmContent, utmTerm,
+      } = req.body;
+
+      if (!firstName || !email) {
+        return res.status(400).json({ message: "First name and email are required." });
+      }
+
+      const resolvedPainPoints: string[] = Array.isArray(painPointsArr) ? painPointsArr
+        : painPoint ? (typeof painPoint === "string" ? painPoint.split(",").map((s: string) => s.trim()) : [painPoint])
+        : [];
+
+      const industryMap: Record<string, string> = {
+        "restaurant": "Restaurant", "retail": "Retail",
+        "healthcare": "Medical/Dental/Medspa", "medical": "Medical/Dental/Medspa",
+        "automotive": "Automotive", "home-services": "Home Services", "home_services": "Home Services",
+        "ecommerce": "E-commerce", "e-commerce": "E-commerce", "other": "Other",
+      };
+      const normalizedIndustry = industryMap[(industry || "other").toLowerCase().replace(/[^a-z-]/g, "")] || industry || "Other";
+
+      const volumeRanges: Record<string, number> = {
+        "under-5k": 2500, "5k-15k": 10000, "15k-50k": 32500,
+        "50k-150k": 100000, "150k-plus": 200000,
+        "Under $5,000": 2500, "$5,000 - $10,000": 7500,
+        "$5,000 - $15,000": 10000, "$10,001 - $25,000": 17500,
+        "$15,000 - $50,000": 32500, "$25,001 - $50,000": 37500,
+        "$50,000 - $150,000": 100000, "$50,001+": 75000,
+        "$150,000+": 200000, "Not sure": 15000,
+      };
+      const volumeNum = volumeRanges[monthlyVolume] || parseFloat((monthlyVolume || "0").replace(/[^0-9.]/g, "")) || 15000;
+      let estimatedSavings = 0;
+      let recommendedProgram = "Wholesale";
+      let recommendedTerminal = "Clover Flex 3";
+
+      const processorRates: Record<string, number> = {
+        "square": 2.6, "stripe": 2.9, "toast": 2.49, "clover": 2.6,
+        "clover_go": 2.6, "bank-processor": 2.5, "bank_processor": 2.5,
+        "paypal": 2.7, "shopify": 2.6, "other": 2.5, "none": 3.0,
+      };
+      const processorKey = (currentProcessor || "other").toLowerCase().replace(/[^a-z_-]/g, "");
+      const currentRate = processorRates[processorKey] || processorRates[processorKey.replace(/-/g, "_")] || 2.5;
+      const ourRate = 1.59;
+      const rateDiff = (currentRate - ourRate) / 100;
+      estimatedSavings = Math.round(volumeNum * rateDiff * 12);
+
+      if (volumeNum > 10000) {
+        recommendedProgram = "0% Processing (Dual Pricing)";
+        estimatedSavings = Math.round(volumeNum * (currentRate / 100) * 12);
+      } else if (volumeNum > 5000) {
+        recommendedProgram = "Wholesale Interchange+";
+      }
+
+      const terminalMap: Record<string, string> = {
+        "Restaurant": "Clover Station Duo", "Retail": "Clover Mini 3",
+        "Home Services": "SwipeSimple B250", "Automotive": "PAX A920",
+        "Medical/Dental/Medspa": "Dejavoo QD4", "E-commerce": "Clover Flex 3",
+      };
+      recommendedTerminal = terminalMap[normalizedIndustry] || "Clover Flex 3";
+
+      const industryTag = `vertical_${(normalizedIndustry || "unknown").toLowerCase().replace(/[^a-z]/g, "_")}`;
+      const tags = ["src_quiz", "lead_free_analysis", industryTag];
+      if (utmSource) tags.push(`utm_src_${utmSource}`);
+      if (utmMedium) tags.push(`utm_med_${utmMedium}`);
+      if (utmCampaign) tags.push(`utm_camp_${utmCampaign}`);
+
+      const contact = await storage.createContact({
+        firstName,
+        lastName: lastName || "",
+        email,
+        phone: phone || "",
+        companyName: companyName || undefined,
+        vertical: normalizedIndustry || undefined,
+        monthlyVolume: monthlyVolume || undefined,
+        currentProvider: currentProcessor || undefined,
+        primaryOfferPath: recommendedProgram,
+        consentSms: consentSms === true,
+        consentEmail: consentEmail === true,
+        utmSource: utmSource || undefined,
+        utmMedium: utmMedium || undefined,
+        utmCampaign: utmCampaign || undefined,
+        utmContent: utmContent || undefined,
+        utmTerm: utmTerm || undefined,
+        landingPage: "/free-analysis",
+        painPoints: resolvedPainPoints.length > 0 ? resolvedPainPoints : undefined,
+        estimatedResidual: estimatedSavings || undefined,
+        status: "New",
+        tags,
+      });
+
+      if (consentSms) {
+        await storage.createConsentAuditLog({
+          contactId: contact.id,
+          channel: "sms",
+          action: "opt_in",
+          consented: true,
+          source: "free_analysis_quiz",
+          ipAddress: req.ip || req.socket.remoteAddress || "unknown",
+          userAgent: req.headers["user-agent"] || "unknown",
+          details: { formType: "free_analysis" },
+        });
+      }
+
+      const quizNotes = [
+        `Quiz Results:`,
+        `Business Type: ${businessType || "N/A"}`,
+        `Industry: ${normalizedIndustry || "N/A"}`,
+        `Monthly Volume: ${monthlyVolume || "N/A"}`,
+        `Current Processor: ${currentProcessor || "N/A"}`,
+        `Pain Points: ${resolvedPainPoints.length > 0 ? resolvedPainPoints.join(", ") : "N/A"}`,
+        `Estimated Annual Savings: $${estimatedSavings.toLocaleString()}`,
+        `Recommended Program: ${recommendedProgram}`,
+        `Recommended Terminal: ${recommendedTerminal}`,
+      ].join("\n");
+
+      const deal = await storage.createDeal({
+        contactId: contact.id,
+        pipeline: "sales",
+        stage: "New Lead",
+        offerPath: recommendedProgram,
+        notes: quizNotes,
+        leadSource: "free_analysis_quiz",
+        terminalRecommendation: recommendedTerminal,
+        recommendedProgram,
+        totalVolume: monthlyVolume || undefined,
+      });
+
+      await storage.createNotification({
+        channel: "#sales",
+        title: "New Quiz Lead",
+        message: `New quiz lead: ${firstName} ${lastName || ""} from ${normalizedIndustry || "Unknown"}, est. savings $${estimatedSavings.toLocaleString()}`,
+        type: "alert",
+        metadata: {
+          contactId: contact.id,
+          dealId: deal.id,
+          industry,
+          estimatedSavings,
+          monthlyVolume,
+        },
+      });
+
+      trackReferral(referralCode, `${firstName} ${lastName || ""}`, email, phone, companyName).catch(err => console.error("Referral tracking error:", err));
+
+      scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
+      routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
+      generateDealBlueprint(deal.id).catch(err => console.error("Blueprint gen error:", err));
+
+      (async () => {
+        try {
+          const searchName = companyName || `${firstName} ${lastName || ""}`;
+          const matches = await storage.searchSunbizEntitiesByNameCity(searchName);
+          if (matches.length > 0) {
+            const match = matches[0];
+            const enrichUpdates: Record<string, any> = {};
+            if (match.vertical && !contact.vertical) enrichUpdates.vertical = match.vertical;
+            if (match.ownerName) enrichUpdates.notes = `${contact.notes || ""}\nSunbiz Match: ${match.entityName} (Filing: ${match.filingNumber || "N/A"})`.trim();
+            const existingTags = contact.tags || [];
+            enrichUpdates.tags = [...existingTags, "sunbiz_matched"];
+            if (match.aiSummary) {
+              enrichUpdates.notes = `${enrichUpdates.notes || contact.notes || ""}\nSunbiz AI: ${match.aiSummary}`.trim();
+            }
+            await storage.updateContact(contact.id, enrichUpdates);
+            await storage.updateSunbizEntity(match.id, {
+              tags: [...(match.tags || []), "quiz_lead_linked"],
+              notes: `${match.notes || ""}\nLinked to quiz contact #${contact.id} (${firstName} ${lastName || ""})`.trim(),
+            });
+          }
+        } catch (err) {
+          console.error("Sunbiz match error:", err);
+        }
+      })();
+
+      triggerWorkflowsByEvent("form_submitted", {
+        entityType: "contact",
+        entityId: contact.id,
+        contactId: contact.id,
+        dealId: deal.id,
+      }, { formType: "free_analysis" }).catch(err => console.error("Workflow trigger error:", err));
+
+      autoEnrollFromTrigger("form_submitted", {
+        contactId: contact.id,
+        dealId: deal.id,
+        formType: "free_analysis",
+      }).catch(err => console.error("Auto-enroll error:", err));
+
+      autoEnrollFromTrigger("quiz_completed", {
+        contactId: contact.id,
+        dealId: deal.id,
+      }).catch(err => console.error("Auto-enroll quiz error:", err));
+
+      res.status(201).json({
+        success: true,
+        contactId: contact.id,
+        dealId: deal.id,
+        estimatedSavings,
+        recommendedProgram,
+        recommendedTerminal,
+        monthlyVolume: monthlyVolume || "0",
+      });
+    } catch (err: any) {
+      console.error("Free analysis submission error:", err);
+      res.status(400).json({ message: err.message || "Invalid submission" });
     }
   });
 

@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { trackConversion, trackQuizStart, trackQuizComplete } from "@/lib/tracking";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 import {
   ArrowLeft,
@@ -157,6 +158,7 @@ export default function GetStarted() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [consent, setConsent] = useState(false);
+  const [promoCode, setPromoCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const { toast } = useToast();
@@ -176,6 +178,9 @@ export default function GetStarted() {
 
   const handleNext = () => {
     if (canProceed() && step < TOTAL_STEPS) {
+      if (step === 1) {
+        trackQuizStart();
+      }
       setStep(step + 1);
     }
   };
@@ -203,7 +208,10 @@ export default function GetStarted() {
         phone,
         consentSms: consent,
         referralCode: refCode,
+        promoCode: promoCode || undefined,
       });
+      trackQuizComplete();
+      trackConversion("get_started_submission");
       setSubmitted(true);
     } catch (error: any) {
       toast({
@@ -577,6 +585,18 @@ export default function GetStarted() {
                           onChange={(e) => setPhone(e.target.value)}
                           placeholder="(555) 123-4567"
                           data-testid="input-phone"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium text-foreground mb-1.5 block" htmlFor="promoCode">
+                          Promo Code
+                        </label>
+                        <Input
+                          id="promoCode"
+                          value={promoCode}
+                          onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
+                          placeholder="Enter promo code (optional)"
+                          data-testid="input-promo-code"
                         />
                       </div>
                       <div className="flex items-start gap-3 pt-2">

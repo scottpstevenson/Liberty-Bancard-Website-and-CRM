@@ -31,6 +31,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
+import { trackConversion } from "@/lib/tracking";
 import {
   FileSearch,
   ShieldCheck,
@@ -118,6 +119,7 @@ export default function UploadStatement() {
       return res.json();
     },
     onSuccess: () => {
+      trackConversion("statement_upload");
       toast({
         title: "Statement Received",
         description: "We got your statement and will review it shortly.",
