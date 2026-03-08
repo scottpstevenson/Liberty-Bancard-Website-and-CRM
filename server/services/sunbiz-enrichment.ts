@@ -844,14 +844,10 @@ export async function runSqlClassification(batchLimit?: number): Promise<{ total
 
   try {
     const unqLike = unqualifiedKws.map(kw => `LOWER(entity_name) LIKE '%${kw.replace(/'/g, "''")}%'`).join(" OR ");
-    const unqSql = `UPDATE sunbiz_entities
-      SET vertical = 'Other', score = 'unqualified', enrichment_status = 'classified',
-          ai_summary = 'Likely holding/investment/nonprofit entity'
-      WHERE entity_status = 'Active'
-        AND (vertical IS NULL OR vertical = '' OR vertical = 'Other')
-        AND score IS DISTINCT FROM 'unqualified'
-        AND (${unqLike})
-      ${batchLimit ? `LIMIT ${batchLimit}` : ''}`;
+    const unqWhere = `entity_status = 'Active' AND (vertical IS NULL OR vertical = '' OR vertical = 'Other') AND score IS DISTINCT FROM 'unqualified' AND (${unqLike})`;
+    const unqSql = batchLimit
+      ? `UPDATE sunbiz_entities SET vertical = 'Other', score = 'unqualified', enrichment_status = 'classified', ai_summary = 'Likely holding/investment/nonprofit entity' WHERE id IN (SELECT id FROM sunbiz_entities WHERE ${unqWhere} LIMIT ${batchLimit})`
+      : `UPDATE sunbiz_entities SET vertical = 'Other', score = 'unqualified', enrichment_status = 'classified', ai_summary = 'Likely holding/investment/nonprofit entity' WHERE ${unqWhere}`;
 
     const unqResult = await db.execute(sql.raw(unqSql));
     const unqCount = (unqResult as any).rowCount || 0;
@@ -864,19 +860,11 @@ export async function runSqlClassification(batchLimit?: number): Promise<{ total
         return `LOWER(entity_name) LIKE '%${escaped}%' OR LOWER(COALESCE(dba,'')) LIKE '%${escaped}%'`;
       }).join(" OR ");
 
-      const updateSql = `UPDATE sunbiz_entities
-        SET vertical = '${rule.vertical}', score = '${rule.score}', enrichment_status = 'classified',
-            ai_summary = '${rule.vertical} business identified by keyword match',
-            owner_name = CASE WHEN owner_name IS NULL AND officers IS NOT NULL AND officers::text != '[]'
-              THEN COALESCE(
-                officers->0->>'name',
-                NULL
-              ) ELSE owner_name END
-        WHERE entity_status = 'Active'
-          AND (vertical IS NULL OR vertical = '' OR vertical = 'Other')
-          AND score IS DISTINCT FROM 'unqualified'
-          AND (${likeClauses})
-        ${batchLimit ? `LIMIT ${batchLimit}` : ''}`;
+      const vertWhere = `entity_status = 'Active' AND (vertical IS NULL OR vertical = '' OR vertical = 'Other') AND score IS DISTINCT FROM 'unqualified' AND (${likeClauses})`;
+      const vertSet = `vertical = '${rule.vertical}', score = '${rule.score}', enrichment_status = 'classified', ai_summary = '${rule.vertical} business identified by keyword match', owner_name = CASE WHEN owner_name IS NULL AND officers IS NOT NULL AND officers::text != '[]' THEN COALESCE(officers->0->>'name', NULL) ELSE owner_name END`;
+      const updateSql = batchLimit
+        ? `UPDATE sunbiz_entities SET ${vertSet} WHERE id IN (SELECT id FROM sunbiz_entities WHERE ${vertWhere} LIMIT ${batchLimit})`
+        : `UPDATE sunbiz_entities SET ${vertSet} WHERE ${vertWhere}`;
 
       try {
         const result = await db.execute(sql.raw(updateSql));
@@ -891,17 +879,11 @@ export async function runSqlClassification(batchLimit?: number): Promise<{ total
       }
     }
 
-    const coldSql = `UPDATE sunbiz_entities
-      SET score = 'cold', enrichment_status = 'classified',
-          vertical = 'Other',
-          ai_summary = 'Business type unclear from name',
-          owner_name = CASE WHEN owner_name IS NULL AND officers IS NOT NULL AND officers::text != '[]'
-            THEN COALESCE(officers->0->>'name', NULL) ELSE owner_name END
-      WHERE entity_status = 'Active'
-        AND (vertical IS NULL OR vertical = '' OR vertical = 'Other')
-        AND (enrichment_status IS NULL OR enrichment_status = 'pending' OR enrichment_status = 'raw')
-        AND score IS DISTINCT FROM 'unqualified'
-      ${batchLimit ? `LIMIT ${batchLimit}` : ''}`;
+    const coldWhere = `entity_status = 'Active' AND (vertical IS NULL OR vertical = '' OR vertical = 'Other') AND (enrichment_status IS NULL OR enrichment_status = 'pending' OR enrichment_status = 'raw') AND score IS DISTINCT FROM 'unqualified'`;
+    const coldSet = `score = 'cold', enrichment_status = 'classified', vertical = 'Other', ai_summary = 'Business type unclear from name', owner_name = CASE WHEN owner_name IS NULL AND officers IS NOT NULL AND officers::text != '[]' THEN COALESCE(officers->0->>'name', NULL) ELSE owner_name END`;
+    const coldSql = batchLimit
+      ? `UPDATE sunbiz_entities SET ${coldSet} WHERE id IN (SELECT id FROM sunbiz_entities WHERE ${coldWhere} LIMIT ${batchLimit})`
+      : `UPDATE sunbiz_entities SET ${coldSet} WHERE ${coldWhere}`;
 
     const coldResult = await db.execute(sql.raw(coldSql));
     const coldCount = (coldResult as any).rowCount || 0;
@@ -1372,27 +1354,32 @@ export async function runDailyEnrichmentPipeline(options?: {
   });
 
   let kwClassified = 0;
-  try {
-    console.log(`[DailyPipeline] Phase 1: Keyword classification...`);
-    const kwResult = await fastClassifyBatch(2000);
-    kwClassified = kwResult.classified;
-    console.log(`[DailyPipeline] Keyword classified: ${kwResult.classified}/${kwResult.processed}`);
-  } catch (err) {
-    console.error(`[DailyPipeline] Phase 1 failed:`, err);
-  }
-
   let aiClassified = 0;
-  try {
-    await storage.setSystemSetting("daily_pipeline_progress", {
-      status: "running", phase: "ai_classification",
-      keywordClassified: kwClassified,
-    });
-    console.log(`[DailyPipeline] Phase 2: AI batch classification (up to ${classifyLimit})...`);
-    const aiResult = await runBulkAIClassification(classifyLimit);
-    aiClassified = aiResult.classified;
-    console.log(`[DailyPipeline] AI classified: ${aiResult.classified}/${aiResult.total}`);
-  } catch (err) {
-    console.error(`[DailyPipeline] Phase 2 failed:`, err);
+
+  if (classifyLimit > 0) {
+    try {
+      console.log(`[DailyPipeline] Phase 1: Keyword classification...`);
+      const kwResult = await fastClassifyBatch(2000);
+      kwClassified = kwResult.classified;
+      console.log(`[DailyPipeline] Keyword classified: ${kwResult.classified}/${kwResult.processed}`);
+    } catch (err) {
+      console.error(`[DailyPipeline] Phase 1 failed:`, err);
+    }
+
+    try {
+      await storage.setSystemSetting("daily_pipeline_progress", {
+        status: "running", phase: "ai_classification",
+        keywordClassified: kwClassified,
+      });
+      console.log(`[DailyPipeline] Phase 2: AI batch classification (up to ${classifyLimit})...`);
+      const aiResult = await runBulkAIClassification(classifyLimit);
+      aiClassified = aiResult.classified;
+      console.log(`[DailyPipeline] AI classified: ${aiResult.classified}/${aiResult.total}`);
+    } catch (err) {
+      console.error(`[DailyPipeline] Phase 2 failed:`, err);
+    }
+  } else {
+    console.log(`[DailyPipeline] Skipping classification (classifyLimit=0)`);
   }
 
   console.log(`[DailyPipeline] Phase 3: Deep enrichment for up to ${enrichLimit} hot/warm entities...`);

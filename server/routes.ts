@@ -5358,8 +5358,8 @@ Respond in this exact JSON format:
   app.post("/api/sunbiz/run-pipeline", isAuthenticated, async (req, res) => {
     if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
     if (isPipelineRunning()) return res.status(409).json({ message: "Pipeline is already running" });
-    const classifyLimit = Number(req.body?.classifyLimit) || 5000;
-    const enrichLimit = Number(req.body?.enrichLimit) || 1000;
+    const classifyLimit = req.body?.classifyLimit !== undefined ? Number(req.body.classifyLimit) : 5000;
+    const enrichLimit = req.body?.enrichLimit !== undefined ? Number(req.body.enrichLimit) : 1000;
     res.json({ message: `Full pipeline started: classify ${classifyLimit}, enrich ${enrichLimit}.`, started: true });
     runDailyEnrichmentPipeline({ classifyLimit, enrichLimit }).catch(err => console.error("[Pipeline API] Error:", err));
   });
