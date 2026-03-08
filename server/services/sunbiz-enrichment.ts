@@ -91,202 +91,283 @@ function extractContactFromHtml(html: string): { emails: string[]; phones: strin
   return { emails, phones };
 }
 
-async function searchGoogleForWebsite(businessName: string, city?: string): Promise<string | null> {
-  const query = city
-    ? `${businessName} ${city} FL official website`
-    : `${businessName} Florida official website`;
-  const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=5`;
+const BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+const BROWSER_HEADERS = { "User-Agent": BROWSER_UA, "Accept": "text/html,application/xhtml+xml", "Accept-Language": "en-US,en;q=0.9" };
+
+async function fetchPage(url: string, timeoutMs = 6000): Promise<string | null> {
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 6000);
-    const response = await fetch(searchUrl, {
-      signal: controller.signal,
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml",
-        "Accept-Language": "en-US,en;q=0.9",
-      },
-      redirect: "follow",
-    });
-    clearTimeout(timeout);
-    if (!response.ok) return null;
-    const html = await response.text();
-
-    const skipDomains = [
-      "google.com", "youtube.com", "facebook.com", "instagram.com", "twitter.com",
-      "linkedin.com", "yelp.com", "bbb.org", "sunbiz.org", "yellowpages.com",
-      "whitepages.com", "mapquest.com", "tripadvisor.com", "indeed.com",
-      "glassdoor.com", "wikipedia.org", "reddit.com", "pinterest.com",
-      "tiktok.com", "apple.com", "amazon.com", "nextdoor.com",
-      "manta.com", "dandb.com", "chamberofcommerce.com",
-      "angi.com", "homeadvisor.com", "thumbtack.com",
-    ];
-
-    const candidates: string[] = [];
-    const urlRegex = /href="\/url\?q=(https?:\/\/[^&"]+)/g;
-    let match;
-    while ((match = urlRegex.exec(html)) !== null) {
-      try {
-        const decoded = decodeURIComponent(match[1]);
-        const url = new URL(decoded);
-        const domain = url.hostname.replace(/^www\./, "");
-        if (domain.length >= 5
-          && !skipDomains.some(sd => domain === sd || domain.endsWith(`.${sd}`))
-          && !domain.includes("google") && !domain.includes("gstatic")) {
-          candidates.push(domain);
-        }
-      } catch { continue; }
-    }
-
-    for (const domain of [...new Set(candidates)].slice(0, 3)) {
-      try {
-        const verifyController = new AbortController();
-        const verifyTimeout = setTimeout(() => verifyController.abort(), 4000);
-        const verifyResponse = await fetch(`https://${domain}`, {
-          signal: verifyController.signal,
-          headers: { "User-Agent": "Mozilla/5.0 (compatible; LibertyBancardBot/1.0)" },
-          method: "HEAD",
-          redirect: "follow",
-        });
-        clearTimeout(verifyTimeout);
-        if (verifyResponse.ok || verifyResponse.status === 301 || verifyResponse.status === 302) {
-          return domain;
-        }
-      } catch { continue; }
-    }
-
-    return null;
-  } catch {
-    return null;
-  }
+    const t = setTimeout(() => controller.abort(), timeoutMs);
+    const r = await fetch(url, { signal: controller.signal, headers: BROWSER_HEADERS, redirect: "follow" });
+    clearTimeout(t);
+    if (!r.ok) return null;
+    return await r.text();
+  } catch { return null; }
 }
 
-async function searchGoogleForContacts(businessName: string, city?: string): Promise<{ emails: string[]; phones: string[] }> {
-  const urls = await findGoogleResultUrls(businessName, city);
-  const allEmails: string[] = [];
-  const allPhones: string[] = [];
+function cleanEntityName(name: string): string {
+  return name
+    .replace(/\b(LLC|INC|CORP|CORPORATION|COMPANY|CO|LTD|LP|LLP|PLLC|PA|PC|P\.A\.|P\.C\.|L\.L\.C\.|GROUP|ENTERPRISES|SERVICES|SOLUTIONS|INTERNATIONAL|PARTNERS|ASSOCIATES|OF\s+FLORIDA|OF\s+FL)\b\.*/gi, "")
+    .replace(/[^a-zA-Z0-9\s&'-]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
-  for (const url of urls.slice(0, 3)) {
+function extractGoogleResultUrls(html: string, includeSocial = false): string[] {
+  const directoryDomains = [
+    "google.com", "gstatic.com", "googleapis.com",
+    "sunbiz.org", "wikipedia.org", "reddit.com", "pinterest.com",
+    "tiktok.com", "apple.com", "amazon.com", "nextdoor.com",
+    "dandb.com", "indeed.com", "glassdoor.com",
+  ];
+  const socialDomains = ["facebook.com", "linkedin.com", "yelp.com", "bbb.org", "yellowpages.com"];
+  const skipDomains = includeSocial ? directoryDomains : [...directoryDomains, ...socialDomains];
+  const urls: string[] = [];
+  const urlRegex = /href="\/url\?q=(https?:\/\/[^&"]+)/g;
+  let match;
+  while ((match = urlRegex.exec(html)) !== null) {
     try {
-      const pageHtml = await fetchWebsite(url);
-      if (pageHtml) {
-        const extracted = extractContactFromHtml(pageHtml);
-        allEmails.push(...extracted.emails);
-        allPhones.push(...extracted.phones);
+      const decoded = decodeURIComponent(match[1]);
+      const url = new URL(decoded);
+      const domain = url.hostname.replace(/^www\./, "");
+      if (domain.length >= 4
+        && !skipDomains.some(sd => domain === sd || domain.endsWith(`.${sd}`))
+        && !domain.includes("google") && !domain.includes("gstatic")) {
+        urls.push(decoded);
       }
     } catch { continue; }
-    await new Promise(r => setTimeout(r, 1000));
+  }
+  return [...new Set(urls)];
+}
+
+async function googleSearch(query: string): Promise<string | null> {
+  return fetchPage(`https://www.google.com/search?q=${encodeURIComponent(query)}&num=10`);
+}
+
+async function searchGoogleForWebsite(businessName: string, city?: string): Promise<string | null> {
+  const clean = cleanEntityName(businessName);
+  const query = city ? `${clean} ${city} FL` : `${clean} Florida`;
+  const html = await googleSearch(query);
+  if (!html) return null;
+
+  const urls = extractGoogleResultUrls(html, false);
+  for (const fullUrl of urls.slice(0, 3)) {
+    try {
+      const domain = new URL(fullUrl).hostname.replace(/^www\./, "");
+      if (domain.length < 5) continue;
+      const controller = new AbortController();
+      const t = setTimeout(() => controller.abort(), 4000);
+      const r = await fetch(`https://${domain}`, {
+        signal: controller.signal,
+        headers: { "User-Agent": BROWSER_UA },
+        method: "HEAD",
+        redirect: "follow",
+      });
+      clearTimeout(t);
+      if (r.ok || r.status === 301 || r.status === 302) return domain;
+    } catch { continue; }
+  }
+  return null;
+}
+
+async function searchGoogleForContacts(businessName: string, city?: string, address?: string): Promise<{ emails: string[]; phones: string[]; website: string | null }> {
+  const clean = cleanEntityName(businessName);
+  const queries = [];
+  if (city && address) {
+    queries.push(`"${clean}" "${city}" FL phone email`);
+    queries.push(`"${clean}" "${address}" phone`);
+  } else if (city) {
+    queries.push(`"${clean}" "${city}" FL phone email`);
+  } else {
+    queries.push(`"${clean}" Florida phone email`);
+  }
+
+  const allEmails: string[] = [];
+  const allPhones: string[] = [];
+  let foundWebsite: string | null = null;
+
+  for (const q of queries) {
+    const html = await googleSearch(q);
+    if (!html) continue;
+    const serpContacts = extractContactFromHtml(html);
+    if (serpContacts.phones.length > 0) allPhones.push(...serpContacts.phones);
+    if (serpContacts.emails.length > 0) allEmails.push(...serpContacts.emails);
+
+    const urls = extractGoogleResultUrls(html, true);
+    for (const url of urls.slice(0, 3)) {
+      try {
+        const pageHtml = await fetchWebsite(url);
+        if (pageHtml) {
+          const extracted = extractContactFromHtml(pageHtml);
+          allEmails.push(...extracted.emails);
+          allPhones.push(...extracted.phones);
+          if (!foundWebsite) {
+            const domain = new URL(url).hostname.replace(/^www\./, "");
+            const directoryDomains = ["facebook.com", "linkedin.com", "yelp.com", "bbb.org", "yellowpages.com", "mapquest.com", "tripadvisor.com", "instagram.com", "twitter.com", "chamberofcommerce.com"];
+            if (!directoryDomains.some(sd => domain === sd || domain.endsWith(`.${sd}`))) {
+              foundWebsite = domain;
+            }
+          }
+        }
+      } catch { continue; }
+      await new Promise(r => setTimeout(r, 800));
+    }
+    await new Promise(r => setTimeout(r, 1500));
+  }
+
+  return { emails: [...new Set(allEmails)], phones: [...new Set(allPhones)], website: foundWebsite };
+}
+
+async function scrapeFacebookPage(businessName: string, city?: string): Promise<{ phone: string | null; email: string | null; website: string | null }> {
+  const clean = cleanEntityName(businessName);
+  const query = city ? `site:facebook.com "${clean}" "${city}" FL` : `site:facebook.com "${clean}" Florida`;
+  const html = await googleSearch(query);
+  if (!html) return { phone: null, email: null, website: null };
+
+  const fbUrls = extractGoogleResultUrls(html, true).filter(u => u.includes("facebook.com"));
+  if (fbUrls.length === 0) return { phone: null, email: null, website: null };
+
+  const fbHtml = await fetchPage(fbUrls[0]);
+  if (!fbHtml) return { phone: null, email: null, website: null };
+
+  const contacts = extractContactFromHtml(fbHtml);
+
+  const websiteMatch = fbHtml.match(/"website"\s*:\s*"(https?:\/\/[^"]+)"/) ||
+    fbHtml.match(/(?:Website|External link)[\s\S]{0,200}(https?:\/\/(?!facebook\.com)[a-zA-Z0-9][a-zA-Z0-9\-]*\.[a-zA-Z]{2,}[^\s"<]*)/i);
+  let website: string | null = null;
+  if (websiteMatch) {
+    try { website = new URL(websiteMatch[1]).hostname.replace(/^www\./, ""); } catch {}
   }
 
   return {
-    emails: [...new Set(allEmails)],
-    phones: [...new Set(allPhones)],
+    phone: contacts.phones[0] || null,
+    email: contacts.emails[0] || null,
+    website,
   };
 }
 
-async function findGoogleResultUrls(businessName: string, city?: string): Promise<string[]> {
-  const query = city
-    ? `"${businessName}" "${city}" FL contact`
-    : `"${businessName}" Florida contact`;
-  const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=5`;
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 6000);
-    const response = await fetch(searchUrl, {
-      signal: controller.signal,
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml",
-        "Accept-Language": "en-US,en;q=0.9",
-      },
-      redirect: "follow",
-    });
-    clearTimeout(timeout);
-    if (!response.ok) return [];
-    const html = await response.text();
+async function scrapeLinkedInPage(businessName: string, city?: string): Promise<{ phone: string | null; email: string | null; website: string | null }> {
+  const clean = cleanEntityName(businessName);
+  const query = city ? `site:linkedin.com/company "${clean}" "${city}" FL` : `site:linkedin.com/company "${clean}" Florida`;
+  const html = await googleSearch(query);
+  if (!html) return { phone: null, email: null, website: null };
 
-    const skipDomains = [
-      "google.com", "youtube.com", "facebook.com", "instagram.com", "twitter.com",
-      "linkedin.com", "sunbiz.org", "wikipedia.org", "reddit.com", "pinterest.com",
-      "tiktok.com", "apple.com", "amazon.com", "nextdoor.com",
-      "dandb.com", "chamberofcommerce.com", "indeed.com", "glassdoor.com",
-    ];
+  const liUrls = extractGoogleResultUrls(html, true).filter(u => u.includes("linkedin.com/company"));
+  if (liUrls.length === 0) return { phone: null, email: null, website: null };
 
-    const urls: string[] = [];
-    const urlRegex = /href="\/url\?q=(https?:\/\/[^&"]+)/g;
-    let match;
-    while ((match = urlRegex.exec(html)) !== null) {
-      try {
-        const decoded = decodeURIComponent(match[1]);
-        const url = new URL(decoded);
-        const domain = url.hostname.replace(/^www\./, "");
-        if (!skipDomains.some(sd => domain === sd || domain.endsWith(`.${sd}`))
-          && !domain.includes("google") && !domain.includes("gstatic")) {
-          urls.push(decoded);
-        }
-      } catch { continue; }
-    }
+  const liHtml = await fetchPage(liUrls[0]);
+  if (!liHtml) return { phone: null, email: null, website: null };
 
-    return [...new Set(urls)].slice(0, 5);
-  } catch {
-    return [];
+  const contacts = extractContactFromHtml(liHtml);
+  const websiteMatch = liHtml.match(/"companyUrl"\s*:\s*"(https?:\/\/[^"]+)"/) ||
+    liHtml.match(/"url"\s*:\s*"(https?:\/\/(?!linkedin\.com)[^"]+)"/);
+  let website: string | null = null;
+  if (websiteMatch) {
+    try { website = new URL(websiteMatch[1]).hostname.replace(/^www\./, ""); } catch {}
   }
+
+  return {
+    phone: contacts.phones[0] || null,
+    email: contacts.emails[0] || null,
+    website,
+  };
 }
 
-async function scrapeYelpForContacts(businessName: string, city?: string): Promise<{ phone: string | null; website: string | null }> {
-  const location = city ? `${city}, FL` : "Florida";
-  const query = encodeURIComponent(businessName);
-  const loc = encodeURIComponent(location);
-  const searchUrl = `https://www.yelp.com/search?find_desc=${query}&find_loc=${loc}`;
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 6000);
-    const response = await fetch(searchUrl, {
-      signal: controller.signal,
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html",
-      },
-      redirect: "follow",
-    });
-    clearTimeout(timeout);
-    if (!response.ok) return { phone: null, website: null };
-    const html = await response.text();
+async function scrapeYellowPages(businessName: string, city?: string): Promise<{ phone: string | null; email: string | null; website: string | null }> {
+  const clean = cleanEntityName(businessName);
+  const loc = city ? `${city}, FL` : "Florida";
+  const url = `https://www.yellowpages.com/search?search_terms=${encodeURIComponent(clean)}&geo_location_terms=${encodeURIComponent(loc)}`;
+  const html = await fetchPage(url);
+  if (!html) return { phone: null, email: null, website: null };
 
-    const phoneMatch = html.match(/\(\d{3}\)\s*\d{3}[-.]?\d{4}/);
-    const phone = phoneMatch ? phoneMatch[0].replace(/[^\d]/g, "") : null;
-
-    const bizUrlMatch = html.match(/href="(\/biz\/[^"?]+)/);
-    if (bizUrlMatch) {
-      try {
-        const bizController = new AbortController();
-        const bizTimeout = setTimeout(() => bizController.abort(), 6000);
-        const bizResponse = await fetch(`https://www.yelp.com${bizUrlMatch[1]}`, {
-          signal: bizController.signal,
-          headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "text/html",
-          },
-          redirect: "follow",
-        });
-        clearTimeout(bizTimeout);
-        if (bizResponse.ok) {
-          const bizHtml = await bizResponse.text();
-          const bizPhone = bizHtml.match(/\(\d{3}\)\s*\d{3}[-.]?\d{4}/);
-          const extracted = extractContactFromHtml(bizHtml);
-          const websiteMatch = bizHtml.match(/biz-website.*?href="([^"]+)"/s) ||
-            bizHtml.match(/"externalUrl"\s*:\s*"(https?:\/\/[^"]+)"/);
-          const realPhone = bizPhone ? bizPhone[0].replace(/[^\d]/g, "") : phone;
-          const realWebsite = websiteMatch ? new URL(websiteMatch[1]).hostname.replace(/^www\./, "") : null;
-          return { phone: realPhone || (extracted.phones[0] || null), website: realWebsite };
-        }
-      } catch { /* fall through */ }
-    }
-
-    return { phone: phone && phone.length >= 10 ? phone : null, website: null };
-  } catch {
-    return { phone: null, website: null };
+  const phoneMatch = html.match(/class="phones[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+  let phone: string | null = null;
+  if (phoneMatch) {
+    const p = phoneMatch[1].match(/\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/);
+    if (p) phone = p[0].replace(/[^\d]/g, "");
   }
+  if (!phone) {
+    const altPhone = html.match(/\(\d{3}\)\s*\d{3}-\d{4}/);
+    if (altPhone) phone = altPhone[0].replace(/[^\d]/g, "");
+  }
+
+  const websiteMatch = html.match(/class="track-visit-website"[^>]*href="([^"]+)"/i) ||
+    html.match(/href="(https?:\/\/[^"]+)"[^>]*class="[^"]*website/i);
+  let website: string | null = null;
+  if (websiteMatch) {
+    try { website = new URL(websiteMatch[1]).hostname.replace(/^www\./, ""); } catch {}
+  }
+
+  const emailMatch = html.match(/href="mailto:([^"]+)"/i);
+  const email = emailMatch ? emailMatch[1] : null;
+
+  return {
+    phone: phone && phone.length >= 10 ? phone : null,
+    email,
+    website,
+  };
+}
+
+async function scrapeBBB(businessName: string, city?: string): Promise<{ phone: string | null; website: string | null }> {
+  const clean = cleanEntityName(businessName);
+  const query = city ? `site:bbb.org "${clean}" "${city}" FL` : `site:bbb.org "${clean}" Florida`;
+  const html = await googleSearch(query);
+  if (!html) return { phone: null, website: null };
+
+  const bbbUrls = extractGoogleResultUrls(html, true).filter(u => u.includes("bbb.org"));
+  if (bbbUrls.length === 0) return { phone: null, website: null };
+
+  const bbbHtml = await fetchPage(bbbUrls[0]);
+  if (!bbbHtml) return { phone: null, website: null };
+
+  const contacts = extractContactFromHtml(bbbHtml);
+  const websiteMatch = bbbHtml.match(/"website"\s*:\s*"(https?:\/\/[^"]+)"/) ||
+    bbbHtml.match(/href="(https?:\/\/(?!bbb\.org)[a-zA-Z0-9][a-zA-Z0-9\-]*\.[a-zA-Z]{2,}[^"]*)"[^>]*>.*?(?:Visit Website|Website)/is);
+  let website: string | null = null;
+  if (websiteMatch) {
+    try { website = new URL(websiteMatch[1]).hostname.replace(/^www\./, ""); } catch {}
+  }
+
+  return { phone: contacts.phones[0] || null, website };
+}
+
+async function scrapeYelpForContacts(businessName: string, city?: string): Promise<{ phone: string | null; email: string | null; website: string | null }> {
+  const clean = cleanEntityName(businessName);
+  const location = city ? `${city}, FL` : "Florida";
+  const searchUrl = `https://www.yelp.com/search?find_desc=${encodeURIComponent(clean)}&find_loc=${encodeURIComponent(location)}`;
+  const html = await fetchPage(searchUrl);
+  if (!html) return { phone: null, email: null, website: null };
+
+  const bizUrlMatch = html.match(/href="(\/biz\/[^"?]+)/);
+  if (!bizUrlMatch) {
+    const phoneMatch = html.match(/\(\d{3}\)\s*\d{3}[-.]?\d{4}/);
+    return {
+      phone: phoneMatch ? phoneMatch[0].replace(/[^\d]/g, "") : null,
+      email: null,
+      website: null,
+    };
+  }
+
+  const bizHtml = await fetchPage(`https://www.yelp.com${bizUrlMatch[1]}`);
+  if (!bizHtml) return { phone: null, email: null, website: null };
+
+  const contacts = extractContactFromHtml(bizHtml);
+  const phoneMatch = bizHtml.match(/\(\d{3}\)\s*\d{3}[-.]?\d{4}/);
+  const phone = phoneMatch ? phoneMatch[0].replace(/[^\d]/g, "") : (contacts.phones[0] || null);
+
+  const websiteMatch = bizHtml.match(/biz-website.*?href="([^"]+)"/s) ||
+    bizHtml.match(/"externalUrl"\s*:\s*"(https?:\/\/[^"]+)"/) ||
+    bizHtml.match(/href="(https?:\/\/(?!yelp\.com)[a-zA-Z0-9][a-zA-Z0-9\-]*\.[a-zA-Z]{2,}[^"]*)"[^>]*rel="noopener[^"]*"/i);
+  let website: string | null = null;
+  if (websiteMatch) {
+    try { website = new URL(websiteMatch[1]).hostname.replace(/^www\./, ""); } catch {}
+  }
+
+  return {
+    phone: phone && phone.length >= 10 ? phone : null,
+    email: contacts.emails[0] || null,
+    website,
+  };
 }
 
 async function scrapeSunbizDetailPage(entity: SunbizEntity): Promise<{
@@ -297,46 +378,77 @@ async function scrapeSunbizDetailPage(entity: SunbizEntity): Promise<{
   const filingNum = entity.filingNumber;
   if (!filingNum) return { officers: [], registeredAgentName: null, registeredAgentAddress: null };
 
-  const detailUrl = `https://search.sunbiz.org/Inquiry/CorporationSearch/SearchResultDetail?inquirytype=EntityName&directionType=Initial&searchNameOrder=${encodeURIComponent(filingNum)}`;
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
-    const response = await fetch(detailUrl, {
-      signal: controller.signal,
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html",
-      },
-      redirect: "follow",
-    });
-    clearTimeout(timeout);
-    if (!response.ok) return { officers: [], registeredAgentName: null, registeredAgentAddress: null };
-    const html = await response.text();
+  const detailUrl = `https://search.sunbiz.org/Inquiry/CorporationSearch/ConvertDocNum?searchTerm=${encodeURIComponent(filingNum)}`;
 
-    const officers: any[] = [];
-    const officerSection = html.match(/Officer\/Director Detail[\s\S]*?(?=<\/div>\s*<div|Annual Reports)/i);
-    if (officerSection) {
-      const titleRegex = /Title\s*<\/span>\s*<span[^>]*>(.*?)<\/span>/gi;
-      const nameRegex = /(?:Name|Officer)\s*<\/span>\s*<span[^>]*>(.*?)<\/span>/gi;
-      const titles: string[] = [];
-      const names: string[] = [];
-      let m;
-      while ((m = titleRegex.exec(officerSection[0])) !== null) titles.push(m[1].trim());
-      while ((m = nameRegex.exec(officerSection[0])) !== null) names.push(m[1].trim());
-      for (let i = 0; i < Math.min(titles.length, names.length); i++) {
-        if (names[i]) officers.push({ title: titles[i] || "Officer", name: names[i] });
-      }
+  const html = await fetchPage(detailUrl, 8000);
+  if (!html) return { officers: [], registeredAgentName: null, registeredAgentAddress: null };
+
+  const officers: any[] = [];
+
+  const officerBlocks = html.match(/Officer\/Director Detail[\s\S]*?(?=Annual Reports|Document Images|$)/i);
+  if (officerBlocks) {
+    const block = officerBlocks[0];
+    const titleRegex = /Title\s*<\/span>\s*<span[^>]*>(.*?)<\/span>/gi;
+    const nameRegex = /(?:Name|Officer)\s*<\/span>\s*<span[^>]*>(.*?)<\/span>/gi;
+    const addrRegex = /Address\s*<\/span>\s*<span[^>]*>(.*?)<\/span>/gi;
+    const titles: string[] = [];
+    const names: string[] = [];
+    const addrs: string[] = [];
+    let m;
+    while ((m = titleRegex.exec(block)) !== null) titles.push(m[1].trim());
+    while ((m = nameRegex.exec(block)) !== null) names.push(m[1].trim());
+    while ((m = addrRegex.exec(block)) !== null) addrs.push(m[1].trim());
+    for (let i = 0; i < Math.max(titles.length, names.length); i++) {
+      if (names[i]) officers.push({
+        title: titles[i] || "Officer",
+        name: names[i],
+        address: addrs[i] || undefined,
+      });
     }
-
-    const agentMatch = html.match(/Registered Agent Name[\s\S]*?<span[^>]*>(.*?)<\/span>/i);
-    const agentAddrMatch = html.match(/Registered Agent Address[\s\S]*?<span[^>]*>(.*?)<\/span>/i);
-    const registeredAgentName = agentMatch ? agentMatch[1].trim() : null;
-    const registeredAgentAddress = agentAddrMatch ? agentAddrMatch[1].trim() : null;
-
-    return { officers, registeredAgentName, registeredAgentAddress };
-  } catch {
-    return { officers: [], registeredAgentName: null, registeredAgentAddress: null };
   }
+
+  if (officers.length === 0) {
+    const nameSpans = [...html.matchAll(/<span[^>]*class="[^"]*officerName[^"]*"[^>]*>(.*?)<\/span>/gi)];
+    const titleSpans = [...html.matchAll(/<span[^>]*class="[^"]*officerTitle[^"]*"[^>]*>(.*?)<\/span>/gi)];
+    for (let i = 0; i < nameSpans.length; i++) {
+      const name = nameSpans[i]?.[1]?.trim();
+      const title = titleSpans[i]?.[1]?.trim() || "Officer";
+      if (name) officers.push({ title, name });
+    }
+  }
+
+  const agentMatch = html.match(/Registered Agent[\s\S]{0,100}?Name[\s\S]*?<span[^>]*>(.*?)<\/span>/i) ||
+    html.match(/Registered Agent Name[\s\S]*?<span[^>]*>(.*?)<\/span>/i);
+  const agentAddrMatch = html.match(/Registered Agent[\s\S]{0,100}?Address[\s\S]*?<span[^>]*>(.*?)<\/span>/i) ||
+    html.match(/Registered Agent Address[\s\S]*?<span[^>]*>(.*?)<\/span>/i);
+  const registeredAgentName = agentMatch ? agentMatch[1].trim() : null;
+  const registeredAgentAddress = agentAddrMatch ? agentAddrMatch[1].trim() : null;
+
+  return { officers, registeredAgentName, registeredAgentAddress };
+}
+
+async function scrapeFloridaDBPR(businessName: string): Promise<{ phone: string | null; email: string | null; ownerName: string | null }> {
+  const clean = cleanEntityName(businessName);
+  const query = `site:myfloridalicense.com OR site:mqa.doh.state.fl.us "${clean}"`;
+  const html = await googleSearch(query);
+  if (!html) return { phone: null, email: null, ownerName: null };
+
+  const urls = extractGoogleResultUrls(html, true).filter(u =>
+    u.includes("myfloridalicense.com") || u.includes("mqa.doh.state.fl.us")
+  );
+  if (urls.length === 0) return { phone: null, email: null, ownerName: null };
+
+  const pageHtml = await fetchPage(urls[0]);
+  if (!pageHtml) return { phone: null, email: null, ownerName: null };
+
+  const contacts = extractContactFromHtml(pageHtml);
+  const nameMatch = pageHtml.match(/(?:Licensee|DBA|Business) Name[\s\S]{0,100}?<[^>]*>([\w\s,.'-]+)<\//i);
+
+  return {
+    phone: contacts.phones[0] || null,
+    email: contacts.emails[0] || null,
+    ownerName: nameMatch ? nameMatch[1].trim() : null,
+  };
 }
 
 interface AIEnrichResult {
@@ -444,96 +556,144 @@ export async function enrichSunbizEntity(entityId: number): Promise<SunbizEntity
   let foundEmails: string[] = [];
   let foundPhones: string[] = [];
   const sources: string[] = [];
+  const city = entity.principalCity?.replace(/\s*(FL|FLA|FLORIDA)\s*$/i, "").trim() || undefined;
+  const address = entity.principalAddress || undefined;
 
   let officers = (entity.officers as any[]) || [];
   let registeredAgentName = entity.registeredAgentName || null;
 
-  if (officers.length === 0 && !registeredAgentName) {
-    console.log(`[Enrich] Scraping Sunbiz detail page for entity ${entity.id}: ${entity.entityName}`);
+  console.log(`[Enrich] === Entity ${entity.id}: ${entity.entityName} (${city || "no city"}) ===`);
+
+  if (officers.length === 0 || !registeredAgentName) {
+    console.log(`[Enrich] Step 1: Sunbiz detail page`);
     const sunbizDetail = await scrapeSunbizDetailPage(entity);
     if (sunbizDetail.officers.length > 0) {
       officers = sunbizDetail.officers;
       sources.push("sunbiz_detail");
+      console.log(`[Enrich]   → Found ${officers.length} officers: ${officers.map((o: any) => `${o.title}:${o.name}`).join(", ")}`);
     }
     if (sunbizDetail.registeredAgentName) {
       registeredAgentName = sunbizDetail.registeredAgentName;
+      console.log(`[Enrich]   → Registered agent: ${registeredAgentName}`);
+    }
+    await new Promise(r => setTimeout(r, 1000));
+  }
+
+  if (!website) {
+    console.log(`[Enrich] Step 2: Google website search`);
+    website = await searchGoogleForWebsite(entity.entityName, city);
+    if (website) {
+      sources.push("google_website");
+      console.log(`[Enrich]   → Found website: ${website}`);
     }
     await new Promise(r => setTimeout(r, 1500));
   }
 
-  if (!website) {
-    console.log(`[Enrich] Google searching for website: ${entity.entityName}`);
-    website = await searchGoogleForWebsite(entity.entityName, entity.principalCity || undefined);
-    if (website) sources.push("google_search");
-    await new Promise(r => setTimeout(r, 2000));
-  }
-
   if (website) {
+    console.log(`[Enrich] Step 3: Scraping website ${website}`);
     const rawHtml = await fetchWebsite(website);
     if (rawHtml) {
       websiteText = rawHtml;
       const extracted = extractContactFromHtml(rawHtml);
-      foundEmails = extracted.emails;
-      foundPhones = extracted.phones;
-      if (foundEmails.length > 0 || foundPhones.length > 0) sources.push("website_scrape");
+      foundEmails.push(...extracted.emails);
+      foundPhones.push(...extracted.phones);
+      if (extracted.emails.length > 0 || extracted.phones.length > 0) sources.push("website");
     }
 
     if (foundEmails.length === 0 || foundPhones.length === 0) {
       const contactPageText = await fetchContactPages(website);
       if (contactPageText) {
         const contactExtracted = extractContactFromHtml(contactPageText);
-        if (contactExtracted.emails.length > 0) {
-          foundEmails = [...new Set([...foundEmails, ...contactExtracted.emails])];
-        }
-        if (contactExtracted.phones.length > 0) {
-          foundPhones = [...new Set([...foundPhones, ...contactExtracted.phones])];
-        }
-        if (websiteText) {
-          websiteText += " " + contactPageText.slice(0, 2000);
-        } else {
-          websiteText = contactPageText;
-        }
-        if (contactExtracted.emails.length > 0 || contactExtracted.phones.length > 0) {
-          sources.push("contact_page");
-        }
+        foundEmails.push(...contactExtracted.emails);
+        foundPhones.push(...contactExtracted.phones);
+        if (websiteText) websiteText += " " + contactPageText.slice(0, 2000);
+        else websiteText = contactPageText;
+        if (contactExtracted.emails.length > 0 || contactExtracted.phones.length > 0) sources.push("contact_page");
       }
+    }
+    if (foundEmails.length > 0 || foundPhones.length > 0) {
+      console.log(`[Enrich]   → Website contacts: ${foundEmails.length} emails, ${foundPhones.length} phones`);
     }
   }
 
   if (foundEmails.length === 0 || foundPhones.length === 0) {
-    console.log(`[Enrich] Searching Google for direct contacts: ${entity.entityName}`);
-    const googleContacts = await searchGoogleForContacts(entity.entityName, entity.principalCity || undefined);
-    if (googleContacts.emails.length > 0) {
-      foundEmails = [...new Set([...foundEmails, ...googleContacts.emails])];
-      sources.push("google_contacts");
-    }
-    if (googleContacts.phones.length > 0) {
-      foundPhones = [...new Set([...foundPhones, ...googleContacts.phones])];
-      sources.push("google_contacts");
-    }
-    await new Promise(r => setTimeout(r, 2000));
+    console.log(`[Enrich] Step 4: Facebook search`);
+    const fb = await scrapeFacebookPage(entity.entityName, city);
+    if (fb.phone) { foundPhones.push(fb.phone); sources.push("facebook"); console.log(`[Enrich]   → FB phone: ${fb.phone}`); }
+    if (fb.email) { foundEmails.push(fb.email); sources.push("facebook"); console.log(`[Enrich]   → FB email: ${fb.email}`); }
+    if (fb.website && !website) { website = fb.website; sources.push("facebook_website"); }
+    await new Promise(r => setTimeout(r, 1500));
   }
 
-  if (foundPhones.length === 0 || !website) {
-    console.log(`[Enrich] Checking Yelp for: ${entity.entityName}`);
-    const yelpData = await scrapeYelpForContacts(entity.entityName, entity.principalCity || undefined);
-    if (yelpData.phone) {
-      foundPhones = [...new Set([...foundPhones, yelpData.phone])];
-      sources.push("yelp");
-    }
-    if (yelpData.website && !website) {
-      website = yelpData.website;
-      sources.push("yelp_website");
-      const rawHtml = await fetchWebsite(website);
-      if (rawHtml) {
-        websiteText = rawHtml;
-        const extracted = extractContactFromHtml(rawHtml);
-        if (extracted.emails.length > 0) foundEmails = [...new Set([...foundEmails, ...extracted.emails])];
-        if (extracted.phones.length > 0) foundPhones = [...new Set([...foundPhones, ...extracted.phones])];
-      }
+  if (foundEmails.length === 0 || foundPhones.length === 0) {
+    console.log(`[Enrich] Step 5: Yelp search`);
+    const yelp = await scrapeYelpForContacts(entity.entityName, city);
+    if (yelp.phone) { foundPhones.push(yelp.phone); sources.push("yelp"); console.log(`[Enrich]   → Yelp phone: ${yelp.phone}`); }
+    if (yelp.email) { foundEmails.push(yelp.email); sources.push("yelp"); console.log(`[Enrich]   → Yelp email: ${yelp.email}`); }
+    if (yelp.website && !website) { website = yelp.website; sources.push("yelp_website"); }
+    await new Promise(r => setTimeout(r, 1500));
+  }
+
+  if (foundPhones.length === 0) {
+    console.log(`[Enrich] Step 6: YellowPages search`);
+    const yp = await scrapeYellowPages(entity.entityName, city);
+    if (yp.phone) { foundPhones.push(yp.phone); sources.push("yellowpages"); console.log(`[Enrich]   → YP phone: ${yp.phone}`); }
+    if (yp.email) { foundEmails.push(yp.email); sources.push("yellowpages"); }
+    if (yp.website && !website) { website = yp.website; sources.push("yellowpages_website"); }
+    await new Promise(r => setTimeout(r, 1500));
+  }
+
+  if (foundEmails.length === 0 || foundPhones.length === 0) {
+    console.log(`[Enrich] Step 7: LinkedIn search`);
+    const li = await scrapeLinkedInPage(entity.entityName, city);
+    if (li.phone) { foundPhones.push(li.phone); sources.push("linkedin"); }
+    if (li.email) { foundEmails.push(li.email); sources.push("linkedin"); }
+    if (li.website && !website) { website = li.website; sources.push("linkedin_website"); }
+    await new Promise(r => setTimeout(r, 1500));
+  }
+
+  if (foundPhones.length === 0) {
+    console.log(`[Enrich] Step 8: BBB search`);
+    const bbb = await scrapeBBB(entity.entityName, city);
+    if (bbb.phone) { foundPhones.push(bbb.phone); sources.push("bbb"); console.log(`[Enrich]   → BBB phone: ${bbb.phone}`); }
+    if (bbb.website && !website) { website = bbb.website; sources.push("bbb_website"); }
+    await new Promise(r => setTimeout(r, 1500));
+  }
+
+  if (foundEmails.length === 0 || foundPhones.length === 0) {
+    console.log(`[Enrich] Step 9: Google direct contact search`);
+    const gc = await searchGoogleForContacts(entity.entityName, city, address);
+    if (gc.emails.length > 0) { foundEmails.push(...gc.emails); sources.push("google_contacts"); }
+    if (gc.phones.length > 0) { foundPhones.push(...gc.phones); sources.push("google_contacts"); }
+    if (gc.website && !website) { website = gc.website; sources.push("google_contacts_website"); }
+    await new Promise(r => setTimeout(r, 1500));
+  }
+
+  if (foundPhones.length === 0 && entity.vertical && ["Healthcare", "Salon/Spa", "Restaurant"].includes(entity.vertical)) {
+    console.log(`[Enrich] Step 10: FL DBPR license search`);
+    const dbpr = await scrapeFloridaDBPR(entity.entityName);
+    if (dbpr.phone) { foundPhones.push(dbpr.phone); sources.push("fl_dbpr"); }
+    if (dbpr.email) { foundEmails.push(dbpr.email); sources.push("fl_dbpr"); }
+    if (dbpr.ownerName && officers.length === 0) {
+      officers.push({ title: "Licensee", name: dbpr.ownerName });
+      sources.push("fl_dbpr_name");
     }
     await new Promise(r => setTimeout(r, 1500));
   }
+
+  if (website && foundEmails.length === 0 && foundPhones.length === 0) {
+    const rawHtml = await fetchWebsite(website);
+    if (rawHtml) {
+      const extracted = extractContactFromHtml(rawHtml);
+      foundEmails.push(...extracted.emails);
+      foundPhones.push(...extracted.phones);
+    }
+  }
+
+  foundEmails = [...new Set(foundEmails)];
+  foundPhones = [...new Set(foundPhones.map(p => p.replace(/[^\d]/g, "")).filter(p => p.length >= 10 && p.length <= 11))];
+
+  console.log(`[Enrich] === RESULTS: ${foundEmails.length} emails, ${foundPhones.length} phones, ${officers.length} officers, website=${website || "none"}, sources=[${sources.join(",")}] ===`);
 
   const aiResult = await enrichWithAI(entity, websiteText, foundEmails, foundPhones, officers, registeredAgentName);
   const aiFailed = aiResult.aiSummary === "AI enrichment failed";
@@ -569,6 +729,8 @@ export async function enrichSunbizEntity(entityId: number): Promise<SunbizEntity
     emailsFound: foundEmails,
     phonesFound: foundPhones,
     officerCount: officers.length,
+    officerNames: officers.map((o: any) => o.name).slice(0, 5),
+    registeredAgent: registeredAgentName,
     sources: [...new Set(sources)],
     enrichedAt: new Date().toISOString(),
   };
