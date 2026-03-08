@@ -977,8 +977,8 @@ export class DatabaseStorage implements IStorage {
 
   async getSunbizEntitiesNeedingEnrichment(limit: number = 200) {
     return await db.select().from(sunbizEntities)
-      .where(sql`enrichment_status = 'enriched' AND (email IS NULL OR email = '') AND (score = 'hot' OR score = 'warm') AND (website IS NULL OR website = '')`)
-      .orderBy(sql`CASE WHEN score = 'hot' THEN 0 ELSE 1 END, id`)
+      .where(sql`enrichment_status = 'enriched' AND ((email IS NULL OR email = '') OR (phone IS NULL OR phone = '')) AND (score = 'hot' OR score = 'warm')`)
+      .orderBy(sql`CASE WHEN score = 'hot' THEN 0 WHEN email IS NULL AND phone IS NULL THEN 0 ELSE 1 END, id`)
       .limit(limit);
   }
 
