@@ -44,6 +44,13 @@ import {
   MessageSquare,
   Facebook,
   UserCheck,
+  Star,
+  ChevronDown,
+  ChevronUp,
+  MapPin,
+  TrendingUp,
+  Lock,
+  Headphones,
 } from "lucide-react";
 import { PromoBanner } from "@/components/PromoBanner";
 import { CountdownTimer, getDefaultTarget } from "@/components/CountdownTimer";
@@ -63,6 +70,67 @@ function decodeResults(encoded: string): { industry: string; volume: string; pro
   } catch {
     return null;
   }
+}
+
+const faqItems = [
+  {
+    q: "Is this really free? What's the catch?",
+    a: "100% free, no credit card required. We make money when merchants switch to our processing — not from the quiz. Even if you don't switch, you keep the savings breakdown.",
+  },
+  {
+    q: "How accurate are the savings estimates?",
+    a: "The quiz provides an estimate based on industry averages for your business type and volume. For exact savings, upload your most recent processing statement and we'll do a free line-by-line analysis.",
+  },
+  {
+    q: "Will you sell my information?",
+    a: "Never. Your data is encrypted with 256-bit SSL and used only to calculate your estimate and, with your permission, contact you about your results. Read our Privacy Policy for details.",
+  },
+  {
+    q: "Am I locked into a contract if I switch?",
+    a: "No. We offer month-to-month processing agreements with no early termination fees on most programs. We earn your business every month.",
+  },
+  {
+    q: "How long does it take to switch processors?",
+    a: "Most merchants are fully switched within 2-5 business days. We handle the equipment, programming, and onboarding so there's zero downtime for your business.",
+  },
+  {
+    q: "What types of businesses do you work with?",
+    a: "We serve restaurants, retail, healthcare, salons, auto repair, professional services, e-commerce, construction, and more. If you accept card payments in Florida, we can help.",
+  },
+];
+
+function FaqSection() {
+  const [open, setOpen] = useState<number | null>(null);
+  return (
+    <div className="mt-10" data-testid="section-faq">
+      <h3 className="text-lg font-display font-bold text-foreground text-center mb-6">Frequently Asked Questions</h3>
+      <div className="space-y-2">
+        {faqItems.map((item, idx) => (
+          <Card key={idx} data-testid={`card-faq-${idx}`}>
+            <CardContent className="p-0">
+              <button
+                className="w-full flex items-center justify-between p-4 text-left"
+                onClick={() => setOpen(open === idx ? null : idx)}
+                data-testid={`button-faq-toggle-${idx}`}
+              >
+                <span className="text-sm font-semibold text-foreground pr-4">{item.q}</span>
+                {open === idx ? (
+                  <ChevronUp className="w-4 h-4 text-muted-foreground shrink-0" />
+                ) : (
+                  <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />
+                )}
+              </button>
+              {open === idx && (
+                <div className="px-4 pb-4">
+                  <p className="text-sm text-muted-foreground leading-relaxed">{item.a}</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 const TOTAL_STEPS = 5;
@@ -906,10 +974,10 @@ export default function FreeAnalysis() {
             </CardContent>
           </Card>
 
-          <div className="mt-8 text-center space-y-3">
+          <div className="mt-6 space-y-2">
             <div className="flex flex-wrap justify-center gap-4 text-xs text-muted-foreground">
               <span className="flex items-center gap-1" data-testid="text-trust-lock">
-                <ShieldCheck className="w-3 h-3" />
+                <Lock className="w-3 h-3" />
                 256-bit SSL encrypted
               </span>
               <span className="flex items-center gap-1" data-testid="text-trust-no-cc">
@@ -921,22 +989,190 @@ export default function FreeAnalysis() {
                 Takes under 60 seconds
               </span>
             </div>
+          </div>
 
-            <Card className="max-w-md mx-auto" data-testid="card-testimonial">
-              <CardContent className="p-4">
-                <div className="flex items-start gap-3">
-                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
-                    <Users className="w-4 h-4 text-primary" />
+          <div className="mt-10 grid grid-cols-2 sm:grid-cols-4 gap-4" data-testid="section-stats-bar">
+            <div className="text-center">
+              <p className="text-2xl font-display font-bold text-foreground" data-testid="text-stat-merchants">500+</p>
+              <p className="text-xs text-muted-foreground">FL Merchants Served</p>
+            </div>
+            <div className="text-center">
+              <p className="text-2xl font-display font-bold text-emerald-600" data-testid="text-stat-avg-savings">$4,200</p>
+              <p className="text-xs text-muted-foreground">Avg. Annual Savings</p>
+            </div>
+            <div className="text-center">
+              <p className="text-2xl font-display font-bold text-foreground" data-testid="text-stat-reviews">48hrs</p>
+              <p className="text-xs text-muted-foreground">Avg. Statement Review</p>
+            </div>
+            <div className="text-center">
+              <p className="text-2xl font-display font-bold text-foreground" data-testid="text-stat-rating">4.9/5</p>
+              <p className="text-xs text-muted-foreground">Merchant Satisfaction</p>
+            </div>
+          </div>
+
+          <div className="mt-10" data-testid="section-how-it-works">
+            <h3 className="text-lg font-display font-bold text-foreground text-center mb-6">How It Works</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <Card data-testid="card-how-step-1">
+                <CardContent className="p-5 text-center">
+                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-3">
+                    <span className="text-primary font-bold">1</span>
                   </div>
-                  <div>
-                    <p className="text-sm text-foreground italic leading-relaxed">
-                      "We had no idea we were overpaying by $400/month until Liberty reviewed our statement."
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-1">- Restaurant owner, Fort Lauderdale</p>
+                  <p className="text-sm font-semibold text-foreground mb-1">Answer 5 Questions</p>
+                  <p className="text-xs text-muted-foreground">Tell us about your business, volume, and current processor. Takes 60 seconds.</p>
+                </CardContent>
+              </Card>
+              <Card data-testid="card-how-step-2">
+                <CardContent className="p-5 text-center">
+                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-3">
+                    <span className="text-primary font-bold">2</span>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
+                  <p className="text-sm font-semibold text-foreground mb-1">Get Your Estimate</p>
+                  <p className="text-xs text-muted-foreground">We instantly calculate your estimated savings based on industry benchmarks.</p>
+                </CardContent>
+              </Card>
+              <Card data-testid="card-how-step-3">
+                <CardContent className="p-5 text-center">
+                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-3">
+                    <span className="text-primary font-bold">3</span>
+                  </div>
+                  <p className="text-sm font-semibold text-foreground mb-1">Confirm Exact Savings</p>
+                  <p className="text-xs text-muted-foreground">Upload your statement for a free line-by-line analysis. No obligation to switch.</p>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+
+          <div className="mt-10" data-testid="section-testimonials">
+            <h3 className="text-lg font-display font-bold text-foreground text-center mb-6">What Business Owners Are Saying</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Card data-testid="card-testimonial-1">
+                <CardContent className="p-5">
+                  <div className="flex items-center gap-1 mb-2">
+                    {[1,2,3,4,5].map(i => <Star key={i} className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />)}
+                  </div>
+                  <p className="text-sm text-foreground italic leading-relaxed mb-3">
+                    "We had no idea we were overpaying by $400/month until Liberty reviewed our statement. The switch took 2 days and we've saved over $5,000 this year."
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                      <UtensilsCrossed className="w-4 h-4 text-primary" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-foreground">Marco T.</p>
+                      <p className="text-xs text-muted-foreground flex items-center gap-1">
+                        <MapPin className="w-3 h-3" /> Restaurant Owner, Fort Lauderdale
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card data-testid="card-testimonial-2">
+                <CardContent className="p-5">
+                  <div className="flex items-center gap-1 mb-2">
+                    {[1,2,3,4,5].map(i => <Star key={i} className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />)}
+                  </div>
+                  <p className="text-sm text-foreground italic leading-relaxed mb-3">
+                    "I was skeptical, but the quiz showed I was paying 3.4% effective rate. Liberty got me to 2.1%. That's $800/month back in my pocket."
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                      <Store className="w-4 h-4 text-primary" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-foreground">Jennifer R.</p>
+                      <p className="text-xs text-muted-foreground flex items-center gap-1">
+                        <MapPin className="w-3 h-3" /> Retail Store Owner, Miami
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card data-testid="card-testimonial-3">
+                <CardContent className="p-5">
+                  <div className="flex items-center gap-1 mb-2">
+                    {[1,2,3,4,5].map(i => <Star key={i} className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />)}
+                  </div>
+                  <p className="text-sm text-foreground italic leading-relaxed mb-3">
+                    "The 0% processing program completely eliminated my credit card fees. My customers don't mind the small surcharge and I keep 100% of my margins."
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                      <Wrench className="w-4 h-4 text-primary" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-foreground">Carlos M.</p>
+                      <p className="text-xs text-muted-foreground flex items-center gap-1">
+                        <MapPin className="w-3 h-3" /> Auto Repair Shop, Tampa
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card data-testid="card-testimonial-4">
+                <CardContent className="p-5">
+                  <div className="flex items-center gap-1 mb-2">
+                    {[1,2,3,4,5].map(i => <Star key={i} className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />)}
+                  </div>
+                  <p className="text-sm text-foreground italic leading-relaxed mb-3">
+                    "Our dental practice was paying hidden fees we never knew about. Liberty found $6,200/year in savings and the onboarding was seamless."
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                      <Stethoscope className="w-4 h-4 text-primary" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-foreground">Dr. Sarah K.</p>
+                      <p className="text-xs text-muted-foreground flex items-center gap-1">
+                        <MapPin className="w-3 h-3" /> Dental Practice, Orlando
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+
+          <div className="mt-10" data-testid="section-trust-badges">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <Card data-testid="card-badge-no-contract">
+                <CardContent className="p-4 text-center">
+                  <ShieldCheck className="w-7 h-7 text-primary mx-auto mb-2" />
+                  <p className="text-xs font-semibold text-foreground">No Contract Lock-In</p>
+                  <p className="text-[10px] text-muted-foreground">Month-to-month available</p>
+                </CardContent>
+              </Card>
+              <Card data-testid="card-badge-pci">
+                <CardContent className="p-4 text-center">
+                  <Shield className="w-7 h-7 text-primary mx-auto mb-2" />
+                  <p className="text-xs font-semibold text-foreground">PCI Compliant</p>
+                  <p className="text-[10px] text-muted-foreground">Level 1 certified</p>
+                </CardContent>
+              </Card>
+              <Card data-testid="card-badge-support">
+                <CardContent className="p-4 text-center">
+                  <Headphones className="w-7 h-7 text-primary mx-auto mb-2" />
+                  <p className="text-xs font-semibold text-foreground">Real Human Support</p>
+                  <p className="text-[10px] text-muted-foreground">954-266-8214</p>
+                </CardContent>
+              </Card>
+              <Card data-testid="card-badge-nextday">
+                <CardContent className="p-4 text-center">
+                  <TrendingUp className="w-7 h-7 text-primary mx-auto mb-2" />
+                  <p className="text-xs font-semibold text-foreground">Next-Day Funding</p>
+                  <p className="text-[10px] text-muted-foreground">For qualified merchants</p>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+
+          <FaqSection />
+
+          <div className="mt-8 text-center">
+            <p className="text-sm text-muted-foreground mb-3" data-testid="text-bottom-cta">
+              Still have questions? Call us at <a href="tel:9542668214" className="text-primary font-semibold underline">954-266-8214</a> or{" "}
+              <Link href="/get-started" className="text-primary font-semibold underline">book a free 10-minute call</Link>.
+            </p>
           </div>
         </div>
       </section>

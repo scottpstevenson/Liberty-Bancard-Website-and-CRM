@@ -14,15 +14,23 @@ export function Footer() {
     { label: "Affiliate Program", href: "/affiliate" },
   ];
 
+  const quizLinks = [
+    { label: "Free Savings Analysis Quiz", href: "/free-analysis" },
+    { label: "Processing Cost Quiz", href: "/quiz/processing-cost" },
+    { label: "Savings Calculator", href: "/savings-calculator" },
+    { label: "Quick Estimate", href: "/estimate" },
+    { label: "Upload Statement", href: "/upload-statement" },
+    { label: "Get Started", href: "/get-started" },
+  ];
+
   const solutionLinks = [
     { label: "0% Processing Programs", href: "/0-percent-processing" },
     { label: "Beat Square & Stripe", href: "/beat-square-stripe" },
-    { label: "Savings Calculator", href: "/savings-calculator" },
     { label: "Compare Rates", href: "/compare-rates" },
     { label: "vs Square", href: "/compare/square" },
     { label: "vs Stripe", href: "/compare/stripe" },
     { label: "vs Toast", href: "/compare/toast" },
-    { label: "Free Statement Review", href: "/upload-statement" },
+    { label: "Terminal Shop", href: "/shop" },
   ];
 
   const industryFooterLinks = [
@@ -156,7 +164,22 @@ export function Footer() {
           </div>
 
           <div>
-            <h4 className="font-semibold text-lg mb-4" data-testid="text-footer-solutions-heading">Solutions & Tools</h4>
+            <h4 className="font-semibold text-lg mb-4" data-testid="text-footer-quizzes-heading">Free Tools & Quizzes</h4>
+            <ul className="space-y-3">
+              {quizLinks.map((link) => (
+                <li key={link.href}>
+                  <Link
+                    href={link.href}
+                    className="text-primary-foreground/70 text-sm hover:text-primary-foreground transition-colors"
+                    data-testid={`link-footer-quiz-${link.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                  >
+                    {link.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+
+            <h4 className="font-semibold text-lg mt-8 mb-4" data-testid="text-footer-solutions-heading">Solutions</h4>
             <ul className="space-y-3">
               {solutionLinks.map((link) => (
                 <li key={link.label}>
