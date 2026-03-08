@@ -576,7 +576,7 @@ export async function enrichSunbizEntity(entityId: number): Promise<SunbizEntity
       registeredAgentName = sunbizDetail.registeredAgentName;
       console.log(`[Enrich]   → Registered agent: ${registeredAgentName}`);
     }
-    await new Promise(r => setTimeout(r, 1000));
+    await new Promise(r => setTimeout(r, 400));
   }
 
   if (!website) {
@@ -586,7 +586,7 @@ export async function enrichSunbizEntity(entityId: number): Promise<SunbizEntity
       sources.push("google_website");
       console.log(`[Enrich]   → Found website: ${website}`);
     }
-    await new Promise(r => setTimeout(r, 1500));
+    await new Promise(r => setTimeout(r, 500));
   }
 
   if (website) {
@@ -622,7 +622,7 @@ export async function enrichSunbizEntity(entityId: number): Promise<SunbizEntity
     if (fb.phone) { foundPhones.push(fb.phone); sources.push("facebook"); console.log(`[Enrich]   → FB phone: ${fb.phone}`); }
     if (fb.email) { foundEmails.push(fb.email); sources.push("facebook"); console.log(`[Enrich]   → FB email: ${fb.email}`); }
     if (fb.website && !website) { website = fb.website; sources.push("facebook_website"); }
-    await new Promise(r => setTimeout(r, 1500));
+    await new Promise(r => setTimeout(r, 500));
   }
 
   if (foundEmails.length === 0 || foundPhones.length === 0) {
@@ -631,7 +631,7 @@ export async function enrichSunbizEntity(entityId: number): Promise<SunbizEntity
     if (yelp.phone) { foundPhones.push(yelp.phone); sources.push("yelp"); console.log(`[Enrich]   → Yelp phone: ${yelp.phone}`); }
     if (yelp.email) { foundEmails.push(yelp.email); sources.push("yelp"); console.log(`[Enrich]   → Yelp email: ${yelp.email}`); }
     if (yelp.website && !website) { website = yelp.website; sources.push("yelp_website"); }
-    await new Promise(r => setTimeout(r, 1500));
+    await new Promise(r => setTimeout(r, 500));
   }
 
   if (foundPhones.length === 0) {
@@ -640,7 +640,7 @@ export async function enrichSunbizEntity(entityId: number): Promise<SunbizEntity
     if (yp.phone) { foundPhones.push(yp.phone); sources.push("yellowpages"); console.log(`[Enrich]   → YP phone: ${yp.phone}`); }
     if (yp.email) { foundEmails.push(yp.email); sources.push("yellowpages"); }
     if (yp.website && !website) { website = yp.website; sources.push("yellowpages_website"); }
-    await new Promise(r => setTimeout(r, 1500));
+    await new Promise(r => setTimeout(r, 500));
   }
 
   if (foundEmails.length === 0 || foundPhones.length === 0) {
@@ -649,7 +649,7 @@ export async function enrichSunbizEntity(entityId: number): Promise<SunbizEntity
     if (li.phone) { foundPhones.push(li.phone); sources.push("linkedin"); }
     if (li.email) { foundEmails.push(li.email); sources.push("linkedin"); }
     if (li.website && !website) { website = li.website; sources.push("linkedin_website"); }
-    await new Promise(r => setTimeout(r, 1500));
+    await new Promise(r => setTimeout(r, 500));
   }
 
   if (foundPhones.length === 0) {
@@ -657,7 +657,7 @@ export async function enrichSunbizEntity(entityId: number): Promise<SunbizEntity
     const bbb = await scrapeBBB(entity.entityName, city);
     if (bbb.phone) { foundPhones.push(bbb.phone); sources.push("bbb"); console.log(`[Enrich]   → BBB phone: ${bbb.phone}`); }
     if (bbb.website && !website) { website = bbb.website; sources.push("bbb_website"); }
-    await new Promise(r => setTimeout(r, 1500));
+    await new Promise(r => setTimeout(r, 500));
   }
 
   if (foundEmails.length === 0 || foundPhones.length === 0) {
@@ -666,7 +666,7 @@ export async function enrichSunbizEntity(entityId: number): Promise<SunbizEntity
     if (gc.emails.length > 0) { foundEmails.push(...gc.emails); sources.push("google_contacts"); }
     if (gc.phones.length > 0) { foundPhones.push(...gc.phones); sources.push("google_contacts"); }
     if (gc.website && !website) { website = gc.website; sources.push("google_contacts_website"); }
-    await new Promise(r => setTimeout(r, 1500));
+    await new Promise(r => setTimeout(r, 500));
   }
 
   if (foundPhones.length === 0 && entity.vertical && ["Healthcare", "Salon/Spa", "Restaurant"].includes(entity.vertical)) {
@@ -678,7 +678,7 @@ export async function enrichSunbizEntity(entityId: number): Promise<SunbizEntity
       officers.push({ title: "Licensee", name: dbpr.ownerName });
       sources.push("fl_dbpr_name");
     }
-    await new Promise(r => setTimeout(r, 1500));
+    await new Promise(r => setTimeout(r, 500));
   }
 
   if (website && foundEmails.length === 0 && foundPhones.length === 0) {

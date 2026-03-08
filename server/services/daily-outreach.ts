@@ -12,8 +12,8 @@ import { toProperCase } from "./sunbiz-scraper";
 import type { InsertSunbizEntity } from "@shared/schema";
 
 const DAILY_OUTREACH_LIMIT = 100;
-const ENRICHMENT_BATCH_SIZE = 50;
-const ENRICHMENT_DELAY_MS = 1500;
+const ENRICHMENT_BATCH_SIZE = 200;
+const ENRICHMENT_DELAY_MS = 500;
 
 let importRunning = false;
 
@@ -433,6 +433,92 @@ export async function reEnrichAllSunbizEntities(limit: number = 200): Promise<{
   return { processed, classified, emailsFound, phonesFound, errors };
 }
 
+let massEnrichmentRunning = false;
+
+export function isMassEnrichmentRunning(): boolean {
+  return massEnrichmentRunning;
+}
+
+export async function runMassEnrichment(totalLimit: number = 2000): Promise<{
+  processed: number;
+  emailsFound: number;
+  phonesFound: number;
+  errors: number;
+}> {
+  if (massEnrichmentRunning) {
+    throw new Error("Mass enrichment is already running");
+  }
+
+  massEnrichmentRunning = true;
+  let processed = 0;
+  let emailsFound = 0;
+  let phonesFound = 0;
+  let errors = 0;
+  const batchSize = 50;
+
+  try {
+    console.log(`[Mass Enrich] Starting mass enrichment for up to ${totalLimit} hot/warm entities...`);
+
+    await storage.setSystemSetting("mass_enrichment_progress", {
+      status: "running",
+      totalLimit,
+      processed: 0,
+      emailsFound: 0,
+      phonesFound: 0,
+      errors: 0,
+      startedAt: new Date().toISOString(),
+    });
+
+    while (processed < totalLimit) {
+      const remaining = Math.min(batchSize, totalLimit - processed);
+      const batch = await storage.getSunbizEntitiesNeedingEnrichment(remaining);
+      if (batch.length === 0) {
+        console.log(`[Mass Enrich] No more entities need enrichment.`);
+        break;
+      }
+
+      for (const entity of batch) {
+        try {
+          const result = await enrichSunbizEntity(entity.id);
+          processed++;
+          if (result?.email) emailsFound++;
+          if (result?.phone) phonesFound++;
+        } catch (err) {
+          errors++;
+          console.error(`[Mass Enrich] Failed entity ${entity.id}:`, err);
+        }
+        await new Promise(r => setTimeout(r, 300));
+      }
+
+      console.log(`[Mass Enrich] Progress: ${processed}/${totalLimit} (${emailsFound} emails, ${phonesFound} phones, ${errors} errors)`);
+      await storage.setSystemSetting("mass_enrichment_progress", {
+        status: "running",
+        totalLimit,
+        processed,
+        emailsFound,
+        phonesFound,
+        errors,
+        lastUpdate: new Date().toISOString(),
+      });
+    }
+
+    await storage.setSystemSetting("mass_enrichment_progress", {
+      status: "complete",
+      totalLimit,
+      processed,
+      emailsFound,
+      phonesFound,
+      errors,
+      completedAt: new Date().toISOString(),
+    });
+
+    console.log(`[Mass Enrich] Complete: ${processed} processed, ${emailsFound} emails, ${phonesFound} phones, ${errors} errors`);
+    return { processed, emailsFound, phonesFound, errors };
+  } finally {
+    massEnrichmentRunning = false;
+  }
+}
+
 export async function promoteQualifiedToContacts(): Promise<{
   promoted: number;
   skipped: number;
@@ -654,7 +740,7 @@ export function startDailyOutreachWorker(intervalMinutes: number = 60): void {
   if (enrichmentInterval) clearInterval(enrichmentInterval);
 
   workerRunning = true;
-  console.log(`[Daily Outreach Worker] Started - outreach every ${intervalMinutes}min, enrichment every 30min`);
+  console.log(`[Daily Outreach Worker] Started - outreach every ${intervalMinutes}min, enrichment every 10min`);
 
   enrichmentInterval = setInterval(async () => {
     try {
@@ -663,7 +749,7 @@ export function startDailyOutreachWorker(intervalMinutes: number = 60): void {
     } catch (err) {
       console.error("[Enrichment Worker] Error:", err);
     }
-  }, 30 * 60 * 1000);
+  }, 10 * 60 * 1000);
 
   dailyOutreachInterval = setInterval(async () => {
     try {

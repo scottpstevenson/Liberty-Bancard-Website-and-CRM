@@ -18,7 +18,7 @@ import { generateDealBlueprint } from "./services/deal-blueprint";
 import { routeContact, getRoutingRecommendation, checkCompliance } from "./services/smart-router";
 import { parseSunbizCsv, searchSunbiz, getEntityDetail, streamCorevtFromZip } from "./services/sunbiz-scraper";
 import { getEmailSignatureHtml, getEmailSignaturePlainText, getStoredSignature, saveSignature } from "./services/email-signatures";
-import { reEnrichAllSunbizEntities, promoteQualifiedToContacts, runDailyOutreach, startDailyOutreachWorker, stopDailyOutreachWorker, importFullCorevt, importCordataEnrichment, isWorkerRunning } from "./services/daily-outreach";
+import { reEnrichAllSunbizEntities, promoteQualifiedToContacts, runDailyOutreach, startDailyOutreachWorker, stopDailyOutreachWorker, importFullCorevt, importCordataEnrichment, isWorkerRunning, runMassEnrichment, isMassEnrichmentRunning } from "./services/daily-outreach";
 import { syncContactToGhl, fullSyncToGhl, fullSyncFromGhl, syncDealToGhl, getGhlSyncStatus } from "./services/ghl-sync";
 import { enrichSunbizEntity, processSunbizEnrichmentQueue, convertToProspect, runBulkFastClassification } from "./services/sunbiz-enrichment";
 import { estimateFromDeal, estimateFromContact, estimateFromProspect } from "./services/volume-estimator";
@@ -5322,6 +5322,19 @@ Respond in this exact JSON format:
   app.get("/api/sunbiz/enrichment-progress", isAuthenticated, async (req, res) => {
     const progress = await storage.getSystemSetting("enrichment_progress");
     res.json(progress || { status: "idle" });
+  });
+
+  app.post("/api/sunbiz/mass-enrich", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+    if (isMassEnrichmentRunning()) return res.status(409).json({ message: "Mass enrichment is already running" });
+    const limit = Number(req.body?.limit) || 2000;
+    res.json({ message: `Mass enrichment started for up to ${limit} hot/warm entities.`, started: true });
+    runMassEnrichment(limit).catch(err => console.error("[Mass Enrich API] Error:", err));
+  });
+
+  app.get("/api/sunbiz/mass-enrich-progress", isAuthenticated, async (req, res) => {
+    const progress = await storage.getSystemSetting("mass_enrichment_progress");
+    res.json({ progress: progress || { status: "idle" }, running: isMassEnrichmentRunning() });
   });
 
   app.post("/api/sunbiz/promote-qualified", isAuthenticated, async (req, res) => {
