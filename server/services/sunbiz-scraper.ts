@@ -702,3 +702,234 @@ export function parseSunbizCsv(rows: Record<string, string>[]): ParsedSunbizRow[
     };
   }).filter(r => r.entityName);
 }
+
+export interface CordataRecord {
+  corporationNumber: string;
+  corporationName: string;
+  status: string;
+  filingType: string;
+  principalAddress1: string;
+  principalAddress2: string;
+  principalCity: string;
+  principalState: string;
+  principalZip: string;
+  principalCountry: string;
+  mailAddress1: string;
+  mailAddress2: string;
+  mailCity: string;
+  mailState: string;
+  mailZip: string;
+  mailCountry: string;
+  fileDate: string;
+  feiNumber: string;
+  moreThanSixOfficers: boolean;
+  lastTransactionDate: string;
+  stateCountry: string;
+  annualReports: Array<{ year: string; date: string }>;
+  registeredAgentName: string;
+  registeredAgentType: string;
+  registeredAgentAddress: string;
+  registeredAgentCity: string;
+  registeredAgentState: string;
+  registeredAgentZip: string;
+  officers: Array<{
+    title: string;
+    type: string;
+    name: string;
+    address: string;
+    city: string;
+    state: string;
+    zip: string;
+  }>;
+}
+
+export function parseCordataLine(line: string): CordataRecord | null {
+  if (line.length < 669) return null;
+
+  const corporationNumber = line.substring(0, 12).trim();
+  if (!corporationNumber) return null;
+
+  const corporationName = line.substring(12, 204).trim();
+  const status = line.substring(204, 205).trim();
+  const filingType = line.substring(205, 220).trim();
+
+  const principalAddress1 = line.substring(220, 262).trim();
+  const principalAddress2 = line.substring(262, 304).trim();
+  const principalCity = line.substring(304, 332).trim();
+  const principalState = line.substring(332, 334).trim();
+  const principalZip = line.substring(334, 344).trim();
+  const principalCountry = line.substring(344, 346).trim();
+
+  const mailAddress1 = line.substring(346, 388).trim();
+  const mailAddress2 = line.substring(388, 430).trim();
+  const mailCity = line.substring(430, 458).trim();
+  const mailState = line.substring(458, 460).trim();
+  const mailZip = line.substring(460, 470).trim();
+  const mailCountry = line.substring(470, 472).trim();
+
+  const fileDate = line.substring(472, 480).trim();
+  const feiNumber = line.substring(480, 494).trim();
+  const moreThanSixOfficers = line.substring(494, 495).trim() === "Y";
+  const lastTransactionDate = line.substring(495, 503).trim();
+  const stateCountry = line.substring(503, 505).trim();
+
+  const annualReports: Array<{ year: string; date: string }> = [];
+  const reportPositions = [
+    { yearStart: 505, yearLen: 4, dateStart: 510, dateLen: 8 },
+    { yearStart: 518, yearLen: 4, dateStart: 523, dateLen: 8 },
+    { yearStart: 531, yearLen: 4, dateStart: 536, dateLen: 8 },
+  ];
+  for (const pos of reportPositions) {
+    const year = line.substring(pos.yearStart, pos.yearStart + pos.yearLen).trim();
+    const date = line.substring(pos.dateStart, pos.dateStart + pos.dateLen).trim();
+    if (year && year !== "0000") {
+      annualReports.push({ year, date });
+    }
+  }
+
+  const registeredAgentName = line.substring(544, 586).trim();
+  const registeredAgentType = line.substring(586, 587).trim();
+  const registeredAgentAddress = line.substring(587, 629).trim();
+  const registeredAgentCity = line.substring(629, 657).trim();
+  const registeredAgentState = line.substring(657, 659).trim();
+  const registeredAgentZip = line.substring(659, 668).trim();
+
+  const officers: CordataRecord["officers"] = [];
+  const OFFICER_BLOCK_SIZE = 128;
+  const OFFICER_START = 668;
+
+  for (let i = 0; i < 6; i++) {
+    const base = OFFICER_START + i * OFFICER_BLOCK_SIZE;
+    if (line.length < base + 4) break;
+
+    const title = line.substring(base, base + 4).trim();
+    if (!title) continue;
+
+    const type = line.length > base + 4 ? line.substring(base + 4, base + 5).trim() : "";
+    const name = line.length > base + 5 ? line.substring(base + 5, base + 47).trim() : "";
+    const address = line.length > base + 47 ? line.substring(base + 47, base + 89).trim() : "";
+    const city = line.length > base + 89 ? line.substring(base + 89, base + 117).trim() : "";
+    const state = line.length > base + 117 ? line.substring(base + 117, base + 119).trim() : "";
+    const zip = line.length > base + 119 ? line.substring(base + 119, base + 128).trim() : "";
+
+    if (name) {
+      officers.push({ title, type, name, address, city, state, zip });
+    }
+  }
+
+  return {
+    corporationNumber,
+    corporationName,
+    status: status === "A" ? "Active" : "Inactive",
+    filingType,
+    principalAddress1,
+    principalAddress2,
+    principalCity,
+    principalState,
+    principalZip,
+    principalCountry,
+    mailAddress1,
+    mailAddress2,
+    mailCity,
+    mailState,
+    mailZip,
+    mailCountry,
+    fileDate,
+    feiNumber,
+    moreThanSixOfficers,
+    lastTransactionDate,
+    stateCountry,
+    annualReports,
+    registeredAgentName,
+    registeredAgentType,
+    registeredAgentAddress,
+    registeredAgentCity,
+    registeredAgentState,
+    registeredAgentZip,
+    officers,
+  };
+}
+
+export async function downloadCordataFromSunbiz(destPath: string): Promise<boolean> {
+  const { spawn } = await import("child_process");
+
+  return new Promise((resolve) => {
+    console.log("[Cordata] Starting download from FL Sunbiz SFTP...");
+
+    const proc = spawn("sshpass", [
+      "-p", "PubAccess1845!",
+      "sftp", "-o", "StrictHostKeyChecking=no",
+      "-o", "ConnectTimeout=30",
+      "Public@sftp.floridados.gov"
+    ], { stdio: ["pipe", "pipe", "pipe"] });
+
+    let stderr = "";
+    proc.stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
+    proc.stdout.on("data", (d: Buffer) => {
+      const msg = d.toString();
+      if (msg.includes("Fetching")) {
+        console.log("[Cordata] Download in progress...");
+      }
+    });
+
+    proc.stdin.write(`get doc/quarterly/cor/cordata.zip ${destPath}\nbye\n`);
+
+    const timeout = setTimeout(() => {
+      console.log("[Cordata] Download timed out after 30 minutes");
+      proc.kill();
+      resolve(false);
+    }, 30 * 60 * 1000);
+
+    proc.on("close", (code) => {
+      clearTimeout(timeout);
+      if (code === 0) {
+        console.log("[Cordata] Download completed successfully");
+        resolve(true);
+      } else {
+        console.error("[Cordata] Download failed:", stderr);
+        resolve(false);
+      }
+    });
+  });
+}
+
+export async function* streamCordataFromZip(filePath: string, options?: {
+  onlyActive?: boolean;
+  maxRecords?: number;
+}): AsyncGenerator<CordataRecord[], void, unknown> {
+  const { spawn } = await import("child_process");
+  const { createInterface } = await import("readline");
+
+  const BATCH_SIZE = 500;
+  let lineBuffer: CordataRecord[] = [];
+  let totalYielded = 0;
+  const maxRecords = options?.maxRecords || Infinity;
+  const onlyActive = options?.onlyActive !== false;
+
+  const proc = spawn("unzip", ["-p", filePath], { stdio: ["ignore", "pipe", "ignore"] });
+  const rl = createInterface({ input: proc.stdout, crlfDelay: Infinity });
+
+  for await (const line of rl) {
+    if (totalYielded >= maxRecords) {
+      proc.kill();
+      break;
+    }
+    if (line.length < 669) continue;
+
+    const record = parseCordataLine(line);
+    if (!record) continue;
+    if (onlyActive && record.status !== "Active") continue;
+
+    lineBuffer.push(record);
+
+    if (lineBuffer.length >= BATCH_SIZE) {
+      totalYielded += lineBuffer.length;
+      yield lineBuffer;
+      lineBuffer = [];
+    }
+  }
+
+  if (lineBuffer.length > 0 && totalYielded < maxRecords) {
+    yield lineBuffer;
+  }
+}

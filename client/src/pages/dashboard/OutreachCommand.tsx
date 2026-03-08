@@ -13,7 +13,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Zap, RefreshCw, Mail, Phone, Target, TrendingUp, Users, Building2,
   Play, Square, Loader2, CheckCircle, Send, BarChart3, Pen, Settings,
-  Download, Upload, ArrowRightLeft, AlertTriangle, Clock, Briefcase
+  Download, Upload, ArrowRightLeft, AlertTriangle, Clock, Briefcase, Database
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -30,6 +30,7 @@ interface OutreachStatus {
   verticalBreakdown: Record<string, number>;
   ghlSync: { configured: boolean; totalContacts: number; syncedToGhl: number; unsyncedToGhl: number; lastSyncTo: any; lastSyncFrom: any };
   importProgress: { status: string; totalProcessed?: number; totalImported?: number; totalDuplicates?: number; totalSkipped?: number; error?: string };
+  cordataProgress: { status: string; totalProcessed?: number; totalUpdated?: number; totalNew?: number; totalSkipped?: number; error?: string };
   enrichmentProgress: { status: string; total?: number; processed?: number; classified?: number; emailsFound?: number; phonesFound?: number; errors?: number };
   lastOutreachRun: any;
   workerRunning: boolean;
@@ -66,6 +67,14 @@ export default function OutreachCommand() {
     }),
     onSuccess: () => toast({ title: "Full import started", description: "Streaming 9.5GB corevt file. This will take a while." }),
     onError: () => toast({ title: "Error", description: "Failed to start import", variant: "destructive" }),
+  });
+
+  const cordataImportMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/sunbiz/import-cordata", {
+      download: true,
+    }),
+    onSuccess: () => toast({ title: "Cordata import started", description: "Downloading 1.7GB cordata.zip from FL Sunbiz SFTP. This adds officers, registered agents, FEI/EIN numbers, and annual reports." }),
+    onError: () => toast({ title: "Error", description: "Failed to start cordata import", variant: "destructive" }),
   });
 
   const reEnrichMutation = useMutation({
@@ -144,6 +153,7 @@ export default function OutreachCommand() {
 
   const s = status;
   const imp = s.importProgress;
+  const cord = s.cordataProgress || { status: "idle" };
   const enr = s.enrichmentProgress;
 
   return (
@@ -346,6 +356,57 @@ export default function OutreachCommand() {
                 <Alert variant="destructive">
                   <AlertTriangle className="h-4 w-4" />
                   <AlertDescription>Import error: {imp.error}</AlertDescription>
+                </Alert>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2"><Database className="w-5 h-5" /> Sunbiz Cordata Import (Officers, Agents, EIN)</CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Download the 1.7 GB quarterly corporate data file directly from FL Sunbiz SFTP. This adds <strong>officer names</strong>, <strong>registered agents</strong>, <strong>FEI/EIN numbers</strong>, and <strong>annual report dates</strong> to all existing entities. Up to 6 officers per entity with titles, names, and addresses.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Button
+                onClick={() => cordataImportMutation.mutate()}
+                disabled={cordataImportMutation.isPending || cord.status === "downloading" || cord.status === "processing"}
+                className="gap-2"
+                data-testid="button-start-cordata-import"
+              >
+                {cordataImportMutation.isPending || cord.status === "downloading" || cord.status === "processing"
+                  ? <Loader2 className="w-4 h-4 animate-spin" />
+                  : <Download className="w-4 h-4" />}
+                {cord.status === "downloading" ? "Downloading from SFTP..." :
+                 cord.status === "processing" ? "Processing Records..." :
+                 "Download & Import Cordata"}
+              </Button>
+
+              {(cord.status === "downloading" || cord.status === "processing") && (
+                <div className="rounded-lg border p-4 bg-muted/50 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span>Status: <strong className="capitalize">{cord.status}</strong></span>
+                    {cord.totalProcessed !== undefined && <span>Processed: <strong>{(cord.totalProcessed).toLocaleString()}</strong></span>}
+                    {cord.totalUpdated !== undefined && <span>Updated: <strong className="text-blue-600">{(cord.totalUpdated).toLocaleString()}</strong></span>}
+                    {cord.totalNew !== undefined && <span>New: <strong className="text-green-600">{(cord.totalNew).toLocaleString()}</strong></span>}
+                  </div>
+                </div>
+              )}
+
+              {cord.status === "complete" && (
+                <Alert>
+                  <CheckCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    Cordata import complete: <strong>{(cord.totalUpdated || 0).toLocaleString()}</strong> entities updated with officer/agent/EIN data, <strong>{(cord.totalNew || 0).toLocaleString()}</strong> new entities added
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {cord.status === "error" && (
+                <Alert variant="destructive">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>Cordata import error: {cord.error}</AlertDescription>
                 </Alert>
               )}
             </CardContent>

@@ -18,7 +18,7 @@ import { generateDealBlueprint } from "./services/deal-blueprint";
 import { routeContact, getRoutingRecommendation, checkCompliance } from "./services/smart-router";
 import { parseSunbizCsv, searchSunbiz, getEntityDetail, streamCorevtFromZip } from "./services/sunbiz-scraper";
 import { getEmailSignatureHtml, getEmailSignaturePlainText, getStoredSignature, saveSignature } from "./services/email-signatures";
-import { reEnrichAllSunbizEntities, promoteQualifiedToContacts, runDailyOutreach, startDailyOutreachWorker, stopDailyOutreachWorker, importFullCorevt, isWorkerRunning } from "./services/daily-outreach";
+import { reEnrichAllSunbizEntities, promoteQualifiedToContacts, runDailyOutreach, startDailyOutreachWorker, stopDailyOutreachWorker, importFullCorevt, importCordataEnrichment, isWorkerRunning } from "./services/daily-outreach";
 import { syncContactToGhl, fullSyncToGhl, fullSyncFromGhl, syncDealToGhl, getGhlSyncStatus } from "./services/ghl-sync";
 import { enrichSunbizEntity, processSunbizEnrichmentQueue, convertToProspect, runBulkFastClassification } from "./services/sunbiz-enrichment";
 import { estimateFromDeal, estimateFromContact, estimateFromProspect } from "./services/volume-estimator";
@@ -4949,8 +4949,22 @@ Notes: ${deal.notes || "None"}`
 
   app.get("/api/sunbiz/import-progress", isAuthenticated, async (req, res) => {
     const progress = await storage.getSystemSetting("corevt_import_progress");
+    const cordataProgress = await storage.getSystemSetting("cordata_import_progress");
     const entityCount = await storage.getSunbizEntityCount();
-    res.json({ progress: progress || { status: "idle" }, totalInDb: entityCount });
+    res.json({ progress: progress || { status: "idle" }, cordataProgress: cordataProgress || { status: "idle" }, totalInDb: entityCount });
+  });
+
+  app.post("/api/sunbiz/import-cordata", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+    const maxRecords = req.body.maxRecords ? parseInt(req.body.maxRecords) : Infinity;
+    const download = req.body.download !== false;
+    res.json({ message: `Cordata import started (download: ${download}, max: ${maxRecords === Infinity ? 'unlimited' : maxRecords})`, started: true });
+    importCordataEnrichment({ maxRecords, download }).catch(err => console.error("[Cordata Import API] Error:", err));
+  });
+
+  app.get("/api/sunbiz/cordata-progress", isAuthenticated, async (req, res) => {
+    const progress = await storage.getSystemSetting("cordata_import_progress");
+    res.json({ progress: progress || { status: "idle" } });
   });
 
   app.post("/api/sunbiz/fast-classify", isAuthenticated, async (req, res) => {
@@ -5034,7 +5048,7 @@ Notes: ${deal.notes || "None"}`
   });
 
   app.get("/api/outreach/status", isAuthenticated, async (req, res) => {
-    const [entityStats, verticalBreakdown, prospectStats, contactStats, dealStats, ghlStatus, importProgress, enrichmentProgress, lastOutreachRun, workerStatus] = await Promise.all([
+    const [entityStats, verticalBreakdown, prospectStats, contactStats, dealStats, ghlStatus, importProgress, cordataProgress, enrichmentProgress, lastOutreachRun, workerStatus] = await Promise.all([
       storage.getSunbizAggregateStats(),
       storage.getSunbizVerticalBreakdown(),
       storage.getProspectAggregateStats(),
@@ -5042,6 +5056,7 @@ Notes: ${deal.notes || "None"}`
       storage.getDealAggregateStats(),
       getGhlSyncStatus(),
       storage.getSystemSetting("corevt_import_progress"),
+      storage.getSystemSetting("cordata_import_progress"),
       storage.getSystemSetting("enrichment_progress"),
       storage.getSystemSetting("daily_outreach_last_run"),
       storage.getSystemSetting("outreach_worker_status"),
@@ -5059,6 +5074,7 @@ Notes: ${deal.notes || "None"}`
       verticalBreakdown,
       ghlSync: ghlStatus,
       importProgress: importProgress || { status: "idle" },
+      cordataProgress: cordataProgress || { status: "idle" },
       enrichmentProgress: enrichmentProgress || { status: "idle" },
       lastOutreachRun,
       workerRunning: isWorkerRunning(),

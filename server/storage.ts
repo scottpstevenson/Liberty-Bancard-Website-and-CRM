@@ -208,6 +208,8 @@ export interface IStorage {
   createSunbizEntity(entity: InsertSunbizEntity): Promise<SunbizEntity>;
   createSunbizEntitiesBulk(entities: InsertSunbizEntity[]): Promise<SunbizEntity[]>;
   updateSunbizEntity(id: number, updates: UpdateSunbizEntityRequest): Promise<SunbizEntity | undefined>;
+  updateSunbizEntityByFilingNumber(filingNumber: string, updates: UpdateSunbizEntityRequest): Promise<SunbizEntity | undefined>;
+  bulkUpdateSunbizEntitiesByFiling(updates: Array<{ filingNumber: string; data: UpdateSunbizEntityRequest }>): Promise<number>;
   getSunbizEntitiesByStatus(status: string, limit?: number): Promise<SunbizEntity[]>;
   getSunbizStats(listId?: number): Promise<{total: number, enriched: number, pending: number, withEmail: number, withPhone: number, withWebsite: number}>;
 
@@ -963,6 +965,27 @@ export class DatabaseStorage implements IStorage {
       return await db.select().from(sunbizEntities).where(eq(sunbizEntities.enrichmentStatus, status)).orderBy(sunbizEntities.id).limit(limit);
     }
     return await db.select().from(sunbizEntities).where(eq(sunbizEntities.enrichmentStatus, status)).orderBy(desc(sunbizEntities.createdAt));
+  }
+
+  async updateSunbizEntityByFilingNumber(filingNumber: string, updates: UpdateSunbizEntityRequest) {
+    const [updated] = await db.update(sunbizEntities)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(sunbizEntities.filingNumber, filingNumber))
+      .returning();
+    return updated;
+  }
+
+  async bulkUpdateSunbizEntitiesByFiling(updates: Array<{ filingNumber: string; data: UpdateSunbizEntityRequest }>) {
+    let updatedCount = 0;
+    for (const { filingNumber, data } of updates) {
+      try {
+        const result = await db.update(sunbizEntities)
+          .set({ ...data, updatedAt: new Date() })
+          .where(eq(sunbizEntities.filingNumber, filingNumber));
+        if (result.rowCount && result.rowCount > 0) updatedCount++;
+      } catch { }
+    }
+    return updatedCount;
   }
 
   async getExistingFilingNumbers(): Promise<Set<string>> {
