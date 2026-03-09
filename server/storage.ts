@@ -1125,10 +1125,14 @@ export class DatabaseStorage implements IStorage {
 
   async getSunbizEntitiesNeedingEnrichment(limit: number = 200) {
     return await db.select().from(sunbizEntities)
-      .where(sql`(enrichment_status IN ('classified', 'pending', 'raw') OR (enrichment_status = 'enriched' AND (email IS NULL OR email = '') AND (phone IS NULL OR phone = '')))
+      .where(sql`enrichment_status IN ('classified', 'pending', 'raw')
         AND (score = 'hot' OR score = 'warm')
         AND entity_status = 'Active'`)
-      .orderBy(sql`CASE WHEN score = 'hot' THEN 0 ELSE 1 END, CASE WHEN enrichment_status = 'classified' THEN 0 WHEN enrichment_status = 'pending' THEN 1 ELSE 2 END, id`)
+      .orderBy(sql`
+        CASE WHEN score = 'hot' THEN 0 ELSE 1 END,
+        CASE WHEN vertical IN ('Restaurant', 'Retail', 'Healthcare', 'Salon/Spa', 'Auto', 'Food/Beverage', 'Fitness/Recreation') THEN 0 ELSE 1 END,
+        CASE WHEN enrichment_status = 'classified' THEN 0 ELSE 1 END,
+        id`)
       .limit(limit);
   }
 
