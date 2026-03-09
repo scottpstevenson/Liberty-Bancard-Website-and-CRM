@@ -785,8 +785,8 @@ const VERTICAL_KEYWORDS: Record<string, string[]> = {
   "Transportation": ["trucking", "freight", "logistics", "delivery", "courier", "moving company", "movers", "taxi", "rideshare", "limo", "charter bus", "shuttle", "parking", "valet", "tow truck"],
 };
 
-const HOT_VERTICALS = ["Restaurant", "Retail", "Healthcare", "Salon/Spa", "Auto", "Food/Beverage", "Fitness/Recreation"];
-const WARM_VERTICALS = ["Construction", "Professional Services", "Legal", "Accounting", "E-commerce", "Real Estate", "Transportation"];
+const HOT_VERTICALS = ["Restaurant", "Retail", "Healthcare", "Salon/Spa", "Auto", "Food/Beverage", "Fitness/Recreation", "Construction", "Professional Services", "Legal", "Accounting", "E-commerce", "Transportation"];
+const WARM_VERTICALS = ["Real Estate"];
 
 const UNQUALIFIED_KEYWORDS = [
   "holding", "holdings", "trust", "investment", "investments", "capital", "ventures", "venture",
