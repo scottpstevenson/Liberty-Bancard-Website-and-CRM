@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { SEO, getLocalBusinessSchema, getWebSiteSchema } from "@/components/SEO";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
+import { WelcomePopup } from "@/components/WelcomePopup";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
@@ -160,6 +161,7 @@ export default function Home() {
     <div className="min-h-screen flex flex-col font-body">
       <SEO title="Merchant Payment Processing" description="See exactly what you pay to accept cards. Liberty Bancard provides transparent, statement-based pricing for businesses. Upload your statement for a free analysis." path="/" keywords="payment processing, merchant services, credit card processing, statement review, interchange plus pricing, wholesale rates" structuredData={[getLocalBusinessSchema(), getWebSiteSchema()]} />
       <Navbar />
+      <WelcomePopup />
 
       <main className="flex-grow pt-28" ref={containerRef}>
 
