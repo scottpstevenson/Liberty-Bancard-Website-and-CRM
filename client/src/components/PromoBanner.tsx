@@ -26,13 +26,13 @@ const activePromos: Promo[] = [
     ctaHref: "/get-started",
   },
   {
-    id: "first-month-free",
-    title: "First Month Free Processing",
-    description: "Your first month of processing fees are on us. Start saving from day one.",
+    id: "free-processing",
+    title: "See If You Qualify for Free Processing",
+    description: "Eligible businesses pay 0% processing fees with our cash discount program. Find out if you qualify.",
     code: "FREE30",
     icon: Zap,
-    ctaLabel: "Claim Offer",
-    ctaHref: "/free-analysis",
+    ctaLabel: "Check Eligibility",
+    ctaHref: "/free-analysis?promo=FREE30",
   },
   {
     id: "waived-setup",

@@ -5788,13 +5788,17 @@ Respond in this exact JSON format:
         businessType, industry, monthlyVolume, currentProcessor,
         painPoint, painPoints: painPointsArr,
         firstName, lastName, email, phone, companyName,
-        consentSms, consentEmail, referralCode,
+        consentSms, consentEmail, referralCode, promoCode,
         utmSource, utmMedium, utmCampaign, utmContent, utmTerm,
       } = req.body;
 
       if (!firstName || !email) {
         return res.status(400).json({ message: "First name and email are required." });
       }
+
+      const sanitizedPromo = promoCode
+        ? promoCode.toUpperCase().replace(/[^A-Z0-9_-]/g, "").slice(0, 20)
+        : undefined;
 
       const resolvedPainPoints: string[] = Array.isArray(painPointsArr) ? painPointsArr
         : painPoint ? (typeof painPoint === "string" ? painPoint.split(",").map((s: string) => s.trim()) : [painPoint])
@@ -5849,6 +5853,7 @@ Respond in this exact JSON format:
 
       const industryTag = `vertical_${(normalizedIndustry || "unknown").toLowerCase().replace(/[^a-z]/g, "_")}`;
       const tags = ["src_quiz", "lead_free_analysis", industryTag];
+      if (sanitizedPromo) tags.push(`promo_${sanitizedPromo.toLowerCase()}`);
       if (utmSource) tags.push(`utm_src_${utmSource}`);
       if (utmMedium) tags.push(`utm_med_${utmMedium}`);
       if (utmCampaign) tags.push(`utm_camp_${utmCampaign}`);
@@ -5871,6 +5876,7 @@ Respond in this exact JSON format:
         utmContent: utmContent || undefined,
         utmTerm: utmTerm || undefined,
         landingPage: "/free-analysis",
+        promoCode: sanitizedPromo,
         painPoints: resolvedPainPoints.length > 0 ? resolvedPainPoints : undefined,
         estimatedResidual: estimatedSavings || undefined,
         status: "New",
@@ -5900,7 +5906,8 @@ Respond in this exact JSON format:
         `Estimated Annual Savings: $${estimatedSavings.toLocaleString()}`,
         `Recommended Program: ${recommendedProgram}`,
         `Recommended Terminal: ${recommendedTerminal}`,
-      ].join("\n");
+        sanitizedPromo ? `Promo Code: ${sanitizedPromo}` : null,
+      ].filter(Boolean).join("\n");
 
       const deal = await storage.createDeal({
         contactId: contact.id,
@@ -5909,6 +5916,7 @@ Respond in this exact JSON format:
         offerPath: recommendedProgram,
         notes: quizNotes,
         leadSource: "free_analysis_quiz",
+        promoCode: sanitizedPromo,
         terminalRecommendation: recommendedTerminal,
         recommendedProgram,
         totalVolume: monthlyVolume || undefined,
@@ -5917,7 +5925,7 @@ Respond in this exact JSON format:
       await storage.createNotification({
         channel: "#sales",
         title: "New Quiz Lead",
-        message: `New quiz lead: ${firstName} ${lastName || ""} from ${normalizedIndustry || "Unknown"}, est. savings $${estimatedSavings.toLocaleString()}`,
+        message: `New quiz lead: ${firstName} ${lastName || ""} from ${normalizedIndustry || "Unknown"}, est. savings $${estimatedSavings.toLocaleString()}${sanitizedPromo ? ` (promo: ${sanitizedPromo})` : ""}`,
         type: "alert",
         metadata: {
           contactId: contact.id,

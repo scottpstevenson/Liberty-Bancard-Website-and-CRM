@@ -35,7 +35,7 @@ The system is built on a modern web stack, prioritizing scalability, responsiven
 - **Profit Instrumentation**: Integrates merchant tier, risk, health score, average ticket, and estimated profit into deals, including a volume estimation engine.
 - **Free Analysis Quiz Landing Page**: High-conversion 5-step quiz optimized for ads and affiliate sharing, providing personalized savings estimates. Integrates with CRM for contact/deal creation, lead scoring, and automated follow-ups.
 - **Ad Tracking Infrastructure**: Google Ads and Facebook Pixel tracking for conversions and user engagement.
-- **Promo System**: Three promo offers with countdown timers, displayed on quiz landing and terminal shop.
+- **Promo System**: Three promo offers (Free Terminal, Free Processing qualification via cash discount/surcharge program, Waived Setup Fee) with countdown timers, displayed on quiz landing and terminal shop. Promo codes are tracked end-to-end: captured from URL params (`?promo=FREE30`), persisted to localStorage, passed through quiz submission, stored on both contact (`promo_code`) and deal (`promo_code`) records, tagged in contact tags array, included in deal notes, and surfaced in sales notifications.
 - **Enhanced Email Signatures**: Includes CTA buttons and affiliate tracking for marketing purposes.
 - **Lead Generation & Qualification**: Bulk CSV import, AI-powered prospect enrichment, multi-step AI-personalized email campaigns, AI lead scoring, AI deal blueprint generation, and document readiness tracking.
 - **Lead Command Center**: Unified dashboard for managing lead enrichment, qualified pipeline, and intelligence, with mass actions and detailed views.

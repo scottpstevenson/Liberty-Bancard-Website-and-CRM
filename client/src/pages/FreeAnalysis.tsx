@@ -271,6 +271,7 @@ export default function FreeAnalysis() {
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [refCode, setRefCode] = useState<string | null>(null);
+  const [promoCode, setPromoCode] = useState<string | null>(null);
   const [utmParams, setUtmParams] = useState<Record<string, string>>({});
   const [affiliateName, setAffiliateName] = useState<string | null>(null);
   const [affiliateCompany, setAffiliateCompany] = useState<string | null>(null);
@@ -278,6 +279,14 @@ export default function FreeAnalysis() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    const promo = params.get("promo");
+    if (promo) {
+      setPromoCode(promo.toUpperCase());
+      localStorage.setItem("lb_promo_code", promo.toUpperCase());
+    } else {
+      const stored = localStorage.getItem("lb_promo_code");
+      if (stored) setPromoCode(stored);
+    }
     const ref = params.get("ref");
     if (ref) {
       setRefCode(ref);
@@ -362,6 +371,7 @@ export default function FreeAnalysis() {
     setSubmitting(true);
     try {
       const storedRef = refCode || localStorage.getItem("lb_ref_code") || undefined;
+      const storedPromo = promoCode || localStorage.getItem("lb_promo_code") || undefined;
       await apiRequest("POST", "/api/public/free-analysis", {
         industry,
         monthlyVolume: volume,
@@ -373,6 +383,7 @@ export default function FreeAnalysis() {
         phone,
         consentSms: consent,
         referralCode: storedRef,
+        promoCode: storedPromo,
         utmSource: utmParams.utm_source,
         utmMedium: utmParams.utm_medium,
         utmCampaign: utmParams.utm_campaign,
@@ -688,7 +699,7 @@ export default function FreeAnalysis() {
         keywords="free statement analysis, payment processing savings, credit card processing, merchant services, rate comparison"
       />
 
-      <PromoBanner variant="bar" promoId="first-month-free" showCountdown />
+      <PromoBanner variant="bar" promoId="free-processing" showCountdown />
 
       <section className="relative overflow-hidden" data-testid="section-quiz-hero">
         <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />
@@ -716,6 +727,14 @@ export default function FreeAnalysis() {
               <Badge variant="secondary" className="bg-white/10 text-white/90 border-white/20">
                 <UserCheck className="w-3 h-3 mr-1" />
                 Recommended by {affiliateName}{affiliateCompany ? ` at ${affiliateCompany}` : ""}
+              </Badge>
+            </div>
+          )}
+          {promoCode && (
+            <div className="flex items-center justify-center gap-2 mb-3" data-testid="badge-quiz-promo-applied">
+              <Badge variant="secondary" className="bg-emerald-500/20 text-emerald-300 border-emerald-400/30">
+                <Zap className="w-3 h-3 mr-1" />
+                Promo {promoCode} applied — check your eligibility below
               </Badge>
             </div>
           )}
