@@ -24,7 +24,8 @@ The system is built on a modern web stack, prioritizing scalability, responsiven
 
 ### Feature Specifications
 - **Public Website**: Marketing pages, conversion forms (quiz, statement upload, estimate), legal pages, and hidden sales enablement content, all SEO-optimized and compliant. Includes SEO infrastructure, dynamic XML sitemap, industry-specific landing pages, blog, savings calculator, rate comparison tool, Help Center, AI-optimized FAQ, Why Liberty Bancard page, Case Studies, and competitor comparison pages.
-- **Terminal Shop**: Public e-commerce checkout for 6 terminals, managing browse, detail, cart, and checkout flows. Orders create CRM contact, deal, and equipment_orders records.
+- **Terminal Shop**: Public e-commerce checkout for 6 terminals, managing browse, detail, cart, and checkout flows. Orders create CRM contact, deal, and equipment_orders records. Promo codes captured from URL and stored on records.
+- **Confirmation SMS**: All public form submissions (quiz, get-started, statement upload, callback, equipment order, support) send an automated confirmation SMS via GHL asking if a team member can call now (during business hours 9-5 EST) or during the next business hours window. SMS respects consent flags and includes STOP opt-out language.
 - **Hidden Sales Enablement Pages**: Noindexed pages for equipment catalog, processing cost quiz, and industry/angle one-pagers.
 - **SEO & Content Marketing**: Schema.org structured data across public pages. Blog with category filtering, search, and pagination. Help Center with search and structured data.
 - **Legal & Compliance Pages**: 22 legal/consent pages covering privacy, terms, e-sign, SMS, TCPA, surcharging, and regulatory notices.

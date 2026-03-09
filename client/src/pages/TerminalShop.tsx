@@ -242,7 +242,18 @@ export default function TerminalShop() {
   const [selectedTerminal, setSelectedTerminal] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
-  const [promoCode, setPromoCode] = useState("");
+  const [promoCode, setPromoCode] = useState(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const promo = params.get("promo");
+      if (promo) {
+        localStorage.setItem("lb_promo_code", promo.toUpperCase());
+        return promo.toUpperCase();
+      }
+      return localStorage.getItem("lb_promo_code") || "";
+    }
+    return "";
+  });
   const [form, setForm] = useState({
     firstName: "",
     lastName: "",

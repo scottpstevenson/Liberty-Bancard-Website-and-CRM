@@ -501,6 +501,42 @@ export async function registerRoutes(
     res.json(logs);
   });
 
+  // === CONFIRMATION SMS HELPER ===
+  async function sendConfirmationSms(contactId: number, firstName: string, formType: string, dealId?: number) {
+    try {
+      const { sendGhlSms } = await import("./services/ghl");
+      const now = new Date();
+      const estHour = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" })).getHours();
+      const isBusinessHours = estHour >= 9 && estHour < 17;
+      const dayOfWeek = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" })).getDay();
+      const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
+
+      let callTimeText: string;
+      if (isBusinessHours && isWeekday) {
+        callTimeText = "Would it be okay if a member of our team gives you a quick call now or within the next hour to chat about your processing needs?";
+      } else {
+        callTimeText = "Would it be okay if a member of our team gives you a call during business hours (9 AM - 5 PM EST) to chat about your processing needs?";
+      }
+
+      const formLabels: Record<string, string> = {
+        free_analysis_quiz: "completing your free savings analysis",
+        get_started: "your interest in getting started",
+        statement_upload: "uploading your processing statement",
+        callback: "requesting a callback",
+        equipment_order: "your equipment order",
+        estimate: "using our savings calculator",
+        support: "reaching out for support",
+      };
+      const contextText = formLabels[formType] || "reaching out";
+
+      const body = `Hi ${firstName}! This is Liberty Bancard confirming we received your submission. Thank you for ${contextText}!\n\n${callTimeText}\n\nReply YES for a call, or let us know a time that works best.\n\nReply STOP to opt out. Msg&data rates may apply.`;
+
+      await sendGhlSms({ contactId, dealId, body });
+    } catch (err: any) {
+      console.error(`[ConfirmSMS] Failed for contact ${contactId}:`, err.message?.slice(0, 100));
+    }
+  }
+
   // === PUBLIC FORM SUBMISSIONS ===
   app.post("/api/public/statement-upload", async (req, res) => {
     try {
@@ -562,6 +598,7 @@ export async function registerRoutes(
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
       autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "statement_upload" }).catch(err => console.error("Auto-enroll error:", err));
       triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: deal.id }, { formType: "statement_upload" }).catch(err => console.error("Workflow trigger error:", err));
+      if (consentSms) sendConfirmationSms(contact.id, firstName, "statement_upload", deal.id).catch(err => console.error("Confirm SMS error:", err));
 
       res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id });
     } catch (err: any) {
@@ -600,6 +637,7 @@ export async function registerRoutes(
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
       autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "estimate" }).catch(err => console.error("Auto-enroll error:", err));
       triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: deal.id }, { formType: "estimate" }).catch(err => console.error("Workflow trigger error:", err));
+      // estimate form doesn't have explicit SMS consent — skip confirmation SMS
       res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id });
     } catch (err: any) {
       res.status(400).json({ message: err.message || "Invalid submission" });
@@ -665,6 +703,7 @@ export async function registerRoutes(
       });
 
       triggerWorkflowsByEvent("ticket_created", { entityType: "ticket", entityId: ticket.id }).catch(err => console.error("Workflow trigger error:", err));
+      if (consentSms && mobile) sendConfirmationSms(contact.id, firstName, "support").catch(err => console.error("Confirm SMS error:", err));
 
       res.status(201).json({ success: true, ticketId: ticket.id });
     } catch (err: any) {
@@ -722,6 +761,7 @@ export async function registerRoutes(
       generateDealBlueprint(deal.id).catch(err => console.error("Blueprint gen error:", err));
       autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "get_started" }).catch(err => console.error("Auto-enroll error:", err));
       triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: deal.id }, { formType: "get_started" }).catch(err => console.error("Workflow trigger error:", err));
+      if (consentSms && phone) sendConfirmationSms(contact.id, firstName, "get_started", deal.id).catch(err => console.error("Confirm SMS error:", err));
       res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id, offerPath });
     } catch (err: any) {
       res.status(400).json({ message: err.message || "Invalid submission" });
@@ -757,6 +797,8 @@ export async function registerRoutes(
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
       autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "callback" }).catch(err => console.error("Auto-enroll error:", err));
       triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: deal.id }, { formType: "callback" }).catch(err => console.error("Workflow trigger error:", err));
+      // callback form: person explicitly requested a call, treat as implied consent for confirmation
+      if (phone) sendConfirmationSms(contact.id, firstName, "callback", deal.id).catch(err => console.error("Confirm SMS error:", err));
       res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id });
     } catch (err: any) {
       res.status(400).json({ message: err.message || "Invalid submission" });
@@ -765,7 +807,7 @@ export async function registerRoutes(
 
   app.post("/api/equipment-order", async (req, res) => {
     try {
-      const { firstName, lastName, email, phone, businessName, message, items, referralCode } = req.body;
+      const { firstName, lastName, email, phone, businessName, message, items, referralCode, promoCode } = req.body;
       if (!firstName || typeof firstName !== "string" || firstName.length > 100) {
         return res.status(400).json({ message: "Valid first name is required" });
       }
@@ -787,12 +829,19 @@ export async function registerRoutes(
       const safeLastName = String(lastName || "").slice(0, 100);
       const safeBusiness = String(businessName || "").slice(0, 200);
       const safeMessage = String(message || "").slice(0, 1000);
+      const sanitizedPromo = promoCode
+        ? String(promoCode).toUpperCase().replace(/[^A-Z0-9_-]/g, "").slice(0, 20)
+        : undefined;
+
+      const orderTags = ["src_website", "lead_equipment_order", ...validatedItems.slice(0, 5).map((i: any) => `equip_${i.name.toLowerCase().replace(/[^a-z0-9]/g, "_")}`)];
+      if (sanitizedPromo) orderTags.push(`promo_${sanitizedPromo.toLowerCase()}`);
 
       const contact = await storage.createContact({
         firstName: firstName.slice(0, 100), lastName: safeLastName, email: email.slice(0, 200), phone: phone.slice(0, 30),
         companyName: safeBusiness,
+        promoCode: sanitizedPromo,
         status: "New",
-        tags: ["src_website", "lead_equipment_order", ...validatedItems.slice(0, 5).map((i: any) => `equip_${i.name.toLowerCase().replace(/[^a-z0-9]/g, "_")}`)],
+        tags: orderTags,
       });
 
       const itemSummary = validatedItems.map((i: any) => `${i.name} x${i.quantity} (${i.price})`).join(", ");
@@ -802,7 +851,8 @@ export async function registerRoutes(
 
       const deal = await storage.createDeal({
         contactId: contact.id, pipeline: "sales", stage: "New Lead",
-        notes: `Equipment order: ${itemSummary}. ${safeMessage}`.trim(),
+        notes: `Equipment order: ${itemSummary}. ${safeMessage}${sanitizedPromo ? `\nPromo Code: ${sanitizedPromo}` : ""}`.trim(),
+        promoCode: sanitizedPromo,
         terminalRecommendation: allTerminals,
         terminalStatus: "Ordered — 24hr setup & testing before ship",
         hardwarePackage: allTerminals,
@@ -829,7 +879,7 @@ export async function registerRoutes(
 
       await storage.createNotification({
         channel: "#sales", title: "Equipment Order Received",
-        message: `${firstName} ${safeLastName} ordered: ${itemSummary}`.slice(0, 500),
+        message: `${firstName} ${safeLastName} ordered: ${itemSummary}${sanitizedPromo ? ` (promo: ${sanitizedPromo})` : ""}`.slice(0, 500),
         type: "alert",
       });
 
@@ -838,6 +888,8 @@ export async function registerRoutes(
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
       autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "equipment_order" }).catch(err => console.error("Auto-enroll error:", err));
       triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: deal.id }, { formType: "equipment_order" }).catch(err => console.error("Workflow trigger error:", err));
+      // equipment order: customer placed an order, confirmation SMS is transactional
+      if (phone) sendConfirmationSms(contact.id, firstName, "equipment_order", deal.id).catch(err => console.error("Confirm SMS error:", err));
       res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id });
     } catch (err: any) {
       res.status(400).json({ message: err.message || "Invalid submission" });
@@ -5984,6 +6036,8 @@ Respond in this exact JSON format:
         contactId: contact.id,
         dealId: deal.id,
       }).catch(err => console.error("Auto-enroll quiz error:", err));
+
+      if (consentSms && phone) sendConfirmationSms(contact.id, firstName, "free_analysis_quiz", deal.id).catch(err => console.error("Confirm SMS error:", err));
 
       res.status(201).json({
         success: true,

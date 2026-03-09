@@ -22,8 +22,8 @@ const activePromos: Promo[] = [
     description: "Get a free payment terminal when you sign up for a processing agreement. No lease, no catch.",
     code: "FREETM",
     icon: Monitor,
-    ctaLabel: "Get Started",
-    ctaHref: "/get-started",
+    ctaLabel: "Browse Terminals",
+    ctaHref: "/shop?promo=FREETM",
   },
   {
     id: "free-processing",
