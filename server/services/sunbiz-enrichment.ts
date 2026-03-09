@@ -43,7 +43,7 @@ async function fetchContactPages(domain: string): Promise<string> {
   let combined = "";
 
   for (const path of contactPaths) {
-    if (combined.length > 6000) break;
+    if (combined.length > 20000) break;
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 3000);
@@ -55,14 +55,11 @@ async function fetchContactPages(domain: string): Promise<string> {
       clearTimeout(timeout);
       if (response.ok) {
         const html = await response.text();
-        const text = html
+        const cleaned = html
           .replace(/<script[\s\S]*?<\/script>/gi, "")
           .replace(/<style[\s\S]*?<\/style>/gi, "")
-          .replace(/<[^>]+>/g, " ")
-          .replace(/\s+/g, " ")
-          .trim()
-          .slice(0, 2000);
-        if (text.length > 50) combined += ` [${path}] ${text}`;
+          .slice(0, 8000);
+        if (cleaned.length > 50) combined += ` ${cleaned}`;
       }
     } catch {
       continue;
@@ -636,12 +633,12 @@ export async function enrichSunbizEntity(entityId: number): Promise<SunbizEntity
     await new Promise(r => setTimeout(r, 500));
   }
 
-  if (foundPhones.length === 0) {
+  if (foundPhones.length === 0 || foundEmails.length === 0) {
     console.log(`[Enrich] Step 6: YellowPages search`);
     const yp = await scrapeYellowPages(entity.entityName, city);
     if (yp.phone) { foundPhones.push(yp.phone); sources.push("yellowpages"); console.log(`[Enrich]   → YP phone: ${yp.phone}`); }
-    if (yp.email) { foundEmails.push(yp.email); sources.push("yellowpages"); }
-    if (yp.website && !website) { website = yp.website; sources.push("yellowpages_website"); }
+    if (yp.email) { foundEmails.push(yp.email); sources.push("yellowpages"); console.log(`[Enrich]   → YP email: ${yp.email}`); }
+    if (yp.website && !website) { website = yp.website; sources.push("yellowpages_website"); console.log(`[Enrich]   → YP website: ${yp.website}`); }
     await new Promise(r => setTimeout(r, 500));
   }
 
@@ -683,13 +680,43 @@ export async function enrichSunbizEntity(entityId: number): Promise<SunbizEntity
     await new Promise(r => setTimeout(r, 500));
   }
 
-  if (website && foundEmails.length === 0 && foundPhones.length === 0) {
+  const directoryDomains = ["localsearch.com", "yellowpages.com", "yelp.com", "facebook.com", "bbb.org", "linkedin.com", "mapquest.com", "tripadvisor.com", "chamberofcommerce.com", "manta.com", "angi.com", "thumbtack.com", "homeadvisor.com"];
+  const isRealDomain = (d: string | null) => d && !directoryDomains.some(dd => d === dd || d.endsWith(`.${dd}`));
+
+  if (website && foundEmails.length === 0 && isRealDomain(website)) {
+    console.log(`[Enrich] Step 11: Scraping website for emails: ${website}`);
     const rawHtml = await fetchWebsite(website);
     if (rawHtml) {
       const extracted = extractContactFromHtml(rawHtml);
       foundEmails.push(...extracted.emails);
-      foundPhones.push(...extracted.phones);
+      if (extracted.phones.length > 0 && foundPhones.length === 0) foundPhones.push(...extracted.phones);
+      if (extracted.emails.length > 0) sources.push("website_rescrape");
     }
+    if (foundEmails.length === 0) {
+      const contactHtml = await fetchContactPages(website);
+      if (contactHtml) {
+        const ex = extractContactFromHtml(contactHtml);
+        foundEmails.push(...ex.emails);
+        if (ex.phones.length > 0 && foundPhones.length === 0) foundPhones.push(...ex.phones);
+        if (ex.emails.length > 0) sources.push("contact_page_rescrape");
+      }
+    }
+  }
+
+  if (foundEmails.length === 0) {
+    console.log(`[Enrich] Step 13: Google email search`);
+    const clean = cleanEntityName(entity.entityName);
+    const emailQuery = city ? `"${clean}" "${city}" FL email "@"` : `"${clean}" Florida email "@"`;
+    const emailHtml = await googleSearch(emailQuery);
+    if (emailHtml) {
+      const serpEmails = extractContactFromHtml(emailHtml);
+      if (serpEmails.emails.length > 0) {
+        foundEmails.push(...serpEmails.emails);
+        sources.push("google_email_search");
+        console.log(`[Enrich]   → Google email: ${serpEmails.emails[0]}`);
+      }
+    }
+    await new Promise(r => setTimeout(r, 500));
   }
 
   foundEmails = [...new Set(foundEmails)];
@@ -1104,53 +1131,6 @@ export async function runBulkAIClassification(dailyLimit: number = 5000): Promis
   return { total, classified, rounds };
 }
 
-function generateEmailPatterns(ownerName: string | null, domain: string): string[] {
-  const patterns: string[] = [];
-  const cleanDomain = domain.replace(/^(https?:\/\/)?(www\.)?/, "").replace(/\/$/, "");
-
-  patterns.push(`info@${cleanDomain}`);
-  patterns.push(`contact@${cleanDomain}`);
-  patterns.push(`hello@${cleanDomain}`);
-  patterns.push(`office@${cleanDomain}`);
-  patterns.push(`admin@${cleanDomain}`);
-  patterns.push(`sales@${cleanDomain}`);
-
-  if (ownerName) {
-    const parts = ownerName.toLowerCase().replace(/[^a-z\s]/g, "").trim().split(/\s+/);
-    if (parts.length >= 2) {
-      const first = parts[0];
-      const last = parts[parts.length - 1];
-      patterns.push(`${first}@${cleanDomain}`);
-      patterns.push(`${first}.${last}@${cleanDomain}`);
-      patterns.push(`${first[0]}${last}@${cleanDomain}`);
-      patterns.push(`${first}${last[0]}@${cleanDomain}`);
-      patterns.push(`${last}@${cleanDomain}`);
-    } else if (parts.length === 1) {
-      patterns.push(`${parts[0]}@${cleanDomain}`);
-    }
-  }
-
-  return patterns;
-}
-
-async function verifyEmail(email: string): Promise<boolean> {
-  try {
-    const domain = email.split("@")[1];
-    if (!domain) return false;
-    const controller = new AbortController();
-    const t = setTimeout(() => controller.abort(), 3000);
-    const response = await fetch(`https://dns.google/resolve?name=${domain}&type=MX`, {
-      signal: controller.signal,
-    });
-    clearTimeout(t);
-    if (!response.ok) return false;
-    const data = await response.json();
-    return !!(data.Answer && data.Answer.length > 0);
-  } catch {
-    return false;
-  }
-}
-
 async function withTimeout<T>(fn: () => Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
   return new Promise<T>((resolve) => {
     const timer = setTimeout(() => resolve(fallback), timeoutMs);
@@ -1226,17 +1206,6 @@ export async function deepEnrichEntity(entityId: number): Promise<{
       } catch (err) { console.warn(`[DeepEnrich] Contact page failed for ${entityId}:`, err); }
     }
 
-    if (foundEmails.length === 0) {
-      try {
-        const patterns = generateEmailPatterns(ownerName, website);
-        const hasMx = await withTimeout(() => verifyEmail(patterns[0]), 5000, false);
-        if (hasMx) {
-          foundEmails.push(patterns[0]);
-          if (patterns.length > 6) foundEmails.push(patterns[6]);
-          sources.push("email_pattern");
-        }
-      } catch (err) { console.warn(`[DeepEnrich] Email pattern check failed for ${entityId}:`, err); }
-    }
   }
 
   if (foundPhones.length === 0) {
