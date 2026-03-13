@@ -8,6 +8,7 @@ import { Link } from "wouter";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { apiRequest } from "@/lib/queryClient";
+import { getStoredUTMParams } from "@/lib/utm";
 import { useToast } from "@/hooks/use-toast";
 import { trackConversion, trackQuizStart, trackQuizComplete } from "@/lib/tracking";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
@@ -196,6 +197,7 @@ export default function GetStarted() {
     setSubmitting(true);
     try {
       const refCode = localStorage.getItem("lb_ref_code") || undefined;
+      const utmParams = getStoredUTMParams();
       await apiRequest("POST", "/api/public/get-started", {
         goal,
         vertical,
@@ -209,6 +211,7 @@ export default function GetStarted() {
         consentSms: consent,
         referralCode: refCode,
         promoCode: promoCode || undefined,
+        ...utmParams,
       });
       trackQuizComplete();
       trackConversion("get_started_submission");

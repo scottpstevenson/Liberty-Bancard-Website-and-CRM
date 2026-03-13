@@ -8,8 +8,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { getStoredUTMParams } from "@/lib/utm";
+import { trackEquipmentOrder } from "@/lib/tracking";
 import { useToast } from "@/hooks/use-toast";
-import { trackConversion } from "@/lib/tracking";
 import {
   Check,
   Star,
@@ -309,17 +310,18 @@ export default function TerminalShop() {
         return { name: t?.name || "", quantity: Math.min(Math.max(1, item.quantity), 50), price: t?.priceLabel || "" };
       });
       const refCode = localStorage.getItem("lb_ref_code") || undefined;
+      const utmParams = getStoredUTMParams();
       const response = await fetch("/api/equipment-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, items: orderItems, referralCode: refCode, promoCode: promoCode || undefined }),
+        body: JSON.stringify({ ...form, items: orderItems, referralCode: refCode, promoCode: promoCode || undefined, ...utmParams }),
       });
       if (!response.ok) {
         const data = await response.json().catch(() => ({ message: "Something went wrong" }));
         toast({ title: data.message || "Submission failed", variant: "destructive" });
         return;
       }
-      trackConversion("equipment_order");
+      trackEquipmentOrder();
       setSubmitted(true);
     } catch {
       toast({ title: "Network error — please try again", variant: "destructive" });

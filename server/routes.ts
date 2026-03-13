@@ -8,7 +8,7 @@ import { eq, desc } from "drizzle-orm";
 import { registerAudioRoutes } from "./replit_integrations/audio/routes";
 import { z } from "zod";
 import { insertContactSchema, insertDealSchema, insertTicketSchema, insertTaskSchema, insertCompanySchema, insertDocumentSchema, insertNotificationSchema, insertWorkflowSchema, insertRfiSchema, insertMessageTemplateSchema, insertCollateralPacketSchema, insertSlaConfigSchema, insertProspectSchema, insertProspectListSchema, insertEnrichmentJobSchema, insertCampaignSchema, insertCampaignStepSchema, insertOutboundMessageSchema, insertNoteSchema, insertEmailLogSchema, insertCallLogSchema, insertStageAutomationRuleSchema, insertFollowUpSequenceSchema, insertSequenceStepSchema, insertSequenceEnrollmentSchema, insertMerchantApplicationSchema, insertEquipmentOrderSchema, insertAgentSchema, insertResidualReportSchema, insertMerchantResidualSchema, insertHealthAlertSchema, insertDealCompetitorSchema, insertPartnerSchema, insertReferralSchema, insertKnowledgeBaseSchema, insertReviewRequestSchema, insertOnboardingStepSchema, insertMerchantProfileSchema, insertConsentAuditLogSchema, insertCalendarEventSchema, insertAgentQuotaSchema, insertDataDeleteRequestSchema, insertCommentSchema, insertTicketCommentSchema, insertContactCompanySchema, insertPipelineStageSchema, insertNotificationPreferenceSchema, insertSavedFilterSchema } from "@shared/schema";
-import { isGhlConfigured, getGhlStatus, sendGhlEmail, sendGhlSms, sendTemplatedMessage, upsertGhlContact, handleGhlWebhook, getCalendarBookingUrl, sendDocumentForEsign, getDocumentStatus } from "./services/ghl";
+import { isGhlConfigured, getGhlStatus, sendGhlEmail, sendGhlEmailForMerchant, sendGhlSms, sendTemplatedMessage, upsertGhlContact, handleGhlWebhook, getCalendarBookingUrl, sendDocumentForEsign, getDocumentStatus } from "./services/ghl";
 import { enrichProspect, runEnrichmentJob, processEnrichmentQueue } from "./services/enrichment";
 import { queueCampaignMessages, processSendQueue, getCampaignAnalytics } from "./services/campaign-engine";
 import { autoEnrollFromTrigger } from "./services/sequence-worker";
@@ -540,10 +540,13 @@ export async function registerRoutes(
   // === PUBLIC FORM SUBMISSIONS ===
   app.post("/api/public/statement-upload", async (req, res) => {
     try {
-      const { businessName, contactName, email, mobile, vertical, currentProvider, interestedIn0Percent, needTerminal, notes, consentSms, referralCode } = req.body;
+      const { businessName, contactName, email, mobile, vertical, currentProvider, interestedIn0Percent, needTerminal, notes, consentSms, referralCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, landingPage } = req.body;
       const nameParts = (contactName || "").split(" ");
       const firstName = nameParts[0] || "";
       const lastName = nameParts.slice(1).join(" ") || "";
+
+      const tags = ["src_website", "lead_statement_upload", `vertical_${(vertical || "unknown").toLowerCase().replace(/[^a-z]/g, "_")}`];
+      if (utmSource) tags.push(`utm_src_${utmSource}`);
 
       const contact = await storage.createContact({
         firstName, lastName, email, phone: mobile,
@@ -551,8 +554,14 @@ export async function registerRoutes(
         interestedIn0Percent: interestedIn0Percent === true,
         needTerminal: needTerminal === true,
         notes, consentSms: consentSms === true,
+        utmSource: utmSource || undefined,
+        utmMedium: utmMedium || undefined,
+        utmCampaign: utmCampaign || undefined,
+        utmContent: utmContent || undefined,
+        utmTerm: utmTerm || undefined,
+        landingPage: landingPage || "/upload-statement",
         status: "New",
-        tags: ["src_website", "lead_statement_upload", `vertical_${(vertical || "unknown").toLowerCase().replace(/[^a-z]/g, "_")}`],
+        tags,
       });
 
       let offerPath = "Not Sure";
@@ -562,6 +571,8 @@ export async function registerRoutes(
       const deal = await storage.createDeal({
         contactId: contact.id, pipeline: "sales", stage: "Statement Received",
         offerPath, notes: `Statement uploaded. ${notes || ""}`.trim(),
+        leadSource: utmSource ? `utm:${utmSource}` : "website",
+        campaignName: utmCampaign || undefined,
       });
 
       await storage.createTask({
@@ -608,22 +619,33 @@ export async function registerRoutes(
 
   app.post("/api/public/estimate", async (req, res) => {
     try {
-      const { contactName, email, phone, monthlyVolume, totalFees, currentProvider, notes, referralCode } = req.body;
+      const { contactName, email, phone, monthlyVolume, totalFees, currentProvider, notes, referralCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, landingPage } = req.body;
       const nameParts = (contactName || "").split(" ");
       const firstName = nameParts[0] || "";
       const lastName = nameParts.slice(1).join(" ") || "";
 
+      const tags = ["src_website", "lead_estimate"];
+      if (utmSource) tags.push(`utm_src_${utmSource}`);
+
       const contact = await storage.createContact({
         firstName, lastName, email, phone: phone || "",
         monthlyVolume, currentProvider, notes,
+        utmSource: utmSource || undefined,
+        utmMedium: utmMedium || undefined,
+        utmCampaign: utmCampaign || undefined,
+        utmContent: utmContent || undefined,
+        utmTerm: utmTerm || undefined,
+        landingPage: landingPage || "/estimate",
         status: "New",
-        tags: ["src_website", "lead_estimate"],
+        tags,
       });
 
       const deal = await storage.createDeal({
         contactId: contact.id, pipeline: "sales", stage: "New Lead",
         totalVolume: monthlyVolume, totalFees,
         notes: `Estimate request. Volume: ${monthlyVolume}, Fees: ${totalFees}`,
+        leadSource: utmSource ? `utm:${utmSource}` : "website",
+        campaignName: utmCampaign || undefined,
       });
 
       await storage.createNotification({
@@ -713,7 +735,7 @@ export async function registerRoutes(
 
   app.post("/api/public/get-started", async (req, res) => {
     try {
-      const { goal, vertical, monthlyVolume, needTerminal, interestedIn0Percent, firstName, lastName, email, phone, consentSms, referralCode } = req.body;
+      const { goal, vertical, monthlyVolume, needTerminal, interestedIn0Percent, firstName, lastName, email, phone, consentSms, referralCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, landingPage } = req.body;
 
       let offerPath = "Not Sure";
       if (goal === "0% interest" || interestedIn0Percent) offerPath = "0% Program";
@@ -721,14 +743,25 @@ export async function registerRoutes(
       else if (goal === "need terminal") offerPath = "Terminal Needed";
       else if (goal === "compare vs flat-rate") offerPath = "Compare vs Square/Stripe";
 
+      const tags = ["src_website", "lead_quiz", `vertical_${(vertical || "unknown").toLowerCase().replace(/[^a-z]/g, "_")}`];
+      if (utmSource) tags.push(`utm_src_${utmSource}`);
+      if (utmMedium) tags.push(`utm_med_${utmMedium}`);
+      if (utmCampaign) tags.push(`utm_camp_${utmCampaign}`);
+
       const contact = await storage.createContact({
         firstName, lastName, email, phone: phone || "",
         vertical, monthlyVolume, primaryOfferPath: offerPath,
         interestedIn0Percent: interestedIn0Percent === true,
         needTerminal: needTerminal === true,
         consentSms: consentSms === true,
+        utmSource: utmSource || undefined,
+        utmMedium: utmMedium || undefined,
+        utmCampaign: utmCampaign || undefined,
+        utmContent: utmContent || undefined,
+        utmTerm: utmTerm || undefined,
+        landingPage: landingPage || "/get-started",
         status: "New",
-        tags: ["src_website", "lead_quiz", `vertical_${(vertical || "unknown").toLowerCase().replace(/[^a-z]/g, "_")}`],
+        tags,
       });
 
       if (consentSms) {
@@ -747,11 +780,13 @@ export async function registerRoutes(
       const deal = await storage.createDeal({
         contactId: contact.id, pipeline: "sales", stage: "New Lead",
         offerPath,
+        leadSource: utmSource ? `utm:${utmSource}` : "website",
+        campaignName: utmCampaign || undefined,
       });
 
       await storage.createNotification({
         channel: "#sales", title: "New Quiz Lead",
-        message: `${firstName} ${lastName} - ${vertical}, ${monthlyVolume}, Goal: ${goal}`,
+        message: `${firstName} ${lastName} - ${vertical}, ${monthlyVolume}, Goal: ${goal}${utmSource ? ` (via ${utmSource})` : ""}`,
         type: "info",
       });
 
@@ -807,7 +842,7 @@ export async function registerRoutes(
 
   app.post("/api/equipment-order", async (req, res) => {
     try {
-      const { firstName, lastName, email, phone, businessName, message, items, referralCode, promoCode } = req.body;
+      const { firstName, lastName, email, phone, businessName, message, items, referralCode, promoCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, landingPage } = req.body;
       if (!firstName || typeof firstName !== "string" || firstName.length > 100) {
         return res.status(400).json({ message: "Valid first name is required" });
       }
@@ -836,10 +871,18 @@ export async function registerRoutes(
       const orderTags = ["src_website", "lead_equipment_order", ...validatedItems.slice(0, 5).map((i: any) => `equip_${i.name.toLowerCase().replace(/[^a-z0-9]/g, "_")}`)];
       if (sanitizedPromo) orderTags.push(`promo_${sanitizedPromo.toLowerCase()}`);
 
+      if (utmSource) orderTags.push(`utm_src_${utmSource}`);
+
       const contact = await storage.createContact({
         firstName: firstName.slice(0, 100), lastName: safeLastName, email: email.slice(0, 200), phone: phone.slice(0, 30),
         companyName: safeBusiness,
         promoCode: sanitizedPromo,
+        utmSource: utmSource || undefined,
+        utmMedium: utmMedium || undefined,
+        utmCampaign: utmCampaign || undefined,
+        utmContent: utmContent || undefined,
+        utmTerm: utmTerm || undefined,
+        landingPage: landingPage || "/shop",
         status: "New",
         tags: orderTags,
       });
@@ -856,6 +899,8 @@ export async function registerRoutes(
         terminalRecommendation: allTerminals,
         terminalStatus: "Ordered — 24hr setup & testing before ship",
         hardwarePackage: allTerminals,
+        leadSource: utmSource ? `utm:${utmSource}` : "website",
+        campaignName: utmCampaign || undefined,
       });
 
       for (const item of validatedItems) {
@@ -2809,6 +2854,216 @@ Notes: ${deal.notes || "None"}`
         overdue: overdue.length,
         priorityBreakdown,
       });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/analytics/lead-sources", isAuthenticated, async (req, res) => {
+    try {
+      const allContacts = await storage.getContacts();
+      const allDeals = await storage.getDeals();
+      const now = new Date();
+      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      const recentContacts = allContacts.filter(c => c.createdAt && new Date(c.createdAt) >= thirtyDaysAgo);
+
+      const sourceMap: Record<string, { leads: number; deals: number; won: number }> = {};
+      recentContacts.forEach(c => {
+        const src = c.utmSource || c.leadSource || "direct";
+        if (!sourceMap[src]) sourceMap[src] = { leads: 0, deals: 0, won: 0 };
+        sourceMap[src].leads++;
+      });
+
+      const salesDeals = allDeals.filter(d => d.pipeline === "sales" && d.createdAt && new Date(d.createdAt) >= thirtyDaysAgo);
+      salesDeals.forEach(d => {
+        const src = d.leadSource || "direct";
+        const normalizedSrc = src.startsWith("utm:") ? src.slice(4) : src;
+        if (!sourceMap[normalizedSrc]) sourceMap[normalizedSrc] = { leads: 0, deals: 0, won: 0 };
+        sourceMap[normalizedSrc].deals++;
+        if (d.stage === "Closed Won") sourceMap[normalizedSrc].won++;
+      });
+
+      const sources = Object.entries(sourceMap)
+        .map(([source, data]) => ({
+          source,
+          leads: data.leads,
+          deals: data.deals,
+          won: data.won,
+          conversionRate: data.leads > 0 ? Math.round((data.won / data.leads) * 100) : 0,
+        }))
+        .sort((a, b) => b.leads - a.leads)
+        .slice(0, 10);
+
+      res.json({ sources });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/analytics/conversion-funnel", isAuthenticated, async (req, res) => {
+    try {
+      const allDeals = await storage.getDeals();
+      const allContacts = await storage.getContacts();
+      const now = new Date();
+      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+      const recentContacts = allContacts.filter(c => c.createdAt && new Date(c.createdAt) >= thirtyDaysAgo);
+      const salesDeals = allDeals.filter(d => d.pipeline === "sales" && d.createdAt && new Date(d.createdAt) >= thirtyDaysAgo);
+
+      const stages = ["New Lead", "Statement Received", "Review In Progress", "Call Booked", "Proposal Sent", "Negotiation / Follow-Up", "Closed Won"];
+      const funnel = stages.map(stage => {
+        const atOrPast = salesDeals.filter(d => {
+          const stageIdx = stages.indexOf(d.stage);
+          const targetIdx = stages.indexOf(stage);
+          return stageIdx >= targetIdx || d.stage === stage;
+        });
+        return { stage, count: atOrPast.length };
+      });
+
+      res.json({
+        totalLeads: recentContacts.length,
+        totalDeals: salesDeals.length,
+        funnel,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/analytics/daily-leads", isAuthenticated, async (req, res) => {
+    try {
+      const allContacts = await storage.getContacts();
+      const allDeals = await storage.getDeals();
+      const now = new Date();
+      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+      const dailyData: Record<string, { leads: number; deals: number }> = {};
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+        const key = d.toISOString().split("T")[0];
+        dailyData[key] = { leads: 0, deals: 0 };
+      }
+
+      allContacts.forEach(c => {
+        if (!c.createdAt) return;
+        const key = new Date(c.createdAt).toISOString().split("T")[0];
+        if (dailyData[key]) dailyData[key].leads++;
+      });
+
+      allDeals.filter(d => d.pipeline === "sales").forEach(d => {
+        if (!d.createdAt) return;
+        const key = new Date(d.createdAt).toISOString().split("T")[0];
+        if (dailyData[key]) dailyData[key].deals++;
+      });
+
+      const today = now.toISOString().split("T")[0];
+      const todayLeads = dailyData[today]?.leads || 0;
+      const todayDeals = dailyData[today]?.deals || 0;
+
+      const trend = Object.entries(dailyData)
+        .map(([date, data]) => ({ date, ...data }))
+        .sort((a, b) => a.date.localeCompare(b.date));
+
+      res.json({ todayLeads, todayDeals, trend });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/analytics/weekly-digest", isAuthenticated, async (req, res) => {
+    try {
+      const [allDeals, allContacts, allTickets, allTasks] = await Promise.all([
+        storage.getDeals(),
+        storage.getContacts(),
+        storage.getTickets(),
+        storage.getTasks(),
+      ]);
+
+      const now = new Date();
+      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+      const newLeads = allContacts.filter(c => c.createdAt && new Date(c.createdAt) >= sevenDaysAgo).length;
+      const newDeals = allDeals.filter(d => d.createdAt && new Date(d.createdAt) >= sevenDaysAgo).length;
+      const closedWon = allDeals.filter(d => d.stage === "Closed Won" && d.closedAt && new Date(d.closedAt) >= sevenDaysAgo).length;
+      const closedLost = allDeals.filter(d => d.stage === "Closed Lost" && d.closedAt && new Date(d.closedAt) >= sevenDaysAgo).length;
+      const proposalsSent = allDeals.filter(d => d.stage === "Proposal Sent" && d.updatedAt && new Date(d.updatedAt) >= sevenDaysAgo).length;
+      const newTickets = allTickets.filter(t => t.createdAt && new Date(t.createdAt) >= sevenDaysAgo).length;
+      const resolvedTickets = allTickets.filter(t => t.resolvedAt && new Date(t.resolvedAt) >= sevenDaysAgo).length;
+      const overdueTaskCount = allTasks.filter(t => t.status !== "completed" && t.dueDate && new Date(t.dueDate) < now).length;
+
+      const parseCurrency = (v: string | null | undefined): number => {
+        if (!v) return 0;
+        const n = parseFloat(v.replace(/[^0-9.\-]/g, ""));
+        return isNaN(n) ? 0 : n;
+      };
+      const wonDeals = allDeals.filter(d => d.stage === "Closed Won" && d.closedAt && new Date(d.closedAt) >= sevenDaysAgo);
+      const weeklyRevenue = wonDeals.reduce((s, d) => s + parseCurrency(d.estimatedGrossProfitMonthly), 0);
+
+      const conversionRate = (newDeals > 0) ? Math.round((closedWon / newDeals) * 100) : 0;
+
+      const sourceBreakdown: Record<string, number> = {};
+      allContacts
+        .filter(c => c.createdAt && new Date(c.createdAt) >= sevenDaysAgo)
+        .forEach(c => {
+          const src = c.utmSource || c.leadSource || "direct";
+          sourceBreakdown[src] = (sourceBreakdown[src] || 0) + 1;
+        });
+
+      const digest = {
+        period: `${sevenDaysAgo.toLocaleDateString()} - ${now.toLocaleDateString()}`,
+        newLeads,
+        newDeals,
+        proposalsSent,
+        closedWon,
+        closedLost,
+        conversionRate,
+        weeklyRevenue: Math.round(weeklyRevenue),
+        newTickets,
+        resolvedTickets,
+        overdueTaskCount,
+        sourceBreakdown,
+      };
+
+      const adminEmail = req.body?.email || process.env.ADMIN_DIGEST_EMAIL;
+      if (adminEmail && isGhlConfigured()) {
+        const emailBody = `
+<h2>Liberty Bancard — Weekly KPI Digest</h2>
+<p><strong>Period:</strong> ${digest.period}</p>
+<hr>
+<h3>Pipeline</h3>
+<ul>
+  <li>New Leads: <strong>${digest.newLeads}</strong></li>
+  <li>New Deals: <strong>${digest.newDeals}</strong></li>
+  <li>Proposals Sent: <strong>${digest.proposalsSent}</strong></li>
+  <li>Closed Won: <strong>${digest.closedWon}</strong></li>
+  <li>Closed Lost: <strong>${digest.closedLost}</strong></li>
+  <li>Conversion Rate: <strong>${digest.conversionRate}%</strong></li>
+  <li>Revenue (Est.): <strong>$${digest.weeklyRevenue.toLocaleString()}</strong></li>
+</ul>
+<h3>Support</h3>
+<ul>
+  <li>New Tickets: <strong>${digest.newTickets}</strong></li>
+  <li>Resolved: <strong>${digest.resolvedTickets}</strong></li>
+  <li>Overdue Tasks: <strong>${digest.overdueTaskCount}</strong></li>
+</ul>
+<h3>Lead Sources</h3>
+<ul>
+  ${Object.entries(digest.sourceBreakdown).map(([s, c]) => `<li>${s}: <strong>${c}</strong></li>`).join("")}
+</ul>
+<p style="color:#888;font-size:12px;">Auto-generated by Liberty Bancard CRM</p>`;
+
+        try {
+          await sendGhlEmailForMerchant({ email: adminEmail, subject: "Weekly KPI Digest — Liberty Bancard", body: emailBody });
+          res.json({ ...digest, emailSent: true, emailRecipient: adminEmail });
+          return;
+        } catch (emailErr) {
+          console.error("Weekly digest email error:", emailErr);
+          res.json({ ...digest, emailSent: false, emailError: String(emailErr) });
+          return;
+        }
+      }
+
+      res.json({ ...digest, emailSent: false, emailError: !adminEmail ? "No admin email configured" : "GHL not configured" });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

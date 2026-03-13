@@ -12,6 +12,8 @@ import { StickyMobileCTA } from "@/components/StickyMobileCTA";
 import { ExitIntentPopup } from "@/components/ExitIntentPopup";
 import { ContactBubble } from "@/components/ContactBubble";
 import { CookieConsent } from "@/components/CookieConsent";
+import { trackPageView } from "@/lib/tracking";
+import { captureUTMParams } from "@/lib/utm";
 
 import Login from "@/pages/Login";
 import Signup from "@/pages/Signup";
@@ -381,9 +383,18 @@ function useReferralTracking() {
   }, [location]);
 }
 
+function usePageTracking() {
+  const [location] = useLocation();
+  useEffect(() => {
+    captureUTMParams();
+    trackPageView(location);
+  }, [location]);
+}
+
 function PublicLayout() {
   const [location] = useLocation();
   useReferralTracking();
+  usePageTracking();
   const isDashboard = location.startsWith("/dashboard");
   const isThanksPage = location.startsWith("/thanks");
   const isAuthPage = location === "/login" || location === "/signup" || location === "/forgot-password" || location === "/reset-password" || location === "/verify-email";

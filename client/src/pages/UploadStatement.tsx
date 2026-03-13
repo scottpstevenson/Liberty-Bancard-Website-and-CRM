@@ -31,7 +31,8 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
-import { trackConversion } from "@/lib/tracking";
+import { trackStatementUpload } from "@/lib/tracking";
+import { getStoredUTMParams } from "@/lib/utm";
 import {
   FileSearch,
   ShieldCheck,
@@ -115,11 +116,12 @@ export default function UploadStatement() {
         notes: data.notes || undefined,
         consentSms: data.consentSms,
         referralCode: refCode,
+        ...getStoredUTMParams(),
       });
       return res.json();
     },
     onSuccess: () => {
-      trackConversion("statement_upload");
+      trackStatementUpload();
       toast({
         title: "Statement Received",
         description: "We got your statement and will review it shortly.",

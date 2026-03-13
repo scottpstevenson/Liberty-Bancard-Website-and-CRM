@@ -8,6 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { getStoredUTMParams } from "@/lib/utm";
+import { trackAffiliateSignup } from "@/lib/tracking";
 import { useToast } from "@/hooks/use-toast";
 import {
   Users,
@@ -67,16 +69,18 @@ export default function AffiliateProgram() {
     }
     setSubmitting(true);
     try {
+      const utmParams = getStoredUTMParams();
       const res = await fetch("/api/affiliate/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, ...utmParams }),
       });
       const data = await res.json();
       if (!res.ok) {
         toast({ title: data.message || "Signup failed", variant: "destructive" });
         return;
       }
+      trackAffiliateSignup();
       setAffiliateCode(data.affiliateCode);
       localStorage.setItem("lb_affiliate_code", data.affiliateCode);
       setDashboardCode(data.affiliateCode);

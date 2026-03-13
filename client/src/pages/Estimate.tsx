@@ -4,6 +4,8 @@ import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation } from "@tanstack/react-query";
+import { getStoredUTMParams } from "@/lib/utm";
+import { trackEstimateRequest } from "@/lib/tracking";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { Button } from "@/components/ui/button";
@@ -31,7 +33,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { Loader2, Upload, ArrowRight, Calculator, TrendingDown } from "lucide-react";
 import heroAnalytics from "@assets/images/hero-analytics.jpg";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
-import { trackConversion } from "@/lib/tracking";
+
 
 const estimateSchema = z.object({
   contactName: z.string().min(1, "Your name is required"),
@@ -83,6 +85,7 @@ export default function Estimate() {
   const submitMutation = useMutation({
     mutationFn: async (data: EstimateFormData) => {
       const refCode = localStorage.getItem("lb_ref_code") || undefined;
+      const utmParams = getStoredUTMParams();
       const res = await apiRequest("POST", "/api/public/estimate", {
         contactName: data.contactName,
         email: data.email,
@@ -92,11 +95,12 @@ export default function Estimate() {
         currentProvider: data.currentProvider || undefined,
         notes: data.notes || undefined,
         referralCode: refCode,
+        ...utmParams,
       });
       return res.json();
     },
     onSuccess: () => {
-      trackConversion("estimate_request");
+      trackEstimateRequest();
       setLocation("/thanks-estimate");
     },
     onError: (error: Error) => {

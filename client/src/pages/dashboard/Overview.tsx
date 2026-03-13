@@ -2,9 +2,15 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
-import { Users, Ticket, TrendingUp, CheckCircle, AlertTriangle, Clock, Target, ArrowUpRight, Loader2, Brain, Sparkles, RefreshCw, DollarSign, Banknote } from "lucide-react";
+import {
+  Users, Ticket, TrendingUp, CheckCircle, AlertTriangle, Clock,
+  Target, ArrowUpRight, ArrowDownRight, Loader2, Brain, Sparkles,
+  RefreshCw, DollarSign, Banknote, CalendarDays, BarChart3, Globe,
+  Mail,
+} from "lucide-react";
 import type { Contact, Deal } from "@shared/schema";
 
 function formatInsights(text: string) {
@@ -17,9 +23,43 @@ function formatInsights(text: string) {
   });
 }
 
+interface LeadSource {
+  source: string;
+  leads: number;
+  deals: number;
+  won: number;
+  conversionRate: number;
+}
+
+interface FunnelStep {
+  stage: string;
+  count: number;
+}
+
+interface DailyTrend {
+  date: string;
+  leads: number;
+  deals: number;
+}
+
 export default function Overview() {
   const [insights, setInsights] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [digestSending, setDigestSending] = useState(false);
+  const [digestResult, setDigestResult] = useState<{
+    period: string;
+    newLeads: number;
+    newDeals: number;
+    proposalsSent: number;
+    closedWon: number;
+    closedLost: number;
+    conversionRate: number;
+    weeklyRevenue: number;
+    newTickets: number;
+    resolvedTickets: number;
+    overdueTaskCount: number;
+    sourceBreakdown: Record<string, number>;
+  } | null>(null);
 
   const insightsMutation = useMutation({
     mutationFn: async () => {
@@ -39,17 +79,32 @@ export default function Overview() {
     tasks: { pending: number; overdue: number };
     contacts: { total: number; new30d: number };
     revenue: { totalEstVolume: number; totalEstResidual: number; totalEstProfit: number; avgDealProfit: number };
-  }>({ queryKey: ["/api/kpi/summary"] });
+  }>({ queryKey: ["/api/kpi/summary"], refetchInterval: 30000 });
 
-  const { data: contacts } = useQuery<Contact[]>({ queryKey: ["/api/contacts"] });
-  const { data: deals } = useQuery<Deal[]>({ queryKey: ["/api/deals"] });
+  const { data: contacts } = useQuery<Contact[]>({ queryKey: ["/api/contacts"], refetchInterval: 30000 });
+  const { data: deals } = useQuery<Deal[]>({ queryKey: ["/api/deals"], refetchInterval: 30000 });
 
   const { data: comparative } = useQuery<{
     newDeals: { current: number; previous: number; change: number };
     newContacts: { current: number; previous: number; change: number };
     closedWon: { current: number; previous: number; change: number };
     tickets: { current: number; previous: number; change: number };
-  }>({ queryKey: ["/api/kpi/comparative"] });
+  }>({ queryKey: ["/api/kpi/comparative"], refetchInterval: 60000 });
+
+  const { data: leadSources } = useQuery<{ sources: LeadSource[] }>({
+    queryKey: ["/api/analytics/lead-sources"],
+    refetchInterval: 60000,
+  });
+
+  const { data: funnelData } = useQuery<{ totalLeads: number; totalDeals: number; funnel: FunnelStep[] }>({
+    queryKey: ["/api/analytics/conversion-funnel"],
+    refetchInterval: 60000,
+  });
+
+  const { data: dailyData } = useQuery<{ todayLeads: number; todayDeals: number; trend: DailyTrend[] }>({
+    queryKey: ["/api/analytics/daily-leads"],
+    refetchInterval: 30000,
+  });
 
   if (kpiLoading) {
     return (
@@ -70,6 +125,22 @@ export default function Overview() {
   const recentContacts = contacts?.slice(0, 5) || [];
   const activeDeals = deals?.filter((d: Deal) => d.pipeline === "sales" && d.stage !== "Closed Won" && d.stage !== "Closed Lost").slice(0, 5) || [];
 
+  const handleSendDigest = async () => {
+    setDigestSending(true);
+    try {
+      const res = await apiRequest("POST", "/api/analytics/weekly-digest", {});
+      const data = await res.json();
+      setDigestResult(data);
+    } catch {
+      setDigestResult(null);
+    } finally {
+      setDigestSending(false);
+    }
+  };
+
+  const maxFunnelCount = funnelData?.funnel ? Math.max(...funnelData.funnel.map(f => f.count), 1) : 1;
+  const maxTrendLeads = dailyData?.trend ? Math.max(...dailyData.trend.map(t => t.leads), 1) : 1;
+
   return (
     <div className="space-y-8">
       <Card className="bg-primary/5 dark:bg-primary/10" data-testid="card-ai-copilot">
@@ -78,36 +149,40 @@ export default function Overview() {
             <Brain className="w-5 h-5 text-primary" />
             <CardTitle className="text-base">AI Operations Copilot</CardTitle>
           </div>
-          {insights ? (
+          <div className="flex items-center gap-2">
             <Button
               variant="outline"
               size="sm"
-              onClick={() => insightsMutation.mutate()}
-              disabled={insightsMutation.isPending}
-              data-testid="button-get-insights"
+              onClick={handleSendDigest}
+              disabled={digestSending}
+              data-testid="button-send-digest"
             >
-              {insightsMutation.isPending ? (
-                <Loader2 className="w-4 h-4 animate-spin mr-2" />
-              ) : (
-                <RefreshCw className="w-4 h-4 mr-2" />
-              )}
-              Refresh Insights
+              {digestSending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Mail className="w-4 h-4 mr-2" />}
+              Weekly Digest
             </Button>
-          ) : (
-            <Button
-              onClick={() => insightsMutation.mutate()}
-              disabled={insightsMutation.isPending}
-              size="sm"
-              data-testid="button-get-insights"
-            >
-              {insightsMutation.isPending ? (
-                <Loader2 className="w-4 h-4 animate-spin mr-2" />
-              ) : (
-                <Sparkles className="w-4 h-4 mr-2" />
-              )}
-              Get AI Insights
-            </Button>
-          )}
+            {insights ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => insightsMutation.mutate()}
+                disabled={insightsMutation.isPending}
+                data-testid="button-get-insights"
+              >
+                {insightsMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <RefreshCw className="w-4 h-4 mr-2" />}
+                Refresh
+              </Button>
+            ) : (
+              <Button
+                onClick={() => insightsMutation.mutate()}
+                disabled={insightsMutation.isPending}
+                size="sm"
+                data-testid="button-get-insights"
+              >
+                {insightsMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Sparkles className="w-4 h-4 mr-2" />}
+                Get AI Insights
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           {insightsMutation.isPending && !insights && (
@@ -128,7 +203,12 @@ export default function Overview() {
               )}
             </div>
           )}
-          {!insights && !insightsMutation.isPending && (
+          {digestResult && !insights && (
+            <div className="text-sm text-muted-foreground">
+              Digest generated: {digestResult.newLeads} leads, {digestResult.closedWon} won this week
+            </div>
+          )}
+          {!insights && !insightsMutation.isPending && !digestResult && (
             <p className="text-sm text-muted-foreground">
               Click "Get AI Insights" to analyze your pipeline, support tickets, and onboarding data.
             </p>
@@ -141,7 +221,18 @@ export default function Overview() {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <Card data-testid="card-kpi-today-leads">
+          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Today's Leads</CardTitle>
+            <CalendarDays className="w-4 h-4 text-primary" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold" data-testid="text-today-leads">{dailyData?.todayLeads || 0}</div>
+            <p className="text-xs text-muted-foreground mt-1" data-testid="text-today-deals">{dailyData?.todayDeals || 0} deals created</p>
+          </CardContent>
+        </Card>
+
         <Card data-testid="card-kpi-pipeline">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Active Pipeline</CardTitle>
@@ -149,18 +240,18 @@ export default function Overview() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold" data-testid="text-active-pipeline">{kpi?.pipeline.totalActive || 0}</div>
-            <p className="text-xs text-muted-foreground mt-1" data-testid="text-new-leads">{kpi?.pipeline.newLeads7d || 0} new leads this week</p>
+            <p className="text-xs text-muted-foreground mt-1" data-testid="text-new-leads">{kpi?.pipeline.newLeads7d || 0} new this week</p>
           </CardContent>
         </Card>
 
         <Card data-testid="card-kpi-conversion">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">30-Day Conversion</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Win Rate (30d)</CardTitle>
             <Target className="w-4 h-4 text-green-600" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold" data-testid="text-conversion-rate">{kpi?.pipeline.conversionRate || 0}%</div>
-            <p className="text-xs text-muted-foreground mt-1" data-testid="text-won-lost">{kpi?.pipeline.closedWon30d || 0} won / {kpi?.pipeline.closedLost30d || 0} lost</p>
+            <p className="text-xs text-muted-foreground mt-1" data-testid="text-won-lost">{kpi?.pipeline.closedWon30d || 0}W / {kpi?.pipeline.closedLost30d || 0}L</p>
           </CardContent>
         </Card>
 
@@ -198,32 +289,32 @@ export default function Overview() {
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card data-testid="card-kpi-volume">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Est. Processing Volume</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Pipeline Value</CardTitle>
             <DollarSign className="w-4 h-4 text-green-600" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold" data-testid="text-est-volume">${(kpi?.revenue.totalEstVolume || 0).toLocaleString()}</div>
-            <p className="text-xs text-muted-foreground mt-1">Monthly estimated volume</p>
+            <p className="text-xs text-muted-foreground mt-1">Est. monthly volume</p>
           </CardContent>
         </Card>
 
         <Card data-testid="card-kpi-residual">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Est. Monthly Residual</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Monthly Residual</CardTitle>
             <Banknote className="w-4 h-4 text-green-600" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold" data-testid="text-est-residual">${(kpi?.revenue.totalEstResidual || 0).toLocaleString()}</div>
-            <p className="text-xs text-muted-foreground mt-1">Projected monthly income</p>
+            <p className="text-xs text-muted-foreground mt-1">Projected income</p>
           </CardContent>
         </Card>
 
         <Card data-testid="card-kpi-profit">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Est. Gross Profit</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Gross Profit</CardTitle>
             <TrendingUp className="w-4 h-4 text-green-600" />
           </CardHeader>
           <CardContent>
@@ -263,7 +354,7 @@ export default function Overview() {
                   {item.data.change >= 0 ? (
                     <ArrowUpRight className="w-3 h-3 text-green-600" />
                   ) : (
-                    <ArrowUpRight className="w-3 h-3 text-red-600 rotate-90" />
+                    <ArrowDownRight className="w-3 h-3 text-red-600" />
                   )}
                   <span className={item.data.change >= 0 ? "text-green-600" : "text-red-600"}>
                     {item.data.change > 0 ? "+" : ""}{item.data.change}%
@@ -276,33 +367,136 @@ export default function Overview() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card data-testid="card-kpi-contacts">
-          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total Contacts</CardTitle>
-            <Users className="w-4 h-4 text-primary" />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <Card data-testid="card-weekly-trend">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <BarChart3 className="w-4 h-4 text-primary" />
+              Weekly Lead Trend
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold" data-testid="text-total-contacts">{kpi?.contacts.total || 0}</div>
-            <p className="text-xs text-muted-foreground mt-1">{kpi?.contacts.new30d || 0} added last 30 days</p>
+            {dailyData?.trend && dailyData.trend.length > 0 ? (
+              <div className="space-y-2">
+                {dailyData.trend.map((day) => {
+                  const dayLabel = new Date(day.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+                  return (
+                    <div key={day.date} className="space-y-1" data-testid={`trend-row-${day.date}`}>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground w-28 shrink-0">{dayLabel}</span>
+                        <span className="font-medium">{day.leads} leads / {day.deals} deals</span>
+                      </div>
+                      <div className="flex gap-1 h-3">
+                        <div
+                          className="bg-primary/70 rounded-sm transition-all"
+                          style={{ width: `${(day.leads / maxTrendLeads) * 100}%`, minWidth: day.leads > 0 ? "4px" : "0" }}
+                          title={`${day.leads} leads`}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">No trend data available</p>
+            )}
           </CardContent>
         </Card>
 
-        <Card data-testid="card-kpi-onboarding">
-          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Onboarding</CardTitle>
-            <ArrowUpRight className="w-4 h-4 text-green-600" />
+        <Card data-testid="card-conversion-funnel">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Target className="w-4 h-4 text-green-600" />
+              Conversion Funnel (30d)
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold" data-testid="text-onboarding-active">{kpi?.onboarding.active || 0}</div>
-            <p className="text-xs text-muted-foreground mt-1">{kpi?.onboarding.live || 0} live merchants</p>
+            {funnelData?.funnel && funnelData.funnel.length > 0 ? (
+              <div className="space-y-2">
+                {funnelData.funnel.map((step) => (
+                  <div key={step.stage} className="space-y-1" data-testid={`funnel-step-${step.stage.toLowerCase().replace(/\s+/g, "-")}`}>
+                    <div className="flex items-center justify-between text-sm">
+                      <span>{step.stage}</span>
+                      <span className="font-medium text-muted-foreground">{step.count}</span>
+                    </div>
+                    <Progress value={maxFunnelCount > 0 ? (step.count / maxFunnelCount) * 100 : 0} className="h-2" />
+                  </div>
+                ))}
+                <div className="pt-2 flex gap-4 text-xs text-muted-foreground">
+                  <span>{funnelData.totalLeads} total leads</span>
+                  <span>{funnelData.totalDeals} total deals</span>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">No funnel data available</p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <Card data-testid="card-lead-sources">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Globe className="w-4 h-4 text-primary" />
+              Top Lead Sources (30d)
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {leadSources?.sources && leadSources.sources.length > 0 ? (
+              <div className="space-y-3">
+                {leadSources.sources.map((src) => (
+                  <div key={src.source} className="flex items-center justify-between gap-2 text-sm" data-testid={`source-row-${src.source}`}>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Badge variant="secondary" className="text-xs shrink-0">{src.source}</Badge>
+                    </div>
+                    <div className="flex items-center gap-3 text-xs text-muted-foreground shrink-0">
+                      <span>{src.leads} leads</span>
+                      <span>{src.deals} deals</span>
+                      <span className="font-medium text-foreground">{src.conversionRate}%</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">No source data available</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card data-testid="card-kpi-contacts">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Users className="w-4 h-4 text-primary" />
+              Contacts & Onboarding
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">Total Contacts</span>
+              <span className="text-lg font-bold" data-testid="text-total-contacts">{kpi?.contacts.total || 0}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">New (30d)</span>
+              <span className="text-lg font-medium">{kpi?.contacts.new30d || 0}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">Onboarding Active</span>
+              <span className="text-lg font-medium" data-testid="text-onboarding-active">{kpi?.onboarding.active || 0}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">Live Merchants</span>
+              <span className="text-lg font-medium text-green-600">{kpi?.onboarding.live || 0}</span>
+            </div>
           </CardContent>
         </Card>
 
         <Card data-testid="card-kpi-stages">
-          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Pipeline Stages</CardTitle>
-            <CheckCircle className="w-4 h-4 text-primary" />
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <CheckCircle className="w-4 h-4 text-primary" />
+              Pipeline Stages
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap gap-1">
@@ -335,7 +529,10 @@ export default function Overview() {
                     </div>
                     <div className="min-w-0">
                       <div className="font-medium text-sm truncate" data-testid={`text-contact-name-${contact.id}`}>{contact.firstName} {contact.lastName}</div>
-                      <div className="text-xs text-muted-foreground truncate">{contact.companyName || contact.email}</div>
+                      <div className="text-xs text-muted-foreground truncate">
+                        {contact.companyName || contact.email}
+                        {contact.utmSource && <span className="ml-1 text-primary/70">({contact.utmSource})</span>}
+                      </div>
                     </div>
                   </div>
                   <Badge variant="secondary" className="shrink-0" data-testid={`badge-contact-status-${contact.id}`}>
@@ -360,7 +557,10 @@ export default function Overview() {
                 <div key={deal.id} className="flex items-center justify-between gap-3 p-3 rounded-md hover-elevate transition-colors" data-testid={`row-deal-${deal.id}`}>
                   <div className="min-w-0">
                     <div className="font-medium text-sm" data-testid={`text-deal-id-${deal.id}`}>Deal #{deal.id}</div>
-                    <div className="text-xs text-muted-foreground">{deal.offerPath || "No offer path"}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {deal.offerPath || "No offer path"}
+                      {deal.leadSource && <span className="ml-1 text-primary/70">({deal.leadSource})</span>}
+                    </div>
                   </div>
                   <Badge variant="outline" className="shrink-0" data-testid={`badge-deal-stage-${deal.id}`}>
                     {deal.stage}

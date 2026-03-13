@@ -6,7 +6,7 @@ declare global {
   }
 }
 
-const GA_ID = import.meta.env.VITE_GA_ID as string | undefined;
+const GA_ID = (import.meta.env.VITE_GA4_MEASUREMENT_ID || import.meta.env.VITE_GA_ID) as string | undefined;
 const FB_PIXEL_ID = import.meta.env.VITE_FB_PIXEL_ID as string | undefined;
 
 let initialized = false;
@@ -25,7 +25,7 @@ function initTracking() {
       window.dataLayer!.push(arguments);
     };
     window.gtag("js", new Date());
-    window.gtag("config", GA_ID);
+    window.gtag("config", GA_ID, { send_page_view: false });
   }
 
   if (FB_PIXEL_ID) {
@@ -46,7 +46,6 @@ function initTracking() {
       s.parentNode!.insertBefore(t, s);
     }
     window.fbq!("init", FB_PIXEL_ID);
-    window.fbq!("track", "PageView");
   }
 }
 
@@ -65,8 +64,9 @@ function fbqEvent(...args: any[]) {
 }
 
 export function trackPageView(path?: string) {
+  const pagePath = path || window.location.pathname;
   if (GA_ID) {
-    gtagEvent("config", GA_ID, { page_path: path || window.location.pathname });
+    gtagEvent("config", GA_ID, { page_path: pagePath });
   }
   if (FB_PIXEL_ID) {
     fbqEvent("track", "PageView");
@@ -113,6 +113,80 @@ export function trackQuizComplete() {
   if (FB_PIXEL_ID) {
     fbqEvent("track", "CompleteRegistration", {
       content_name: "free_analysis_quiz",
+    });
+  }
+}
+
+export function trackStatementUpload() {
+  if (GA_ID) {
+    gtagEvent("event", "statement_upload", {
+      event_category: "conversion",
+      event_label: "statement_upload",
+    });
+  }
+  if (FB_PIXEL_ID) {
+    fbqEvent("track", "Lead", {
+      content_name: "statement_upload",
+    });
+  }
+}
+
+export function trackEquipmentOrder(value?: number) {
+  if (GA_ID) {
+    gtagEvent("event", "purchase", {
+      event_category: "conversion",
+      event_label: "equipment_order",
+      value: value || 0,
+      currency: "USD",
+    });
+  }
+  if (FB_PIXEL_ID) {
+    fbqEvent("track", "Purchase", {
+      content_name: "equipment_order",
+      value: value || 0,
+      currency: "USD",
+    });
+  }
+}
+
+export function trackMerchantApplication() {
+  if (GA_ID) {
+    gtagEvent("event", "merchant_application", {
+      event_category: "conversion",
+      event_label: "merchant_application",
+    });
+  }
+  if (FB_PIXEL_ID) {
+    fbqEvent("track", "CompleteRegistration", {
+      content_name: "merchant_application",
+    });
+  }
+}
+
+export function trackAffiliateSignup() {
+  if (GA_ID) {
+    gtagEvent("event", "affiliate_signup", {
+      event_category: "conversion",
+      event_label: "affiliate_signup",
+    });
+  }
+  if (FB_PIXEL_ID) {
+    fbqEvent("track", "CompleteRegistration", {
+      content_name: "affiliate_signup",
+    });
+  }
+}
+
+export function trackEstimateRequest() {
+  if (GA_ID) {
+    gtagEvent("event", "estimate_request", {
+      event_category: "conversion",
+      event_label: "estimate_request",
+    });
+  }
+  if (FB_PIXEL_ID) {
+    fbqEvent("track", "Lead", {
+      content_name: "estimate_request",
     });
   }
 }

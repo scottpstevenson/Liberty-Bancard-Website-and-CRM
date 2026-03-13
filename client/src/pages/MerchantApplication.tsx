@@ -7,6 +7,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { apiRequest } from "@/lib/queryClient";
+import { getStoredUTMParams } from "@/lib/utm";
+import { trackMerchantApplication } from "@/lib/tracking";
 import { useToast } from "@/hooks/use-toast";
 import {
   Select,
@@ -260,8 +262,10 @@ export default function MerchantApplication() {
         ecommerceNeeded: ecommerceNeeded === true,
         preferredProgram,
         esignStatus: "pending",
+        ...getStoredUTMParams(),
       });
       const data = await res.json();
+      trackMerchantApplication();
       setApplicationId(data.id);
 
       setEsignSending(true);
