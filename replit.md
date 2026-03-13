@@ -52,7 +52,7 @@ The system is built on a modern web stack, prioritizing scalability, responsiven
 - **Contact Batch Enrichment**: Endpoint `/api/contacts/enrich-batch` enriches imported contacts missing email/phone using Serper search. Progress tracking via `/api/contacts/enrich-progress`.
 - **2-Way GHL Sync**: Bidirectional synchronization of contacts and deals with GoHighLevel.
 - **Daily Outreach Automation**: Background worker for continuous enrichment, promotion of qualified leads, deal creation, GHL syncing, and automated campaign messages with daily limits.
-- **Affiliate / Sales Team Program**: Public signup for sales reps, unique referral codes, performance tracking, and an admin dashboard for management.
+- **Affiliate / Sales Team Program**: Public signup for sales reps with optional email/password login, unique referral codes, 30-day cookie-based attribution, performance tracking, affiliate leaderboard, tiered commission rates, monthly payout reports, pre-built marketing materials library, and an admin dashboard with commission tier management.
 - **Additional Modules**: Features for residual revenue, agent management, merchant health, competitive tracking, partner programs, knowledge base, testimonial requests, onboarding tracking, equipment order management, calendar booking, revenue forecasting, analytics, quota tracking, CSV export, bulk messaging, document storage, activity timeline, welcome notifications, and data retention.
 
 ## External Dependencies

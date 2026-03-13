@@ -1461,6 +1461,7 @@ export const partners = pgTable("partners", {
   contactName: text("contact_name"),
   email: text("email"),
   phone: text("phone"),
+  passwordHash: text("password_hash"),
   partnerType: text("partner_type").default("referral"),
   affiliateCode: text("affiliate_code").unique(),
   commissionPercent: integer("commission_percent").default(10),
@@ -1477,6 +1478,23 @@ export const partners = pgTable("partners", {
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
+
+export const commissionTiers = pgTable("commission_tiers", {
+  id: serial("id").primaryKey(),
+  minReferrals: integer("min_referrals").notNull().default(1),
+  maxReferrals: integer("max_referrals"),
+  commissionAmount: text("commission_amount").notNull().default("100"),
+  label: text("label"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertCommissionTierSchema = createInsertSchema(commissionTiers).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type CommissionTier = typeof commissionTiers.$inferSelect;
+export type InsertCommissionTier = z.infer<typeof insertCommissionTierSchema>;
 
 export const insertPartnerSchema = createInsertSchema(partners).omit({
   id: true,
@@ -1499,6 +1517,7 @@ export const referrals = pgTable("referrals", {
   status: text("status").default("pending"),
   incentiveType: text("incentive_type").default("commission"),
   incentiveAmount: text("incentive_amount"),
+  commissionAmount: text("commission_amount"),
   paidAt: timestamp("paid_at"),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
@@ -1516,6 +1535,7 @@ export type InsertReferral = z.infer<typeof insertReferralSchema>;
 
 export const PARTNER_TYPES = [
   "referral",
+  "affiliate",
   "iso_agent",
   "bank_partner",
   "technology",

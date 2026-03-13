@@ -6,7 +6,7 @@ import {
   emailLogs, callLogs, stageAutomationRules, followUpSequences, sequenceSteps, sequenceEnrollments,
   sunbizEntities, consentAuditLogs, calendarEvents,
   merchantApplications, merchantProfiles, equipmentOrders, agents, agentQuotas, residualReports, merchantResiduals,
-  healthAlerts, dealCompetitors, partners, referrals, knowledgeBase, reviewRequests, onboardingSteps,
+  healthAlerts, dealCompetitors, partners, referrals, commissionTiers, knowledgeBase, reviewRequests, onboardingSteps,
   type InsertContact, type UpdateContactRequest,
   type InsertCompany,
   type InsertDeal, type UpdateDealRequest,
@@ -42,6 +42,7 @@ import {
   type InsertDealCompetitor, type DealCompetitor,
   type InsertPartner, type Partner,
   type InsertReferral, type Referral,
+  type InsertCommissionTier, type CommissionTier,
   type InsertKnowledgeBaseArticle, type KnowledgeBaseArticle,
   type InsertReviewRequest, type ReviewRequest,
   type InsertOnboardingStep, type OnboardingStep,
@@ -286,6 +287,12 @@ export interface IStorage {
   getReferralsByPartner(partnerId: number): Promise<Referral[]>;
   createReferral(referral: InsertReferral): Promise<Referral>;
   updateReferral(id: number, updates: Partial<InsertReferral>): Promise<Referral | undefined>;
+
+  getCommissionTiers(): Promise<CommissionTier[]>;
+  createCommissionTier(tier: InsertCommissionTier): Promise<CommissionTier>;
+  updateCommissionTier(id: number, updates: Partial<InsertCommissionTier>): Promise<CommissionTier | undefined>;
+  deleteCommissionTier(id: number): Promise<void>;
+  getAffiliateLeaderboard(): Promise<Partner[]>;
 
   getKnowledgeBaseArticles(): Promise<KnowledgeBaseArticle[]>;
   getKnowledgeBaseArticle(id: number): Promise<KnowledgeBaseArticle | undefined>;
@@ -1618,6 +1625,31 @@ export class DatabaseStorage implements IStorage {
   async updateReferral(id: number, updates: Partial<InsertReferral>) {
     const [updated] = await db.update(referrals).set({ ...updates, updatedAt: new Date() }).where(eq(referrals.id, id)).returning();
     return updated;
+  }
+
+  async getCommissionTiers() {
+    return await db.select().from(commissionTiers).orderBy(asc(commissionTiers.minReferrals));
+  }
+
+  async createCommissionTier(tier: InsertCommissionTier) {
+    const [created] = await db.insert(commissionTiers).values(tier).returning();
+    return created;
+  }
+
+  async updateCommissionTier(id: number, updates: Partial<InsertCommissionTier>) {
+    const [updated] = await db.update(commissionTiers).set(updates).where(eq(commissionTiers.id, id)).returning();
+    return updated;
+  }
+
+  async deleteCommissionTier(id: number) {
+    await db.delete(commissionTiers).where(eq(commissionTiers.id, id));
+  }
+
+  async getAffiliateLeaderboard() {
+    return await db.select().from(partners)
+      .where(eq(partners.partnerType, "affiliate"))
+      .orderBy(desc(partners.totalConversions))
+      .limit(20);
   }
 
   async getKnowledgeBaseArticles() {

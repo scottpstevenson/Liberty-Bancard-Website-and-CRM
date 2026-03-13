@@ -1,7 +1,9 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { setupAuth, registerAuthRoutes, isAuthenticated } from "./replit_integrations/auth";
+import { setupAuth, registerAuthRoutes, isAuthenticated, isAdmin, isAffiliate } from "./replit_integrations/auth";
+import { authStorage } from "./replit_integrations/auth/storage";
+import bcrypt from "bcryptjs";
 import { db, pool } from "./db";
 import { users } from "@shared/schema";
 import { eq, desc } from "drizzle-orm";
@@ -6053,7 +6055,7 @@ Respond in this exact JSON format:
 
   app.post("/api/affiliate/signup", async (req, res) => {
     try {
-      const { firstName, lastName, email, phone, companyName, website, howHeard } = req.body;
+      const { firstName, lastName, email, phone, companyName, website, howHeard, password } = req.body;
       if (!firstName || typeof firstName !== "string" || firstName.length > 100) {
         return res.status(400).json({ message: "Valid first name is required." });
       }
@@ -6063,9 +6065,16 @@ Respond in this exact JSON format:
       if (!phone || typeof phone !== "string" || phone.length > 30) {
         return res.status(400).json({ message: "Valid phone number is required." });
       }
+      if (!password || typeof password !== "string" || password.length < 6) {
+        return res.status(400).json({ message: "Password must be at least 6 characters." });
+      }
       const existing = await storage.getPartnerByEmail(email.toLowerCase());
       if (existing) {
         return res.status(409).json({ message: "An affiliate account with this email already exists." });
+      }
+      const existingUser = await authStorage.getUserByEmail(email.toLowerCase());
+      if (existingUser) {
+        return res.status(409).json({ message: "An account with this email already exists." });
       }
       let code = "";
       for (let attempt = 0; attempt < 5; attempt++) {
@@ -6073,11 +6082,13 @@ Respond in this exact JSON format:
         const dup = await storage.getPartnerByCode(code);
         if (!dup) break;
       }
+      const passwordHash = await bcrypt.hash(password, 12);
       const partner = await storage.createPartner({
         companyName: (companyName || `${firstName} ${lastName || ""}`.trim()).slice(0, 200),
         contactName: `${firstName} ${lastName || ""}`.trim().slice(0, 200),
         email: email.toLowerCase().slice(0, 200),
         phone: phone.slice(0, 30),
+        passwordHash,
         partnerType: "affiliate",
         affiliateCode: code,
         status: "active",
@@ -6085,19 +6096,109 @@ Respond in this exact JSON format:
         website: website ? String(website).slice(0, 500) : null,
         howHeard: howHeard ? String(howHeard).slice(0, 500) : null,
       });
-      res.status(201).json({
-        message: "Welcome to the Liberty Bancard Affiliate Program!",
-        affiliateCode: partner.affiliateCode,
+      const user = await authStorage.upsertUser({
+        email: email.toLowerCase(),
+        firstName,
+        lastName: lastName || "",
+        passwordHash,
+        role: "affiliate",
+        authProvider: "local",
+      });
+      req.logIn(user, (loginErr) => {
+        if (loginErr) {
+          return res.status(201).json({
+            message: "Welcome to the Liberty Bancard Affiliate Program!",
+            affiliateCode: partner.affiliateCode,
+          });
+        }
+        return res.status(201).json({
+          message: "Welcome to the Liberty Bancard Affiliate Program!",
+          affiliateCode: partner.affiliateCode,
+        });
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
   });
 
-  app.get("/api/affiliate/stats/:code", async (req, res) => {
+  app.post("/api/affiliate/login", async (req, res) => {
     try {
+      const { email, password } = req.body;
+      if (!email || !password) {
+        return res.status(400).json({ message: "Email and password are required." });
+      }
+      const partner = await storage.getPartnerByEmail(email.toLowerCase());
+      if (!partner || !partner.passwordHash) {
+        return res.status(401).json({ message: "Invalid email or password." });
+      }
+      const valid = await bcrypt.compare(password, partner.passwordHash);
+      if (!valid) {
+        return res.status(401).json({ message: "Invalid email or password." });
+      }
+      if (partner.status !== "active") {
+        return res.status(403).json({ message: "Your affiliate account is not active." });
+      }
+      let user = await authStorage.getUserByEmail(email.toLowerCase());
+      if (!user) {
+        const nameParts = (partner.contactName || "").split(" ");
+        user = await authStorage.upsertUser({
+          email: email.toLowerCase(),
+          firstName: nameParts[0] || "Affiliate",
+          lastName: nameParts.slice(1).join(" ") || "",
+          passwordHash: partner.passwordHash,
+          role: "affiliate",
+          authProvider: "local",
+        });
+      }
+      req.logIn(user, (loginErr) => {
+        if (loginErr) {
+          return res.status(500).json({ message: "Login failed." });
+        }
+        return res.json({
+          affiliateCode: partner.affiliateCode,
+          name: partner.contactName,
+          email: partner.email,
+        });
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/affiliate/session", isAffiliate, async (req, res) => {
+    try {
+      const user = req.user as any;
+      const partner = await storage.getPartnerByEmail(user.email);
+      if (!partner) {
+        return res.status(404).json({ message: "Affiliate account not found." });
+      }
+      return res.json({
+        affiliateCode: partner.affiliateCode,
+        name: partner.contactName,
+        email: partner.email,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/affiliate/logout", (req, res) => {
+    req.logout(() => {
+      req.session.destroy(() => {
+        res.clearCookie("connect.sid");
+        res.json({ message: "Logged out" });
+      });
+    });
+  });
+
+  app.get("/api/affiliate/stats/:code", isAffiliate, async (req, res) => {
+    try {
+      const user = req.user as any;
       const partner = await storage.getPartnerByCode(req.params.code);
       if (!partner) return res.status(404).json({ message: "Affiliate not found." });
+      if (user.role !== "admin" && partner.email !== user.email) {
+        return res.status(403).json({ message: "Access denied." });
+      }
       const referralsList = await storage.getReferralsByPartner(partner.id);
       const pending = referralsList.filter(r => r.status === "pending" || r.status === "contacted").length;
       const qualified = referralsList.filter(r => r.status === "qualified").length;
@@ -6712,5 +6813,129 @@ Respond in this exact JSON format:
     }
   });
 
+  app.get("/api/affiliate/leaderboard", isAffiliate, async (_req, res) => {
+    try {
+      const leaders = await storage.getAffiliateLeaderboard();
+      res.json(leaders.map((p, idx) => ({
+        rank: idx + 1,
+        name: p.contactName || p.companyName,
+        referrals: p.totalReferrals || 0,
+        conversions: p.totalConversions || 0,
+        earnings: p.totalPayouts || "0",
+      })));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/affiliate/commission-report/:code", isAffiliate, async (req, res) => {
+    try {
+      const user = req.user as any;
+      const partner = await storage.getPartnerByCode(req.params.code);
+      if (!partner) return res.status(404).json({ message: "Affiliate not found." });
+      if (user.role !== "admin" && partner.email !== user.email) {
+        return res.status(403).json({ message: "Access denied." });
+      }
+      const allReferrals = await storage.getReferralsByPartner(partner.id);
+      const tiers = await storage.getCommissionTiers();
+      const converted = allReferrals.filter(r => r.status === "converted" || r.status === "paid");
+
+      function getCommissionForReferralCount(count: number): string {
+        if (tiers.length === 0) return "100";
+        for (const tier of tiers) {
+          if (count >= tier.minReferrals && (tier.maxReferrals === null || count <= tier.maxReferrals)) {
+            return tier.commissionAmount;
+          }
+        }
+        return tiers[tiers.length - 1]?.commissionAmount || "100";
+      }
+
+      const monthlyBreakdown: Record<string, any[]> = {};
+      let grandTotal = 0;
+      for (const ref of converted) {
+        const date = ref.createdAt ? new Date(ref.createdAt) : new Date();
+        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+        if (!monthlyBreakdown[monthKey]) monthlyBreakdown[monthKey] = [];
+        const commAmt = ref.commissionAmount || ref.incentiveAmount || getCommissionForReferralCount(converted.length);
+        const amtNum = parseFloat(commAmt) || 0;
+        grandTotal += amtNum;
+        monthlyBreakdown[monthKey].push({
+          referralId: ref.id,
+          merchantName: ref.referredCompany || ref.referredName || "Unknown",
+          signupDate: ref.createdAt,
+          status: ref.status,
+          commissionAmount: commAmt,
+        });
+      }
+
+      const report = Object.entries(monthlyBreakdown)
+        .sort(([a], [b]) => b.localeCompare(a))
+        .map(([month, entries]) => ({
+          month,
+          entries,
+          total: entries.reduce((sum: number, e: any) => sum + parseFloat(e.commissionAmount || "0"), 0).toFixed(2),
+        }));
+
+      res.json({
+        affiliate: { name: partner.contactName, code: partner.affiliateCode },
+        tiers,
+        currentTierReferrals: converted.length,
+        currentCommissionRate: getCommissionForReferralCount(converted.length),
+        report,
+        totalEarnings: grandTotal.toFixed(2),
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/commission-tiers", async (_req, res) => {
+    try {
+      const tiers = await storage.getCommissionTiers();
+      res.json(tiers);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/commission-tiers", isAdmin, async (req, res) => {
+    try {
+      const { minReferrals, maxReferrals, commissionAmount, label } = req.body;
+      const min = Number(minReferrals) || 1;
+      const max = maxReferrals ? Number(maxReferrals) : null;
+      const amount = parseFloat(String(commissionAmount || "100"));
+      if (min < 1) return res.status(400).json({ message: "Min referrals must be at least 1." });
+      if (max !== null && max < min) return res.status(400).json({ message: "Max referrals must be >= min referrals." });
+      if (isNaN(amount) || amount <= 0) return res.status(400).json({ message: "Commission amount must be a positive number." });
+      const tier = await storage.createCommissionTier({
+        minReferrals: min,
+        maxReferrals: max,
+        commissionAmount: amount.toString(),
+        label: label || null,
+      });
+      res.status(201).json(tier);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/commission-tiers/:id", isAdmin, async (req, res) => {
+    try {
+      const updated = await storage.updateCommissionTier(Number(req.params.id), req.body);
+      if (!updated) return res.status(404).json({ message: "Tier not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/commission-tiers/:id", isAdmin, async (req, res) => {
+    try {
+      await storage.deleteCommissionTier(Number(req.params.id));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
   return httpServer;
 }

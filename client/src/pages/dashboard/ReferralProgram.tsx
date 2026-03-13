@@ -186,9 +186,10 @@ function ReferralExplainer() {
 
 export default function ReferralProgram() {
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<"partners" | "referrals">("partners");
+  const [activeTab, setActiveTab] = useState<"partners" | "referrals" | "tiers">("partners");
   const [isPartnerDialogOpen, setIsPartnerDialogOpen] = useState(false);
   const [isReferralDialogOpen, setIsReferralDialogOpen] = useState(false);
+  const [isTierDialogOpen, setIsTierDialogOpen] = useState(false);
 
   const { data: partners = [], isLoading: loadingPartners } = useQuery<Partner[]>({
     queryKey: ["/api/partners"],
@@ -196,6 +197,10 @@ export default function ReferralProgram() {
 
   const { data: referrals = [], isLoading: loadingReferrals } = useQuery<Referral[]>({
     queryKey: ["/api/referrals"],
+  });
+
+  const { data: commissionTiers = [] } = useQuery<any[]>({
+    queryKey: ["/api/commission-tiers"],
   });
 
   const createPartner = useMutation({
@@ -236,6 +241,35 @@ export default function ReferralProgram() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/partners"] });
       toast({ title: "Commission rate updated" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const createTier = useMutation({
+    mutationFn: async (data: { minReferrals: number; maxReferrals: number | null; commissionAmount: string; label: string }) => {
+      const res = await apiRequest("POST", "/api/commission-tiers", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/commission-tiers"] });
+      toast({ title: "Commission tier created" });
+      setIsTierDialogOpen(false);
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const deleteTier = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("DELETE", `/api/commission-tiers/${id}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/commission-tiers"] });
+      toast({ title: "Tier deleted" });
     },
     onError: (err: Error) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -444,6 +478,13 @@ export default function ReferralProgram() {
           data-testid="tab-referrals"
         >
           Referrals
+        </Button>
+        <Button
+          variant={activeTab === "tiers" ? "default" : "outline"}
+          onClick={() => setActiveTab("tiers")}
+          data-testid="tab-tiers"
+        >
+          Commission Tiers
         </Button>
       </div>
 
@@ -735,6 +776,125 @@ export default function ReferralProgram() {
                   )}
                 </TableBody>
               </Table>
+            </CardContent>
+          </Card>
+        </>
+      )}
+
+      {activeTab === "tiers" && (
+        <>
+          <div className="flex justify-between items-center">
+            <p className="text-sm text-muted-foreground">Set tiered commission rates based on the number of converted referrals an affiliate has.</p>
+            <Dialog open={isTierDialogOpen} onOpenChange={setIsTierDialogOpen}>
+              <DialogTrigger asChild>
+                <Button className="gap-2" data-testid="button-add-tier">
+                  <Plus className="w-4 h-4" /> Add Tier
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Add Commission Tier</DialogTitle>
+                </DialogHeader>
+                <form
+                  className="space-y-4"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const fd = new FormData(e.target as HTMLFormElement);
+                    const maxVal = fd.get("maxReferrals") as string;
+                    createTier.mutate({
+                      minReferrals: Number(fd.get("minReferrals")) || 1,
+                      maxReferrals: maxVal ? Number(maxVal) : null,
+                      commissionAmount: (fd.get("commissionAmount") as string) || "100",
+                      label: (fd.get("label") as string) || "",
+                    });
+                  }}
+                >
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-sm font-medium block mb-1">Min Referrals</label>
+                      <Input name="minReferrals" type="number" min={1} defaultValue={1} data-testid="input-tier-min" />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium block mb-1">Max Referrals (blank = unlimited)</label>
+                      <Input name="maxReferrals" type="number" min={1} placeholder="e.g. 5" data-testid="input-tier-max" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium block mb-1">Commission Amount ($)</label>
+                    <Input name="commissionAmount" defaultValue="100" data-testid="input-tier-amount" />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium block mb-1">Label (optional)</label>
+                    <Input name="label" placeholder="e.g. Bronze Tier" data-testid="input-tier-label" />
+                  </div>
+                  <div className="flex justify-end pt-4">
+                    <Button type="submit" disabled={createTier.isPending} data-testid="button-submit-tier">
+                      {createTier.isPending ? "Creating..." : "Create Tier"}
+                    </Button>
+                  </div>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </div>
+
+          <Card>
+            <CardContent className="p-0 overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Label</TableHead>
+                    <TableHead>Min Referrals</TableHead>
+                    <TableHead>Max Referrals</TableHead>
+                    <TableHead>Commission Amount</TableHead>
+                    <TableHead>Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {commissionTiers.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-center h-24 text-muted-foreground" data-testid="text-no-tiers">
+                        No commission tiers configured. Add tiers to enable tiered pricing (e.g., 1-5 referrals = $100, 6-10 = $150, 11+ = $200).
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    commissionTiers.map((tier: any) => (
+                      <TableRow key={tier.id} data-testid={`row-tier-${tier.id}`}>
+                        <TableCell className="font-medium">{tier.label || "—"}</TableCell>
+                        <TableCell>{tier.minReferrals}</TableCell>
+                        <TableCell>{tier.maxReferrals ?? "Unlimited"}</TableCell>
+                        <TableCell className="font-semibold">${tier.commissionAmount}</TableCell>
+                        <TableCell>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-red-600"
+                            onClick={() => deleteTier.mutate(tier.id)}
+                            data-testid={`button-delete-tier-${tier.id}`}
+                          >
+                            <XCircle className="w-4 h-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+
+          <Card className="border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/20">
+            <CardContent className="p-4">
+              <div className="flex items-start gap-3">
+                <DollarSign className="w-5 h-5 text-blue-600 mt-0.5 shrink-0" />
+                <div>
+                  <p className="font-semibold text-blue-800 dark:text-blue-200 mb-1">How Tiered Commissions Work</p>
+                  <p className="text-sm text-blue-700 dark:text-blue-300">
+                    When tiers are configured, the commission per referral is determined by the affiliate's total number of converted referrals. 
+                    For example: 1-5 referrals = $100 each, 6-10 = $150 each, 11+ = $200 each. 
+                    If no tiers are set, the default $100 per referral is used.
+                  </p>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </>

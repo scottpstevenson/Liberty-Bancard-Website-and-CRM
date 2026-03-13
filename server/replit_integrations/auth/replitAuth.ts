@@ -274,6 +274,16 @@ export const isAdmin: RequestHandler = (req, res, next) => {
   return res.status(403).json({ message: "Admin access required" });
 };
 
+export const isAffiliate: RequestHandler = (req, res, next) => {
+  if (req.isAuthenticated()) {
+    const role = (req.user as any)?.role;
+    if (role === 'affiliate' || role === 'admin') {
+      return next();
+    }
+  }
+  return res.status(403).json({ message: "Affiliate access required" });
+};
+
 export const isDashboardUser: RequestHandler = (req, res, next) => {
   if (req.isAuthenticated()) {
     const role = (req.user as any)?.role;

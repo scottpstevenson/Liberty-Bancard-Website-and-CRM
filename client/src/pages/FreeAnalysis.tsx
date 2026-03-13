@@ -291,6 +291,8 @@ export default function FreeAnalysis() {
     if (ref) {
       setRefCode(ref);
       localStorage.setItem("lb_ref_code", ref);
+      const expires = new Date(Date.now() + 30 * 864e5).toUTCString();
+      document.cookie = `lb_ref=${encodeURIComponent(ref)};expires=${expires};path=/;SameSite=Lax`;
       fetch("/api/affiliate/track-click", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -370,7 +372,8 @@ export default function FreeAnalysis() {
     if (!canProceed()) return;
     setSubmitting(true);
     try {
-      const storedRef = refCode || localStorage.getItem("lb_ref_code") || undefined;
+      const cookieRef = document.cookie.match(/(?:^|; )lb_ref=([^;]*)/)?.[1];
+      const storedRef = refCode || localStorage.getItem("lb_ref_code") || (cookieRef ? decodeURIComponent(cookieRef) : undefined) || undefined;
       const storedPromo = promoCode || localStorage.getItem("lb_promo_code") || undefined;
       await apiRequest("POST", "/api/public/free-analysis", {
         industry,
