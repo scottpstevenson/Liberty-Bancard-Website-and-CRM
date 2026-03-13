@@ -1871,3 +1871,31 @@ export const CONTACT_COMPANY_ROLES = [
   "Bookkeeper",
   "Other",
 ] as const;
+
+export const csvImports = pgTable("csv_imports", {
+  id: serial("id").primaryKey(),
+  fileName: text("file_name").notNull(),
+  sourceFormat: text("source_format").default("custom"),
+  totalRows: integer("total_rows").default(0),
+  newRecords: integer("new_records").default(0),
+  duplicatesSkipped: integer("duplicates_skipped").default(0),
+  errorsCount: integer("errors_count").default(0),
+  verticalBreakdown: jsonb("vertical_breakdown"),
+  importSource: text("import_source"),
+  status: text("status").default("processing"),
+  importedBy: text("imported_by"),
+  dealsCreated: integer("deals_created").default(0),
+  hotLeads: integer("hot_leads").default(0),
+  warmLeads: integer("warm_leads").default(0),
+  coldLeads: integer("cold_leads").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+});
+
+export const insertCsvImportSchema = createInsertSchema(csvImports).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type CsvImport = typeof csvImports.$inferSelect;
+export type InsertCsvImport = z.infer<typeof insertCsvImportSchema>;

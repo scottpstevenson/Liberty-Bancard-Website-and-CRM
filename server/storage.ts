@@ -58,6 +58,7 @@ import {
   type PipelineStage, type InsertPipelineStage,
   type NotificationPreference, type InsertNotificationPreference,
   type SavedFilter, type InsertSavedFilter,
+  csvImports, type CsvImport, type InsertCsvImport,
 } from "@shared/schema";
 import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike } from "drizzle-orm";
 
@@ -370,6 +371,11 @@ export interface IStorage {
 
   findDuplicateContacts(): Promise<{ email: string; phone: string; contacts: typeof contacts.$inferSelect[] }[]>;
   mergeContacts(primaryId: number, duplicateId: number): Promise<typeof contacts.$inferSelect | undefined>;
+
+  getCsvImports(): Promise<CsvImport[]>;
+  getCsvImport(id: number): Promise<CsvImport | undefined>;
+  createCsvImport(importData: InsertCsvImport): Promise<CsvImport>;
+  updateCsvImport(id: number, updates: Partial<InsertCsvImport>): Promise<CsvImport | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2004,6 +2010,25 @@ export class DatabaseStorage implements IStorage {
     await db.update(documents).set({ contactId: primaryId }).where(eq(documents.contactId, duplicateId));
     await db.update(contacts).set({ archivedAt: new Date(), notes: `[Merged into Contact #${primaryId}] ${duplicate.notes || ''}` }).where(eq(contacts.id, duplicateId));
     return primary;
+  }
+
+  async getCsvImports(): Promise<CsvImport[]> {
+    return await db.select().from(csvImports).orderBy(desc(csvImports.createdAt));
+  }
+
+  async getCsvImport(id: number): Promise<CsvImport | undefined> {
+    const [record] = await db.select().from(csvImports).where(eq(csvImports.id, id));
+    return record;
+  }
+
+  async createCsvImport(importData: InsertCsvImport): Promise<CsvImport> {
+    const [record] = await db.insert(csvImports).values(importData).returning();
+    return record;
+  }
+
+  async updateCsvImport(id: number, updates: Partial<InsertCsvImport>): Promise<CsvImport | undefined> {
+    const [updated] = await db.update(csvImports).set(updates).where(eq(csvImports.id, id)).returning();
+    return updated;
   }
 }
 

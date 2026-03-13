@@ -85,6 +85,7 @@ import Outreach from "@/pages/dashboard/Outreach";
 import OutreachCommand from "@/pages/dashboard/OutreachCommand";
 import LeadEngine from "@/pages/dashboard/LeadEngine";
 import LeadCommandCenter from "@/pages/dashboard/LeadCommandCenter";
+import LeadImports from "@/pages/dashboard/LeadImports";
 import BlazeIntegration from "@/pages/dashboard/BlazeIntegration";
 import MerchantPortal from "@/pages/dashboard/MerchantPortal";
 import AgentManagement from "@/pages/dashboard/AgentManagement";
@@ -281,6 +282,9 @@ function Router() {
       </Route>
       <Route path="/dashboard/prospects/import">
         <ProtectedRoute component={ProspectImport} />
+      </Route>
+      <Route path="/dashboard/lead-imports">
+        <ProtectedRoute component={LeadImports} />
       </Route>
       <Route path="/dashboard/campaigns">
         <ProtectedRoute component={Campaigns} />

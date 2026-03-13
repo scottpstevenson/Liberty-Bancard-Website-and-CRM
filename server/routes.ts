@@ -5,8 +5,8 @@ import { setupAuth, registerAuthRoutes, isAuthenticated, isAdmin, isAffiliate } 
 import { authStorage } from "./replit_integrations/auth/storage";
 import bcrypt from "bcryptjs";
 import { db, pool } from "./db";
-import { users } from "@shared/schema";
-import { eq, desc } from "drizzle-orm";
+import { users, contacts, csvImports } from "@shared/schema";
+import { eq, desc, ne, and, sql } from "drizzle-orm";
 import { registerAudioRoutes } from "./replit_integrations/audio/routes";
 import { z } from "zod";
 import { insertContactSchema, insertDealSchema, insertTicketSchema, insertTaskSchema, insertCompanySchema, insertDocumentSchema, insertNotificationSchema, insertWorkflowSchema, insertRfiSchema, insertMessageTemplateSchema, insertCollateralPacketSchema, insertSlaConfigSchema, insertProspectSchema, insertProspectListSchema, insertEnrichmentJobSchema, insertCampaignSchema, insertCampaignStepSchema, insertOutboundMessageSchema, insertNoteSchema, insertEmailLogSchema, insertCallLogSchema, insertStageAutomationRuleSchema, insertFollowUpSequenceSchema, insertSequenceStepSchema, insertSequenceEnrollmentSchema, insertMerchantApplicationSchema, insertEquipmentOrderSchema, insertAgentSchema, insertResidualReportSchema, insertMerchantResidualSchema, insertHealthAlertSchema, insertDealCompetitorSchema, insertPartnerSchema, insertReferralSchema, insertKnowledgeBaseSchema, insertReviewRequestSchema, insertOnboardingStepSchema, insertMerchantProfileSchema, insertConsentAuditLogSchema, insertCalendarEventSchema, insertAgentQuotaSchema, insertDataDeleteRequestSchema, insertCommentSchema, insertTicketCommentSchema, insertContactCompanySchema, insertPipelineStageSchema, insertNotificationPreferenceSchema, insertSavedFilterSchema } from "@shared/schema";
@@ -34,6 +34,39 @@ import os from "os";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 const uploadLarge = multer({ dest: os.tmpdir(), limits: { fileSize: 300 * 1024 * 1024 } });
+
+function normalizePhoneForImport(phone: string): string {
+  if (!phone) return "";
+  const digits = phone.replace(/[^0-9]/g, "");
+  if (digits.length === 10) return digits;
+  if (digits.length === 11 && digits.startsWith("1")) return digits.slice(1);
+  return digits;
+}
+
+function classifyVerticalForImport(industry: string, category: string, companyName: string, keywords: string = ""): string {
+  const text = `${industry} ${category} ${companyName} ${keywords}`.toLowerCase();
+  if (/restaurant|food|pizza|burger|taco|sushi|cafe|coffee|bakery|catering|bar\b|grill|diner|eatery|bistro|cuisine|kitchen/.test(text)) return "Restaurant";
+  if (/auto|car |vehicle|mechanic|tire|collision|body shop|transmission|brake|oil change|lube|muffler|exhaust|towing|automotive/.test(text)) return "Auto";
+  if (/retail|store|shop\b|boutique|gift|apparel|clothing|fashion|jewelry|shoe|furniture/.test(text)) return "Retail";
+  if (/salon|spa\b|beauty|hair\b|nail\b|barber|cosmet|skincare|esthetic|waxing|lash\b|brow\b|med spa|medical spa|medspa/.test(text)) return "Salon/Spa";
+  if (/medical|doctor|physician|dental|dentist|chiropr|optom|pharma|clinic|hospital|healthcare|health care|urgent care|veterinar|vet\b|plastic surg|dermatol/.test(text)) return "Healthcare";
+  if (/fitness|gym\b|yoga|pilates|martial art|boxing|crossfit|personal train|recreation|swim|sport/.test(text)) return "Fitness/Recreation";
+  if (/food|beverage|drink|juice|smoothie|ice cream|donut|wine|liquor|brewery/.test(text)) return "Food/Beverage";
+  if (/construct|contractor|plumb|electric|hvac|roof|paint|landscap|concrete|mason|carpenter|remodel|renovati|flooring|handyman/.test(text)) return "Construction";
+  if (/law\b|legal|attorney|lawyer/.test(text)) return "Legal";
+  if (/account|cpa\b|bookkeep|tax prep/.test(text)) return "Accounting";
+  if (/consult|professional service|management|staffing|recruit|human resource/.test(text)) return "Professional Services";
+  if (/transport|trucking|freight|logistics|moving|courier|delivery|shipping/.test(text)) return "Transportation";
+  if (/real estate|realtor|property|mortgage|title company/.test(text)) return "Real Estate";
+  if (/insurance/.test(text)) return "Insurance";
+  if (/hotel|motel|lodging|hospitality|travel|tour|resort/.test(text)) return "Hospitality";
+  if (/clean|janitorial|laundry|dry clean|maid|housekeep/.test(text)) return "Cleaning Services";
+  if (/print|sign |graphic design|marketing|advertis|media|photo|video|creative/.test(text)) return "Marketing/Media";
+  if (/tech|software|it\b|information technology|web design|web develop|app develop/.test(text)) return "Technology";
+  if (/education|school|tutor|training|academy|learning/.test(text)) return "Education";
+  if (/machine|equipment|manufactur|industrial/.test(text)) return "Manufacturing";
+  return "Other";
+}
 
 async function trackReferral(referralCode: string | undefined, contactName: string, email: string, phone?: string, company?: string) {
   if (!referralCode) return;
@@ -6813,6 +6846,46 @@ Respond in this exact JSON format:
     }
   });
 
+  // === CSV IMPORT PIPELINE ===
+  app.get("/api/csv-imports", isAuthenticated, async (req, res) => {
+    const imports = await storage.getCsvImports();
+    res.json(imports);
+  });
+
+  app.get("/api/csv-imports/stats", isAuthenticated, async (req, res) => {
+    try {
+      const imports = await storage.getCsvImports();
+      const totalImports = imports.length;
+      const totalRecordsImported = imports.reduce((sum, i) => sum + (i.newRecords || 0), 0);
+      const totalDuplicatesSkipped = imports.reduce((sum, i) => sum + (i.duplicatesSkipped || 0), 0);
+      const totalDealsCreated = imports.reduce((sum, i) => sum + (i.dealsCreated || 0), 0);
+      const totalHot = imports.reduce((sum, i) => sum + (i.hotLeads || 0), 0);
+      const totalWarm = imports.reduce((sum, i) => sum + (i.warmLeads || 0), 0);
+
+      const allVerticals: Record<string, number> = {};
+      for (const imp of imports) {
+        const breakdown = imp.verticalBreakdown as Record<string, number> | null;
+        if (breakdown) {
+          for (const [v, count] of Object.entries(breakdown)) {
+            allVerticals[v] = (allVerticals[v] || 0) + count;
+          }
+        }
+      }
+
+      res.json({
+        totalImports,
+        totalRecordsImported,
+        totalDuplicatesSkipped,
+        totalDealsCreated,
+        totalHot,
+        totalWarm,
+        verticalBreakdown: allVerticals,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/affiliate/leaderboard", isAffiliate, async (_req, res) => {
     try {
       const leaders = await storage.getAffiliateLeaderboard();
@@ -6937,5 +7010,290 @@ Respond in this exact JSON format:
       res.status(500).json({ message: err.message });
     }
   });
+
+  app.get("/api/csv-imports/:id", isAuthenticated, async (req, res) => {
+    const record = await storage.getCsvImport(Number(req.params.id));
+    if (!record) return res.status(404).json({ message: "Not found" });
+    res.json(record);
+  });
+
+  app.post("/api/leads/import-csv", isAuthenticated, uploadLarge.single("file"), async (req, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+
+      const filePath = req.file.path;
+      const fileName = req.file.originalname || "upload.csv";
+
+      let csvContent: string;
+      try {
+        csvContent = fs.readFileSync(filePath, "utf-8");
+      } finally {
+        try { fs.unlinkSync(filePath); } catch {}
+      }
+
+      const records = parse(csvContent, {
+        columns: true,
+        skip_empty_lines: true,
+        trim: true,
+        relax_column_count: true,
+        relax_quotes: true,
+      }) as Record<string, string>[];
+
+      if (records.length === 0) {
+        return res.status(400).json({ message: "CSV file is empty or could not be parsed" });
+      }
+
+      const headers = Object.keys(records[0]).map(h => h.toLowerCase().trim());
+      let sourceFormat = "custom";
+      if (headers.some(h => /^(name|telephone|category|rating|review_count|keyword|address)$/i.test(h))) {
+        sourceFormat = "google_maps_outscraper";
+      } else if (headers.some(h => /^(first name|last name|company|title|email|mobile phone|corporate phone|person linkedin url|industry)$/i.test(h.replace(/_/g, " ")))) {
+        sourceFormat = "apollo_lead_list";
+      }
+
+      const importRecord = await storage.createCsvImport({
+        fileName,
+        sourceFormat,
+        totalRows: records.length,
+        importSource: (req.body.importSource as string) || sourceFormat,
+        status: "processing",
+        importedBy: (req.body.importedBy as string) || "system",
+      });
+
+      const existingEmails = await db.select({ email: sql<string>`LOWER(TRIM(email))` }).from(contacts).where(and(ne(contacts.email, ""), sql`email IS NOT NULL`));
+      const existingPhones = await db.select({ phone: contacts.phone }).from(contacts).where(and(ne(contacts.phone, ""), sql`phone IS NOT NULL`));
+      const existingCompanies = await db.select({ name: sql<string>`LOWER(TRIM(company_name))` }).from(contacts).where(and(sql`company_name IS NOT NULL`, ne(contacts.companyName, "")));
+
+      const emailSet = new Set<string>();
+      for (const row of existingEmails) { if (row.email) emailSet.add(row.email); }
+      const phoneSet = new Set<string>();
+      for (const row of existingPhones) {
+        const norm = normalizePhoneForImport(row.phone || "");
+        if (norm && norm.length >= 10) phoneSet.add(norm);
+      }
+      const companySet = new Set<string>();
+      for (const row of existingCompanies) { if (row.name) companySet.add(row.name); }
+
+      const googleMapsColumnMap: Record<string, string> = {
+        "name": "companyName", "telephone": "phone", "phone": "phone",
+        "category": "industry", "rating": "rating", "review_count": "reviewCount",
+        "reviews": "reviewCount", "keyword": "keyword", "address": "address",
+        "website": "website", "city": "city", "state": "state",
+      };
+
+      const apolloColumnMap: Record<string, string> = {
+        "first_name": "firstName", "first name": "firstName", "firstname": "firstName",
+        "last_name": "lastName", "last name": "lastName", "lastname": "lastName",
+        "email": "email", "email_address": "email",
+        "mobile_phone": "phone", "mobile phone": "phone", "corporate_phone": "phone", "corporate phone": "phone", "phone": "phone",
+        "company": "companyName", "company_name": "companyName", "company name": "companyName",
+        "title": "title", "industry": "industry", "keywords": "keywords",
+        "#_employees": "employeeCount", "# employees": "employeeCount", "employees": "employeeCount",
+        "annual_revenue": "annualRevenue", "annual revenue": "annualRevenue",
+        "company_address": "address", "company address": "address", "address": "address",
+        "city": "city", "company_city": "city", "company city": "city",
+        "state": "state", "company_state": "state", "company state": "state",
+        "website": "website",
+        "person_linkedin_url": "linkedinUrl", "person linkedin url": "linkedinUrl",
+        "facebook_url": "facebookUrl", "facebook url": "facebookUrl",
+      };
+
+      const genericColumnMap: Record<string, string> = {
+        ...apolloColumnMap, ...googleMapsColumnMap,
+        "business_name": "companyName", "business name": "companyName", "business": "companyName",
+        "dba": "dba", "doing_business_as": "dba",
+        "owner_first_name": "firstName", "owner_first": "firstName", "contact_first_name": "firstName",
+        "owner_last_name": "lastName", "owner_last": "lastName", "contact_last_name": "lastName",
+        "owner_email": "ownerEmail", "contact_email": "email",
+        "owner_phone": "ownerPhone", "contact_phone": "phone",
+        "street": "address", "street_address": "address",
+        "zip": "zip", "zipcode": "zip", "zip_code": "zip", "postal": "zip", "postal_code": "zip",
+        "vertical": "vertical", "type": "vertical",
+        "volume": "monthlyVolume", "estimated_volume": "monthlyVolume", "monthly_volume": "monthlyVolume",
+        "processor": "currentProvider", "current_processor": "currentProvider",
+        "employee_count": "employeeCount", "year_established": "yearEstablished", "established": "yearEstablished",
+        "google_rating": "rating", "google_reviews": "reviewCount",
+        "lead_source": "leadSource", "source": "leadSource",
+        "notes": "notes", "tags": "tags",
+      };
+
+      const columnMap = sourceFormat === "google_maps_outscraper" ? { ...genericColumnMap, ...googleMapsColumnMap }
+        : sourceFormat === "apollo_lead_list" ? { ...genericColumnMap, ...apolloColumnMap }
+        : genericColumnMap;
+
+      let inserted = 0;
+      let duplicatesSkipped = 0;
+      let invalidRows = 0;
+      let errors = 0;
+      const verticalCounts: Record<string, number> = {};
+      let hotLeads = 0;
+      let warmLeads = 0;
+      let coldLeads = 0;
+      let dealsCreated = 0;
+
+      const batchSize = 100;
+      const contactInserts: any[] = [];
+
+      for (const record of records) {
+        const mapped: Record<string, string> = {};
+        for (const [csvCol, value] of Object.entries(record)) {
+          const normCol = csvCol.toLowerCase().trim().replace(/\s+/g, "_");
+          const field = columnMap[normCol] || columnMap[csvCol.toLowerCase().trim()];
+          if (field && value) mapped[field] = value.trim();
+        }
+
+        let companyName = mapped.companyName || "";
+        let firstName = mapped.firstName || "";
+        let lastName = mapped.lastName || "";
+        const email = (mapped.email || "").toLowerCase().trim();
+        let phone = normalizePhoneForImport(mapped.phone || "");
+        const website = mapped.website || "";
+
+        if (sourceFormat === "google_maps_outscraper" && companyName && !firstName) {
+          firstName = companyName;
+        }
+
+        if (!companyName && !email && !phone) { invalidRows++; continue; }
+        if (!firstName && !companyName) { invalidRows++; continue; }
+
+        let isDuplicate = false;
+        if (email && emailSet.has(email)) isDuplicate = true;
+        else if (phone && phone.length >= 10 && phoneSet.has(phone)) isDuplicate = true;
+        else if (companyName && companySet.has(companyName.toLowerCase())) isDuplicate = true;
+
+        if (isDuplicate) { duplicatesSkipped++; continue; }
+
+        if (email) emailSet.add(email);
+        if (phone && phone.length >= 10) phoneSet.add(phone);
+        if (companyName) companySet.add(companyName.toLowerCase());
+
+        const industry = mapped.industry || mapped.vertical || "";
+        const keywords = mapped.keywords || mapped.keyword || "";
+        const vertical = classifyVerticalForImport(industry, "", companyName, keywords);
+
+        verticalCounts[vertical] = (verticalCounts[vertical] || 0) + 1;
+
+        const ratingStr = mapped.rating || "";
+        const reviewCount = mapped.reviewCount || "";
+        const noteParts = [];
+        if (ratingStr) noteParts.push(`Rating: ${ratingStr}`);
+        if (reviewCount) noteParts.push(`Reviews: ${reviewCount}`);
+        if (mapped.notes) noteParts.push(mapped.notes);
+
+        const tags = ["csv-import", sourceFormat.replace(/_/g, "-")];
+        if (mapped.tags) tags.push(...mapped.tags.split(",").map(t => t.trim()).filter(Boolean));
+
+        contactInserts.push({
+          firstName: firstName || companyName || "Unknown",
+          lastName: lastName || "",
+          email: email || "",
+          phone: phone || "",
+          companyName: companyName || "",
+          title: mapped.title || (sourceFormat === "google_maps_outscraper" ? "Owner" : null),
+          address: mapped.address || null,
+          city: mapped.city || null,
+          state: mapped.state || null,
+          website: website || null,
+          linkedinUrl: mapped.linkedinUrl || null,
+          facebookUrl: mapped.facebookUrl || null,
+          industry: industry || null,
+          vertical: vertical || null,
+          leadSource: mapped.leadSource || sourceFormat,
+          employeeCount: mapped.employeeCount ? parseInt(mapped.employeeCount) || null : null,
+          annualRevenue: mapped.annualRevenue || null,
+          tags,
+          notes: noteParts.join("; ") || null,
+          status: "New",
+          monthlyVolume: mapped.monthlyVolume || null,
+          currentProvider: mapped.currentProvider || null,
+        });
+      }
+
+      for (let i = 0; i < contactInserts.length; i += batchSize) {
+        const batch = contactInserts.slice(i, i + batchSize);
+        try {
+          const result = await db.insert(contacts).values(batch).onConflictDoNothing().returning({ id: contacts.id, vertical: contacts.vertical });
+          inserted += result.length;
+
+          for (const r of result) {
+            try {
+              const scoreResult = await scoreContact(r.id);
+              if (scoreResult) {
+                const tier = (scoreResult as any)?.tier || (scoreResult as any)?.breakdown?.tier;
+                if (tier === "hot") {
+                  hotLeads++;
+                  await storage.createDeal({
+                    contactId: r.id,
+                    pipeline: "sales",
+                    stage: "New Lead",
+                    leadSource: sourceFormat,
+                    notes: `Auto-created from CSV import: ${fileName}`,
+                  });
+                  dealsCreated++;
+                } else if (tier === "warm") {
+                  warmLeads++;
+                } else {
+                  coldLeads++;
+                }
+              }
+            } catch (scoreErr) {
+              coldLeads++;
+            }
+          }
+        } catch (batchErr: any) {
+          for (const single of batch) {
+            try {
+              const [result] = await db.insert(contacts).values(single).onConflictDoNothing().returning({ id: contacts.id });
+              if (result) {
+                inserted++;
+                try {
+                  await scoreContact(result.id);
+                } catch {}
+              }
+            } catch {
+              errors++;
+            }
+          }
+        }
+      }
+
+      await storage.updateCsvImport(importRecord.id, {
+        newRecords: inserted,
+        duplicatesSkipped: duplicatesSkipped,
+        errorsCount: errors,
+        verticalBreakdown: verticalCounts,
+        status: "completed",
+        completedAt: new Date(),
+        dealsCreated,
+        hotLeads,
+        warmLeads,
+        coldLeads,
+      });
+
+      const updatedImport = await storage.getCsvImport(importRecord.id);
+
+      res.status(201).json({
+        import: updatedImport,
+        inserted,
+        duplicatesSkipped,
+        invalidRows,
+        errors,
+        dealsCreated,
+        verticalBreakdown: verticalCounts,
+        sourceFormat,
+      });
+    } catch (err: any) {
+      console.error("CSV import error:", err);
+      try {
+        const failedImports = await storage.getCsvImports();
+        const processingImport = failedImports.find(i => i.status === "processing");
+        if (processingImport) {
+          await storage.updateCsvImport(processingImport.id, { status: "failed" });
+        }
+      } catch {}
+      res.status(500).json({ message: err.message || "Import failed" });
+    }
+  });
+
   return httpServer;
 }
