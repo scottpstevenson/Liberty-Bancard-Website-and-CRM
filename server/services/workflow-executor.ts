@@ -128,6 +128,7 @@ export async function executeWorkflowActions(
         if (action.notes) updates.notes = action.notes;
         if (action.offerPath) updates.offerPath = action.offerPath;
         if (action.owner) updates.owner = action.owner;
+        if (action.pipeline) updates.pipeline = action.pipeline;
         if (action.nextFollowUp) updates.nextFollowUp = new Date(Date.now() + (action.nextFollowUpHours || 24) * 3600000);
         await storage.updateDeal(dealId, updates);
         logEntries.push({ step: i + 1, action: "update_deal", updates, status: "completed", timestamp: new Date().toISOString() });
@@ -258,6 +259,33 @@ export async function executeWorkflowActions(
           logEntries.push({ step: i + 1, action: "request_review", status: result.success ? "completed" : "failed", timestamp: new Date().toISOString() });
         } else {
           logEntries.push({ step: i + 1, action: "request_review", status: "queued_no_ghl", timestamp: new Date().toISOString() });
+        }
+
+      } else if (action.type === "create_onboarding_checklist" && dealId) {
+        const existingSteps = await storage.getOnboardingStepsByDeal(dealId);
+        if (existingSteps.length > 0) {
+          logEntries.push({ step: i + 1, action: "create_onboarding_checklist", status: "skipped", reason: "Steps already exist", timestamp: new Date().toISOString() });
+        } else {
+          const onboardingSteps = [
+            { stepName: "Welcome & Kickoff", stepOrder: 1, status: "completed" as const },
+            { stepName: "Application Submitted", stepOrder: 2, status: "pending" as const },
+            { stepName: "Documents Collected", stepOrder: 3, status: "pending" as const },
+            { stepName: "Underwriting Review", stepOrder: 4, status: "pending" as const },
+            { stepName: "Approved", stepOrder: 5, status: "pending" as const },
+            { stepName: "Terminal Ordered", stepOrder: 6, status: "pending" as const },
+            { stepName: "Go-Live Scheduled", stepOrder: 7, status: "pending" as const },
+            { stepName: "Live & Processing", stepOrder: 8, status: "pending" as const },
+          ];
+          for (const step of onboardingSteps) {
+            await storage.createOnboardingStep({
+              dealId,
+              stepName: step.stepName,
+              stepOrder: step.stepOrder,
+              status: step.status,
+              completedAt: step.status === "completed" ? new Date() : undefined,
+            });
+          }
+          logEntries.push({ step: i + 1, action: "create_onboarding_checklist", status: "completed", stepsCreated: onboardingSteps.length, timestamp: new Date().toISOString() });
         }
 
       } else if (action.type === "wait") {

@@ -73,14 +73,52 @@ const PREBUILT_WORKFLOWS = [
     triggerType: "deal_stage_changed",
     triggerConfig: { toStage: "Closed Won" },
     actions: [
-      { type: "update_deal", stage: "Contract Sent", notes: "Deal won - moved to onboarding pipeline" },
+      { type: "update_deal", stage: "Contract Sent", notes: "Deal won - moved to onboarding pipeline", pipeline: "onboarding" },
+      { type: "create_onboarding_checklist" },
       { type: "create_task", title: "Send application + collect docs", assignedTo: "Scott Stevenson", priority: "high", dueHours: 2 },
+      { type: "create_task", title: "Verify document checklist complete (statement, voided check, ID)", assignedTo: "Scott Stevenson", priority: "high", dueHours: 48 },
       { type: "create_task", title: "Order terminal (if applicable)", assignedTo: "Scott Stevenson", priority: "medium", dueHours: 24 },
-      { type: "send_notification", channel: "internal", title: "New Deal Won!", message: "Deal closed won - begin onboarding immediately", notificationType: "success" },
-      { type: "send_ghl_email", subject: "Welcome to Liberty Bancard - Next Steps", body: "<p>Hi {{contact.firstName}},</p><p>Welcome aboard! We're excited to get {{contact.companyName}} set up with better processing.</p><p><strong>Here's what happens next:</strong></p><ol><li>We'll send your application (takes ~5 minutes to complete)</li><li>Underwriting review (typically 24-48 hours)</li><li>Terminal setup and configuration (if applicable)</li><li>Go-live and first batch</li></ol><p>You'll have a dedicated point of contact throughout. We'll keep you updated at every step.</p><p>Best,<br/>Liberty Bancard Team</p>" },
-      { type: "send_ghl_sms", body: "Welcome to Liberty Bancard, {{contact.firstName}}! Your application is on its way. We'll guide you through every step. Questions? Just reply here." },
+      { type: "send_notification", channel: "internal", title: "New Deal Won!", message: "Deal closed won - begin onboarding immediately. Application link sent to merchant, document collection initiated.", notificationType: "success" },
+      { type: "send_ghl_email", subject: "Welcome to Liberty Bancard - Your Application & Next Steps", body: "<p>Hi {{contact.firstName}},</p><p>Welcome aboard! We're excited to get {{contact.companyName}} set up with better processing.</p><p><strong>Step 1: Complete Your Application</strong></p><p>Your merchant application takes about 5 minutes to complete. Click below to get started:</p><p><a href='https://libertybancard.com/apply' style='display:inline-block;padding:12px 24px;background:#2563eb;color:white;text-decoration:none;border-radius:6px;font-weight:bold;'>Start Your Application</a></p><p><strong>Step 2: Upload Required Documents</strong></p><p>To complete underwriting, we'll need:</p><ul><li>Most recent processing statement</li><li>Voided check or bank letter</li><li>Government-issued photo ID</li></ul><p>You can upload these documents through your merchant portal or reply to this email with them attached.</p><p><strong>What Happens Next:</strong></p><ol><li>Complete the application (5 min)</li><li>Upload required documents</li><li>Underwriting review (typically 24-48 hours)</li><li>Terminal setup and configuration (if applicable)</li><li>Go-live and first batch!</li></ol><p>You'll have a dedicated point of contact throughout. We'll keep you updated at every step.</p><p>Best,<br/>Liberty Bancard Team</p>" },
+      { type: "send_ghl_sms", body: "Welcome to Liberty Bancard, {{contact.firstName}}! Your application is ready at libertybancard.com/apply - takes about 5 min. We'll also need your processing statement, voided check, and photo ID. Questions? Just reply here." },
       { type: "update_contact_tags", addTags: ["status_onboarding", "closed_won"] },
       { type: "create_audit_log", logAction: "closed_won_onboarding_workflow" },
+    ],
+    enabled: true,
+  },
+  {
+    name: "F2. Application Reminder - Day 1",
+    triggerType: "application_reminder",
+    triggerConfig: { dayNumber: 1 },
+    actions: [
+      { type: "send_ghl_email", subject: "Your Liberty Bancard Application is Waiting", body: "<p>Hi {{contact.firstName}},</p><p>We noticed you haven't completed your merchant application yet. It only takes about 5 minutes!</p><p><a href='https://libertybancard.com/apply' style='display:inline-block;padding:12px 24px;background:#2563eb;color:white;text-decoration:none;border-radius:6px;font-weight:bold;'>Complete Your Application</a></p><p>Once submitted, we can begin underwriting and get you set up quickly.</p><p>Need help? Just reply to this email or call us at 954-266-8214.</p><p>Best,<br/>Liberty Bancard Team</p>" },
+      { type: "send_ghl_sms", body: "Hi {{contact.firstName}}, friendly reminder to complete your Liberty Bancard application at libertybancard.com/apply. Only takes 5 min! Need help? Reply here or call 954-266-8214." },
+      { type: "create_audit_log", logAction: "application_reminder_day1" },
+    ],
+    enabled: true,
+  },
+  {
+    name: "F3. Application Reminder - Day 3",
+    triggerType: "application_reminder",
+    triggerConfig: { dayNumber: 3 },
+    actions: [
+      { type: "send_ghl_email", subject: "Don't Miss Out - Complete Your Application", body: "<p>Hi {{contact.firstName}},</p><p>Just a friendly follow-up - your merchant application for {{contact.companyName}} is still incomplete.</p><p>We're ready to get you set up with better processing rates as soon as you're done. The application takes about 5 minutes:</p><p><a href='https://libertybancard.com/apply' style='display:inline-block;padding:12px 24px;background:#2563eb;color:white;text-decoration:none;border-radius:6px;font-weight:bold;'>Complete Your Application</a></p><p>If you're running into any issues or have questions about the process, we're here to help. Reply to this email or give us a call.</p><p>Best,<br/>Liberty Bancard Team</p>" },
+      { type: "send_ghl_sms", body: "Hi {{contact.firstName}}, your Liberty Bancard application is still waiting. Complete it in 5 min at libertybancard.com/apply. Questions? Call 954-266-8214 - we're happy to walk you through it!" },
+      { type: "create_task", title: "Day 3: Follow up on incomplete application", assignedTo: "Scott Stevenson", priority: "medium", dueHours: 8 },
+      { type: "create_audit_log", logAction: "application_reminder_day3" },
+    ],
+    enabled: true,
+  },
+  {
+    name: "F4. Application Reminder - Day 7",
+    triggerType: "application_reminder",
+    triggerConfig: { dayNumber: 7 },
+    actions: [
+      { type: "send_ghl_email", subject: "Last Reminder - Your Application is Saved", body: "<p>Hi {{contact.firstName}},</p><p>This is our last reminder about your merchant application. Your information is saved and the application is ready whenever you are.</p><p><a href='https://libertybancard.com/apply' style='display:inline-block;padding:12px 24px;background:#2563eb;color:white;text-decoration:none;border-radius:6px;font-weight:bold;'>Complete Your Application</a></p><p>If you'd prefer, we can complete the application together over the phone. Just reply 'CALL ME' and we'll reach out.</p><p>Best,<br/>Liberty Bancard Team</p>" },
+      { type: "send_ghl_sms", body: "Hi {{contact.firstName}}, last reminder about your Liberty Bancard application. Reply CALL ME and we'll help you complete it over the phone. Or finish it at libertybancard.com/apply." },
+      { type: "create_task", title: "Day 7: Final application follow-up - consider phone assist", assignedTo: "Scott Stevenson", priority: "high", dueHours: 4 },
+      { type: "send_notification", channel: "internal", title: "Application Still Incomplete (Day 7)", message: "Merchant has not completed application after 7 days. Consider direct outreach.", notificationType: "alert" },
+      { type: "create_audit_log", logAction: "application_reminder_day7" },
     ],
     enabled: true,
   },
@@ -98,7 +136,7 @@ const PREBUILT_WORKFLOWS = [
       { type: "request_review", reviewUrl: "[GOOGLE_REVIEW_LINK]" },
       { type: "wait", hours: 168 },
       { type: "send_ghl_email", subject: "Two weeks in - quick check", body: "<p>Hi {{contact.firstName}},</p><p>Just a quick 2-week check-in. We want to make sure everything is running smoothly.</p><p>If you have any questions about your first full statement, we're happy to walk through it with you.</p><p>Best,<br/>Liberty Bancard Team</p>" },
-      { type: "wait", hours: 336 },
+      { type: "wait", hours: 384 },
       { type: "send_ghl_email", subject: "Your first full month - let's review", body: "<p>Hi {{contact.firstName}},</p><p>Congratulations on your first full month with Liberty Bancard!</p><p>Your first complete statement should be available now. Want us to review it together to make sure everything looks right?</p><p>Book a quick call: {{calendarLink}}</p><p>Best,<br/>Liberty Bancard Team</p>" },
       { type: "create_task", title: "Day 30: Review first full statement with merchant", assignedTo: "Scott Stevenson", priority: "medium", dueHours: 48 },
       { type: "update_contact_tags", addTags: ["milestone_30_days"] },
@@ -197,6 +235,29 @@ const DEFAULT_MESSAGE_TEMPLATES = [
 <p>Would you take 30 seconds to share your experience? <a href="[GOOGLE_REVIEW_LINK]">Leave a Review</a></p>
 <p>Your feedback helps other business owners make better processing decisions.</p>
 <p>Best,<br/>Liberty Bancard Team</p>`,
+    mergeFields: ["contact.firstName"],
+    isActive: true,
+  },
+  {
+    name: "Application Reminder Email",
+    category: "onboarding",
+    channel: "email",
+    subject: "Your Liberty Bancard Application is Waiting",
+    body: `<p>Hi {{contact.firstName}},</p>
+<p>We noticed you haven't completed your merchant application yet for {{contact.companyName}}. It only takes about 5 minutes!</p>
+<p><a href="https://libertybancard.com/apply" style="display:inline-block;padding:12px 24px;background:#2563eb;color:white;text-decoration:none;border-radius:6px;font-weight:bold;">Complete Your Application</a></p>
+<p>Once submitted, we can begin underwriting and get you processing within days.</p>
+<p>Need help? Just reply to this email or call us at 954-266-8214.</p>
+<p>Best,<br/>Liberty Bancard Team</p>`,
+    mergeFields: ["contact.firstName", "contact.companyName"],
+    isActive: true,
+  },
+  {
+    name: "Application Reminder SMS",
+    category: "onboarding",
+    channel: "sms",
+    subject: null,
+    body: "Hi {{contact.firstName}}, friendly reminder to complete your Liberty Bancard application at libertybancard.com/apply. Only takes 5 min! Need help? Reply here or call 954-266-8214.",
     mergeFields: ["contact.firstName"],
     isActive: true,
   },
@@ -1221,6 +1282,27 @@ export async function seedDefaultData() {
         await storage.createWorkflow(wf);
       }
       console.log(`Seeded ${newWorkflows.length} workflows`);
+    }
+
+    const WORKFLOWS_TO_UPDATE: Record<string, { actions: any[] }> = {
+      "F. Closed Won - Onboarding Kickoff": {
+        actions: PREBUILT_WORKFLOWS.find(w => w.name === "F. Closed Won - Onboarding Kickoff")!.actions,
+      },
+      "G. Go-Live Lifecycle (Day 2/7/14/30)": {
+        actions: PREBUILT_WORKFLOWS.find(w => w.name === "G. Go-Live Lifecycle (Day 2/7/14/30)")!.actions,
+      },
+    };
+
+    for (const [name, updates] of Object.entries(WORKFLOWS_TO_UPDATE)) {
+      const existing = existingWorkflows.find(w => w.name === name);
+      if (existing) {
+        const existingActions = JSON.stringify(existing.actions);
+        const newActions = JSON.stringify(updates.actions);
+        if (existingActions !== newActions) {
+          await storage.updateWorkflow(existing.id, { actions: updates.actions });
+          console.log(`[Seed] Updated workflow "${name}" with new actions`);
+        }
+      }
     }
 
     const existingSlaConfigs = await storage.getSlaConfigs();

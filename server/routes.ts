@@ -632,23 +632,49 @@ export async function registerRoutes(
 
       const user = req.user as any;
       const fileName = req.file.originalname;
+      const fileNameLower = fileName.toLowerCase();
       const storageKey = `statements/${Date.now()}_${fileName}`;
 
       const uploadsDir = path.join(process.cwd(), "uploads");
       if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
       fs.writeFileSync(path.join(uploadsDir, `${Date.now()}_${fileName}`), req.file.buffer);
 
-      let dealId: number | undefined;
+      const explicitDocType = req.body?.docType;
+      const validDocTypes = ["merchant_statement", "voided_check", "government_id", "application"];
+      let docType: string;
+
+      if (explicitDocType && validDocTypes.includes(explicitDocType)) {
+        docType = explicitDocType;
+      } else {
+        docType = "merchant_statement";
+        if (/\bvoid(ed)?\b/.test(fileNameLower) || /\bcheck\b/.test(fileNameLower) || /\bbank\b/.test(fileNameLower)) {
+          docType = "voided_check";
+        } else if (/\blicense\b/.test(fileNameLower) || /\bpassport\b/.test(fileNameLower) || /\bgov(ernment)?[_-]?id\b/.test(fileNameLower) || /\bphoto[_-]?id\b/.test(fileNameLower) || /\bdriver/i.test(fileNameLower)) {
+          docType = "government_id";
+        } else if (/\bapplication\b/.test(fileNameLower)) {
+          docType = "application";
+        }
+      }
+
       const allContacts = await storage.getContacts();
-      const userContact = allContacts.find(c => c.email === user.email);
-      if (userContact) {
+      const uploaderContact = allContacts.find((c: any) => c.userId === user.id || c.email === user.email);
+      const uploaderContactId = uploaderContact?.id || null;
+
+      const targetDealId = req.body?.dealId ? Number(req.body.dealId) : null;
+      let associatedDealId: number | null = null;
+      let dealId: number | undefined;
+      if (uploaderContact) {
         const allDeals = await storage.getDeals();
-        const existingDeal = allDeals.find(d => d.contactId === userContact.id);
+        if (targetDealId) {
+          const matchingDeal = allDeals.find(d => d.id === targetDealId && d.contactId === uploaderContact.id);
+          if (matchingDeal) associatedDealId = matchingDeal.id;
+        }
+        const existingDeal = allDeals.find(d => d.contactId === uploaderContact.id);
         if (existingDeal) {
           dealId = existingDeal.id;
         } else {
           const newDeal = await storage.createDeal({
-            contactId: userContact.id,
+            contactId: uploaderContact.id,
             pipeline: "sales",
             stage: "Statement Received",
             notes: `Statement uploaded via merchant portal: ${fileName}`,
@@ -659,17 +685,18 @@ export async function registerRoutes(
       }
 
       const doc = await storage.createDocument({
-        type: "merchant_statement",
+        type: docType,
         fileName,
         storageKey,
         accessScope: "merchant",
-        dealId,
+        contactId: uploaderContactId,
+        dealId: associatedDealId || dealId,
       });
 
       await storage.createNotification({
         channel: "internal",
-        title: "New Statement Uploaded",
-        message: `${user.firstName} ${user.lastName} uploaded a processing statement: ${fileName}`,
+        title: "New Document Uploaded",
+        message: `${user.firstName} ${user.lastName} uploaded: ${fileName} (${docType})`,
         type: "info",
       });
 
@@ -678,6 +705,75 @@ export async function registerRoutes(
         generateDealBlueprint(dealId).catch(err => console.error("Blueprint generation error:", err));
         const uploadedBuffer = req.file?.buffer;
         autoGenerateProposal(dealId, uploadedBuffer).catch(err => console.error("Auto-proposal error:", err));
+      }
+
+      if (uploaderContactId) {
+        const allDeals = await storage.getDeals();
+        const merchantDeals = allDeals.filter(
+          d => d.pipeline === "onboarding" &&
+            d.contactId === uploaderContactId &&
+            !["Active (30 Days)", "Active (7 Days)"].includes(d.stage)
+        );
+
+        const allDocs = await storage.getDocuments();
+
+        const dealsToUpdate = associatedDealId
+          ? merchantDeals.filter(d => d.id === associatedDealId)
+          : merchantDeals.length === 1
+            ? merchantDeals
+            : [];
+
+        for (const deal of dealsToUpdate) {
+          const dealDocs = allDocs.filter(
+            (d: any) =>
+              (d.dealId === deal.id) ||
+              (d.contactId === uploaderContactId && !d.dealId)
+          );
+
+          const hasStatement = deal.statementReceived || dealDocs.some(d => d.type === "merchant_statement");
+          const hasVoidedCheck = deal.voidedCheckReceived || dealDocs.some(d => d.type === "voided_check");
+          const hasId = deal.idReceived || dealDocs.some(d => d.type === "government_id");
+
+          const docUpdates: Record<string, any> = {};
+          if (hasStatement && !deal.statementReceived) docUpdates.statementReceived = true;
+          if (hasVoidedCheck && !deal.voidedCheckReceived) docUpdates.voidedCheckReceived = true;
+          if (hasId && !deal.idReceived) docUpdates.idReceived = true;
+
+          const totalDocs = [hasStatement, hasVoidedCheck, hasId].filter(Boolean).length;
+          docUpdates.docReadinessScore = Math.round((totalDocs / 3) * 100);
+
+          if (Object.keys(docUpdates).length > 0) {
+            await storage.updateDeal(deal.id, docUpdates);
+          }
+
+          if (hasStatement && hasVoidedCheck && hasId && deal.appCompleted) {
+            if (deal.stage === "Contract Sent" || deal.stage === "Application Started") {
+              await storage.updateDeal(deal.id, { stage: "Underwriting Submitted" });
+              await storage.createNotification({
+                channel: "internal",
+                title: "Auto-Advanced to Underwriting",
+                message: `Deal #${deal.id} auto-advanced to Underwriting - all documents collected and application complete.`,
+                type: "success",
+              });
+              await storage.createAuditLog({
+                action: "auto_advance_underwriting",
+                entityType: "deal",
+                entityId: deal.id,
+                details: { reason: "All documents collected and application complete", docReadinessScore: 100 },
+              });
+
+              const steps = await storage.getOnboardingStepsByDeal(deal.id);
+              const docsStep = steps.find(s => s.stepName === "Documents Collected");
+              if (docsStep && docsStep.status !== "completed") {
+                await storage.updateOnboardingStep(docsStep.id, { status: "completed", completedAt: new Date() });
+              }
+              const uwStep = steps.find(s => s.stepName === "Underwriting Review");
+              if (uwStep && uwStep.status === "pending") {
+                await storage.updateOnboardingStep(uwStep.id, { status: "in_progress" });
+              }
+            }
+          }
+        }
       }
 
       res.status(201).json(doc);
@@ -3524,18 +3620,26 @@ Notes: ${deal.notes || "None"}`
   app.get("/api/ai/onboarding-status", isAuthenticated, async (req, res) => {
     try {
       const allDeals = await storage.getDeals();
-      const onboardingDeals = allDeals.filter(d => d.pipeline === "onboarding" && d.stage !== "Live" && d.stage !== "Cancelled");
+      const onboardingDeals = allDeals.filter(d => d.pipeline === "onboarding" && d.stage !== "Cancelled");
       const allTasks = await storage.getTasks();
 
+      const stageOrder = [
+        "Contract Sent", "Application Started", "Underwriting Submitted",
+        "Approved", "Terminal Ordered", "Go-Live Scheduled",
+        "Live (First Batch)", "Active (7 Days)", "Active (30 Days)"
+      ];
+
       const statuses = onboardingDeals.map(deal => {
+        const currentStageIndex = stageOrder.indexOf(deal.stage);
         const milestones = [
-          { name: "Kickoff Complete", done: !!deal.notes?.includes("kickoff") },
-          { name: "Application Submitted", done: deal.stage !== "Kickoff" },
-          { name: "Underwriting Approved", done: ["Equipment Ordered", "Terminal Shipped", "Installation", "Training", "Live"].includes(deal.stage) },
-          { name: "Equipment Ordered", done: ["Terminal Shipped", "Installation", "Training", "Live"].includes(deal.stage) },
-          { name: "Terminal Shipped", done: ["Installation", "Training", "Live"].includes(deal.stage) },
-          { name: "Installation Complete", done: ["Training", "Live"].includes(deal.stage) },
-          { name: "Training Done", done: deal.stage === "Live" },
+          { name: "Contract Sent", done: currentStageIndex >= 0 },
+          { name: "Application Submitted", done: currentStageIndex >= 1 || deal.appCompleted === true },
+          { name: "Documents Collected", done: deal.statementReceived === true && deal.voidedCheckReceived === true && deal.idReceived === true },
+          { name: "Underwriting Submitted", done: currentStageIndex >= 2 },
+          { name: "Approved", done: currentStageIndex >= 3 },
+          { name: "Terminal Ordered", done: currentStageIndex >= 4 },
+          { name: "Go-Live Scheduled", done: currentStageIndex >= 5 },
+          { name: "Live & Processing", done: currentStageIndex >= 6 },
         ];
         const completedMilestones = milestones.filter(m => m.done).length;
         const progress = Math.round((completedMilestones / milestones.length) * 100);
@@ -3543,9 +3647,21 @@ Notes: ${deal.notes || "None"}`
         const dealTasks = allTasks.filter(t => t.dealId === deal.id);
         const pendingTasks = dealTasks.filter(t => t.status !== "completed");
 
-        let nextStep = "Continue processing";
+        const daysSinceSignup = deal.createdAt
+          ? Math.floor((Date.now() - new Date(deal.createdAt).getTime()) / (1000 * 60 * 60 * 24))
+          : 0;
+
+        let nextStep = "All milestones complete";
         const nextMilestone = milestones.find(m => !m.done);
-        if (nextMilestone) nextStep = `Complete: ${nextMilestone.name}`;
+        if (nextMilestone) nextStep = nextMilestone.name;
+
+        const docReadiness = {
+          statement: deal.statementReceived === true,
+          voidedCheck: deal.voidedCheckReceived === true,
+          id: deal.idReceived === true,
+          appCompleted: deal.appCompleted === true,
+          score: deal.docReadinessScore || 0,
+        };
 
         return {
           dealId: deal.id,
@@ -3555,7 +3671,11 @@ Notes: ${deal.notes || "None"}`
           milestones,
           pendingTasks: pendingTasks.length,
           nextStep,
+          daysSinceSignup,
+          docReadiness,
+          goLiveDate: deal.goLiveDate,
           updatedAt: deal.updatedAt,
+          createdAt: deal.createdAt,
         };
       });
 

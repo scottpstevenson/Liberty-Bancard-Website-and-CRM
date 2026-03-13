@@ -390,6 +390,7 @@ export const WORKFLOW_TRIGGERS = [
   "go_live_milestone",
   "scheduled",
   "manual",
+  "application_reminder",
 ] as const;
 
 export const WORKFLOW_ACTIONS = [
@@ -404,6 +405,8 @@ export const WORKFLOW_ACTIONS = [
   "generate_proposal",
   "request_review",
   "wait",
+  "create_onboarding_checklist",
+  "enroll_sequence",
 ] as const;
 
 export const SALES_STAGES = [

@@ -392,6 +392,92 @@ async function runScheduledAiOps() {
   }
 }
 
+async function checkApplicationReminders() {
+  try {
+    const allDeals = await storage.getDeals();
+    const onboardingDeals = allDeals.filter(
+      d => d.pipeline === "onboarding" &&
+        (d.stage === "Contract Sent" || d.stage === "Application Started") &&
+        !d.appCompleted
+    );
+
+    if (onboardingDeals.length === 0) return;
+
+    const auditLogs = await storage.getAuditLogs();
+    const now = Date.now();
+
+    for (const deal of onboardingDeals) {
+      const onboardingEntries = auditLogs.filter(
+        (log: any) =>
+          log.entityId === deal.id &&
+          log.entityType === "deal" &&
+          (log.action === "closed_won_onboarding_workflow" ||
+            (log.action === "deal_stage_changed" && (log.details as any)?.to === "Contract Sent"))
+      );
+      const onboardingEntry = onboardingEntries.length > 0
+        ? onboardingEntries.reduce((earliest: any, log: any) =>
+            new Date(log.createdAt).getTime() < new Date(earliest.createdAt).getTime() ? log : earliest
+          )
+        : null;
+
+      const onboardingStartTime = onboardingEntry?.createdAt
+        ? new Date(onboardingEntry.createdAt).getTime()
+        : (deal.updatedAt ? new Date(deal.updatedAt).getTime() : (deal.createdAt ? new Date(deal.createdAt).getTime() : now));
+
+      const daysSinceOnboarding = Math.floor((now - onboardingStartTime) / (1000 * 60 * 60 * 24));
+
+      const reminderDays = [1, 3, 7];
+      const sentReminders = auditLogs.filter(
+        (log: any) => log.entityId === deal.id && /^application_reminder_day\d+_sent$/.test(log.action)
+      );
+
+      const lastSentTime = sentReminders.length > 0
+        ? Math.max(...sentReminders.map((log: any) => new Date(log.createdAt).getTime()))
+        : 0;
+      const hoursSinceLastReminder = lastSentTime > 0
+        ? (now - lastSentTime) / (1000 * 60 * 60)
+        : Infinity;
+
+      const MIN_HOURS_BETWEEN_REMINDERS = 36;
+
+      if (hoursSinceLastReminder < MIN_HOURS_BETWEEN_REMINDERS) continue;
+
+      for (const dayNumber of reminderDays) {
+        if (daysSinceOnboarding >= dayNumber) {
+          const alreadySent = sentReminders.some(
+            (log: any) => log.action === `application_reminder_day${dayNumber}_sent`
+          );
+          if (alreadySent) continue;
+
+          const { triggerWorkflowsByEvent } = await import("./workflow-executor");
+          const results = await triggerWorkflowsByEvent("application_reminder", {
+            entityType: "deal",
+            entityId: deal.id,
+            contactId: deal.contactId || undefined,
+            dealId: deal.id,
+          }, { dayNumber });
+
+          const anyExecuted = results.length > 0 && results.some(r => r.status === "completed" || r.status === "waiting");
+          if (anyExecuted) {
+            await storage.createAuditLog({
+              action: `application_reminder_day${dayNumber}_sent`,
+              entityType: "deal",
+              entityId: deal.id,
+              details: { dayNumber, daysSinceOnboarding, onboardingStartTime: new Date(onboardingStartTime).toISOString() },
+            });
+            console.log(`[Reminder] Day ${dayNumber} application reminder sent for deal #${deal.id}`);
+          } else {
+            console.log(`[Reminder] Day ${dayNumber} reminder triggered but no workflows executed for deal #${deal.id}`);
+          }
+          break;
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Application reminder check error:", err);
+  }
+}
+
 export function startSlaWorker() {
   if (slaInterval) return;
   console.log("SLA Worker started - checking every 5 minutes");
@@ -406,6 +492,7 @@ export function startSlaWorker() {
     await checkDocumentReadiness().catch(err => console.error("Doc readiness check error:", err));
     await periodicLeadScoring().catch(err => console.error("Periodic scoring error:", err));
     await checkAndSendDigests().catch(err => console.error("Digest check error:", err));
+    await checkApplicationReminders().catch(err => console.error("Application reminder error:", err));
     cycleCount++;
     if (cycleCount % AI_OPS_EVERY_N_CYCLES === 0) {
       await runScheduledAiOps();

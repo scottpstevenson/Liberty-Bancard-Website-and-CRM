@@ -10,11 +10,32 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Calendar, Sparkles, Loader2, Package, Truck, CheckCircle2, Circle, Clock } from "lucide-react";
+import { Calendar, Sparkles, Loader2, Package, CheckCircle2, Circle, Clock, AlertTriangle, FileText, Users, ArrowRight, Timer } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import type { Deal, Contact } from "@shared/schema";
 import { ONBOARDING_STAGES } from "@shared/schema";
+
+interface OnboardingStatus {
+  dealId: number;
+  contactId: number | null;
+  stage: string;
+  progress: number;
+  milestones: Array<{ name: string; done: boolean }>;
+  pendingTasks: number;
+  nextStep: string;
+  daysSinceSignup: number;
+  docReadiness: {
+    statement: boolean;
+    voidedCheck: boolean;
+    id: boolean;
+    appCompleted: boolean;
+    score: number;
+  };
+  goLiveDate: string | null;
+  updatedAt: string | null;
+  createdAt: string | null;
+}
 
 const STAGE_COLORS: Record<string, string> = {
   "Contract Sent": "bg-blue-300 dark:bg-blue-700",
@@ -27,6 +48,18 @@ const STAGE_COLORS: Record<string, string> = {
   "Active (7 Days)": "bg-green-600 dark:bg-green-500",
   "Active (30 Days)": "bg-green-700 dark:bg-green-400",
 };
+
+function getDaysLabel(days: number): string {
+  if (days === 0) return "Today";
+  if (days === 1) return "1 day";
+  return `${days} days`;
+}
+
+function getDaysColor(days: number): string {
+  if (days <= 3) return "text-green-600 dark:text-green-400";
+  if (days <= 7) return "text-amber-600 dark:text-amber-400";
+  return "text-red-600 dark:text-red-400";
+}
 
 export default function Onboarding() {
   const { toast } = useToast();
@@ -48,7 +81,7 @@ export default function Onboarding() {
     },
   });
 
-  const { data: onboardingStatuses } = useQuery<Array<{dealId: number; contactId: number | null; stage: string; progress: number; milestones: Array<{name: string; done: boolean}>; pendingTasks: number; nextStep: string; updatedAt: string | null}>>({
+  const { data: onboardingStatuses } = useQuery<OnboardingStatus[]>({
     queryKey: ["/api/ai/onboarding-status"],
     queryFn: async () => {
       const res = await fetch("/api/ai/onboarding-status", { credentials: "include" });
@@ -73,6 +106,7 @@ export default function Onboarding() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/deals"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/ai/onboarding-status"] });
       setDetailOpen(false);
       setSelectedDeal(null);
       toast({ title: "Deal updated successfully" });
@@ -126,6 +160,13 @@ export default function Onboarding() {
     return deals?.filter((d) => d.stage === stage) || [];
   };
 
+  const totalDeals = deals?.length || 0;
+  const avgProgress = onboardingStatuses?.length
+    ? Math.round(onboardingStatuses.reduce((sum, s) => sum + s.progress, 0) / onboardingStatuses.length)
+    : 0;
+  const atRiskDeals = onboardingStatuses?.filter(s => s.daysSinceSignup > 7 && s.progress < 50).length || 0;
+  const pendingDocsCount = onboardingStatuses?.filter(s => s.docReadiness && s.docReadiness.score < 100).length || 0;
+
   if (dealsLoading) {
     return (
       <div className="flex items-center justify-center h-64" data-testid="onboarding-loading">
@@ -145,6 +186,53 @@ export default function Onboarding() {
         </div>
       </div>
 
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4" data-testid="onboarding-summary-stats">
+        <Card>
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-900 flex items-center justify-center shrink-0">
+              <Users className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold" data-testid="text-total-onboarding">{totalDeals}</p>
+              <p className="text-xs text-muted-foreground">Total Onboarding</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-green-100 dark:bg-green-900 flex items-center justify-center shrink-0">
+              <ArrowRight className="w-5 h-5 text-green-600 dark:text-green-400" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold" data-testid="text-avg-progress">{avgProgress}%</p>
+              <p className="text-xs text-muted-foreground">Avg Progress</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-amber-100 dark:bg-amber-900 flex items-center justify-center shrink-0">
+              <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold" data-testid="text-at-risk">{atRiskDeals}</p>
+              <p className="text-xs text-muted-foreground">At Risk ({">"}7d, {"<"}50%)</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-purple-100 dark:bg-purple-900 flex items-center justify-center shrink-0">
+              <FileText className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold" data-testid="text-pending-docs">{pendingDocsCount}</p>
+              <p className="text-xs text-muted-foreground">Pending Docs</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
       <ScrollArea className="w-full" data-testid="onboarding-board">
         <div className="flex gap-4 pb-4" style={{ minWidth: `${ONBOARDING_STAGES.length * 280}px` }}>
           {ONBOARDING_STAGES.map((stage) => {
@@ -160,36 +248,44 @@ export default function Onboarding() {
                   </Badge>
                 </div>
                 <div className="space-y-3 min-h-[200px]">
-                  {stageDeals.map((deal) => (
-                    <Card
-                      key={deal.id}
-                      className="cursor-pointer hover-elevate"
-                      onClick={() => openDealDetail(deal)}
-                      data-testid={`card-onboarding-deal-${deal.id}`}
-                    >
-                      <CardContent className="p-3 space-y-2">
-                        <div className="font-medium text-sm" data-testid={`text-onboarding-contact-${deal.id}`}>
-                          {getContactName(deal.contactId)}
-                        </div>
-                        {getCompanyName(deal.contactId) && (
-                          <div className="text-xs text-muted-foreground" data-testid={`text-onboarding-company-${deal.id}`}>
-                            {getCompanyName(deal.contactId)}
+                  {stageDeals.map((deal) => {
+                    const status = onboardingStatuses?.find(s => s.dealId === deal.id);
+                    return (
+                      <Card
+                        key={deal.id}
+                        className="cursor-pointer hover-elevate"
+                        onClick={() => openDealDetail(deal)}
+                        data-testid={`card-onboarding-deal-${deal.id}`}
+                      >
+                        <CardContent className="p-3 space-y-2">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="font-medium text-sm" data-testid={`text-onboarding-contact-${deal.id}`}>
+                              {getContactName(deal.contactId)}
+                            </div>
+                            {status && (
+                              <div className={`text-xs font-medium flex items-center gap-1 shrink-0 ${getDaysColor(status.daysSinceSignup)}`} data-testid={`text-days-since-${deal.id}`}>
+                                <Timer className="w-3 h-3" />
+                                {getDaysLabel(status.daysSinceSignup)}
+                              </div>
+                            )}
                           </div>
-                        )}
-                        {deal.goLiveDate && (
-                          <div className="text-xs text-muted-foreground" data-testid={`text-onboarding-golive-${deal.id}`}>
-                            <Calendar className="w-3 h-3 inline-block mr-1" />
-                            Go-Live: {new Date(deal.goLiveDate).toLocaleDateString()}
-                          </div>
-                        )}
-                        {deal.offerPath && (
-                          <Badge variant="outline" className="text-xs no-default-hover-elevate no-default-active-elevate" data-testid={`badge-onboarding-offer-${deal.id}`}>
-                            {deal.offerPath}
-                          </Badge>
-                        )}
-                        {(() => {
-                          const status = onboardingStatuses?.find(s => s.dealId === deal.id);
-                          return status ? (
+                          {getCompanyName(deal.contactId) && (
+                            <div className="text-xs text-muted-foreground" data-testid={`text-onboarding-company-${deal.id}`}>
+                              {getCompanyName(deal.contactId)}
+                            </div>
+                          )}
+                          {deal.goLiveDate && (
+                            <div className="text-xs text-muted-foreground" data-testid={`text-onboarding-golive-${deal.id}`}>
+                              <Calendar className="w-3 h-3 inline-block mr-1" />
+                              Go-Live: {new Date(deal.goLiveDate).toLocaleDateString()}
+                            </div>
+                          )}
+                          {deal.offerPath && (
+                            <Badge variant="outline" className="text-xs no-default-hover-elevate no-default-active-elevate" data-testid={`badge-onboarding-offer-${deal.id}`}>
+                              {deal.offerPath}
+                            </Badge>
+                          )}
+                          {status ? (
                             <div className="space-y-1.5 pt-1 border-t mt-2" data-testid={`onboarding-progress-${deal.id}`}>
                               <div className="flex items-center justify-between gap-2">
                                 <span className="text-xs text-muted-foreground">{status.progress}%</span>
@@ -202,24 +298,33 @@ export default function Onboarding() {
                               <Progress value={status.progress} className="h-1.5" />
                               <div className="text-xs text-muted-foreground flex items-center gap-1">
                                 <Clock className="w-3 h-3" />
-                                {status.nextStep}
+                                Next: {status.nextStep}
                               </div>
+                              {status.docReadiness && status.docReadiness.score < 100 && (
+                                <div className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400" data-testid={`doc-readiness-${deal.id}`}>
+                                  <FileText className="w-3 h-3" />
+                                  Docs: {status.docReadiness.score}%
+                                  {!status.docReadiness.statement && <span className="text-[10px]">(stmt)</span>}
+                                  {!status.docReadiness.voidedCheck && <span className="text-[10px]">(check)</span>}
+                                  {!status.docReadiness.id && <span className="text-[10px]">(ID)</span>}
+                                </div>
+                              )}
                             </div>
-                          ) : null;
-                        })()}
-                        {deal.terminalStatus && (
-                          <Badge
-                            variant="outline"
-                            className="text-xs no-default-hover-elevate no-default-active-elevate mt-1"
-                            data-testid={`badge-terminal-${deal.id}`}
-                          >
-                            <Package className="w-3 h-3 mr-1" />
-                            {deal.terminalStatus}
-                          </Badge>
-                        )}
-                      </CardContent>
-                    </Card>
-                  ))}
+                          ) : null}
+                          {deal.terminalStatus && (
+                            <Badge
+                              variant="outline"
+                              className="text-xs no-default-hover-elevate no-default-active-elevate mt-1"
+                              data-testid={`badge-terminal-${deal.id}`}
+                            >
+                              <Package className="w-3 h-3 mr-1" />
+                              {deal.terminalStatus}
+                            </Badge>
+                          )}
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
                   {stageDeals.length === 0 && (
                     <div className="text-xs text-muted-foreground text-center py-8">No deals</div>
                   )}
@@ -268,6 +373,64 @@ export default function Onboarding() {
                   </div>
                 </div>
               </div>
+
+              {(() => {
+                const status = onboardingStatuses?.find(s => s.dealId === selectedDeal.id);
+                return status ? (
+                  <>
+                    <div className="border-t pt-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-sm font-medium">Onboarding Progress</h4>
+                        <span className={`text-xs font-medium ${getDaysColor(status.daysSinceSignup)}`}>
+                          {getDaysLabel(status.daysSinceSignup)} since signup
+                        </span>
+                      </div>
+                      <Progress value={status.progress} className="h-2" />
+                      <div className="space-y-1">
+                        {status.milestones.map((m, i) => (
+                          <div key={i} className="flex items-center gap-2 text-sm" data-testid={`milestone-${i}`}>
+                            {m.done ? (
+                              <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
+                            ) : (
+                              <Circle className="w-4 h-4 text-muted-foreground shrink-0" />
+                            )}
+                            <span className={m.done ? "text-muted-foreground line-through" : ""}>{m.name}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="text-sm bg-muted/50 p-2 rounded-md flex items-center gap-2">
+                        <Sparkles className="w-4 h-4 text-primary shrink-0" />
+                        <span>Next: {status.nextStep}</span>
+                      </div>
+                    </div>
+
+                    {status.docReadiness && (
+                      <div className="border-t pt-3 space-y-2">
+                        <h4 className="text-sm font-medium">Document Readiness ({status.docReadiness.score}%)</h4>
+                        <Progress value={status.docReadiness.score} className="h-1.5" />
+                        <div className="grid grid-cols-2 gap-2 text-sm">
+                          <div className="flex items-center gap-2" data-testid="doc-statement-status">
+                            {status.docReadiness.statement ? <CheckCircle2 className="w-3.5 h-3.5 text-green-500" /> : <Circle className="w-3.5 h-3.5 text-muted-foreground" />}
+                            <span className={status.docReadiness.statement ? "text-muted-foreground" : ""}>Statement</span>
+                          </div>
+                          <div className="flex items-center gap-2" data-testid="doc-check-status">
+                            {status.docReadiness.voidedCheck ? <CheckCircle2 className="w-3.5 h-3.5 text-green-500" /> : <Circle className="w-3.5 h-3.5 text-muted-foreground" />}
+                            <span className={status.docReadiness.voidedCheck ? "text-muted-foreground" : ""}>Voided Check</span>
+                          </div>
+                          <div className="flex items-center gap-2" data-testid="doc-id-status">
+                            {status.docReadiness.id ? <CheckCircle2 className="w-3.5 h-3.5 text-green-500" /> : <Circle className="w-3.5 h-3.5 text-muted-foreground" />}
+                            <span className={status.docReadiness.id ? "text-muted-foreground" : ""}>Government ID</span>
+                          </div>
+                          <div className="flex items-center gap-2" data-testid="doc-app-status">
+                            {status.docReadiness.appCompleted ? <CheckCircle2 className="w-3.5 h-3.5 text-green-500" /> : <Circle className="w-3.5 h-3.5 text-muted-foreground" />}
+                            <span className={status.docReadiness.appCompleted ? "text-muted-foreground" : ""}>Application</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : null;
+              })()}
 
               {selectedDeal.pipeline === "onboarding" && (
                 <div className="border-t pt-3 space-y-3">
@@ -322,32 +485,6 @@ export default function Onboarding() {
                   </div>
                 </div>
               )}
-
-              {(() => {
-                const status = onboardingStatuses?.find(s => s.dealId === selectedDeal.id);
-                return status ? (
-                  <div className="border-t pt-3 space-y-2">
-                    <h4 className="text-sm font-medium">Onboarding Milestones</h4>
-                    <Progress value={status.progress} className="h-2" />
-                    <div className="space-y-1">
-                      {status.milestones.map((m, i) => (
-                        <div key={i} className="flex items-center gap-2 text-sm" data-testid={`milestone-${i}`}>
-                          {m.done ? (
-                            <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
-                          ) : (
-                            <Circle className="w-4 h-4 text-muted-foreground shrink-0" />
-                          )}
-                          <span className={m.done ? "text-muted-foreground line-through" : ""}>{m.name}</span>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="text-sm bg-muted/50 p-2 rounded-md flex items-center gap-2">
-                      <Sparkles className="w-4 h-4 text-primary shrink-0" />
-                      <span>Next: {status.nextStep}</span>
-                    </div>
-                  </div>
-                ) : null;
-              })()}
 
               <div className="space-y-2">
                 <Label>Stage</Label>
