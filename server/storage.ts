@@ -59,6 +59,8 @@ import {
   type NotificationPreference, type InsertNotificationPreference,
   type SavedFilter, type InsertSavedFilter,
   csvImports, type CsvImport, type InsertCsvImport,
+  generatedBlogPosts,
+  type GeneratedBlogPost, type InsertGeneratedBlogPost,
 } from "@shared/schema";
 import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike } from "drizzle-orm";
 
@@ -2029,6 +2031,53 @@ export class DatabaseStorage implements IStorage {
   async updateCsvImport(id: number, updates: Partial<InsertCsvImport>): Promise<CsvImport | undefined> {
     const [updated] = await db.update(csvImports).set(updates).where(eq(csvImports.id, id)).returning();
     return updated;
+  }
+
+  async getGeneratedBlogPosts(status?: string) {
+    if (status) {
+      return db.select().from(generatedBlogPosts).where(eq(generatedBlogPosts.status, status)).orderBy(desc(generatedBlogPosts.createdAt));
+    }
+    return db.select().from(generatedBlogPosts).orderBy(desc(generatedBlogPosts.createdAt));
+  }
+
+  async getGeneratedBlogPost(id: number) {
+    const [post] = await db.select().from(generatedBlogPosts).where(eq(generatedBlogPosts.id, id));
+    return post;
+  }
+
+  async getGeneratedBlogPostBySlug(slug: string) {
+    const [post] = await db.select().from(generatedBlogPosts).where(eq(generatedBlogPosts.slug, slug));
+    return post;
+  }
+
+  async createGeneratedBlogPost(data: InsertGeneratedBlogPost) {
+    const [post] = await db.insert(generatedBlogPosts).values(data).returning();
+    return post;
+  }
+
+  async updateGeneratedBlogPost(id: number, data: Partial<InsertGeneratedBlogPost>) {
+    const [post] = await db.update(generatedBlogPosts).set(data).where(eq(generatedBlogPosts.id, id)).returning();
+    return post;
+  }
+
+  async deleteGeneratedBlogPost(id: number) {
+    await db.delete(generatedBlogPosts).where(eq(generatedBlogPosts.id, id));
+  }
+
+  async getScheduledBlogPosts() {
+    return db.select().from(generatedBlogPosts)
+      .where(eq(generatedBlogPosts.status, "scheduled"))
+      .orderBy(generatedBlogPosts.scheduledAt);
+  }
+
+  async publishBlogPost(id: number) {
+    const now = new Date();
+    const [post] = await db.update(generatedBlogPosts).set({
+      status: "published",
+      publishedAt: now,
+      modifiedISO: now.toISOString(),
+    }).where(eq(generatedBlogPosts.id, id)).returning();
+    return post;
   }
 }
 

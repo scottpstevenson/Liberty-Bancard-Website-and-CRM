@@ -7,7 +7,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Clock, User, Search } from "lucide-react";
-import { allBlogPosts, blogCategories } from "@/lib/all-blog-data";
+import { allBlogPosts, type GeneratedBlogPostResponse, dbPostToBlogPost } from "@/lib/all-blog-data";
+import { useQuery } from "@tanstack/react-query";
 
 const POSTS_PER_PAGE = 12;
 
@@ -16,8 +17,23 @@ export default function Blog() {
   const [searchQuery, setSearchQuery] = useState("");
   const [visibleCount, setVisibleCount] = useState(POSTS_PER_PAGE);
 
+  const { data: publishedPosts } = useQuery<GeneratedBlogPostResponse[]>({
+    queryKey: ["/api/blog/generated/published"],
+  });
+
+  const combinedPosts = useMemo(() => {
+    const dbPosts = (publishedPosts || []).map(dbPostToBlogPost);
+    const staticSlugs = new Set(allBlogPosts.map(p => p.slug));
+    const uniqueDbPosts = dbPosts.filter(p => !staticSlugs.has(p.slug));
+    return [...allBlogPosts, ...uniqueDbPosts];
+  }, [publishedPosts]);
+
+  const allCategories = useMemo(() => {
+    return Array.from(new Set(combinedPosts.map(p => p.category)));
+  }, [combinedPosts]);
+
   const filtered = useMemo(() => {
-    let posts = allBlogPosts;
+    let posts = combinedPosts;
     if (activeCategory !== "All") {
       posts = posts.filter((p) => p.category === activeCategory);
     }
@@ -31,9 +47,9 @@ export default function Blog() {
       );
     }
     return posts;
-  }, [activeCategory, searchQuery]);
+  }, [activeCategory, searchQuery, combinedPosts]);
 
-  const featured = activeCategory === "All" && !searchQuery ? allBlogPosts[0] : null;
+  const featured = activeCategory === "All" && !searchQuery ? combinedPosts[0] : null;
   const displayPosts = featured ? filtered.slice(1) : filtered;
   const visible = displayPosts.slice(0, visibleCount);
   const hasMore = visibleCount < displayPosts.length;
@@ -94,16 +110,16 @@ export default function Blog() {
                 className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${activeCategory === "All" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}
                 data-testid="button-category-all"
               >
-                All ({allBlogPosts.length})
+                All ({combinedPosts.length})
               </button>
-              {blogCategories.map((cat) => (
+              {allCategories.map((cat) => (
                 <button
                   key={cat}
                   onClick={() => { setActiveCategory(cat); setVisibleCount(POSTS_PER_PAGE); }}
                   className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${activeCategory === cat ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}
                   data-testid={`button-category-${cat.toLowerCase().replace(/\s+/g, "-")}`}
                 >
-                  {cat} ({allBlogPosts.filter((p) => p.category === cat).length})
+                  {cat} ({combinedPosts.filter((p) => p.category === cat).length})
                 </button>
               ))}
             </div>

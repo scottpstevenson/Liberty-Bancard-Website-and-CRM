@@ -9,6 +9,7 @@ import { users, contacts, csvImports } from "@shared/schema";
 import { eq, desc, ne, and, sql } from "drizzle-orm";
 import { registerAudioRoutes } from "./replit_integrations/audio/routes";
 import { z } from "zod";
+import { STATIC_BLOG_SLUGS, INDUSTRY_SLUGS, LOCATION_CITIES, LOCATION_VERTICALS } from "@shared/blog-slugs";
 import { insertContactSchema, insertDealSchema, insertTicketSchema, insertTaskSchema, insertCompanySchema, insertDocumentSchema, insertNotificationSchema, insertWorkflowSchema, insertRfiSchema, insertMessageTemplateSchema, insertCollateralPacketSchema, insertSlaConfigSchema, insertProspectSchema, insertProspectListSchema, insertEnrichmentJobSchema, insertCampaignSchema, insertCampaignStepSchema, insertOutboundMessageSchema, insertNoteSchema, insertEmailLogSchema, insertCallLogSchema, insertStageAutomationRuleSchema, insertFollowUpSequenceSchema, insertSequenceStepSchema, insertSequenceEnrollmentSchema, insertMerchantApplicationSchema, insertEquipmentOrderSchema, insertAgentSchema, insertResidualReportSchema, insertMerchantResidualSchema, insertHealthAlertSchema, insertDealCompetitorSchema, insertPartnerSchema, insertReferralSchema, insertKnowledgeBaseSchema, insertReviewRequestSchema, insertOnboardingStepSchema, insertMerchantProfileSchema, insertConsentAuditLogSchema, insertCalendarEventSchema, insertAgentQuotaSchema, insertDataDeleteRequestSchema, insertCommentSchema, insertTicketCommentSchema, insertContactCompanySchema, insertPipelineStageSchema, insertNotificationPreferenceSchema, insertSavedFilterSchema } from "@shared/schema";
 import { isGhlConfigured, getGhlStatus, checkGhlHealth, sendGhlEmail, sendGhlEmailForMerchant, sendGhlSms, sendTemplatedMessage, upsertGhlContact, handleGhlWebhook, getCalendarBookingUrl, sendDocumentForEsign, getDocumentStatus } from "./services/ghl";
 import { enrichProspect, runEnrichmentJob, processEnrichmentQueue, enrichContactBatch, isContactEnrichRunning } from "./services/enrichment";
@@ -6028,7 +6029,184 @@ Respond in this exact JSON format:
     });
   });
 
-  app.get("/sitemap.xml", (_req, res) => {
+  app.get("/api/blog/generated", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+    const status = req.query.status as string | undefined;
+    const posts = await storage.getGeneratedBlogPosts(status);
+    res.json(posts);
+  });
+
+  app.get("/api/blog/generated/published", async (_req, res) => {
+    const posts = await storage.getGeneratedBlogPosts("published");
+    res.json(posts);
+  });
+
+  app.post("/api/blog/generate", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+    try {
+      const { keywords, category, autoSchedule } = req.body;
+      if (!keywords || !Array.isArray(keywords) || keywords.length === 0 || keywords.length > 10) {
+        return res.status(400).json({ error: "Keywords array required (1-10 items)" });
+      }
+      const validCategories = ["Education", "Cost Savings", "Industry", "Programs", "Getting Started", "Technology", "Compliance", "Security"];
+      const validCategory = validCategories.includes(category) ? category : "Education";
+
+      const { OpenAI } = await import("openai");
+      const openai = new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
+
+      const prompt = `Generate an SEO-optimized blog post for a payment processing company called Liberty Bancard. The post should target these keywords: ${keywords.map((k: string) => k.slice(0, 100)).join(", ")}. Category: ${validCategory}.
+
+The company provides transparent, interchange-plus payment processing for small businesses. They offer free statement reviews, wholesale pricing, next-day funding, and cash discount programs.
+
+Return a JSON object with this exact structure:
+{
+  "slug": "url-friendly-slug-from-title",
+  "title": "SEO-Optimized Title (50-60 chars ideal)",
+  "excerpt": "Compelling 1-2 sentence summary for blog listing page",
+  "category": "${validCategory}",
+  "author": "Liberty Bancard Team",
+  "readTime": "X min read",
+  "publishDate": "${new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}",
+  "publishedISO": "${new Date().toISOString()}",
+  "modifiedISO": "${new Date().toISOString()}",
+  "keywords": "comma, separated, target, keywords",
+  "metaDescription": "Meta description under 160 characters",
+  "content": [
+    { "type": "paragraph", "text": "Opening paragraph..." },
+    { "type": "heading", "level": 2, "text": "Section Title" },
+    { "type": "paragraph", "text": "Section content..." },
+    { "type": "list", "items": ["Point 1", "Point 2", "Point 3"] },
+    { "type": "cta", "text": "CTA message", "ctaText": "Button Text", "ctaHref": "/upload-statement" }
+  ],
+  "faqs": [
+    { "question": "Relevant FAQ question?", "answer": "Detailed answer..." },
+    { "question": "Another FAQ?", "answer": "Answer..." },
+    { "question": "Third FAQ?", "answer": "Answer..." }
+  ]
+}
+
+Guidelines:
+- Write 1000-1500 words of substantive, expert content
+- Include 4-6 H2 headings
+- Include at least one bulleted list
+- End with a CTA pointing to /upload-statement
+- Include 3-5 FAQ entries relevant to the article topic
+- Be factual, specific, and avoid making unsubstantiated claims
+- Use industry-specific data and examples
+- Include disclaimers where appropriate
+- Do NOT use markdown formatting in text fields
+- Return ONLY valid JSON, no markdown code fences`;
+
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.7,
+        response_format: { type: "json_object" },
+      });
+
+      const content = completion.choices[0]?.message?.content;
+      if (!content) {
+        return res.status(500).json({ error: "No response from AI" });
+      }
+
+      const postData = JSON.parse(content);
+
+      if (!postData.slug || typeof postData.slug !== 'string' || !postData.title || typeof postData.title !== 'string' || !postData.content || !Array.isArray(postData.content) || postData.content.length === 0) {
+        return res.status(500).json({ error: "AI returned invalid blog post structure" });
+      }
+
+      const slugRegex = /^[a-z0-9-]+$/;
+      if (!slugRegex.test(postData.slug) || postData.slug.length > 200) {
+        postData.slug = postData.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 200);
+      }
+
+      for (const section of postData.content) {
+        if (!section || typeof section !== 'object' || !['paragraph', 'heading', 'list', 'cta', 'quote'].includes(section.type)) {
+          return res.status(500).json({ error: "AI returned invalid content section" });
+        }
+        if (section.ctaHref && typeof section.ctaHref === 'string' && !section.ctaHref.startsWith('/')) {
+          section.ctaHref = '/upload-statement';
+        }
+      }
+
+      if (postData.faqs && Array.isArray(postData.faqs)) {
+        postData.faqs = postData.faqs.filter((f: { question?: unknown; answer?: unknown }) => f && typeof f.question === 'string' && typeof f.answer === 'string').slice(0, 10);
+      } else {
+        postData.faqs = null;
+      }
+
+      let scheduledAt: Date | undefined;
+      let status = "draft";
+      if (autoSchedule) {
+        const scheduled = await storage.getScheduledBlogPosts();
+        const lastScheduled = scheduled.length > 0 ? new Date(scheduled[scheduled.length - 1].scheduledAt!) : new Date();
+        const nextDate = new Date(lastScheduled);
+        nextDate.setDate(nextDate.getDate() + (Math.random() < 0.5 ? 3 : 4));
+        nextDate.setHours(9, 0, 0, 0);
+        scheduledAt = nextDate;
+        status = "scheduled";
+      }
+
+      const saved = await storage.createGeneratedBlogPost({
+        slug: postData.slug,
+        title: postData.title,
+        excerpt: postData.excerpt || "",
+        category: postData.category || validCategory,
+        author: postData.author || "Liberty Bancard Team",
+        readTime: postData.readTime || "5 min read",
+        publishDate: postData.publishDate || new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }),
+        publishedISO: postData.publishedISO || new Date().toISOString(),
+        modifiedISO: postData.modifiedISO || new Date().toISOString(),
+        keywords: postData.keywords || keywords.join(", "),
+        metaDescription: postData.metaDescription || postData.excerpt || "",
+        content: postData.content,
+        faqs: postData.faqs || null,
+        status,
+        scheduledAt: scheduledAt || null,
+        createdBy: (req.user as any)?.id || null,
+      });
+
+      res.json(saved);
+    } catch (err: any) {
+      console.error("Blog generation error:", err);
+      res.status(500).json({ error: err.message || "Blog generation failed" });
+    }
+  });
+
+  app.patch("/api/blog/generated/:id/publish", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "Invalid post ID" });
+    const post = await storage.publishBlogPost(id);
+    if (!post) return res.status(404).json({ error: "Post not found" });
+    res.json(post);
+  });
+
+  app.patch("/api/blog/generated/:id/schedule", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "Invalid post ID" });
+    const { scheduledAt } = req.body;
+    if (!scheduledAt || typeof scheduledAt !== 'string') return res.status(400).json({ error: "scheduledAt ISO string required" });
+    const date = new Date(scheduledAt);
+    if (isNaN(date.getTime()) || date <= new Date()) return res.status(400).json({ error: "scheduledAt must be a valid future date" });
+    const post = await storage.updateGeneratedBlogPost(id, {
+      status: "scheduled",
+      scheduledAt: date,
+    });
+    if (!post) return res.status(404).json({ error: "Post not found" });
+    res.json(post);
+  });
+
+  app.delete("/api/blog/generated/:id", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "Invalid post ID" });
+    await storage.deleteGeneratedBlogPost(id);
+    res.json({ success: true });
+  });
+
+  app.get("/sitemap.xml", async (_req, res) => {
     const baseUrl = "https://libertybancard.com";
     const today = new Date().toISOString().split("T")[0];
 
@@ -6054,14 +6232,7 @@ Respond in this exact JSON format:
       { url: "/compare/clover", priority: "0.8", changefreq: "monthly" },
       { url: "/compare/toast", priority: "0.8", changefreq: "monthly" },
       { url: "/compare/paypal", priority: "0.8", changefreq: "monthly" },
-      { url: "/industries/restaurant-payment-processing", priority: "0.8", changefreq: "monthly" },
-      { url: "/industries/retail-payment-processing", priority: "0.8", changefreq: "monthly" },
-      { url: "/industries/healthcare-payment-processing", priority: "0.8", changefreq: "monthly" },
-      { url: "/industries/salon-spa-payment-processing", priority: "0.8", changefreq: "monthly" },
-      { url: "/industries/auto-repair-payment-processing", priority: "0.8", changefreq: "monthly" },
-      { url: "/industries/professional-services-payment-processing", priority: "0.8", changefreq: "monthly" },
-      { url: "/industries/ecommerce-payment-processing", priority: "0.8", changefreq: "monthly" },
-      { url: "/industries/construction-payment-processing", priority: "0.8", changefreq: "monthly" },
+      ...INDUSTRY_SLUGS.map(slug => ({ url: `/industries/${slug}`, priority: "0.8", changefreq: "monthly" })),
       { url: "/privacy-policy", priority: "0.3", changefreq: "yearly" },
       { url: "/terms", priority: "0.3", changefreq: "yearly" },
       { url: "/cookie-policy", priority: "0.3", changefreq: "yearly" },
@@ -6086,58 +6257,14 @@ Respond in this exact JSON format:
       { url: "/ada-compliance", priority: "0.3", changefreq: "yearly" },
     ];
 
-    const blogSlugs = [
-      "how-to-read-credit-card-processing-statement",
-      "cash-discount-vs-surcharging",
-      "hidden-fees-payment-processing-guide",
-      "how-to-switch-payment-processors",
-      "best-payment-processing-restaurants-2025",
-      "interchange-plus-vs-flat-rate",
-      "pci-compliance-checklist-small-business",
-      "how-much-does-credit-card-processing-cost",
-      "what-is-interchange-plus-pricing",
-      "emv-chip-cards-explained",
-      "contactless-payments-nfc-apple-pay-google-pay",
-      "understanding-chargebacks-prevention-response-recovery",
-      "ach-vs-credit-card-processing",
-      "what-is-a-payment-gateway-how-it-works",
-      "level-2-level-3-processing-b2b-savings",
-      "keyed-vs-swiped-transactions-entry-method-matters",
-      "payment-processing-ecommerce-complete-guide",
-      "mobile-payment-solutions-field-service",
-      "accept-payments-trade-shows-pop-up-events",
-      "restaurant-payment-processing-tips-pos-savings",
-      "healthcare-payment-processing-hipaa-compliance",
-      "salon-spa-payment-solutions-booking-tips-recurring",
-      "auto-repair-shop-payment-processing-invoicing",
-      "construction-industry-payments-progress-billing",
-      "pci-dss-4-what-changed-merchants",
-      "how-to-prevent-credit-card-fraud-business",
-      "tokenization-vs-encryption-payment-data",
-      "tcpa-compliance-merchant-services-text-call-rules",
-      "ada-website-compliance-payment-pages",
-      "surcharging-laws-by-state",
-      "data-breach-response-plan-small-business",
-      "understanding-pci-self-assessment-questionnaire-saq",
-      "how-to-negotiate-lower-credit-card-processing-rates",
-      "dual-pricing-vs-cash-discount-which-program-is-right",
-      "true-cost-of-free-payment-processing-offers",
-      "when-to-switch-payment-processors-warning-signs",
-      "processing-volume-tiers-how-higher-volume-gets-better-rates",
-      "same-day-vs-next-day-funding-settlement-speed-explained",
-      "merchant-account-reserves-what-they-are-how-to-avoid",
-      "annual-fee-pci-fee-statement-fee-breaking-down-monthly-charges",
-      "pos-system-buying-guide-2025",
-      "virtual-terminal-vs-payment-gateway",
-      "recurring-billing-subscription-payment-processing",
-      "payment-processing-for-nonprofits",
-      "multi-location-payment-processing",
-      "international-payment-processing",
-      "payment-processing-trends-2025",
-      "how-to-read-effective-rate",
-      "integrated-vs-non-integrated-payments",
-      "buy-now-pay-later-for-merchants-bnpl",
-    ];
+    const blogSlugs = STATIC_BLOG_SLUGS;
+
+    const locationPages: string[] = [];
+    for (const city of LOCATION_CITIES) {
+      for (const vertical of LOCATION_VERTICALS) {
+        locationPages.push(`/locations/${city}/${vertical}`);
+      }
+    }
 
     let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
     xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
@@ -6154,6 +6281,28 @@ Respond in this exact JSON format:
     for (const slug of blogSlugs) {
       xml += `  <url>\n`;
       xml += `    <loc>${baseUrl}/blog/${slug}</loc>\n`;
+      xml += `    <lastmod>${today}</lastmod>\n`;
+      xml += `    <changefreq>monthly</changefreq>\n`;
+      xml += `    <priority>0.7</priority>\n`;
+      xml += `  </url>\n`;
+    }
+
+    const publishedDbPosts = await storage.getGeneratedBlogPosts("published");
+    const staticSlugSet = new Set(blogSlugs);
+    for (const dbPost of publishedDbPosts) {
+      if (!staticSlugSet.has(dbPost.slug)) {
+        xml += `  <url>\n`;
+        xml += `    <loc>${baseUrl}/blog/${dbPost.slug}</loc>\n`;
+        xml += `    <lastmod>${dbPost.publishedAt ? dbPost.publishedAt.toISOString().split("T")[0] : today}</lastmod>\n`;
+        xml += `    <changefreq>monthly</changefreq>\n`;
+        xml += `    <priority>0.7</priority>\n`;
+        xml += `  </url>\n`;
+      }
+    }
+
+    for (const locPage of locationPages) {
+      xml += `  <url>\n`;
+      xml += `    <loc>${baseUrl}${locPage}</loc>\n`;
       xml += `    <lastmod>${today}</lastmod>\n`;
       xml += `    <changefreq>monthly</changefreq>\n`;
       xml += `    <priority>0.7</priority>\n`;
@@ -7406,6 +7555,21 @@ Respond in this exact JSON format:
       res.status(500).json({ message: err.message || "Import failed" });
     }
   });
+
+  setInterval(async () => {
+    try {
+      const scheduled = await storage.getScheduledBlogPosts();
+      const now = new Date();
+      for (const post of scheduled) {
+        if (post.scheduledAt && new Date(post.scheduledAt) <= now) {
+          await storage.publishBlogPost(post.id);
+          console.log(`[Blog Scheduler] Auto-published: ${post.slug}`);
+        }
+      }
+    } catch (err) {
+      console.error("[Blog Scheduler] Error:", err);
+    }
+  }, 60 * 60 * 1000);
 
   return httpServer;
 }

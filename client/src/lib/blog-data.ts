@@ -11,6 +11,7 @@ export interface BlogPost {
   keywords: string;
   metaDescription: string;
   content: BlogSection[];
+  faqs?: { question: string; answer: string }[];
 }
 
 export interface BlogSection {

@@ -48,6 +48,7 @@ import {
   HelpCircle,
   UserCog,
   Calendar,
+  Pencil,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -131,6 +132,7 @@ const merchantItems: MenuItem[] = [
 
 const adminItems: MenuItem[] = [
   { icon: UserCog, label: "User Management", href: "/dashboard/user-management", roles: ["admin"] },
+  { icon: Pencil, label: "Blog Generator", href: "/dashboard/blog-generator", roles: ["admin"] },
 ];
 
 const formItems: MenuItem[] = [

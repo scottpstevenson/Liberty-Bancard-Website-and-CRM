@@ -101,6 +101,7 @@ import Calendar from "@/pages/dashboard/Calendar";
 import Forecasting from "@/pages/dashboard/Forecasting";
 import PciAssessment from "@/pages/dashboard/PciAssessment";
 import DataRequests from "@/pages/dashboard/DataRequests";
+import BlogGenerator from "@/pages/dashboard/BlogGenerator";
 import DataRetention from "@/pages/DataRetention";
 import TCPAConsent from "@/pages/TCPAConsent";
 import RefundPolicy from "@/pages/RefundPolicy";
@@ -111,6 +112,7 @@ import RateComparison from "@/pages/RateComparison";
 import Blog from "@/pages/Blog";
 import BlogPost from "@/pages/BlogPost";
 import IndustryPage from "@/pages/IndustryPage";
+import LocationIndustryPage from "@/pages/LocationIndustryPage";
 import HelpCenter from "@/pages/HelpCenter";
 import Equipment from "@/pages/Equipment";
 import TerminalShop from "@/pages/TerminalShop";
@@ -214,6 +216,9 @@ function Router() {
 
       {/* Industry Pages */}
       <Route path="/industries/:slug" component={IndustryPage} />
+
+      {/* Location × Industry Pages */}
+      <Route path="/locations/:city/:industry" component={LocationIndustryPage} />
 
       {/* Asset Library & Packet Routes */}
       <Route path="/assets/:a/:b" component={AssetPage} />
@@ -364,6 +369,9 @@ function Router() {
       </Route>
       <Route path="/dashboard/data-requests">
         <ProtectedRoute component={DataRequests} />
+      </Route>
+      <Route path="/dashboard/blog-generator">
+        <ProtectedRoute component={BlogGenerator} />
       </Route>
 
       <Route component={NotFound} />

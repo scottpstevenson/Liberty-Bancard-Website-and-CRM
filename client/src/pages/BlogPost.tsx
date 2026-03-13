@@ -6,8 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, ArrowRight, Clock, User, Calendar, Upload } from "lucide-react";
-import { allBlogPosts } from "@/lib/all-blog-data";
+import { allBlogPosts, type BlogPost as BlogPostType, type GeneratedBlogPostResponse, dbPostToBlogPost } from "@/lib/all-blog-data";
+import { getFAQSchema } from "@/components/SEO";
 import type { BlogSection } from "@/lib/all-blog-data";
+import { useQuery } from "@tanstack/react-query";
 
 function renderSection(section: BlogSection, index: number) {
   switch (section.type) {
@@ -84,9 +86,54 @@ function renderSection(section: BlogSection, index: number) {
   }
 }
 
+function generateFaqsFromContent(content: BlogSection[]): { question: string; answer: string }[] {
+  const faqs: { question: string; answer: string }[] = [];
+  for (let i = 0; i < content.length; i++) {
+    const section = content[i];
+    if (section.type === "heading" && section.text) {
+      const nextSection = content[i + 1];
+      if (nextSection && (nextSection.type === "paragraph" || nextSection.type === "list") && (nextSection.text || nextSection.items)) {
+        const question = section.text.endsWith("?") ? section.text : `What about ${section.text.toLowerCase()}?`;
+        const answer = nextSection.type === "paragraph" ? (nextSection.text || "") : (nextSection.items || []).join(". ");
+        if (answer.length > 20) {
+          faqs.push({ question, answer: answer.slice(0, 500) });
+        }
+      }
+    }
+    if (faqs.length >= 5) break;
+  }
+  return faqs;
+}
+
 export default function BlogPost() {
   const params = useParams<{ slug: string }>();
-  const post = allBlogPosts.find((p) => p.slug === params.slug);
+  const staticPost = allBlogPosts.find((p) => p.slug === params.slug);
+
+  const { data: dbPost, isLoading } = useQuery<GeneratedBlogPostResponse[], Error, BlogPostType | null>({
+    queryKey: ["/api/blog/generated/published"],
+    enabled: !staticPost,
+    select: (data: GeneratedBlogPostResponse[]) => {
+      const found = data?.find((p) => p.slug === params.slug);
+      if (!found) return null;
+      return dbPostToBlogPost(found);
+    },
+  });
+
+  const post = staticPost || dbPost;
+
+  if (!post && isLoading) {
+    return (
+      <div className="min-h-screen flex flex-col font-body">
+        <Navbar />
+        <main className="flex-grow pt-28 flex items-center justify-center">
+          <div className="text-center p-8">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto" />
+          </div>
+        </main>
+        <Footer />
+      </div>
+    );
+  }
 
   if (!post) {
     return (
@@ -180,6 +227,7 @@ export default function BlogPost() {
               },
             ],
           },
+          getFAQSchema(post.faqs && post.faqs.length > 0 ? post.faqs : generateFaqsFromContent(post.content)),
         ]}
       />
       <Navbar />

@@ -1899,3 +1899,33 @@ export const insertCsvImportSchema = createInsertSchema(csvImports).omit({
 
 export type CsvImport = typeof csvImports.$inferSelect;
 export type InsertCsvImport = z.infer<typeof insertCsvImportSchema>;
+
+export const generatedBlogPosts = pgTable("generated_blog_posts", {
+  id: serial("id").primaryKey(),
+  slug: text("slug").notNull().unique(),
+  title: text("title").notNull(),
+  excerpt: text("excerpt").notNull(),
+  category: text("category").notNull(),
+  author: text("author").notNull().default("Liberty Bancard Team"),
+  readTime: text("read_time").notNull(),
+  publishDate: text("publish_date").notNull(),
+  publishedISO: text("published_iso").notNull(),
+  modifiedISO: text("modified_iso").notNull(),
+  keywords: text("keywords").notNull(),
+  metaDescription: text("meta_description").notNull(),
+  content: jsonb("content").notNull(),
+  faqs: jsonb("faqs"),
+  status: text("status").notNull().default("draft"),
+  scheduledAt: timestamp("scheduled_at"),
+  publishedAt: timestamp("published_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  createdBy: integer("created_by"),
+});
+
+export const insertGeneratedBlogPostSchema = createInsertSchema(generatedBlogPosts).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type GeneratedBlogPost = typeof generatedBlogPosts.$inferSelect;
+export type InsertGeneratedBlogPost = z.infer<typeof insertGeneratedBlogPostSchema>;
