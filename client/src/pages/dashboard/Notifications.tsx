@@ -7,7 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
-import { CheckCheck, AlertTriangle, Info, AlertCircle, Settings, Trash2 } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { CheckCheck, AlertTriangle, Info, AlertCircle, Settings, Trash2, Mail, Bell, Calendar } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { Notification, NotificationPreference } from "@shared/schema";
 import { NOTIFICATION_EVENT_TYPES } from "@shared/schema";
@@ -41,6 +42,27 @@ function formatEventType(eventType: string): string {
     .split("_")
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ");
+}
+
+function getEventDescription(eventType: string): string {
+  const descriptions: Record<string, string> = {
+    deal_created: "When a new deal is created",
+    deal_stage_changed: "When a deal moves to a new stage",
+    deal_closed_won: "When a deal is closed as won",
+    ticket_created: "When a support ticket is opened",
+    ticket_updated: "When a ticket status changes",
+    task_assigned: "When a task is assigned to someone",
+    task_due_soon: "When a task deadline is approaching",
+    sla_breach: "When an SLA deadline is missed",
+    contact_created: "When a new contact is added",
+    hot_lead: "When a high-score lead is detected",
+    sequence_completed: "When a follow-up sequence finishes",
+    mention: "When you are mentioned",
+    comment_reply: "When someone replies to your comment",
+    daily_digest: "Daily summary of activity",
+    weekly_digest: "Weekly KPI report",
+  };
+  return descriptions[eventType] || "";
 }
 
 export default function Notifications() {
@@ -99,9 +121,9 @@ export default function Notifications() {
     },
   });
 
-  const togglePrefMutation = useMutation({
-    mutationFn: async ({ eventType, enabled }: { eventType: string; enabled: boolean }) => {
-      await apiRequest("PUT", "/api/notification-preferences", { eventType, enabled });
+  const updatePrefMutation = useMutation({
+    mutationFn: async (params: { eventType: string; enabled?: boolean; emailEnabled?: boolean; digestDaily?: boolean; digestWeekly?: boolean }) => {
+      await apiRequest("PUT", "/api/notification-preferences", params);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/notification-preferences"] });
@@ -119,10 +141,22 @@ export default function Notifications() {
     return n.type === filterType;
   }) || [];
 
-  function isPrefEnabled(eventType: string): boolean {
+  function getPref(eventType: string): { enabled: boolean; emailEnabled: boolean; digestDaily: boolean; digestWeekly: boolean } {
     const pref = preferences?.find((p) => p.eventType === eventType);
-    return pref ? !!pref.enabled : true;
+    return {
+      enabled: pref ? !!pref.enabled : true,
+      emailEnabled: pref ? !!pref.emailEnabled : false,
+      digestDaily: pref ? !!pref.digestDaily : true,
+      digestWeekly: pref ? !!pref.digestWeekly : true,
+    };
   }
+
+  const eventNotificationTypes = NOTIFICATION_EVENT_TYPES.filter(
+    (t) => t !== "daily_digest" && t !== "weekly_digest"
+  );
+  const digestTypes = NOTIFICATION_EVENT_TYPES.filter(
+    (t) => t === "daily_digest" || t === "weekly_digest"
+  );
 
   if (isLoading) {
     return (
@@ -189,35 +223,116 @@ export default function Notifications() {
                 <Settings className="w-4 h-4" />
               </Button>
             </DialogTrigger>
-            <DialogContent data-testid="dialog-notification-preferences">
+            <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto" data-testid="dialog-notification-preferences">
               <DialogHeader>
                 <DialogTitle data-testid="text-preferences-title">Notification Preferences</DialogTitle>
               </DialogHeader>
-              <div className="space-y-4 py-2">
-                {prefsLoading ? (
-                  <div className="text-muted-foreground text-sm">Loading preferences...</div>
-                ) : (
-                  NOTIFICATION_EVENT_TYPES.map((eventType) => (
-                    <div
-                      key={eventType}
-                      className="flex items-center justify-between gap-4"
-                      data-testid={`pref-row-${eventType}`}
-                    >
-                      <span className="text-sm" data-testid={`text-pref-label-${eventType}`}>
-                        {formatEventType(eventType)}
-                      </span>
-                      <Switch
-                        checked={isPrefEnabled(eventType)}
-                        onCheckedChange={(checked) =>
-                          togglePrefMutation.mutate({ eventType, enabled: checked })
-                        }
-                        disabled={togglePrefMutation.isPending}
-                        data-testid={`switch-pref-${eventType}`}
-                      />
-                    </div>
-                  ))
-                )}
-              </div>
+              <Tabs defaultValue="events" className="w-full">
+                <TabsList className="w-full" data-testid="tabs-preferences">
+                  <TabsTrigger value="events" className="flex-1 gap-1" data-testid="tab-events">
+                    <Bell className="w-3 h-3" />
+                    Events
+                  </TabsTrigger>
+                  <TabsTrigger value="digests" className="flex-1 gap-1" data-testid="tab-digests">
+                    <Calendar className="w-3 h-3" />
+                    Digests
+                  </TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="events" className="space-y-1 mt-4" data-testid="tab-content-events">
+                  <div className="grid grid-cols-[1fr_auto_auto] gap-x-4 gap-y-1 items-center mb-2">
+                    <span className="text-xs font-medium text-muted-foreground">Event</span>
+                    <span className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                      <Bell className="w-3 h-3" /> In-App
+                    </span>
+                    <span className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                      <Mail className="w-3 h-3" /> Email
+                    </span>
+                  </div>
+                  {prefsLoading ? (
+                    <div className="text-muted-foreground text-sm py-4">Loading preferences...</div>
+                  ) : (
+                    eventNotificationTypes.map((eventType) => {
+                      const pref = getPref(eventType);
+                      return (
+                        <div
+                          key={eventType}
+                          className="grid grid-cols-[1fr_auto_auto] gap-x-4 gap-y-1 items-center py-2 border-b border-border/50"
+                          data-testid={`pref-row-${eventType}`}
+                        >
+                          <div>
+                            <span className="text-sm font-medium" data-testid={`text-pref-label-${eventType}`}>
+                              {formatEventType(eventType)}
+                            </span>
+                            <p className="text-xs text-muted-foreground">
+                              {getEventDescription(eventType)}
+                            </p>
+                          </div>
+                          <Switch
+                            checked={pref.enabled}
+                            onCheckedChange={(checked) =>
+                              updatePrefMutation.mutate({ eventType, enabled: checked })
+                            }
+                            disabled={updatePrefMutation.isPending}
+                            data-testid={`switch-pref-${eventType}`}
+                          />
+                          <Switch
+                            checked={pref.emailEnabled}
+                            onCheckedChange={(checked) =>
+                              updatePrefMutation.mutate({ eventType, emailEnabled: checked })
+                            }
+                            disabled={updatePrefMutation.isPending}
+                            data-testid={`switch-email-${eventType}`}
+                          />
+                        </div>
+                      );
+                    })
+                  )}
+                </TabsContent>
+
+                <TabsContent value="digests" className="space-y-4 mt-4" data-testid="tab-content-digests">
+                  <p className="text-sm text-muted-foreground">
+                    Control which automated digest emails you receive.
+                  </p>
+                  {digestTypes.map((eventType) => {
+                    const pref = getPref(eventType);
+                    const isDaily = eventType === "daily_digest";
+                    return (
+                      <Card key={eventType} data-testid={`pref-row-${eventType}`}>
+                        <CardContent className="p-4">
+                          <div className="flex items-center justify-between gap-4">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <Calendar className="w-4 h-4 text-muted-foreground" />
+                                <span className="font-medium text-sm" data-testid={`text-pref-label-${eventType}`}>
+                                  {isDaily ? "Daily Activity Digest" : "Weekly KPI Digest"}
+                                </span>
+                              </div>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                {isDaily
+                                  ? "New leads, deals progressed, tasks overdue, tickets. Sent at 8 AM EST."
+                                  : "Pipeline value, win rate, revenue, rep leaderboard. Sent Monday 9 AM EST."}
+                              </p>
+                            </div>
+                            <Switch
+                              checked={isDaily ? pref.digestDaily : pref.digestWeekly}
+                              onCheckedChange={(checked) =>
+                                updatePrefMutation.mutate(
+                                  isDaily
+                                    ? { eventType, digestDaily: checked }
+                                    : { eventType, digestWeekly: checked }
+                                )
+                              }
+                              disabled={updatePrefMutation.isPending}
+                              data-testid={`switch-digest-${eventType}`}
+                            />
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </TabsContent>
+              </Tabs>
             </DialogContent>
           </Dialog>
         </div>

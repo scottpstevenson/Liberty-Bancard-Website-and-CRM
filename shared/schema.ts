@@ -1824,6 +1824,9 @@ export const notificationPreferences = pgTable("notification_preferences", {
   userId: text("user_id").notNull(),
   eventType: text("event_type").notNull(),
   enabled: boolean("enabled").default(true),
+  emailEnabled: boolean("email_enabled").default(false),
+  digestDaily: boolean("digest_daily").default(true),
+  digestWeekly: boolean("digest_weekly").default(true),
 });
 
 export const insertNotificationPreferenceSchema = createInsertSchema(notificationPreferences).omit({
@@ -1854,14 +1857,19 @@ export type InsertSavedFilter = z.infer<typeof insertSavedFilterSchema>;
 export const NOTIFICATION_EVENT_TYPES = [
   "deal_created",
   "deal_stage_changed",
+  "deal_closed_won",
   "ticket_created",
   "ticket_updated",
   "task_assigned",
   "task_due_soon",
   "sla_breach",
   "contact_created",
+  "hot_lead",
+  "sequence_completed",
   "mention",
   "comment_reply",
+  "daily_digest",
+  "weekly_digest",
 ] as const;
 
 export const CONTACT_COMPANY_ROLES = [

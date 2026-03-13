@@ -1,6 +1,6 @@
 import { db, pool } from "./db";
 import {
-  contacts, companies, deals, tickets, tasks, documents, auditLogs, notifications, workflowRuns, workflows, rfis,
+  contacts, companies, deals, tickets, tasks, documents, auditLogs, notifications, workflowRuns, workflows, rfis, users,
   messageTemplates, collateralPackets, ghlActivityLog, slaConfigs,
   prospects, prospectLists, enrichmentJobs, campaigns, campaignSteps, outboundMessages, notes,
   emailLogs, callLogs, stageAutomationRules, followUpSequences, sequenceSteps, sequenceEnrollments,
@@ -355,6 +355,8 @@ export interface IStorage {
 
   getNotificationPreferences(userId: string): Promise<NotificationPreference[]>;
   upsertNotificationPreference(pref: InsertNotificationPreference): Promise<NotificationPreference>;
+  getUsersByRole(roles: string[]): Promise<{ id: string; email: string | null; role: string | null; firstName: string | null; lastName: string | null }[]>;
+  getAllNotificationPreferencesByEvent(eventType: string): Promise<NotificationPreference[]>;
 
   getSavedFilters(userId: string, entityType?: string): Promise<SavedFilter[]>;
   createSavedFilter(filter: InsertSavedFilter): Promise<SavedFilter>;
@@ -1894,11 +1896,24 @@ export class DatabaseStorage implements IStorage {
   async upsertNotificationPreference(pref: InsertNotificationPreference): Promise<NotificationPreference> {
     const existing = await db.select().from(notificationPreferences).where(and(eq(notificationPreferences.userId, pref.userId), eq(notificationPreferences.eventType, pref.eventType)));
     if (existing.length > 0) {
-      const [updated] = await db.update(notificationPreferences).set({ enabled: pref.enabled }).where(eq(notificationPreferences.id, existing[0].id)).returning();
+      const updates: Partial<Pick<InsertNotificationPreference, "enabled" | "emailEnabled" | "digestDaily" | "digestWeekly">> = {};
+      if (typeof pref.enabled === "boolean") updates.enabled = pref.enabled;
+      if (typeof pref.emailEnabled === "boolean") updates.emailEnabled = pref.emailEnabled;
+      if (typeof pref.digestDaily === "boolean") updates.digestDaily = pref.digestDaily;
+      if (typeof pref.digestWeekly === "boolean") updates.digestWeekly = pref.digestWeekly;
+      const [updated] = await db.update(notificationPreferences).set(updates).where(eq(notificationPreferences.id, existing[0].id)).returning();
       return updated;
     }
     const [created] = await db.insert(notificationPreferences).values(pref).returning();
     return created;
+  }
+
+  async getUsersByRole(roles: string[]): Promise<{ id: string; email: string | null; role: string | null; firstName: string | null; lastName: string | null }[]> {
+    return db.select({ id: users.id, email: users.email, role: users.role, firstName: users.firstName, lastName: users.lastName }).from(users).where(inArray(users.role, roles));
+  }
+
+  async getAllNotificationPreferencesByEvent(eventType: string): Promise<NotificationPreference[]> {
+    return db.select().from(notificationPreferences).where(eq(notificationPreferences.eventType, eventType));
   }
 
   async getSavedFilters(userId: string, entityType?: string): Promise<SavedFilter[]> {

@@ -1,5 +1,6 @@
 import { storage } from "../storage";
 import type { Contact, Deal } from "@shared/schema";
+import { sendCriticalEmailNotification, createPreferenceAwareNotification } from "./digest-service";
 
 interface ScoreBreakdown {
   revPotential: { score: number; max: 30; factors: Record<string, number> };
@@ -356,6 +357,8 @@ export async function scoreContact(contactId: number): Promise<ScoreBreakdown | 
 
   breakdown.summary = generateSummary(breakdown, contact);
 
+  const previousScore = contact.leadScore || 0;
+
   await storage.updateContact(contactId, {
     leadScore: total,
     revPotentialScore: revPotential.score,
@@ -365,6 +368,21 @@ export async function scoreContact(contactId: number): Promise<ScoreBreakdown | 
     scoreBreakdown: breakdown,
     lastScoredAt: new Date(),
   });
+
+  if (total >= 80 && previousScore < 80) {
+    await createPreferenceAwareNotification({
+      channel: "internal",
+      title: `Hot Lead: ${contact.firstName} ${contact.lastName}`,
+      message: `Lead score crossed 80 (now ${total}). ${contact.companyName || ""} — Immediate follow-up recommended.`,
+      type: "urgent",
+      metadata: { contactId, eventType: "hot_lead", leadScore: total },
+    }, "hot_lead");
+    sendCriticalEmailNotification({
+      eventType: "hot_lead",
+      subject: `Hot Lead Alert: ${contact.firstName} ${contact.lastName} (Score: ${total})`,
+      body: `<h3>Hot Lead Alert</h3><p><strong>${contact.firstName} ${contact.lastName}</strong>${contact.companyName ? ` (${contact.companyName})` : ""} just crossed the hot lead threshold with a score of <strong>${total}</strong>.</p><p>Email: ${contact.email || "N/A"}<br/>Phone: ${contact.phone || "N/A"}</p><p>Take action immediately.</p>`,
+    }).catch((err) => console.error("[LeadScoring] Failed to send hot lead email:", err));
+  }
 
   if (primaryDeal) {
     await storage.updateDeal(primaryDeal.id, {

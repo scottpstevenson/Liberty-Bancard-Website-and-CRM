@@ -5,7 +5,7 @@ import { setupAuth, registerAuthRoutes, isAuthenticated, isAdmin, isAffiliate } 
 import { authStorage } from "./replit_integrations/auth/storage";
 import bcrypt from "bcryptjs";
 import { db, pool } from "./db";
-import { users, contacts, csvImports } from "@shared/schema";
+import { users, contacts, csvImports, type InsertNotificationPreference, type InsertPartner } from "@shared/schema";
 import { eq, desc, ne, and, sql } from "drizzle-orm";
 import { registerAudioRoutes } from "./replit_integrations/audio/routes";
 import { z } from "zod";
@@ -26,6 +26,7 @@ import { reEnrichAllSunbizEntities, promoteQualifiedToContacts, runDailyOutreach
 import { syncContactToGhl, fullSyncToGhl, fullSyncFromGhl, syncDealToGhl, getGhlSyncStatus } from "./services/ghl-sync";
 import { enrichSunbizEntity, processSunbizEnrichmentQueue, convertToProspect, runBulkFastClassification, runBulkAIClassification, runDailyEnrichmentPipeline, isPipelineRunning, deepEnrichEntity, runAutoDeduplication } from "./services/sunbiz-enrichment";
 import { estimateFromDeal, estimateFromContact, estimateFromProspect } from "./services/volume-estimator";
+import { buildDailyDigest, buildWeeklyDigest, sendCriticalEmailNotification, createPreferenceAwareNotification } from "./services/digest-service";
 import { insertSunbizEntitySchema } from "@shared/schema";
 import multer from "multer";
 import { parse } from "csv-parse/sync";
@@ -109,10 +110,14 @@ export async function registerRoutes(
       const input = insertContactSchema.parse(req.body);
       const contact = await storage.createContact(input);
       await storage.createAuditLog({ action: "contact_created", entityType: "contact", entityId: contact.id, details: { name: `${contact.firstName} ${contact.lastName}` } });
+      await createPreferenceAwareNotification({ channel: "internal", title: "New Contact Created", message: `${contact.firstName} ${contact.lastName}${contact.companyName ? ` — ${contact.companyName}` : ""} has been added as a new contact.`, type: "info", metadata: { contactId: contact.id, eventType: "contact_created" } }, "contact_created");
       triggerWorkflowsByEvent("contact_created", { entityType: "contact", entityId: contact.id, contactId: contact.id }).catch(err => console.error("Workflow trigger error:", err));
       scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
       autoEnrollFromTrigger("contact_created", { contactId: contact.id }).catch(err => console.error("Auto-enroll error:", err));
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
+      if (contact.leadScore && contact.leadScore >= 80) {
+        sendCriticalEmailNotification({ eventType: "hot_lead", subject: `Hot Lead Alert: ${contact.firstName} ${contact.lastName}`, body: `<h3>Hot Lead Alert</h3><p><strong>${contact.firstName} ${contact.lastName}</strong>${contact.companyName ? ` (${contact.companyName})` : ""} has a lead score of ${contact.leadScore}.</p><p>Email: ${contact.email || "N/A"}<br/>Phone: ${contact.phone || "N/A"}</p><p>Take action immediately.</p>` }).catch(err => console.error("Hot lead email error:", err));
+      }
       res.status(201).json(contact);
     } catch (err) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
@@ -251,7 +256,13 @@ export async function registerRoutes(
     if (!updated) return res.status(404).json({ message: "Not found" });
     if (old && old.stage !== updated.stage) {
       await storage.createAuditLog({ action: "deal_stage_changed", entityType: "deal", entityId: updated.id, details: { from: old.stage, to: updated.stage } });
-      await storage.createNotification({ channel: "internal", title: "Deal Stage Changed", message: `Deal #${updated.id} moved from "${old.stage}" to "${updated.stage}"`, type: "info" });
+      await createPreferenceAwareNotification({ channel: "internal", title: "Deal Stage Changed", message: `Deal #${updated.id} moved from "${old.stage}" to "${updated.stage}"`, type: "info", metadata: { dealId: updated.id, eventType: "deal_stage_changed" } }, "deal_stage_changed");
+
+      if (updated.stage === "Closed Won") {
+        const closedContact = updated.contactId ? await storage.getContact(updated.contactId) : null;
+        await createPreferenceAwareNotification({ channel: "internal", title: "Deal Closed Won!", message: `Deal #${updated.id}${closedContact ? ` — ${closedContact.firstName} ${closedContact.lastName}` : ""} has been closed won.`, type: "alert", metadata: { dealId: updated.id, eventType: "deal_closed_won" } }, "deal_closed_won");
+        sendCriticalEmailNotification({ eventType: "deal_closed_won", subject: `Closed Won: Deal #${updated.id}${closedContact ? ` — ${closedContact.companyName || closedContact.firstName}` : ""}`, body: `<h3>Deal Closed Won</h3><p>Deal #${updated.id} has moved to <strong>Closed Won</strong>.</p>${closedContact ? `<p>Contact: ${closedContact.firstName} ${closedContact.lastName}${closedContact.companyName ? ` (${closedContact.companyName})` : ""}</p>` : ""}<p>Owner: ${updated.owner || "Unassigned"}</p>`, ownerName: updated.owner }).catch(err => console.error("Closed won email error:", err));
+      }
 
       try {
         const matchingRules = await storage.getMatchingStageRules(updated.pipeline, old.stage, updated.stage);
@@ -413,7 +424,7 @@ export async function registerRoutes(
       const input = insertTicketSchema.parse(req.body);
       const ticket = await storage.createTicket(input);
       await storage.createAuditLog({ action: "ticket_created", entityType: "ticket", entityId: ticket.id, details: { category: ticket.category, priority: ticket.priority } });
-      await storage.createNotification({ channel: "internal", title: `New ${ticket.priority} Support Ticket`, message: `${ticket.subject} - Category: ${ticket.category}`, type: ticket.priority === "Urgent" ? "urgent" : "info" });
+      await createPreferenceAwareNotification({ channel: "internal", title: `New ${ticket.priority} Support Ticket`, message: `${ticket.subject} - Category: ${ticket.category}`, type: ticket.priority === "Urgent" ? "urgent" : "info", metadata: { ticketId: ticket.id, eventType: "ticket_created" } }, "ticket_created");
       triggerWorkflowsByEvent("ticket_created", { entityType: "ticket", entityId: ticket.id }).catch(err => console.error("Workflow trigger error:", err));
       res.status(201).json(ticket);
     } catch (err) {
@@ -434,6 +445,16 @@ export async function registerRoutes(
     const oldTicket = existing.find(t => t.id === ticketId);
     const updated = await storage.updateTicket(ticketId, req.body);
     if (!updated) return res.status(404).json({ message: "Not found" });
+
+    if (oldTicket) {
+      const changes: string[] = [];
+      if (req.body.status && req.body.status !== oldTicket.status) changes.push(`status: ${oldTicket.status} → ${updated.status}`);
+      if (req.body.assignedTo && req.body.assignedTo !== oldTicket.assignedTo) changes.push(`assigned to: ${updated.assignedTo}`);
+      if (req.body.priority && req.body.priority !== oldTicket.priority) changes.push(`priority: ${updated.priority}`);
+      if (changes.length > 0) {
+        await createPreferenceAwareNotification({ channel: "internal", title: "Ticket Updated", message: `Ticket #${ticketId} "${updated.subject}" updated: ${changes.join(", ")}`, type: "info", metadata: { ticketId, eventType: "ticket_updated", changes } }, "ticket_updated");
+      }
+    }
 
     if (oldTicket && req.body.status && req.body.status !== oldTicket.status) {
       let contact: any = null;
@@ -473,6 +494,9 @@ export async function registerRoutes(
     try {
       const input = insertTaskSchema.parse(req.body);
       const task = await storage.createTask(input);
+      if (task.assignedTo) {
+        await createPreferenceAwareNotification({ channel: "internal", title: "Task Assigned", message: `"${task.title}" has been assigned to ${task.assignedTo}.`, type: "info", metadata: { taskId: task.id, eventType: "task_assigned", assignedTo: task.assignedTo } }, "task_assigned");
+      }
       res.status(201).json(task);
     } catch (err) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
@@ -590,8 +614,23 @@ export async function registerRoutes(
 
   // === NOTIFICATIONS ===
   app.get("/api/notifications", async (req, res) => {
-    const notifications = await storage.getNotifications();
-    res.json(notifications);
+    const allNotifications = await storage.getNotifications();
+    const userId = (req.user as any)?.id;
+    if (userId) {
+      const prefs = await storage.getNotificationPreferences(userId);
+      const disabledEvents = prefs
+        .filter((p) => p.enabled === false)
+        .map((p) => p.eventType);
+      if (disabledEvents.length > 0) {
+        const filtered = allNotifications.filter((n) => {
+          const meta = n.metadata as Record<string, unknown> | null;
+          const eventType = meta?.eventType as string | undefined;
+          return !eventType || !disabledEvents.includes(eventType);
+        });
+        return res.json(filtered);
+      }
+    }
+    res.json(allNotifications);
   });
 
   app.put("/api/notifications/:id/read", async (req, res) => {
@@ -3228,99 +3267,22 @@ Notes: ${deal.notes || "None"}`
   });
 
   app.post("/api/analytics/weekly-digest", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
     try {
-      const [allDeals, allContacts, allTickets, allTasks] = await Promise.all([
-        storage.getDeals(),
-        storage.getContacts(),
-        storage.getTickets(),
-        storage.getTasks(),
-      ]);
-
-      const now = new Date();
-      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-
-      const newLeads = allContacts.filter(c => c.createdAt && new Date(c.createdAt) >= sevenDaysAgo).length;
-      const newDeals = allDeals.filter(d => d.createdAt && new Date(d.createdAt) >= sevenDaysAgo).length;
-      const closedWon = allDeals.filter(d => d.stage === "Closed Won" && d.closedAt && new Date(d.closedAt) >= sevenDaysAgo).length;
-      const closedLost = allDeals.filter(d => d.stage === "Closed Lost" && d.closedAt && new Date(d.closedAt) >= sevenDaysAgo).length;
-      const proposalsSent = allDeals.filter(d => d.stage === "Proposal Sent" && d.updatedAt && new Date(d.updatedAt) >= sevenDaysAgo).length;
-      const newTickets = allTickets.filter(t => t.createdAt && new Date(t.createdAt) >= sevenDaysAgo).length;
-      const resolvedTickets = allTickets.filter(t => t.resolvedAt && new Date(t.resolvedAt) >= sevenDaysAgo).length;
-      const overdueTaskCount = allTasks.filter(t => t.status !== "completed" && t.dueDate && new Date(t.dueDate) < now).length;
-
-      const parseCurrency = (v: string | null | undefined): number => {
-        if (!v) return 0;
-        const n = parseFloat(v.replace(/[^0-9.\-]/g, ""));
-        return isNaN(n) ? 0 : n;
-      };
-      const wonDeals = allDeals.filter(d => d.stage === "Closed Won" && d.closedAt && new Date(d.closedAt) >= sevenDaysAgo);
-      const weeklyRevenue = wonDeals.reduce((s, d) => s + parseCurrency(d.estimatedGrossProfitMonthly), 0);
-
-      const conversionRate = (newDeals > 0) ? Math.round((closedWon / newDeals) * 100) : 0;
-
-      const sourceBreakdown: Record<string, number> = {};
-      allContacts
-        .filter(c => c.createdAt && new Date(c.createdAt) >= sevenDaysAgo)
-        .forEach(c => {
-          const src = c.utmSource || c.leadSource || "direct";
-          sourceBreakdown[src] = (sourceBreakdown[src] || 0) + 1;
-        });
-
-      const digest = {
-        period: `${sevenDaysAgo.toLocaleDateString()} - ${now.toLocaleDateString()}`,
-        newLeads,
-        newDeals,
-        proposalsSent,
-        closedWon,
-        closedLost,
-        conversionRate,
-        weeklyRevenue: Math.round(weeklyRevenue),
-        newTickets,
-        resolvedTickets,
-        overdueTaskCount,
-        sourceBreakdown,
-      };
-
-      const adminEmail = req.body?.email || process.env.ADMIN_DIGEST_EMAIL;
+      const { html, summary } = await buildWeeklyDigest();
+      const adminEmail = process.env.ADMIN_DIGEST_EMAIL;
       if (adminEmail && isGhlConfigured()) {
-        const emailBody = `
-<h2>Liberty Bancard — Weekly KPI Digest</h2>
-<p><strong>Period:</strong> ${digest.period}</p>
-<hr>
-<h3>Pipeline</h3>
-<ul>
-  <li>New Leads: <strong>${digest.newLeads}</strong></li>
-  <li>New Deals: <strong>${digest.newDeals}</strong></li>
-  <li>Proposals Sent: <strong>${digest.proposalsSent}</strong></li>
-  <li>Closed Won: <strong>${digest.closedWon}</strong></li>
-  <li>Closed Lost: <strong>${digest.closedLost}</strong></li>
-  <li>Conversion Rate: <strong>${digest.conversionRate}%</strong></li>
-  <li>Revenue (Est.): <strong>$${digest.weeklyRevenue.toLocaleString()}</strong></li>
-</ul>
-<h3>Support</h3>
-<ul>
-  <li>New Tickets: <strong>${digest.newTickets}</strong></li>
-  <li>Resolved: <strong>${digest.resolvedTickets}</strong></li>
-  <li>Overdue Tasks: <strong>${digest.overdueTaskCount}</strong></li>
-</ul>
-<h3>Lead Sources</h3>
-<ul>
-  ${Object.entries(digest.sourceBreakdown).map(([s, c]) => `<li>${s}: <strong>${c}</strong></li>`).join("")}
-</ul>
-<p style="color:#888;font-size:12px;">Auto-generated by Liberty Bancard CRM</p>`;
-
         try {
-          await sendGhlEmailForMerchant({ email: adminEmail, subject: "Weekly KPI Digest — Liberty Bancard", body: emailBody });
-          res.json({ ...digest, emailSent: true, emailRecipient: adminEmail });
+          await sendGhlEmailForMerchant({ email: adminEmail, subject: `Weekly KPI Digest — ${summary.period} — Liberty Bancard`, body: html });
+          res.json({ ...summary, emailSent: true, emailRecipient: adminEmail });
           return;
         } catch (emailErr) {
           console.error("Weekly digest email error:", emailErr);
-          res.json({ ...digest, emailSent: false, emailError: String(emailErr) });
+          res.json({ ...summary, emailSent: false, emailError: String(emailErr) });
           return;
         }
       }
-
-      res.json({ ...digest, emailSent: false, emailError: !adminEmail ? "No admin email configured" : "GHL not configured" });
+      res.json({ ...summary, emailSent: false, emailError: !adminEmail ? "No admin email configured" : "GHL not configured" });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -5129,7 +5091,7 @@ Respond in this exact JSON format:
     if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
     try {
       const { status, commissionPercent, notes } = req.body;
-      const updates: any = {};
+      const updates: Partial<InsertPartner> = {};
       if (status && ["active", "pending", "suspended", "inactive"].includes(status)) updates.status = status;
       if (commissionPercent !== undefined) updates.commissionPercent = Math.min(Math.max(0, Number(commissionPercent) || 0), 100);
       if (notes !== undefined) updates.notes = String(notes).slice(0, 2000);
@@ -5633,10 +5595,37 @@ Respond in this exact JSON format:
 
   app.put("/api/notification-preferences", isAuthenticated, async (req, res) => {
     const userId = (req.user as any)?.id;
-    const { eventType, enabled } = req.body;
+    const { eventType, enabled, emailEnabled, digestDaily, digestWeekly } = req.body;
     if (!eventType) return res.status(400).json({ message: "eventType required" });
-    const pref = await storage.upsertNotificationPreference({ userId, eventType, enabled: !!enabled });
+    const updates: InsertNotificationPreference = { userId, eventType };
+    if (typeof enabled === "boolean") updates.enabled = enabled;
+    if (typeof emailEnabled === "boolean") updates.emailEnabled = emailEnabled;
+    if (typeof digestDaily === "boolean") updates.digestDaily = digestDaily;
+    if (typeof digestWeekly === "boolean") updates.digestWeekly = digestWeekly;
+    const pref = await storage.upsertNotificationPreference(updates);
     res.json(pref);
+  });
+
+  app.post("/api/analytics/daily-digest", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
+    try {
+      const { html, summary } = await buildDailyDigest();
+      const adminEmail = process.env.ADMIN_DIGEST_EMAIL;
+      if (adminEmail && isGhlConfigured()) {
+        try {
+          await sendGhlEmailForMerchant({ email: adminEmail, subject: `Daily Digest — ${summary.date} — Liberty Bancard`, body: html });
+          res.json({ ...summary, emailSent: true, emailRecipient: adminEmail });
+          return;
+        } catch (emailErr) {
+          console.error("Daily digest email error:", emailErr);
+          res.json({ ...summary, emailSent: false, emailError: String(emailErr) });
+          return;
+        }
+      }
+      res.json({ ...summary, emailSent: false, html });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   // === MARK ALL NOTIFICATIONS READ ===

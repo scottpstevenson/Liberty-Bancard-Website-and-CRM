@@ -1,6 +1,7 @@
 import { storage } from "../storage";
 import { sendGhlEmail, sendGhlSms, isGhlConfigured } from "./ghl";
 import { getEmailSignatureHtml } from "./email-signatures";
+import { createPreferenceAwareNotification } from "./digest-service";
 
 export async function processSequenceEnrollments(): Promise<{ processed: number; errors: number }> {
   let processed = 0;
@@ -30,6 +31,7 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
             entityId: enrollment.contactId || 0,
             details: { sequenceId: sequence.id, sequenceName: sequence.name },
           });
+          await createPreferenceAwareNotification({ channel: "internal", title: "Sequence Completed", message: `Sequence "${sequence.name}" completed for contact #${enrollment.contactId || 0}.`, type: "info", metadata: { sequenceId: sequence.id, contactId: enrollment.contactId, eventType: "sequence_completed" } }, "sequence_completed");
           processed++;
           continue;
         }
@@ -185,6 +187,7 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
               entityId: enrollment.contactId || 0,
               details: { sequenceId: sequence.id, sequenceName: sequence.name },
             });
+            await createPreferenceAwareNotification({ channel: "internal", title: "Sequence Completed", message: `Sequence "${sequence.name}" completed for contact #${enrollment.contactId || 0}.`, type: "info", metadata: { sequenceId: sequence.id, contactId: enrollment.contactId, eventType: "sequence_completed" } }, "sequence_completed");
           } else {
             const delayMs = ((nextStep.delayDays || 0) * 86400000) + ((nextStep.delayHours || 0) * 3600000);
             const nextActionAt = new Date(Date.now() + Math.max(delayMs, 60000));

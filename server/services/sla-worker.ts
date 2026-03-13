@@ -7,6 +7,7 @@ import { processSunbizEnrichmentQueue } from "./sunbiz-enrichment";
 import { runSunbizAutoConvert } from "./sunbiz-cron";
 import { scoreContact } from "./lead-scoring";
 import { checkCompliance } from "./smart-router";
+import { checkAndSendDigests, sendCriticalEmailNotification, createPreferenceAwareNotification } from "./digest-service";
 
 const SLA_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -71,13 +72,13 @@ async function checkDealSla(rule: typeof DEFAULT_SLA_RULES[0]) {
       dueDate: new Date(Date.now() + 60 * 60 * 1000),
     });
 
-    await storage.createNotification({
+    await createPreferenceAwareNotification({
       channel: "internal",
       title: `SLA Breach: ${rule.name}`,
       message: `Deal #${deal.id} has been in "${rule.stage}" for ${hoursStuck} hours. Immediate action required.`,
       type: "urgent",
-      metadata: { dealId: deal.id, slaRule: rule.name, minutesStuck },
-    });
+      metadata: { dealId: deal.id, slaRule: rule.name, minutesStuck, eventType: "sla_breach" },
+    }, "sla_breach");
 
     await storage.createAuditLog({
       action: "sla_breach",
@@ -85,6 +86,13 @@ async function checkDealSla(rule: typeof DEFAULT_SLA_RULES[0]) {
       entityId: deal.id,
       details: { rule: rule.name, minutesStuck, stage: rule.stage },
     });
+
+    sendCriticalEmailNotification({
+      eventType: "sla_breach",
+      subject: `SLA Breach: ${rule.name} — Deal #${deal.id}`,
+      body: `<h3>SLA Breach Alert</h3><p>Deal #${deal.id} has been in "${rule.stage}" for <strong>${hoursStuck} hours</strong>.</p><p>Rule: ${rule.name}</p><p>Owner: ${deal.owner || "Unassigned"}</p><p>Immediate action required.</p>`,
+      ownerName: deal.owner,
+    }).catch(err => console.error("SLA breach email error:", err));
 
     if (isGhlConfigured() && deal.contactId) {
       const contact = await storage.getContact(deal.contactId);
@@ -126,13 +134,13 @@ async function checkTicketSla() {
       dueDate: new Date(Date.now() + 30 * 60 * 1000),
     });
 
-    await storage.createNotification({
+    await createPreferenceAwareNotification({
       channel: "internal",
       title: "Ticket SLA Breached",
       message: `Ticket #${ticket.id} "${ticket.subject}" has breached SLA by ${minutesPastSla} minutes. Priority: ${ticket.priority}`,
       type: "urgent",
-      metadata: { ticketId: ticket.id, minutesPastSla },
-    });
+      metadata: { ticketId: ticket.id, minutesPastSla, eventType: "sla_breach" },
+    }, "sla_breach");
 
     await storage.createAuditLog({
       action: "ticket_sla_breach",
@@ -140,6 +148,13 @@ async function checkTicketSla() {
       entityId: ticket.id,
       details: { minutesPastSla, priority: ticket.priority, category: ticket.category },
     });
+
+    sendCriticalEmailNotification({
+      eventType: "sla_breach",
+      subject: `Ticket SLA Breach: #${ticket.id} — "${ticket.subject}"`,
+      body: `<h3>Ticket SLA Breach</h3><p>Ticket #${ticket.id} "<strong>${ticket.subject}</strong>" has breached SLA by <strong>${minutesPastSla} minutes</strong>.</p><p>Priority: ${ticket.priority}<br/>Category: ${ticket.category}<br/>Assigned: ${ticket.assignedTo || "Unassigned"}</p>`,
+      ownerName: ticket.assignedTo,
+    }).catch(err => console.error("Ticket SLA breach email error:", err));
   }
 }
 
@@ -390,6 +405,7 @@ export function startSlaWorker() {
     await runSunbizAutoConvert().catch(err => console.error("Sunbiz auto-convert error:", err));
     await checkDocumentReadiness().catch(err => console.error("Doc readiness check error:", err));
     await periodicLeadScoring().catch(err => console.error("Periodic scoring error:", err));
+    await checkAndSendDigests().catch(err => console.error("Digest check error:", err));
     cycleCount++;
     if (cycleCount % AI_OPS_EVERY_N_CYCLES === 0) {
       await runScheduledAiOps();
