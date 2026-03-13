@@ -69,11 +69,18 @@ export default function UploadStatement() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const containerRef = useScrollReveal();
-  const [analysisResult, setAnalysisResult] = useState<any>(null);
+  const [analysisResult, setAnalysisResult] = useState<{
+    effectiveRate?: string;
+    recommendedPath?: string;
+    keyFindings?: string[];
+    overallAssessment?: string;
+    [key: string]: unknown;
+  } | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisVolume, setAnalysisVolume] = useState("");
   const [analysisRate, setAnalysisRate] = useState("");
   const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   const params = new URLSearchParams(window.location.search);
   const preTerminal = params.get("terminal") === "yes";
@@ -104,20 +111,35 @@ export default function UploadStatement() {
   const submitMutation = useMutation({
     mutationFn: async (data: UploadFormData) => {
       const refCode = localStorage.getItem("lb_ref_code") || undefined;
-      const res = await apiRequest("POST", "/api/public/statement-upload", {
-        businessName: data.businessName,
-        contactName: data.contactName,
-        email: data.email,
-        mobile: data.mobile,
-        vertical: data.vertical,
-        currentProvider: data.currentProvider || undefined,
-        interestedIn0Percent: data.interestedIn0Percent,
-        needTerminal: data.needTerminal,
-        notes: data.notes || undefined,
-        consentSms: data.consentSms,
-        referralCode: refCode,
-        ...getStoredUTMParams(),
+      const utmParams = getStoredUTMParams();
+      const formData = new FormData();
+      formData.append("businessName", data.businessName);
+      formData.append("contactName", data.contactName);
+      formData.append("email", data.email);
+      formData.append("mobile", data.mobile);
+      formData.append("vertical", data.vertical);
+      if (data.currentProvider) formData.append("currentProvider", data.currentProvider);
+      formData.append("interestedIn0Percent", String(data.interestedIn0Percent));
+      formData.append("needTerminal", String(data.needTerminal));
+      if (data.notes) formData.append("notes", data.notes);
+      formData.append("consentSms", String(data.consentSms));
+      if (refCode) formData.append("referralCode", refCode);
+      Object.entries(utmParams).forEach(([key, value]) => {
+        if (value) formData.append(key, String(value));
       });
+      if (selectedFile) {
+        formData.append("statementFile", selectedFile);
+      }
+
+      const res = await fetch("/api/public/statement-upload", {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({ message: "Upload failed" }));
+        throw new Error(errBody.message || "Upload failed");
+      }
       return res.json();
     },
     onSuccess: () => {
@@ -376,6 +398,7 @@ export default function UploadStatement() {
                               onChange={(e) => {
                                 const file = e.target.files?.[0];
                                 field.onChange(file?.name || "");
+                                setSelectedFile(file || null);
                               }}
                             />
                           </FormControl>

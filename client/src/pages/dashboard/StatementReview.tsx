@@ -118,6 +118,24 @@ export default function StatementReview() {
     (d) => d.statementReceived || d.stage === "Statement Received" || d.effectiveRate
   );
 
+  const sendProposalMutation = useMutation({
+    mutationFn: async (dealId: number) => {
+      const res = await apiRequest("POST", `/api/deals/${dealId}/send-proposal`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/deals"] });
+      toast({ title: "Proposal Sent", description: "Proposal emailed to the merchant" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Send Failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const handleSendProposal = (dealId: number) => {
+    sendProposalMutation.mutate(dealId);
+  };
+
   const generateMutation = useMutation({
     mutationFn: async (params: { dealId: number; statementData?: any }) => {
       const res = await apiRequest("POST", "/api/ai/generate-proposal", params);
@@ -287,12 +305,24 @@ export default function StatementReview() {
                         {deal.savingsProposal ? (
                           <Badge variant="secondary" className="text-xs">
                             <CheckCircle2 className="w-3 h-3 mr-1" />
-                            Proposal Ready
+                            {deal.proposalStatus === "sent" ? "Sent" : "Proposal Ready"}
                           </Badge>
                         ) : (
                           <Badge variant="outline" className="text-xs">
                             Needs Review
                           </Badge>
+                        )}
+                        {!!deal.savingsProposal && deal.proposalStatus !== "sent" && (
+                          <Button
+                            size="sm"
+                            variant="default"
+                            onClick={() => handleSendProposal(deal.id)}
+                            disabled={sendProposalMutation.isPending}
+                            data-testid={`button-send-deal-${deal.id}`}
+                          >
+                            {sendProposalMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3 mr-1" />}
+                            Send
+                          </Button>
                         )}
                         <Button
                           size="sm"
@@ -313,15 +343,54 @@ export default function StatementReview() {
       </div>
 
       {activeProposal && (
-        <ProposalReport proposal={activeProposal} />
+        <ProposalReport
+          proposal={activeProposal}
+          dealId={selectedDealId ? Number(selectedDealId) : activeProposal.dealId}
+          onProposalUpdated={(updated) => setActiveProposal(updated)}
+        />
       )}
     </div>
   );
 }
 
-function ProposalReport({ proposal }: { proposal: Proposal }) {
+function ProposalReport({ proposal, dealId, onProposalUpdated }: { proposal: Proposal; dealId?: number; onProposalUpdated?: (p: Proposal) => void }) {
+  const { toast } = useToast();
+  const [editing, setEditing] = useState(false);
+  const [editPlans, setEditPlans] = useState<PlanData[]>(proposal.plans);
+  const [editRecommendedReason, setEditRecommendedReason] = useState(proposal.recommendedReason || "");
+
   const { currentState, plans, feeBreakdown, urgencyCtas, complianceDisclaimer } = proposal;
   const recommended = plans.find((p) => p.shortName === proposal.recommendedPlan) || plans[0];
+
+  const editMutation = useMutation({
+    mutationFn: async (data: { plans: PlanData[]; recommendedReason: string }) => {
+      const res = await apiRequest("PUT", `/api/deals/${dealId}/edit-proposal`, data);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/deals"] });
+      if (data.proposal && onProposalUpdated) {
+        onProposalUpdated(data.proposal);
+      }
+      setEditing(false);
+      toast({ title: "Proposal Updated", description: "Changes saved. You can now send the proposal." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Save Failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const handleEditPlanField = (planIndex: number, field: string, value: string | number) => {
+    const updated = editPlans.map((plan, i) => {
+      if (i !== planIndex) return plan;
+      return { ...plan, [field]: value };
+    });
+    setEditPlans(updated);
+  };
+
+  const handleSaveEdits = () => {
+    editMutation.mutate({ plans: editPlans, recommendedReason: editRecommendedReason });
+  };
 
   return (
     <div className="space-y-6" data-testid="proposal-report">
@@ -334,11 +403,106 @@ function ProposalReport({ proposal }: { proposal: Proposal }) {
             Generated {new Date(proposal.generatedAt).toLocaleDateString()} at {new Date(proposal.generatedAt).toLocaleTimeString()}
           </p>
         </div>
-        <Badge variant="secondary" className="gap-1">
-          <Star className="w-3 h-3" />
-          Recommended: {recommended?.name}
-        </Badge>
+        <div className="flex items-center gap-2">
+          <Badge variant="secondary" className="gap-1">
+            <Star className="w-3 h-3" />
+            Recommended: {recommended?.name}
+          </Badge>
+          {dealId && !editing && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setEditPlans([...proposal.plans]);
+                setEditRecommendedReason(proposal.recommendedReason || "");
+                setEditing(true);
+              }}
+              data-testid="button-edit-proposal"
+            >
+              Edit Before Sending
+            </Button>
+          )}
+          {editing && (
+            <>
+              <Button
+                size="sm"
+                variant="default"
+                onClick={handleSaveEdits}
+                disabled={editMutation.isPending}
+                data-testid="button-save-proposal-edits"
+              >
+                {editMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
+                Save Changes
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setEditing(false)} data-testid="button-cancel-edit">
+                Cancel
+              </Button>
+            </>
+          )}
+        </div>
       </div>
+
+      {editing && (
+        <Card className="border-amber-200 bg-amber-50/50 dark:bg-amber-950/20" data-testid="card-edit-mode">
+          <CardContent className="p-4">
+            <p className="text-sm text-amber-700 dark:text-amber-400 flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4" />
+              Editing mode — modify plan details below, then save before sending to the merchant.
+            </p>
+            <div className="mt-3 space-y-3">
+              <div>
+                <Label className="text-xs">Recommendation Reason</Label>
+                <Input
+                  value={editRecommendedReason}
+                  onChange={(e) => setEditRecommendedReason(e.target.value)}
+                  data-testid="input-edit-recommendation-reason"
+                />
+              </div>
+              {editPlans.map((plan, idx) => (
+                <div key={plan.shortName} className="border rounded-md p-3 space-y-2 bg-background">
+                  <div className="font-medium text-sm">{plan.name}</div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <Label className="text-xs">Effective Rate</Label>
+                      <Input
+                        value={plan.effectiveRate}
+                        onChange={(e) => handleEditPlanField(idx, "effectiveRate", e.target.value)}
+                        data-testid={`input-edit-rate-${plan.shortName}`}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Monthly Savings ($)</Label>
+                      <Input
+                        type="number"
+                        value={plan.monthlySavings}
+                        onChange={(e) => handleEditPlanField(idx, "monthlySavings", Number(e.target.value))}
+                        data-testid={`input-edit-monthly-savings-${plan.shortName}`}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Annual Savings ($)</Label>
+                      <Input
+                        type="number"
+                        value={plan.annualSavings}
+                        onChange={(e) => handleEditPlanField(idx, "annualSavings", Number(e.target.value))}
+                        data-testid={`input-edit-annual-savings-${plan.shortName}`}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Headline</Label>
+                    <Input
+                      value={plan.headline}
+                      onChange={(e) => handleEditPlanField(idx, "headline", e.target.value)}
+                      data-testid={`input-edit-headline-${plan.shortName}`}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card data-testid="card-current-state">
         <CardHeader>

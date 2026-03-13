@@ -46,6 +46,7 @@ import TestimonialsDisclosure from "@/pages/TestimonialsDisclosure";
 import LawEnforcementGuidelines from "@/pages/LawEnforcementGuidelines";
 import DisputeResolution from "@/pages/DisputeResolution";
 import ThanksStatement from "@/pages/ThanksStatement";
+import ProposalViewer from "@/pages/ProposalViewer";
 import ThanksEstimate from "@/pages/ThanksEstimate";
 import ThanksCall from "@/pages/ThanksCall";
 import ThanksSupport from "@/pages/ThanksSupport";
@@ -188,6 +189,7 @@ function Router() {
       <Route path="/california-privacy" component={CaliforniaPrivacy} />
       <Route path="/ada-compliance" component={ADACompliance} />
       <Route path="/thanks-statement" component={ThanksStatement} />
+      <Route path="/proposal/:token" component={ProposalViewer} />
       <Route path="/thanks-estimate" component={ThanksEstimate} />
       <Route path="/thanks-call" component={ThanksCall} />
       <Route path="/thanks-support" component={ThanksSupport} />

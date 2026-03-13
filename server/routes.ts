@@ -19,6 +19,7 @@ import { autoEnrollFromTrigger } from "./services/sequence-worker";
 import { triggerWorkflowsByEvent, executeWorkflowActions } from "./services/workflow-executor";
 import { scoreContact, calculateRevenuePotentialFn, calculateSwitchabilityFn, calculateUnderwritingConfidenceFn, calculateQuizBonusFn } from "./services/lead-scoring";
 import { generateDealBlueprint } from "./services/deal-blueprint";
+import { autoGenerateProposal, sendProposalEmail, notifyRepWithBriefing } from "./services/proposal-engine";
 import { routeContact, getRoutingRecommendation, checkCompliance } from "./services/smart-router";
 import { parseSunbizCsv, searchSunbiz, getEntityDetail, streamCorevtFromZip } from "./services/sunbiz-scraper";
 import { getEmailSignatureHtml, getEmailSignaturePlainText, getStoredSignature, saveSignature } from "./services/email-signatures";
@@ -36,6 +37,51 @@ import os from "os";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 const uploadLarge = multer({ dest: os.tmpdir(), limits: { fileSize: 300 * 1024 * 1024 } });
+
+interface ProposalPlan {
+  name: string;
+  shortName: string;
+  headline: string;
+  effectiveRate: string;
+  monthlyFees: number;
+  monthlySavings: number;
+  annualSavings: number;
+  savingsPercent: number;
+  howItWorks: string;
+  pros: string[];
+  cons: string[];
+  bestFor: string;
+  libertyMarginBps?: number;
+  libertyMonthlyRevenue?: number;
+}
+
+interface ProposalData {
+  merchantName: string;
+  generatedAt: string;
+  currentState: {
+    monthlyVolume: number;
+    effectiveRate: string;
+    monthlyFees: number;
+    annualFees: number;
+    avgTicket: number;
+    topIssues: string[];
+  };
+  plans: ProposalPlan[];
+  recommendedPlan: string;
+  recommendedReason: string;
+  recommendedTerminal: string;
+  urgencyCtas: string[];
+  complianceDisclaimer: string;
+  feeBreakdown?: {
+    currentInterchange: string;
+    currentMarkup: string;
+    currentMonthlyFees: string;
+    currentPciFees: string;
+    hiddenFees: string[];
+  };
+  lastEditedAt?: string;
+  editedBy?: string;
+}
 
 function normalizePhoneForImport(phone: string): string {
   if (!phone) return "";
@@ -592,11 +638,32 @@ export async function registerRoutes(
       if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
       fs.writeFileSync(path.join(uploadsDir, `${Date.now()}_${fileName}`), req.file.buffer);
 
+      let dealId: number | undefined;
+      const allContacts = await storage.getContacts();
+      const userContact = allContacts.find(c => c.email === user.email);
+      if (userContact) {
+        const allDeals = await storage.getDeals();
+        const existingDeal = allDeals.find(d => d.contactId === userContact.id);
+        if (existingDeal) {
+          dealId = existingDeal.id;
+        } else {
+          const newDeal = await storage.createDeal({
+            contactId: userContact.id,
+            pipeline: "sales",
+            stage: "Statement Received",
+            notes: `Statement uploaded via merchant portal: ${fileName}`,
+            leadSource: "merchant_portal",
+          });
+          dealId = newDeal.id;
+        }
+      }
+
       const doc = await storage.createDocument({
         type: "merchant_statement",
         fileName,
         storageKey,
         accessScope: "merchant",
+        dealId,
       });
 
       await storage.createNotification({
@@ -605,6 +672,13 @@ export async function registerRoutes(
         message: `${user.firstName} ${user.lastName} uploaded a processing statement: ${fileName}`,
         type: "info",
       });
+
+      if (dealId) {
+        await storage.updateDeal(dealId, { statementReceived: true });
+        generateDealBlueprint(dealId).catch(err => console.error("Blueprint generation error:", err));
+        const uploadedBuffer = req.file?.buffer;
+        autoGenerateProposal(dealId, uploadedBuffer).catch(err => console.error("Auto-proposal error:", err));
+      }
 
       res.status(201).json(doc);
     } catch (err: any) {
@@ -683,7 +757,7 @@ export async function registerRoutes(
   const autoProposalRateLimit = new Map<string, number>();
   const AUTO_PROPOSAL_COOLDOWN_MS = 60 * 1000;
 
-  async function autoGenerateProposal(dealId: number, contactId: number, meta: { vertical?: string; businessName?: string; contactName?: string; email?: string; consentEmail?: boolean }) {
+  async function legacyAutoProposalEmail(dealId: number, contactId: number, meta: { vertical?: string; businessName?: string; contactName?: string; email?: string; consentEmail?: boolean }) {
     try {
       if (meta.email) {
         const lastCall = autoProposalRateLimit.get(meta.email);
@@ -817,22 +891,23 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
   }
 
   // === PUBLIC FORM SUBMISSIONS ===
-  app.post("/api/public/statement-upload", async (req, res) => {
+  app.post("/api/public/statement-upload", upload.single("statementFile"), async (req, res) => {
     try {
       const { businessName, contactName, email, mobile, vertical, currentProvider, interestedIn0Percent, needTerminal, notes, consentSms, referralCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, landingPage } = req.body;
       const nameParts = (contactName || "").split(" ");
       const firstName = nameParts[0] || "";
       const lastName = nameParts.slice(1).join(" ") || "";
 
+      const parseBool = (v: unknown) => v === true || v === "true";
       const tags = ["src_website", "lead_statement_upload", `vertical_${(vertical || "unknown").toLowerCase().replace(/[^a-z]/g, "_")}`];
       if (utmSource) tags.push(`utm_src_${utmSource}`);
 
       const contact = await storage.createContact({
         firstName, lastName, email, phone: mobile,
         companyName: businessName, vertical, currentProvider,
-        interestedIn0Percent: interestedIn0Percent === true,
-        needTerminal: needTerminal === true,
-        notes, consentSms: consentSms === true,
+        interestedIn0Percent: parseBool(interestedIn0Percent),
+        needTerminal: parseBool(needTerminal),
+        notes, consentSms: parseBool(consentSms),
         utmSource: utmSource || undefined,
         utmMedium: utmMedium || undefined,
         utmCampaign: utmCampaign || undefined,
@@ -844,8 +919,8 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       });
 
       let offerPath = "Not Sure";
-      if (interestedIn0Percent) offerPath = "0% Program";
-      else if (needTerminal) offerPath = "Terminal Needed";
+      if (parseBool(interestedIn0Percent)) offerPath = "0% Program";
+      else if (parseBool(needTerminal)) offerPath = "Terminal Needed";
 
       const deal = await storage.createDeal({
         contactId: contact.id, pipeline: "sales", stage: "Statement Received",
@@ -868,7 +943,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         type: "alert",
       });
 
-      if (consentSms) {
+      if (parseBool(consentSms)) {
         await storage.createConsentAuditLog({
           contactId: contact.id,
           channel: "sms",
@@ -881,22 +956,36 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         });
       }
 
-      await storage.createAuditLog({ action: "statement_uploaded", entityType: "contact", entityId: contact.id, details: { source: "website" } });
-      await storage.updateDeal(deal.id, { statementReceived: true, docReadinessScore: 1 });
+      const statementFileBuffer = req.file?.buffer;
+      const statementFileName = req.file?.originalname || businessName + "_statement";
+
+      if (statementFileBuffer) {
+        const uploadsDir = path.join(process.cwd(), "uploads");
+        if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+        const diskFileName = `${Date.now()}_${statementFileName}`;
+        fs.writeFileSync(path.join(uploadsDir, diskFileName), statementFileBuffer);
+        const storageKey = `statements/${diskFileName}`;
+
+        await storage.createDocument({
+          type: "merchant_statement",
+          fileName: statementFileName,
+          storageKey,
+          dealId: deal.id,
+          contactId: contact.id,
+          accessScope: "internal",
+        });
+      }
+
+      await storage.createAuditLog({ action: "statement_uploaded", entityType: "contact", entityId: contact.id, details: { source: "website", hasFile: !!statementFileBuffer } });
+      await storage.updateDeal(deal.id, { statementReceived: true, docReadinessScore: statementFileBuffer ? 2 : 1 });
       trackReferral(referralCode, contactName, email, mobile, businessName).catch(err => console.error("Referral tracking error:", err));
       scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
       autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "statement_upload" }).catch(err => console.error("Auto-enroll error:", err));
       triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: deal.id }, { formType: "statement_upload" }).catch(err => console.error("Workflow trigger error:", err));
-      if (consentSms) sendConfirmationSms(contact.id, firstName, "statement_upload", deal.id).catch(err => console.error("Confirm SMS error:", err));
-
-      autoGenerateProposal(deal.id, contact.id, {
-        vertical,
-        businessName,
-        contactName: `${firstName} ${lastName}`,
-        email,
-        consentEmail: consentSms === true, // Form consent covers both SMS and email per consent label
-      }).catch(err => console.error("Auto-proposal generation error:", err));
+      if (parseBool(consentSms)) sendConfirmationSms(contact.id, firstName, "statement_upload", deal.id).catch(err => console.error("Confirm SMS error:", err));
+      generateDealBlueprint(deal.id).catch(err => console.error("Blueprint generation error:", err));
+      autoGenerateProposal(deal.id, statementFileBuffer).catch(err => console.error("Auto-proposal error:", err));
 
       res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id });
     } catch (err: any) {
@@ -2999,9 +3088,14 @@ Notes: ${deal.notes || "None"}`
 
       const bestPlan = proposal.plans?.find((p: any) => p.shortName === proposal.recommendedPlan) || proposal.plans?.[0];
 
+      const crypto = await import("crypto");
+      const proposalToken = deal.proposalToken || crypto.randomBytes(24).toString("hex");
+
       await storage.updateDeal(deal.id, {
         savingsProposal: proposal,
         proposalGeneratedAt: new Date(),
+        proposalToken,
+        proposalStatus: "generated",
         recommendedPath: bestPlan?.name || deal.recommendedPath,
         effectiveRate: deal.effectiveRate || `${effectiveRate}%`,
         totalVolume: deal.totalVolume || `$${volume.toLocaleString()}`,
@@ -3043,6 +3137,144 @@ Notes: ${deal.notes || "None"}`
       if (!deal) return res.status(404).json({ message: "Deal not found" });
       if (!deal.savingsProposal) return res.status(404).json({ message: "No proposal generated yet" });
       res.json(deal.savingsProposal);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/public/proposal/:token", async (req, res) => {
+    try {
+      const token = req.params.token;
+      if (!token || token.length < 10) return res.status(400).json({ message: "Invalid token" });
+      const allDeals = await storage.getDeals();
+      const deal = allDeals.find(d => d.proposalToken === token);
+      if (!deal || !deal.savingsProposal) return res.status(404).json({ message: "Proposal not found" });
+      const contact = deal.contactId ? await storage.getContact(deal.contactId) : null;
+      const proposal = deal.savingsProposal as ProposalData;
+
+      const sanitizedPlans = (proposal.plans || []).map((p: ProposalPlan) => ({
+        name: p.name,
+        shortName: p.shortName,
+        headline: p.headline,
+        effectiveRate: p.effectiveRate,
+        monthlyFees: p.monthlyFees,
+        monthlySavings: p.monthlySavings,
+        annualSavings: p.annualSavings,
+        savingsPercent: p.savingsPercent,
+        howItWorks: p.howItWorks,
+        pros: p.pros,
+        cons: p.cons,
+        bestFor: p.bestFor,
+      }));
+
+      res.json({
+        merchantName: proposal.merchantName || contact?.companyName || `${contact?.firstName || ""} ${contact?.lastName || ""}`.trim() || "Merchant",
+        contactFirstName: contact?.firstName || "",
+        vertical: contact?.vertical || "",
+        generatedAt: proposal.generatedAt,
+        currentState: proposal.currentState,
+        plans: sanitizedPlans,
+        recommendedPlan: proposal.recommendedPlan,
+        recommendedReason: proposal.recommendedReason,
+        recommendedTerminal: proposal.recommendedTerminal,
+        urgencyCtas: proposal.urgencyCtas,
+        complianceDisclaimer: proposal.complianceDisclaimer,
+        feeBreakdown: proposal.feeBreakdown ? {
+          currentInterchange: proposal.feeBreakdown.currentInterchange,
+          currentMarkup: proposal.feeBreakdown.currentMarkup,
+          currentMonthlyFees: proposal.feeBreakdown.currentMonthlyFees,
+          currentPciFees: proposal.feeBreakdown.currentPciFees,
+          hiddenFees: proposal.feeBreakdown.hiddenFees,
+        } : undefined,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/deals/:id/edit-proposal", isAuthenticated, async (req, res) => {
+    try {
+      const userRole = (req.user as any)?.role;
+      if (!['admin', 'manager', 'sales'].includes(userRole)) {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+      const dealId = Number(req.params.id);
+      const deal = await storage.getDeal(dealId);
+      if (!deal) return res.status(404).json({ message: "Deal not found" });
+      if (!deal.savingsProposal) return res.status(400).json({ message: "No proposal to edit" });
+
+      const { plans, recommendedPlan, recommendedReason, recommendedTerminal } = req.body;
+      const existing = deal.savingsProposal as ProposalData;
+
+      if (plans && Array.isArray(plans)) {
+        for (let i = 0; i < plans.length && i < existing.plans.length; i++) {
+          const editedPlan = plans[i];
+          if (editedPlan) {
+            Object.assign(existing.plans[i], editedPlan);
+          }
+        }
+      }
+      if (recommendedPlan) existing.recommendedPlan = recommendedPlan;
+      if (recommendedReason) existing.recommendedReason = recommendedReason;
+      if (recommendedTerminal) existing.recommendedTerminal = recommendedTerminal;
+
+      const userEmail = (req.user as Express.User & { email?: string })?.email || "rep";
+      existing.lastEditedAt = new Date().toISOString();
+      existing.editedBy = userEmail;
+
+      await storage.updateDeal(dealId, { savingsProposal: existing });
+      await storage.createAuditLog({
+        action: "proposal_edited",
+        entityType: "deal",
+        entityId: dealId,
+        details: { editedBy: userEmail },
+      });
+
+      res.json({ success: true, proposal: existing });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/deals/:id/send-proposal", isAuthenticated, async (req, res) => {
+    try {
+      const userRole = (req.user as any)?.role;
+      if (!['admin', 'manager', 'sales'].includes(userRole)) {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+      const dealId = Number(req.params.id);
+      const deal = await storage.getDeal(dealId);
+      if (!deal) return res.status(404).json({ message: "Deal not found" });
+      if (!deal.savingsProposal) return res.status(400).json({ message: "No proposal generated yet. Generate a proposal first." });
+      const sent = await sendProposalEmail(dealId);
+      if (sent) {
+        await notifyRepWithBriefing(dealId);
+        res.json({ success: true, message: "Proposal sent to merchant" });
+      } else {
+        res.status(500).json({ message: "Failed to send proposal email" });
+      }
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/settings/proposal-auto-send", isAuthenticated, async (req, res) => {
+    try {
+      const setting = await storage.getSystemSetting("proposal_auto_send");
+      res.json(setting || { enabled: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/settings/proposal-auto-send", isAuthenticated, async (req, res) => {
+    try {
+      if (!['admin', 'manager'].includes((req.user as any)?.role)) {
+        return res.status(403).json({ message: "Admin/Manager only" });
+      }
+      const { enabled } = req.body;
+      await storage.setSystemSetting("proposal_auto_send", { enabled: enabled === true });
+      res.json({ success: true, enabled: enabled === true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

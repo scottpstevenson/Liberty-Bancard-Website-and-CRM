@@ -699,6 +699,76 @@ function RecentWorkflowRuns() {
   );
 }
 
+function ProposalSettings() {
+  const { toast } = useToast();
+  const { data: autoSendSetting, isLoading } = useQuery<{ enabled: boolean }>({
+    queryKey: ["/api/settings/proposal-auto-send"],
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const res = await apiRequest("PUT", "/api/settings/proposal-auto-send", { enabled });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings/proposal-auto-send"] });
+      toast({
+        title: data.enabled ? "Auto-Send Enabled" : "Auto-Send Disabled",
+        description: data.enabled
+          ? "Proposals will be automatically emailed to merchants after generation."
+          : "Proposals will be held for rep review before sending.",
+      });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Update Failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const isEnabled = autoSendSetting?.enabled !== false;
+
+  return (
+    <Card data-testid="card-proposal-settings">
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <FileSearch className="w-4 h-4" />
+          Statement Proposal Engine
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex-1">
+            <p className="text-sm font-medium text-foreground mb-1">
+              Auto-Send Proposals
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {isEnabled
+                ? "Proposals are automatically generated and emailed to merchants when a statement is uploaded."
+                : "Proposals are generated but held for rep review before sending to the merchant."}
+            </p>
+          </div>
+          <Button
+            variant={isEnabled ? "default" : "outline"}
+            size="sm"
+            className="gap-2 shrink-0"
+            onClick={() => toggleMutation.mutate(!isEnabled)}
+            disabled={isLoading || toggleMutation.isPending}
+            data-testid="button-toggle-auto-send"
+          >
+            {toggleMutation.isPending ? (
+              <Loader2 className="w-3 h-3 animate-spin" />
+            ) : isEnabled ? (
+              <CheckCircle2 className="w-3 h-3" />
+            ) : (
+              <Pause className="w-3 h-3" />
+            )}
+            {isEnabled ? "Auto-Send ON" : "Hold for Review"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function Automation() {
   const { data: packets, isLoading: packetsLoading } = useQuery<CollateralPacket[]>({
     queryKey: ["/api/collateral-packets"],
@@ -731,6 +801,8 @@ export default function Automation() {
         </div>
         <p className="text-sm text-muted-foreground mt-1">View your workflows, message templates, and collateral packets</p>
       </div>
+
+      <ProposalSettings />
 
       <AICommandCenter />
 
