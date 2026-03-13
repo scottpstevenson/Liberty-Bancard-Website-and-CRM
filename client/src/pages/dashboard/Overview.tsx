@@ -9,7 +9,7 @@ import {
   Users, Ticket, TrendingUp, CheckCircle, AlertTriangle, Clock,
   Target, ArrowUpRight, ArrowDownRight, Loader2, Brain, Sparkles,
   RefreshCw, DollarSign, Banknote, CalendarDays, BarChart3, Globe,
-  Mail,
+  Mail, Flame, Thermometer, Snowflake, Ban,
 } from "lucide-react";
 import type { Contact, Deal } from "@shared/schema";
 
@@ -83,6 +83,16 @@ export default function Overview() {
 
   const { data: contacts } = useQuery<Contact[]>({ queryKey: ["/api/contacts"], refetchInterval: 30000 });
   const { data: deals } = useQuery<Deal[]>({ queryKey: ["/api/deals"], refetchInterval: 30000 });
+
+  const { data: pipelineStats } = useQuery<{
+    contactsByTier: Record<string, number>;
+    dealsByStage: Record<string, number>;
+    scored: number;
+    unscored: number;
+    totalDeals: number;
+    awaitingOutreach: number;
+    pipelineValue: number;
+  }>({ queryKey: ["/api/kpi/pipeline-stats"] });
 
   const { data: comparative } = useQuery<{
     newDeals: { current: number; previous: number; change: number };
@@ -513,6 +523,124 @@ export default function Overview() {
           </CardContent>
         </Card>
       </div>
+
+      {pipelineStats && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6" data-testid="section-pipeline-stats">
+          <Card data-testid="card-tier-hot">
+            <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Hot Leads (70+)</CardTitle>
+              <Flame className="w-4 h-4 text-red-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-red-600" data-testid="text-hot-count">{pipelineStats.contactsByTier.hot || 0}</div>
+              <p className="text-xs text-muted-foreground mt-1">Ready for immediate outreach</p>
+            </CardContent>
+          </Card>
+
+          <Card data-testid="card-tier-warm">
+            <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Warm Leads (45-69)</CardTitle>
+              <Thermometer className="w-4 h-4 text-orange-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-orange-600" data-testid="text-warm-count">{pipelineStats.contactsByTier.warm || 0}</div>
+              <p className="text-xs text-muted-foreground mt-1">Nurture pipeline</p>
+            </CardContent>
+          </Card>
+
+          <Card data-testid="card-tier-cold">
+            <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Cold Leads (20-44)</CardTitle>
+              <Snowflake className="w-4 h-4 text-blue-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-blue-600" data-testid="text-cold-count">{pipelineStats.contactsByTier.cold || 0}</div>
+              <p className="text-xs text-muted-foreground mt-1">Long-term nurture</p>
+            </CardContent>
+          </Card>
+
+          <Card data-testid="card-awaiting-outreach">
+            <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Awaiting Outreach</CardTitle>
+              <Mail className="w-4 h-4 text-purple-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-purple-600" data-testid="text-awaiting-outreach">{pipelineStats.awaitingOutreach || 0}</div>
+              <p className="text-xs text-muted-foreground mt-1">Scored but not yet contacted</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {pipelineStats && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6" data-testid="section-scoring-summary">
+          <Card data-testid="card-scoring-progress">
+            <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Scoring Progress</CardTitle>
+              <Target className="w-4 h-4 text-primary" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold" data-testid="text-scored-count">{pipelineStats.scored.toLocaleString()}</div>
+              <p className="text-xs text-muted-foreground mt-1">{pipelineStats.unscored.toLocaleString()} unscored remaining</p>
+              <div className="mt-2 w-full bg-muted rounded-full h-2">
+                <div
+                  className="bg-primary h-2 rounded-full transition-all"
+                  style={{ width: `${pipelineStats.scored + pipelineStats.unscored > 0 ? Math.round((pipelineStats.scored / (pipelineStats.scored + pipelineStats.unscored)) * 100) : 0}%` }}
+                  data-testid="progress-scoring"
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card data-testid="card-total-deals">
+            <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Total Deals</CardTitle>
+              <TrendingUp className="w-4 h-4 text-green-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold" data-testid="text-total-deals">{pipelineStats.totalDeals.toLocaleString()}</div>
+              <p className="text-xs text-muted-foreground mt-1">Across all pipelines</p>
+            </CardContent>
+          </Card>
+
+          <Card data-testid="card-pipeline-value">
+            <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Pipeline Value</CardTitle>
+              <DollarSign className="w-4 h-4 text-green-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold" data-testid="text-pipeline-value">${Math.round(pipelineStats.pipelineValue).toLocaleString()}</div>
+              <p className="text-xs text-muted-foreground mt-1">Est. monthly gross profit</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {pipelineStats && Object.keys(pipelineStats.dealsByStage).length > 0 && (
+        <Card data-testid="card-deals-by-stage">
+          <CardHeader>
+            <CardTitle className="text-base">Deals by Stage</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {Object.entries(pipelineStats.dealsByStage).map(([stage, count]) => (
+                <div key={stage} className="flex items-center justify-between gap-2" data-testid={`row-stage-${stage.toLowerCase().replace(/[\s/]+/g, "-")}`}>
+                  <span className="text-sm truncate">{stage}</span>
+                  <div className="flex items-center gap-2">
+                    <div className="w-32 bg-muted rounded-full h-2">
+                      <div
+                        className="bg-primary h-2 rounded-full"
+                        style={{ width: `${Math.min(100, (count / Math.max(...Object.values(pipelineStats.dealsByStage))) * 100)}%` }}
+                      />
+                    </div>
+                    <span className="text-sm font-medium w-12 text-right">{count.toLocaleString()}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <Card data-testid="card-recent-contacts">

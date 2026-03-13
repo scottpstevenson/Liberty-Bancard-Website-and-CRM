@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, registerAuthRoutes, isAuthenticated } from "./replit_integrations/auth";
-import { db } from "./db";
+import { db, pool } from "./db";
 import { users } from "@shared/schema";
 import { eq, desc } from "drizzle-orm";
 import { registerAudioRoutes } from "./replit_integrations/audio/routes";
@@ -13,7 +13,7 @@ import { enrichProspect, runEnrichmentJob, processEnrichmentQueue } from "./serv
 import { queueCampaignMessages, processSendQueue, getCampaignAnalytics } from "./services/campaign-engine";
 import { autoEnrollFromTrigger } from "./services/sequence-worker";
 import { triggerWorkflowsByEvent, executeWorkflowActions } from "./services/workflow-executor";
-import { scoreContact } from "./services/lead-scoring";
+import { scoreContact, calculateRevenuePotentialFn, calculateSwitchabilityFn, calculateUnderwritingConfidenceFn, calculateQuizBonusFn } from "./services/lead-scoring";
 import { generateDealBlueprint } from "./services/deal-blueprint";
 import { routeContact, getRoutingRecommendation, checkCompliance } from "./services/smart-router";
 import { parseSunbizCsv, searchSunbiz, getEntityDetail, streamCorevtFromZip } from "./services/sunbiz-scraper";
@@ -6327,6 +6327,312 @@ Respond in this exact JSON format:
       });
       await storage.updatePartner(partner.id, { totalReferrals: (partner.totalReferrals || 0) + 1 } as any);
       res.status(201).json({ success: true, referralId: referral.id });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === MASS SCORING ===
+  app.post("/api/contacts/mass-score", async (req, res) => {
+    const batchSize = 500;
+    let totalScored = 0;
+    const tierCounts = { hot: 0, warm: 0, cold: 0, unqualified: 0 };
+
+    try {
+      const countResult = await pool.query(
+        `SELECT COUNT(*) as cnt FROM contacts WHERE archived_at IS NULL AND (last_scored_at IS NULL OR last_scored_at < NOW() - INTERVAL '24 hours')`
+      );
+      const totalContacts = parseInt(countResult.rows[0].cnt, 10);
+
+      res.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      });
+
+      const sendProgress = (data: any) => {
+        res.write(`data: ${JSON.stringify(data)}\n\n`);
+      };
+
+      sendProgress({ type: "start", totalContacts });
+
+      let lastId = 0;
+      while (true) {
+        const batchResult = await pool.query(
+          `SELECT id FROM contacts WHERE archived_at IS NULL AND (last_scored_at IS NULL OR last_scored_at < NOW() - INTERVAL '24 hours') AND id > $1 ORDER BY id LIMIT $2`,
+          [lastId, batchSize]
+        );
+
+        if (batchResult.rows.length === 0) break;
+
+        for (const row of batchResult.rows) {
+          lastId = row.id;
+          try {
+            const contact = await storage.getContact(row.id);
+            if (!contact) continue;
+
+            const contactDeals = await storage.getDealsByContact(row.id);
+            const primaryDeal = contactDeals[0] || null;
+
+            const revPotential = calculateRevenuePotentialFn(contact, primaryDeal);
+            const switchability = calculateSwitchabilityFn(contact);
+            const uwConfidence = calculateUnderwritingConfidenceFn(contact, primaryDeal);
+            const quizBonus = calculateQuizBonusFn(contact);
+
+            const engagementScore = 5;
+
+            const total = revPotential.score + switchability.score + uwConfidence.score + engagementScore + quizBonus.score;
+            const tier = total >= 70 ? "hot" : total >= 45 ? "warm" : total >= 20 ? "cold" : "unqualified";
+            tierCounts[tier]++;
+
+            await storage.updateContact(row.id, {
+              leadScore: total,
+              revPotentialScore: revPotential.score,
+              switchabilityScore: switchability.score,
+              uwConfidenceScore: uwConfidence.score,
+              engagementScore: engagementScore,
+              scoreBreakdown: {
+                revPotential: { score: revPotential.score, max: 30, factors: revPotential.factors },
+                switchability: { score: switchability.score, max: 25, factors: switchability.factors },
+                uwConfidence: { score: uwConfidence.score, max: 25, factors: uwConfidence.factors },
+                engagement: { score: engagementScore, max: 20, factors: { default: 5 } },
+                quizBonus: { score: quizBonus.score, max: 20, factors: quizBonus.factors },
+                total,
+                tier,
+              },
+              lastScoredAt: new Date(),
+            });
+
+            totalScored++;
+          } catch (err) {
+            console.error(`Mass scoring failed for contact ${row.id}:`, err);
+          }
+        }
+
+        sendProgress({ type: "progress", scored: totalScored, total: totalContacts, tierCounts });
+      }
+
+      sendProgress({ type: "complete", totalScored, tierCounts });
+      res.end();
+    } catch (err: any) {
+      console.error("Mass scoring error:", err);
+      if (!res.headersSent) {
+        res.status(500).json({ message: err.message });
+      } else {
+        res.write(`data: ${JSON.stringify({ type: "error", message: err.message })}\n\n`);
+        res.end();
+      }
+    }
+  });
+
+  // === MASS DEAL CREATION ===
+  app.post("/api/contacts/mass-create-deals", async (req, res) => {
+    const batchSize = 500;
+    let dealsCreated = 0;
+    let skipped = 0;
+
+    try {
+      const countResult = await pool.query(
+        `SELECT COUNT(*) as cnt FROM contacts c WHERE c.archived_at IS NULL AND c.lead_score >= 45 AND NOT EXISTS (SELECT 1 FROM deals d WHERE d.contact_id = c.id)`
+      );
+      const totalEligible = parseInt(countResult.rows[0].cnt, 10);
+
+      res.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      });
+
+      const sendProgress = (data: any) => {
+        res.write(`data: ${JSON.stringify(data)}\n\n`);
+      };
+
+      sendProgress({ type: "start", totalEligible });
+
+      let lastId = 0;
+      while (true) {
+        const batchResult = await pool.query(
+          `SELECT c.id, c.lead_score, c.vertical, c.monthly_volume, c.lead_source, c.first_name, c.last_name, c.company_name
+           FROM contacts c
+           WHERE c.archived_at IS NULL AND c.lead_score >= 45
+             AND NOT EXISTS (SELECT 1 FROM deals d WHERE d.contact_id = c.id)
+             AND c.id > $1
+           ORDER BY c.id
+           LIMIT $2`,
+          [lastId, batchSize]
+        );
+
+        if (batchResult.rows.length === 0) break;
+
+        for (const row of batchResult.rows) {
+          lastId = row.id;
+          try {
+            const score = row.lead_score || 0;
+            const isHot = score >= 70;
+            const stage = isHot ? "New Lead" : "Nurture / Not Now";
+            const merchantTier = isHot ? "Strategic" : score >= 50 ? "Growth" : "Starter";
+
+            await storage.createDeal({
+              contactId: row.id,
+              pipeline: "sales",
+              stage,
+              priorityScore: score,
+              merchantTier,
+              leadSource: row.lead_source || "imported",
+              totalVolume: row.monthly_volume || null,
+              notes: `Auto-created from mass scoring. Contact: ${row.first_name} ${row.last_name}${row.company_name ? ` (${row.company_name})` : ""}. Score: ${score}, Tier: ${isHot ? "hot" : "warm"}.`,
+            });
+            dealsCreated++;
+          } catch (err) {
+            console.error(`Deal creation failed for contact ${row.id}:`, err);
+            skipped++;
+          }
+        }
+
+        sendProgress({ type: "progress", created: dealsCreated, skipped, total: totalEligible });
+      }
+
+      sendProgress({ type: "complete", dealsCreated, skipped });
+      res.end();
+    } catch (err: any) {
+      console.error("Mass deal creation error:", err);
+      if (!res.headersSent) {
+        res.status(500).json({ message: err.message });
+      } else {
+        res.write(`data: ${JSON.stringify({ type: "error", message: err.message })}\n\n`);
+        res.end();
+      }
+    }
+  });
+
+  // === DEDUPLICATE CONTACTS ===
+  app.post("/api/contacts/deduplicate", async (req, res) => {
+    try {
+      res.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      });
+
+      const sendProgress = (data: any) => {
+        res.write(`data: ${JSON.stringify(data)}\n\n`);
+      };
+
+      const duplicates = await storage.findDuplicateContacts();
+      sendProgress({ type: "start", duplicateGroups: duplicates.length });
+
+      let merged = 0;
+      let errors = 0;
+
+      for (const group of duplicates) {
+        try {
+          const sorted = group.contacts.sort((a, b) => {
+            const aCompleteness = [a.email, a.phone, a.companyName, a.vertical, a.monthlyVolume, a.leadScore].filter(Boolean).length;
+            const bCompleteness = [b.email, b.phone, b.companyName, b.vertical, b.monthlyVolume, b.leadScore].filter(Boolean).length;
+            if (bCompleteness !== aCompleteness) return bCompleteness - aCompleteness;
+            return (b.leadScore || 0) - (a.leadScore || 0);
+          });
+
+          const primary = sorted[0];
+          for (let i = 1; i < sorted.length; i++) {
+            await storage.mergeContacts(primary.id, sorted[i].id);
+            merged++;
+          }
+        } catch (err) {
+          console.error("Merge error:", err);
+          errors++;
+        }
+      }
+
+      sendProgress({ type: "complete", duplicateGroups: duplicates.length, merged, errors });
+      res.end();
+    } catch (err: any) {
+      console.error("Deduplication error:", err);
+      if (!res.headersSent) {
+        res.status(500).json({ message: err.message });
+      } else {
+        res.write(`data: ${JSON.stringify({ type: "error", message: err.message })}\n\n`);
+        res.end();
+      }
+    }
+  });
+
+  // === PIPELINE STATS (contacts by tier, deals by stage, outreach stats) ===
+  app.get("/api/kpi/pipeline-stats", async (req, res) => {
+    try {
+      const tierResult = await pool.query(`
+        SELECT
+          CASE
+            WHEN lead_score >= 70 THEN 'hot'
+            WHEN lead_score >= 45 THEN 'warm'
+            WHEN lead_score >= 20 THEN 'cold'
+            ELSE 'unqualified'
+          END as tier,
+          COUNT(*) as count
+        FROM contacts
+        WHERE archived_at IS NULL
+        GROUP BY tier
+        ORDER BY count DESC
+      `);
+
+      const stageResult = await pool.query(`
+        SELECT stage, COUNT(*) as count
+        FROM deals
+        WHERE archived_at IS NULL AND pipeline = 'sales'
+        GROUP BY stage
+        ORDER BY count DESC
+      `);
+
+      const scoredResult = await pool.query(`
+        SELECT COUNT(*) as count FROM contacts WHERE archived_at IS NULL AND last_scored_at IS NOT NULL
+      `);
+
+      const unscoredResult = await pool.query(`
+        SELECT COUNT(*) as count FROM contacts WHERE archived_at IS NULL AND last_scored_at IS NULL
+      `);
+
+      const totalDealsResult = await pool.query(`
+        SELECT COUNT(*) as count FROM deals WHERE archived_at IS NULL
+      `);
+
+      const awaitingOutreach = await pool.query(`
+        SELECT COUNT(*) as count FROM contacts c
+        WHERE c.archived_at IS NULL AND c.lead_score >= 45
+          AND c.last_contacted_at IS NULL
+          AND (c.do_not_contact IS NULL OR c.do_not_contact = false)
+      `);
+
+      const pipelineValue = await pool.query(`
+        SELECT
+          COALESCE(SUM(
+            CASE WHEN estimated_gross_profit_monthly IS NOT NULL
+              AND REGEXP_REPLACE(estimated_gross_profit_monthly, '[^0-9.]', '', 'g') != ''
+            THEN CAST(REGEXP_REPLACE(estimated_gross_profit_monthly, '[^0-9.]', '', 'g') AS DECIMAL)
+            ELSE 0 END
+          ), 0) as total_value
+        FROM deals
+        WHERE archived_at IS NULL AND pipeline = 'sales' AND stage NOT IN ('Closed Won', 'Closed Lost')
+      `);
+
+      const contactsByTier: Record<string, number> = {};
+      for (const row of tierResult.rows) {
+        contactsByTier[row.tier] = parseInt(row.count, 10);
+      }
+
+      const dealsByStage: Record<string, number> = {};
+      for (const row of stageResult.rows) {
+        dealsByStage[row.stage] = parseInt(row.count, 10);
+      }
+
+      res.json({
+        contactsByTier,
+        dealsByStage,
+        scored: parseInt(scoredResult.rows[0].count, 10),
+        unscored: parseInt(unscoredResult.rows[0].count, 10),
+        totalDeals: parseInt(totalDealsResult.rows[0].count, 10),
+        awaitingOutreach: parseInt(awaitingOutreach.rows[0].count, 10),
+        pipelineValue: parseFloat(pipelineValue.rows[0].total_value) || 0,
+      });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

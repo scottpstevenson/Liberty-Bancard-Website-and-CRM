@@ -389,4 +389,8 @@ export async function scoreContactBatch(contactIds: number[]): Promise<number> {
   return scored;
 }
 
+export { calculateRevenuePotential as calculateRevenuePotentialFn };
+export { calculateSwitchability as calculateSwitchabilityFn };
+export { calculateUnderwritingConfidence as calculateUnderwritingConfidenceFn };
+export { calculateQuizBonus as calculateQuizBonusFn };
 export type { ScoreBreakdown };
