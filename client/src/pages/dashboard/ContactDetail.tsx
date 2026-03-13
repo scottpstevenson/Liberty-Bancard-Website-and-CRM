@@ -127,7 +127,7 @@ export default function ContactDetail() {
   const updateContact = useUpdateContact();
 
   const [isEditing, setIsEditing] = useState(false);
-  const [editFields, setEditFields] = useState<Partial<Contact>>({});
+  const [editFields, setEditFields] = useState<Record<string, string | null | undefined>>({});
   const [tagInput, setTagInput] = useState("");
   const [noteContent, setNoteContent] = useState("");
   const [activeTab, setActiveTab] = useState("overview");

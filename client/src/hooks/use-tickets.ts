@@ -1,13 +1,19 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, buildUrl, type CreateTicketRequest, type UpdateTicketRequest } from "@shared/routes";
+import { api, buildUrl } from "@shared/routes";
+import type { Ticket } from "@shared/schema";
+import { insertTicketSchema } from "@shared/schema";
+import { z } from "zod";
+
+type CreateTicketRequest = z.infer<typeof insertTicketSchema>;
+type UpdateTicketRequest = Partial<CreateTicketRequest>;
 
 export function useTickets() {
-  return useQuery({
+  return useQuery<Ticket[]>({
     queryKey: [api.tickets.list.path],
     queryFn: async () => {
       const res = await fetch(api.tickets.list.path, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch tickets");
-      return api.tickets.list.responses[200].parse(await res.json());
+      return res.json();
     },
   });
 }
@@ -24,12 +30,12 @@ export function useCreateTicket() {
       });
       if (!res.ok) {
         if (res.status === 400) {
-          const error = api.tickets.create.responses[400].parse(await res.json());
+          const error = await res.json();
           throw new Error(error.message);
         }
         throw new Error("Failed to create ticket");
       }
-      return api.tickets.create.responses[201].parse(await res.json());
+      return res.json() as Promise<Ticket>;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: [api.tickets.list.path] }),
   });
@@ -50,7 +56,7 @@ export function useUpdateTicket() {
         if (res.status === 404) throw new Error("Ticket not found");
         throw new Error("Failed to update ticket");
       }
-      return api.tickets.update.responses[200].parse(await res.json());
+      return res.json() as Promise<Ticket>;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: [api.tickets.list.path] }),
   });

@@ -1943,19 +1943,19 @@ export class DatabaseStorage implements IStorage {
     }
     const duplicates: { email: string; phone: string; contacts: typeof allContacts }[] = [];
     const seen = new Set<number>();
-    for (const [email, group] of emailMap) {
+    for (const [email, group] of Array.from(emailMap.entries())) {
       if (group.length > 1) {
-        const ids = group.map(c => c.id);
-        if (ids.some(id => seen.has(id))) continue;
-        ids.forEach(id => seen.add(id));
+        const ids = group.map((c: typeof allContacts[number]) => c.id);
+        if (ids.some((id: number) => seen.has(id))) continue;
+        ids.forEach((id: number) => seen.add(id));
         duplicates.push({ email, phone: '', contacts: group });
       }
     }
-    for (const [phone, group] of phoneMap) {
+    for (const [phone, group] of Array.from(phoneMap.entries())) {
       if (group.length > 1) {
-        const ids = group.map(c => c.id);
-        if (ids.some(id => seen.has(id))) continue;
-        ids.forEach(id => seen.add(id));
+        const ids = group.map((c: typeof allContacts[number]) => c.id);
+        if (ids.some((id: number) => seen.has(id))) continue;
+        ids.forEach((id: number) => seen.add(id));
         duplicates.push({ email: '', phone, contacts: group });
       }
     }

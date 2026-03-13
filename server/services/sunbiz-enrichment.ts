@@ -452,6 +452,7 @@ async function scrapeFloridaDBPR(businessName: string): Promise<{ phone: string 
 
 interface AIEnrichResult {
   website?: string;
+  ownerName?: string;
   ownerEmail?: string;
   ownerPhone?: string;
   email?: string;
@@ -844,7 +845,8 @@ function extractOwnerFromOfficers(officers: any[]): string | null {
 }
 
 export async function fastClassifyBatch(batchSize: number = 500): Promise<{ processed: number; classified: number }> {
-  return runSqlClassification(batchSize);
+  const result = await runSqlClassification(batchSize);
+  return { processed: result.total, classified: result.classified };
 }
 
 export async function runBulkFastClassification(): Promise<{ total: number; classified: number; rounds: number }> {

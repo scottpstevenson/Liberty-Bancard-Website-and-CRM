@@ -227,10 +227,10 @@ export async function syncDealToGhl(dealId: number): Promise<{ success: boolean;
     const opportunityPayload = {
       pipelineId: "default",
       locationId: config.locationId,
-      name: deal.title || `Deal #${deal.id}`,
+      name: `Deal #${deal.id}`,
       status: deal.stage === "Won" ? "won" : deal.stage === "Lost" ? "lost" : "open",
       contactId: ghlContactId,
-      monetaryValue: deal.value ? Number(deal.value) : undefined,
+      monetaryValue: deal.totalVolume ? Number(deal.totalVolume) : undefined,
       pipelineStageId: deal.stage || "New Lead",
     };
 

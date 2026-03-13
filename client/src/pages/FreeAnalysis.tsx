@@ -392,7 +392,7 @@ export default function FreeAnalysis() {
       });
       setSubmitted(true);
       trackQuizComplete();
-      trackConversion("free_analysis_quiz", results?.annualSavings);
+      trackConversion("free_analysis_quiz", results?.estimatedAnnualSavings);
     } catch (error: any) {
       toast({
         title: "Something went wrong",

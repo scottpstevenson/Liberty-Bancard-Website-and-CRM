@@ -1183,14 +1183,14 @@ OUTPUT FORMAT:
 
           if (channel === "email") {
             if (isGhlConfigured() && contact.email) {
-              await sendGhlEmail({ email: contact.email, subject: subject || "Message from Liberty Bancard", body: personalizedMsg });
+              await sendGhlEmail({ contactId, subject: subject || "Message from Liberty Bancard", body: personalizedMsg });
               results.push({ contactId, status: "sent" });
             } else {
               results.push({ contactId, status: "queued", error: "GHL not configured" });
             }
           } else {
             if (isGhlConfigured() && contact.phone) {
-              await sendGhlSms({ phone: contact.phone, message: personalizedMsg });
+              await sendGhlSms({ contactId, body: personalizedMsg });
               results.push({ contactId, status: "sent" });
             } else {
               results.push({ contactId, status: "queued", error: "GHL not configured" });
@@ -3104,7 +3104,7 @@ Notes: ${deal.notes || "None"}`
       if (dealId) deal = await storage.getDeal(Number(dealId));
 
       const contactName = `${contact.firstName || ""} ${contact.lastName || ""}`.trim() || "there";
-      const companyName = contact.companyName || deal?.companyName || "";
+      const companyName = contact.companyName || "";
       const vertical = contact.vertical || "";
       const monthlyVolume = contact.monthlyVolume || deal?.totalVolume || "";
 
@@ -3260,7 +3260,7 @@ Respond in this exact JSON format:
         if (newStage) {
           await storage.updateDeal(Number(dealId), { stage: newStage });
           if (nextFollowUpDate) {
-            await storage.updateDeal(Number(dealId), { nextFollowUp: new Date(nextFollowUpDate).toISOString() });
+            await storage.updateDeal(Number(dealId), { nextFollowUp: new Date(nextFollowUpDate) });
           }
         }
       }
@@ -3275,7 +3275,6 @@ Respond in this exact JSON format:
             contactId: Number(contactId),
             subject: emailSubject || "Following up on our call",
             body: emailBody,
-            from: "Liberty Bancard <support@libertybancard.com>",
           });
           emailSent = result?.success === true;
         } catch (emailErr: any) {
@@ -3289,7 +3288,6 @@ Respond in this exact JSON format:
             subject: emailSubject || "Following up on our call",
             body: emailBody,
             status: "pending",
-            channel: "email",
           });
           emailSent = true;
         }
@@ -3315,7 +3313,7 @@ Respond in this exact JSON format:
           dealId: dealId ? Number(dealId) : undefined,
           title: `Follow up: ${outcome} - ${contact.firstName} ${contact.lastName || ""}`.trim(),
           description: nextSteps || `Follow up after call. Outcome: ${outcome}`,
-          dueDate: new Date(nextFollowUpDate).toISOString(),
+          dueDate: new Date(nextFollowUpDate),
           priority: "normal",
         });
       }
@@ -3331,8 +3329,8 @@ Respond in this exact JSON format:
       if (sendEmail || sendSms) {
         const sequenceName = OUTCOME_TO_SEQUENCE[outcome];
         if (sequenceName) {
-          const allSequences = await storage.getSequences();
-          const matchedSeq = allSequences.find(s => s.name === sequenceName);
+          const allSequences = await storage.getFollowUpSequences();
+          const matchedSeq = allSequences.find((s) => s.name === sequenceName);
           if (matchedSeq) {
             await storage.createSequenceEnrollment({
               sequenceId: matchedSeq.id,
@@ -5299,7 +5297,7 @@ Respond in this exact JSON format:
 
   app.put("/api/email-signatures/:type", isAuthenticated, async (req, res) => {
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
-    const type = req.params.type;
+    const type = req.params.type as "sales" | "support" | "onboarding";
     await saveSignature(type, req.body);
     const sig = await getStoredSignature(type);
     res.json({
@@ -5930,7 +5928,7 @@ Respond in this exact JSON format:
         landingPage: "/free-analysis",
         promoCode: sanitizedPromo,
         painPoints: resolvedPainPoints.length > 0 ? resolvedPainPoints : undefined,
-        estimatedResidual: estimatedSavings || undefined,
+        estimatedResidual: estimatedSavings ? String(estimatedSavings) : undefined,
         status: "New",
         tags,
       });
