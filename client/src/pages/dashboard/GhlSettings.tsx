@@ -1,8 +1,12 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Loader2, Settings, CheckCircle2, XCircle, Key, MapPin, Calendar, Activity, Mail, Clock } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Loader2, Settings, CheckCircle2, XCircle, Key, MapPin, Calendar, Activity, Mail, Clock, Zap, ArrowRightLeft, Send } from "lucide-react";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import type { GhlActivityLog, MessageTemplate, SlaConfig } from "@shared/schema";
 
 interface GhlStatus {
@@ -12,9 +16,39 @@ interface GhlStatus {
   hasCalendarId: boolean;
 }
 
+interface HealthCheckResult {
+  connected: boolean;
+  latencyMs: number;
+  locationName?: string;
+  error?: string;
+}
+
+interface SyncStatus {
+  configured: boolean;
+  totalContacts: number;
+  syncedToGhl: number;
+  unsyncedToGhl: number;
+  lastSyncTo: any;
+  lastSyncFrom: any;
+  hotLeadSync?: { timestamp: string; synced: number; failed: number; total: number };
+  hotLeadEnrollment?: { timestamp: string; enrolled: number; skipped: number; blocked: number; total: number };
+}
+
 export default function GhlSettings() {
+  const { toast } = useToast();
+
   const { data: status, isLoading: statusLoading } = useQuery<GhlStatus>({
     queryKey: ["/api/ghl/status"],
+  });
+
+  const { data: healthResult } = useQuery<HealthCheckResult>({
+    queryKey: ["/api/ghl/health-check"],
+    refetchInterval: 60000,
+  });
+
+  const { data: syncStatus } = useQuery<SyncStatus>({
+    queryKey: ["/api/ghl/sync-status"],
+    refetchInterval: 15000,
   });
 
   const { data: activity, isLoading: activityLoading } = useQuery<GhlActivityLog[]>({
@@ -27,6 +61,40 @@ export default function GhlSettings() {
 
   const { data: slaConfigs, isLoading: slaLoading } = useQuery<SlaConfig[]>({
     queryKey: ["/api/sla-configs"],
+  });
+
+  const testConnectionMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/ghl/test-connection");
+      return res.json() as Promise<HealthCheckResult>;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/ghl/health-check"] });
+      if (data.connected) {
+        toast({ title: "GHL Connected", description: `Location: ${data.locationName} (${data.latencyMs}ms)` });
+      } else {
+        toast({ title: "Connection Failed", description: data.error || "Could not reach GHL", variant: "destructive" });
+      }
+    },
+    onError: () => toast({ title: "Error", description: "Failed to test connection", variant: "destructive" }),
+  });
+
+  const syncToGhlMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/ghl/sync-all-to-ghl"),
+    onSuccess: () => {
+      toast({ title: "Sync Started", description: "Pushing contacts to GHL" });
+      queryClient.invalidateQueries({ queryKey: ["/api/ghl/sync-status"] });
+    },
+    onError: () => toast({ title: "Error", variant: "destructive" }),
+  });
+
+  const syncHotLeadsMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/ghl/sync-hot-leads", { limit: 100 }),
+    onSuccess: () => {
+      toast({ title: "Hot Lead Sync Started", description: "Syncing up to 100 hot lead contacts to GHL" });
+      queryClient.invalidateQueries({ queryKey: ["/api/ghl/sync-status"] });
+    },
+    onError: () => toast({ title: "Error", variant: "destructive" }),
   });
 
   if (statusLoading) {
@@ -46,13 +114,58 @@ export default function GhlSettings() {
 
   return (
     <div className="space-y-6" data-testid="ghlsettings-page">
-      <div>
-        <div className="flex items-center gap-3">
-          <Settings className="w-5 h-5 text-muted-foreground" />
-          <h2 className="text-xl font-semibold" data-testid="text-ghlsettings-title">GHL Integration Settings</h2>
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <div className="flex items-center gap-3">
+            <Settings className="w-5 h-5 text-muted-foreground" />
+            <h2 className="text-xl font-semibold" data-testid="text-ghlsettings-title">GHL Integration Settings</h2>
+          </div>
+          <p className="text-sm text-muted-foreground mt-1">Manage your GoHighLevel integration and communication settings</p>
         </div>
-        <p className="text-sm text-muted-foreground mt-1">Manage your GoHighLevel integration and communication settings</p>
+        <div className="flex gap-2 flex-wrap">
+          <Button
+            variant="outline"
+            onClick={() => testConnectionMutation.mutate()}
+            disabled={testConnectionMutation.isPending}
+            className="gap-2"
+            data-testid="button-test-connection"
+          >
+            {testConnectionMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+            Test Connection
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => syncHotLeadsMutation.mutate()}
+            disabled={syncHotLeadsMutation.isPending}
+            className="gap-2"
+            data-testid="button-sync-hot-leads"
+          >
+            {syncHotLeadsMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+            Sync Hot Leads
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => syncToGhlMutation.mutate()}
+            disabled={syncToGhlMutation.isPending}
+            className="gap-2"
+            data-testid="button-sync-all"
+          >
+            {syncToGhlMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRightLeft className="w-4 h-4" />}
+            Sync All
+          </Button>
+        </div>
       </div>
+
+      {healthResult && (
+        <Alert variant={healthResult.connected ? "default" : "destructive"} data-testid="alert-health-result">
+          {healthResult.connected ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
+          <AlertDescription>
+            {healthResult.connected
+              ? `Connected to GHL. Location: ${healthResult.locationName}. Latency: ${healthResult.latencyMs}ms.`
+              : `Connection failed: ${healthResult.error}`}
+          </AlertDescription>
+        </Alert>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card data-testid="card-ghl-connection">
@@ -62,11 +175,14 @@ export default function GhlSettings() {
           </CardHeader>
           <CardContent>
             <div className="flex items-center gap-2">
-              <StatusIndicator configured={status?.configured ?? false} />
+              <StatusIndicator configured={healthResult?.connected ?? status?.configured ?? false} />
               <span className="text-lg font-semibold" data-testid="text-ghl-connection-status">
-                {status?.configured ? "Connected" : "Not Configured"}
+                {healthResult?.connected ? "Connected" : status?.configured ? "Configured" : "Not Configured"}
               </span>
             </div>
+            {healthResult?.locationName && (
+              <p className="text-xs text-muted-foreground mt-1" data-testid="text-ghl-location-name">{healthResult.locationName}</p>
+            )}
           </CardContent>
         </Card>
 
@@ -115,6 +231,53 @@ export default function GhlSettings() {
           </CardContent>
         </Card>
       </div>
+
+      {syncStatus && (
+        <Card data-testid="card-ghl-sync-status">
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <ArrowRightLeft className="w-4 h-4 text-muted-foreground" />
+              <CardTitle className="text-base">Sync Status</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+              <div>
+                <p className="text-muted-foreground">Total Contacts</p>
+                <p className="text-lg font-semibold" data-testid="text-sync-total">{syncStatus.totalContacts}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Synced to GHL</p>
+                <p className="text-lg font-semibold text-green-600" data-testid="text-sync-synced">{syncStatus.syncedToGhl}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Unsynced</p>
+                <p className="text-lg font-semibold text-amber-600" data-testid="text-sync-unsynced">{syncStatus.unsyncedToGhl}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Last Sync</p>
+                <p className="text-sm font-medium" data-testid="text-sync-last">
+                  {syncStatus.lastSyncTo?.timestamp
+                    ? new Date(syncStatus.lastSyncTo.timestamp).toLocaleString()
+                    : "Never"}
+                </p>
+              </div>
+            </div>
+            {syncStatus.hotLeadSync && (
+              <div className="mt-3 pt-3 border-t text-sm" data-testid="text-hot-lead-sync-result">
+                <p className="text-muted-foreground">Last Hot Lead Sync: {new Date(syncStatus.hotLeadSync.timestamp).toLocaleString()}</p>
+                <p>{syncStatus.hotLeadSync.synced} synced, {syncStatus.hotLeadSync.failed} failed of {syncStatus.hotLeadSync.total} total</p>
+              </div>
+            )}
+            {syncStatus.hotLeadEnrollment && (
+              <div className="mt-2 text-sm" data-testid="text-hot-lead-enrollment-result">
+                <p className="text-muted-foreground">Last Hot Lead Enrollment: {new Date(syncStatus.hotLeadEnrollment.timestamp).toLocaleString()}</p>
+                <p>{syncStatus.hotLeadEnrollment.enrolled} enrolled, {syncStatus.hotLeadEnrollment.skipped} skipped, {syncStatus.hotLeadEnrollment.blocked} blocked</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Card data-testid="card-ghl-instructions">
         <CardHeader>

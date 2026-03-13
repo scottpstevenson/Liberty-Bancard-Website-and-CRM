@@ -59,6 +59,36 @@ export function getGhlStatus() {
   };
 }
 
+export async function checkGhlHealth(): Promise<{
+  connected: boolean;
+  latencyMs: number;
+  locationName?: string;
+  error?: string;
+}> {
+  const config = getConfig();
+  if (!config) {
+    return { connected: false, latencyMs: 0, error: "GHL_API_KEY and GHL_LOCATION_ID not set" };
+  }
+
+  const start = Date.now();
+  try {
+    const data = await ghlFetch(`/locations/${config.locationId}`);
+    const latencyMs = Date.now() - start;
+    return {
+      connected: true,
+      latencyMs,
+      locationName: data?.location?.name || data?.name || "Unknown",
+    };
+  } catch (err: any) {
+    const latencyMs = Date.now() - start;
+    return {
+      connected: false,
+      latencyMs,
+      error: err.message,
+    };
+  }
+}
+
 export async function upsertGhlContact(contact: Contact): Promise<string> {
   const config = getConfig();
   if (!config) throw new Error("GHL not configured");

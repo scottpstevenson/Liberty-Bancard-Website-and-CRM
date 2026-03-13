@@ -10,7 +10,7 @@ import { eq, desc, ne, and, sql } from "drizzle-orm";
 import { registerAudioRoutes } from "./replit_integrations/audio/routes";
 import { z } from "zod";
 import { insertContactSchema, insertDealSchema, insertTicketSchema, insertTaskSchema, insertCompanySchema, insertDocumentSchema, insertNotificationSchema, insertWorkflowSchema, insertRfiSchema, insertMessageTemplateSchema, insertCollateralPacketSchema, insertSlaConfigSchema, insertProspectSchema, insertProspectListSchema, insertEnrichmentJobSchema, insertCampaignSchema, insertCampaignStepSchema, insertOutboundMessageSchema, insertNoteSchema, insertEmailLogSchema, insertCallLogSchema, insertStageAutomationRuleSchema, insertFollowUpSequenceSchema, insertSequenceStepSchema, insertSequenceEnrollmentSchema, insertMerchantApplicationSchema, insertEquipmentOrderSchema, insertAgentSchema, insertResidualReportSchema, insertMerchantResidualSchema, insertHealthAlertSchema, insertDealCompetitorSchema, insertPartnerSchema, insertReferralSchema, insertKnowledgeBaseSchema, insertReviewRequestSchema, insertOnboardingStepSchema, insertMerchantProfileSchema, insertConsentAuditLogSchema, insertCalendarEventSchema, insertAgentQuotaSchema, insertDataDeleteRequestSchema, insertCommentSchema, insertTicketCommentSchema, insertContactCompanySchema, insertPipelineStageSchema, insertNotificationPreferenceSchema, insertSavedFilterSchema } from "@shared/schema";
-import { isGhlConfigured, getGhlStatus, sendGhlEmail, sendGhlEmailForMerchant, sendGhlSms, sendTemplatedMessage, upsertGhlContact, handleGhlWebhook, getCalendarBookingUrl, sendDocumentForEsign, getDocumentStatus } from "./services/ghl";
+import { isGhlConfigured, getGhlStatus, checkGhlHealth, sendGhlEmail, sendGhlEmailForMerchant, sendGhlSms, sendTemplatedMessage, upsertGhlContact, handleGhlWebhook, getCalendarBookingUrl, sendDocumentForEsign, getDocumentStatus } from "./services/ghl";
 import { enrichProspect, runEnrichmentJob, processEnrichmentQueue, enrichContactBatch, isContactEnrichRunning } from "./services/enrichment";
 import { isSerperConfigured, getSerperUsage, resetSerperUsage } from "./services/serper";
 import { queueCampaignMessages, processSendQueue, getCampaignAnalytics } from "./services/campaign-engine";
@@ -1217,6 +1217,15 @@ OUTPUT FORMAT:
   // === GHL INTEGRATION ===
   app.get("/api/ghl/status", async (req, res) => {
     res.json(getGhlStatus());
+  });
+
+  app.get("/api/ghl/health-check", isAuthenticated, async (req, res) => {
+    try {
+      const result = await checkGhlHealth();
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ connected: false, latencyMs: 0, error: err.message });
+    }
   });
 
   app.post("/api/ghl/send-email", async (req, res) => {
@@ -5827,8 +5836,12 @@ Respond in this exact JSON format:
 
   // === GHL 2-WAY SYNC ===
   app.get("/api/ghl/sync-status", isAuthenticated, async (req, res) => {
-    const status = await getGhlSyncStatus();
-    res.json(status);
+    const [status, hotLeadSync, hotLeadEnrollment] = await Promise.all([
+      getGhlSyncStatus(),
+      storage.getSystemSetting("ghl_hot_lead_sync"),
+      storage.getSystemSetting("hot_lead_enrollment"),
+    ]);
+    res.json({ ...status, hotLeadSync, hotLeadEnrollment });
   });
 
   app.post("/api/ghl/sync-all-to-ghl", isAuthenticated, async (req, res) => {
@@ -5853,6 +5866,105 @@ Respond in this exact JSON format:
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
     const result = await syncDealToGhl(Number(req.params.id));
     res.json(result);
+  });
+
+  app.post("/api/ghl/sync-hot-leads", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
+    const maxContacts = Number(req.body.limit) || 100;
+    res.json({ message: `Syncing up to ${maxContacts} hot lead contacts to GHL...`, started: true });
+
+    (async () => {
+      try {
+        const deals = await storage.getDeals();
+        const newLeadDeals = deals.filter(d => d.stage === "New Lead" && d.contactId);
+        const contactIds = [...new Set(newLeadDeals.map(d => d.contactId!))].slice(0, maxContacts);
+
+        let synced = 0;
+        let failed = 0;
+        for (const contactId of contactIds) {
+          try {
+            const result = await syncContactToGhl(contactId);
+            if (result.success) synced++;
+            else failed++;
+          } catch { failed++; }
+          await new Promise(r => setTimeout(r, 300));
+        }
+
+        await storage.setSystemSetting("ghl_hot_lead_sync", {
+          timestamp: new Date().toISOString(),
+          synced,
+          failed,
+          total: contactIds.length,
+        });
+        console.log(`[GHL Hot Lead Sync] Complete: ${synced} synced, ${failed} failed out of ${contactIds.length}`);
+      } catch (err) {
+        console.error("[GHL Hot Lead Sync] Error:", err);
+      }
+    })();
+  });
+
+  app.post("/api/ghl/test-connection", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
+    try {
+      const health = await checkGhlHealth();
+      res.json(health);
+    } catch (err: any) {
+      res.status(500).json({ connected: false, latencyMs: 0, error: err.message });
+    }
+  });
+
+  app.post("/api/ghl/test-send-email", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
+    try {
+      const { contactId, subject, body } = req.body;
+      if (!contactId) return res.status(400).json({ message: "contactId required" });
+      const result = await sendGhlEmail({
+        contactId: Number(contactId),
+        subject: subject || "Test Email from Liberty Bancard CRM",
+        body: body || "<p>This is a test email sent through the GHL integration to verify connectivity.</p>",
+      });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.post("/api/outreach/enroll-hot-leads", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
+    const maxLeads = Number(req.body.limit) || 100;
+    res.json({ message: `Enrolling up to ${maxLeads} hot leads into sequences...`, started: true });
+
+    (async () => {
+      try {
+        const { routeContact } = await import("./services/smart-router");
+        const deals = await storage.getDeals();
+        const hotDeals = deals.filter(d => d.stage === "New Lead" && d.contactId);
+        const contactIds = [...new Set(hotDeals.map(d => d.contactId!))].slice(0, maxLeads);
+
+        let enrolled = 0;
+        let skipped = 0;
+        let blocked = 0;
+        for (const contactId of contactIds) {
+          try {
+            const result = await routeContact(contactId);
+            if (result.complianceBlocked) { blocked++; continue; }
+            if (result.sequenceIds.length > 0) enrolled++;
+            else skipped++;
+          } catch { skipped++; }
+        }
+
+        await storage.setSystemSetting("hot_lead_enrollment", {
+          timestamp: new Date().toISOString(),
+          enrolled,
+          skipped,
+          blocked,
+          total: contactIds.length,
+        });
+        console.log(`[Hot Lead Enrollment] Complete: ${enrolled} enrolled, ${skipped} skipped, ${blocked} compliance-blocked`);
+      } catch (err) {
+        console.error("[Hot Lead Enrollment] Error:", err);
+      }
+    })();
   });
 
   // === DAILY OUTREACH AUTOMATION ===

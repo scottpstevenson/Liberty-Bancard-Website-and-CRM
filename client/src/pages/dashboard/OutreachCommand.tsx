@@ -138,6 +138,24 @@ export default function OutreachCommand() {
     onError: () => toast({ title: "Error", variant: "destructive" }),
   });
 
+  const enrollHotLeadsMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/outreach/enroll-hot-leads", { limit: 100 }),
+    onSuccess: () => {
+      toast({ title: "Enrollment started", description: "Enrolling up to 100 hot leads into drip sequences" });
+      queryClient.invalidateQueries({ queryKey: ["/api/outreach/status"] });
+    },
+    onError: () => toast({ title: "Error", variant: "destructive" }),
+  });
+
+  const syncHotLeadsMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/ghl/sync-hot-leads", { limit: 100 }),
+    onSuccess: () => {
+      toast({ title: "Hot lead sync started", description: "Syncing up to 100 hot lead contacts to GHL" });
+      queryClient.invalidateQueries({ queryKey: ["/api/outreach/status"] });
+    },
+    onError: () => toast({ title: "Error", variant: "destructive" }),
+  });
+
   const saveSignatureMutation = useMutation({
     mutationFn: ({ type, data }: { type: string; data: any }) => apiRequest("PUT", `/api/email-signatures/${type}`, data),
     onSuccess: () => { toast({ title: "Signature saved" }); queryClient.invalidateQueries({ queryKey: ["/api/email-signatures"] }); setEditingSig(null); },
@@ -576,9 +594,17 @@ export default function OutreachCommand() {
                   )}
                 </div>
                 <div className="space-y-3">
-                  <Button onClick={() => syncToGhlMutation.mutate()} disabled={syncToGhlMutation.isPending || !s.ghlSync.configured} className="w-full gap-2" data-testid="button-sync-to-ghl">
+                  <Button onClick={() => syncHotLeadsMutation.mutate()} disabled={syncHotLeadsMutation.isPending || !s.ghlSync.configured} className="w-full gap-2" data-testid="button-sync-hot-leads">
+                    {syncHotLeadsMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Target className="w-4 h-4" />}
+                    Sync 100 Hot Leads → GHL
+                  </Button>
+                  <Button onClick={() => enrollHotLeadsMutation.mutate()} disabled={enrollHotLeadsMutation.isPending} variant="secondary" className="w-full gap-2" data-testid="button-enroll-hot-leads">
+                    {enrollHotLeadsMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
+                    Enroll Hot Leads in Sequences
+                  </Button>
+                  <Button onClick={() => syncToGhlMutation.mutate()} disabled={syncToGhlMutation.isPending || !s.ghlSync.configured} variant="outline" className="w-full gap-2" data-testid="button-sync-to-ghl">
                     {syncToGhlMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                    Push {s.ghlSync.unsyncedToGhl} Contacts → GHL
+                    Push All {s.ghlSync.unsyncedToGhl} Contacts → GHL
                   </Button>
                   <Button onClick={() => syncFromGhlMutation.mutate()} disabled={syncFromGhlMutation.isPending || !s.ghlSync.configured} variant="outline" className="w-full gap-2" data-testid="button-sync-from-ghl">
                     {syncFromGhlMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
