@@ -47,7 +47,9 @@ The system is built on a modern web stack, prioritizing scalability, responsiven
 - **Compliance Rules**: Adherence to regulatory guidelines, including explicit disclaimers and PCI compliance features.
 - **Outreach Command Center**: Full pipeline dashboard for managing the automated sales lifecycle, including Sunbiz entity import, AI enrichment/classification, lead scoring, deal creation, GHL sync, and daily automated outreach.
 - **Sunbiz Data Imports**: Streamed processing of large Sunbiz corporate databases (corevt and cordata) for entity enrichment, with efficient bulk upsert mechanisms.
-- **Enhanced Enrichment Pipeline**: 909K active FL businesses organized by vertical. Pure-SQL keyword classification (183K into 15 verticals), 88K unqualified filtered out, 308K cold for AI reclassification. Deep enrichment with self-healing (timeout/retry per step) finds email/phone/website via Google, YellowPages, Yelp, contact page scraping, and email pattern generation with MX verification. API endpoints: `/api/sunbiz/enrichment-dashboard`, `/api/sunbiz/run-pipeline`, `/api/sunbiz/bulk-ai-classify`, `/api/sunbiz/deep-enrich/:id`, `/api/sunbiz/deduplicate`, `/api/sunbiz/verticals`.
+- **Enhanced Enrichment Pipeline**: 909K active FL businesses organized by vertical. Pure-SQL keyword classification (183K into 15 verticals), 88K unqualified filtered out, 308K cold for AI reclassification. Deep enrichment with self-healing (timeout/retry per step) finds email/phone/website via Serper.dev API (primary) with YellowPages/Yelp/contact page scraping as fallback. API endpoints: `/api/sunbiz/enrichment-dashboard`, `/api/sunbiz/run-pipeline`, `/api/sunbiz/bulk-ai-classify`, `/api/sunbiz/deep-enrich/:id`, `/api/sunbiz/deduplicate`, `/api/sunbiz/verticals`.
+- **Serper.dev Integration**: Search API client (`server/services/serper.ts`) replaces raw Google scraping (which gets CAPTCHA'd). Functions: `searchBusiness()`, `searchBusinessEmail()`, `searchBusinessContacts()` with rate limiting (10 req/sec), usage tracking, and graceful fallback to raw Google when SERPER_API_KEY is not set. Usage tracked in system settings and displayed on enrichment dashboard. API endpoints: `/api/serper/status`, `/api/serper/reset-usage`.
+- **Contact Batch Enrichment**: Endpoint `/api/contacts/enrich-batch` enriches imported contacts missing email/phone using Serper search. Progress tracking via `/api/contacts/enrich-progress`.
 - **2-Way GHL Sync**: Bidirectional synchronization of contacts and deals with GoHighLevel.
 - **Daily Outreach Automation**: Background worker for continuous enrichment, promotion of qualified leads, deal creation, GHL syncing, and automated campaign messages with daily limits.
 - **Affiliate / Sales Team Program**: Public signup for sales reps, unique referral codes, performance tracking, and an admin dashboard for management.
@@ -57,5 +59,6 @@ The system is built on a modern web stack, prioritizing scalability, responsiven
 - **PostgreSQL**: Primary database.
 - **OpenAI API**: AI advisors, lead enrichment, scoring, deal blueprint generation, and AI auto-replies.
 - **GoHighLevel (GHL) API**: Contact sync, email/SMS sending, calendar management, inbound webhooks, and e-signature.
+- **Serper.dev API**: Google search API for business website discovery and contact enrichment ($50/50K searches). Env var: `SERPER_API_KEY`.
 - **Passport.js**: Authentication framework (passport-local + bcryptjs).
 - **Multer**: Handles `multipart/form-data` for file uploads.

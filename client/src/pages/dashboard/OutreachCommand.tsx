@@ -35,6 +35,21 @@ interface OutreachStatus {
   lastOutreachRun: any;
   workerRunning: boolean;
   workerStatus: any;
+  serper?: {
+    configured: boolean;
+    usage: {
+      totalCalls: number;
+      successfulCalls: number;
+      failedCalls: number;
+      websitesFound: number;
+      emailsFound: number;
+      phonesFound: number;
+      lastCallAt: string | null;
+      resetAt: string;
+      monthlyQuota: number;
+      remainingCalls: number;
+    };
+  };
 }
 
 interface SignatureData {
@@ -454,6 +469,68 @@ export default function OutreachCommand() {
                   <li>Scores leads as Hot, Warm, Cold, or Unqualified for merchant processing potential</li>
                 </ul>
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2"><Target className="w-5 h-5" /> Serper API (Search Engine)</CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Serper.dev replaces raw Google scraping for website discovery and contact search. {s.serper?.configured ? "Connected and active." : "Not configured — set SERPER_API_KEY to enable."}
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {s.serper?.configured ? (
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  <div className="rounded-lg border p-3 text-center">
+                    <div className="text-2xl font-bold" data-testid="text-serper-total-calls">{s.serper.usage.totalCalls.toLocaleString()}</div>
+                    <div className="text-xs text-muted-foreground">API Calls Used</div>
+                  </div>
+                  <div className="rounded-lg border p-3 text-center">
+                    <div className="text-2xl font-bold text-green-600" data-testid="text-serper-success">{s.serper.usage.successfulCalls.toLocaleString()}</div>
+                    <div className="text-xs text-muted-foreground">Successful</div>
+                  </div>
+                  <div className="rounded-lg border p-3 text-center">
+                    <div className="text-2xl font-bold text-red-600" data-testid="text-serper-failed">{s.serper.usage.failedCalls}</div>
+                    <div className="text-xs text-muted-foreground">Failed</div>
+                  </div>
+                  <div className="rounded-lg border p-3 text-center">
+                    <div className="text-2xl font-bold text-blue-600" data-testid="text-serper-websites">{s.serper.usage.websitesFound.toLocaleString()}</div>
+                    <div className="text-xs text-muted-foreground">Websites Found</div>
+                  </div>
+                  <div className="rounded-lg border p-3 text-center">
+                    <div className="text-2xl font-bold text-purple-600" data-testid="text-serper-emails">{s.serper.usage.emailsFound.toLocaleString()}</div>
+                    <div className="text-xs text-muted-foreground">Emails Found</div>
+                  </div>
+                  <div className="rounded-lg border p-3 text-center">
+                    <div className="text-2xl font-bold text-amber-600" data-testid="text-serper-phones">{s.serper.usage.phonesFound.toLocaleString()}</div>
+                    <div className="text-xs text-muted-foreground">Phones Found</div>
+                  </div>
+                </div>
+              ) : (
+                <Alert>
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>
+                    Serper API not configured. Add <code className="bg-muted px-1 rounded">SERPER_API_KEY</code> to enable search-powered enrichment. Without it, the pipeline falls back to raw Google scraping (gets CAPTCHA'd).
+                  </AlertDescription>
+                </Alert>
+              )}
+              {s.serper?.configured && (
+                <div className="space-y-1">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Budget: <strong data-testid="text-serper-remaining">{s.serper.usage.remainingCalls?.toLocaleString() || s.serper.usage.monthlyQuota?.toLocaleString()}</strong> / {(s.serper.usage.monthlyQuota || 50000).toLocaleString()} remaining</span>
+                  </div>
+                  <Progress value={s.serper.usage.monthlyQuota ? ((s.serper.usage.totalCalls / s.serper.usage.monthlyQuota) * 100) : 0} className="h-2" />
+                </div>
+              )}
+              {s.serper?.usage.lastCallAt && (
+                <p className="text-xs text-muted-foreground">Last API call: {new Date(s.serper.usage.lastCallAt).toLocaleString()} | Tracking since: {new Date(s.serper.usage.resetAt).toLocaleDateString()}</p>
+              )}
+              {s.serper?.usage.totalCalls ? (
+                <p className="text-xs text-muted-foreground">
+                  Hit rates: {s.serper.usage.totalCalls > 0 ? Math.round((s.serper.usage.websitesFound / s.serper.usage.totalCalls) * 100) : 0}% websites, {s.serper.usage.totalCalls > 0 ? Math.round((s.serper.usage.emailsFound / s.serper.usage.totalCalls) * 100) : 0}% emails, {s.serper.usage.totalCalls > 0 ? Math.round((s.serper.usage.phonesFound / s.serper.usage.totalCalls) * 100) : 0}% phones
+                </p>
+              ) : null}
             </CardContent>
           </Card>
 

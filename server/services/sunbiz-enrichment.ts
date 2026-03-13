@@ -4,6 +4,7 @@ import { sql } from "drizzle-orm";
 import type { SunbizEntity } from "@shared/schema";
 import OpenAI from "openai";
 import { toProperCase } from "./sunbiz-scraper";
+import { isSerperConfigured, searchBusiness, searchBusinessEmail, searchBusinessContacts } from "./serper";
 
 function getOpenAI() {
   return new OpenAI({
@@ -580,11 +581,29 @@ export async function enrichSunbizEntity(entityId: number): Promise<SunbizEntity
   }
 
   if (!website) {
-    console.log(`[Enrich] Step 2: Google website search`);
-    website = await searchGoogleForWebsite(entity.entityName, city);
-    if (website) {
-      sources.push("google_website");
-      console.log(`[Enrich]   → Found website: ${website}`);
+    if (isSerperConfigured()) {
+      console.log(`[Enrich] Step 2: Serper business search`);
+      const serperResult = await searchBusiness(entity.entityName, city);
+      if (serperResult.website) {
+        website = serperResult.website;
+        sources.push(...serperResult.sources);
+        console.log(`[Enrich]   → Serper found website: ${website}`);
+      }
+      if (serperResult.emails.length > 0) {
+        foundEmails.push(...serperResult.emails);
+        console.log(`[Enrich]   → Serper found emails: ${serperResult.emails.join(", ")}`);
+      }
+      if (serperResult.phones.length > 0) {
+        foundPhones.push(...serperResult.phones);
+        console.log(`[Enrich]   → Serper found phones: ${serperResult.phones.join(", ")}`);
+      }
+    } else {
+      console.log(`[Enrich] Step 2: Google website search (Serper not configured)`);
+      website = await searchGoogleForWebsite(entity.entityName, city);
+      if (website) {
+        sources.push("google_website");
+        console.log(`[Enrich]   → Found website: ${website}`);
+      }
     }
     await new Promise(r => setTimeout(r, 500));
   }
@@ -661,11 +680,19 @@ export async function enrichSunbizEntity(entityId: number): Promise<SunbizEntity
   }
 
   if (foundEmails.length === 0 || foundPhones.length === 0) {
-    console.log(`[Enrich] Step 9: Google direct contact search`);
-    const gc = await searchGoogleForContacts(entity.entityName, city, address);
-    if (gc.emails.length > 0) { foundEmails.push(...gc.emails); sources.push("google_contacts"); }
-    if (gc.phones.length > 0) { foundPhones.push(...gc.phones); sources.push("google_contacts"); }
-    if (gc.website && !website) { website = gc.website; sources.push("google_contacts_website"); }
+    if (isSerperConfigured()) {
+      console.log(`[Enrich] Step 9: Serper contact search`);
+      const sc = await searchBusinessContacts(entity.entityName, city, address);
+      if (sc.emails.length > 0) { foundEmails.push(...sc.emails); sources.push(...sc.sources); }
+      if (sc.phones.length > 0) { foundPhones.push(...sc.phones); sources.push(...sc.sources); }
+      if (sc.website && !website) { website = sc.website; sources.push("serper_contacts_website"); }
+    } else {
+      console.log(`[Enrich] Step 9: Google direct contact search`);
+      const gc = await searchGoogleForContacts(entity.entityName, city, address);
+      if (gc.emails.length > 0) { foundEmails.push(...gc.emails); sources.push("google_contacts"); }
+      if (gc.phones.length > 0) { foundPhones.push(...gc.phones); sources.push("google_contacts"); }
+      if (gc.website && !website) { website = gc.website; sources.push("google_contacts_website"); }
+    }
     await new Promise(r => setTimeout(r, 500));
   }
 
@@ -705,16 +732,30 @@ export async function enrichSunbizEntity(entityId: number): Promise<SunbizEntity
   }
 
   if (foundEmails.length === 0) {
-    console.log(`[Enrich] Step 13: Google email search`);
-    const clean = cleanEntityName(entity.entityName);
-    const emailQuery = city ? `"${clean}" "${city}" FL email "@"` : `"${clean}" Florida email "@"`;
-    const emailHtml = await googleSearch(emailQuery);
-    if (emailHtml) {
-      const serpEmails = extractContactFromHtml(emailHtml);
-      if (serpEmails.emails.length > 0) {
-        foundEmails.push(...serpEmails.emails);
-        sources.push("google_email_search");
-        console.log(`[Enrich]   → Google email: ${serpEmails.emails[0]}`);
+    if (isSerperConfigured()) {
+      console.log(`[Enrich] Step 13: Serper email search`);
+      const domain = website || undefined;
+      const se = await searchBusinessEmail(entity.entityName, domain, city);
+      if (se.emails.length > 0) {
+        foundEmails.push(...se.emails);
+        sources.push(...se.sources);
+        console.log(`[Enrich]   → Serper email: ${se.emails[0]}`);
+      }
+      if (se.phones.length > 0 && foundPhones.length === 0) {
+        foundPhones.push(...se.phones);
+      }
+    } else {
+      console.log(`[Enrich] Step 13: Google email search`);
+      const clean = cleanEntityName(entity.entityName);
+      const emailQuery = city ? `"${clean}" "${city}" FL email "@"` : `"${clean}" Florida email "@"`;
+      const emailHtml = await googleSearch(emailQuery);
+      if (emailHtml) {
+        const serpEmails = extractContactFromHtml(emailHtml);
+        if (serpEmails.emails.length > 0) {
+          foundEmails.push(...serpEmails.emails);
+          sources.push("google_email_search");
+          console.log(`[Enrich]   → Google email: ${serpEmails.emails[0]}`);
+        }
       }
     }
     await new Promise(r => setTimeout(r, 500));
@@ -1178,10 +1219,19 @@ export async function deepEnrichEntity(entityId: number): Promise<{
   const sources: string[] = [];
 
   if (!website) {
-    try {
-      const w = await withTimeout(() => searchGoogleForWebsite(searchName, city), 8000, null);
-      if (w) { website = w; sources.push("google"); }
-    } catch (err) { console.warn(`[DeepEnrich] Google website search failed for ${entityId}:`, err); }
+    if (isSerperConfigured()) {
+      try {
+        const sr = await withTimeout(() => searchBusiness(searchName, city), 10000, { website: null, emails: [], phones: [], knowledgeGraphPhone: null, knowledgeGraphWebsite: null, organicUrls: [], sources: [] });
+        if (sr.website) { website = sr.website; sources.push(...sr.sources); }
+        if (sr.emails.length > 0) foundEmails.push(...sr.emails);
+        if (sr.phones.length > 0) foundPhones.push(...sr.phones);
+      } catch (err) { console.warn(`[DeepEnrich] Serper search failed for ${entityId}:`, err); }
+    } else {
+      try {
+        const w = await withTimeout(() => searchGoogleForWebsite(searchName, city), 8000, null);
+        if (w) { website = w; sources.push("google"); }
+      } catch (err) { console.warn(`[DeepEnrich] Google website search failed for ${entityId}:`, err); }
+    }
     await new Promise(r => setTimeout(r, 300));
   }
 
@@ -1221,12 +1271,21 @@ export async function deepEnrichEntity(entityId: number): Promise<{
   }
 
   if (foundPhones.length === 0 || foundEmails.length === 0) {
-    try {
-      const gc = await withTimeout(() => searchGoogleForContacts(searchName, city, entity!.principalAddress || undefined), 8000, { emails: [], phones: [], website: null });
-      if (gc.phones.length > 0) { foundPhones.push(...gc.phones); sources.push("google_contacts"); }
-      if (gc.emails.length > 0) { foundEmails.push(...gc.emails); sources.push("google_contacts"); }
-      if (gc.website && !website) { website = gc.website; }
-    } catch (err) { console.warn(`[DeepEnrich] Google contacts failed for ${entityId}:`, err); }
+    if (isSerperConfigured()) {
+      try {
+        const sc = await withTimeout(() => searchBusinessContacts(searchName, city, entity!.principalAddress || undefined), 10000, { emails: [], phones: [], website: null, sources: [] });
+        if (sc.phones.length > 0) { foundPhones.push(...sc.phones); sources.push(...sc.sources); }
+        if (sc.emails.length > 0) { foundEmails.push(...sc.emails); sources.push(...sc.sources); }
+        if (sc.website && !website) { website = sc.website; }
+      } catch (err) { console.warn(`[DeepEnrich] Serper contacts failed for ${entityId}:`, err); }
+    } else {
+      try {
+        const gc = await withTimeout(() => searchGoogleForContacts(searchName, city, entity!.principalAddress || undefined), 8000, { emails: [], phones: [], website: null });
+        if (gc.phones.length > 0) { foundPhones.push(...gc.phones); sources.push("google_contacts"); }
+        if (gc.emails.length > 0) { foundEmails.push(...gc.emails); sources.push("google_contacts"); }
+        if (gc.website && !website) { website = gc.website; }
+      } catch (err) { console.warn(`[DeepEnrich] Google contacts failed for ${entityId}:`, err); }
+    }
     await new Promise(r => setTimeout(r, 300));
   }
 

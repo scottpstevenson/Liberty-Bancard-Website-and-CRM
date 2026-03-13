@@ -9,7 +9,8 @@ import { registerAudioRoutes } from "./replit_integrations/audio/routes";
 import { z } from "zod";
 import { insertContactSchema, insertDealSchema, insertTicketSchema, insertTaskSchema, insertCompanySchema, insertDocumentSchema, insertNotificationSchema, insertWorkflowSchema, insertRfiSchema, insertMessageTemplateSchema, insertCollateralPacketSchema, insertSlaConfigSchema, insertProspectSchema, insertProspectListSchema, insertEnrichmentJobSchema, insertCampaignSchema, insertCampaignStepSchema, insertOutboundMessageSchema, insertNoteSchema, insertEmailLogSchema, insertCallLogSchema, insertStageAutomationRuleSchema, insertFollowUpSequenceSchema, insertSequenceStepSchema, insertSequenceEnrollmentSchema, insertMerchantApplicationSchema, insertEquipmentOrderSchema, insertAgentSchema, insertResidualReportSchema, insertMerchantResidualSchema, insertHealthAlertSchema, insertDealCompetitorSchema, insertPartnerSchema, insertReferralSchema, insertKnowledgeBaseSchema, insertReviewRequestSchema, insertOnboardingStepSchema, insertMerchantProfileSchema, insertConsentAuditLogSchema, insertCalendarEventSchema, insertAgentQuotaSchema, insertDataDeleteRequestSchema, insertCommentSchema, insertTicketCommentSchema, insertContactCompanySchema, insertPipelineStageSchema, insertNotificationPreferenceSchema, insertSavedFilterSchema } from "@shared/schema";
 import { isGhlConfigured, getGhlStatus, sendGhlEmail, sendGhlEmailForMerchant, sendGhlSms, sendTemplatedMessage, upsertGhlContact, handleGhlWebhook, getCalendarBookingUrl, sendDocumentForEsign, getDocumentStatus } from "./services/ghl";
-import { enrichProspect, runEnrichmentJob, processEnrichmentQueue } from "./services/enrichment";
+import { enrichProspect, runEnrichmentJob, processEnrichmentQueue, enrichContactBatch, isContactEnrichRunning } from "./services/enrichment";
+import { isSerperConfigured, getSerperUsage, resetSerperUsage } from "./services/serper";
 import { queueCampaignMessages, processSendQueue, getCampaignAnalytics } from "./services/campaign-engine";
 import { autoEnrollFromTrigger } from "./services/sequence-worker";
 import { triggerWorkflowsByEvent, executeWorkflowActions } from "./services/workflow-executor";
@@ -93,6 +94,73 @@ export async function registerRoutes(
     const updated = await storage.updateContact(Number(req.params.id), req.body);
     if (!updated) return res.status(404).json({ message: "Not found" });
     res.json(updated);
+  });
+
+  app.post("/api/contacts/enrich-batch", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
+    try {
+      const schema = z.object({
+        contactIds: z.array(z.number().int().positive()).optional().default([]),
+        limit: z.number().int().min(1).max(1000).optional().default(100),
+      });
+
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: parsed.error.errors[0].message, errors: parsed.error.errors });
+      }
+
+      if (isContactEnrichRunning()) {
+        return res.status(409).json({ message: "Contact enrichment is already running. Check progress at /api/contacts/enrich-progress." });
+      }
+
+      if (!isSerperConfigured()) {
+        return res.status(400).json({ message: "Serper API key not configured. Set SERPER_API_KEY environment variable." });
+      }
+
+      let contactIds = parsed.data.contactIds;
+      const limit = parsed.data.limit;
+
+      if (contactIds.length === 0) {
+        const allContacts = await storage.getContacts();
+        contactIds = allContacts
+          .filter(c => !c.email || !c.phone)
+          .slice(0, limit)
+          .map(c => c.id);
+      }
+
+      if (contactIds.length === 0) {
+        return res.json({ message: "No contacts need enrichment", processed: 0 });
+      }
+
+      res.json({
+        message: `Enrichment started for ${contactIds.length} contacts`,
+        total: contactIds.length,
+        started: true,
+      });
+
+      enrichContactBatch(contactIds).catch(err =>
+        console.error("[ContactEnrich API] Error:", err)
+      );
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/contacts/enrich-progress", isAuthenticated, async (req, res) => {
+    const progress = await storage.getSystemSetting("contact_enrich_batch_progress");
+    res.json(progress || { status: "idle" });
+  });
+
+  app.get("/api/serper/status", isAuthenticated, async (req, res) => {
+    const configured = isSerperConfigured();
+    const usage = await getSerperUsage();
+    res.json({ configured, usage });
+  });
+
+  app.post("/api/serper/reset-usage", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+    await resetSerperUsage();
+    res.json({ success: true, message: "Serper usage stats reset" });
   });
 
   // === COMPANIES ===
@@ -5790,6 +5858,8 @@ Respond in this exact JSON format:
     const campaigns = await storage.getCampaigns();
     const activeCampaigns = campaigns.filter(c => c.status === "active").length;
 
+    const serperUsage = await getSerperUsage();
+
     res.json({
       entities: entityStats,
       prospects: prospectStats,
@@ -5804,6 +5874,10 @@ Respond in this exact JSON format:
       lastOutreachRun,
       workerRunning: isWorkerRunning(),
       workerStatus,
+      serper: {
+        configured: isSerperConfigured(),
+        usage: serperUsage,
+      },
     });
   });
 

@@ -1,6 +1,7 @@
 import { storage } from "../storage";
 import type { Prospect } from "@shared/schema";
 import OpenAI from "openai";
+import { isSerperConfigured, searchBusiness, searchBusinessEmail } from "./serper";
 
 function getOpenAI() {
   return new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
@@ -110,15 +111,40 @@ export async function enrichProspect(prospectId: number): Promise<Prospect | nul
 
   let websiteText: string | null = null;
   let domain = prospect.website;
+  let foundEmail = prospect.email || null;
+  let foundPhone = prospect.phone || null;
 
   if (!domain && prospect.email) {
     domain = inferDomainFromEmail(prospect.email) || null;
   }
 
+  if (isSerperConfigured() && (!domain || !foundEmail || !foundPhone)) {
+    const companyName = prospect.companyName || "";
+    if (companyName) {
+      const serperResult = await searchBusiness(companyName, prospect.city || undefined, prospect.state || "FL");
+      if (serperResult.website && !domain) {
+        domain = serperResult.website;
+      }
+      if (serperResult.emails.length > 0 && !foundEmail) {
+        foundEmail = serperResult.emails[0];
+      }
+      if (serperResult.phones.length > 0 && !foundPhone) {
+        foundPhone = serperResult.phones[0];
+      }
+
+      if (!foundEmail && domain) {
+        const emailResult = await searchBusinessEmail(companyName, domain, prospect.city || undefined);
+        if (emailResult.emails.length > 0) {
+          foundEmail = emailResult.emails[0];
+        }
+      }
+    }
+  }
+
   if (domain) {
     const cleanDomain = domain.replace(/^https?:\/\//, "").replace(/\/$/, "");
     websiteText = await scrapeWebsiteInfo(cleanDomain);
-    if (!prospect.website && domain) {
+    if (!prospect.website) {
       await storage.updateProspect(prospectId, { website: cleanDomain });
     }
   }
@@ -131,6 +157,9 @@ export async function enrichProspect(prospectId: number): Promise<Prospect | nul
     status: "enriched",
   };
 
+  if (foundEmail && !prospect.email) updates.email = foundEmail;
+  if (foundPhone && !prospect.phone) updates.phone = foundPhone;
+  if (domain && !prospect.website) updates.website = domain.replace(/^https?:\/\//, "").replace(/\/$/, "");
   if (result.vertical) updates.vertical = result.vertical;
   if (result.estimatedRevenue) updates.estimatedRevenue = result.estimatedRevenue;
   if (result.scoreReason) updates.notes = `${prospect.notes || ""}\n[AI Score: ${result.score}] ${result.scoreReason}`.trim();
@@ -183,4 +212,143 @@ export async function processEnrichmentQueue(): Promise<void> {
 
   const job = pendingJobs[0];
   await runEnrichmentJob(job.id);
+}
+
+let contactEnrichRunning = false;
+export function isContactEnrichRunning() { return contactEnrichRunning; }
+
+export async function enrichContactBatch(
+  contactIds: number[],
+  options?: { batchSize?: number }
+): Promise<{ processed: number; emailsFound: number; phonesFound: number; websitesFound: number; errors: number }> {
+  if (contactEnrichRunning) {
+    console.warn("[ContactEnrich] Already running, skipping.");
+    return { processed: 0, emailsFound: 0, phonesFound: 0, websitesFound: 0, errors: 0 };
+  }
+  contactEnrichRunning = true;
+  const batchSize = options?.batchSize || 10;
+  let processed = 0;
+  let emailsFound = 0;
+  let phonesFound = 0;
+  let websitesFound = 0;
+  let errors = 0;
+
+  const progressKey = "contact_enrich_batch_progress";
+
+  try {
+    await storage.setSystemSetting(progressKey, {
+      status: "running",
+      total: contactIds.length,
+      processed: 0,
+      emailsFound: 0,
+      phonesFound: 0,
+      websitesFound: 0,
+      errors: 0,
+      startedAt: new Date().toISOString(),
+    });
+
+    for (let i = 0; i < contactIds.length; i += batchSize) {
+      const batch = contactIds.slice(i, i + batchSize);
+
+      for (const contactId of batch) {
+        try {
+          const contact = await storage.getContact(contactId);
+          if (!contact) { errors++; continue; }
+
+          const companyName = contact.companyName || `${contact.firstName || ""} ${contact.lastName || ""}`.trim();
+          if (!companyName) { errors++; continue; }
+
+          const needsEmail = !contact.email;
+          const needsPhone = !contact.phone;
+          const needsWebsite = !contact.website;
+
+          if (!needsEmail && !needsPhone && !needsWebsite) {
+            processed++;
+            continue;
+          }
+
+          if (!isSerperConfigured()) {
+            errors++;
+            continue;
+          }
+
+          const serperResult = await searchBusiness(companyName, contact.city || undefined, contact.state || "FL");
+          const updates: Record<string, any> = {};
+
+          if (serperResult.website && needsWebsite) {
+            updates.website = serperResult.website;
+            websitesFound++;
+          }
+          if (serperResult.emails.length > 0 && needsEmail) {
+            updates.email = serperResult.emails[0];
+            emailsFound++;
+          }
+          if (serperResult.phones.length > 0 && needsPhone) {
+            updates.phone = serperResult.phones[0];
+            phonesFound++;
+          }
+
+          if (needsEmail && !updates.email && serperResult.website) {
+            const emailResult = await searchBusinessEmail(companyName, serperResult.website, contact.city || undefined);
+            if (emailResult.emails.length > 0) {
+              updates.email = emailResult.emails[0];
+              emailsFound++;
+            }
+          }
+
+          if (Object.keys(updates).length > 0) {
+            await storage.updateContact(contactId, updates);
+          }
+
+          processed++;
+        } catch (err) {
+          console.error(`[ContactEnrich] Error enriching contact ${contactId}:`, err);
+          errors++;
+        }
+
+        await new Promise(r => setTimeout(r, 200));
+      }
+
+      await storage.setSystemSetting(progressKey, {
+        status: "running",
+        total: contactIds.length,
+        processed,
+        emailsFound,
+        phonesFound,
+        websitesFound,
+        errors,
+        completed: processed + errors,
+        lastUpdate: new Date().toISOString(),
+      });
+    }
+
+    await storage.setSystemSetting(progressKey, {
+      status: "complete",
+      total: contactIds.length,
+      processed,
+      emailsFound,
+      phonesFound,
+      websitesFound,
+      errors,
+      completed: processed + errors,
+      completedAt: new Date().toISOString(),
+    });
+  } catch (fatalErr) {
+    console.error("[ContactEnrich] Fatal error in batch enrichment:", fatalErr);
+    await storage.setSystemSetting(progressKey, {
+      status: "failed",
+      total: contactIds.length,
+      processed,
+      emailsFound,
+      phonesFound,
+      websitesFound,
+      errors,
+      error: String(fatalErr),
+      failedAt: new Date().toISOString(),
+    }).catch(() => {});
+  } finally {
+    contactEnrichRunning = false;
+  }
+
+  return { processed, emailsFound, phonesFound, websitesFound, errors };
 }
