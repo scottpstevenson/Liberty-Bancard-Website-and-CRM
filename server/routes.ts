@@ -641,6 +641,142 @@ export async function registerRoutes(
     }
   }
 
+  const autoProposalRateLimit = new Map<string, number>();
+  const AUTO_PROPOSAL_COOLDOWN_MS = 60 * 1000;
+
+  async function autoGenerateProposal(dealId: number, contactId: number, meta: { vertical?: string; businessName?: string; contactName?: string; email?: string; consentEmail?: boolean }) {
+    try {
+      if (meta.email) {
+        const lastCall = autoProposalRateLimit.get(meta.email);
+        if (lastCall && Date.now() - lastCall < AUTO_PROPOSAL_COOLDOWN_MS) {
+          console.log("[AutoProposal] Rate limited for", meta.email);
+          return;
+        }
+        autoProposalRateLimit.set(meta.email, Date.now());
+        if (autoProposalRateLimit.size > 1000) {
+          const oldest = [...autoProposalRateLimit.entries()].sort((a, b) => a[1] - b[1]).slice(0, 500);
+          oldest.forEach(([key]) => autoProposalRateLimit.delete(key));
+        }
+      }
+
+      const deal = await storage.getDeal(dealId);
+      if (!deal) return;
+      const contact = await storage.getContact(contactId);
+      if (!contact) return;
+
+      const volume = parseFloat((deal.totalVolume || "15000").toString().replace(/[^0-9.]/g, "")) || 15000;
+      const effectiveRate = parseFloat((deal.effectiveRate || "2.8").toString().replace(/[^0-9.]/g, "")) || 2.8;
+      const avgTicket = parseFloat((deal.avgTicket || "50").toString().replace(/[^0-9.]/g, "")) || 50;
+      const currentMonthlyFees = volume * (effectiveRate / 100);
+
+      let proposalData: any;
+
+      const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+      const baseURL = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
+      if (apiKey) {
+        try {
+          const { OpenAI } = await import("openai");
+          const openai = new OpenAI({ apiKey, baseURL });
+
+          const completion = await openai.chat.completions.create({
+            model: "gpt-4o",
+            messages: [
+              {
+                role: "system",
+                content: `You are Liberty Bancard's AI Pricing Strategist. Generate a brief, professional savings estimate email for a merchant who just uploaded their processing statement. Be concise and professional. Include a disclaimer that this is a preliminary estimate and actual savings depend on full statement review.
+
+Return JSON with:
+- subject: email subject line
+- body: plain text email body (use \\n for line breaks)
+- estimatedSavingsRange: string like "$200-$500/month"
+- recommendedProgram: one of ["Cash Discount", "Interchange Plus", "Dual Pricing"]`
+              },
+              {
+                role: "user",
+                content: `Merchant: ${meta.businessName || contact.companyName || meta.contactName || "Unknown"}
+Industry: ${meta.vertical || contact.vertical || "General"}
+Estimated Monthly Volume: $${volume.toLocaleString()}
+Estimated Effective Rate: ${effectiveRate}%
+Current Monthly Fees: $${currentMonthlyFees.toFixed(2)}
+Average Ticket: $${avgTicket.toFixed(2)}
+Current Provider: ${contact.currentProvider || "Unknown"}`
+              }
+            ],
+            max_tokens: 800,
+          });
+
+          const raw = completion.choices[0]?.message?.content || "";
+          const jsonMatch = raw.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            proposalData = JSON.parse(jsonMatch[0]);
+          }
+        } catch (aiErr: any) {
+          console.error("[AutoProposal] AI call failed:", aiErr.message?.slice(0, 100));
+        }
+      } else {
+        console.log("[AutoProposal] No OpenAI API key configured, using fallback proposal");
+      }
+
+      if (!proposalData || !proposalData.subject || !proposalData.body) {
+        const merchantName = meta.contactName || contact.firstName || "there";
+        const savingsEst = Math.round(currentMonthlyFees * 0.25);
+        proposalData = {
+          subject: `Your Statement Review Is Underway — ${meta.businessName || "Your Business"}`,
+          body: `Hi ${merchantName},\n\nThank you for uploading your processing statement. Our team is reviewing it now.\n\nBased on your industry and estimated volume ($${volume.toLocaleString()}/month), merchants like you typically save $${savingsEst}-$${savingsEst * 2}/month by switching to transparent interchange-plus pricing.\n\nWe'll have your full line-by-line breakdown ready within one business day. In the meantime, feel free to call or text us at 954-266-8214 with any questions.\n\nBest,\nLiberty Bancard Team\n\nDisclaimer: This is a preliminary estimate. Actual savings depend on full statement review. Eligibility, underwriting, card brand rules, and applicable laws apply.`,
+          estimatedSavingsRange: `$${savingsEst}-$${savingsEst * 2}/month`,
+          recommendedProgram: "Interchange Plus",
+        };
+      }
+
+      await storage.updateDeal(dealId, {
+        savingsProposal: proposalData,
+        proposalGeneratedAt: new Date(),
+        recommendedPath: proposalData.recommendedProgram || deal.recommendedPath,
+      });
+
+      await storage.createAuditLog({
+        action: "auto_proposal_generated",
+        entityType: "deal",
+        entityId: dealId,
+        details: {
+          source: "statement_upload_auto",
+          recommendedProgram: proposalData.recommendedProgram,
+          estimatedSavings: proposalData.estimatedSavingsRange,
+        },
+      });
+
+      const hasEmailConsent = meta.consentEmail === true;
+      if (meta.email && hasEmailConsent && proposalData.subject && proposalData.body) {
+        try {
+          await sendGhlEmail({
+            contactId,
+            dealId,
+            subject: proposalData.subject,
+            body: proposalData.body,
+          });
+          await storage.createAuditLog({
+            action: "auto_proposal_emailed",
+            entityType: "deal",
+            entityId: dealId,
+            details: { email: meta.email, subject: proposalData.subject },
+          });
+        } catch (emailErr: any) {
+          console.error("[AutoProposal] Email send failed:", emailErr.message?.slice(0, 100));
+        }
+      }
+
+      await storage.createNotification({
+        channel: "internal",
+        title: "Auto-Proposal Generated",
+        message: `Auto-proposal for ${meta.contactName || meta.email || "Unknown"} - ${proposalData.estimatedSavingsRange || "N/A"} estimated savings${hasEmailConsent ? " (emailed)" : " (stored, not emailed - no consent)"}`,
+        type: "info",
+        metadata: { dealId, contactId },
+      });
+    } catch (err: any) {
+      console.error("[AutoProposal] Error:", err.message?.slice(0, 200));
+    }
+  }
+
   // === PUBLIC FORM SUBMISSIONS ===
   app.post("/api/public/statement-upload", async (req, res) => {
     try {
@@ -714,6 +850,14 @@ export async function registerRoutes(
       autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "statement_upload" }).catch(err => console.error("Auto-enroll error:", err));
       triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: deal.id }, { formType: "statement_upload" }).catch(err => console.error("Workflow trigger error:", err));
       if (consentSms) sendConfirmationSms(contact.id, firstName, "statement_upload", deal.id).catch(err => console.error("Confirm SMS error:", err));
+
+      autoGenerateProposal(deal.id, contact.id, {
+        vertical,
+        businessName,
+        contactName: `${firstName} ${lastName}`,
+        email,
+        consentEmail: consentSms === true, // Form consent covers both SMS and email per consent label
+      }).catch(err => console.error("Auto-proposal generation error:", err));
 
       res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id });
     } catch (err: any) {

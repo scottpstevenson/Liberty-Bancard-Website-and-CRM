@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { trackQuizStart, trackQuizComplete, trackConversion } from "@/lib/tracking";
+import { trackQuizStart, trackQuizStep, trackQuizComplete, trackConversion, trackFormSubmission } from "@/lib/tracking";
 import {
   ArrowLeft,
   ArrowRight,
@@ -354,6 +354,7 @@ export default function FreeAnalysis() {
   const handleNext = () => {
     if (step < TOTAL_STEPS && canProceed()) {
       if (step === 1) trackQuizStart();
+      trackQuizStep(step, stepNames[step - 1]);
       setStep(step + 1);
     }
   };
@@ -395,6 +396,7 @@ export default function FreeAnalysis() {
       });
       setSubmitted(true);
       trackQuizComplete();
+      trackFormSubmission("free_analysis_quiz", results?.estimatedAnnualSavings);
       trackConversion("free_analysis_quiz", results?.estimatedAnnualSavings);
     } catch (error: any) {
       toast({
@@ -693,6 +695,20 @@ export default function FreeAnalysis() {
     "Last step - where should we send your results?",
   ];
 
+  const stepNames = [
+    "industry_selection",
+    "volume_selection",
+    "processor_selection",
+    "pain_points",
+    "contact_info",
+  ];
+
+  const stepEncouragement: Record<number, string> = {
+    3: "Great progress! Just 2 more quick questions.",
+    4: "Almost there! One more step after this.",
+    5: "Final step! Your personalized savings estimate is seconds away.",
+  };
+
   return (
     <div className="min-h-screen flex flex-col font-body bg-background">
       <SEO
@@ -771,9 +787,16 @@ export default function FreeAnalysis() {
               />
             ))}
           </div>
-          <p className="text-xs text-muted-foreground text-right mb-6" data-testid="text-step-counter">
-            Step {step} of {TOTAL_STEPS}
-          </p>
+          <div className="flex items-center justify-between mb-6">
+            {stepEncouragement[step] ? (
+              <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium" data-testid="text-step-encouragement">
+                {stepEncouragement[step]}
+              </p>
+            ) : <span />}
+            <p className="text-xs text-muted-foreground" data-testid="text-step-counter">
+              Step {step} of {TOTAL_STEPS}
+            </p>
+          </div>
 
           <Card data-testid="card-quiz">
             <CardContent className="p-6 sm:p-8">

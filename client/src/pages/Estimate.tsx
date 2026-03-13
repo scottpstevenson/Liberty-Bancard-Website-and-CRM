@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation } from "@tanstack/react-query";
 import { getStoredUTMParams } from "@/lib/utm";
-import { trackEstimateRequest } from "@/lib/tracking";
+import { trackEstimateRequest, trackFormSubmission } from "@/lib/tracking";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { Button } from "@/components/ui/button";
@@ -101,6 +101,7 @@ export default function Estimate() {
     },
     onSuccess: () => {
       trackEstimateRequest();
+      trackFormSubmission("estimate_request");
       setLocation("/thanks-estimate");
     },
     onError: (error: Error) => {

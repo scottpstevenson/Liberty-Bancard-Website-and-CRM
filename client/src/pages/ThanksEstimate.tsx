@@ -3,9 +3,13 @@ import { Footer } from "@/components/Footer";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Link } from "wouter";
-import { Upload, Calendar, AlertTriangle, ArrowRight, CheckCircle, FileText, Phone, TrendingUp } from "lucide-react";
+import { Upload, Calendar, AlertTriangle, ArrowRight, CheckCircle, FileText, Phone, TrendingUp, Star, MapPin, Wrench, Stethoscope, Clock } from "lucide-react";
+import { trackCalendarBooking } from "@/lib/tracking";
+
+const CALENDAR_URL = import.meta.env.VITE_GHL_CALENDAR_URL || "https://api.leadconnectorhq.com/widget/booking/liberty-bancard";
 
 export default function ThanksEstimate() {
+
   return (
     <div className="min-h-screen flex flex-col font-body">
       <Navbar />
@@ -24,7 +28,36 @@ export default function ThanksEstimate() {
           </div>
         </section>
 
-        <section className="bg-muted/30 py-12" data-testid="section-thanks-estimate-reality">
+        <section className="bg-muted/30 py-12" data-testid="section-thanks-estimate-timeline">
+          <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+            <h2 className="text-2xl font-display font-bold text-foreground mb-2 text-center" data-testid="text-timeline-heading">
+              What Happens Next
+            </h2>
+            <p className="text-center text-sm text-muted-foreground mb-8">Your estimate is being processed. Here's what to expect.</p>
+            <div className="space-y-4">
+              {[
+                { step: "1", title: "We Review Your Numbers", desc: "We'll calculate your estimated effective rate based on the volume and fee info you provided.", time: "Within 1 hour", done: true },
+                { step: "2", title: "We Send Initial Findings", desc: "You'll receive an email with your rate assessment and preliminary recommendations.", time: "Same day", done: false },
+                { step: "3", title: "Upload Statement for Full Picture", desc: "The real savings opportunities are in the line items. A statement review reveals hidden cost drivers.", time: "When you're ready", done: false },
+              ].map((item, i) => (
+                <div key={i} className="flex items-start gap-4" data-testid={`timeline-step-${i + 1}`}>
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${item.done ? "bg-emerald-500 text-white" : "bg-muted text-muted-foreground"}`}>
+                    {item.done ? <CheckCircle className="w-5 h-5" /> : <span className="text-sm font-bold">{item.step}</span>}
+                  </div>
+                  <div className="flex-1 pb-4 border-b border-border last:border-0">
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-semibold text-foreground text-sm">{item.title}</h3>
+                      <span className="text-xs text-muted-foreground flex items-center gap-1"><Clock className="w-3 h-3" />{item.time}</span>
+                    </div>
+                    <p className="text-sm text-muted-foreground mt-1">{item.desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="bg-background py-12" data-testid="section-thanks-estimate-reality">
           <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
             <Card className="border-2 border-amber-200 dark:border-amber-800" data-testid="card-reality-check">
               <CardContent className="p-6">
@@ -49,7 +82,7 @@ export default function ThanksEstimate() {
           </div>
         </section>
 
-        <section className="bg-background py-16" data-testid="section-thanks-estimate-upgrade">
+        <section className="bg-muted/30 py-16" data-testid="section-thanks-estimate-upgrade">
           <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
             <TrendingUp className="w-10 h-10 text-primary mx-auto mb-4" />
             <h2 className="text-2xl font-display font-bold text-foreground mb-3" data-testid="text-upgrade-heading">
@@ -66,7 +99,7 @@ export default function ThanksEstimate() {
                   Upload Statement for Full Breakdown
                 </Button>
               </Link>
-              <a href="#" data-testid="link-thanks-estimate-book-call">
+              <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking()} data-testid="link-thanks-estimate-book-call">
                 <Button size="lg" variant="outline" className="gap-2">
                   <Calendar className="w-4 h-4" />
                   Book a 10-Minute Call
@@ -85,6 +118,58 @@ export default function ThanksEstimate() {
                   {item.text}
                 </div>
               ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="bg-background py-16" data-testid="section-thanks-estimate-testimonials">
+          <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+            <h2 className="text-xl font-display font-bold text-foreground mb-6 text-center" data-testid="text-testimonials-heading">
+              Merchants Who Took the Next Step
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Card data-testid="card-testimonial-1">
+                <CardContent className="p-5">
+                  <div className="flex items-center gap-1 mb-2">
+                    {[1,2,3,4,5].map(i => <Star key={i} className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />)}
+                  </div>
+                  <p className="text-sm text-foreground italic leading-relaxed mb-3">
+                    "The 0% processing program completely eliminated my credit card fees. My customers don't mind the small surcharge and I keep 100% of my margins."
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                      <Wrench className="w-4 h-4 text-primary" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-foreground">Carlos M.</p>
+                      <p className="text-xs text-muted-foreground flex items-center gap-1">
+                        <MapPin className="w-3 h-3" /> Auto Repair Shop, Tampa
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card data-testid="card-testimonial-2">
+                <CardContent className="p-5">
+                  <div className="flex items-center gap-1 mb-2">
+                    {[1,2,3,4,5].map(i => <Star key={i} className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />)}
+                  </div>
+                  <p className="text-sm text-foreground italic leading-relaxed mb-3">
+                    "Our dental practice was paying hidden fees we never knew about. Liberty found $6,200/year in savings and the onboarding was seamless."
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                      <Stethoscope className="w-4 h-4 text-primary" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-foreground">Dr. Sarah K.</p>
+                      <p className="text-xs text-muted-foreground flex items-center gap-1">
+                        <MapPin className="w-3 h-3" /> Dental Practice, Orlando
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
           </div>
         </section>

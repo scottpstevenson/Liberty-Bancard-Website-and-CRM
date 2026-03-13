@@ -31,7 +31,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
-import { trackStatementUpload } from "@/lib/tracking";
+import { trackStatementUpload, trackFormSubmission } from "@/lib/tracking";
 import { getStoredUTMParams } from "@/lib/utm";
 import {
   FileSearch,
@@ -122,6 +122,7 @@ export default function UploadStatement() {
     },
     onSuccess: () => {
       trackStatementUpload();
+      trackFormSubmission("statement_upload");
       toast({
         title: "Statement Received",
         description: "We got your statement and will review it shortly.",

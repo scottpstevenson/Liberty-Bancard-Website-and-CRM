@@ -103,6 +103,24 @@ export function trackQuizStart() {
   }
 }
 
+export function trackQuizStep(stepNumber: number, stepName: string) {
+  if (GA_ID) {
+    gtagEvent("event", "quiz_step", {
+      event_category: "engagement",
+      event_label: stepName,
+      value: stepNumber,
+      quiz_step_number: stepNumber,
+      quiz_step_name: stepName,
+    });
+  }
+  if (FB_PIXEL_ID) {
+    fbqEvent("trackCustom", "QuizStep", {
+      step: stepNumber,
+      step_name: stepName,
+    });
+  }
+}
+
 export function trackQuizComplete() {
   if (GA_ID) {
     gtagEvent("event", "quiz_complete", {
@@ -113,6 +131,37 @@ export function trackQuizComplete() {
   if (FB_PIXEL_ID) {
     fbqEvent("track", "CompleteRegistration", {
       content_name: "free_analysis_quiz",
+    });
+  }
+}
+
+export function trackFormSubmission(formName: string, value?: number) {
+  if (GA_ID) {
+    gtagEvent("event", "form_submission", {
+      event_category: "conversion",
+      event_label: formName,
+      value: value || 0,
+    });
+  }
+  if (FB_PIXEL_ID) {
+    fbqEvent("track", "Lead", {
+      content_name: formName,
+      value: value || 0,
+      currency: "USD",
+    });
+  }
+}
+
+export function trackCalendarBooking() {
+  if (GA_ID) {
+    gtagEvent("event", "calendar_booking", {
+      event_category: "conversion",
+      event_label: "calendar_booking",
+    });
+  }
+  if (FB_PIXEL_ID) {
+    fbqEvent("track", "Schedule", {
+      content_name: "calendar_booking",
     });
   }
 }
