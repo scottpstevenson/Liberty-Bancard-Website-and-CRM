@@ -49,6 +49,7 @@ import {
   UserCog,
   Calendar,
   Pencil,
+  Bot,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -91,6 +92,10 @@ const menuItems: MenuItem[] = [
   { icon: FileQuestion, label: "RFIs", href: "/dashboard/rfis", roles: ["admin", "manager"] },
   { icon: PieChart, label: "Reporting", href: "/dashboard/reporting", roles: ["admin", "manager"] },
   { icon: Calendar, label: "Calendar", href: "/dashboard/calendar", roles: ["admin", "manager", "agent"] },
+];
+
+const sdrItems: MenuItem[] = [
+  { icon: Bot, label: "AI SDR", href: "/dashboard/sdr", roles: ["admin", "manager"] },
 ];
 
 const automationItems: MenuItem[] = [
@@ -153,13 +158,14 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const role = (user?.role as UserRole) || "merchant";
 
   const filteredMenu = useMemo(() => filterByRole(menuItems, role), [role]);
+  const filteredSdr = useMemo(() => filterByRole(sdrItems, role), [role]);
   const filteredAutomation = useMemo(() => filterByRole(automationItems, role), [role]);
   const filteredLeadGen = useMemo(() => filterByRole(leadGenItems, role), [role]);
   const filteredBusiness = useMemo(() => filterByRole(businessItems, role), [role]);
   const filteredAdmin = useMemo(() => filterByRole(adminItems, role), [role]);
   const filteredForms = useMemo(() => filterByRole(formItems, role), [role]);
 
-  const allItems = [...menuItems, ...automationItems, ...leadGenItems, ...businessItems, ...merchantItems, ...adminItems, ...formItems];
+  const allItems = [...menuItems, ...sdrItems, ...automationItems, ...leadGenItems, ...businessItems, ...merchantItems, ...adminItems, ...formItems];
 
   const style = {
     "--sidebar-width": "16rem",
@@ -209,6 +215,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
           <SidebarContent>
             {renderGroup("Navigation", filteredMenu)}
+            {renderGroup("AI SDR", filteredSdr)}
             {renderGroup("Automation", filteredAutomation)}
             {renderGroup("Lead Generation", filteredLeadGen)}
             {renderGroup("Business Intelligence", filteredBusiness)}

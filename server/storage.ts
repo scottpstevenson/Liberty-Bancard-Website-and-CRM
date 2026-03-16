@@ -7,6 +7,13 @@ import {
   sunbizEntities, consentAuditLogs, calendarEvents,
   merchantApplications, merchantProfiles, equipmentOrders, agents, agentQuotas, residualReports, merchantResiduals,
   healthAlerts, dealCompetitors, partners, referrals, commissionTiers, knowledgeBase, reviewRequests, onboardingSteps,
+  sdrMerchants, sdrMerchantContacts, sdrLeadState, sdrLeadEvents, sdrChannelAttempts, sdrComplianceState,
+  type SdrMerchant, type InsertSdrMerchant,
+  type SdrMerchantContact, type InsertSdrMerchantContact,
+  type SdrLeadState, type InsertSdrLeadState,
+  type SdrLeadEvent, type InsertSdrLeadEvent,
+  type SdrChannelAttempt, type InsertSdrChannelAttempt,
+  type SdrComplianceState, type InsertSdrComplianceState,
   type InsertContact, type UpdateContactRequest,
   type InsertCompany,
   type InsertDeal, type UpdateDealRequest,
@@ -380,6 +387,31 @@ export interface IStorage {
   getCsvImport(id: number): Promise<CsvImport | undefined>;
   createCsvImport(importData: InsertCsvImport): Promise<CsvImport>;
   updateCsvImport(id: number, updates: Partial<InsertCsvImport>): Promise<CsvImport | undefined>;
+
+  getSdrMerchants(): Promise<SdrMerchant[]>;
+  getSdrMerchant(id: number): Promise<SdrMerchant | undefined>;
+  createSdrMerchant(data: InsertSdrMerchant): Promise<SdrMerchant>;
+  updateSdrMerchant(id: number, updates: Partial<InsertSdrMerchant>): Promise<SdrMerchant | undefined>;
+
+  getSdrMerchantContacts(merchantId: number): Promise<SdrMerchantContact[]>;
+  createSdrMerchantContact(data: InsertSdrMerchantContact): Promise<SdrMerchantContact>;
+
+  getSdrLeadState(merchantId: number): Promise<SdrLeadState | undefined>;
+  upsertSdrLeadState(data: InsertSdrLeadState): Promise<SdrLeadState>;
+
+  getSdrLeadEvents(merchantId?: number): Promise<SdrLeadEvent[]>;
+  createSdrLeadEvent(data: InsertSdrLeadEvent): Promise<SdrLeadEvent>;
+
+  getSdrChannelAttempts(merchantId?: number): Promise<SdrChannelAttempt[]>;
+  createSdrChannelAttempt(data: InsertSdrChannelAttempt): Promise<SdrChannelAttempt>;
+
+  getSdrComplianceState(merchantId: number): Promise<SdrComplianceState | undefined>;
+  upsertSdrComplianceState(data: InsertSdrComplianceState): Promise<SdrComplianceState>;
+
+  getSdrDashboardSummary(): Promise<any>;
+  getSdrFunnelData(): Promise<any>;
+  getSdrStuckLeads(): Promise<any[]>;
+  getSdrActivityData(): Promise<any>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2093,6 +2125,226 @@ export class DatabaseStorage implements IStorage {
       modifiedISO: now.toISOString(),
     }).where(eq(generatedBlogPosts.id, id)).returning();
     return post;
+  }
+
+  async getSdrMerchants() {
+    return db.select().from(sdrMerchants).orderBy(desc(sdrMerchants.createdAt));
+  }
+
+  async getSdrMerchant(id: number) {
+    const [m] = await db.select().from(sdrMerchants).where(eq(sdrMerchants.id, id));
+    return m;
+  }
+
+  async createSdrMerchant(data: InsertSdrMerchant) {
+    const [m] = await db.insert(sdrMerchants).values(data).returning();
+    return m;
+  }
+
+  async updateSdrMerchant(id: number, updates: Partial<InsertSdrMerchant>) {
+    const [m] = await db.update(sdrMerchants).set({ ...updates, updatedAt: new Date() }).where(eq(sdrMerchants.id, id)).returning();
+    return m;
+  }
+
+  async getSdrMerchantContacts(merchantId: number) {
+    return db.select().from(sdrMerchantContacts).where(eq(sdrMerchantContacts.merchantId, merchantId));
+  }
+
+  async createSdrMerchantContact(data: InsertSdrMerchantContact) {
+    const [c] = await db.insert(sdrMerchantContacts).values(data).returning();
+    return c;
+  }
+
+  async getSdrLeadState(merchantId: number) {
+    const [s] = await db.select().from(sdrLeadState).where(eq(sdrLeadState.merchantId, merchantId));
+    return s;
+  }
+
+  async upsertSdrLeadState(data: InsertSdrLeadState) {
+    const existing = await this.getSdrLeadState(data.merchantId);
+    if (existing) {
+      const [s] = await db.update(sdrLeadState).set({ ...data, updatedAt: new Date() }).where(eq(sdrLeadState.merchantId, data.merchantId)).returning();
+
+      const { onStageChange, onScoreChange } = await import("./services/sdr/ghl-sync-rules");
+      if (data.currentStage && data.currentStage !== existing.currentStage) {
+        onStageChange(data.merchantId, data.currentStage, existing.currentStage).catch(e => console.error("[SDR] stage sync error:", e));
+      }
+      const scoreChanged = (data.fitScore !== undefined && data.fitScore !== existing.fitScore) ||
+        (data.revenueScore !== undefined && data.revenueScore !== existing.revenueScore) ||
+        (data.reachabilityScore !== undefined && data.reachabilityScore !== existing.reachabilityScore) ||
+        (data.priorityScore !== undefined && data.priorityScore !== existing.priorityScore);
+      if (scoreChanged) {
+        onScoreChange(data.merchantId, {
+          fitScore: data.fitScore ?? undefined,
+          revenueScore: data.revenueScore ?? undefined,
+          reachabilityScore: data.reachabilityScore ?? undefined,
+          priorityScore: data.priorityScore ?? undefined,
+        }).catch(e => console.error("[SDR] score sync error:", e));
+      }
+
+      return s;
+    }
+    const [s] = await db.insert(sdrLeadState).values(data).returning();
+    if (data.currentStage) {
+      const { onStageChange } = await import("./services/sdr/ghl-sync-rules");
+      onStageChange(data.merchantId, data.currentStage).catch(e => console.error("[SDR] stage sync error:", e));
+    }
+    return s;
+  }
+
+  async getSdrLeadEvents(merchantId?: number) {
+    if (merchantId) {
+      return db.select().from(sdrLeadEvents).where(eq(sdrLeadEvents.merchantId, merchantId)).orderBy(desc(sdrLeadEvents.createdAt)).limit(200);
+    }
+    return db.select().from(sdrLeadEvents).orderBy(desc(sdrLeadEvents.createdAt)).limit(200);
+  }
+
+  async createSdrLeadEvent(data: InsertSdrLeadEvent) {
+    const [e] = await db.insert(sdrLeadEvents).values(data).returning();
+    return e;
+  }
+
+  async getSdrChannelAttempts(merchantId?: number) {
+    if (merchantId) {
+      return db.select().from(sdrChannelAttempts).where(eq(sdrChannelAttempts.merchantId, merchantId)).orderBy(desc(sdrChannelAttempts.createdAt));
+    }
+    return db.select().from(sdrChannelAttempts).orderBy(desc(sdrChannelAttempts.createdAt)).limit(500);
+  }
+
+  async createSdrChannelAttempt(data: InsertSdrChannelAttempt) {
+    const [a] = await db.insert(sdrChannelAttempts).values(data).returning();
+    return a;
+  }
+
+  async getSdrComplianceState(merchantId: number) {
+    const [c] = await db.select().from(sdrComplianceState).where(eq(sdrComplianceState.merchantId, merchantId));
+    return c;
+  }
+
+  async upsertSdrComplianceState(data: InsertSdrComplianceState) {
+    const existing = await this.getSdrComplianceState(data.merchantId!);
+    if (existing) {
+      const [c] = await db.update(sdrComplianceState).set({ ...data, updatedAt: new Date() }).where(eq(sdrComplianceState.merchantId, data.merchantId!)).returning();
+      return c;
+    }
+    const [c] = await db.insert(sdrComplianceState).values(data).returning();
+    return c;
+  }
+
+  async getSdrDashboardSummary() {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const allStates = await db.select().from(sdrLeadState);
+    const todayEvents = await db.select().from(sdrLeadEvents).where(gte(sdrLeadEvents.createdAt, today));
+
+    interface StageChangePayload { from?: string; to?: string; }
+    const newToday = todayEvents.filter(e => e.eventType === "stage_change" && (e.payloadJson as StageChangePayload | null)?.to === "DISCOVERED").length;
+    const qualifiedToday = allStates.filter(s => s.currentStage === "QUALIFIED" && s.updatedAt && s.updatedAt >= today).length;
+    const contactedToday = todayEvents.filter(e => ["message_sent", "call_made", "email_sent"].includes(e.eventType)).length;
+    const repliedToday = todayEvents.filter(e => e.eventType === "message_received").length;
+    const meetingsToday = todayEvents.filter(e => e.eventType === "appointment_booked").length;
+    const statementsToday = allStates.filter(s => s.currentStage === "STATEMENT_RECEIVED" && s.updatedAt && s.updatedAt >= today).length;
+    const proposalsToday = allStates.filter(s => s.currentStage === "PROPOSAL_SENT" && s.updatedAt && s.updatedAt >= today).length;
+
+    return {
+      newToday,
+      qualifiedToday,
+      contactedToday,
+      repliedToday,
+      meetingsToday,
+      statementsToday,
+      proposalsToday,
+      totalMerchants: (await db.select({ count: sql<number>`count(*)` }).from(sdrMerchants))[0]?.count || 0,
+    };
+  }
+
+  async getSdrFunnelData() {
+    const result = await db.select({
+      stage: sdrLeadState.currentStage,
+      count: sql<number>`count(*)`,
+    }).from(sdrLeadState).groupBy(sdrLeadState.currentStage);
+
+    return result.map(r => ({ stage: r.stage, count: Number(r.count) }));
+  }
+
+  async getSdrStuckLeads() {
+    const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000);
+    const stuck = await db.select({
+      leadState: sdrLeadState,
+      merchant: sdrMerchants,
+    })
+      .from(sdrLeadState)
+      .innerJoin(sdrMerchants, eq(sdrLeadState.merchantId, sdrMerchants.id))
+      .where(
+        and(
+          lte(sdrLeadState.nextActionAt, cutoff),
+          ne(sdrLeadState.currentStage, "DEAD"),
+          ne(sdrLeadState.currentStage, "CLOSED_WON"),
+          ne(sdrLeadState.currentStage, "NURTURE"),
+        )
+      )
+      .limit(50);
+
+    const complianceBlocked = await db.select({
+      compliance: sdrComplianceState,
+      merchant: sdrMerchants,
+    })
+      .from(sdrComplianceState)
+      .innerJoin(sdrMerchants, eq(sdrComplianceState.merchantId, sdrMerchants.id))
+      .where(
+        or(
+          eq(sdrComplianceState.dncBlock, true),
+          eq(sdrComplianceState.complaintBlock, true),
+          eq(sdrComplianceState.litigationBlock, true),
+        )
+      )
+      .limit(50);
+
+    return [
+      ...stuck.map(s => ({
+        type: "overdue" as const,
+        merchantId: s.merchant.id,
+        businessName: s.merchant.businessName,
+        currentStage: s.leadState.currentStage,
+        nextActionAt: s.leadState.nextActionAt,
+        reason: "Overdue next action",
+      })),
+      ...complianceBlocked.map(c => ({
+        type: "compliance_blocked" as const,
+        merchantId: c.merchant.id,
+        businessName: c.merchant.businessName,
+        currentStage: null,
+        nextActionAt: null,
+        reason: c.compliance.dncBlock ? "DNC block" : c.compliance.complaintBlock ? "Complaint block" : "Litigation block",
+      })),
+    ];
+  }
+
+  async getSdrActivityData() {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const attempts = await db.select().from(sdrChannelAttempts).where(gte(sdrChannelAttempts.createdAt, today));
+
+    const emailsSent = attempts.filter(a => a.channel === "email").length;
+    const smsSent = attempts.filter(a => a.channel === "sms").length;
+    const callsMade = attempts.filter(a => a.channel === "call").length;
+    const emailReplied = attempts.filter(a => a.channel === "email" && a.repliedAt).length;
+    const smsReplied = attempts.filter(a => a.channel === "sms" && a.repliedAt).length;
+    const optOuts = (await db.select().from(sdrLeadEvents)
+      .where(and(gte(sdrLeadEvents.createdAt, today), eq(sdrLeadEvents.eventType, "opt_out")))
+    ).length;
+
+    return {
+      emailsSent,
+      smsSent,
+      callsMade,
+      emailReplyRate: emailsSent > 0 ? Math.round((emailReplied / emailsSent) * 100) : 0,
+      smsReplyRate: smsSent > 0 ? Math.round((smsReplied / smsSent) * 100) : 0,
+      optOutRate: (emailsSent + smsSent) > 0 ? Math.round((optOuts / (emailsSent + smsSent)) * 100) : 0,
+      optOuts,
+    };
   }
 }
 

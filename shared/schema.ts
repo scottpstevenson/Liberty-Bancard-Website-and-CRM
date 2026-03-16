@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb, varchar } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, jsonb, varchar, real } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { users } from "./models/auth";
@@ -1943,3 +1943,201 @@ export const insertGeneratedBlogPostSchema = createInsertSchema(generatedBlogPos
 
 export type GeneratedBlogPost = typeof generatedBlogPosts.$inferSelect;
 export type InsertGeneratedBlogPost = z.infer<typeof insertGeneratedBlogPostSchema>;
+
+export const SDR_PIPELINE_STAGES = [
+  "DISCOVERED", "ENRICHING", "ENRICHED", "DEDUPED", "CLASSIFIED", "QUALIFIED",
+  "OUTREACH_EMAIL", "OUTREACH_SMS", "OUTREACH_CHAT", "OUTREACH_CALL",
+  "ENGAGED", "MEETING_SET", "STATEMENT_REQUESTED", "STATEMENT_RECEIVED",
+  "ANALYSIS_READY", "PROPOSAL_SENT", "NEGOTIATION", "APPLICATION_STARTED",
+  "UNDERWRITING", "CLOSED_WON", "BOARDED", "TERMINAL_SHIPPED", "NURTURE", "DEAD",
+] as const;
+
+export const GHL_OPPORTUNITY_STAGES = [
+  "New Prospect", "Qualified", "Engaged", "Meeting Set",
+  "Statement Requested", "Proposal Sent", "Won", "Lost",
+] as const;
+
+export const GHL_CUSTOM_FIELDS = [
+  "lb_merchant_id", "lb_current_stage", "lb_fit_score", "lb_revenue_score",
+  "lb_reachability_score", "lb_priority_score", "lb_vertical", "lb_best_channel",
+  "lb_statement_status", "lb_proposal_status", "lb_last_ai_outcome", "lb_owner_type",
+] as const;
+
+export const GHL_TAGS = [
+  "LB-AI-SDR", "LB-AUTO", "LB-MEDSPA", "LB-DENTAL", "LB-BOOKING-READY",
+  "LB-STATEMENT-PENDING", "LB-PROPOSAL-SENT", "LB-HUMAN-HANDOFF", "LB-DO-NOT-AUTO",
+] as const;
+
+export const sdrMerchants = pgTable("sdr_merchants", {
+  id: serial("id").primaryKey(),
+  businessName: text("business_name").notNull(),
+  legalName: text("legal_name"),
+  website: text("website"),
+  domain: text("domain"),
+  mainPhone: text("main_phone"),
+  mainEmail: text("main_email"),
+  address: text("address"),
+  city: text("city"),
+  state: text("state"),
+  zip: text("zip"),
+  vertical: text("vertical"),
+  subvertical: text("subvertical"),
+  source: text("source"),
+  sourceRef: text("source_ref"),
+  ghlContactId: text("ghl_contact_id"),
+  ghlOpportunityId: text("ghl_opportunity_id"),
+  existingCustomerFlag: boolean("existing_customer_flag").default(false),
+  doNotContactFlag: boolean("do_not_contact_flag").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertSdrMerchantSchema = createInsertSchema(sdrMerchants).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type SdrMerchant = typeof sdrMerchants.$inferSelect;
+export type InsertSdrMerchant = z.infer<typeof insertSdrMerchantSchema>;
+
+export const sdrMerchantContacts = pgTable("sdr_merchant_contacts", {
+  id: serial("id").primaryKey(),
+  merchantId: integer("merchant_id").references(() => sdrMerchants.id),
+  contactName: text("contact_name"),
+  title: text("title"),
+  email: text("email"),
+  mobile: text("mobile"),
+  directPhone: text("direct_phone"),
+  roleGuess: text("role_guess"),
+  primaryContactFlag: boolean("primary_contact_flag").default(false),
+  consentSms: boolean("consent_sms").default(false),
+  consentEmail: boolean("consent_email").default(false),
+  consentCall: boolean("consent_call").default(false),
+  consentSource: text("consent_source"),
+  consentAt: timestamp("consent_at"),
+  timezone: text("timezone"),
+  bestContactChannel: text("best_contact_channel"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertSdrMerchantContactSchema = createInsertSchema(sdrMerchantContacts).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type SdrMerchantContact = typeof sdrMerchantContacts.$inferSelect;
+export type InsertSdrMerchantContact = z.infer<typeof insertSdrMerchantContactSchema>;
+
+export const sdrLeadState = pgTable("sdr_lead_state", {
+  id: serial("id").primaryKey(),
+  merchantId: integer("merchant_id").references(() => sdrMerchants.id).notNull().unique(),
+  currentStage: text("current_stage").notNull().default("DISCOVERED"),
+  substage: text("substage"),
+  statusReason: text("status_reason"),
+  qualificationTier: text("qualification_tier"),
+  fitScore: integer("fit_score").default(0),
+  revenueScore: integer("revenue_score").default(0),
+  reachabilityScore: integer("reachability_score").default(0),
+  priorityScore: integer("priority_score").default(0),
+  boardingProbability: real("boarding_probability"),
+  nextAction: text("next_action"),
+  nextActionType: text("next_action_type"),
+  nextActionPayload: jsonb("next_action_payload"),
+  nextActionAt: timestamp("next_action_at"),
+  assignedTo: text("assigned_to"),
+  ownerType: text("owner_type").default("ai"),
+  proposalId: text("proposal_id"),
+  meetingId: text("meeting_id"),
+  lastEmailAt: timestamp("last_email_at"),
+  lastSmsAt: timestamp("last_sms_at"),
+  lastCallAt: timestamp("last_call_at"),
+  lastReplyAt: timestamp("last_reply_at"),
+  lastTouchAt: timestamp("last_touch_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertSdrLeadStateSchema = createInsertSchema(sdrLeadState).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type SdrLeadState = typeof sdrLeadState.$inferSelect;
+export type InsertSdrLeadState = z.infer<typeof insertSdrLeadStateSchema>;
+
+export const sdrLeadEvents = pgTable("sdr_lead_events", {
+  id: serial("id").primaryKey(),
+  merchantId: integer("merchant_id").references(() => sdrMerchants.id),
+  contactId: integer("contact_id").references(() => sdrMerchantContacts.id),
+  eventType: text("event_type").notNull(),
+  channel: text("channel"),
+  actorType: text("actor_type"),
+  eventAt: timestamp("event_at").defaultNow(),
+  payloadJson: jsonb("payload_json"),
+  decisionReason: text("decision_reason"),
+  modelVersion: text("model_version"),
+  complianceResult: text("compliance_result"),
+  ghlRefId: text("ghl_ref_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertSdrLeadEventSchema = createInsertSchema(sdrLeadEvents).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type SdrLeadEvent = typeof sdrLeadEvents.$inferSelect;
+export type InsertSdrLeadEvent = z.infer<typeof insertSdrLeadEventSchema>;
+
+export const sdrChannelAttempts = pgTable("sdr_channel_attempts", {
+  id: serial("id").primaryKey(),
+  merchantId: integer("merchant_id").references(() => sdrMerchants.id),
+  channel: text("channel").notNull(),
+  attemptNo: integer("attempt_no").default(1),
+  templateId: text("template_id"),
+  sentAt: timestamp("sent_at"),
+  deliveredAt: timestamp("delivered_at"),
+  openedAt: timestamp("opened_at"),
+  clickedAt: timestamp("clicked_at"),
+  repliedAt: timestamp("replied_at"),
+  outcome: text("outcome"),
+  cost: real("cost"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertSdrChannelAttemptSchema = createInsertSchema(sdrChannelAttempts).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type SdrChannelAttempt = typeof sdrChannelAttempts.$inferSelect;
+export type InsertSdrChannelAttempt = z.infer<typeof insertSdrChannelAttemptSchema>;
+
+export const sdrComplianceState = pgTable("sdr_compliance_state", {
+  id: serial("id").primaryKey(),
+  merchantId: integer("merchant_id").references(() => sdrMerchants.id).notNull().unique(),
+  smsAllowed: boolean("sms_allowed").default(true),
+  emailAllowed: boolean("email_allowed").default(true),
+  callAllowed: boolean("call_allowed").default(true),
+  quietHoursBlock: boolean("quiet_hours_block").default(false),
+  dncBlock: boolean("dnc_block").default(false),
+  complaintBlock: boolean("complaint_block").default(false),
+  litigationBlock: boolean("litigation_block").default(false),
+  consentSource: text("consent_source"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertSdrComplianceStateSchema = createInsertSchema(sdrComplianceState).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type SdrComplianceState = typeof sdrComplianceState.$inferSelect;
+export type InsertSdrComplianceState = z.infer<typeof insertSdrComplianceStateSchema>;

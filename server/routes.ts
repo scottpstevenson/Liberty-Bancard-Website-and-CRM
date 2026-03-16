@@ -1,4 +1,4 @@
-import type { Express } from "express";
+import type { Express, Request as ExpressRequest } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, registerAuthRoutes, isAuthenticated, isAdmin, isAffiliate } from "./replit_integrations/auth";
@@ -8038,6 +8038,198 @@ Guidelines:
         }
       } catch {}
       res.status(500).json({ message: err.message || "Import failed" });
+    }
+  });
+
+  // === HEALTH CHECK ===
+  app.get("/health", (_req, res) => {
+    res.json({ ok: true });
+  });
+
+  // === SDR WEBHOOK RECEIVER ===
+  function getSdrWebhookRawBody(req: ExpressRequest): string {
+    const rawBody = (req as ExpressRequest & { rawBody?: Buffer }).rawBody;
+    if (rawBody && Buffer.isBuffer(rawBody)) {
+      return rawBody.toString("utf8");
+    }
+    return JSON.stringify(req.body);
+  }
+
+  app.post("/api/webhooks/ghl/contact-updated", async (req, res) => {
+    try {
+      const { validateWebhookSignature } = await import("./services/sdr/ghl-client");
+      const signature = req.headers["x-ghl-signature"] as string || "";
+      if (!validateWebhookSignature(getSdrWebhookRawBody(req), signature)) {
+        return res.status(401).json({ message: "Invalid webhook signature" });
+      }
+
+      const { handleContactUpdated } = await import("./services/sdr/webhook-handlers");
+      await handleContactUpdated(req.body);
+      res.json({ received: true });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error("[SDR Webhook] contact-updated error:", errMsg);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.post("/api/webhooks/ghl/message-received", async (req, res) => {
+    try {
+      const { validateWebhookSignature } = await import("./services/sdr/ghl-client");
+      const signature = req.headers["x-ghl-signature"] as string || "";
+      if (!validateWebhookSignature(getSdrWebhookRawBody(req), signature)) {
+        return res.status(401).json({ message: "Invalid webhook signature" });
+      }
+
+      const { handleMessageReceived } = await import("./services/sdr/webhook-handlers");
+      await handleMessageReceived(req.body);
+      res.json({ received: true });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error("[SDR Webhook] message-received error:", errMsg);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.post("/api/webhooks/ghl/call-outcome", async (req, res) => {
+    try {
+      const { validateWebhookSignature } = await import("./services/sdr/ghl-client");
+      const signature = req.headers["x-ghl-signature"] as string || "";
+      if (!validateWebhookSignature(getSdrWebhookRawBody(req), signature)) {
+        return res.status(401).json({ message: "Invalid webhook signature" });
+      }
+
+      const { handleCallOutcome } = await import("./services/sdr/webhook-handlers");
+      await handleCallOutcome(req.body);
+      res.json({ received: true });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error("[SDR Webhook] call-outcome error:", errMsg);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.post("/api/webhooks/ghl/appointment-booked", async (req, res) => {
+    try {
+      const { validateWebhookSignature } = await import("./services/sdr/ghl-client");
+      const signature = req.headers["x-ghl-signature"] as string || "";
+      if (!validateWebhookSignature(getSdrWebhookRawBody(req), signature)) {
+        return res.status(401).json({ message: "Invalid webhook signature" });
+      }
+
+      const { handleAppointmentBooked } = await import("./services/sdr/webhook-handlers");
+      await handleAppointmentBooked(req.body);
+      res.json({ received: true });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error("[SDR Webhook] appointment-booked error:", errMsg);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.post("/api/webhooks/ghl/appointment-canceled", async (req, res) => {
+    try {
+      const { validateWebhookSignature } = await import("./services/sdr/ghl-client");
+      const signature = req.headers["x-ghl-signature"] as string || "";
+      if (!validateWebhookSignature(getSdrWebhookRawBody(req), signature)) {
+        return res.status(401).json({ message: "Invalid webhook signature" });
+      }
+
+      const { handleAppointmentCanceled } = await import("./services/sdr/webhook-handlers");
+      await handleAppointmentCanceled(req.body);
+      res.json({ received: true });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error("[SDR Webhook] appointment-canceled error:", errMsg);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.post("/api/webhooks/ghl/opt-out", async (req, res) => {
+    try {
+      const { validateWebhookSignature } = await import("./services/sdr/ghl-client");
+      const signature = req.headers["x-ghl-signature"] as string || "";
+      if (!validateWebhookSignature(getSdrWebhookRawBody(req), signature)) {
+        return res.status(401).json({ message: "Invalid webhook signature" });
+      }
+
+      const { handleOptOut } = await import("./services/sdr/webhook-handlers");
+      await handleOptOut(req.body);
+      res.json({ received: true });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error("[SDR Webhook] opt-out error:", errMsg);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  // === SDR DASHBOARD API ===
+  app.get("/api/sdr/dashboard/summary", isAuthenticated, async (_req, res) => {
+    try {
+      const summary = await storage.getSdrDashboardSummary();
+      res.json(summary);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.get("/api/sdr/dashboard/funnel", isAuthenticated, async (_req, res) => {
+    try {
+      const funnel = await storage.getSdrFunnelData();
+      res.json(funnel);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.get("/api/sdr/dashboard/stuck-leads", isAuthenticated, async (_req, res) => {
+    try {
+      const stuck = await storage.getSdrStuckLeads();
+      res.json(stuck);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.get("/api/sdr/dashboard/activity", isAuthenticated, async (_req, res) => {
+    try {
+      const activity = await storage.getSdrActivityData();
+      res.json(activity);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.get("/api/sdr/config", isAuthenticated, async (_req, res) => {
+    const { getSdrGhlConfig } = await import("./services/sdr/ghl-client");
+    res.json(getSdrGhlConfig());
+  });
+
+  app.post("/api/sdr/bootstrap-ghl", isAuthenticated, async (req, res) => {
+    if ((req.user as { role?: string })?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+    try {
+      const { bootstrapGhlCustomFieldsAndTags } = await import("./services/sdr/ghl-client");
+      const result = await bootstrapGhlCustomFieldsAndTags();
+      res.json(result);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.post("/api/sdr/sync-lead-state/:merchantId", isAuthenticated, async (req, res) => {
+    try {
+      const merchantId = Number(req.params.merchantId);
+      const { syncLeadStateToGhl } = await import("./services/sdr/ghl-sync-rules");
+      await syncLeadStateToGhl(merchantId);
+      res.json({ success: true });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
     }
   });
 

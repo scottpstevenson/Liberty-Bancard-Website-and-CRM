@@ -103,6 +103,7 @@ import Forecasting from "@/pages/dashboard/Forecasting";
 import PciAssessment from "@/pages/dashboard/PciAssessment";
 import DataRequests from "@/pages/dashboard/DataRequests";
 import BlogGenerator from "@/pages/dashboard/BlogGenerator";
+import SdrDashboard from "@/pages/dashboard/SdrDashboard";
 import DataRetention from "@/pages/DataRetention";
 import TCPAConsent from "@/pages/TCPAConsent";
 import RefundPolicy from "@/pages/RefundPolicy";
@@ -374,6 +375,9 @@ function Router() {
       </Route>
       <Route path="/dashboard/blog-generator">
         <ProtectedRoute component={BlogGenerator} />
+      </Route>
+      <Route path="/dashboard/sdr">
+        <ProtectedRoute component={SdrDashboard} />
       </Route>
 
       <Route component={NotFound} />
