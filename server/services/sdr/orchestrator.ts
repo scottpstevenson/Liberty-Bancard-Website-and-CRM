@@ -7,6 +7,7 @@ import { scoreLeadFull } from "./scoring";
 import { decideNextAction, getAllowedTransitions } from "./stage-rules";
 import { sendGhlEmail, sendGhlSms, isGhlConfigured } from "../ghl";
 import { resolveVoiceScriptForLead, buildGhlVoicePayload } from "./voice-orchestrator";
+import { selectBestInbox, recordSend, recordBounce, recordDelivered } from "./inbox-rotation";
 import OpenAI from "openai";
 
 function getOpenAI() {
@@ -243,6 +244,13 @@ async function executeEmailAction(lead: SdrLeadState, strongerCta?: boolean): Pr
   const toEmail = lead.ownerEmail || lead.email;
   if (!toEmail) return false;
 
+  const selectedInbox = await selectBestInbox(lead.merchantId, lead.vertical || undefined);
+  if (!selectedInbox) {
+    console.log(`[SDR Orchestrator] No eligible inbox available for lead ${lead.id} (merchantId: ${lead.merchantId}), deferring email`);
+    return false;
+  }
+  console.log(`[SDR Orchestrator] Using inbox ${selectedInbox.label} (${selectedInbox.emailAddress}) for lead ${lead.id}`);
+
   const attemptNumber = (lead.emailAttempts || 0) + 1;
   const templateIndex = Math.min(attemptNumber - 1, 2);
   const verticalKey = normalizeVerticalKey(lead.vertical);
@@ -276,6 +284,8 @@ async function executeEmailAction(lead: SdrLeadState, strongerCta?: boolean): Pr
       contactId: lead.contactId,
       subject,
       body,
+      fromEmail: selectedInbox.emailAddress,
+      fromName: selectedInbox.label,
     });
 
     await logChannelAttempt({
@@ -292,15 +302,26 @@ async function executeEmailAction(lead: SdrLeadState, strongerCta?: boolean): Pr
 
     if (result.success) {
       dailyCounters.emailsSent++;
+      await recordSend(selectedInbox.id, lead.merchantId);
+      await recordDelivered(selectedInbox.id);
       await db.update(sdrLeadState).set({
         emailAttempts: attemptNumber,
         lastEmailAt: new Date(),
         updatedAt: new Date(),
       }).where(eq(sdrLeadState.id, lead.id));
+    } else if (result.error) {
+      const errorLower = (result.error || "").toLowerCase();
+      if (errorLower.includes("bounce") || errorLower.includes("invalid") || errorLower.includes("undeliverable")) {
+        await recordBounce(selectedInbox.id);
+      }
     }
 
     return result.success;
   } catch (err: any) {
+    const errorLower = (err.message || "").toLowerCase();
+    if (errorLower.includes("bounce") || errorLower.includes("invalid") || errorLower.includes("undeliverable")) {
+      await recordBounce(selectedInbox.id);
+    }
     await logChannelAttempt({
       leadStateId: lead.id,
       channel: "email",

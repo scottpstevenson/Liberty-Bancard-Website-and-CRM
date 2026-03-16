@@ -135,6 +135,8 @@ export async function sendGhlEmail(params: {
   subject: string;
   body: string;
   templateId?: number;
+  fromEmail?: string;
+  fromName?: string;
 }): Promise<{ success: boolean; messageId?: string; error?: string }> {
   try {
     const contact = await storage.getContact(params.contactId);
@@ -149,12 +151,22 @@ export async function sendGhlEmail(params: {
     const config = getConfig();
     if (!config) throw new Error("GHL not configured");
 
-    const emailPayload = {
+    const emailPayload: Record<string, unknown> = {
       type: "Email",
       contactId: ghlContactId,
       subject: params.subject,
       html: params.body,
     };
+
+    if (params.fromEmail) {
+      emailPayload.emailFrom = params.fromEmail;
+    }
+    if (params.fromName) {
+      emailPayload.emailReplyMode = "custom";
+      if (params.fromEmail) {
+        emailPayload.emailFrom = params.fromEmail;
+      }
+    }
 
     const result = await ghlFetch("/conversations/messages", {
       method: "POST",

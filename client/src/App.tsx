@@ -104,6 +104,7 @@ import PciAssessment from "@/pages/dashboard/PciAssessment";
 import DataRequests from "@/pages/dashboard/DataRequests";
 import BlogGenerator from "@/pages/dashboard/BlogGenerator";
 import SdrDashboard from "@/pages/dashboard/SdrDashboard";
+import InboxHealth from "@/pages/dashboard/InboxHealth";
 import DataRetention from "@/pages/DataRetention";
 import TCPAConsent from "@/pages/TCPAConsent";
 import RefundPolicy from "@/pages/RefundPolicy";
@@ -378,6 +379,9 @@ function Router() {
       </Route>
       <Route path="/dashboard/sdr">
         <ProtectedRoute component={SdrDashboard} />
+      </Route>
+      <Route path="/dashboard/inbox-health">
+        <ProtectedRoute component={InboxHealth} />
       </Route>
 
       <Route component={NotFound} />

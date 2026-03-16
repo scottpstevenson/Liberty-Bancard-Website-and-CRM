@@ -2199,3 +2199,68 @@ export const insertSdrComplianceStateSchema = createInsertSchema(sdrComplianceSt
 
 export type SdrComplianceState = typeof sdrComplianceState.$inferSelect;
 export type InsertSdrComplianceState = z.infer<typeof insertSdrComplianceStateSchema>;
+
+export const WARMUP_STATUSES = ["warming", "warm", "paused", "disabled"] as const;
+
+export const MAILBOX_TYPES = ["google_workspace", "microsoft_365", "smtp", "other"] as const;
+
+export const sendingIdentities = pgTable("sending_identities", {
+  id: serial("id").primaryKey(),
+  label: text("label").notNull(),
+  domain: text("domain").notNull(),
+  emailAddress: text("email_address").notNull(),
+  mailboxType: text("mailbox_type").default("google_workspace"),
+  provider: text("provider"),
+  ghlLocationId: text("ghl_location_id"),
+  isActive: boolean("is_active").default(true),
+  warmupStatus: text("warmup_status").default("warming"),
+  warmupStartedAt: timestamp("warmup_started_at"),
+  dailyLimit: integer("daily_limit").default(30),
+  sentToday: integer("sent_today").default(0),
+  bouncesToday: integer("bounces_today").default(0),
+  complaintsToday: integer("complaints_today").default(0),
+  healthScore: real("health_score").default(100),
+  verticalAssignment: text("vertical_assignment"),
+  lastUsedAt: timestamp("last_used_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertSendingIdentitySchema = createInsertSchema(sendingIdentities).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type SendingIdentity = typeof sendingIdentities.$inferSelect;
+export type InsertSendingIdentity = z.infer<typeof insertSendingIdentitySchema>;
+
+export const identityPerformanceDaily = pgTable("identity_performance_daily", {
+  id: serial("id").primaryKey(),
+  sendingIdentityId: integer("sending_identity_id").references(() => sendingIdentities.id).notNull(),
+  date: text("date").notNull(),
+  emailsSent: integer("emails_sent").default(0),
+  delivered: integer("delivered").default(0),
+  bounced: integer("bounced").default(0),
+  opened: integer("opened").default(0),
+  replied: integer("replied").default(0),
+  complaints: integer("complaints").default(0),
+  meetingsBooked: integer("meetings_booked").default(0),
+  positiveReplies: integer("positive_replies").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertIdentityPerformanceDailySchema = createInsertSchema(identityPerformanceDaily).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type IdentityPerformanceDaily = typeof identityPerformanceDaily.$inferSelect;
+export type InsertIdentityPerformanceDaily = z.infer<typeof insertIdentityPerformanceDailySchema>;
+
+export const domainBusinessLog = pgTable("domain_business_log", {
+  id: serial("id").primaryKey(),
+  domain: text("domain").notNull(),
+  businessId: integer("business_id").notNull(),
+  sentAt: timestamp("sent_at").defaultNow(),
+});

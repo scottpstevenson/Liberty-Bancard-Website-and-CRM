@@ -8430,5 +8430,100 @@ Guidelines:
     }
   });
 
+  app.get("/api/sdr/sending-identities", isAdmin, async (_req, res) => {
+    try {
+      const identities = await storage.getSendingIdentities();
+      res.json(identities);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/sdr/sending-identities/:id", isAdmin, async (req, res) => {
+    try {
+      const identity = await storage.getSendingIdentity(Number(req.params.id));
+      if (!identity) return res.status(404).json({ message: "Not found" });
+      res.json(identity);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/sdr/sending-identities", isAdmin, async (req, res) => {
+    try {
+      const { insertSendingIdentitySchema } = await import("@shared/schema");
+      const { clampDailyLimit } = await import("./services/sdr/inbox-rotation");
+      const parsed = insertSendingIdentitySchema.parse(req.body);
+      if (parsed.dailyLimit !== undefined && parsed.dailyLimit !== null) {
+        parsed.dailyLimit = clampDailyLimit(parsed.dailyLimit);
+      }
+      const identity = await storage.createSendingIdentity(parsed);
+      res.status(201).json(identity);
+    } catch (err: unknown) {
+      const error = err as { name?: string; message?: string; errors?: unknown[] };
+      if (error.name === "ZodError") return res.status(400).json({ message: "Validation error", errors: error.errors });
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.put("/api/sdr/sending-identities/:id", isAdmin, async (req, res) => {
+    try {
+      const { insertSendingIdentitySchema } = await import("@shared/schema");
+      const { clampDailyLimit } = await import("./services/sdr/inbox-rotation");
+      const updateSchema = insertSendingIdentitySchema.partial();
+      const parsed = updateSchema.parse(req.body);
+      if (parsed.dailyLimit !== undefined && parsed.dailyLimit !== null) {
+        parsed.dailyLimit = clampDailyLimit(parsed.dailyLimit);
+      }
+      const identity = await storage.updateSendingIdentity(Number(req.params.id), parsed);
+      if (!identity) return res.status(404).json({ message: "Not found" });
+      res.json(identity);
+    } catch (err: unknown) {
+      const error = err as { name?: string; message?: string; errors?: unknown[] };
+      if (error.name === "ZodError") return res.status(400).json({ message: "Validation error", errors: error.errors });
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/sdr/sending-identities/:id", isAdmin, async (req, res) => {
+    try {
+      const deleted = await storage.deleteSendingIdentity(Number(req.params.id));
+      if (!deleted) return res.status(404).json({ message: "Not found" });
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/sdr/inbox-health", isAdmin, async (_req, res) => {
+    try {
+      const { getInboxHealthDashboard } = await import("./services/sdr/inbox-rotation");
+      const dashboard = await getInboxHealthDashboard();
+      res.json(dashboard);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/sdr/inbox-maintenance", isAdmin, async (_req, res) => {
+    try {
+      const { runDailyMaintenance } = await import("./services/sdr/inbox-rotation");
+      const result = await runDailyMaintenance();
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/sdr/inbox-health-scores", isAdmin, async (_req, res) => {
+    try {
+      const { calculateHealthScores } = await import("./services/sdr/inbox-rotation");
+      const result = await calculateHealthScores();
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   return httpServer;
 }

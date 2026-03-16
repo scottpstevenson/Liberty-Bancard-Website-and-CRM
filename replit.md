@@ -55,6 +55,7 @@ The frontend uses React with Vite, TypeScript, Tailwind CSS, and shadcn/ui for a
 - **Serper.dev Integration**: Search API client for business information discovery, with rate limiting and usage tracking.
 - **2-Way GHL Sync**: Bidirectional synchronization of contacts and deals with GoHighLevel, including custom field and tag management.
 - **AI SDR Pipeline Brain**: Autonomous sales development engine with 4-dimension scoring, orchestrator sweep for stage processing, AI-personalized email/SMS outreach via GHL, channel escalation, daily limits, and quiet hours enforcement.
+- **Inbox Rotation & Deliverability Engine**: Multi-inbox sending identity management with intelligent rotation (lowest sends → best health score → domain diversity), warmup scheduling (5/day ramping +3/day over 14 days), auto-pause on high bounce/complaint rates, 7-day rolling health scoring, domain-level deduplication to prevent same-domain sends to same business, and admin dashboard at `/dashboard/inbox-health`. Schema: `sending_identities`, `identity_performance_daily`, `domain_business_log`.
 - **Affiliate / Sales Team Program**: Public signup for sales reps with referral codes, cookie-based attribution, performance tracking, tiered commissions, and marketing materials.
 
 ## External Dependencies

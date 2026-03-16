@@ -50,6 +50,7 @@ import {
   Calendar,
   Pencil,
   Bot,
+  Mailbox,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -96,6 +97,7 @@ const menuItems: MenuItem[] = [
 
 const sdrItems: MenuItem[] = [
   { icon: Bot, label: "AI SDR", href: "/dashboard/sdr", roles: ["admin", "manager"] },
+  { icon: Mailbox, label: "Inbox Health", href: "/dashboard/inbox-health", roles: ["admin", "manager"] },
 ];
 
 const automationItems: MenuItem[] = [

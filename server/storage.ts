@@ -8,6 +8,8 @@ import {
   merchantApplications, merchantProfiles, equipmentOrders, agents, agentQuotas, residualReports, merchantResiduals,
   healthAlerts, dealCompetitors, partners, referrals, commissionTiers, knowledgeBase, reviewRequests, onboardingSteps,
   sdrMerchants, sdrMerchantContacts, sdrLeadState, sdrLeadEvents, sdrChannelAttempts, sdrComplianceState,
+  sendingIdentities,
+  type SendingIdentity, type InsertSendingIdentity,
   type SdrMerchant, type InsertSdrMerchant,
   type SdrMerchantContact, type InsertSdrMerchantContact,
   type SdrLeadState, type InsertSdrLeadState,
@@ -68,10 +70,7 @@ import {
   csvImports, type CsvImport, type InsertCsvImport,
   generatedBlogPosts,
   type GeneratedBlogPost, type InsertGeneratedBlogPost,
-  sdrLeadState, sdrLeadEvents, sdrChannelAttempts,
-  type SdrLeadState, type InsertSdrLeadState, type UpdateSdrLeadState,
-  type SdrLeadEvent, type InsertSdrLeadEvent,
-  type SdrChannelAttempt, type InsertSdrChannelAttempt,
+  type UpdateSdrLeadState,
 } from "@shared/schema";
 import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike } from "drizzle-orm";
 
@@ -422,6 +421,12 @@ export interface IStorage {
   getSdrFunnelData(): Promise<any>;
   getSdrStuckLeads(): Promise<any[]>;
   getSdrActivityData(): Promise<any>;
+
+  getSendingIdentities(): Promise<SendingIdentity[]>;
+  getSendingIdentity(id: number): Promise<SendingIdentity | undefined>;
+  createSendingIdentity(data: InsertSendingIdentity): Promise<SendingIdentity>;
+  updateSendingIdentity(id: number, updates: Partial<InsertSendingIdentity>): Promise<SendingIdentity | undefined>;
+  deleteSendingIdentity(id: number): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2394,6 +2399,35 @@ export class DatabaseStorage implements IStorage {
       optOutRate: (emailsSent + smsSent) > 0 ? Math.round((optOuts / (emailsSent + smsSent)) * 100) : 0,
       optOuts,
     };
+  }
+  async getSendingIdentities(): Promise<SendingIdentity[]> {
+    return await db.select().from(sendingIdentities).orderBy(asc(sendingIdentities.domain), asc(sendingIdentities.label));
+  }
+
+  async getSendingIdentity(id: number): Promise<SendingIdentity | undefined> {
+    const [identity] = await db.select().from(sendingIdentities).where(eq(sendingIdentities.id, id));
+    return identity;
+  }
+
+  async createSendingIdentity(data: InsertSendingIdentity): Promise<SendingIdentity> {
+    const [identity] = await db.insert(sendingIdentities).values({
+      ...data,
+      warmupStartedAt: data.warmupStatus === "warming" ? new Date() : null,
+    }).returning();
+    return identity;
+  }
+
+  async updateSendingIdentity(id: number, updates: Partial<InsertSendingIdentity>): Promise<SendingIdentity | undefined> {
+    const [identity] = await db.update(sendingIdentities)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(sendingIdentities.id, id))
+      .returning();
+    return identity;
+  }
+
+  async deleteSendingIdentity(id: number): Promise<boolean> {
+    const result = await db.delete(sendingIdentities).where(eq(sendingIdentities.id, id)).returning();
+    return result.length > 0;
   }
 }
 
