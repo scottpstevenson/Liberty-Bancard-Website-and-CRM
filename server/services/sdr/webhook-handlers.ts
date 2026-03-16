@@ -2,8 +2,12 @@ import { z } from "zod";
 import { db } from "../../db";
 import { sdrLeadEvents, sdrMerchants, sdrLeadState } from "@shared/schema";
 import type { SdrMerchant } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { onOptOut, onAppointmentBooked, onStageChange } from "./ghl-sync-rules";
+import { classifyIntent, executeIntentAction } from "./reply-intelligence";
+import { handleCallDisposition, CALL_DISPOSITIONS, type CallDisposition } from "./voice-orchestrator";
+import { handleAppointmentBooked as schedulingHandleBooked, handleAppointmentCanceled as schedulingHandleCanceled } from "./scheduling";
+import { checkAndLogCompliance } from "./compliance-engine";
 
 const contactUpdatedSchema = z.object({
   contactId: z.string().optional(),
@@ -136,8 +140,53 @@ export async function handleMessageReceived(rawPayload: unknown): Promise<void> 
         lastTouchAt: new Date(),
         updatedAt: new Date(),
       }).where(eq(sdrLeadState.merchantId, merchant.id));
+    }
 
-      if (["OUTREACH_EMAIL", "OUTREACH_SMS", "OUTREACH_CHAT", "OUTREACH_CALL"].includes(state.currentStage)) {
+    const messageText = payload.body || "";
+    if (messageText.trim()) {
+      try {
+        const recentMessages = await db.select()
+          .from(sdrLeadEvents)
+          .where(and(
+            eq(sdrLeadEvents.merchantId, merchant.id),
+            sql`${sdrLeadEvents.eventType} IN ('message_received', 'template_response_sent')`,
+          ))
+          .orderBy(sql`${sdrLeadEvents.createdAt} DESC`)
+          .limit(5);
+        const conversationHistory = recentMessages
+          .reverse()
+          .map(e => {
+            const payload = e.payloadJson as Record<string, unknown> | null;
+            const body = payload?.body || payload?.templateKey || "";
+            const direction = e.actorType === "merchant" ? "Merchant" : "Agent";
+            return `${direction}: ${body}`;
+          })
+          .filter(line => line.length > 10);
+
+        const classification = await classifyIntent(messageText, {
+          merchantVertical: merchant.vertical || undefined,
+          currentStage: state?.currentStage,
+          merchantName: merchant.businessName,
+          conversationHistory,
+        });
+
+        await executeIntentAction(merchant.id, classification, channel);
+
+        console.log(`[SDR Webhook] message-received: merchant=${merchant.id}, intent=${classification.intent} (${(classification.confidence * 100).toFixed(0)}%)`);
+      } catch (err: unknown) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        console.error(`[SDR Webhook] Intent classification failed for merchant ${merchant.id}:`, errMsg);
+
+        if (state && ["OUTREACH_EMAIL", "OUTREACH_SMS", "OUTREACH_CHAT", "OUTREACH_CALL"].includes(state.currentStage)) {
+          await db.update(sdrLeadState).set({
+            currentStage: "ENGAGED",
+            updatedAt: new Date(),
+          }).where(eq(sdrLeadState.merchantId, merchant.id));
+          await onStageChange(merchant.id, "ENGAGED", state.currentStage);
+        }
+      }
+    } else {
+      if (state && ["OUTREACH_EMAIL", "OUTREACH_SMS", "OUTREACH_CHAT", "OUTREACH_CALL"].includes(state.currentStage)) {
         await db.update(sdrLeadState).set({
           currentStage: "ENGAGED",
           updatedAt: new Date(),
@@ -179,6 +228,20 @@ export async function handleCallOutcome(rawPayload: unknown): Promise<void> {
         updatedAt: new Date(),
       }).where(eq(sdrLeadState.merchantId, merchant.id));
     }
+
+    const rawDisposition = (payload.status || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+    if (rawDisposition && (CALL_DISPOSITIONS as readonly string[]).includes(rawDisposition)) {
+      try {
+        await handleCallDisposition(merchant.id, rawDisposition as CallDisposition, {
+          callId: payload.callId,
+          direction: payload.direction,
+          duration: payload.duration,
+        });
+      } catch (err: unknown) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        console.error(`[SDR Webhook] Call disposition handling failed for merchant ${merchant.id}:`, errMsg);
+      }
+    }
   }
 
   console.log(`[SDR Webhook] call-outcome processed for GHL contact ${ghlContactId}`);
@@ -193,20 +256,8 @@ export async function handleAppointmentBooked(rawPayload: unknown): Promise<void
   }
   const payload = parsed.data;
   const ghlContactId = payload.contactId;
-  const merchant = ghlContactId ? await findMerchantByGhlId(ghlContactId) : null;
 
-  if (merchant) {
-    await onAppointmentBooked(merchant.id, payload);
-  } else {
-    await db.insert(sdrLeadEvents).values({
-      merchantId: null,
-      eventType: "appointment_booked",
-      channel: "calendar",
-      actorType: "merchant",
-      payloadJson: payload,
-      ghlRefId: payload.appointmentId || ghlContactId || null,
-    });
-  }
+  await schedulingHandleBooked(payload);
 
   console.log(`[SDR Webhook] appointment-booked processed for GHL contact ${ghlContactId}`);
 }
@@ -220,16 +271,8 @@ export async function handleAppointmentCanceled(rawPayload: unknown): Promise<vo
   }
   const payload = parsed.data;
   const ghlContactId = payload.contactId;
-  const merchant = ghlContactId ? await findMerchantByGhlId(ghlContactId) : null;
 
-  await db.insert(sdrLeadEvents).values({
-    merchantId: merchant?.id || null,
-    eventType: "appointment_canceled",
-    channel: "calendar",
-    actorType: "merchant",
-    payloadJson: payload,
-    ghlRefId: payload.appointmentId || ghlContactId || null,
-  });
+  await schedulingHandleCanceled(payload);
 
   console.log(`[SDR Webhook] appointment-canceled processed for GHL contact ${ghlContactId}`);
 }

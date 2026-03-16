@@ -423,6 +423,39 @@ async function executeSmsAction(lead: SdrLeadState): Promise<boolean> {
 }
 
 async function executeAction(lead: SdrLeadState, actionType: string, actionParams?: Record<string, any>): Promise<boolean> {
+  const channelMap: Record<string, "sms" | "email" | "call"> = {
+    send_email: "email",
+    send_sms: "sms",
+    schedule_call: "call",
+  };
+  const complianceChannel = channelMap[actionType];
+  if (complianceChannel && lead.merchantId) {
+    try {
+      const { checkAndLogCompliance } = await import("./compliance-engine");
+      const complianceResult = await checkAndLogCompliance(lead.merchantId, complianceChannel);
+      if (!complianceResult.allowed) {
+        console.log(`[SDR Orchestrator] Compliance blocked ${actionType} for lead ${lead.id}: ${complianceResult.reason}`);
+        await logLeadEvent(lead.id, {
+          eventType: "compliance_blocked",
+          actionType,
+          channel: complianceChannel,
+          decisionReason: `Compliance blocked: ${complianceResult.reason}`,
+        });
+        if (complianceResult.nextValidWindow) {
+          await db.update(sdrLeadState).set({
+            nextActionAt: complianceResult.nextValidWindow,
+            decisionReason: `Deferred to ${complianceResult.nextValidWindow.toISOString()}: ${complianceResult.reason}`,
+            updatedAt: new Date(),
+          }).where(eq(sdrLeadState.id, lead.id));
+        }
+        return false;
+      }
+    } catch (err: unknown) {
+      console.error(`[SDR Orchestrator] Compliance check failed for lead ${lead.id}, failing closed:`, err);
+      return false;
+    }
+  }
+
   switch (actionType) {
     case "send_email":
       return executeEmailAction(lead, actionParams?.strongerCta);

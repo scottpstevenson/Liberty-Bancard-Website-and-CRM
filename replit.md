@@ -27,10 +27,11 @@ The frontend uses React with Vite, TypeScript, Tailwind CSS, and shadcn/ui for a
 - **Sales Workflow**: Gated sales call follow-up system generates personalized email and SMS drafts via AI.
 - **Workflow Automation**: Centralized engine for various actions triggered by events, with SLA enforcement.
 - **Profit Instrumentation**: Integrates merchant tier, risk, health scores, and profit estimates into deal management.
-- **Statement Review & Proposals**: AI-powered analysis generates multi-plan pricing proposals and automates delivery.
-- **Merchant Application & Portal**: Multi-step merchant application wizard with e-signature and a self-service portal.
-- **Outreach & Enrichment**: Outreach Command Center manages automated sales lifecycles, including Sunbiz entity imports, AI enrichment/classification, lead scoring, and daily automated outreach. Deep enrichment includes Serper.dev integration.
-- **AI SDR Pipeline**: Autonomous lead development system with a 24-stage pipeline, GHL sync, and two-way webhook integration for real-time updates and compliance.
+- **Statement Review & Proposals**: AI-powered analysis generates multi-plan pricing proposals and automates proposal delivery.
+- **Merchant Application & Portal**: A multi-step merchant application wizard with e-signature and a self-service portal for account management.
+- **Outreach & Enrichment**: An Outreach Command Center manages automated sales lifecycles, including Sunbiz entity imports, AI enrichment/classification, lead scoring, and daily automated outreach. The enrichment pipeline includes deep enrichment with Serper.dev integration for email/phone/website discovery.
+- **AI SDR Pipeline**: An autonomous lead development system with a 24-stage pipeline, GHL sync, and two-way webhook integration for real-time updates and compliance. Week 3 adds: Reply Intelligence (GPT-4o-mini intent classification of 12 labels with intent-to-action mapping), Voice AI Orchestrator (6 bot modes with TCPA-compliant business hours enforcement), Booking/Scheduling integration (GHL calendar selection, booking links, appointment lifecycle), and a full Compliance Engine (consent checks, DNC, quiet hours, daily limits, bounce/complaint history, compliance dashboard).
+- **Florida Vertical Playbooks**: Specialized playbooks for Florida Auto, Med Spa, and Medical/Dental sectors. Includes industry-specific seed sequences (22-24), vertical-specific scoring boosts (100% for FL, 70% for non-FL), custom Voice AI scripts, and automated compliance handling (surcharging disclosures, FDACS registration, PHI disclaimers).
 - **Affiliate Program**: Public signup with referral codes, cookie-based attribution, performance tracking, tiered commissions, and an admin dashboard.
 - **Conversion Optimization**: A/B testing framework, enhanced thank-you pages with calendar booking links, and detailed GA4 tracking.
 

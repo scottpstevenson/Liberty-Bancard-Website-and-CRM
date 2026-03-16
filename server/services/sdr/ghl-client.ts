@@ -214,10 +214,11 @@ export interface WorkflowTriggerResult {
 export async function triggerWorkflow(params: {
   workflowId: string;
   contactId: string;
+  metadata?: Record<string, unknown>;
 }): Promise<WorkflowTriggerResult> {
   return sdrGhlFetch(`/contacts/${params.contactId}/workflow/${params.workflowId}`, {
     method: "POST",
-    body: JSON.stringify({}),
+    body: JSON.stringify(params.metadata || {}),
   }) as unknown as WorkflowTriggerResult;
 }
 
@@ -401,4 +402,112 @@ export async function bootstrapGhlCustomFieldsAndTags(): Promise<{
 
   console.log(`[SDR GHL Bootstrap] Fields created: ${fieldsCreated.length}, existing: ${fieldsExisting.length}, tags: ${tagsCreated.length}, errors: ${errors.length}`);
   return { fieldsCreated, fieldsExisting, tagsCreated, errors };
+}
+
+const RESPONSE_TEMPLATES: Record<string, string> = {
+  booking_cta: "Great to hear you're interested! Here's a link to book a quick call with our team: {{booking_link}}",
+  value_message_with_link: "Thanks for your interest! I'll send over some details about how we help businesses like yours save on processing. In the meantime, here's a link to chat: {{booking_link}}",
+  pricing_review_explanation: "Great question! Our pricing is based on a free statement analysis — we compare your current rates and show you exactly where we can save you money. No obligation. Want me to set up a quick call? {{booking_link}}",
+  booking_link_or_call: "I'd love to connect! Here's a link to pick a time that works: {{booking_link}} — or I can have one of our reps call you shortly.",
+  snooze_acknowledgment: "No problem at all! I'll follow up in about a month. Feel free to reach out anytime if things change.",
+  thank_you_suppress: "Understood — thanks for letting me know. We won't reach out again. If you ever need anything, don't hesitate to contact us.",
+  wrong_person_apology: "Sorry about that! If you could point me to the right person, I'd appreciate it. Otherwise, we won't bother you again.",
+  booking_confirmation: "Awesome — looking forward to our call! You'll get a reminder before the meeting. If anything changes, just let me know.",
+  statement_received_acknowledgment: "Got it — thanks for sending that over! Our team will review it and get back to you with a savings analysis shortly.",
+};
+
+export async function sendTemplateResponse(
+  merchantId: number,
+  templateKey: string,
+  channel: string
+): Promise<void> {
+  const { db } = await import("../../db");
+  const { sdrMerchants, sdrLeadEvents } = await import("@shared/schema");
+  const { eq } = await import("drizzle-orm");
+
+  const template = RESPONSE_TEMPLATES[templateKey];
+  if (!template) {
+    console.warn(`[GHL Client] Unknown response template: ${templateKey}`);
+    return;
+  }
+
+  const [merchant] = await db.select().from(sdrMerchants).where(eq(sdrMerchants.id, merchantId));
+  if (!merchant?.ghlContactId) {
+    console.warn(`[GHL Client] Cannot send template — no GHL contact for merchant ${merchantId}`);
+    return;
+  }
+
+  const complianceChannel = (channel === "email" ? "email" : "sms") as "sms" | "email";
+  try {
+    const { checkAndLogCompliance } = await import("./compliance-engine");
+    const complianceResult = await checkAndLogCompliance(merchantId, complianceChannel);
+    if (!complianceResult.allowed) {
+      console.warn(`[GHL Client] Template "${templateKey}" blocked for merchant ${merchantId}: ${complianceResult.reason}`);
+      await db.insert(sdrLeadEvents).values({
+        merchantId,
+        eventType: "template_response_blocked",
+        channel,
+        actorType: "system",
+        payloadJson: { templateKey, reason: complianceResult.reason },
+        decisionReason: `Template blocked: ${complianceResult.reason}`,
+      });
+      return;
+    }
+  } catch (compErr: unknown) {
+    console.error(`[GHL Client] Compliance check failed for template send, failing closed:`, compErr);
+    return;
+  }
+
+  if (!isSdrGhlConfigured()) {
+    console.warn(`[GHL Client] GHL not configured — logging template send for merchant ${merchantId}`);
+    await db.insert(sdrLeadEvents).values({
+      merchantId,
+      eventType: "template_response_queued",
+      channel,
+      actorType: "system",
+      payloadJson: { templateKey, template, ghlNotConfigured: true },
+      decisionReason: `Template "${templateKey}" queued (GHL not configured)`,
+    });
+    return;
+  }
+
+  try {
+    const workflowId = process.env[`GHL_WORKFLOW_TEMPLATE_${templateKey.toUpperCase()}`] || process.env.GHL_WORKFLOW_TEMPLATE_RESPONSE;
+    if (workflowId) {
+      await triggerWorkflow({
+        workflowId,
+        contactId: merchant.ghlContactId,
+        metadata: { templateKey, message: template, channel },
+      });
+    } else {
+      await sdrGhlFetch(`/conversations/messages`, {
+        method: "POST",
+        body: JSON.stringify({
+          type: channel === "email" ? "Email" : "SMS",
+          contactId: merchant.ghlContactId,
+          message: template.replace("{{booking_link}}", process.env.GHL_DEFAULT_BOOKING_LINK || "[booking link]"),
+        }),
+      });
+    }
+
+    await db.insert(sdrLeadEvents).values({
+      merchantId,
+      eventType: "template_response_sent",
+      channel,
+      actorType: "system",
+      payloadJson: { templateKey, channel },
+      decisionReason: `Template "${templateKey}" sent via ${channel}`,
+    });
+  } catch (err: unknown) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.error(`[GHL Client] Failed to send template response: ${errMsg}`);
+    await db.insert(sdrLeadEvents).values({
+      merchantId,
+      eventType: "template_response_failed",
+      channel,
+      actorType: "system",
+      payloadJson: { templateKey, error: errMsg },
+      decisionReason: `Template "${templateKey}" send failed: ${errMsg}`,
+    });
+  }
 }

@@ -1,4 +1,490 @@
-import type { SdrLeadState } from "@shared/schema";
+import { db } from "../../db";
+import { sdrLeadState, sdrLeadEvents, sdrChannelAttempts, sdrMerchants, sdrComplianceState, type SdrLeadState } from "@shared/schema";
+import { eq } from "drizzle-orm";
+import { triggerWorkflow, isSdrGhlConfigured } from "./ghl-client";
+import { onStageChange } from "./ghl-sync-rules";
+
+export const VOICE_BOT_MODES = [
+  "intro_qualification",
+  "follow_up_callback",
+  "statement_chase",
+  "proposal_reminder",
+  "appointment_reminder",
+  "callback_request",
+] as const;
+
+export type VoiceBotMode = typeof VOICE_BOT_MODES[number];
+
+export const CALL_DISPOSITIONS = [
+  "interested",
+  "not_interested",
+  "callback_requested",
+  "voicemail_left",
+  "no_answer",
+  "wrong_number",
+  "gatekeeper",
+  "do_not_call",
+  "booked_meeting",
+  "promised_statement",
+] as const;
+
+export type CallDisposition = typeof CALL_DISPOSITIONS[number];
+
+const BOT_MODE_WORKFLOW_MAP: Record<VoiceBotMode, string> = {
+  intro_qualification: process.env.GHL_WORKFLOW_INTRO_QUAL || "voice_intro_qualification",
+  follow_up_callback: process.env.GHL_WORKFLOW_FOLLOW_UP || "voice_follow_up_callback",
+  statement_chase: process.env.GHL_WORKFLOW_STATEMENT || "voice_statement_chase",
+  proposal_reminder: process.env.GHL_WORKFLOW_PROPOSAL || "voice_proposal_reminder",
+  appointment_reminder: process.env.GHL_WORKFLOW_APPT || "voice_appointment_reminder",
+  callback_request: process.env.GHL_WORKFLOW_CALLBACK || "voice_callback_request",
+};
+
+const BUSINESS_HOURS = { start: 9, end: 17 };
+
+function getFederalHolidays(year: number): string[] {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const fmt = (m: number, d: number) => `${year}-${pad(m)}-${pad(d)}`;
+
+  const nthWeekday = (month: number, weekday: number, n: number): number => {
+    const firstDay = new Date(year, month - 1, 1).getDay();
+    let day = 1 + ((weekday - firstDay + 7) % 7) + (n - 1) * 7;
+    return day;
+  };
+
+  const lastMonday = (month: number): number => {
+    const lastDay = new Date(year, month, 0).getDate();
+    const lastDow = new Date(year, month - 1, lastDay).getDay();
+    return lastDay - ((lastDow - 1 + 7) % 7);
+  };
+
+  return [
+    fmt(1, 1),
+    fmt(1, nthWeekday(1, 1, 3)),
+    fmt(2, nthWeekday(2, 1, 3)),
+    fmt(5, lastMonday(5)),
+    fmt(6, 19),
+    fmt(7, 4),
+    fmt(9, nthWeekday(9, 1, 1)),
+    fmt(10, nthWeekday(10, 1, 2)),
+    fmt(11, 11),
+    fmt(11, nthWeekday(11, 4, 4)),
+    fmt(12, 25),
+  ];
+}
+
+function isFederalHoliday(dateStr: string): boolean {
+  const year = parseInt(dateStr.substring(0, 4), 10);
+  if (isNaN(year)) return false;
+  return getFederalHolidays(year).includes(dateStr);
+}
+
+const CITY_TZ_OVERRIDES: Record<string, Record<string, string>> = {
+  "FL": { "pensacola": "America/Chicago", "panama city": "America/Chicago" },
+  "IN": { "evansville": "America/Chicago", "gary": "America/Chicago", "terre haute": "America/Indiana/Tell_City" },
+  "KY": { "bowling green": "America/Chicago", "owensboro": "America/Chicago", "paducah": "America/Chicago" },
+  "MI": { "iron mountain": "America/Menominee", "ironwood": "America/Menominee" },
+  "ND": { "dickinson": "America/Denver", "williston": "America/Denver" },
+  "NE": { "scottsbluff": "America/Denver", "valentine": "America/Denver" },
+  "OR": { "ontario": "America/Boise", "burns": "America/Boise" },
+  "SD": { "rapid city": "America/Denver", "pierre": "America/Chicago" },
+  "TN": { "chattanooga": "America/New_York", "knoxville": "America/New_York" },
+  "TX": { "el paso": "America/Denver", "hudspeth": "America/Denver" },
+};
+
+export function getTimezoneFromState(state: string | null | undefined, city?: string | null): string {
+  const tzMap: Record<string, string> = {
+    "AL": "America/Chicago", "AK": "America/Anchorage", "AZ": "America/Phoenix",
+    "AR": "America/Chicago", "CA": "America/Los_Angeles", "CO": "America/Denver",
+    "CT": "America/New_York", "DE": "America/New_York", "FL": "America/New_York",
+    "GA": "America/New_York", "HI": "Pacific/Honolulu", "ID": "America/Boise",
+    "IL": "America/Chicago", "IN": "America/Indiana/Indianapolis", "IA": "America/Chicago",
+    "KS": "America/Chicago", "KY": "America/New_York", "LA": "America/Chicago",
+    "ME": "America/New_York", "MD": "America/New_York", "MA": "America/New_York",
+    "MI": "America/Detroit", "MN": "America/Chicago", "MS": "America/Chicago",
+    "MO": "America/Chicago", "MT": "America/Denver", "NE": "America/Chicago",
+    "NV": "America/Los_Angeles", "NH": "America/New_York", "NJ": "America/New_York",
+    "NM": "America/Denver", "NY": "America/New_York", "NC": "America/New_York",
+    "ND": "America/Chicago", "OH": "America/New_York", "OK": "America/Chicago",
+    "OR": "America/Los_Angeles", "PA": "America/New_York", "RI": "America/New_York",
+    "SC": "America/New_York", "SD": "America/Chicago", "TN": "America/Chicago",
+    "TX": "America/Chicago", "UT": "America/Denver", "VT": "America/New_York",
+    "VA": "America/New_York", "WA": "America/Los_Angeles", "WV": "America/New_York",
+    "WI": "America/Chicago", "WY": "America/Denver", "DC": "America/New_York",
+  };
+  if (!state) return "America/New_York";
+  const stateUpper = state.toUpperCase();
+
+  if (city && CITY_TZ_OVERRIDES[stateUpper]) {
+    const cityLower = city.toLowerCase().trim();
+    const cityTz = CITY_TZ_OVERRIDES[stateUpper][cityLower];
+    if (cityTz) return cityTz;
+  }
+
+  return tzMap[stateUpper] || "America/New_York";
+}
+
+export function isWithinBusinessHours(timezone: string): boolean {
+  try {
+    const now = new Date();
+    const formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      hour: "numeric",
+      hour12: false,
+      weekday: "short",
+    });
+    const parts = formatter.formatToParts(now);
+    const hour = parseInt(parts.find(p => p.type === "hour")?.value || "0", 10);
+    const weekday = parts.find(p => p.type === "weekday")?.value || "";
+
+    if (["Sat", "Sun"].includes(weekday)) return false;
+
+    const dateFormatter = new Intl.DateTimeFormat("en-CA", { timeZone: timezone });
+    const dateStr = dateFormatter.format(now);
+    if (isFederalHoliday(dateStr)) return false;
+
+    return hour >= BUSINESS_HOURS.start && hour < BUSINESS_HOURS.end;
+  } catch (err) {
+    console.error(`[Voice Orchestrator] Business hours check failed for timezone ${timezone}, failing closed:`, err);
+    return false;
+  }
+}
+
+export function getNextBusinessWindow(timezone: string): Date {
+  const now = new Date();
+  const oneHour = 3600_000;
+
+  for (let i = 1; i <= 168; i++) {
+    const candidate = new Date(now.getTime() + i * oneHour);
+    try {
+      const formatter = new Intl.DateTimeFormat("en-US", {
+        timeZone: timezone,
+        hour: "numeric",
+        hour12: false,
+        weekday: "short",
+      });
+      const parts = formatter.formatToParts(candidate);
+      const hour = parseInt(parts.find(p => p.type === "hour")?.value || "0", 10);
+      const weekday = parts.find(p => p.type === "weekday")?.value || "";
+
+      if (["Sat", "Sun"].includes(weekday)) continue;
+
+      const dateFormatter = new Intl.DateTimeFormat("en-CA", { timeZone: timezone });
+      const dateStr = dateFormatter.format(candidate);
+      if (isFederalHoliday(dateStr)) continue;
+
+      if (hour >= BUSINESS_HOURS.start && hour < BUSINESS_HOURS.end) {
+        return candidate;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  tomorrow.setHours(BUSINESS_HOURS.start, 0, 0, 0);
+  return tomorrow;
+}
+
+export function getNextBusinessDay(timezone: string): Date {
+  const now = new Date();
+  for (let dayOffset = 1; dayOffset <= 10; dayOffset++) {
+    const candidate = new Date(now);
+    candidate.setDate(candidate.getDate() + dayOffset);
+    candidate.setHours(BUSINESS_HOURS.start, 0, 0, 0);
+
+    try {
+      const formatter = new Intl.DateTimeFormat("en-US", {
+        timeZone: timezone,
+        weekday: "short",
+      });
+      const weekday = formatter.formatToParts(candidate).find(p => p.type === "weekday")?.value || "";
+      if (["Sat", "Sun"].includes(weekday)) continue;
+
+      const dateFormatter = new Intl.DateTimeFormat("en-CA", { timeZone: timezone });
+      const dateStr = dateFormatter.format(candidate);
+      if (isFederalHoliday(dateStr)) continue;
+
+      return candidate;
+    } catch {
+      continue;
+    }
+  }
+
+  const fallback = new Date(now);
+  fallback.setDate(fallback.getDate() + 1);
+  fallback.setHours(BUSINESS_HOURS.start, 0, 0, 0);
+  return fallback;
+}
+
+export interface TriggerCallResult {
+  success: boolean;
+  scheduled: boolean;
+  scheduledAt?: Date;
+  reason?: string;
+  callId?: string;
+}
+
+export async function triggerAiCall(
+  merchantId: number,
+  botMode: VoiceBotMode
+): Promise<TriggerCallResult> {
+  const [merchant] = await db.select().from(sdrMerchants).where(eq(sdrMerchants.id, merchantId));
+  if (!merchant) {
+    return { success: false, scheduled: false, reason: "Merchant not found" };
+  }
+
+  if (!merchant.ghlContactId) {
+    return { success: false, scheduled: false, reason: "No GHL contact ID for merchant" };
+  }
+
+  if (!merchant.mainPhone) {
+    return { success: false, scheduled: false, reason: "No phone number on file" };
+  }
+
+  const { checkAndLogCompliance } = await import("./compliance-engine");
+  const complianceResult = await checkAndLogCompliance(merchantId, "call");
+  if (!complianceResult.allowed) {
+    if (complianceResult.nextValidWindow) {
+      await db.update(sdrLeadState).set({
+        nextAction: `ai_call_${botMode}`,
+        nextActionType: "call",
+        nextActionAt: complianceResult.nextValidWindow,
+        nextActionPayload: { botMode, merchantId },
+        updatedAt: new Date(),
+      }).where(eq(sdrLeadState.merchantId, merchantId));
+
+      return { success: true, scheduled: true, scheduledAt: complianceResult.nextValidWindow, reason: complianceResult.reason };
+    }
+    return { success: false, scheduled: false, reason: complianceResult.reason };
+  }
+
+  const timezone = getTimezoneFromState(merchant.state, merchant.city);
+  if (!isWithinBusinessHours(timezone)) {
+    const nextWindow = getNextBusinessWindow(timezone);
+    await db.update(sdrLeadState).set({
+      nextAction: `ai_call_${botMode}`,
+      nextActionType: "call",
+      nextActionAt: nextWindow,
+      nextActionPayload: { botMode, merchantId },
+      updatedAt: new Date(),
+    }).where(eq(sdrLeadState.merchantId, merchantId));
+
+    await db.insert(sdrLeadEvents).values({
+      merchantId,
+      eventType: "call_scheduled",
+      channel: "call",
+      actorType: "system",
+      payloadJson: { botMode, scheduledAt: nextWindow.toISOString(), reason: "Outside business hours" },
+      decisionReason: `Call to merchant ${merchantId} scheduled for ${nextWindow.toISOString()} (outside business hours in ${timezone})`,
+    });
+
+    return { success: true, scheduled: true, scheduledAt: nextWindow, reason: "Scheduled for next business window" };
+  }
+
+  if (!isSdrGhlConfigured()) {
+    await db.insert(sdrLeadEvents).values({
+      merchantId,
+      eventType: "call_skipped",
+      channel: "call",
+      actorType: "system",
+      payloadJson: { botMode, reason: "GHL not configured" },
+      decisionReason: "GHL integration not configured — call not placed",
+    });
+    return { success: false, scheduled: false, reason: "GHL not configured" };
+  }
+
+  try {
+    const workflowId = BOT_MODE_WORKFLOW_MAP[botMode];
+    const result = await triggerWorkflow({
+      workflowId,
+      contactId: merchant.ghlContactId,
+    });
+
+    await db.insert(sdrChannelAttempts).values({
+      merchantId,
+      channel: "call",
+      attemptNo: 1,
+      templateId: botMode,
+      sentAt: new Date(),
+      outcome: "initiated",
+    });
+
+    await db.insert(sdrLeadEvents).values({
+      merchantId,
+      eventType: "call_initiated",
+      channel: "call",
+      actorType: "system",
+      payloadJson: { botMode, workflowId, ghlResult: result },
+      decisionReason: `Voice AI call initiated: mode=${botMode}`,
+    });
+
+    if (botMode !== "appointment_reminder") {
+      await db.update(sdrLeadState).set({
+        lastCallAt: new Date(),
+        lastTouchAt: new Date(),
+        nextAction: "check_call_outcome",
+        nextActionType: "call_followup",
+        nextActionAt: new Date(Date.now() + 30 * 60_000),
+        updatedAt: new Date(),
+      }).where(eq(sdrLeadState.merchantId, merchantId));
+    }
+
+    return { success: true, scheduled: false };
+  } catch (err: unknown) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.error(`[Voice Orchestrator] Failed to trigger call for merchant ${merchantId}:`, errMsg);
+
+    await db.insert(sdrLeadEvents).values({
+      merchantId,
+      eventType: "call_failed",
+      channel: "call",
+      actorType: "system",
+      payloadJson: { botMode, error: errMsg },
+      decisionReason: `Call trigger failed: ${errMsg}`,
+    });
+
+    return { success: false, scheduled: false, reason: errMsg };
+  }
+}
+
+export interface DispositionAction {
+  newStage?: string;
+  scheduleFollowUp?: string;
+  followUpDelayMinutes?: number;
+  sendBookingLink?: boolean;
+  suppressContact?: boolean;
+  retryNextBusinessDay?: boolean;
+}
+
+export function mapDispositionToAction(disposition: CallDisposition): DispositionAction {
+  switch (disposition) {
+    case "booked_meeting":
+      return { newStage: "MEETING_SET" };
+    case "interested":
+      return { sendBookingLink: true, newStage: "ENGAGED" };
+    case "promised_statement":
+      return { newStage: "STATEMENT_REQUESTED" };
+    case "callback_requested":
+      return { scheduleFollowUp: "callback", followUpDelayMinutes: 60 };
+    case "voicemail_left":
+      return { scheduleFollowUp: "sms_followup", followUpDelayMinutes: 5 };
+    case "no_answer":
+      return { retryNextBusinessDay: true };
+    case "wrong_number":
+      return { suppressContact: true };
+    case "do_not_call":
+      return { suppressContact: true };
+    case "not_interested":
+      return { newStage: "NURTURE" };
+    case "gatekeeper":
+      return { scheduleFollowUp: "callback_different_time", followUpDelayMinutes: 120 };
+    default:
+      return {};
+  }
+}
+
+export async function handleCallDisposition(
+  merchantId: number,
+  disposition: CallDisposition,
+  callMetadata?: Record<string, unknown>
+): Promise<void> {
+  const action = mapDispositionToAction(disposition);
+
+  await db.insert(sdrLeadEvents).values({
+    merchantId,
+    eventType: "call_disposition",
+    channel: "call",
+    actorType: "system",
+    payloadJson: { disposition, action, ...callMetadata },
+    decisionReason: `Call disposition: ${disposition} → ${JSON.stringify(action)}`,
+  });
+
+  const [state] = await db.select().from(sdrLeadState).where(eq(sdrLeadState.merchantId, merchantId));
+
+  if (action.suppressContact) {
+    const [existing] = await db.select().from(sdrComplianceState).where(eq(sdrComplianceState.merchantId, merchantId));
+    if (existing) {
+      await db.update(sdrComplianceState).set({
+        callAllowed: false,
+        dncBlock: disposition === "do_not_call",
+        notes: `${disposition} recorded at ${new Date().toISOString()}`,
+        updatedAt: new Date(),
+      }).where(eq(sdrComplianceState.merchantId, merchantId));
+    } else {
+      await db.insert(sdrComplianceState).values({
+        merchantId,
+        callAllowed: false,
+        dncBlock: disposition === "do_not_call",
+        notes: `${disposition} recorded at ${new Date().toISOString()}`,
+      });
+    }
+
+    if (disposition === "do_not_call") {
+      await db.update(sdrMerchants).set({
+        doNotContactFlag: true,
+        updatedAt: new Date(),
+      }).where(eq(sdrMerchants.id, merchantId));
+    }
+  }
+
+  if (action.newStage && state) {
+    const oldStage = state.currentStage;
+    if (oldStage !== action.newStage) {
+      await db.update(sdrLeadState).set({
+        currentStage: action.newStage,
+        lastCallAt: new Date(),
+        lastTouchAt: new Date(),
+        updatedAt: new Date(),
+      }).where(eq(sdrLeadState.merchantId, merchantId));
+      await onStageChange(merchantId, action.newStage, oldStage);
+    }
+  }
+
+  if (action.scheduleFollowUp && state) {
+    const followUpAt = new Date(Date.now() + (action.followUpDelayMinutes || 60) * 60_000);
+    await db.update(sdrLeadState).set({
+      nextAction: action.scheduleFollowUp,
+      nextActionType: action.scheduleFollowUp === "sms_followup" ? "sms" : "call",
+      nextActionAt: followUpAt,
+      nextActionPayload: { disposition, followUpType: action.scheduleFollowUp },
+      updatedAt: new Date(),
+    }).where(eq(sdrLeadState.merchantId, merchantId));
+  }
+
+  if (action.retryNextBusinessDay && state) {
+    const [merchant] = await db.select().from(sdrMerchants).where(eq(sdrMerchants.id, merchantId));
+    const timezone = getTimezoneFromState(merchant?.state, merchant?.city);
+    const nextDay = getNextBusinessDay(timezone);
+
+    await db.update(sdrLeadState).set({
+      nextAction: "retry_call",
+      nextActionType: "call",
+      nextActionAt: nextDay,
+      nextActionPayload: { disposition, retryReason: "no_answer" },
+      updatedAt: new Date(),
+    }).where(eq(sdrLeadState.merchantId, merchantId));
+  }
+
+  if (action.sendBookingLink && state) {
+    try {
+      const { sendBookingLink } = await import("./scheduling");
+      const result = await sendBookingLink(merchantId, "sms");
+      console.log(`[Voice Orchestrator] Booking link for merchant ${merchantId}: ${result.sent ? "sent" : result.reason}`);
+    } catch (err: unknown) {
+      console.error(`[Voice Orchestrator] Failed to send booking link for merchant ${merchantId}:`, err);
+      await db.update(sdrLeadState).set({
+        nextAction: "send_booking_link",
+        nextActionType: "booking",
+        nextActionAt: new Date(),
+        updatedAt: new Date(),
+      }).where(eq(sdrLeadState.merchantId, merchantId));
+    }
+  }
+
+
+  console.log(`[Voice Orchestrator] Disposition processed: merchant=${merchantId}, disposition=${disposition}`);
+}
 
 export interface VoiceScript {
   verticalKey: string;

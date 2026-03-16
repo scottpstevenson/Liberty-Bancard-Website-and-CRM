@@ -8272,6 +8272,92 @@ Guidelines:
     }
   });
 
+  app.post("/api/sdr/classify-intent", isAuthenticated, async (req, res) => {
+    try {
+      const { classifyIntent } = await import("./services/sdr/reply-intelligence");
+      const { messageText, context } = req.body;
+      if (!messageText) return res.status(400).json({ message: "messageText is required" });
+      const result = await classifyIntent(messageText, context || {});
+      res.json(result);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.post("/api/sdr/trigger-call/:merchantId", isAuthenticated, async (req, res) => {
+    try {
+      const merchantId = Number(req.params.merchantId);
+      if (!Number.isFinite(merchantId) || merchantId <= 0) return res.status(400).json({ message: "Invalid merchantId" });
+      const { botMode } = req.body;
+      if (!botMode) return res.status(400).json({ message: "botMode is required" });
+      const { triggerAiCall, VOICE_BOT_MODES } = await import("./services/sdr/voice-orchestrator");
+      if (!(VOICE_BOT_MODES as readonly string[]).includes(botMode)) {
+        return res.status(400).json({ message: `Invalid botMode. Valid modes: ${VOICE_BOT_MODES.join(", ")}` });
+      }
+      const result = await triggerAiCall(merchantId, botMode);
+      res.json(result);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.post("/api/sdr/send-booking-link/:merchantId", isAuthenticated, async (req, res) => {
+    try {
+      const merchantId = Number(req.params.merchantId);
+      if (!Number.isFinite(merchantId) || merchantId <= 0) return res.status(400).json({ message: "Invalid merchantId" });
+      const channel = req.body.channel || "sms";
+      if (!["sms", "email", "chat"].includes(channel)) return res.status(400).json({ message: "Channel must be sms, email, or chat" });
+      const { sendBookingLink } = await import("./services/sdr/scheduling");
+      const result = await sendBookingLink(merchantId, channel);
+      res.json(result);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.get("/api/sdr/compliance-check/:merchantId/:channel", isAuthenticated, async (req, res) => {
+    try {
+      const merchantId = Number(req.params.merchantId);
+      if (!Number.isFinite(merchantId) || merchantId <= 0) return res.status(400).json({ message: "Invalid merchantId" });
+      const channel = req.params.channel as "sms" | "email" | "call";
+      if (!["sms", "email", "call"].includes(channel)) {
+        return res.status(400).json({ message: "Channel must be sms, email, or call" });
+      }
+      const { checkBeforeSend } = await import("./services/sdr/compliance-engine");
+      const result = await checkBeforeSend(merchantId, channel);
+      res.json(result);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.get("/api/sdr/compliance/dashboard", isAuthenticated, async (_req, res) => {
+    try {
+      const { getComplianceDashboard } = await import("./services/sdr/compliance-engine");
+      const dashboard = await getComplianceDashboard();
+      res.json(dashboard);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.get("/api/sdr/compliance/blocked-sends", isAuthenticated, async (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit as string || "100", 10);
+      const { getBlockedSends } = await import("./services/sdr/compliance-engine");
+      const blocked = await getBlockedSends(limit);
+      res.json(blocked);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
   setInterval(async () => {
     try {
       const scheduled = await storage.getScheduledBlogPosts();
