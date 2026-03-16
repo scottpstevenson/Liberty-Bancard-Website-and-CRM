@@ -6,7 +6,7 @@ import { authStorage } from "./replit_integrations/auth/storage";
 import bcrypt from "bcryptjs";
 import { db, pool } from "./db";
 import { users, contacts, csvImports, sdrLeadState, type InsertNotificationPreference, type InsertPartner } from "@shared/schema";
-import { eq, desc, ne, and, sql } from "drizzle-orm";
+import { eq, desc, ne, and, sql, isNull } from "drizzle-orm";
 import { registerAudioRoutes } from "./replit_integrations/audio/routes";
 import { z } from "zod";
 import { STATIC_BLOG_SLUGS, INDUSTRY_SLUGS, LOCATION_CITIES, LOCATION_VERTICALS } from "@shared/blog-slugs";
@@ -31,6 +31,8 @@ import { buildDailyDigest, buildWeeklyDigest, sendCriticalEmailNotification, cre
 import { scoreLeadFull } from "./services/sdr/scoring";
 import { sweepLeads, startOrchestrator, stopOrchestrator, isOrchestratorRunning, getDailyLimits, bridgeContactsToSdr, getSdrDashboardStats } from "./services/sdr/orchestrator";
 import { getVoiceScript, getAllVoiceScripts, resolveVoiceScriptForLead, personalizeVoiceScript, buildGhlVoicePayload } from "./services/sdr/voice-orchestrator";
+import { ingestBusiness, ingestBusinessFromContact, bridgeContactsToBusinesses, getDedupeStats, normalizeBusinessName, normalizeDomain, normalizePhoneE164 } from "./services/sdr/dedupe";
+import { insertBusinessSchema, insertBusinessAliasSchema, insertBusinessLocationSchema, insertLeadSourceSchema } from "@shared/schema";
 import { insertSunbizEntitySchema } from "@shared/schema";
 import multer from "multer";
 import { parse } from "csv-parse/sync";
@@ -161,6 +163,7 @@ export async function registerRoutes(
       await storage.createAuditLog({ action: "contact_created", entityType: "contact", entityId: contact.id, details: { name: `${contact.firstName} ${contact.lastName}` } });
       await createPreferenceAwareNotification({ channel: "internal", title: "New Contact Created", message: `${contact.firstName} ${contact.lastName}${contact.companyName ? ` — ${contact.companyName}` : ""} has been added as a new contact.`, type: "info", metadata: { contactId: contact.id, eventType: "contact_created" } }, "contact_created");
       triggerWorkflowsByEvent("contact_created", { entityType: "contact", entityId: contact.id, contactId: contact.id }).catch(err => console.error("Workflow trigger error:", err));
+      ingestBusinessFromContact(contact.id, "manual_upload", "crm_contact_create").catch(err => console.warn("[CRM] Business ingest failed:", err));
       scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
       autoEnrollFromTrigger("contact_created", { contactId: contact.id }).catch(err => console.error("Auto-enroll error:", err));
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
@@ -1078,6 +1081,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       await storage.createAuditLog({ action: "statement_uploaded", entityType: "contact", entityId: contact.id, details: { source: "website", hasFile: !!statementFileBuffer } });
       await storage.updateDeal(deal.id, { statementReceived: true, docReadinessScore: statementFileBuffer ? 2 : 1 });
       trackReferral(referralCode, contactName, email, mobile, businessName).catch(err => console.error("Referral tracking error:", err));
+      ingestBusinessFromContact(contact.id, "manual_upload", "website_statement").catch(err => console.warn("[Statement] Business ingest failed:", err));
       scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
       autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "statement_upload" }).catch(err => console.error("Auto-enroll error:", err));
@@ -1130,11 +1134,11 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       });
 
       trackReferral(referralCode, contactName, email, phone).catch(err => console.error("Referral tracking error:", err));
+      ingestBusinessFromContact(contact.id, "manual_upload", "website_estimate").catch(err => console.warn("[Estimate] Business ingest failed:", err));
       scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
       autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "estimate" }).catch(err => console.error("Auto-enroll error:", err));
       triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: deal.id }, { formType: "estimate" }).catch(err => console.error("Workflow trigger error:", err));
-      // estimate form doesn't have explicit SMS consent — skip confirmation SMS
       res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id });
     } catch (err: any) {
       res.status(400).json({ message: err.message || "Invalid submission" });
@@ -7200,6 +7204,8 @@ Guidelines:
 
       trackReferral(referralCode, `${firstName} ${lastName || ""}`, email, phone, companyName).catch(err => console.error("Referral tracking error:", err));
 
+      ingestBusinessFromContact(contact.id, "ghl_form", "free_analysis_quiz").catch(err => console.warn("[Quiz] Business ingest failed:", err));
+
       scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
       generateDealBlueprint(deal.id).catch(err => console.error("Blueprint gen error:", err));
@@ -7879,6 +7885,7 @@ Guidelines:
       let warmLeads = 0;
       let coldLeads = 0;
       let dealsCreated = 0;
+      const insertedContactIds: number[] = [];
 
       const batchSize = 100;
       const contactInserts: any[] = [];
@@ -7999,6 +8006,7 @@ Guidelines:
         try {
           const result = await db.insert(contacts).values(batch).onConflictDoNothing().returning({ id: contacts.id, vertical: contacts.vertical });
           inserted += result.length;
+          for (const r of result) insertedContactIds.push(r.id);
 
           for (const r of result) {
             try {
@@ -8031,6 +8039,7 @@ Guidelines:
               const [result] = await db.insert(contacts).values(single).onConflictDoNothing().returning({ id: contacts.id });
               if (result) {
                 inserted++;
+                insertedContactIds.push(result.id);
                 try {
                   await scoreContact(result.id);
                 } catch {}
@@ -8038,6 +8047,40 @@ Guidelines:
             } catch {
               errors++;
             }
+          }
+        }
+      }
+
+      let businessesLinked = 0;
+      if (insertedContactIds.length > 0) {
+        const { inArray } = await import("drizzle-orm");
+        const newContacts = await db.select().from(contacts)
+          .where(inArray(contacts.id, insertedContactIds));
+        for (const rc of newContacts) {
+          if (!rc.companyName) continue;
+          try {
+            const bizResult = await ingestBusiness({
+              name: rc.companyName,
+              website: rc.website,
+              phone: rc.phone,
+              email: rc.email,
+              address: rc.address,
+              city: rc.city,
+              state: rc.state,
+              vertical: rc.vertical,
+              industryPrimary: rc.industry,
+              facebookUrl: rc.facebookUrl,
+              sourceType: sourceFormat,
+              sourceLabel: `csv_import_${importRecord.id}`,
+              importBatchId: `csv_${importRecord.id}`,
+              contactId: rc.id,
+            });
+            await db.update(contacts)
+              .set({ businessId: bizResult.businessId })
+              .where(eq(contacts.id, rc.id));
+            businessesLinked++;
+          } catch (bizErr) {
+            console.warn(`[CSV Import] Business ingest failed for ${rc.companyName}:`, bizErr);
           }
         }
       }
@@ -8846,6 +8889,169 @@ Guidelines:
       const { calculateHealthScores } = await import("./services/sdr/inbox-rotation");
       const result = await calculateHealthScores();
       res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/businesses", isAuthenticated, async (req, res) => {
+    try {
+      const { status, vertical, limit } = req.query;
+      const result = await storage.getBusinesses({
+        status: status as string | undefined,
+        vertical: vertical as string | undefined,
+        limit: limit ? Number(limit) : undefined,
+      });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/businesses", isAuthenticated, async (req, res) => {
+    try {
+      const input = insertBusinessSchema.parse(req.body);
+      const biz = await storage.createBusiness(input);
+      res.status(201).json(biz);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/businesses/ingest", isAuthenticated, async (req, res) => {
+    try {
+      const result = await ingestBusiness(req.body);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/businesses/bridge-contacts", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
+    try {
+      const { limit, contactIds } = req.body || {};
+      const result = await bridgeContactsToBusinesses({ limit, contactIds });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/businesses/dedupe/stats", isAuthenticated, async (_req, res) => {
+    try {
+      const stats = await getDedupeStats();
+      res.json(stats);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/businesses/:id", isAuthenticated, async (req, res) => {
+    try {
+      const biz = await storage.getBusiness(Number(req.params.id));
+      if (!biz) return res.status(404).json({ message: "Business not found" });
+      res.json(biz);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/businesses/:id", isAuthenticated, async (req, res) => {
+    try {
+      const partial = insertBusinessSchema.partial().parse(req.body);
+      const biz = await storage.updateBusiness(Number(req.params.id), partial);
+      if (!biz) return res.status(404).json({ message: "Business not found" });
+      res.json(biz);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/businesses/:id/aliases", isAuthenticated, async (req, res) => {
+    try {
+      const aliases = await storage.getBusinessAliases(Number(req.params.id));
+      res.json(aliases);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/businesses/:id/aliases", isAuthenticated, async (req, res) => {
+    try {
+      const input = insertBusinessAliasSchema.parse({ ...req.body, businessId: Number(req.params.id) });
+      const alias = await storage.createBusinessAlias(input);
+      res.status(201).json(alias);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/businesses/:id/locations", isAuthenticated, async (req, res) => {
+    try {
+      const locations = await storage.getBusinessLocations(Number(req.params.id));
+      res.json(locations);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/businesses/:id/locations", isAuthenticated, async (req, res) => {
+    try {
+      const input = insertBusinessLocationSchema.parse({ ...req.body, businessId: Number(req.params.id) });
+      const loc = await storage.createBusinessLocation(input);
+      res.status(201).json(loc);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/businesses/:id/sources", isAuthenticated, async (req, res) => {
+    try {
+      const sources = await storage.getLeadSources(Number(req.params.id));
+      res.json(sources);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/businesses/:id/enrichment-runs", isAuthenticated, async (req, res) => {
+    try {
+      const runs = await storage.getEnrichmentRuns(Number(req.params.id));
+      res.json(runs);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/lead-sources", isAuthenticated, async (req, res) => {
+    try {
+      const sources = await storage.getLeadSources();
+      res.json(sources);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/lead-sources", isAuthenticated, async (req, res) => {
+    try {
+      const input = insertLeadSourceSchema.parse(req.body);
+      const source = await storage.createLeadSource(input);
+      res.status(201).json(source);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/lead-sources/by-batch/:batchId", isAuthenticated, async (req, res) => {
+    try {
+      const sources = await storage.getLeadSourcesByBatch(req.params.batchId);
+      res.json(sources);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

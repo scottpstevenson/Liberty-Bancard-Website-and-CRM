@@ -1,6 +1,6 @@
 import { storage } from "../../storage";
 import { db } from "../../db";
-import { sdrLeadState, sdrLeadEvents, sdrChannelAttempts } from "@shared/schema";
+import { sdrLeadState, sdrLeadEvents, sdrChannelAttempts, sdrMerchants, contacts } from "@shared/schema";
 import type { SdrLeadState, InsertSdrLeadEvent, InsertSdrChannelAttempt } from "@shared/schema";
 import { eq, lte, and, isNull, sql } from "drizzle-orm";
 import { scoreLeadFull } from "./scoring";
@@ -8,6 +8,7 @@ import { decideNextAction, getAllowedTransitions } from "./stage-rules";
 import { sendGhlEmail, sendGhlSms, isGhlConfigured } from "../ghl";
 import { resolveVoiceScriptForLead, buildGhlVoicePayload } from "./voice-orchestrator";
 import { selectBestInbox, recordSend, recordBounce, recordDelivered } from "./inbox-rotation";
+import { ingestBusiness } from "./dedupe";
 import OpenAI from "openai";
 
 function getOpenAI() {
@@ -649,20 +650,28 @@ export async function sweepLeads(): Promise<{ processed: number; errors: number 
           sql`${sdrLeadState.stage} NOT IN ('DEAD', 'CONVERTED')`,
         )
       )
+      .orderBy(sql`COALESCE(${sdrLeadState.businessId}, 0), ${sdrLeadState.priorityScore} DESC NULLS LAST`)
       .limit(100);
 
     console.log(`[SDR Orchestrator] Found ${dueLeads.length} leads due for processing`);
 
+    const processedBusinessIds = new Set<number>();
     for (const lead of dueLeads) {
       try {
         if (lead.pausedUntil && new Date(lead.pausedUntil) > now) {
           continue;
         }
+        if (lead.businessId) {
+          if (processedBusinessIds.has(lead.businessId)) {
+            continue;
+          }
+          processedBusinessIds.add(lead.businessId);
+        }
         await processLead(lead);
         processed++;
       } catch (err) {
         errors++;
-        console.error(`[SDR Orchestrator] Failed to process lead ${lead.id}:`, err);
+        console.error(`[SDR Orchestrator] Failed to process lead ${lead.id} (business ${lead.businessId || "N/A"}):`, err);
       }
     }
 
@@ -733,18 +742,56 @@ export async function bridgeContactsToSdr(options?: { limit?: number; contactIds
       contactsToProcess = contactsToProcess.slice(0, options.limit);
     }
 
-    const existingLeads = await db.select({ contactId: sdrLeadState.contactId })
+    const existingLeads = await db.select({ contactId: sdrLeadState.contactId, businessId: sdrLeadState.businessId })
       .from(sdrLeadState)
       .where(sql`${sdrLeadState.contactId} IS NOT NULL`);
     const existingContactIds = new Set(existingLeads.map(l => l.contactId));
+    const existingBusinessIds = new Set(existingLeads.filter(l => l.businessId).map(l => l.businessId!));
 
     for (const contact of contactsToProcess) {
       if (existingContactIds.has(contact.id)) {
         skipped++;
         continue;
       }
+      if (contact.businessId && existingBusinessIds.has(contact.businessId)) {
+        skipped++;
+        continue;
+      }
 
       try {
+        let resolvedBusinessId = contact.businessId || null;
+        const businessName = contact.companyName || `${contact.firstName} ${contact.lastName}`.trim();
+        if (!resolvedBusinessId && businessName && businessName !== "Unknown") {
+          try {
+            const bizResult = await ingestBusiness({
+              name: businessName,
+              website: contact.website,
+              phone: contact.phone,
+              email: contact.email,
+              address: contact.address,
+              city: contact.city,
+              state: contact.state,
+              vertical: contact.vertical,
+              industryPrimary: contact.industry,
+              facebookUrl: contact.facebookUrl,
+              sourceType: contact.leadSource || "manual_upload",
+              sourceLabel: `sdr_bridge_${contact.id}`,
+              contactId: contact.id,
+            });
+            resolvedBusinessId = bizResult.businessId;
+            await db.update(contacts)
+              .set({ businessId: resolvedBusinessId })
+              .where(eq(contacts.id, contact.id));
+            if (existingBusinessIds.has(resolvedBusinessId!)) {
+              skipped++;
+              continue;
+            }
+            existingBusinessIds.add(resolvedBusinessId!);
+          } catch (bizErr) {
+            console.warn(`[SDR Bridge] Business ingest failed for contact ${contact.id}:`, bizErr);
+          }
+        }
+
         const deals = await storage.getDealsByContact(contact.id);
         const primaryDeal = deals[0] || null;
 
@@ -763,7 +810,23 @@ export async function bridgeContactsToSdr(options?: { limit?: number; contactIds
           totalOldScore >= 45 ? "QUALIFIED" :
           totalOldScore >= 20 ? "CLASSIFIED" : "DISCOVERED";
 
+        const [merchant] = await db.insert(sdrMerchants).values({
+          businessName,
+          website: contact.website || null,
+          mainPhone: contact.phone || null,
+          mainEmail: contact.email || null,
+          address: contact.address || null,
+          city: contact.city || null,
+          state: contact.state || null,
+          vertical: contact.vertical || null,
+          source: "contact_bridge",
+          sourceRef: `contact_${contact.id}`,
+          businessId: resolvedBusinessId,
+        }).returning();
+
         await db.insert(sdrLeadState).values({
+          merchantId: merchant.id,
+          businessId: resolvedBusinessId,
           contactId: contact.id,
           companyName: contact.companyName || null,
           email: contact.email || null,

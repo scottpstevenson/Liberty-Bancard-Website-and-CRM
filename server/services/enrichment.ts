@@ -1,7 +1,11 @@
 import { storage } from "../storage";
+import { db } from "../db";
+import { enrichmentRuns, businesses } from "@shared/schema";
 import type { Prospect } from "@shared/schema";
+import { eq } from "drizzle-orm";
 import OpenAI from "openai";
 import { isSerperConfigured, searchBusiness, searchBusinessEmail } from "./serper";
+import { ingestBusinessFromContact } from "./sdr/dedupe";
 
 function getOpenAI() {
   return new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
@@ -175,8 +179,18 @@ export async function runEnrichmentJob(jobId: number): Promise<void> {
   const job = await storage.updateEnrichmentJob(jobId, { status: "running", startedAt: new Date() });
   if (!job) return;
 
+  const [enrichRun] = await db.insert(enrichmentRuns).values({
+    provider: "internal",
+    jobType: "website_lookup",
+    status: "processing",
+    startedAt: new Date(),
+    inputPayload: { jobId, totalRecords: 0 },
+  }).returning();
+
   const prospects = await storage.getProspects(job.listId!);
   const unenriched = prospects.filter(p => !p.enrichedAt && p.status !== "do_not_contact");
+
+  await db.update(enrichmentRuns).set({ inputPayload: { jobId, totalRecords: unenriched.length } }).where(eq(enrichmentRuns.id, enrichRun.id));
 
   let processed = 0;
   let failed = 0;
@@ -197,6 +211,13 @@ export async function runEnrichmentJob(jobId: number): Promise<void> {
 
     await new Promise(resolve => setTimeout(resolve, 500));
   }
+
+  await db.update(enrichmentRuns).set({
+    status: failed > 0 ? "partial" : "success",
+    completedAt: new Date(),
+    outputPayload: { processed, failed, total: unenriched.length },
+    errorMessage: failed > 0 ? `${failed} prospects failed enrichment` : null,
+  }).where(eq(enrichmentRuns.id, enrichRun.id));
 
   await storage.updateEnrichmentJob(jobId, {
     status: failed > 0 ? "completed_with_errors" : "completed",
@@ -236,6 +257,14 @@ export async function enrichContactBatch(
   const progressKey = "contact_enrich_batch_progress";
 
   try {
+    const [enrichRun] = await db.insert(enrichmentRuns).values({
+      provider: "serper",
+      jobType: "email_lookup",
+      status: "processing",
+      startedAt: new Date(),
+      inputPayload: { totalRecords: contactIds.length, contactIds: contactIds.slice(0, 10) },
+    }).returning();
+
     await storage.setSystemSetting(progressKey, {
       status: "running",
       total: contactIds.length,
@@ -245,6 +274,7 @@ export async function enrichContactBatch(
       websitesFound: 0,
       errors: 0,
       startedAt: new Date().toISOString(),
+      enrichmentRunId: enrichRun.id,
     });
 
     for (let i = 0; i < contactIds.length; i += batchSize) {
@@ -300,6 +330,19 @@ export async function enrichContactBatch(
             await storage.updateContact(contactId, updates);
           }
 
+          try {
+            await db.insert(enrichmentRuns).values({
+              provider: "serper",
+              jobType: "email_lookup",
+              status: "success",
+              contactId,
+              businessId: contact.businessId || null,
+              startedAt: new Date(),
+              completedAt: new Date(),
+              outputPayload: updates,
+            });
+          } catch (_) {}
+
           processed++;
         } catch (err) {
           console.error(`[ContactEnrich] Error enriching contact ${contactId}:`, err);
@@ -333,6 +376,17 @@ export async function enrichContactBatch(
       completed: processed + errors,
       completedAt: new Date().toISOString(),
     });
+
+    await db.update(enrichmentRuns).set({
+      status: errors > 0 ? "partial" : "success",
+      completedAt: new Date(),
+      outputPayload: { processed, errors, emailsFound, phonesFound, websitesFound },
+      errorMessage: errors > 0 ? `${errors} contacts failed enrichment` : null,
+    }).where(eq(enrichmentRuns.id, enrichRun.id));
+
+    for (const cid of contactIds) {
+      ingestBusinessFromContact(cid, "serper", `contact_enrich_batch`).catch(() => {});
+    }
   } catch (fatalErr) {
     console.error("[ContactEnrich] Fatal error in batch enrichment:", fatalErr);
     await storage.setSystemSetting(progressKey, {

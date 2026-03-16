@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb, varchar, real } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, jsonb, varchar, real, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { users } from "./models/auth";
@@ -69,6 +69,7 @@ export const contacts = pgTable("contacts", {
   leadSource: text("lead_source"),
   employeeCount: integer("employee_count"),
   annualRevenue: text("annual_revenue"),
+  businessId: integer("business_id").references(() => businesses.id),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
   archivedAt: timestamp("archived_at"),
@@ -1973,8 +1974,148 @@ export const GHL_TAGS = [
   "LB-STATEMENT-PENDING", "LB-PROPOSAL-SENT", "LB-HUMAN-HANDOFF", "LB-DO-NOT-AUTO",
 ] as const;
 
+export const businesses = pgTable("businesses", {
+  id: serial("id").primaryKey(),
+  canonicalName: text("canonical_name").notNull(),
+  normalizedName: text("normalized_name").notNull(),
+  websiteDomain: text("website_domain"),
+  mainPhone: text("main_phone"),
+  mainEmail: text("main_email"),
+  streetAddress: text("street_address"),
+  city: text("city"),
+  state: text("state"),
+  postalCode: text("postal_code"),
+  country: text("country").default("US"),
+  latitude: real("latitude"),
+  longitude: real("longitude"),
+  industryPrimary: text("industry_primary"),
+  industrySecondary: text("industry_secondary"),
+  vertical: text("vertical"),
+  subVertical: text("sub_vertical"),
+  googlePlaceId: text("google_place_id"),
+  facebookUrl: text("facebook_url"),
+  instagramUrl: text("instagram_url"),
+  yelpUrl: text("yelp_url"),
+  isMultiLocation: boolean("is_multi_location").default(false),
+  locationCountEstimate: integer("location_count_estimate").default(1),
+  reviewCount: integer("review_count"),
+  rating: real("rating"),
+  status: text("status").default("new"),
+  lastSourceType: text("last_source_type"),
+  lastEnrichedAt: timestamp("last_enriched_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("businesses_normalized_name_city_state_idx").on(table.normalizedName, table.city, table.state),
+  index("businesses_website_domain_idx").on(table.websiteDomain),
+  index("businesses_main_phone_idx").on(table.mainPhone),
+  index("businesses_google_place_id_idx").on(table.googlePlaceId),
+]);
+
+export const insertBusinessSchema = createInsertSchema(businesses).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type Business = typeof businesses.$inferSelect;
+export type InsertBusiness = z.infer<typeof insertBusinessSchema>;
+export type UpdateBusinessRequest = Partial<InsertBusiness>;
+
+export const businessAliases = pgTable("business_aliases", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").references(() => businesses.id).notNull(),
+  aliasName: text("alias_name").notNull(),
+  aliasType: text("alias_type").default("imported"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertBusinessAliasSchema = createInsertSchema(businessAliases).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type BusinessAlias = typeof businessAliases.$inferSelect;
+export type InsertBusinessAlias = z.infer<typeof insertBusinessAliasSchema>;
+
+export const businessLocations = pgTable("business_locations", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").references(() => businesses.id).notNull(),
+  locationName: text("location_name"),
+  streetAddress: text("street_address"),
+  city: text("city"),
+  state: text("state"),
+  postalCode: text("postal_code"),
+  phone: text("phone"),
+  email: text("email"),
+  websiteUrl: text("website_url"),
+  googlePlaceId: text("google_place_id"),
+  rating: real("rating"),
+  reviewCount: integer("review_count"),
+  isPrimary: boolean("is_primary").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertBusinessLocationSchema = createInsertSchema(businessLocations).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type BusinessLocation = typeof businessLocations.$inferSelect;
+export type InsertBusinessLocation = z.infer<typeof insertBusinessLocationSchema>;
+
+export const leadSources = pgTable("lead_sources", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").references(() => businesses.id),
+  contactId: integer("contact_id").references(() => contacts.id),
+  sourceType: text("source_type").notNull(),
+  sourceLabel: text("source_label"),
+  sourceExternalId: text("source_external_id"),
+  sourceUrl: text("source_url"),
+  campaignTag: text("campaign_tag"),
+  importBatchId: text("import_batch_id"),
+  discoveredAt: timestamp("discovered_at").defaultNow(),
+});
+
+export const insertLeadSourceSchema = createInsertSchema(leadSources).omit({
+  id: true,
+});
+
+export type LeadSource = typeof leadSources.$inferSelect;
+export type InsertLeadSource = z.infer<typeof insertLeadSourceSchema>;
+
+export const enrichmentRuns = pgTable("enrichment_runs", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").references(() => businesses.id),
+  contactId: integer("contact_id").references(() => contacts.id),
+  provider: text("provider").notNull(),
+  jobType: text("job_type").notNull(),
+  status: text("status").default("queued"),
+  inputPayload: jsonb("input_payload"),
+  outputPayload: jsonb("output_payload"),
+  errorMessage: text("error_message"),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+});
+
+export const insertEnrichmentRunSchema = createInsertSchema(enrichmentRuns).omit({
+  id: true,
+});
+
+export type EnrichmentRun = typeof enrichmentRuns.$inferSelect;
+export type InsertEnrichmentRun = z.infer<typeof insertEnrichmentRunSchema>;
+
+export const BUSINESS_STATUSES = ["new", "active", "suppressed", "customer", "archived"] as const;
+export const ALIAS_TYPES = ["imported", "directory", "manual", "enrichment"] as const;
+export const LEAD_SOURCE_TYPES = ["outscraper", "apify_google", "apify_yelp", "serper", "seo", "affiliate", "chat_widget", "manual_upload", "ghl_form", "sunbiz", "csv_import"] as const;
+export const ENRICHMENT_PROVIDERS = ["serper", "hunter", "apollo", "builtwith", "manual", "internal"] as const;
+export const ENRICHMENT_JOB_TYPES_V2 = ["website_lookup", "email_lookup", "phone_validation", "processor_detection", "ad_detection"] as const;
+
 export const sdrMerchants = pgTable("sdr_merchants", {
   id: serial("id").primaryKey(),
+  businessId: integer("business_id").references(() => businesses.id),
   businessName: text("business_name").notNull(),
   legalName: text("legal_name"),
   website: text("website"),
@@ -2039,6 +2180,7 @@ export type InsertSdrMerchantContact = z.infer<typeof insertSdrMerchantContactSc
 export const sdrLeadState = pgTable("sdr_lead_state", {
   id: serial("id").primaryKey(),
   merchantId: integer("merchant_id").references(() => sdrMerchants.id).notNull().unique(),
+  businessId: integer("business_id").references(() => businesses.id),
   contactId: integer("contact_id").references(() => contacts.id),
   currentStage: text("current_stage").notNull().default("DISCOVERED"),
   stage: text("stage").notNull().default("DISCOVERED"),

@@ -10,6 +10,12 @@ import {
   sdrMerchants, sdrMerchantContacts, sdrLeadState, sdrLeadEvents, sdrChannelAttempts, sdrComplianceState,
   sendingIdentities,
   type SendingIdentity, type InsertSendingIdentity,
+  businesses, businessAliases, businessLocations, leadSources, enrichmentRuns,
+  type Business, type InsertBusiness, type UpdateBusinessRequest,
+  type BusinessAlias, type InsertBusinessAlias,
+  type BusinessLocation, type InsertBusinessLocation,
+  type LeadSource, type InsertLeadSource,
+  type EnrichmentRun, type InsertEnrichmentRun,
   type SdrMerchant, type InsertSdrMerchant,
   type SdrMerchantContact, type InsertSdrMerchantContact,
   type SdrLeadState, type InsertSdrLeadState,
@@ -390,6 +396,27 @@ export interface IStorage {
   getCsvImport(id: number): Promise<CsvImport | undefined>;
   createCsvImport(importData: InsertCsvImport): Promise<CsvImport>;
   updateCsvImport(id: number, updates: Partial<InsertCsvImport>): Promise<CsvImport | undefined>;
+
+  getBusinesses(filters?: { status?: string; vertical?: string; limit?: number }): Promise<Business[]>;
+  getBusiness(id: number): Promise<Business | undefined>;
+  getBusinessByDomain(domain: string): Promise<Business | undefined>;
+  createBusiness(data: InsertBusiness): Promise<Business>;
+  updateBusiness(id: number, updates: UpdateBusinessRequest): Promise<Business | undefined>;
+
+  getBusinessAliases(businessId: number): Promise<BusinessAlias[]>;
+  createBusinessAlias(alias: InsertBusinessAlias): Promise<BusinessAlias>;
+
+  getBusinessLocations(businessId: number): Promise<BusinessLocation[]>;
+  createBusinessLocation(location: InsertBusinessLocation): Promise<BusinessLocation>;
+  updateBusinessLocation(id: number, updates: Partial<InsertBusinessLocation>): Promise<BusinessLocation | undefined>;
+
+  getLeadSources(businessId?: number): Promise<LeadSource[]>;
+  createLeadSource(source: InsertLeadSource): Promise<LeadSource>;
+  getLeadSourcesByBatch(batchId: string): Promise<LeadSource[]>;
+
+  getEnrichmentRuns(businessId?: number): Promise<EnrichmentRun[]>;
+  createEnrichmentRun(run: InsertEnrichmentRun): Promise<EnrichmentRun>;
+  updateEnrichmentRun(id: number, updates: Partial<InsertEnrichmentRun>): Promise<EnrichmentRun | undefined>;
 
   getSdrMerchants(): Promise<SdrMerchant[]>;
   getSdrMerchant(id: number): Promise<SdrMerchant | undefined>;
@@ -2142,6 +2169,98 @@ export class DatabaseStorage implements IStorage {
     return post;
   }
 
+  async getBusinesses(filters?: { status?: string; vertical?: string; limit?: number }): Promise<Business[]> {
+    const conditions = [];
+    if (filters?.status) conditions.push(eq(businesses.status, filters.status));
+    if (filters?.vertical) conditions.push(eq(businesses.vertical, filters.vertical));
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+    return db.select().from(businesses)
+      .where(whereClause)
+      .orderBy(desc(businesses.createdAt))
+      .limit(filters?.limit || 500);
+  }
+
+  async getBusiness(id: number): Promise<Business | undefined> {
+    const [biz] = await db.select().from(businesses).where(eq(businesses.id, id));
+    return biz;
+  }
+
+  async getBusinessByDomain(domain: string): Promise<Business | undefined> {
+    const [biz] = await db.select().from(businesses).where(eq(businesses.websiteDomain, domain));
+    return biz;
+  }
+
+  async createBusiness(data: InsertBusiness): Promise<Business> {
+    const [biz] = await db.insert(businesses).values(data).returning();
+    return biz;
+  }
+
+  async updateBusiness(id: number, updates: UpdateBusinessRequest): Promise<Business | undefined> {
+    const [biz] = await db.update(businesses).set({ ...updates, updatedAt: new Date() }).where(eq(businesses.id, id)).returning();
+    return biz;
+  }
+
+  async getBusinessAliases(businessId: number): Promise<BusinessAlias[]> {
+    return db.select().from(businessAliases).where(eq(businessAliases.businessId, businessId));
+  }
+
+  async createBusinessAlias(alias: InsertBusinessAlias): Promise<BusinessAlias> {
+    const [a] = await db.insert(businessAliases).values(alias).returning();
+    return a;
+  }
+
+  async getBusinessLocations(businessId: number): Promise<BusinessLocation[]> {
+    return db.select().from(businessLocations).where(eq(businessLocations.businessId, businessId));
+  }
+
+  async createBusinessLocation(location: InsertBusinessLocation): Promise<BusinessLocation> {
+    const [loc] = await db.insert(businessLocations).values(location).returning();
+    return loc;
+  }
+
+  async updateBusinessLocation(id: number, updates: Partial<InsertBusinessLocation>): Promise<BusinessLocation | undefined> {
+    const [loc] = await db.update(businessLocations).set({ ...updates, updatedAt: new Date() }).where(eq(businessLocations.id, id)).returning();
+    return loc;
+  }
+
+  async getLeadSources(businessId?: number): Promise<LeadSource[]> {
+    if (businessId) {
+      return db.select().from(leadSources).where(eq(leadSources.businessId, businessId)).orderBy(desc(leadSources.discoveredAt));
+    }
+    return db.select().from(leadSources).orderBy(desc(leadSources.discoveredAt)).limit(500);
+  }
+
+  async createLeadSource(source: InsertLeadSource): Promise<LeadSource> {
+    const [s] = await db.insert(leadSources).values(source).returning();
+    return s;
+  }
+
+  async getLeadSourcesByBatch(batchId: string): Promise<LeadSource[]> {
+    return db.select().from(leadSources).where(eq(leadSources.importBatchId, batchId));
+  }
+
+  async getEnrichmentRuns(businessId?: number): Promise<EnrichmentRun[]> {
+    if (businessId) {
+      return db.select().from(enrichmentRuns).where(
+        or(
+          eq(enrichmentRuns.businessId, businessId),
+          inArray(enrichmentRuns.contactId, db.select({ id: contacts.id }).from(contacts).where(eq(contacts.businessId, businessId)))
+        )
+      ).orderBy(desc(enrichmentRuns.startedAt));
+    }
+    return db.select().from(enrichmentRuns).orderBy(desc(enrichmentRuns.startedAt)).limit(500);
+  }
+
+  async createEnrichmentRun(run: InsertEnrichmentRun): Promise<EnrichmentRun> {
+    const [r] = await db.insert(enrichmentRuns).values(run).returning();
+    return r;
+  }
+
+  async updateEnrichmentRun(id: number, updates: Partial<InsertEnrichmentRun>): Promise<EnrichmentRun | undefined> {
+    const [r] = await db.update(enrichmentRuns).set(updates).where(eq(enrichmentRuns.id, id)).returning();
+    return r;
+  }
+
   async getSdrMerchants() {
     return db.select().from(sdrMerchants).orderBy(desc(sdrMerchants.createdAt));
   }
@@ -2171,13 +2290,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getSdrLeadStates(filters?: { stage?: string; priorityBucket?: string; limit?: number }): Promise<SdrLeadState[]> {
-    let query = db.select().from(sdrLeadState);
     const conditions = [];
     if (filters?.stage) conditions.push(eq(sdrLeadState.stage, filters.stage));
     if (filters?.priorityBucket) conditions.push(eq(sdrLeadState.priorityBucket, filters.priorityBucket));
-    if (conditions.length > 0) query = query.where(and(...conditions)) as any;
-    const results = await (query as any).orderBy(desc(sdrLeadState.updatedAt)).limit(filters?.limit || 500);
-    return results;
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+    return db.select().from(sdrLeadState)
+      .where(whereClause)
+      .orderBy(desc(sdrLeadState.updatedAt))
+      .limit(filters?.limit || 500);
   }
 
   async getSdrLeadState(id: number): Promise<SdrLeadState | undefined> {
