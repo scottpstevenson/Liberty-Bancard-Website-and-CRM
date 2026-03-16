@@ -68,6 +68,10 @@ import {
   csvImports, type CsvImport, type InsertCsvImport,
   generatedBlogPosts,
   type GeneratedBlogPost, type InsertGeneratedBlogPost,
+  sdrLeadState, sdrLeadEvents, sdrChannelAttempts,
+  type SdrLeadState, type InsertSdrLeadState, type UpdateSdrLeadState,
+  type SdrLeadEvent, type InsertSdrLeadEvent,
+  type SdrChannelAttempt, type InsertSdrChannelAttempt,
 } from "@shared/schema";
 import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike } from "drizzle-orm";
 
@@ -396,14 +400,20 @@ export interface IStorage {
   getSdrMerchantContacts(merchantId: number): Promise<SdrMerchantContact[]>;
   createSdrMerchantContact(data: InsertSdrMerchantContact): Promise<SdrMerchantContact>;
 
-  getSdrLeadState(merchantId: number): Promise<SdrLeadState | undefined>;
+  getSdrLeadStates(filters?: { stage?: string; priorityBucket?: string; limit?: number }): Promise<SdrLeadState[]>;
+  getSdrLeadState(id: number): Promise<SdrLeadState | undefined>;
+  getSdrLeadStateByMerchant(merchantId: number): Promise<SdrLeadState | undefined>;
+  getSdrLeadStateByContact(contactId: number): Promise<SdrLeadState | undefined>;
+  createSdrLeadState(lead: InsertSdrLeadState): Promise<SdrLeadState>;
   upsertSdrLeadState(data: InsertSdrLeadState): Promise<SdrLeadState>;
+  updateSdrLeadState(id: number, updates: UpdateSdrLeadState): Promise<SdrLeadState | undefined>;
+  getDueSdrLeads(limit?: number): Promise<SdrLeadState[]>;
 
-  getSdrLeadEvents(merchantId?: number): Promise<SdrLeadEvent[]>;
-  createSdrLeadEvent(data: InsertSdrLeadEvent): Promise<SdrLeadEvent>;
+  getSdrLeadEvents(leadStateId: number): Promise<SdrLeadEvent[]>;
+  createSdrLeadEvent(event: InsertSdrLeadEvent): Promise<SdrLeadEvent>;
 
-  getSdrChannelAttempts(merchantId?: number): Promise<SdrChannelAttempt[]>;
-  createSdrChannelAttempt(data: InsertSdrChannelAttempt): Promise<SdrChannelAttempt>;
+  getSdrChannelAttempts(leadStateId: number): Promise<SdrChannelAttempt[]>;
+  createSdrChannelAttempt(attempt: InsertSdrChannelAttempt): Promise<SdrChannelAttempt>;
 
   getSdrComplianceState(merchantId: number): Promise<SdrComplianceState | undefined>;
   upsertSdrComplianceState(data: InsertSdrComplianceState): Promise<SdrComplianceState>;
@@ -2155,13 +2165,38 @@ export class DatabaseStorage implements IStorage {
     return c;
   }
 
-  async getSdrLeadState(merchantId: number) {
+  async getSdrLeadStates(filters?: { stage?: string; priorityBucket?: string; limit?: number }): Promise<SdrLeadState[]> {
+    let query = db.select().from(sdrLeadState);
+    const conditions = [];
+    if (filters?.stage) conditions.push(eq(sdrLeadState.stage, filters.stage));
+    if (filters?.priorityBucket) conditions.push(eq(sdrLeadState.priorityBucket, filters.priorityBucket));
+    if (conditions.length > 0) query = query.where(and(...conditions)) as any;
+    const results = await (query as any).orderBy(desc(sdrLeadState.updatedAt)).limit(filters?.limit || 500);
+    return results;
+  }
+
+  async getSdrLeadState(id: number): Promise<SdrLeadState | undefined> {
+    const [lead] = await db.select().from(sdrLeadState).where(eq(sdrLeadState.id, id));
+    return lead;
+  }
+
+  async getSdrLeadStateByMerchant(merchantId: number): Promise<SdrLeadState | undefined> {
     const [s] = await db.select().from(sdrLeadState).where(eq(sdrLeadState.merchantId, merchantId));
     return s;
   }
 
+  async getSdrLeadStateByContact(contactId: number): Promise<SdrLeadState | undefined> {
+    const [lead] = await db.select().from(sdrLeadState).where(eq(sdrLeadState.contactId, contactId));
+    return lead;
+  }
+
+  async createSdrLeadState(lead: InsertSdrLeadState): Promise<SdrLeadState> {
+    const [created] = await db.insert(sdrLeadState).values(lead).returning();
+    return created;
+  }
+
   async upsertSdrLeadState(data: InsertSdrLeadState) {
-    const existing = await this.getSdrLeadState(data.merchantId);
+    const existing = await this.getSdrLeadStateByMerchant(data.merchantId);
     if (existing) {
       const [s] = await db.update(sdrLeadState).set({ ...data, updatedAt: new Date() }).where(eq(sdrLeadState.merchantId, data.merchantId)).returning();
 
@@ -2192,28 +2227,42 @@ export class DatabaseStorage implements IStorage {
     return s;
   }
 
-  async getSdrLeadEvents(merchantId?: number) {
-    if (merchantId) {
-      return db.select().from(sdrLeadEvents).where(eq(sdrLeadEvents.merchantId, merchantId)).orderBy(desc(sdrLeadEvents.createdAt)).limit(200);
-    }
-    return db.select().from(sdrLeadEvents).orderBy(desc(sdrLeadEvents.createdAt)).limit(200);
+  async updateSdrLeadState(id: number, updates: UpdateSdrLeadState): Promise<SdrLeadState | undefined> {
+    const [updated] = await db.update(sdrLeadState).set({ ...updates, updatedAt: new Date() }).where(eq(sdrLeadState.id, id)).returning();
+    return updated;
   }
 
-  async createSdrLeadEvent(data: InsertSdrLeadEvent) {
-    const [e] = await db.insert(sdrLeadEvents).values(data).returning();
-    return e;
+  async getDueSdrLeads(limit?: number): Promise<SdrLeadState[]> {
+    const now = new Date();
+    return db.select().from(sdrLeadState)
+      .where(and(
+        lte(sdrLeadState.nextActionAt, now),
+        sql`${sdrLeadState.stage} NOT IN ('DEAD', 'CONVERTED')`
+      ))
+      .orderBy(asc(sdrLeadState.nextActionAt))
+      .limit(limit || 100);
   }
 
-  async getSdrChannelAttempts(merchantId?: number) {
-    if (merchantId) {
-      return db.select().from(sdrChannelAttempts).where(eq(sdrChannelAttempts.merchantId, merchantId)).orderBy(desc(sdrChannelAttempts.createdAt));
-    }
-    return db.select().from(sdrChannelAttempts).orderBy(desc(sdrChannelAttempts.createdAt)).limit(500);
+  async getSdrLeadEvents(leadStateId: number): Promise<SdrLeadEvent[]> {
+    return db.select().from(sdrLeadEvents)
+      .where(eq(sdrLeadEvents.leadStateId, leadStateId))
+      .orderBy(desc(sdrLeadEvents.createdAt));
   }
 
-  async createSdrChannelAttempt(data: InsertSdrChannelAttempt) {
-    const [a] = await db.insert(sdrChannelAttempts).values(data).returning();
-    return a;
+  async createSdrLeadEvent(event: InsertSdrLeadEvent): Promise<SdrLeadEvent> {
+    const [created] = await db.insert(sdrLeadEvents).values(event).returning();
+    return created;
+  }
+
+  async getSdrChannelAttempts(leadStateId: number): Promise<SdrChannelAttempt[]> {
+    return db.select().from(sdrChannelAttempts)
+      .where(eq(sdrChannelAttempts.leadStateId, leadStateId))
+      .orderBy(desc(sdrChannelAttempts.createdAt));
+  }
+
+  async createSdrChannelAttempt(attempt: InsertSdrChannelAttempt): Promise<SdrChannelAttempt> {
+    const [created] = await db.insert(sdrChannelAttempts).values(attempt).returning();
+    return created;
   }
 
   async getSdrComplianceState(merchantId: number) {

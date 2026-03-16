@@ -28,6 +28,8 @@ import { syncContactToGhl, fullSyncToGhl, fullSyncFromGhl, syncDealToGhl, getGhl
 import { enrichSunbizEntity, processSunbizEnrichmentQueue, convertToProspect, runBulkFastClassification, runBulkAIClassification, runDailyEnrichmentPipeline, isPipelineRunning, deepEnrichEntity, runAutoDeduplication } from "./services/sunbiz-enrichment";
 import { estimateFromDeal, estimateFromContact, estimateFromProspect } from "./services/volume-estimator";
 import { buildDailyDigest, buildWeeklyDigest, sendCriticalEmailNotification, createPreferenceAwareNotification } from "./services/digest-service";
+import { scoreLeadFull } from "./services/sdr/scoring";
+import { sweepLeads, startOrchestrator, stopOrchestrator, isOrchestratorRunning, getDailyLimits, bridgeContactsToSdr, getSdrDashboardStats } from "./services/sdr/orchestrator";
 import { insertSunbizEntitySchema } from "@shared/schema";
 import multer from "multer";
 import { parse } from "csv-parse/sync";
@@ -8247,6 +8249,118 @@ Guidelines:
       console.error("[Blog Scheduler] Error:", err);
     }
   }, 60 * 60 * 1000);
+
+  app.get("/api/sdr/dashboard", isAuthenticated, async (req, res) => {
+    try {
+      const stats = await getSdrDashboardStats();
+      res.json(stats);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/sdr/leads", isAuthenticated, async (req, res) => {
+    try {
+      const { stage, priorityBucket, limit } = req.query;
+      const leads = await storage.getSdrLeadStates({
+        stage: stage as string | undefined,
+        priorityBucket: priorityBucket as string | undefined,
+        limit: limit ? parseInt(limit as string) : undefined,
+      });
+      res.json(leads);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/sdr/leads/:id", isAuthenticated, async (req, res) => {
+    const lead = await storage.getSdrLeadState(Number(req.params.id));
+    if (!lead) return res.status(404).json({ message: "Lead not found" });
+    const events = await storage.getSdrLeadEvents(lead.id);
+    const attempts = await storage.getSdrChannelAttempts(lead.id);
+    res.json({ lead, events, attempts });
+  });
+
+  app.post("/api/sdr/leads/:id/score", isAuthenticated, async (req, res) => {
+    try {
+      const lead = await storage.getSdrLeadState(Number(req.params.id));
+      if (!lead) return res.status(404).json({ message: "Lead not found" });
+      const scores = scoreLeadFull(lead);
+      const updated = await storage.updateSdrLeadState(lead.id, {
+        fitScore: scores.fitScore,
+        revenueScore: scores.revenueScore,
+        reachabilityScore: scores.reachabilityScore,
+        priorityScore: scores.priorityScore,
+        priorityBucket: scores.priorityBucket,
+        scoreBreakdown: scores.breakdown,
+        lastScoredAt: new Date(),
+      });
+      res.json({ scores, lead: updated });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/sdr/leads/:id", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
+    try {
+      const allowedFields = ["stage", "consentEmail", "consentSms", "consentCall", "optedOutEmail", "optedOutSms", "pausedUntil", "vertical", "companyName", "ownerName", "ownerEmail", "ownerPhone", "decisionReason"];
+      const sanitized: Record<string, any> = {};
+      for (const key of allowedFields) {
+        if (req.body[key] !== undefined) sanitized[key] = req.body[key];
+      }
+      if (Object.keys(sanitized).length === 0) return res.status(400).json({ message: "No valid fields provided" });
+      const updated = await storage.updateSdrLeadState(Number(req.params.id), sanitized);
+      if (!updated) return res.status(404).json({ message: "Lead not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/sdr/orchestrator/sweep", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
+    try {
+      const result = await sweepLeads();
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/sdr/orchestrator/start", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+    startOrchestrator();
+    res.json({ success: true, message: "Orchestrator started" });
+  });
+
+  app.post("/api/sdr/orchestrator/stop", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+    stopOrchestrator();
+    res.json({ success: true, message: "Orchestrator stopped" });
+  });
+
+  app.get("/api/sdr/orchestrator/status", isAuthenticated, async (req, res) => {
+    res.json({
+      running: isOrchestratorRunning(),
+      dailyLimits: getDailyLimits(),
+    });
+  });
+
+  app.post("/api/sdr/bridge-contacts", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
+    try {
+      const { limit, contactIds } = req.body || {};
+      const result = await bridgeContactsToSdr({ limit, contactIds });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/sdr/daily-limits", isAuthenticated, async (req, res) => {
+    res.json(getDailyLimits());
+  });
 
   return httpServer;
 }
