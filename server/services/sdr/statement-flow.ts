@@ -51,7 +51,7 @@ export async function sendStatementRequest(leadId: number): Promise<boolean> {
       if (selectedInbox) {
         try {
           await sendGhlEmail({
-            contactId: lead.contactId.toString(),
+            contactId: lead.contactId,
             subject: emailSubject,
             body: emailBody,
             fromEmail: selectedInbox.emailAddress,
@@ -66,7 +66,7 @@ export async function sendStatementRequest(leadId: number): Promise<boolean> {
       if (lead.consentSms && !lead.optedOutSms && (lead.ownerPhone || lead.phone)) {
         const smsBody = `Hi ${firstName}, here's your secure statement upload link for the free savings analysis: ${uploadUrl} — Liberty Bancard`;
         try {
-          await sendGhlSms({ contactId: lead.contactId.toString(), body: smsBody });
+          await sendGhlSms({ contactId: lead.contactId, body: smsBody });
         } catch (err) {
           console.error("[StatementFlow] SMS send failed:", err);
         }
@@ -110,7 +110,7 @@ export async function sendStatementReminder(leadId: number): Promise<boolean> {
       if (isGhlConfigured() && lead.contactId && lead.consentSms && !lead.optedOutSms) {
         const smsBody = `Hi ${firstName}, still waiting on your processing statement for the savings analysis. Upload here anytime: ${uploadUrl} — Liberty Bancard`;
         try {
-          await sendGhlSms({ contactId: lead.contactId.toString(), body: smsBody });
+          await sendGhlSms({ contactId: lead.contactId, body: smsBody });
         } catch {}
       }
       nextActionAt = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
@@ -121,7 +121,7 @@ export async function sendStatementReminder(leadId: number): Promise<boolean> {
         if (selectedInbox) {
           try {
             await sendGhlEmail({
-              contactId: lead.contactId.toString(),
+              contactId: lead.contactId,
               subject: `Quick reminder — your free savings analysis for ${lead.companyName || "your business"}`,
               body: `Hi ${firstName},\n\nJust a friendly reminder — we're ready to analyze your processing statement and show you where ${lead.companyName || "your business"} can save.\n\nMost businesses we review find 15-30% in unnecessary fees. The analysis takes us about 24 hours once we have your statement.\n\nUpload here (secure, 30 seconds): ${uploadUrl}\n\nBest,\nLiberty Bancard Team\n\nEligibility, underwriting, card brand rules, and applicable laws apply.`,
               fromEmail: selectedInbox.emailAddress,

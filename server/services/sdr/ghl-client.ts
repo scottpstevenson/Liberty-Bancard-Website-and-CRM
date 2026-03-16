@@ -260,6 +260,16 @@ export async function addTag(params: {
   });
 }
 
+export async function removeTag(params: {
+  contactId: string;
+  tags: string[];
+}): Promise<void> {
+  await sdrGhlFetch(`/contacts/${params.contactId}/tags`, {
+    method: "DELETE",
+    body: JSON.stringify({ tags: params.tags }),
+  });
+}
+
 export function validateWebhookSignature(payload: string, signature: string): boolean {
   const secret = getWebhookSecret();
   if (!secret) {

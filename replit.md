@@ -16,7 +16,7 @@ The system is built on a modern web stack, emphasizing scalability, responsivene
 The frontend uses React with Vite, TypeScript, Tailwind CSS, and shadcn/ui for a responsive user interface. `wouter` is used for routing and `react-helmet-async` for SEO. The design incorporates specific color schemes and templates for a professional and intuitive user experience, including a public marketing website, a terminal shop, legal/compliance pages, and CRM dashboards.
 
 ### Technical Implementations
-- **Backend**: Express.js with TypeScript.
+- **Backend**: Express.js with TypeScript. API routes are split into 21 domain-specific modules in `server/routes/` (contacts, deals, tickets-tasks, documents, notifications, public, workflows, ai, integrations, templates-settings, analytics, prospects, campaigns, search, activity, merchants, admin, partners, crm-operations, imports, sdr) with shared helpers in `server/routes/helpers.ts`. The main `server/routes.ts` is a thin orchestrator that registers each module.
 - **Database**: PostgreSQL with Drizzle ORM.
 - **Authentication**: Custom email/password authentication with session-based auth (passport-local + bcryptjs), email verification, password recovery, and role-based access control.
 - **AI Integration**: OpenAI powers AI advisors, lead enrichment, deal blueprint generation, and compliance-safe auto-replies.

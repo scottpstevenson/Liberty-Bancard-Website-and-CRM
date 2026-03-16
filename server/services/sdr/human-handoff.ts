@@ -92,7 +92,8 @@ export async function returnToAi(
 
     if (isSdrGhlConfigured() && lead.ghlContactId) {
       try {
-        const { sdrGhlRemoveTag } = await import("./ghl-client");
+        const { removeTag } = await import("./ghl-client");
+        await removeTag({ contactId: lead.ghlContactId, tags: ["human-review"] });
       } catch {}
     }
 

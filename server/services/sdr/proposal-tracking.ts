@@ -147,7 +147,7 @@ export async function resendProposalEmail(leadId: number): Promise<boolean> {
 
         try {
           await sendGhlEmail({
-            contactId: lead.contactId.toString(),
+            contactId: lead.contactId,
             subject,
             body,
             fromEmail: selectedInbox.emailAddress,
@@ -199,7 +199,7 @@ export async function sendProposalSmsFollowUp(leadId: number): Promise<boolean> 
     if (isGhlConfigured() && lead.contactId) {
       const smsBody = `Hi ${firstName}, we finished your savings analysis and found some good options. Would you like to go over it? Reply YES and we'll set up a quick 10-min call. — Liberty Bancard`;
       try {
-        await sendGhlSms({ contactId: lead.contactId.toString(), body: smsBody });
+        await sendGhlSms({ contactId: lead.contactId, body: smsBody });
       } catch (err) {
         console.error("[ProposalTracking] SMS follow-up failed:", err);
         return false;

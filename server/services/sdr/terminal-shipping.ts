@@ -66,7 +66,7 @@ export async function createEquipmentOrderForLead(leadId: number): Promise<boole
 
         try {
           await sendGhlEmail({
-            contactId: lead.contactId.toString(),
+            contactId: lead.contactId,
             subject: welcomeSubject,
             body: welcomeBody,
             fromEmail: selectedInbox.emailAddress,
@@ -117,7 +117,7 @@ export async function handleTerminalShipped(leadId: number, trackingNumber: stri
       if (selectedInbox) {
         try {
           await sendGhlEmail({
-            contactId: lead.contactId.toString(),
+            contactId: lead.contactId,
             subject: `Your terminal is on the way!`,
             body: `Hi ${firstName},\n\nGreat news — your payment terminal has shipped!\n\nTracking Number: ${trackingNumber}\n\nYou should receive your terminal within 3-5 business days. Once it arrives, our team will be in touch to help with setup and training.\n\nBest,\nLiberty Bancard Team`,
             fromEmail: selectedInbox.emailAddress,
