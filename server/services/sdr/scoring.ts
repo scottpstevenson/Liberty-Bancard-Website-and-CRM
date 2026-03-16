@@ -72,6 +72,184 @@ const CONTACT_QUALITY_SCORES: Record<string, number> = {
   "unknown": 8,
 };
 
+interface VerticalBoostConfig {
+  vertical: string;
+  boosts: Array<{
+    name: string;
+    check: (lead: SdrLeadState) => boolean;
+    points: number;
+  }>;
+}
+
+const FL_AUTO_BOOSTS: VerticalBoostConfig = {
+  vertical: "Auto",
+  boosts: [
+    { name: "highGoogleRating", check: (lead) => parseGoogleRating(lead) >= 4.3, points: 8 },
+    { name: "sufficientReviews", check: (lead) => parseReviewCount(lead) >= 20, points: 6 },
+    { name: "independentOwner", check: (lead) => isIndependentOwner(lead), points: 5 },
+    { name: "serviceMenuOnSite", check: (lead) => hasServiceMenu(lead), points: 4 },
+    { name: "multiBayOrLocation", check: (lead) => (lead.locationCount || 1) > 1 || hasMultiBay(lead), points: 5 },
+    { name: "financingOnSite", check: (lead) => hasFinancingOrFleet(lead), points: 6 },
+  ],
+};
+
+const FL_MEDSPA_BOOSTS: VerticalBoostConfig = {
+  vertical: "Salon/Spa",
+  boosts: [
+    { name: "offersMemberships", check: (lead) => hasMembershipSignals(lead), points: 8 },
+    { name: "onlineBooking", check: (lead) => !!lead.hasBookingSystem, points: 6 },
+    { name: "activeInstagram", check: (lead) => hasActiveInstagram(lead), points: 4 },
+    { name: "highReviewCount", check: (lead) => parseReviewCount(lead) >= 50, points: 6 },
+    { name: "multipleProviders", check: (lead) => (lead.locationCount || 1) > 1 || hasMultipleProviders(lead), points: 5 },
+    { name: "aestheticServices", check: (lead) => hasAestheticServices(lead), points: 5 },
+  ],
+};
+
+const FL_MEDICAL_BOOSTS: VerticalBoostConfig = {
+  vertical: "Healthcare",
+  boosts: [
+    { name: "privatePractice", check: (lead) => isPrivatePractice(lead), points: 7 },
+    { name: "multipleProviders", check: (lead) => hasMultipleProviders(lead), points: 5 },
+    { name: "textToPayInterest", check: (lead) => hasTextToPayInterest(lead), points: 6 },
+    { name: "highReviewCount", check: (lead) => parseReviewCount(lead) >= 30, points: 4 },
+    { name: "paymentPlanSignals", check: (lead) => hasPaymentPlanSignals(lead), points: 5 },
+    { name: "privatePay", check: (lead) => hasPrivatePaySignals(lead), points: 6 },
+  ],
+};
+
+const VERTICAL_BOOST_CONFIGS: VerticalBoostConfig[] = [
+  FL_AUTO_BOOSTS,
+  FL_MEDSPA_BOOSTS,
+  FL_MEDICAL_BOOSTS,
+];
+
+function parseGoogleRating(lead: SdrLeadState): number {
+  const data = lead.enrichmentData as Record<string, any> | null;
+  if (!data) return 0;
+  const rating = data.googleRating || data.rating || data.google_rating;
+  return typeof rating === "number" ? rating : parseFloat(rating) || 0;
+}
+
+function parseReviewCount(lead: SdrLeadState): number {
+  const data = lead.enrichmentData as Record<string, any> | null;
+  if (!data) return 0;
+  const count = data.reviewCount || data.reviews || data.review_count || data.totalReviews;
+  return typeof count === "number" ? count : parseInt(count) || 0;
+}
+
+function isIndependentOwner(lead: SdrLeadState): boolean {
+  const data = lead.enrichmentData as Record<string, any> | null;
+  if (lead.ownerName) return true;
+  if (!data) return false;
+  return !!(data.ownerOperated || data.independent || data.ownership === "independent");
+}
+
+function hasServiceMenu(lead: SdrLeadState): boolean {
+  const data = lead.enrichmentData as Record<string, any> | null;
+  if (!data) return false;
+  return !!(data.hasServiceMenu || data.serviceMenu || data.services_listed);
+}
+
+function hasMultiBay(lead: SdrLeadState): boolean {
+  const data = lead.enrichmentData as Record<string, any> | null;
+  if (!data) return false;
+  return !!(data.multiBay || data.multipleBays || data.bayCount > 1);
+}
+
+function hasFinancingOrFleet(lead: SdrLeadState): boolean {
+  const data = lead.enrichmentData as Record<string, any> | null;
+  const text = `${lead.serviceType || ""} ${lead.billingHints || ""} ${data?.description || ""} ${data?.services || ""}`.toLowerCase();
+  return /financing|fleet account|fleet service/i.test(text);
+}
+
+function hasMembershipSignals(lead: SdrLeadState): boolean {
+  const data = lead.enrichmentData as Record<string, any> | null;
+  const text = `${lead.serviceType || ""} ${lead.billingHints || ""} ${data?.description || ""} ${data?.services || ""}`.toLowerCase();
+  return /membership|package|subscription|recurring|monthly plan/i.test(text);
+}
+
+function hasActiveInstagram(lead: SdrLeadState): boolean {
+  const data = lead.enrichmentData as Record<string, any> | null;
+  if (!data) return false;
+  return !!(data.instagramUrl || data.instagram || data.hasInstagram || data.socialMedia?.instagram);
+}
+
+function hasAestheticServices(lead: SdrLeadState): boolean {
+  const data = lead.enrichmentData as Record<string, any> | null;
+  const text = `${lead.serviceType || ""} ${data?.description || ""} ${data?.services || ""} ${lead.companyName || ""}`.toLowerCase();
+  return /botox|filler|laser|weight.?loss|body.?sculpt|body.?contour|injectable|coolsculpt|hydrafacial|microneedling|chemical peel/i.test(text);
+}
+
+function hasMultipleProviders(lead: SdrLeadState): boolean {
+  const data = lead.enrichmentData as Record<string, any> | null;
+  if ((lead.locationCount || 1) > 1) return true;
+  if (!data) return false;
+  const providerCount = data.providerCount || data.providers || data.staffCount;
+  return typeof providerCount === "number" ? providerCount > 1 : false;
+}
+
+function isPrivatePractice(lead: SdrLeadState): boolean {
+  const data = lead.enrichmentData as Record<string, any> | null;
+  if (lead.ownerName) return true;
+  if (!data) return false;
+  const text = `${data.ownership || ""} ${data.practiceType || ""}`.toLowerCase();
+  return /private|independent|solo|owner/i.test(text) && !/hospital|system|network|enterprise/i.test(text);
+}
+
+function hasTextToPayInterest(lead: SdrLeadState): boolean {
+  const data = lead.enrichmentData as Record<string, any> | null;
+  const text = `${lead.serviceType || ""} ${lead.billingHints || ""} ${data?.description || ""} ${data?.services || ""}`.toLowerCase();
+  return /text.?to.?pay|mobile pay|online pay|patient portal|digital payment/i.test(text);
+}
+
+function hasPaymentPlanSignals(lead: SdrLeadState): boolean {
+  const data = lead.enrichmentData as Record<string, any> | null;
+  const text = `${lead.serviceType || ""} ${lead.billingHints || ""} ${data?.description || ""} ${data?.services || ""}`.toLowerCase();
+  return /payment plan|financing|care.?credit|installment/i.test(text);
+}
+
+function hasPrivatePaySignals(lead: SdrLeadState): boolean {
+  const data = lead.enrichmentData as Record<string, any> | null;
+  const text = `${lead.serviceType || ""} ${data?.description || ""} ${data?.services || ""} ${lead.companyName || ""}`.toLowerCase();
+  return /private.?pay|cash.?pay|self.?pay|out.?of.?pocket|cosmetic|elective|behavioral|mental health|chiropr|physical therapy|pt\b|optometry/i.test(text);
+}
+
+function applyVerticalBoosts(lead: SdrLeadState): { totalBoost: number; boostFactors: Record<string, number> } {
+  const boostFactors: Record<string, number> = {};
+  let totalBoost = 0;
+  const vertical = lead.vertical || "";
+  const state = (lead.state || "").toLowerCase();
+  const isFlorida = state === "fl" || state === "florida";
+
+  const v = vertical.toLowerCase();
+  const isAuto = /auto|automotive|car|vehicle|mechanic|tire|collision|body shop|transmission|brake/i.test(v);
+  const hasMedSpaTerms = /med.?spa|medspa|aesthetic|beauty|salon/i.test(v);
+  const hasClinicalTerms = /dental|dentist|chiro|optom|podiatr|dermat|urgent care|physical therapy|behavioral|healthcare|clinic/i.test(v);
+  const hasMedicalPrimary = /^medical(?!.*spa)/i.test(v) || hasClinicalTerms;
+
+  let matchedVertical: string | null = null;
+  if (isAuto) matchedVertical = "Auto";
+  else if (hasMedSpaTerms && !hasMedicalPrimary) matchedVertical = "Salon/Spa";
+  else if (hasMedicalPrimary || /^medical/i.test(v)) matchedVertical = "Healthcare";
+  else if (hasMedSpaTerms || /spa/i.test(v)) matchedVertical = "Salon/Spa";
+
+  if (matchedVertical) {
+    const config = VERTICAL_BOOST_CONFIGS.find(c => c.vertical === matchedVertical);
+    if (config) {
+      for (const boost of config.boosts) {
+        const passes = boost.check(lead);
+        if (passes) {
+          const adjustedPoints = isFlorida ? boost.points : Math.round(boost.points * 0.7);
+          boostFactors[`${config.vertical}_${boost.name}`] = adjustedPoints;
+          totalBoost += adjustedPoints;
+        }
+      }
+    }
+  }
+
+  return { totalBoost, boostFactors };
+}
+
 export function scoreFit(lead: SdrLeadState): ScoreResult {
   const factors: Record<string, number> = {};
   let score = 0;
@@ -99,6 +277,12 @@ export function scoreFit(lead: SdrLeadState): ScoreResult {
   if (consumerFacing) {
     factors.consumerFacing = 10;
     score += 10;
+  }
+
+  const { totalBoost, boostFactors } = applyVerticalBoosts(lead);
+  if (totalBoost > 0) {
+    Object.assign(factors, boostFactors);
+    score += totalBoost;
   }
 
   score = Math.max(0, Math.min(100, score));

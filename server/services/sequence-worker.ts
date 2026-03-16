@@ -70,6 +70,10 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
         const recommendedProgram = contact?.primaryOfferPath || "Wholesale";
         const recommendedTerminal = deal?.terminalRecommendation || "Clover Flex 3";
 
+        const serviceType = contact?.vertical || industry;
+        const estimatedVolume = contact?.monthlyVolume || monthlyVolume;
+        const agentName = "Liberty Bancard";
+
         const interpolate = (text: string | null | undefined): string => {
           if (!text) return "";
           return text
@@ -85,7 +89,10 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
             .replace(/\{\{currentProcessor\}\}/g, currentProcessor)
             .replace(/\{\{estimatedSavings\}\}/g, estimatedSavings)
             .replace(/\{\{recommendedProgram\}\}/g, recommendedProgram)
-            .replace(/\{\{recommendedTerminal\}\}/g, recommendedTerminal);
+            .replace(/\{\{recommendedTerminal\}\}/g, recommendedTerminal)
+            .replace(/\{\{serviceType\}\}/g, serviceType)
+            .replace(/\{\{estimatedVolume\}\}/g, estimatedVolume)
+            .replace(/\{\{agentName\}\}/g, agentName);
         };
 
         let stepExecuted = false;
@@ -132,10 +139,15 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
             break;
           }
 
+          case "call":
           case "call_reminder": {
+            const callConfig = step.config ? (typeof step.config === "string" ? JSON.parse(step.config) : step.config) : null;
+            const callDescription = callConfig
+              ? `Sequence "${sequence.name}" - Step ${step.stepOrder}: Call\nScript: ${callConfig.scriptType || "general"}\nOpening: ${interpolate(callConfig.opening || "")}\nClose: ${interpolate(callConfig.close || "")}`
+              : `Sequence "${sequence.name}" - Step ${step.stepOrder}: Call reminder`;
             await storage.createTask({
               title: interpolate(step.subject) || `Call ${firstName} ${lastName}`,
-              description: `Sequence "${sequence.name}" - Step ${step.stepOrder}: Call reminder`,
+              description: callDescription,
               assignedTo: sequence.createdBy || "Unassigned",
               priority: "high",
               dueDate: new Date(Date.now() + 4 * 3600000),

@@ -22,8 +22,9 @@ interface RoutingRule {
 const ROUTING_RULES: RoutingRule[] = [
   { verticals: ["Restaurant"], minScore: 50, maxScore: 100, painKeywords: [], sequenceKeywords: ["restaurant", "rest"], volumeMin: undefined, priority: 10 },
   { verticals: ["Retail"], minScore: 50, maxScore: 100, painKeywords: [], sequenceKeywords: ["retail", "rtl"], volumeMin: undefined, priority: 10 },
-  { verticals: ["Automotive"], minScore: 50, maxScore: 100, painKeywords: [], sequenceKeywords: ["auto", "automotive"], volumeMin: undefined, priority: 10 },
-  { verticals: ["Medical/Dental/Medspa", "Healthcare"], minScore: 50, maxScore: 100, painKeywords: [], sequenceKeywords: ["medical", "med", "healthcare"], volumeMin: undefined, priority: 10 },
+  { verticals: ["Automotive", "Auto", "Auto Repair"], minScore: 50, maxScore: 100, painKeywords: [], sequenceKeywords: ["auto", "automotive", "fl auto", "auto repair"], volumeMin: undefined, priority: 10 },
+  { verticals: ["Salon/Spa", "Med Spa", "Medspa", "Aesthetic", "Medical Spa"], minScore: 50, maxScore: 100, painKeywords: [], sequenceKeywords: ["med spa", "medspa", "fl med spa", "spa", "aesthetic"], volumeMin: undefined, priority: 11 },
+  { verticals: ["Medical/Dental/Medspa", "Healthcare", "Medical", "Dental", "Dentist", "Chiropractic"], minScore: 50, maxScore: 100, painKeywords: [], sequenceKeywords: ["medical", "healthcare", "fl medical", "dental", "chiropractic", "optometry"], volumeMin: undefined, priority: 12 },
 
   { verticals: [], minScore: 70, maxScore: 100, painKeywords: ["high_rates", "rate_increase", "rates_too_high"], sequenceKeywords: ["switch", "save", "rate"], volumeMin: undefined, priority: 8 },
   { verticals: [], minScore: 70, maxScore: 100, painKeywords: ["chargeback", "dispute"], sequenceKeywords: ["chargeback", "defense"], volumeMin: undefined, priority: 8 },

@@ -1739,6 +1739,314 @@ const SEQUENCES: SequenceSeed[] = [
       },
     ],
   },
+
+  // ═══════════════════════════════════════════════════════
+  // 22) FL AUTO REPAIR — VERTICAL PLAYBOOK (6 steps)
+  // ═══════════════════════════════════════════════════════
+  {
+    name: "22. FL Auto Repair — Vertical Playbook",
+    description: "Florida auto repair vertical playbook: cold call + email + SMS sequence targeting independent repair shops, tire/wheel shops, collision/body shops, and specialty shops. Focuses on lower effective processing cost, text-to-pay, financing for big tickets, and chargeback reduction.",
+    triggerType: "manual",
+    triggerConfig: { category: "sdr_outbound", vertical: "fl_auto", region: "florida", channelMix: ["cold_call", "in_person", "email"] },
+    steps: [
+      {
+        stepOrder: 1,
+        actionType: "email",
+        delayDays: 0,
+        delayHours: 0,
+        subject: "Quick question on card fees at {{companyName}}",
+        body: emailBody([
+          `<p>Hi {{firstName}},</p>`,
+          `<p>We work with Florida repair shops that do larger tickets and get crushed on card fees. We've been helping owners lower cost and make front-counter payments smoother.</p>`,
+          `<p>3 common issues we see at shops like {{companyName}}:</p>`,
+          `<ul><li>Pricing too high on {{serviceType}} repair tickets</li><li>Clunky terminals that slow front-counter flow</li><li>No big-ticket payment process (text-to-pay, financing)</li></ul>`,
+          `<p>Estimated monthly volume in your range ({{estimatedVolume}}) usually means $200–$500/month in savings waiting to be found.</p>`,
+          `<p>We do a free 10-minute statement review. Interested?</p>`,
+          `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Upload a Statement for Free Review</a></p>`,
+          `<p>— Liberty Bancard</p>`,
+          `<p style="font-size:11px;color:#888;">Florida surcharging applies to credit only (not debit/prepaid), requires disclosure, signage, receipt language, and 30-day notice to acquirer per card brand rules. Eligibility, underwriting, and applicable laws apply.</p>`,
+        ]),
+      },
+      {
+        stepOrder: 2,
+        actionType: "sms",
+        delayDays: 0,
+        delayHours: 2,
+        body: smsBody(`Hi {{firstName}}, this is {{agentName}} with Liberty Bancard. We help FL auto shops cut card fees on big {{serviceType}} repair tickets. Worth a quick look? Reply YES or visit ${SALES_CALENDAR}\nFL surcharging: credit only, disclosure req'd, 30-day acquirer notice.\n— Liberty Bancard`),
+      },
+      {
+        stepOrder: 3,
+        actionType: "email",
+        delayDays: 3,
+        delayHours: 0,
+        subject: "How a shop similar to {{companyName}} saved on processing",
+        body: emailBody([
+          `<p>Hi {{firstName}},</p>`,
+          `<p>A Florida {{serviceType}} shop similar to {{companyName}} came to us overpaying on processing.</p>`,
+          `<p>After switching:</p>`,
+          `<ul><li>Effective rate dropped significantly</li><li>Text-to-pay enabled for invoices over $500</li><li>Chargebacks cut in half with better documentation</li><li>Verified savings on their monthly volume</li></ul>`,
+          `<p>Want to see what your numbers look like? Send us your latest statement for a free side-by-side comparison.</p>`,
+          `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Get a Free Comparison</a></p>`,
+          `<p>— Liberty Bancard</p>`,
+          `<p style="font-size:11px;color:#888;">Florida surcharging applies to credit only (not debit/prepaid), requires disclosure, signage, receipt language, and 30-day notice to acquirer. Eligibility, underwriting, card brand rules, and applicable laws apply.</p>`,
+        ]),
+      },
+      {
+        stepOrder: 4,
+        actionType: "sms",
+        delayDays: 5,
+        delayHours: 0,
+        body: smsBody(`Still interested in seeing if {{companyName}} is overpaying on card processing? Free 10-min review: ${SALES_CALENDAR}\nFL surcharging: credit only, disclosure req'd, 30-day acquirer notice.\n— Liberty Bancard`),
+      },
+      {
+        stepOrder: 5,
+        actionType: "email",
+        delayDays: 7,
+        delayHours: 0,
+        subject: "Last note about your processing at {{companyName}}",
+        body: emailBody([
+          `<p>Hi {{firstName}},</p>`,
+          `<p>Last note — our free merchant statement review covers:</p>`,
+          `<ul><li>Your true effective rate (not the advertised one)</li><li>Hidden fees your processor might not explain</li><li>Text-to-pay and financing integration options for {{serviceType}} tickets</li><li>Chargeback exposure and how to reduce it</li></ul>`,
+          `<p>No pressure. If your setup is already solid, we'll tell you.</p>`,
+          `<p>Free statement review offer — upload your latest statement and we'll have results in 24 hours.</p>`,
+          `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Free Statement Review</a></p>`,
+          `<p>— Liberty Bancard</p>`,
+          `<p style="font-size:11px;color:#888;">FL auto repair shops must be registered with FDACS per the FL Motor Vehicle Repair Act. Florida surcharging applies to credit only (not debit/prepaid), requires disclosure, signage, receipt language, and 30-day notice to acquirer per card brand rules. Eligibility, underwriting, and applicable laws apply.</p>`,
+        ]),
+      },
+      {
+        stepOrder: 6,
+        actionType: "call",
+        delayDays: 1,
+        delayHours: 0,
+        config: {
+          scriptType: "fl_auto_intro",
+          opening: "Hi, this is {{agentName}} with Liberty Bancard. We work with Florida repair shops on card processing costs, especially on bigger repair tickets. Who handles your merchant services?",
+          qualifyingQuestions: [
+            "Who is your current processor?",
+            "What's your approximate monthly card volume?",
+            "What's your biggest frustration with your current setup?",
+            "Are you currently using text-to-pay or financing for larger tickets?"
+          ],
+          valuePitch: "We specialize in helping Florida auto shops lower their effective processing cost, set up text-to-pay for customer convenience, and reduce chargebacks on big-ticket repairs.",
+          close: "We do a free 10-minute statement review that usually finds $200-500/month in savings. Can I send you a link to upload your latest statement?",
+          objectionHandlers: {
+            "happy_with_current": "Totally fair — most shops we work with thought the same thing until they saw a line-by-line breakdown. Even if you don't switch, you'll know exactly what you're paying.",
+            "too_busy": "I completely understand. The review takes less than 10 minutes and we do all the work. I can send a secure upload link and have results back to you within 24 hours.",
+            "under_contract": "No problem. Most contracts have already rolled to month-to-month without the owner knowing. We can check that for you too — takes 2 minutes.",
+            "rates_are_fine": "That's great to hear. But rates are only part of the picture — most overpayment we find is in junk fees and downgrades, not the advertised rate."
+          },
+          complianceDisclosure: "This is {{agentName}} calling from Liberty Bancard. We're a payment processing company. This is a business solicitation call. Florida surcharging applies to credit only, requires disclosure, signage, receipt language, and 30-day notice to acquirer per card brand rules."
+        },
+      },
+    ],
+  },
+
+  // ═══════════════════════════════════════════════════════
+  // 23) FL MED SPA — VERTICAL PLAYBOOK (6 steps)
+  // ═══════════════════════════════════════════════════════
+  {
+    name: "23. FL Med Spa — Vertical Playbook",
+    description: "Florida med spa vertical playbook: email + call + social sequence targeting single-location med spas, aesthetic clinics, and NP/physician-led groups. Focuses on memberships, deposits, card-on-file, patient financing, and recurring revenue workflows.",
+    triggerType: "manual",
+    triggerConfig: { category: "sdr_outbound", vertical: "fl_medspa", region: "florida", channelMix: ["email", "call", "instagram", "linkedin", "referrals"] },
+    steps: [
+      {
+        stepOrder: 1,
+        actionType: "email",
+        delayDays: 0,
+        delayHours: 0,
+        subject: "Question about payments at {{companyName}}",
+        body: emailBody([
+          `<p>Hi {{firstName}},</p>`,
+          `<p>We work with Florida med spas on memberships, card-on-file, and higher-ticket payment flow.</p>`,
+          `<p>4 issues we see at practices like {{companyName}}:</p>`,
+          `<ul><li>No-show leakage without deposit/card-on-file protection</li><li>Weak card-on-file process</li><li>Clunky membership billing for {{serviceType}} packages</li><li>Overpaying on processing (especially on higher-ticket procedures)</li></ul>`,
+          `<p>We help build a payment workflow — not just processing — that supports memberships, deposits, cancellation protection, and patient financing.</p>`,
+          `<p>Would a complimentary payment workflow review be helpful? Usually uncovers $300–$800/month in savings or revenue opportunities.</p>`,
+          `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Book a Payment Workflow Review</a></p>`,
+          `<p>— Liberty Bancard</p>`,
+          `<p style="font-size:11px;color:#888;">Med spas in FL are regulated by the FL Dept of Health, Division of Medical Quality Assurance. Eligibility, underwriting, card brand rules, and applicable laws apply.</p>`,
+        ]),
+      },
+      {
+        stepOrder: 2,
+        actionType: "sms",
+        delayDays: 0,
+        delayHours: 3,
+        body: smsBody(`Hi {{firstName}}, this is {{agentName}} with Liberty Bancard. We help FL med spas streamline memberships, deposits & payment flow for {{serviceType}}. Quick review? ${SALES_CALENDAR}\n— Liberty Bancard`),
+      },
+      {
+        stepOrder: 3,
+        actionType: "email",
+        delayDays: 3,
+        delayHours: 0,
+        subject: "How a practice similar to {{companyName}} improved membership revenue",
+        body: emailBody([
+          `<p>Hi {{firstName}},</p>`,
+          `<p>A Florida med spa similar to {{companyName}} offering {{serviceType}} came to us with recurring billing challenges.</p>`,
+          `<p>After implementing our payment workflow:</p>`,
+          `<ul><li>Membership churn dropped significantly with automated card updater + smart retries</li><li>No-show rate cut dramatically with required card-on-file and deposit policy</li><li>Average ticket increased with patient financing on packages</li><li>Clean online checkout links for package purchases between visits</li></ul>`,
+          `<p>If you're running memberships or packages, this kind of review usually pays for itself in the first month.</p>`,
+          `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Get a Membership/Billing Review</a></p>`,
+          `<p>— Liberty Bancard</p>`,
+          `<p style="font-size:11px;color:#888;">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>`,
+        ]),
+      },
+      {
+        stepOrder: 4,
+        actionType: "sms",
+        delayDays: 5,
+        delayHours: 0,
+        body: smsBody(`Following up — would a free payment workflow review for {{companyName}} be helpful? Takes 10 min: ${SALES_CALENDAR}\n— Liberty Bancard`),
+      },
+      {
+        stepOrder: 5,
+        actionType: "email",
+        delayDays: 7,
+        delayHours: 0,
+        subject: "Quick follow-up on payment flow at {{companyName}}",
+        body: emailBody([
+          `<p>Hi {{firstName}},</p>`,
+          `<p>Our complimentary payment workflow review for {{companyName}} covers:</p>`,
+          `<ul><li>Membership/recurring billing review for {{serviceType}}</li><li>Card-on-file and deposit policies for no-show protection</li><li>Patient financing for higher-ticket services</li><li>Online checkout links for remote package purchases</li><li>Processing cost optimization for your estimated volume ({{estimatedVolume}})</li></ul>`,
+          `<p>No commodity pitch — just a workflow review focused on how payments support your growth.</p>`,
+          `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Book a Payment Workflow Review</a></p>`,
+          `<p>— Liberty Bancard</p>`,
+          `<p style="font-size:11px;color:#888;">Med spas in FL are regulated by the FL Dept of Health, Division of Medical Quality Assurance. Eligibility, underwriting, and applicable laws apply.</p>`,
+        ]),
+      },
+      {
+        stepOrder: 6,
+        actionType: "call",
+        delayDays: 1,
+        delayHours: 0,
+        config: {
+          scriptType: "fl_medspa_intro",
+          opening: "Hi, this is {{agentName}} with Liberty Bancard. We work with Florida med spas on membership billing, deposits, and payment experience. Is the owner or practice manager available?",
+          qualifyingQuestions: [
+            "Are you currently offering memberships or treatment packages?",
+            "What's your current card-on-file process for appointments?",
+            "Are you dealing with no-show issues?",
+            "Who is your current processor and how long have you been with them?"
+          ],
+          valuePitch: "We help med spas build a payment workflow that supports recurring memberships, protects against no-shows with card-on-file, and offers patient financing for higher-ticket procedures. It's not about rates — it's about revenue workflow.",
+          close: "We do a complimentary payment workflow review that usually uncovers $300-800/month in savings or revenue opportunities. Can I send you the details?",
+          objectionHandlers: {
+            "happy_with_current": "That's great. Our review isn't about switching processors — it's about your entire payment workflow. Memberships, deposits, financing, checkout experience. Most practices find at least one area to improve.",
+            "too_busy": "Totally understand — practice owners are always busy. The review is 10 minutes and we can do it over a quick call or even email. I'll send a link and you can book whenever works.",
+            "not_interested": "No problem at all. Can I ask — are you currently offering memberships? Most med spas we talk to find that's where the biggest revenue opportunity is, and the payment side is often the bottleneck.",
+            "already_have_memberships": "Perfect — then this review is especially relevant. We'd look at your churn rate, failed payment handling, and whether card updater is set up properly. Those three things alone usually recover thousands per year."
+          },
+          complianceDisclosure: "This is {{agentName}} calling from Liberty Bancard. We're a payment processing company specializing in aesthetic and medical practices. This is a business solicitation call."
+        },
+      },
+    ],
+  },
+
+  // ═══════════════════════════════════════════════════════
+  // 24) FL MEDICAL (DENTAL, CHIRO, PT) — VERTICAL PLAYBOOK (6 steps)
+  // ═══════════════════════════════════════════════════════
+  {
+    name: "24. FL Medical/Dental — Vertical Playbook",
+    description: "Florida medical vertical playbook: email + call + partner referrals targeting dental, chiropractic, PT, optometry, podiatry, dermatology, urgent care, and behavioral health private-pay clinics. Focuses on patient collections, text-to-pay, card-on-file, payment plans, and front-desk efficiency.",
+    triggerType: "manual",
+    triggerConfig: { category: "sdr_outbound", vertical: "fl_medical", region: "florida", channelMix: ["email", "call", "partner_referrals"] },
+    steps: [
+      {
+        stepOrder: 1,
+        actionType: "email",
+        delayDays: 0,
+        delayHours: 0,
+        subject: "Patient payment question for {{companyName}}",
+        body: emailBody([
+          `<p>Hi {{firstName}},</p>`,
+          `<p>We help Florida {{serviceType}} practices improve patient payment flow.</p>`,
+          `<p>4 common issues at practices like {{companyName}}:</p>`,
+          `<ul><li>Manual collection work consuming front-desk time</li><li>No text-to-pay option for patient balances</li><li>Lack of structured payment plans for larger balances</li><li>Processing pricing unreviewed (estimated volume: {{estimatedVolume}})</li></ul>`,
+          `<p>We improve patient collections and payment plans without making front-desk work harder.</p>`,
+          `<p>Free patient collections review — takes about 10 minutes.</p>`,
+          `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Book a Patient Collections Review</a></p>`,
+          `<p>— Liberty Bancard</p>`,
+          `<p style="font-size:11px;color:#888;">Liberty Bancard does not request, store, or access protected health information (PHI). HIPAA applies to covered entities and business associates. Eligibility, underwriting, card brand rules, and applicable laws apply.</p>`,
+        ]),
+      },
+      {
+        stepOrder: 2,
+        actionType: "sms",
+        delayDays: 0,
+        delayHours: 2,
+        body: smsBody(`Hi {{firstName}}, this is {{agentName}} with Liberty Bancard. We help FL {{serviceType}} practices improve patient payment flow & collections. Quick review? ${SALES_CALENDAR}\n— Liberty Bancard`),
+      },
+      {
+        stepOrder: 3,
+        actionType: "email",
+        delayDays: 3,
+        delayHours: 0,
+        subject: "How a similar {{serviceType}} practice improved patient collections",
+        body: emailBody([
+          `<p>Hi {{firstName}},</p>`,
+          `<p>A Florida {{serviceType}} practice similar to {{companyName}} came to us with front-desk collection challenges.</p>`,
+          `<p>After implementing our patient payment workflow:</p>`,
+          `<ul><li>Outstanding balances collected significantly faster with automated text-to-pay reminders</li><li>Front desk saved hours per week on payment-related calls</li><li>Formal payment plans reduced write-offs</li><li>Card-on-file for recurring visits eliminated manual collection at checkout</li></ul>`,
+          `<p>If your front desk is spending time chasing payments, this kind of review usually pays for itself immediately.</p>`,
+          `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Get a Collections Review</a></p>`,
+          `<p>— Liberty Bancard</p>`,
+          `<p style="font-size:11px;color:#888;">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>`,
+        ]),
+      },
+      {
+        stepOrder: 4,
+        actionType: "sms",
+        delayDays: 5,
+        delayHours: 0,
+        body: smsBody(`Following up on patient payments at {{companyName}}. Free collections review takes 10 min: ${SALES_CALENDAR}\n— Liberty Bancard`),
+      },
+      {
+        stepOrder: 5,
+        actionType: "email",
+        delayDays: 7,
+        delayHours: 0,
+        subject: "Last check-in about payments at {{companyName}}",
+        body: emailBody([
+          `<p>Hi {{firstName}},</p>`,
+          `<p>Our free patient collections review for {{companyName}} covers:</p>`,
+          `<ul><li>Manual collection taking up front-desk time</li><li>Text-to-pay for remote patient payments</li><li>Payment plan structure for larger balances</li><li>Processing fee benchmarking (your estimated volume: {{estimatedVolume}})</li><li>Card storage security and compliance</li></ul>`,
+          `<p>Free, 10 minutes, and usually finds actionable improvements right away.</p>`,
+          `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Book a Patient Collections Review</a></p>`,
+          `<p>— Liberty Bancard</p>`,
+          `<p style="font-size:11px;color:#888;">HIPAA applies to covered entities and business associates. Liberty Bancard does not access PHI. Florida surcharging requires disclosure per card brand rules (credit only, not debit/prepaid). Eligibility, underwriting, and applicable laws apply.</p>`,
+        ]),
+      },
+      {
+        stepOrder: 6,
+        actionType: "call",
+        delayDays: 1,
+        delayHours: 0,
+        config: {
+          scriptType: "fl_medical_intro",
+          gatekeeperScript: "We help Florida medical practices improve patient payment flow — things like text-to-pay, payment plans, and front-desk collections. Who handles payment systems or merchant services there?",
+          opening: "Hi, this is {{agentName}} with Liberty Bancard. We help Florida medical practices improve patient payment flow — text-to-pay, payment plans, and front-desk collections. Who handles payment systems there?",
+          qualifyingQuestions: [
+            "What does your current patient payment collection process look like?",
+            "Are you offering payment plans for larger balances?",
+            "Do you currently use text-to-pay for patient balances?",
+            "What's the biggest frustration for your front desk around payments?"
+          ],
+          valuePitch: "We help medical practices collect patient payments faster with text-to-pay, structured payment plans, and card-on-file — all without adding front-desk complexity. Our practices typically see a significant reduction in outstanding balances and manual work.",
+          close: "We do a free patient collections review that usually finds ways to speed up payments and reduce manual work. Can I send you the details?",
+          objectionHandlers: {
+            "hipaa_concern": "Great question. We don't access any patient health information — we only handle the payment side. Our systems are PCI-compliant and we never touch PHI.",
+            "too_busy": "I hear that from every practice — that's exactly why we focus on reducing front-desk workload. The review itself is 10 minutes and we do it by phone or email.",
+            "have_a_billing_company": "That's common. We work alongside billing companies — they handle insurance, we handle the patient-pay side. Text-to-pay and payment plans are usually gaps that billing companies don't cover.",
+            "happy_with_current": "That's fine. Can I ask — does your current processor offer text-to-pay for patient balances? That's usually the biggest gap we find, and it has nothing to do with rates."
+          },
+          complianceDisclosure: "This is {{agentName}} calling from Liberty Bancard. We're a payment processing company specializing in medical practices. This is a business solicitation call. We do not access or store protected health information."
+        },
+      },
+    ],
+  },
 ];
 
 export async function seedSequences() {
@@ -1782,7 +2090,7 @@ export async function seedSequences() {
       console.log(`[Seed] Created sequence: "${seq.name}" (${seq.steps.length} steps)`);
     }
 
-    console.log("[Seed] All 25 sequences seeded successfully.");
+    console.log("[Seed] All sequences seeded successfully.");
   } catch (error) {
     console.error("[Seed] Error seeding sequences:", error);
   }

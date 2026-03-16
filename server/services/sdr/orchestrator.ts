@@ -6,6 +6,7 @@ import { eq, lte, and, isNull, sql } from "drizzle-orm";
 import { scoreLeadFull } from "./scoring";
 import { decideNextAction, getAllowedTransitions } from "./stage-rules";
 import { sendGhlEmail, sendGhlSms, isGhlConfigured } from "../ghl";
+import { resolveVoiceScriptForLead, buildGhlVoicePayload } from "./voice-orchestrator";
 import OpenAI from "openai";
 
 function getOpenAI() {
@@ -97,6 +98,62 @@ const EMAIL_TEMPLATES: Record<string, { subject: string; body: string }[]> = {
       body: "Hi {{first_name}},\n\nJust one more quick note. If you're happy with your current processor, no worries at all. But if you've ever wondered whether you're overpaying, our free statement analysis takes just a few minutes and could save {{company_name}} hundreds each month.\n\nHere when you're ready.\n\nBest,\nLiberty Bancard Team\n\nEligibility, underwriting, card brand rules, and applicable laws apply.",
     },
   ],
+  "Auto": [
+    {
+      subject: "Quick question on card fees at {{company_name}}",
+      body: "Hi {{first_name}},\n\nWe work with Florida repair shops that do larger tickets and get crushed on card fees. We've been helping owners lower cost and make front-counter payments smoother.\n\n3 common issues we see at shops like {{company_name}}:\n- Pricing too high on {{service_type}} repair tickets\n- Clunky terminals that slow front-counter flow\n- No big-ticket payment process (text-to-pay, financing)\n\nEstimated monthly volume in your range ({{estimated_volume}}) usually means $200-500/month in savings waiting to be found.\n\nWe do a free 10-minute statement review. Interested?\n\nBest,\nLiberty Bancard Team\n\nFlorida surcharging applies to credit only (not debit/prepaid), requires disclosure, signage, receipt language, and 30-day notice to acquirer per card brand rules. Eligibility, underwriting, and applicable laws apply.",
+    },
+    {
+      subject: "How a shop similar to {{company_name}} saved $X/month",
+      body: "Hi {{first_name}},\n\nA Florida {{service_type}} shop similar to {{company_name}} came to us overpaying on processing.\n\nAfter switching:\n- Effective rate dropped significantly\n- Text-to-pay enabled for invoices over $500\n- Chargebacks cut in half with better documentation\n- Verified savings on their monthly volume\n\nWant to see what your numbers look like? Send us your latest statement for a free side-by-side comparison.\n\nBest,\nLiberty Bancard Team\n\nFlorida surcharging applies to credit only (not debit/prepaid), requires disclosure, signage, receipt language, and 30-day notice to acquirer. Eligibility, underwriting, card brand rules, and applicable laws apply.",
+    },
+    {
+      subject: "Last note about your processing at {{company_name}}",
+      body: "Hi {{first_name}},\n\nLast note — our free merchant statement review covers:\n- Your true effective rate (not the advertised one)\n- Hidden fees your processor might not explain\n- Text-to-pay and financing integration options for {{service_type}} tickets\n- Chargeback exposure and how to reduce it\n\nNo pressure. If your setup is already solid, we'll tell you.\n\nFree statement review offer — upload your latest statement and we'll have results in 24 hours.\n\nBest,\nLiberty Bancard Team\n\nFL auto repair shops must be registered with FDACS per the FL Motor Vehicle Repair Act. Florida surcharging applies to credit only (not debit/prepaid), requires disclosure, signage, receipt language, and 30-day notice to acquirer per card brand rules. Eligibility, underwriting, and applicable laws apply.",
+    },
+  ],
+  "Salon/Spa": [
+    {
+      subject: "Question about payments at {{company_name}}",
+      body: "Hi {{first_name}},\n\nWe work with Florida med spas on memberships, card-on-file, and higher-ticket payment flow.\n\n4 issues we see at practices like {{company_name}}:\n- No-show leakage without deposit/card-on-file protection\n- Weak card-on-file process\n- Clunky membership billing for {{service_type}} packages\n- Overpaying on processing (especially on higher-ticket procedures)\n\nWe help build a payment workflow — not just processing — that supports memberships, deposits, cancellation protection, and patient financing.\n\nWould a complimentary payment workflow review be helpful? Usually uncovers $300-800/month in savings or revenue opportunities.\n\nBest,\nLiberty Bancard Team\n\nMed spas in FL are regulated by the FL Dept of Health, Division of Medical Quality Assurance. Eligibility, underwriting, card brand rules, and applicable laws apply.",
+    },
+    {
+      subject: "How a practice similar to {{company_name}} improved membership revenue",
+      body: "Hi {{first_name}},\n\nA Florida med spa similar to {{company_name}} offering {{service_type}} came to us with recurring billing challenges.\n\nAfter implementing our payment workflow:\n- Membership churn dropped significantly with automated card updater + smart retries\n- No-show rate cut dramatically with required card-on-file and deposit policy\n- Average ticket increased with patient financing on packages\n- Clean online checkout links for package purchases between visits\n\nIf you're running memberships or packages, this kind of review usually pays for itself in the first month.\n\nBest,\nLiberty Bancard Team\n\nEligibility, underwriting, card brand rules, and applicable laws apply.",
+    },
+    {
+      subject: "Quick follow-up on payment flow at {{company_name}}",
+      body: "Hi {{first_name}},\n\nOur complimentary payment workflow review for {{company_name}} covers:\n- Membership/recurring billing review for {{service_type}}\n- Card-on-file and deposit policies for no-show protection\n- Patient financing for higher-ticket services\n- Online checkout links for remote package purchases\n- Processing cost optimization for your estimated volume ({{estimated_volume}})\n\nNo commodity pitch — just a workflow review focused on how payments support your growth.\n\nBest,\nLiberty Bancard Team\n\nMed spas in FL are regulated by the FL Dept of Health, Division of Medical Quality Assurance. Eligibility, underwriting, and applicable laws apply.",
+    },
+  ],
+  "Healthcare": [
+    {
+      subject: "Patient payment question for {{company_name}}",
+      body: "Hi {{first_name}},\n\nWe help Florida {{service_type}} practices improve patient payment flow.\n\n4 common issues at practices like {{company_name}}:\n- Manual collection work consuming front-desk time\n- No text-to-pay option for patient balances\n- Lack of structured payment plans for larger balances\n- Processing pricing unreviewed (estimated volume: {{estimated_volume}})\n\nWe improve patient collections and payment plans without making front-desk work harder.\n\nFree patient collections review — takes about 10 minutes.\n\nBest,\nLiberty Bancard Team\n\nLiberty Bancard does not request, store, or access protected health information (PHI). HIPAA applies to covered entities and business associates. Eligibility, underwriting, card brand rules, and applicable laws apply.",
+    },
+    {
+      subject: "How a similar {{service_type}} practice improved patient collections",
+      body: "Hi {{first_name}},\n\nA Florida {{service_type}} practice similar to {{company_name}} came to us with front-desk collection challenges.\n\nAfter implementing our patient payment workflow:\n- Outstanding balances collected significantly faster with automated text-to-pay reminders\n- Front desk saved hours per week on payment-related calls\n- Formal payment plans reduced write-offs\n- Card-on-file for recurring visits eliminated manual collection at checkout\n\nIf your front desk is spending time chasing payments, this kind of review usually pays for itself immediately.\n\nBest,\nLiberty Bancard Team\n\nEligibility, underwriting, card brand rules, and applicable laws apply.",
+    },
+    {
+      subject: "Last check-in about payments at {{company_name}}",
+      body: "Hi {{first_name}},\n\nOur free patient collections review for {{company_name}} covers:\n- Manual collection taking up front-desk time\n- Text-to-pay for remote patient payments\n- Payment plan structure for larger balances\n- Processing fee benchmarking (your estimated volume: {{estimated_volume}})\n- Card storage security and compliance\n\nFree, 10 minutes, and usually finds actionable improvements right away.\n\nBest,\nLiberty Bancard Team\n\nHIPAA applies to covered entities and business associates. Liberty Bancard does not access PHI. Florida surcharging applies to credit only (not debit/prepaid), requires disclosure, signage, receipt language, and 30-day notice to acquirer per card brand rules. Eligibility, underwriting, and applicable laws apply.",
+    },
+  ],
+  "Medical/Dental/Medspa": [
+    {
+      subject: "Patient payment question for {{company_name}}",
+      body: "Hi {{first_name}},\n\nWe help Florida {{service_type}} practices improve patient payment flow — text-to-pay, payment plans, and front-desk collections.\n\n4 common issues at practices like {{company_name}}:\n- Manual collection work at the front desk\n- No text-to-pay for patient balances\n- Lack of payment plans for larger balances\n- Processing fees unreviewed (estimated volume: {{estimated_volume}})\n\nFree patient collections review — 10 minutes. Interested?\n\nBest,\nLiberty Bancard Team\n\nLiberty Bancard does not access PHI. HIPAA applies to covered entities. Eligibility, underwriting, and applicable laws apply.",
+    },
+    {
+      subject: "How a similar {{service_type}} practice improved collections",
+      body: "Hi {{first_name}},\n\nA Florida {{service_type}} practice similar to {{company_name}} saw:\n- Significantly faster balance collection with text-to-pay\n- Hours saved at front desk each week\n- Reduced write-offs with structured payment plans\n\nWant to see what {{company_name}} could improve?\n\nBest,\nLiberty Bancard Team\n\nEligibility, underwriting, card brand rules, and applicable laws apply.",
+    },
+    {
+      subject: "Last check-in about payments at {{company_name}}",
+      body: "Hi {{first_name}},\n\nFree patient collections review for {{company_name}} covers text-to-pay, payment plans, card-on-file, and fee benchmarking for {{service_type}} practices. Takes 10 minutes.\n\nBest,\nLiberty Bancard Team\n\nHIPAA applies to covered entities and business associates. Liberty Bancard does not access PHI. Florida surcharging applies to credit only (not debit/prepaid), requires disclosure, signage, receipt language, and 30-day notice to acquirer per card brand rules. Eligibility, underwriting, and applicable laws apply.",
+    },
+  ],
 };
 
 const SMS_TEMPLATES: Record<string, string[]> = {
@@ -104,15 +161,53 @@ const SMS_TEMPLATES: Record<string, string[]> = {
     "Hi {{first_name}}, this is Liberty Bancard. We help {{vertical}} businesses save on payment processing. Interested in a free rate comparison? Reply YES and we'll set it up.",
     "Hi {{first_name}}, following up about payment processing savings for {{company_name}}. Many {{vertical}} businesses save 20-40%. Quick chat? Reply YES or let us know a good time.",
   ],
+  "Auto": [
+    "Hi {{first_name}}, this is {{agent_name}} with Liberty Bancard. We help FL auto shops cut card fees on big {{service_type}} repair tickets. Worth a quick look? Reply YES or visit {{link}} FL surcharging rules apply (credit only).",
+    "Still interested in seeing if {{company_name}} is overpaying on card processing? Free 10-min review: {{link}} FL surcharging disclosure required per card brand rules.",
+  ],
+  "Salon/Spa": [
+    "Hi {{first_name}}, this is {{agent_name}} with Liberty Bancard. We help FL med spas streamline memberships, deposits & payment flow for {{service_type}}. Quick review? {{link}}",
+    "Following up — would a free payment workflow review for {{company_name}} be helpful? Takes 10 min: {{link}}",
+  ],
+  "Healthcare": [
+    "Hi {{first_name}}, this is {{agent_name}} with Liberty Bancard. We help FL {{service_type}} practices improve patient payment flow & collections. Quick review? {{link}}",
+    "Following up on patient payments at {{company_name}}. Free collections review takes 10 min: {{link}}",
+  ],
+  "Medical/Dental/Medspa": [
+    "Hi {{first_name}}, this is {{agent_name}} with Liberty Bancard. We help FL {{service_type}} practices improve patient payment flow & collections. Quick review? {{link}}",
+    "Following up on patient payments at {{company_name}}. Free collections review takes 10 min: {{link}}",
+  ],
 };
+
+function normalizeVerticalKey(vertical: string | null | undefined): string {
+  if (!vertical) return "";
+  const v = vertical.toLowerCase().trim();
+  if (/auto|automotive|auto repair|collision|body shop|tire/i.test(v)) return "Auto";
+  const hasMedSpaTerms = /med.?spa|medspa|aesthetic|botox|filler|laser|beauty|salon/i.test(v);
+  const hasClinicalTerms = /dental|dentist|chiro|optom|podiatr|dermat|urgent care|physical therapy|behavioral|healthcare|clinic/i.test(v);
+  const hasMedicalPrimary = /^medical(?!.*spa)/i.test(v) || hasClinicalTerms;
+  if (hasMedSpaTerms && !hasMedicalPrimary) return "Salon/Spa";
+  if (hasMedicalPrimary || /^medical/i.test(v)) return "Healthcare";
+  if (hasMedSpaTerms) return "Salon/Spa";
+  if (/spa/i.test(v)) return "Salon/Spa";
+  return "";
+}
 
 function personalizeTemplate(template: string, lead: SdrLeadState): string {
   const firstName = lead.ownerName?.split(" ")[0] || "there";
+  const enrichment = (lead.enrichmentData as Record<string, any>) || {};
+  const serviceType = enrichment.serviceType || lead.vertical || "general";
+  const estimatedVolume = enrichment.estimatedVolume || "your current volume";
+
   return template
     .replace(/\{\{first_name\}\}/g, firstName)
     .replace(/\{\{company_name\}\}/g, lead.companyName || "your business")
     .replace(/\{\{vertical\}\}/g, lead.vertical || "local")
-    .replace(/\{\{city\}\}/g, lead.city || "your area");
+    .replace(/\{\{city\}\}/g, lead.city || "your area")
+    .replace(/\{\{service_type\}\}/g, serviceType)
+    .replace(/\{\{estimated_volume\}\}/g, estimatedVolume)
+    .replace(/\{\{agent_name\}\}/g, "Liberty Bancard")
+    .replace(/\{\{link\}\}/g, "https://calendly.com/libertybancard");
 }
 
 async function personalizeWithAI(template: string, lead: SdrLeadState, channel: string): Promise<string> {
@@ -150,7 +245,8 @@ async function executeEmailAction(lead: SdrLeadState, strongerCta?: boolean): Pr
 
   const attemptNumber = (lead.emailAttempts || 0) + 1;
   const templateIndex = Math.min(attemptNumber - 1, 2);
-  const templates = EMAIL_TEMPLATES[lead.vertical || ""] || EMAIL_TEMPLATES.default;
+  const verticalKey = normalizeVerticalKey(lead.vertical);
+  const templates = EMAIL_TEMPLATES[verticalKey] || EMAIL_TEMPLATES[lead.vertical || ""] || EMAIL_TEMPLATES.default;
   const template = templates[templateIndex] || templates[templates.length - 1];
 
   let subject = personalizeTemplate(template.subject, lead);
@@ -245,7 +341,8 @@ async function executeSmsAction(lead: SdrLeadState): Promise<boolean> {
 
   const attemptNumber = (lead.smsAttempts || 0) + 1;
   const templateIndex = Math.min(attemptNumber - 1, 1);
-  const templates = SMS_TEMPLATES[lead.vertical || ""] || SMS_TEMPLATES.default;
+  const smsVerticalKey = normalizeVerticalKey(lead.vertical);
+  const templates = SMS_TEMPLATES[smsVerticalKey] || SMS_TEMPLATES[lead.vertical || ""] || SMS_TEMPLATES.default;
   const template = templates[templateIndex] || templates[templates.length - 1];
 
   let body = personalizeTemplate(template, lead);
@@ -318,11 +415,16 @@ async function executeAction(lead: SdrLeadState, actionType: string, actionParam
         return false;
       }
       dailyCounters.callsMade++;
+
+      const resolvedScript = resolveVoiceScriptForLead(lead);
+      const voicePayload = resolvedScript ? buildGhlVoicePayload(resolvedScript, lead, "a Liberty Bancard specialist") : null;
+
       await logLeadEvent(lead.id, {
         eventType: "call_scheduled",
         actionType: "schedule_call",
         channel: "call",
-        decisionReason: `Call scheduled (attempt ${(lead.callAttempts || 0) + 1})`,
+        decisionReason: `Call scheduled (attempt ${(lead.callAttempts || 0) + 1})${resolvedScript ? ` [voice script: ${resolvedScript.verticalKey}]` : " [generic]"}`,
+        metadata: voicePayload ? { voiceScript: resolvedScript!.verticalKey, ghlPayload: voicePayload } : undefined,
       });
       await db.update(sdrLeadState).set({
         callAttempts: (lead.callAttempts || 0) + 1,

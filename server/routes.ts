@@ -5,7 +5,7 @@ import { setupAuth, registerAuthRoutes, isAuthenticated, isAdmin, isAffiliate } 
 import { authStorage } from "./replit_integrations/auth/storage";
 import bcrypt from "bcryptjs";
 import { db, pool } from "./db";
-import { users, contacts, csvImports, type InsertNotificationPreference, type InsertPartner } from "@shared/schema";
+import { users, contacts, csvImports, sdrLeadState, type InsertNotificationPreference, type InsertPartner } from "@shared/schema";
 import { eq, desc, ne, and, sql } from "drizzle-orm";
 import { registerAudioRoutes } from "./replit_integrations/audio/routes";
 import { z } from "zod";
@@ -30,6 +30,7 @@ import { estimateFromDeal, estimateFromContact, estimateFromProspect } from "./s
 import { buildDailyDigest, buildWeeklyDigest, sendCriticalEmailNotification, createPreferenceAwareNotification } from "./services/digest-service";
 import { scoreLeadFull } from "./services/sdr/scoring";
 import { sweepLeads, startOrchestrator, stopOrchestrator, isOrchestratorRunning, getDailyLimits, bridgeContactsToSdr, getSdrDashboardStats } from "./services/sdr/orchestrator";
+import { getVoiceScript, getAllVoiceScripts, resolveVoiceScriptForLead, personalizeVoiceScript, buildGhlVoicePayload } from "./services/sdr/voice-orchestrator";
 import { insertSunbizEntitySchema } from "@shared/schema";
 import multer from "multer";
 import { parse } from "csv-parse/sync";
@@ -7931,6 +7932,42 @@ Guidelines:
         const tags = ["csv-import", sourceFormat.replace(/_/g, "-")];
         if (mapped.tags) tags.push(...mapped.tags.split(",").map(t => t.trim()).filter(Boolean));
 
+        const rating = parseFloat(ratingStr) || 0;
+        const reviews = parseInt(reviewCount) || 0;
+        const description = `${mapped.notes || ""} ${mapped.keywords || mapped.keyword || ""} ${companyName}`.toLowerCase();
+
+        if (sourceFormat === "google_maps_outscraper") {
+          if (vertical === "Auto" || /auto|repair|mechanic|tire|collision|body shop|transmission|brake/i.test(description)) {
+            if (rating >= 4.3) tags.push("quality-high-rating");
+            if (reviews >= 20) tags.push("quality-reviews-20+");
+            if (/independent|owner/i.test(description)) tags.push("quality-independent");
+            if (/service menu|oil change|brake|transmission|engine|diagnostic/i.test(description)) tags.push("quality-service-menu");
+            if (/multiple|multi.?bay|2 location|3 location/i.test(description)) tags.push("quality-multi-bay");
+            if (/financing|fleet/i.test(description)) tags.push("quality-financing-fleet");
+            if (rating >= 4.3 && reviews >= 20) tags.push("priority-outreach");
+          }
+
+          if (vertical === "Salon/Spa" || /med.?spa|medspa|aesthetic|botox|filler|laser|body.?contour/i.test(description)) {
+            if (/membership|package|monthly/i.test(description)) tags.push("quality-memberships");
+            if (/book|booking|appointment|schedule/i.test(description)) tags.push("quality-online-booking");
+            if (/instagram|ig\b|@/i.test(description)) tags.push("quality-instagram-active");
+            if (reviews >= 50) tags.push("quality-reviews-50+");
+            if (/multiple provider|staff|team|np\b|pa\b|physician/i.test(description)) tags.push("quality-multi-provider");
+            if (/botox|filler|laser|weight.?loss|body.?sculpt|coolsculpt/i.test(description)) tags.push("quality-aesthetic-services");
+            if (reviews >= 50 && /membership|package/i.test(description)) tags.push("priority-outreach");
+          }
+
+          if (vertical === "Healthcare" || /dental|dentist|chiro|optom|podiatr|dermat|urgent care|pt\b|physical therapy|behavioral/i.test(description)) {
+            if (/private|independent|solo|owner/i.test(description)) tags.push("quality-private-practice");
+            if (/multiple provider|staff|team|associate|partner/i.test(description)) tags.push("quality-multi-provider");
+            if (/text.?to.?pay|online pay|patient portal|digital/i.test(description)) tags.push("quality-text-to-pay");
+            if (reviews >= 30) tags.push("quality-reviews-30+");
+            if (/payment plan|financing|care.?credit/i.test(description)) tags.push("quality-payment-plans");
+            if (/private.?pay|cash.?pay|self.?pay|cosmetic|elective/i.test(description)) tags.push("quality-private-pay");
+            if (reviews >= 30 && /private|independent/i.test(description)) tags.push("priority-outreach");
+          }
+        }
+
         contactInserts.push({
           firstName: firstName || companyName || "Unknown",
           lastName: lastName || "",
@@ -8360,6 +8397,37 @@ Guidelines:
 
   app.get("/api/sdr/daily-limits", isAuthenticated, async (req, res) => {
     res.json(getDailyLimits());
+  });
+
+  app.get("/api/sdr/voice-scripts", isAuthenticated, async (_req, res) => {
+    res.json(getAllVoiceScripts());
+  });
+
+  app.get("/api/sdr/voice-scripts/:verticalKey", isAuthenticated, async (req, res) => {
+    const script = getVoiceScript(req.params.verticalKey as string);
+    if (!script) return res.status(404).json({ message: "Voice script not found for vertical: " + req.params.verticalKey });
+    res.json(script);
+  });
+
+  app.post("/api/sdr/voice-scripts/resolve", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager', 'agent'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Insufficient permissions" });
+    try {
+      const { leadId, agentName } = req.body;
+      if (!leadId) return res.status(400).json({ message: "leadId required" });
+
+      const leads = await db.select().from(sdrLeadState).where(eq(sdrLeadState.id, leadId)).limit(1);
+      const lead = leads[0];
+      if (!lead) return res.status(404).json({ message: "Lead not found" });
+
+      const script = resolveVoiceScriptForLead(lead);
+      if (!script) return res.json({ script: null, reason: "No vertical-specific voice script available for this lead" });
+
+      const personalized = personalizeVoiceScript(script, lead, agentName || "a team member");
+      const ghlPayload = buildGhlVoicePayload(script, lead, agentName || "a team member");
+      res.json({ script: personalized, ghlPayload });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   return httpServer;
