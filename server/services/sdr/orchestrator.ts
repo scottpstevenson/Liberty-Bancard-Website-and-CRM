@@ -3,7 +3,8 @@ import { db } from "../../db";
 import { sdrLeadState, sdrLeadEvents, sdrChannelAttempts, sdrMerchants, contacts } from "@shared/schema";
 import type { SdrLeadState, InsertSdrLeadEvent, InsertSdrChannelAttempt } from "@shared/schema";
 import { eq, lte, and, isNull, sql } from "drizzle-orm";
-import { scoreLeadFull } from "./scoring";
+import { scoreLeadFull, getLeadProcessorData, getLeadGrowthData } from "./scoring";
+import { getProcessorSignals, getProcessorTemplate } from "./processor-detector";
 import { decideNextAction, getAllowedTransitions } from "./stage-rules";
 import { sendGhlEmail, sendGhlSms, isGhlConfigured } from "../ghl";
 import { resolveVoiceScriptForLead, buildGhlVoicePayload } from "./voice-orchestrator";
@@ -254,16 +255,43 @@ async function executeEmailAction(lead: SdrLeadState, strongerCta?: boolean): Pr
 
   const attemptNumber = (lead.emailAttempts || 0) + 1;
   const templateIndex = Math.min(attemptNumber - 1, 2);
-  const verticalKey = normalizeVerticalKey(lead.vertical);
-  const templates = EMAIL_TEMPLATES[verticalKey] || EMAIL_TEMPLATES[lead.vertical || ""] || EMAIL_TEMPLATES.default;
-  const template = templates[templateIndex] || templates[templates.length - 1];
 
-  let subject = personalizeTemplate(template.subject, lead);
-  let body = personalizeTemplate(template.body, lead);
+  let subject: string = "";
+  let body: string = "";
+
+  let usedProcessorTemplate = false;
+  if (attemptNumber === 1 && lead.businessId) {
+    try {
+      const signals = await getProcessorSignals(lead.businessId);
+      const highConfidenceSignals = signals.filter(s => (s.confidenceScore || 0) >= 0.70);
+      if (highConfidenceSignals.length > 0) {
+        const topSignal = highConfidenceSignals.sort((a, b) => (b.confidenceScore || 0) - (a.confidenceScore || 0))[0];
+        const processorTpl = getProcessorTemplate(topSignal.vendorName);
+        if (processorTpl) {
+          subject = personalizeTemplate(processorTpl.subject, lead);
+          body = personalizeTemplate(processorTpl.body, lead);
+          usedProcessorTemplate = true;
+          console.log(`[SDR Orchestrator] Using processor-specific template for ${topSignal.vendorName}`);
+        }
+      }
+    } catch (err) {
+      console.error("[SDR Orchestrator] Failed to load processor email template:", err);
+    }
+  }
+
+  if (!usedProcessorTemplate) {
+    const verticalKey = normalizeVerticalKey(lead.vertical);
+    const templates = EMAIL_TEMPLATES[verticalKey] || EMAIL_TEMPLATES[lead.vertical || ""] || EMAIL_TEMPLATES.default;
+    const template = templates[templateIndex] || templates[templates.length - 1];
+    subject = personalizeTemplate(template.subject, lead);
+    body = personalizeTemplate(template.body, lead);
+  }
 
   try {
     body = await personalizeWithAI(body, lead, "email");
-  } catch {}
+  } catch (err) {
+    console.error("[SDR Orchestrator] AI personalization failed, using template as-is:", err);
+  }
 
   if (!lead.contactId) {
     console.log(`[SDR Orchestrator] Lead ${lead.id} has no contactId, cannot send GHL email`);
@@ -363,11 +391,41 @@ async function executeSmsAction(lead: SdrLeadState): Promise<boolean> {
 
   const attemptNumber = (lead.smsAttempts || 0) + 1;
   const templateIndex = Math.min(attemptNumber - 1, 1);
-  const smsVerticalKey = normalizeVerticalKey(lead.vertical);
-  const templates = SMS_TEMPLATES[smsVerticalKey] || SMS_TEMPLATES[lead.vertical || ""] || SMS_TEMPLATES.default;
-  const template = templates[templateIndex] || templates[templates.length - 1];
 
-  let body = personalizeTemplate(template, lead);
+  let body: string = "";
+
+  let usedProcessorSms = false;
+  if (attemptNumber === 1 && lead.businessId) {
+    try {
+      const signals = await getProcessorSignals(lead.businessId);
+      const highConf = signals.filter(s => (s.confidenceScore || 0) >= 0.70);
+      if (highConf.length > 0) {
+        const topSignal = highConf.sort((a, b) => (b.confidenceScore || 0) - (a.confidenceScore || 0))[0];
+        const processorSmsTemplates: Record<string, string> = {
+          Square: "Hi {{first_name}}, noticed {{company_name}} uses Square. Many {{vertical}} businesses save significantly by switching from flat-rate to custom processing. Free rate comparison? Reply YES {{link}}",
+          Stripe: "Hi {{first_name}}, {{company_name}} on Stripe? Custom processing often beats standard Stripe rates for {{vertical}} businesses. Want to see your numbers? Reply YES {{link}}",
+          Toast: "Hi {{first_name}}, we help restaurants like {{company_name}} optimize what Toast charges for processing. Quick comparison? Reply YES {{link}}",
+          Clover: "Hi {{first_name}}, {{company_name}} using Clover? You can keep your hardware and often get better rates. Free review: Reply YES {{link}}",
+          PayPal: "Hi {{first_name}}, {{company_name}} accepting PayPal? A dedicated merchant account usually means lower fees and faster funding. See how much: Reply YES {{link}}",
+          Shopify: "Hi {{first_name}}, {{company_name}} on Shopify Payments? Many merchants save by switching processing while keeping Shopify. Check your savings: Reply YES {{link}}",
+        };
+        const smsTemplate = processorSmsTemplates[topSignal.vendorName];
+        if (smsTemplate) {
+          body = personalizeTemplate(smsTemplate, lead);
+          usedProcessorSms = true;
+        }
+      }
+    } catch (err) {
+      console.error("[SDR Orchestrator] Failed to load processor SMS template:", err);
+    }
+  }
+
+  if (!usedProcessorSms) {
+    const smsVerticalKey = normalizeVerticalKey(lead.vertical);
+    const templates = SMS_TEMPLATES[smsVerticalKey] || SMS_TEMPLATES[lead.vertical || ""] || SMS_TEMPLATES.default;
+    const template = templates[templateIndex] || templates[templates.length - 1];
+    body = personalizeTemplate(template, lead);
+  }
 
   if (!lead.contactId) {
     await logChannelAttempt({
@@ -524,11 +582,15 @@ function isImmediateAction(actionType: string): boolean {
 async function processLead(lead: SdrLeadState): Promise<void> {
   try {
     if (lead.stage === "DISCOVERED" || lead.stage === "ENRICHED" || lead.stage === "DEDUPED" || lead.stage === "CLASSIFIED") {
-      const scores = scoreLeadFull(lead);
+      const processorData = await getLeadProcessorData(lead.businessId);
+      const growthData = await getLeadGrowthData(lead.businessId, lead);
+      const scores = scoreLeadFull(lead, processorData, growthData);
       await db.update(sdrLeadState).set({
         fitScore: scores.fitScore,
         revenueScore: scores.revenueScore,
         reachabilityScore: scores.reachabilityScore,
+        processorScore: scores.processorScore,
+        growthScore: scores.growthScore,
         priorityScore: scores.priorityScore,
         priorityBucket: scores.priorityBucket,
         scoreBreakdown: scores.breakdown,
@@ -541,6 +603,8 @@ async function processLead(lead: SdrLeadState): Promise<void> {
         fitScore: scores.fitScore,
         revenueScore: scores.revenueScore,
         reachabilityScore: scores.reachabilityScore,
+        processorScore: scores.processorScore,
+        growthScore: scores.growthScore,
         priorityScore: scores.priorityScore,
         priorityBucket: scores.priorityBucket,
       };

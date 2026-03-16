@@ -9027,6 +9027,70 @@ Guidelines:
     }
   });
 
+  app.get("/api/sdr/processor-intelligence", isAuthenticated, async (_req, res) => {
+    try {
+      const { getProcessorDistribution, getProcessorCoverage, getConversionByProcessor } = await import("./services/sdr/processor-detector");
+      const { getAdDistribution } = await import("./services/sdr/ad-detector");
+      const [distribution, coverage, adDist, conversionByProcessor] = await Promise.all([
+        getProcessorDistribution(),
+        getProcessorCoverage(),
+        getAdDistribution(),
+        getConversionByProcessor(),
+      ]);
+      res.json({ processorDistribution: distribution, coverage, adDistribution: adDist, conversionByProcessor });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/sdr/processor-signals/:businessId", isAuthenticated, async (req, res) => {
+    const businessId = Number(req.params.businessId);
+    if (!businessId || isNaN(businessId)) return res.status(400).json({ message: "Invalid business ID" });
+    try {
+      const { getProcessorSignals } = await import("./services/sdr/processor-detector");
+      const signals = await getProcessorSignals(businessId);
+      res.json(signals);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/sdr/detect-processors/:businessId", isAuthenticated, async (req, res) => {
+    const businessId = Number(req.params.businessId);
+    if (!businessId || isNaN(businessId)) return res.status(400).json({ message: "Invalid business ID" });
+    try {
+      const { detectProcessors } = await import("./services/sdr/processor-detector");
+      const results = await detectProcessors(businessId);
+      res.json({ detected: results.length, results });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/sdr/ad-signals/:businessId", isAuthenticated, async (req, res) => {
+    const businessId = Number(req.params.businessId);
+    if (!businessId || isNaN(businessId)) return res.status(400).json({ message: "Invalid business ID" });
+    try {
+      const { getAdSignals } = await import("./services/sdr/ad-detector");
+      const signals = await getAdSignals(businessId);
+      res.json(signals);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/sdr/detect-ads/:businessId", isAuthenticated, async (req, res) => {
+    const businessId = Number(req.params.businessId);
+    if (!businessId || isNaN(businessId)) return res.status(400).json({ message: "Invalid business ID" });
+    try {
+      const { detectAds } = await import("./services/sdr/ad-detector");
+      const results = await detectAds(businessId);
+      res.json({ detected: results.length, results });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/businesses", isAuthenticated, async (req, res) => {
     try {
       const { status, vertical, limit } = req.query;

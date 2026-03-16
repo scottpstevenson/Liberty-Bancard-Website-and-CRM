@@ -1,4 +1,7 @@
 import type { SdrLeadState } from "@shared/schema";
+import { processorSignals, adSignals } from "@shared/schema";
+import { db } from "../../db";
+import { eq } from "drizzle-orm";
 import OpenAI from "openai";
 
 function getOpenAI() {
@@ -14,12 +17,17 @@ export interface FullScoreResult {
   fitScore: number;
   revenueScore: number;
   reachabilityScore: number;
+  processorScore: number;
+  growthScore: number;
   priorityScore: number;
   priorityBucket: "A" | "B" | "C" | "nurture";
   breakdown: {
     fit: ScoreResult;
     revenue: ScoreResult;
     reachability: ScoreResult;
+    priority: ScoreResult;
+    processor: ScoreResult;
+    growth: ScoreResult;
   };
 }
 
@@ -380,8 +388,110 @@ export function scoreReachability(lead: SdrLeadState): ScoreResult {
   return { score, factors };
 }
 
-export function calculatePriority(fitScore: number, revenueScore: number, reachabilityScore: number): { priorityScore: number; priorityBucket: "A" | "B" | "C" | "nurture" } {
-  const priorityScore = Math.round((fitScore + revenueScore + reachabilityScore) / 3);
+const SWITCHABLE_PROCESSORS = ["Square", "Stripe", "Toast", "Clover", "PayPal", "Shopify"];
+
+export function scoreProcessor(processorData: { vendors: string[]; hasProcessor: boolean }): ScoreResult {
+  const factors: Record<string, number> = {};
+  let score = 0;
+
+  if (processorData.hasProcessor) {
+    factors.processorDetected = 15;
+    score += 15;
+
+    const switchable = processorData.vendors.filter(v => SWITCHABLE_PROCESSORS.includes(v));
+    if (switchable.length > 0) {
+      const switchScore = Math.min(40, switchable.length * 20);
+      factors.switchableTarget = switchScore;
+      score += switchScore;
+
+      if (switchable.includes("Square")) {
+        factors.squareDetected = 20;
+        score += 20;
+      } else if (switchable.includes("Stripe")) {
+        factors.stripeDetected = 15;
+        score += 15;
+      } else if (switchable.includes("Toast")) {
+        factors.toastDetected = 15;
+        score += 15;
+      }
+    }
+
+    if (processorData.vendors.length > 1) {
+      factors.multipleProcessors = 10;
+      score += 10;
+    }
+  }
+
+  score = Math.max(0, Math.min(100, score));
+  return { score, factors };
+}
+
+export function scoreGrowth(growthData: { isRunningAds: boolean; adPlatforms: string[]; hasBooking: boolean; hasEcommerce: boolean }): ScoreResult {
+  const factors: Record<string, number> = {};
+  let score = 0;
+
+  if (growthData.isRunningAds) {
+    factors.runningAds = 20;
+    score += 20;
+
+    if (growthData.adPlatforms.includes("facebook")) {
+      factors.facebookAds = 15;
+      score += 15;
+    }
+    if (growthData.adPlatforms.includes("google")) {
+      factors.googleAds = 15;
+      score += 15;
+    }
+  }
+
+  if (growthData.hasBooking) {
+    factors.bookingSystem = 15;
+    score += 15;
+  }
+  if (growthData.hasEcommerce) {
+    factors.ecommerce = 15;
+    score += 15;
+  }
+
+  if (growthData.adPlatforms.length > 1) {
+    factors.multiChannelAds = 10;
+    score += 10;
+  }
+
+  score = Math.max(0, Math.min(100, score));
+  return { score, factors };
+}
+
+export function scorePriority(lead: SdrLeadState): ScoreResult {
+  let score = 50;
+  const factors: Record<string, number> = {};
+
+  if (lead.hasResponded) { score += 20; factors.responded = 20; }
+  if (lead.emailAttempts && lead.emailAttempts > 0 && !lead.hasResponded) { score -= 5; factors.unresponsiveOutreach = -5; }
+  if (lead.stage === "ENRICHED" || lead.stage === "CLASSIFIED") { score += 10; factors.enrichedStage = 10; }
+  if (lead.lastActivityAt) {
+    const daysSinceActivity = (Date.now() - new Date(lead.lastActivityAt).getTime()) / (1000 * 60 * 60 * 24);
+    if (daysSinceActivity < 7) { score += 15; factors.recentActivity = 15; }
+    else if (daysSinceActivity < 30) { score += 5; factors.moderateActivity = 5; }
+  }
+  if (lead.priorityBucket === "A") { score += 10; factors.existingHighPriority = 10; }
+
+  return { score: Math.max(0, Math.min(100, score)), factors };
+}
+
+export function calculatePriority(
+  fitScore: number, revenueScore: number, reachabilityScore: number,
+  processorScoreVal: number = 0, growthScoreVal: number = 0,
+  priorityDimensionScore: number = 50
+): { priorityScore: number; priorityBucket: "A" | "B" | "C" | "nurture" } {
+  const priorityScore = Math.round(
+    fitScore * 0.25 +
+    revenueScore * 0.20 +
+    reachabilityScore * 0.15 +
+    priorityDimensionScore * 0.15 +
+    processorScoreVal * 0.15 +
+    growthScoreVal * 0.10
+  );
 
   let priorityBucket: "A" | "B" | "C" | "nurture";
   if (priorityScore >= 80) priorityBucket = "A";
@@ -392,20 +502,63 @@ export function calculatePriority(fitScore: number, revenueScore: number, reacha
   return { priorityScore, priorityBucket };
 }
 
-export function scoreLeadFull(lead: SdrLeadState): FullScoreResult {
+export function scoreLeadFull(lead: SdrLeadState, processorData?: { vendors: string[]; hasProcessor: boolean }, growthData?: { isRunningAds: boolean; adPlatforms: string[]; hasBooking: boolean; hasEcommerce: boolean }): FullScoreResult {
   const fit = scoreFit(lead);
   const revenue = scoreRevenue(lead);
   const reachability = scoreReachability(lead);
-  const { priorityScore, priorityBucket } = calculatePriority(fit.score, revenue.score, reachability.score);
+
+  const processor = scoreProcessor(processorData || { vendors: [], hasProcessor: false });
+  const growth = scoreGrowth(growthData || {
+    isRunningAds: false,
+    adPlatforms: [],
+    hasBooking: !!lead.hasBookingSystem,
+    hasEcommerce: !!lead.hasEcommerce,
+  });
+
+  const priority = scorePriority(lead);
+
+  const { priorityScore, priorityBucket } = calculatePriority(
+    fit.score, revenue.score, reachability.score, processor.score, growth.score, priority.score
+  );
 
   return {
     fitScore: fit.score,
     revenueScore: revenue.score,
     reachabilityScore: reachability.score,
+    processorScore: processor.score,
+    growthScore: growth.score,
     priorityScore,
     priorityBucket,
-    breakdown: { fit, revenue, reachability },
+    breakdown: { fit, revenue, reachability, priority, processor, growth },
   };
+}
+
+export async function getLeadProcessorData(businessId: number | null | undefined): Promise<{ vendors: string[]; hasProcessor: boolean }> {
+  if (!businessId) return { vendors: [], hasProcessor: false };
+  try {
+    const signals = await db.select().from(processorSignals).where(eq(processorSignals.businessId, businessId));
+    const vendors = signals.map(s => s.vendorName);
+    return { vendors, hasProcessor: vendors.length > 0 };
+  } catch {
+    return { vendors: [], hasProcessor: false };
+  }
+}
+
+export async function getLeadGrowthData(businessId: number | null | undefined, lead: SdrLeadState): Promise<{ isRunningAds: boolean; adPlatforms: string[]; hasBooking: boolean; hasEcommerce: boolean }> {
+  const base = { isRunningAds: false, adPlatforms: [] as string[], hasBooking: !!lead.hasBookingSystem, hasEcommerce: !!lead.hasEcommerce };
+  if (!businessId) return base;
+  try {
+    const signals = await db.select().from(adSignals).where(eq(adSignals.businessId, businessId));
+    const runningAds = signals.filter(s => s.isRunningAds);
+    return {
+      isRunningAds: runningAds.length > 0,
+      adPlatforms: runningAds.map(s => s.platform),
+      hasBooking: !!lead.hasBookingSystem,
+      hasEcommerce: !!lead.hasEcommerce,
+    };
+  } catch {
+    return base;
+  }
 }
 
 export async function aiAssessWebsiteQuality(website: string): Promise<{ websiteQuality: string; businessMaturity: string }> {

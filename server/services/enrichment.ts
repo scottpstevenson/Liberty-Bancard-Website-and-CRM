@@ -6,6 +6,8 @@ import { eq } from "drizzle-orm";
 import OpenAI from "openai";
 import { isSerperConfigured, searchBusiness, searchBusinessEmail } from "./serper";
 import { ingestBusinessFromContact } from "./sdr/dedupe";
+import { detectProcessors } from "./sdr/processor-detector";
+import { detectAds } from "./sdr/ad-detector";
 
 function getOpenAI() {
   return new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
@@ -172,6 +174,21 @@ export async function enrichProspect(prospectId: number): Promise<Prospect | nul
   }
 
   const updated = await storage.updateProspect(prospectId, updates);
+
+  if (updated?.contactId) {
+    try {
+      const contact = await storage.getContact(updated.contactId);
+      if (contact?.businessId) {
+        detectProcessors(contact.businessId).catch(err =>
+          console.error(`[Enrichment] Processor detection failed for business ${contact.businessId}:`, err)
+        );
+        detectAds(contact.businessId).catch(err =>
+          console.error(`[Enrichment] Ad detection failed for business ${contact.businessId}:`, err)
+        );
+      }
+    } catch {}
+  }
+
   return updated || prospect;
 }
 

@@ -2197,6 +2197,8 @@ export const sdrLeadState = pgTable("sdr_lead_state", {
   fitScore: integer("fit_score").default(0),
   revenueScore: integer("revenue_score").default(0),
   reachabilityScore: integer("reachability_score").default(0),
+  processorScore: integer("processor_score").default(0),
+  growthScore: integer("growth_score").default(0),
   priorityScore: integer("priority_score").default(0),
   priorityBucket: text("priority_bucket").default("C"),
   scoreBreakdown: jsonb("score_breakdown"),
@@ -2478,3 +2480,80 @@ export const insertLeadDiscoveryResultSchema = createInsertSchema(leadDiscoveryR
 
 export type LeadDiscoveryResult = typeof leadDiscoveryResults.$inferSelect;
 export type InsertLeadDiscoveryResult = z.infer<typeof insertLeadDiscoveryResultSchema>;
+
+export const processorSignals = pgTable("processor_signals", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").references(() => businesses.id).notNull(),
+  signalType: text("signal_type").notNull(),
+  vendorName: text("vendor_name").notNull(),
+  detectionMethod: text("detection_method").notNull(),
+  confidenceScore: real("confidence_score").default(0),
+  evidence: text("evidence"),
+  detectedAt: timestamp("detected_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("processor_signals_business_id_idx").on(table.businessId),
+  index("processor_signals_vendor_name_idx").on(table.vendorName),
+]);
+
+export const insertProcessorSignalSchema = createInsertSchema(processorSignals).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type ProcessorSignal = typeof processorSignals.$inferSelect;
+export type InsertProcessorSignal = z.infer<typeof insertProcessorSignalSchema>;
+
+export const adSignals = pgTable("ad_signals", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").references(() => businesses.id).notNull(),
+  platform: text("platform").notNull(),
+  isRunningAds: boolean("is_running_ads").default(false),
+  confidenceScore: real("confidence_score").default(0),
+  adCountEstimate: integer("ad_count_estimate").default(0),
+  lastSeenAt: timestamp("last_seen_at"),
+  evidence: text("evidence"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("ad_signals_business_id_idx").on(table.businessId),
+  index("ad_signals_platform_idx").on(table.platform),
+]);
+
+export const insertAdSignalSchema = createInsertSchema(adSignals).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type AdSignal = typeof adSignals.$inferSelect;
+export type InsertAdSignal = z.infer<typeof insertAdSignalSchema>;
+
+export const PROCESSOR_SIGNAL_TYPES = [
+  "processor",
+  "pos",
+  "booking_platform",
+  "ecommerce_platform",
+] as const;
+
+export const DETECTION_METHODS = [
+  "script",
+  "html_text",
+  "serper",
+  "manual",
+  "api",
+] as const;
+
+export const AD_PLATFORMS = [
+  "facebook",
+  "google",
+  "instagram",
+  "unknown",
+] as const;
+
+export const SWITCHABLE_PROCESSORS = [
+  "Square",
+  "Stripe",
+  "Toast",
+  "Clover",
+  "PayPal",
+  "Shopify",
+] as const;
