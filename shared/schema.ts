@@ -2557,3 +2557,41 @@ export const SWITCHABLE_PROCESSORS = [
   "PayPal",
   "Shopify",
 ] as const;
+
+export const dailyFunnelMetrics = pgTable("daily_funnel_metrics", {
+  id: serial("id").primaryKey(),
+  date: text("date").notNull(),
+  vertical: text("vertical"),
+  state: text("state"),
+  sourceType: text("source_type"),
+  leadsFound: integer("leads_found").default(0),
+  leadsEnriched: integer("leads_enriched").default(0),
+  hotCreated: integer("hot_created").default(0),
+  warmCreated: integer("warm_created").default(0),
+  emailsSent: integer("emails_sent").default(0),
+  smsSent: integer("sms_sent").default(0),
+  callsMade: integer("calls_made").default(0),
+  replies: integer("replies").default(0),
+  positiveReplies: integer("positive_replies").default(0),
+  meetingsBooked: integer("meetings_booked").default(0),
+  statementsReceived: integer("statements_received").default(0),
+  proposalsSent: integer("proposals_sent").default(0),
+  proposalsViewed: integer("proposals_viewed").default(0),
+  appsStarted: integer("apps_started").default(0),
+  appsCompleted: integer("apps_completed").default(0),
+  closedWon: integer("closed_won").default(0),
+  closedLost: integer("closed_lost").default(0),
+  revenue: text("revenue"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("daily_funnel_metrics_date_idx").on(table.date),
+  index("daily_funnel_metrics_date_vertical_idx").on(table.date, table.vertical),
+]);
+
+export const insertDailyFunnelMetricsSchema = createInsertSchema(dailyFunnelMetrics).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type DailyFunnelMetrics = typeof dailyFunnelMetrics.$inferSelect;
+export type InsertDailyFunnelMetrics = z.infer<typeof insertDailyFunnelMetricsSchema>;

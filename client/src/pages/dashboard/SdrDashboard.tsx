@@ -1119,6 +1119,431 @@ function ProcessorIntelligence() {
   );
 }
 
+interface SourceQualityData {
+  sourceType: string;
+  totalLeads: number;
+  enrichmentRate: number;
+  hotRate: number;
+  replyRate: number;
+  meetingRate: number;
+  statementRate: number;
+  closeRate: number;
+}
+
+function SourceQualityDashboard() {
+  const { data, isLoading } = useQuery<SourceQualityData[]>({
+    queryKey: ["/api/sdr/source-quality"],
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  const sources = data || [];
+
+  return (
+    <Card data-testid="card-source-quality">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <BarChart3 className="w-5 h-5" />
+          Source Quality (Last 30 Days)
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {sources.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">
+            No source quality data available yet. Aggregate funnel metrics to populate this view.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm" data-testid="table-source-quality">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left py-2 px-3 font-medium">Source</th>
+                  <th className="text-right py-2 px-3 font-medium">Leads</th>
+                  <th className="text-right py-2 px-3 font-medium">Enrich%</th>
+                  <th className="text-right py-2 px-3 font-medium">Reply%</th>
+                  <th className="text-right py-2 px-3 font-medium">Meeting%</th>
+                  <th className="text-right py-2 px-3 font-medium">Statement%</th>
+                  <th className="text-right py-2 px-3 font-medium">Close%</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sources.map((src) => (
+                  <tr key={src.sourceType} className="border-b border-muted" data-testid={`row-source-${src.sourceType}`}>
+                    <td className="py-2 px-3 font-medium">{src.sourceType}</td>
+                    <td className="text-right py-2 px-3">{src.totalLeads}</td>
+                    <td className="text-right py-2 px-3">{src.enrichmentRate}%</td>
+                    <td className="text-right py-2 px-3">{src.replyRate}%</td>
+                    <td className="text-right py-2 px-3">{src.meetingRate}%</td>
+                    <td className="text-right py-2 px-3">{src.statementRate}%</td>
+                    <td className="text-right py-2 px-3">
+                      <span className={src.closeRate > 5 ? "text-green-600 font-medium" : ""}>{src.closeRate}%</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+interface IdentityHealthData {
+  id: number;
+  label: string;
+  domain: string;
+  emailAddress: string;
+  isActive: boolean;
+  warmupStatus: string;
+  dailyLimit: number;
+  sentToday: number;
+  healthScore: number;
+  bounceRate: number;
+  replyRate: number;
+  complaintRate: number;
+  openRate: number;
+  weekSent: number;
+  alert: string | null;
+}
+
+function IdentityHealthDashboard() {
+  const { data, isLoading } = useQuery<IdentityHealthData[]>({
+    queryKey: ["/api/sdr/identity-health"],
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  const identities = data || [];
+
+  return (
+    <Card data-testid="card-identity-health">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Mail className="w-5 h-5" />
+          Inbox Deliverability Health
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {identities.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">
+            No sending identities configured yet. Set up inboxes in the inbox rotation settings.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {identities.map((identity) => (
+              <div key={identity.id} className="flex items-center justify-between p-4 bg-muted/50 rounded-lg" data-testid={`identity-${identity.id}`}>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-sm">{identity.label}</span>
+                    <Badge variant={identity.isActive ? "secondary" : "outline"} className="text-xs">
+                      {identity.warmupStatus}
+                    </Badge>
+                    {identity.alert && (
+                      <Badge variant="destructive" className="text-xs">
+                        <AlertTriangle className="w-3 h-3 mr-1" />
+                        {identity.alert}
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">{identity.emailAddress} ({identity.domain})</div>
+                </div>
+                <div className="flex items-center gap-6 text-sm">
+                  <div className="text-center">
+                    <div className={`font-medium ${identity.healthScore >= 80 ? "text-green-600" : identity.healthScore >= 50 ? "text-yellow-600" : "text-red-600"}`}>
+                      {identity.healthScore}%
+                    </div>
+                    <div className="text-xs text-muted-foreground">Health</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="font-medium">{identity.sentToday}/{identity.dailyLimit}</div>
+                    <div className="text-xs text-muted-foreground">Today</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="font-medium">{identity.bounceRate}%</div>
+                    <div className="text-xs text-muted-foreground">Bounce</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="font-medium">{identity.replyRate}%</div>
+                    <div className="text-xs text-muted-foreground">Reply</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="font-medium">{identity.openRate}%</div>
+                    <div className="text-xs text-muted-foreground">Open</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+interface MarketExpansionData {
+  byState: {
+    state: string;
+    total: number;
+    contacted: number;
+    engaged: number;
+    closedWon: number;
+    contactRate: number;
+    engagementRate: number;
+    addressable: number;
+    penetration: number;
+  }[];
+  byMetro: {
+    city: string;
+    state: string;
+    total: number;
+    contacted: number;
+    engaged: number;
+  }[];
+  expansionSuggestions: {
+    currentState: string;
+    utilization: number;
+    suggestedState: string;
+    reason: string;
+    estimatedAddressable: number;
+  }[];
+}
+
+function MarketExpansionDashboard() {
+  const { data, isLoading } = useQuery<MarketExpansionData>({
+    queryKey: ["/api/sdr/market-expansion"],
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4" data-testid="section-market-expansion">
+      {(data?.expansionSuggestions || []).length > 0 && (
+        <Card data-testid="card-expansion-suggestions">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <TrendingUp className="w-5 h-5 text-green-600" />
+              Expansion Recommendations
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {data!.expansionSuggestions.map((sug, idx) => (
+                <div key={idx} className="flex items-center gap-3 p-3 bg-green-50 dark:bg-green-950/20 rounded-lg" data-testid={`suggestion-${idx}`}>
+                  <MapPin className="w-5 h-5 text-green-600 shrink-0" />
+                  <div>
+                    <div className="text-sm font-medium">{sug.reason}</div>
+                    <div className="text-xs text-muted-foreground">
+                      Estimated addressable market: {sug.estimatedAddressable.toLocaleString()} businesses
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card data-testid="card-state-penetration">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-sm font-medium">
+              <MapPin className="w-4 h-4" />
+              Market Penetration by State
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {(data?.byState || []).length === 0 ? (
+              <div className="text-sm text-muted-foreground text-center py-4">No state data yet</div>
+            ) : (
+              <div className="space-y-2">
+                {(data?.byState || []).map((st) => (
+                  <div key={st.state} className="space-y-1" data-testid={`state-${st.state}`}>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="font-medium">{st.state}</span>
+                      <span className="text-muted-foreground">{st.total} / {st.addressable.toLocaleString()} ({st.penetration}%)</span>
+                    </div>
+                    <div className="w-full bg-muted rounded-full h-2">
+                      <div
+                        className={`h-full rounded-full transition-all ${st.penetration >= 80 ? "bg-orange-500" : st.penetration >= 50 ? "bg-yellow-500" : "bg-blue-500"}`}
+                        style={{ width: `${Math.min(st.penetration, 100)}%` }}
+                      />
+                    </div>
+                    <div className="flex gap-4 text-xs text-muted-foreground">
+                      <span>Contacted: {st.contactRate}%</span>
+                      <span>Engaged: {st.engagementRate}%</span>
+                      <span>Won: {st.closedWon}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card data-testid="card-metro-breakdown">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-sm font-medium">
+              <Building2 className="w-4 h-4" />
+              Top Metros
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {(data?.byMetro || []).length === 0 ? (
+              <div className="text-sm text-muted-foreground text-center py-4">No metro data yet</div>
+            ) : (
+              <div className="space-y-2">
+                {(data?.byMetro || []).slice(0, 15).map((m, idx) => (
+                  <div key={`${m.city}-${m.state}`} className="flex items-center justify-between text-sm" data-testid={`metro-${idx}`}>
+                    <span className="text-muted-foreground">{m.city}, {m.state}</span>
+                    <div className="flex items-center gap-3">
+                      <span className="font-medium">{m.total}</span>
+                      <span className="text-xs text-muted-foreground">{m.contacted} contacted</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+interface WeeklyKpiData {
+  period: { start: string; end: string };
+  topFunnel: { leadsFound: number; leadsEnriched: number; enrichmentRate: number; hotCreated: number; warmCreated: number };
+  outreach: { emailsSent: number; smsSent: number; callsMade: number; replies: number; replyRate: number; meetingsBooked: number };
+  midFunnel: { statementsReceived: number; proposalsSent: number };
+  bottomFunnel: { closedWon: number; closedLost: number; winRate: number };
+  verticalPerformance: { vertical: string; leads: number; replies: number; meetings: number; closedWon: number }[];
+  sourceQuality: SourceQualityData[];
+  identityHealth: { label: string; domain: string; healthScore: number; alert: string | null }[];
+  expansionSuggestions: { reason: string }[];
+}
+
+function WeeklyKpiReport() {
+  const { data, isLoading } = useQuery<WeeklyKpiData>({
+    queryKey: ["/api/sdr/weekly-kpi"],
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!data) return null;
+
+  const sections = [
+    { title: "Top of Funnel", items: [
+      { label: "Leads Found", value: data.topFunnel.leadsFound },
+      { label: "Enriched", value: `${data.topFunnel.leadsEnriched} (${data.topFunnel.enrichmentRate}%)` },
+      { label: "Hot Leads", value: data.topFunnel.hotCreated },
+      { label: "Warm Leads", value: data.topFunnel.warmCreated },
+    ]},
+    { title: "Outreach", items: [
+      { label: "Emails Sent", value: data.outreach.emailsSent },
+      { label: "SMS Sent", value: data.outreach.smsSent },
+      { label: "Calls Made", value: data.outreach.callsMade },
+      { label: "Replies", value: `${data.outreach.replies} (${data.outreach.replyRate}%)` },
+      { label: "Meetings Booked", value: data.outreach.meetingsBooked },
+    ]},
+    { title: "Mid Funnel", items: [
+      { label: "Statements Received", value: data.midFunnel.statementsReceived },
+      { label: "Proposals Sent", value: data.midFunnel.proposalsSent },
+    ]},
+    { title: "Bottom Funnel", items: [
+      { label: "Closed Won", value: data.bottomFunnel.closedWon },
+      { label: "Closed Lost", value: data.bottomFunnel.closedLost },
+      { label: "Win Rate", value: `${data.bottomFunnel.winRate}%` },
+    ]},
+  ];
+
+  return (
+    <div className="space-y-4" data-testid="section-weekly-kpi">
+      <div className="text-sm text-muted-foreground" data-testid="text-kpi-period">
+        Week of {data.period.start} to {data.period.end}
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {sections.map((section) => (
+          <Card key={section.title} data-testid={`card-kpi-${section.title.toLowerCase().replace(/\s+/g, "-")}`}>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">{section.title}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {section.items.map((item) => (
+                  <div key={item.label} className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">{item.label}</span>
+                    <span className="font-medium">{item.value}</span>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {data.verticalPerformance.length > 0 && (
+        <Card data-testid="card-kpi-verticals">
+          <CardHeader>
+            <CardTitle className="text-sm font-medium">Vertical Performance</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-2 px-3 font-medium">Vertical</th>
+                    <th className="text-right py-2 px-3 font-medium">Leads</th>
+                    <th className="text-right py-2 px-3 font-medium">Replies</th>
+                    <th className="text-right py-2 px-3 font-medium">Meetings</th>
+                    <th className="text-right py-2 px-3 font-medium">Won</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.verticalPerformance.map((v) => (
+                    <tr key={v.vertical} className="border-b border-muted" data-testid={`kpi-vertical-${v.vertical}`}>
+                      <td className="py-2 px-3">{v.vertical}</td>
+                      <td className="text-right py-2 px-3">{v.leads}</td>
+                      <td className="text-right py-2 px-3">{v.replies}</td>
+                      <td className="text-right py-2 px-3">{v.meetings}</td>
+                      <td className="text-right py-2 px-3 font-medium">{v.closedWon}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 export default function SdrDashboard() {
   return (
     <div className="space-y-6" data-testid="page-sdr-dashboard">
@@ -1128,7 +1553,7 @@ export default function SdrDashboard() {
       </div>
 
       <Tabs defaultValue="summary" data-testid="tabs-sdr">
-        <TabsList>
+        <TabsList className="flex-wrap">
           <TabsTrigger value="summary" data-testid="tab-sdr-summary">Summary</TabsTrigger>
           <TabsTrigger value="discovery" data-testid="tab-sdr-discovery">Discovery</TabsTrigger>
           <TabsTrigger value="funnel" data-testid="tab-sdr-funnel">Funnel</TabsTrigger>
@@ -1136,6 +1561,10 @@ export default function SdrDashboard() {
           <TabsTrigger value="channels" data-testid="tab-sdr-channels">Channel Health</TabsTrigger>
           <TabsTrigger value="chat" data-testid="tab-sdr-chat">Chat AI</TabsTrigger>
           <TabsTrigger value="processors" data-testid="tab-sdr-processors">Processor Intel</TabsTrigger>
+          <TabsTrigger value="sources" data-testid="tab-sdr-sources">Source Quality</TabsTrigger>
+          <TabsTrigger value="identity" data-testid="tab-sdr-identity">Inbox Health</TabsTrigger>
+          <TabsTrigger value="market" data-testid="tab-sdr-market">Market Expansion</TabsTrigger>
+          <TabsTrigger value="kpi" data-testid="tab-sdr-kpi">Weekly KPI</TabsTrigger>
         </TabsList>
 
         <TabsContent value="summary" className="mt-4">
@@ -1164,6 +1593,22 @@ export default function SdrDashboard() {
 
         <TabsContent value="processors" className="mt-4">
           <ProcessorIntelligence />
+        </TabsContent>
+
+        <TabsContent value="sources" className="mt-4">
+          <SourceQualityDashboard />
+        </TabsContent>
+
+        <TabsContent value="identity" className="mt-4">
+          <IdentityHealthDashboard />
+        </TabsContent>
+
+        <TabsContent value="market" className="mt-4">
+          <MarketExpansionDashboard />
+        </TabsContent>
+
+        <TabsContent value="kpi" className="mt-4">
+          <WeeklyKpiReport />
         </TabsContent>
       </Tabs>
     </div>

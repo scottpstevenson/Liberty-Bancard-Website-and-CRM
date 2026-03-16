@@ -1,7 +1,7 @@
 # Liberty Bancard AI Business Operating System
 
 ## Overview
-The Liberty Bancard AI Business Operating System is an AI-powered platform for the merchant payment processing industry. It combines a public marketing website with advanced lead generation, an internal CRM for pipeline and task management, and an automated workflow engine. The system uses AI for departmental advisory roles and compliance-driven communication to optimize operations, improve customer engagement, and enhance sales efficiency, with the goal of achieving market leadership.
+The Liberty Bancard AI Business Operating System is an AI-powered platform for the merchant payment processing industry. It integrates a public marketing website, advanced lead generation, an internal CRM for pipeline and task management, and an automated workflow engine. The system leverages AI for departmental advisory roles and compliance-driven communication to optimize operations, enhance customer engagement, and improve sales efficiency, aiming for market leadership.
 
 ## User Preferences
 I want iterative development.
@@ -13,12 +13,12 @@ Do not make changes to the file `package-lock.json`.
 The system is built on a modern web stack, emphasizing scalability, responsiveness, and robust data management.
 
 ### UI/UX Decisions
-The frontend uses React with Vite, TypeScript, Tailwind CSS, and shadcn/ui for a responsive user interface. `wouter` is used for routing and `react-helmet-async` for SEO. The design incorporates specific color schemes and templates for a professional and intuitive user experience, including a public marketing website, a terminal shop, legal/compliance pages, and CRM dashboards.
+The frontend uses React with Vite, TypeScript, Tailwind CSS, and shadcn/ui. `wouter` is used for routing and `react-helmet-async` for SEO. The design incorporates specific color schemes and templates for a professional and intuitive user experience across the public marketing website, terminal shop, legal/compliance pages, and CRM dashboards.
 
 ### Technical Implementations
 - **Backend**: Express.js with TypeScript. API routes are split into 21 domain-specific modules in `server/routes/` (contacts, deals, tickets-tasks, documents, notifications, public, workflows, ai, integrations, templates-settings, analytics, prospects, campaigns, search, activity, merchants, admin, partners, crm-operations, imports, sdr) with shared helpers in `server/routes/helpers.ts`. The main `server/routes.ts` is a thin orchestrator that registers each module.
 - **Database**: PostgreSQL with Drizzle ORM.
-- **Authentication**: Custom email/password authentication with session-based auth (passport-local + bcryptjs), email verification, password recovery, and role-based access control.
+- **Authentication**: Custom email/password authentication with session-based auth, email verification, password recovery, and role-based access control.
 - **AI Integration**: OpenAI powers AI advisors, lead enrichment, deal blueprint generation, and compliance-safe auto-replies.
 - **External Communications**: GoHighLevel (GHL) is integrated for SMS, email, calendar management, and document e-signature.
 - **Analytics & Tracking**: GA4 and Facebook Pixel for analytics, conversion tracking, and UTM parameter capture.
@@ -29,11 +29,12 @@ The frontend uses React with Vite, TypeScript, Tailwind CSS, and shadcn/ui for a
 - **Profit Instrumentation**: Integrates merchant tier, risk, health scores, and profit estimates into deal management.
 - **Statement Review & Proposals**: AI-powered analysis generates multi-plan pricing proposals and automates proposal delivery.
 - **Merchant Application & Portal**: A multi-step merchant application wizard with e-signature and a self-service portal for account management.
-- **Outreach & Enrichment**: An Outreach Command Center manages automated sales lifecycles, including Sunbiz entity imports, AI enrichment/classification, lead scoring, and daily automated outreach. The enrichment pipeline includes deep enrichment with Serper.dev integration for email/phone/website discovery.
-- **AI SDR Pipeline**: An autonomous lead development system with a 24-stage pipeline, GHL sync, and two-way webhook integration for real-time updates and compliance. Week 3 adds: Reply Intelligence (GPT-4o-mini intent classification of 12 labels with intent-to-action mapping), Voice AI Orchestrator (6 bot modes with TCPA-compliant business hours enforcement), Booking/Scheduling integration (GHL calendar selection, booking links, appointment lifecycle), and a full Compliance Engine (consent checks, DNC, quiet hours, daily limits, bounce/complaint history, compliance dashboard).
-- **Florida Vertical Playbooks**: Specialized playbooks for Florida Auto, Med Spa, and Medical/Dental sectors. Includes industry-specific seed sequences (22-24), vertical-specific scoring boosts (100% for FL, 70% for non-FL), custom Voice AI scripts, and automated compliance handling (surcharging disclosures, FDACS registration, PHI disclaimers).
+- **Outreach & Enrichment**: An Outreach Command Center manages automated sales lifecycles, including Sunbiz entity imports, AI enrichment/classification, lead scoring, and daily automated outreach. Deep enrichment with Serper.dev integration for email/phone/website discovery.
+- **AI SDR Pipeline**: An autonomous lead development system with a 24-stage pipeline, GHL sync, two-way webhook integration, Reply Intelligence (GPT-4o-mini intent classification), Voice AI Orchestrator (6 bot modes with TCPA compliance), Booking/Scheduling integration, and a full Compliance Engine (consent checks, DNC, quiet hours, daily limits, bounce/complaint history).
+- **Florida Vertical Playbooks**: Specialized playbooks for Florida Auto, Med Spa, and Medical/Dental sectors, including industry-specific seed sequences, vertical-specific scoring boosts, custom Voice AI scripts, and automated compliance handling.
 - **Affiliate Program**: Public signup with referral codes, cookie-based attribution, performance tracking, tiered commissions, and an admin dashboard.
 - **Conversion Optimization**: A/B testing framework, enhanced thank-you pages with calendar booking links, and detailed GA4 tracking.
+
 
 ### Feature Specifications
 - **Public Website**: Marketing pages, conversion forms (quiz, statement upload, estimate), legal pages, and hidden sales enablement content, all SEO-optimized. Includes SEO infrastructure, dynamic XML sitemap, industry-specific landing pages, blog, savings calculator, rate comparison tool, Help Center, AI-optimized FAQ, and case studies.
@@ -61,14 +62,21 @@ The frontend uses React with Vite, TypeScript, Tailwind CSS, and shadcn/ui for a
 - **Inbox Rotation & Deliverability Engine**: Multi-inbox sending identity management with intelligent rotation (lowest sends → best health score → domain diversity), warmup scheduling (5/day ramping +3/day over 14 days), auto-pause on high bounce/complaint rates, 7-day rolling health scoring, domain-level deduplication to prevent same-domain sends to same business, and admin dashboard at `/dashboard/inbox-health`. Schema: `sending_identities`, `identity_performance_daily`, `domain_business_log`.
 - **Canonical Business Identity & Dedupe Engine**: Business-centric data model with `businesses` as the single source of truth, `business_aliases` for alternate names, `business_locations` for multi-location brands, `lead_sources` for source attribution/ROI tracking, and `enrichment_runs` for enrichment pass logging. Weighted dedupe engine (domain=50, phone=40, google_place_id=60, name+city=25, address=20) prevents duplicate outreach. Migration bridge converts existing contacts to business records with deduplication. SDR pipeline tables (sdr_merchants, sdr_lead_state) reference business_id for business-centric operations.
 - **Nightly Lead Discovery Engine**: Automated lead discovery system that finds 500-2,000 new merchants daily across Florida's target verticals (Auto repair, Med spa, Dental, Chiropractic, Restaurant, Medical). Searches configured by vertical × metro matrix via Outscraper (Google Maps), Apify (Yelp/Facebook), and Serper (niche directories). Features include: configurable search matrix stored in system settings, canonical deduplication against existing sdr_merchants, automatic SDR lead state creation, enrichment queue integration, nightly scheduler (2 AM EST), manual trigger capability, cost tracking per source, and a Discovery dashboard tab with real-time stats (leads found/inserted/dedup rate), vertical/metro/source breakdowns, and job history. Schema: `lead_discovery_jobs`, `lead_discovery_results`. Files: `server/services/sdr/lead-finder.ts`, `server/services/sdr/outscraper.ts`, `server/services/sdr/apify.ts`.
+- **Lookalike Scoring Model**: Profiles closed-won merchants to build a "best merchant profile" and scores pipeline leads by similarity. Applies up to 20-point priority boost to matching leads. Considers vertical distribution, geography, website/email/phone presence, location count, fit score, and revenue score. Files: `server/services/sdr/lookalike.ts`.
+- **Re-enrichment Worker**: Identifies businesses last enriched 60+ days ago and rechecks for new email, phone, website changes, review count increases, and multi-location expansion. Updates scores and requalifies leads from nurture if data improves. Runs weekly on a configurable schedule. Files: `server/services/sdr/re-enrichment.ts`.
+- **Daily Funnel Metrics & KPI Reporting**: Nightly aggregation of funnel metrics with breakdowns by date, vertical, state, and source type. Tracks leads found/enriched, hot/warm leads, emails/SMS/calls, replies, meetings, statements, proposals, closed won/lost. Schema: `daily_funnel_metrics`. Files: `server/services/sdr/funnel-metrics.ts`.
+- **Source Quality Dashboard**: Shows per source type: leads generated, enrichment rate, reply rate, meeting rate, statement rate, close rate. Helps identify which lead sources to scale or cut.
+- **Identity Health Dashboard**: Shows per sending identity: domain, sent today, bounce %, reply %, complaint %, health score. Alerts on degraded inboxes.
+- **Market Expansion Logic**: Tracks market penetration by state and metro with estimated addressable market. Auto-suggests expanding to next state when pipeline utilization exceeds 80%.
+- **Enhanced Weekly KPI Digest**: The weekly email digest now includes full SDR funnel metrics (top/mid/bottom funnel), vertical performance comparison, source quality table, inbox health alerts, and market expansion recommendations.
 - **Affiliate / Sales Team Program**: Public signup for sales reps with referral codes, cookie-based attribution, performance tracking, tiered commissions, and marketing materials.
 
 ## External Dependencies
 - **PostgreSQL**: Primary relational database.
-- **OpenAI API**: For AI functionalities like advisory, content generation, and lead processing.
-- **GoHighLevel (GHL) API**: For communication (SMS, email), calendar scheduling, e-signatures, and data synchronization.
-- **Serper.dev API**: For Google search capabilities, business information discovery, and contact enrichment.
-- **Outscraper API**: For Google Maps bulk business data pulls (lead discovery engine).
-- **Apify API**: For Yelp and Facebook business page scraping (lead discovery engine).
-- **Passport.js**: For authentication strategies (`passport-local` with `bcryptjs`).
-- **Multer**: For handling `multipart/form-data` uploads.
+- **OpenAI API**: For AI functionalities.
+- **GoHighLevel (GHL) API**: For communication, scheduling, e-signatures, and data synchronization.
+- **Serper.dev API**: For Google search and business information discovery.
+- **Outscraper API**: For Google Maps bulk business data pulls.
+- **Apify API**: For Yelp and Facebook business page scraping.
+- **Passport.js**: For authentication strategies.
+- **Multer**: For handling file uploads.

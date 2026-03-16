@@ -1146,4 +1146,139 @@ export function registerSdrRoutes(app: Express) {
     }
   });
 
+  app.get("/api/sdr/lookalike/profile", isAuthenticated, async (_req, res) => {
+    try {
+      const { getLookalikeProfile } = await import("../services/sdr/lookalike");
+      const profile = await getLookalikeProfile();
+      res.json(profile);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.get("/api/sdr/lookalike/top", isAuthenticated, async (req, res) => {
+    try {
+      const { getTopLookalikes } = await import("../services/sdr/lookalike");
+      const limit = parseInt(req.query.limit as string) || 20;
+      const top = await getTopLookalikes(limit);
+      res.json(top);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.post("/api/sdr/lookalike/apply", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin only" });
+    try {
+      const { applyLookalikeBoosts } = await import("../services/sdr/lookalike");
+      const result = await applyLookalikeBoosts();
+      res.json(result);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.get("/api/sdr/re-enrichment/stats", isAuthenticated, async (_req, res) => {
+    try {
+      const { getReEnrichmentStats } = await import("../services/sdr/re-enrichment");
+      const stats = await getReEnrichmentStats();
+      res.json(stats);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.post("/api/sdr/re-enrichment/run", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin only" });
+    try {
+      const { runReEnrichmentCycle, isReEnrichmentRunning } = await import("../services/sdr/re-enrichment");
+      if (isReEnrichmentRunning()) {
+        return res.status(409).json({ message: "Re-enrichment is already running" });
+      }
+      res.json({ message: "Re-enrichment cycle started", started: true });
+      runReEnrichmentCycle().catch(err => console.error("[ReEnrich API] Error:", err));
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.get("/api/sdr/funnel-metrics", isAuthenticated, async (req, res) => {
+    try {
+      const { getFunnelMetrics } = await import("../services/sdr/funnel-metrics");
+      const metrics = await getFunnelMetrics({
+        startDate: req.query.startDate as string,
+        endDate: req.query.endDate as string,
+        vertical: req.query.vertical as string,
+        state: req.query.state as string,
+        sourceType: req.query.sourceType as string,
+      });
+      res.json(metrics);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.post("/api/sdr/funnel-metrics/aggregate", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin only" });
+    try {
+      const { aggregateDailyMetrics } = await import("../services/sdr/funnel-metrics");
+      const dateStr = req.body.date as string | undefined;
+      await aggregateDailyMetrics(dateStr);
+      res.json({ message: "Aggregation complete" });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.get("/api/sdr/source-quality", isAuthenticated, async (_req, res) => {
+    try {
+      const { getSourceQualityReport } = await import("../services/sdr/funnel-metrics");
+      const report = await getSourceQualityReport();
+      res.json(report);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.get("/api/sdr/identity-health", isAuthenticated, async (_req, res) => {
+    try {
+      const { getIdentityHealthReport } = await import("../services/sdr/funnel-metrics");
+      const report = await getIdentityHealthReport();
+      res.json(report);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.get("/api/sdr/market-expansion", isAuthenticated, async (_req, res) => {
+    try {
+      const { getMarketExpansionData } = await import("../services/sdr/funnel-metrics");
+      const data = await getMarketExpansionData();
+      res.json(data);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.get("/api/sdr/weekly-kpi", isAuthenticated, async (_req, res) => {
+    try {
+      const { getWeeklyKpiDigestData } = await import("../services/sdr/funnel-metrics");
+      const data = await getWeeklyKpiDigestData();
+      res.json(data);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
 }

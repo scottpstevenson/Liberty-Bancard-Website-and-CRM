@@ -53,6 +53,88 @@ export async function generateAndSendWeeklyDigest(): Promise<void> {
 
     const period = `${sevenDaysAgo.toLocaleDateString()} - ${now.toLocaleDateString()}`;
 
+    let kpiSection = "";
+    try {
+      const { getWeeklyKpiDigestData } = await import("./sdr/funnel-metrics");
+      const kpi = await getWeeklyKpiDigestData();
+
+      kpiSection = `
+<h3>SDR Funnel Metrics</h3>
+<table style="border-collapse:collapse;width:100%;font-size:13px;">
+  <tr style="background:#f5f5f5;">
+    <th style="text-align:left;padding:6px;border:1px solid #ddd;">Top of Funnel</th>
+    <th style="text-align:right;padding:6px;border:1px solid #ddd;">Count</th>
+  </tr>
+  <tr><td style="padding:6px;border:1px solid #ddd;">Leads Found</td><td style="text-align:right;padding:6px;border:1px solid #ddd;"><strong>${kpi.topFunnel.leadsFound}</strong></td></tr>
+  <tr><td style="padding:6px;border:1px solid #ddd;">Enriched</td><td style="text-align:right;padding:6px;border:1px solid #ddd;"><strong>${kpi.topFunnel.leadsEnriched}</strong> (${kpi.topFunnel.enrichmentRate}%)</td></tr>
+  <tr><td style="padding:6px;border:1px solid #ddd;">Hot Leads</td><td style="text-align:right;padding:6px;border:1px solid #ddd;"><strong>${kpi.topFunnel.hotCreated}</strong></td></tr>
+  <tr><td style="padding:6px;border:1px solid #ddd;">Warm Leads</td><td style="text-align:right;padding:6px;border:1px solid #ddd;"><strong>${kpi.topFunnel.warmCreated}</strong></td></tr>
+</table>
+<br>
+<table style="border-collapse:collapse;width:100%;font-size:13px;">
+  <tr style="background:#f5f5f5;">
+    <th style="text-align:left;padding:6px;border:1px solid #ddd;">Outreach</th>
+    <th style="text-align:right;padding:6px;border:1px solid #ddd;">Count</th>
+  </tr>
+  <tr><td style="padding:6px;border:1px solid #ddd;">Emails Sent</td><td style="text-align:right;padding:6px;border:1px solid #ddd;"><strong>${kpi.outreach.emailsSent}</strong></td></tr>
+  <tr><td style="padding:6px;border:1px solid #ddd;">SMS Sent</td><td style="text-align:right;padding:6px;border:1px solid #ddd;"><strong>${kpi.outreach.smsSent}</strong></td></tr>
+  <tr><td style="padding:6px;border:1px solid #ddd;">Calls Made</td><td style="text-align:right;padding:6px;border:1px solid #ddd;"><strong>${kpi.outreach.callsMade}</strong></td></tr>
+  <tr><td style="padding:6px;border:1px solid #ddd;">Replies</td><td style="text-align:right;padding:6px;border:1px solid #ddd;"><strong>${kpi.outreach.replies}</strong> (${kpi.outreach.replyRate}%)</td></tr>
+  <tr><td style="padding:6px;border:1px solid #ddd;">Meetings Booked</td><td style="text-align:right;padding:6px;border:1px solid #ddd;"><strong>${kpi.outreach.meetingsBooked}</strong></td></tr>
+</table>
+<br>
+<table style="border-collapse:collapse;width:100%;font-size:13px;">
+  <tr style="background:#f5f5f5;">
+    <th style="text-align:left;padding:6px;border:1px solid #ddd;">Mid/Bottom Funnel</th>
+    <th style="text-align:right;padding:6px;border:1px solid #ddd;">Count</th>
+  </tr>
+  <tr><td style="padding:6px;border:1px solid #ddd;">Statements Received</td><td style="text-align:right;padding:6px;border:1px solid #ddd;"><strong>${kpi.midFunnel.statementsReceived}</strong></td></tr>
+  <tr><td style="padding:6px;border:1px solid #ddd;">Proposals Sent</td><td style="text-align:right;padding:6px;border:1px solid #ddd;"><strong>${kpi.midFunnel.proposalsSent}</strong></td></tr>
+  <tr><td style="padding:6px;border:1px solid #ddd;">Closed Won</td><td style="text-align:right;padding:6px;border:1px solid #ddd;"><strong>${kpi.bottomFunnel.closedWon}</strong></td></tr>
+  <tr><td style="padding:6px;border:1px solid #ddd;">Win Rate</td><td style="text-align:right;padding:6px;border:1px solid #ddd;"><strong>${kpi.bottomFunnel.winRate}%</strong></td></tr>
+</table>
+
+${kpi.verticalPerformance.length > 0 ? `
+<h3>Vertical Performance</h3>
+<table style="border-collapse:collapse;width:100%;font-size:13px;">
+  <tr style="background:#f5f5f5;">
+    <th style="text-align:left;padding:6px;border:1px solid #ddd;">Vertical</th>
+    <th style="text-align:right;padding:6px;border:1px solid #ddd;">Leads</th>
+    <th style="text-align:right;padding:6px;border:1px solid #ddd;">Replies</th>
+    <th style="text-align:right;padding:6px;border:1px solid #ddd;">Meetings</th>
+    <th style="text-align:right;padding:6px;border:1px solid #ddd;">Won</th>
+  </tr>
+  ${kpi.verticalPerformance.map((v: any) => `<tr><td style="padding:6px;border:1px solid #ddd;">${v.vertical}</td><td style="text-align:right;padding:6px;border:1px solid #ddd;">${v.leads}</td><td style="text-align:right;padding:6px;border:1px solid #ddd;">${v.replies}</td><td style="text-align:right;padding:6px;border:1px solid #ddd;">${v.meetings}</td><td style="text-align:right;padding:6px;border:1px solid #ddd;">${v.closedWon}</td></tr>`).join("")}
+</table>` : ""}
+
+${kpi.sourceQuality.length > 0 ? `
+<h3>Source Quality</h3>
+<table style="border-collapse:collapse;width:100%;font-size:13px;">
+  <tr style="background:#f5f5f5;">
+    <th style="text-align:left;padding:6px;border:1px solid #ddd;">Source</th>
+    <th style="text-align:right;padding:6px;border:1px solid #ddd;">Leads</th>
+    <th style="text-align:right;padding:6px;border:1px solid #ddd;">Enrich%</th>
+    <th style="text-align:right;padding:6px;border:1px solid #ddd;">Reply%</th>
+    <th style="text-align:right;padding:6px;border:1px solid #ddd;">Close%</th>
+  </tr>
+  ${kpi.sourceQuality.map((s: any) => `<tr><td style="padding:6px;border:1px solid #ddd;">${s.sourceType}</td><td style="text-align:right;padding:6px;border:1px solid #ddd;">${s.totalLeads}</td><td style="text-align:right;padding:6px;border:1px solid #ddd;">${s.enrichmentRate}%</td><td style="text-align:right;padding:6px;border:1px solid #ddd;">${s.replyRate}%</td><td style="text-align:right;padding:6px;border:1px solid #ddd;">${s.closeRate}%</td></tr>`).join("")}
+</table>` : ""}
+
+${kpi.identityHealth.some((i: any) => i.alert) ? `
+<h3>Inbox Health Alerts</h3>
+<ul>
+  ${kpi.identityHealth.filter((i: any) => i.alert).map((i: any) => `<li><strong>${i.label}</strong> (${i.domain}) — Health: ${i.healthScore}%, Alert: ${i.alert}</li>`).join("")}
+</ul>` : ""}
+
+${kpi.expansionSuggestions.length > 0 ? `
+<h3>Market Expansion Recommendations</h3>
+<ul>
+  ${kpi.expansionSuggestions.map((s: any) => `<li>${s.reason}</li>`).join("")}
+</ul>` : ""}`;
+    } catch (kpiErr) {
+      console.warn("[Weekly Digest] KPI funnel data unavailable:", kpiErr);
+    }
+
     const emailBody = `
 <h2>Liberty Bancard — Weekly KPI Digest</h2>
 <p><strong>Period:</strong> ${period}</p>
@@ -77,6 +159,7 @@ export async function generateAndSendWeeklyDigest(): Promise<void> {
 <ul>
   ${Object.entries(sourceBreakdown).map(([s, c]) => `<li>${s}: <strong>${c}</strong></li>`).join("")}
 </ul>
+${kpiSection}
 <p style="color:#888;font-size:12px;">Auto-generated by Liberty Bancard CRM</p>`;
 
     await sendGhlEmailForMerchant({ email: adminEmail, subject: "Weekly KPI Digest — Liberty Bancard", body: emailBody });
