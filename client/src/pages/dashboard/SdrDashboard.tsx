@@ -3,8 +3,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Loader2, Users, Target, MessageSquare, Calendar, FileText, Send, AlertTriangle, BarChart3, Mail, Phone, MessageCircle, Bot, ArrowRightLeft, Clock, ShieldCheck, UserCheck, ArrowRight, TrendingUp } from "lucide-react";
+import { Loader2, Users, Target, MessageSquare, Calendar, FileText, Send, AlertTriangle, BarChart3, Mail, Phone, MessageCircle, Bot, ArrowRightLeft, Clock, ShieldCheck, UserCheck, ArrowRight, TrendingUp, Search, MapPin, Building2, Zap, Settings, Play, Square, CheckCircle2, XCircle, RefreshCw } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useState } from "react";
 
 interface SdrSummaryData {
   newToday: number;
@@ -459,6 +460,453 @@ function ChatAnalytics() {
   );
 }
 
+interface DiscoveryStatsData {
+  today: {
+    rawFound: number;
+    newInserted: number;
+    duplicatesSkipped: number;
+    enrichmentQueued: number;
+    jobCount: number;
+    dedupRate: number;
+  };
+  week: {
+    rawFound: number;
+    newInserted: number;
+    duplicatesSkipped: number;
+    enrichmentQueued: number;
+    jobCount: number;
+  };
+  byVertical: { vertical: string; count: number; newCount: number }[];
+  byMetro: { metro: string; count: number; newCount: number }[];
+  bySource: { source: string; count: number; newCount: number }[];
+}
+
+interface DiscoveryStatusData {
+  discoveryRunning: boolean;
+  nightlySchedulerActive: boolean;
+}
+
+interface SearchMatrixConfig {
+  verticals: string[];
+  metros: string[];
+  dataSources: string[];
+  state: string;
+  limitPerSearch: number;
+  enabled: boolean;
+  schedule: string;
+  dailyBudgetCap: number;
+}
+
+interface SourceStatusData {
+  serper: { configured: boolean; usage: any };
+  outscraper: { configured: boolean; usage: any };
+  apify: { configured: boolean; usage: any };
+}
+
+interface DiscoveryJob {
+  id: number;
+  status: string;
+  triggerType: string;
+  rawFound: number;
+  newInserted: number;
+  duplicatesSkipped: number;
+  errorsCount: number;
+  enrichmentQueued: number;
+  startedAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+  searchVerticals: string[] | null;
+  searchMetros: string[] | null;
+}
+
+function DiscoveryDashboard() {
+  const [showConfig, setShowConfig] = useState(false);
+
+  const { data: stats, isLoading: statsLoading } = useQuery<DiscoveryStatsData>({
+    queryKey: ["/api/sdr/discovery/stats"],
+  });
+
+  const { data: status } = useQuery<DiscoveryStatusData>({
+    queryKey: ["/api/sdr/discovery/status"],
+    refetchInterval: 5000,
+  });
+
+  const { data: config } = useQuery<SearchMatrixConfig>({
+    queryKey: ["/api/sdr/discovery/config"],
+  });
+
+  const { data: sourceStatus } = useQuery<SourceStatusData>({
+    queryKey: ["/api/sdr/discovery/source-status"],
+  });
+
+  const { data: jobs } = useQuery<DiscoveryJob[]>({
+    queryKey: ["/api/sdr/discovery/jobs"],
+  });
+
+  const runDiscoveryMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("POST", "/api/sdr/discovery/run", {});
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/sdr/discovery/status"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sdr/discovery/stats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sdr/discovery/jobs"] });
+    },
+  });
+
+  const toggleNightlyMutation = useMutation({
+    mutationFn: async (start: boolean) => {
+      return apiRequest("POST", `/api/sdr/discovery/nightly/${start ? "start" : "stop"}`, {});
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/sdr/discovery/status"] });
+    },
+  });
+
+  const updateConfigMutation = useMutation({
+    mutationFn: async (updates: Partial<SearchMatrixConfig>) => {
+      return apiRequest("PUT", "/api/sdr/discovery/config", updates);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/sdr/discovery/config"] });
+    },
+  });
+
+  if (statsLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  const todayStats = stats?.today || { rawFound: 0, newInserted: 0, duplicatesSkipped: 0, enrichmentQueued: 0, jobCount: 0, dedupRate: 0 };
+  const weekStats = stats?.week || { rawFound: 0, newInserted: 0, duplicatesSkipped: 0, enrichmentQueued: 0, jobCount: 0 };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {status?.discoveryRunning && (
+            <Badge variant="secondary" className="animate-pulse" data-testid="badge-discovery-running">
+              <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+              Discovery Running
+            </Badge>
+          )}
+          {status?.nightlySchedulerActive && (
+            <Badge variant="outline" data-testid="badge-nightly-active">
+              <Clock className="w-3 h-3 mr-1" />
+              Nightly Active (2 AM EST)
+            </Badge>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowConfig(!showConfig)}
+            data-testid="btn-toggle-config"
+          >
+            <Settings className="w-4 h-4 mr-1" />
+            Config
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => toggleNightlyMutation.mutate(!status?.nightlySchedulerActive)}
+            disabled={toggleNightlyMutation.isPending}
+            data-testid="btn-toggle-nightly"
+          >
+            {status?.nightlySchedulerActive ? (
+              <><Square className="w-4 h-4 mr-1" />Stop Nightly</>
+            ) : (
+              <><Clock className="w-4 h-4 mr-1" />Start Nightly</>
+            )}
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => runDiscoveryMutation.mutate()}
+            disabled={runDiscoveryMutation.isPending || status?.discoveryRunning}
+            data-testid="btn-run-discovery"
+          >
+            {runDiscoveryMutation.isPending || status?.discoveryRunning ? (
+              <><Loader2 className="w-4 h-4 mr-1 animate-spin" />Running...</>
+            ) : (
+              <><Play className="w-4 h-4 mr-1" />Run Discovery</>
+            )}
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
+        <Card data-testid="card-discovery-raw">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Search className="w-4 h-4 text-blue-600" />
+              <span className="text-xs text-muted-foreground">Found Today</span>
+            </div>
+            <div className="text-2xl font-bold" data-testid="value-discovery-raw">{todayStats.rawFound}</div>
+          </CardContent>
+        </Card>
+        <Card data-testid="card-discovery-new">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Building2 className="w-4 h-4 text-green-600" />
+              <span className="text-xs text-muted-foreground">New Inserted</span>
+            </div>
+            <div className="text-2xl font-bold" data-testid="value-discovery-new">{todayStats.newInserted}</div>
+          </CardContent>
+        </Card>
+        <Card data-testid="card-discovery-dupes">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <XCircle className="w-4 h-4 text-orange-600" />
+              <span className="text-xs text-muted-foreground">Duplicates</span>
+            </div>
+            <div className="text-2xl font-bold" data-testid="value-discovery-dupes">{todayStats.duplicatesSkipped}</div>
+          </CardContent>
+        </Card>
+        <Card data-testid="card-discovery-dedup-rate">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <RefreshCw className="w-4 h-4 text-purple-600" />
+              <span className="text-xs text-muted-foreground">Dedup Rate</span>
+            </div>
+            <div className="text-2xl font-bold" data-testid="value-discovery-dedup-rate">{todayStats.dedupRate}%</div>
+          </CardContent>
+        </Card>
+        <Card data-testid="card-discovery-enrichment">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Zap className="w-4 h-4 text-yellow-600" />
+              <span className="text-xs text-muted-foreground">Enrichment Queue</span>
+            </div>
+            <div className="text-2xl font-bold" data-testid="value-discovery-enrichment">{todayStats.enrichmentQueued}</div>
+          </CardContent>
+        </Card>
+        <Card data-testid="card-discovery-week">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <TrendingUp className="w-4 h-4 text-indigo-600" />
+              <span className="text-xs text-muted-foreground">This Week</span>
+            </div>
+            <div className="text-2xl font-bold" data-testid="value-discovery-week">{weekStats.newInserted}</div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {showConfig && config && (
+        <Card data-testid="card-discovery-config">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Settings className="w-5 h-5" />
+              Search Matrix Configuration
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <h4 className="text-sm font-medium mb-2">Target Verticals</h4>
+                <div className="flex flex-wrap gap-1.5">
+                  {config.verticals.map((v) => (
+                    <Badge key={v} variant="secondary" className="text-xs" data-testid={`badge-vertical-${v}`}>
+                      {v}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <h4 className="text-sm font-medium mb-2">Target Metros</h4>
+                <div className="flex flex-wrap gap-1.5">
+                  {config.metros.map((m) => (
+                    <Badge key={m} variant="secondary" className="text-xs" data-testid={`badge-metro-${m}`}>
+                      <MapPin className="w-3 h-3 mr-0.5" />
+                      {m}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <h4 className="text-sm font-medium mb-2">Data Sources</h4>
+                <div className="flex flex-wrap gap-1.5">
+                  {config.dataSources.map((s) => (
+                    <Badge key={s} variant="outline" className="text-xs" data-testid={`badge-source-${s}`}>
+                      {s}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Limit per search:</span>
+                  <span className="font-medium">{config.limitPerSearch}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Schedule:</span>
+                  <span className="font-medium">{config.schedule}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Daily budget cap:</span>
+                  <span className="font-medium">${config.dailyBudgetCap}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">State:</span>
+                  <span className="font-medium">{config.state}</span>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card data-testid="card-discovery-by-vertical">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <Building2 className="w-4 h-4" />
+              By Vertical (Today)
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {(stats?.byVertical || []).length === 0 ? (
+              <div className="text-sm text-muted-foreground text-center py-4">No data yet</div>
+            ) : (
+              <div className="space-y-2">
+                {(stats?.byVertical || []).map((v) => (
+                  <div key={v.vertical} className="flex items-center justify-between text-sm" data-testid={`row-vertical-${v.vertical}`}>
+                    <span className="text-muted-foreground">{v.vertical}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{v.newCount} new</span>
+                      <span className="text-xs text-muted-foreground">/ {v.count} found</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card data-testid="card-discovery-by-metro">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <MapPin className="w-4 h-4" />
+              By Metro (Today)
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {(stats?.byMetro || []).length === 0 ? (
+              <div className="text-sm text-muted-foreground text-center py-4">No data yet</div>
+            ) : (
+              <div className="space-y-2">
+                {(stats?.byMetro || []).map((m) => (
+                  <div key={m.metro} className="flex items-center justify-between text-sm" data-testid={`row-metro-${m.metro}`}>
+                    <span className="text-muted-foreground">{m.metro}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{m.newCount} new</span>
+                      <span className="text-xs text-muted-foreground">/ {m.count} found</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card data-testid="card-discovery-sources">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <Zap className="w-4 h-4" />
+              Data Sources
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {["serper", "outscraper", "apify"].map((src) => {
+                const srcData = sourceStatus?.[src as keyof SourceStatusData] as { configured: boolean; usage: any } | undefined;
+                return (
+                  <div key={src} className="flex items-center justify-between text-sm" data-testid={`row-source-${src}`}>
+                    <div className="flex items-center gap-2">
+                      {srcData?.configured ? (
+                        <CheckCircle2 className="w-4 h-4 text-green-600" />
+                      ) : (
+                        <XCircle className="w-4 h-4 text-muted-foreground" />
+                      )}
+                      <span className="capitalize">{src}</span>
+                    </div>
+                    <Badge variant={srcData?.configured ? "secondary" : "outline"} className="text-xs">
+                      {srcData?.configured ? "Active" : "Not configured"}
+                    </Badge>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card data-testid="card-discovery-jobs">
+        <CardHeader>
+          <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <BarChart3 className="w-4 h-4" />
+            Job History
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {(!jobs || jobs.length === 0) ? (
+            <div className="text-sm text-muted-foreground text-center py-4">
+              No discovery jobs yet. Click "Run Discovery" to start finding leads.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {jobs.slice(0, 10).map((job) => (
+                <div key={job.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg" data-testid={`job-${job.id}`}>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium">Job #{job.id}</span>
+                      <Badge variant={
+                        job.status === "completed" ? "secondary" :
+                        job.status === "running" ? "outline" :
+                        job.status === "failed" ? "destructive" : "secondary"
+                      } className="text-xs" data-testid={`badge-job-status-${job.id}`}>
+                        {job.status === "running" && <Loader2 className="w-3 h-3 mr-1 animate-spin" />}
+                        {job.status}
+                      </Badge>
+                      <Badge variant="outline" className="text-xs">{job.triggerType}</Badge>
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      {job.createdAt ? new Date(job.createdAt).toLocaleString() : ""}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4 text-sm">
+                    <div className="text-center">
+                      <div className="font-medium">{job.rawFound || 0}</div>
+                      <div className="text-xs text-muted-foreground">Found</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="font-medium text-green-600">{job.newInserted || 0}</div>
+                      <div className="text-xs text-muted-foreground">New</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="font-medium text-orange-600">{job.duplicatesSkipped || 0}</div>
+                      <div className="text-xs text-muted-foreground">Dupes</div>
+                    </div>
+                    {(job.errorsCount || 0) > 0 && (
+                      <div className="text-center">
+                        <div className="font-medium text-red-600">{job.errorsCount}</div>
+                        <div className="text-xs text-muted-foreground">Errors</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 export default function SdrDashboard() {
   return (
     <div className="space-y-6" data-testid="page-sdr-dashboard">
@@ -470,6 +918,7 @@ export default function SdrDashboard() {
       <Tabs defaultValue="summary" data-testid="tabs-sdr">
         <TabsList>
           <TabsTrigger value="summary" data-testid="tab-sdr-summary">Summary</TabsTrigger>
+          <TabsTrigger value="discovery" data-testid="tab-sdr-discovery">Discovery</TabsTrigger>
           <TabsTrigger value="funnel" data-testid="tab-sdr-funnel">Funnel</TabsTrigger>
           <TabsTrigger value="stuck" data-testid="tab-sdr-stuck">Stuck Leads</TabsTrigger>
           <TabsTrigger value="channels" data-testid="tab-sdr-channels">Channel Health</TabsTrigger>
@@ -478,6 +927,10 @@ export default function SdrDashboard() {
 
         <TabsContent value="summary" className="mt-4">
           <SummaryCards />
+        </TabsContent>
+
+        <TabsContent value="discovery" className="mt-4">
+          <DiscoveryDashboard />
         </TabsContent>
 
         <TabsContent value="funnel" className="mt-4">

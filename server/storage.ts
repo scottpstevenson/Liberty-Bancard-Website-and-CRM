@@ -9,8 +9,11 @@ import {
   healthAlerts, dealCompetitors, partners, referrals, commissionTiers, knowledgeBase, reviewRequests, onboardingSteps,
   sdrMerchants, sdrMerchantContacts, sdrLeadState, sdrLeadEvents, sdrChannelAttempts, sdrComplianceState,
   sendingIdentities,
+  leadDiscoveryJobs, leadDiscoveryResults,
   type SendingIdentity, type InsertSendingIdentity,
   businesses, businessAliases, businessLocations, leadSources, enrichmentRuns,
+  type LeadDiscoveryJob, type InsertLeadDiscoveryJob,
+  type LeadDiscoveryResult, type InsertLeadDiscoveryResult,
   type Business, type InsertBusiness, type UpdateBusinessRequest,
   type BusinessAlias, type InsertBusinessAlias,
   type BusinessLocation, type InsertBusinessLocation,
@@ -454,6 +457,16 @@ export interface IStorage {
   createSendingIdentity(data: InsertSendingIdentity): Promise<SendingIdentity>;
   updateSendingIdentity(id: number, updates: Partial<InsertSendingIdentity>): Promise<SendingIdentity | undefined>;
   deleteSendingIdentity(id: number): Promise<boolean>;
+
+  getLeadDiscoveryJobs(limit?: number): Promise<LeadDiscoveryJob[]>;
+  getLeadDiscoveryJob(id: number): Promise<LeadDiscoveryJob | undefined>;
+  createLeadDiscoveryJob(data: InsertLeadDiscoveryJob): Promise<LeadDiscoveryJob>;
+  updateLeadDiscoveryJob(id: number, updates: Partial<InsertLeadDiscoveryJob>): Promise<LeadDiscoveryJob | undefined>;
+  getLeadDiscoveryResults(jobId: number): Promise<LeadDiscoveryResult[]>;
+  createLeadDiscoveryResult(data: InsertLeadDiscoveryResult): Promise<LeadDiscoveryResult>;
+  createLeadDiscoveryResultsBulk(data: InsertLeadDiscoveryResult[]): Promise<LeadDiscoveryResult[]>;
+  getLeadDiscoveryStats(): Promise<any>;
+  findSdrMerchantByNameCity(businessName: string, city: string | null): Promise<SdrMerchant | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2648,6 +2661,140 @@ export class DatabaseStorage implements IStorage {
   async deleteSendingIdentity(id: number): Promise<boolean> {
     const result = await db.delete(sendingIdentities).where(eq(sendingIdentities.id, id)).returning();
     return result.length > 0;
+  }
+
+  async getLeadDiscoveryJobs(limit: number = 50): Promise<LeadDiscoveryJob[]> {
+    return await db.select().from(leadDiscoveryJobs).orderBy(desc(leadDiscoveryJobs.createdAt)).limit(limit);
+  }
+
+  async getLeadDiscoveryJob(id: number): Promise<LeadDiscoveryJob | undefined> {
+    const [job] = await db.select().from(leadDiscoveryJobs).where(eq(leadDiscoveryJobs.id, id));
+    return job;
+  }
+
+  async createLeadDiscoveryJob(data: InsertLeadDiscoveryJob): Promise<LeadDiscoveryJob> {
+    const [job] = await db.insert(leadDiscoveryJobs).values(data).returning();
+    return job;
+  }
+
+  async updateLeadDiscoveryJob(id: number, updates: Partial<InsertLeadDiscoveryJob>): Promise<LeadDiscoveryJob | undefined> {
+    const [job] = await db.update(leadDiscoveryJobs).set(updates).where(eq(leadDiscoveryJobs.id, id)).returning();
+    return job;
+  }
+
+  async getLeadDiscoveryResults(jobId: number): Promise<LeadDiscoveryResult[]> {
+    return await db.select().from(leadDiscoveryResults).where(eq(leadDiscoveryResults.jobId, jobId)).orderBy(desc(leadDiscoveryResults.createdAt));
+  }
+
+  async createLeadDiscoveryResult(data: InsertLeadDiscoveryResult): Promise<LeadDiscoveryResult> {
+    const [result] = await db.insert(leadDiscoveryResults).values(data).returning();
+    return result;
+  }
+
+  async createLeadDiscoveryResultsBulk(data: InsertLeadDiscoveryResult[]): Promise<LeadDiscoveryResult[]> {
+    if (data.length === 0) return [];
+    const batchSize = 100;
+    const allResults: LeadDiscoveryResult[] = [];
+    for (let i = 0; i < data.length; i += batchSize) {
+      const batch = data.slice(i, i + batchSize);
+      const results = await db.insert(leadDiscoveryResults).values(batch).returning();
+      allResults.push(...results);
+    }
+    return allResults;
+  }
+
+  async getLeadDiscoveryStats(): Promise<any> {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const weekAgo = new Date(today);
+    weekAgo.setDate(weekAgo.getDate() - 7);
+
+    const [todayStats] = await db.select({
+      rawFound: sql<number>`COALESCE(SUM(${leadDiscoveryJobs.rawFound}), 0)`,
+      newInserted: sql<number>`COALESCE(SUM(${leadDiscoveryJobs.newInserted}), 0)`,
+      duplicatesSkipped: sql<number>`COALESCE(SUM(${leadDiscoveryJobs.duplicatesSkipped}), 0)`,
+      enrichmentQueued: sql<number>`COALESCE(SUM(${leadDiscoveryJobs.enrichmentQueued}), 0)`,
+      jobCount: sql<number>`COUNT(*)`,
+    }).from(leadDiscoveryJobs).where(gte(leadDiscoveryJobs.createdAt, today));
+
+    const [weekStats] = await db.select({
+      rawFound: sql<number>`COALESCE(SUM(${leadDiscoveryJobs.rawFound}), 0)`,
+      newInserted: sql<number>`COALESCE(SUM(${leadDiscoveryJobs.newInserted}), 0)`,
+      duplicatesSkipped: sql<number>`COALESCE(SUM(${leadDiscoveryJobs.duplicatesSkipped}), 0)`,
+      enrichmentQueued: sql<number>`COALESCE(SUM(${leadDiscoveryJobs.enrichmentQueued}), 0)`,
+      jobCount: sql<number>`COUNT(*)`,
+    }).from(leadDiscoveryJobs).where(gte(leadDiscoveryJobs.createdAt, weekAgo));
+
+    const verticalBreakdown = await db.select({
+      vertical: leadDiscoveryResults.vertical,
+      count: sql<number>`COUNT(*)`,
+      newCount: sql<number>`SUM(CASE WHEN ${leadDiscoveryResults.status} = 'inserted' THEN 1 ELSE 0 END)`,
+    }).from(leadDiscoveryResults)
+      .where(gte(leadDiscoveryResults.createdAt, today))
+      .groupBy(leadDiscoveryResults.vertical);
+
+    const metroBreakdown = await db.select({
+      metro: leadDiscoveryResults.metro,
+      count: sql<number>`COUNT(*)`,
+      newCount: sql<number>`SUM(CASE WHEN ${leadDiscoveryResults.status} = 'inserted' THEN 1 ELSE 0 END)`,
+    }).from(leadDiscoveryResults)
+      .where(gte(leadDiscoveryResults.createdAt, today))
+      .groupBy(leadDiscoveryResults.metro);
+
+    const sourceBreakdown = await db.select({
+      source: leadDiscoveryResults.source,
+      count: sql<number>`COUNT(*)`,
+      newCount: sql<number>`SUM(CASE WHEN ${leadDiscoveryResults.status} = 'inserted' THEN 1 ELSE 0 END)`,
+    }).from(leadDiscoveryResults)
+      .where(gte(leadDiscoveryResults.createdAt, today))
+      .groupBy(leadDiscoveryResults.source);
+
+    const todayRaw = Number(todayStats?.rawFound || 0);
+    const todayDupes = Number(todayStats?.duplicatesSkipped || 0);
+    const dedupRate = todayRaw > 0 ? Math.round((todayDupes / todayRaw) * 100) : 0;
+
+    return {
+      today: {
+        rawFound: todayRaw,
+        newInserted: Number(todayStats?.newInserted || 0),
+        duplicatesSkipped: todayDupes,
+        enrichmentQueued: Number(todayStats?.enrichmentQueued || 0),
+        jobCount: Number(todayStats?.jobCount || 0),
+        dedupRate,
+      },
+      week: {
+        rawFound: Number(weekStats?.rawFound || 0),
+        newInserted: Number(weekStats?.newInserted || 0),
+        duplicatesSkipped: Number(weekStats?.duplicatesSkipped || 0),
+        enrichmentQueued: Number(weekStats?.enrichmentQueued || 0),
+        jobCount: Number(weekStats?.jobCount || 0),
+      },
+      byVertical: verticalBreakdown.map(v => ({
+        vertical: v.vertical || "Unknown",
+        count: Number(v.count),
+        newCount: Number(v.newCount),
+      })),
+      byMetro: metroBreakdown.map(m => ({
+        metro: m.metro || "Unknown",
+        count: Number(m.count),
+        newCount: Number(m.newCount),
+      })),
+      bySource: sourceBreakdown.map(s => ({
+        source: s.source,
+        count: Number(s.count),
+        newCount: Number(s.newCount),
+      })),
+    };
+  }
+
+  async findSdrMerchantByNameCity(businessName: string, city: string | null): Promise<SdrMerchant | undefined> {
+    const normalizedName = businessName.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
+    const conditions = [sql`LOWER(REGEXP_REPLACE(${sdrMerchants.businessName}, '[^a-zA-Z0-9\\s]', '', 'g')) = ${normalizedName}`];
+    if (city) {
+      conditions.push(sql`LOWER(${sdrMerchants.city}) = ${city.toLowerCase()}`);
+    }
+    const [match] = await db.select().from(sdrMerchants).where(and(...conditions)).limit(1);
+    return match;
   }
 }
 

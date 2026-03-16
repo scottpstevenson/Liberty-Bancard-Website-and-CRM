@@ -2419,3 +2419,62 @@ export const domainBusinessLog = pgTable("domain_business_log", {
   businessId: integer("business_id").notNull(),
   sentAt: timestamp("sent_at").defaultNow(),
 });
+
+export const leadDiscoveryJobs = pgTable("lead_discovery_jobs", {
+  id: serial("id").primaryKey(),
+  status: text("status").notNull().default("pending"),
+  triggerType: text("trigger_type").notNull().default("manual"),
+  searchVerticals: text("search_verticals").array(),
+  searchMetros: text("search_metros").array(),
+  dataSources: text("data_sources").array(),
+  rawFound: integer("raw_found").default(0),
+  newInserted: integer("new_inserted").default(0),
+  duplicatesSkipped: integer("duplicates_skipped").default(0),
+  errorsCount: integer("errors_count").default(0),
+  enrichmentQueued: integer("enrichment_queued").default(0),
+  costEstimate: real("cost_estimate").default(0),
+  errorLog: text("error_log"),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertLeadDiscoveryJobSchema = createInsertSchema(leadDiscoveryJobs).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type LeadDiscoveryJob = typeof leadDiscoveryJobs.$inferSelect;
+export type InsertLeadDiscoveryJob = z.infer<typeof insertLeadDiscoveryJobSchema>;
+
+export const leadDiscoveryResults = pgTable("lead_discovery_results", {
+  id: serial("id").primaryKey(),
+  jobId: integer("job_id").references(() => leadDiscoveryJobs.id).notNull(),
+  source: text("source").notNull(),
+  vertical: text("vertical"),
+  metro: text("metro"),
+  businessName: text("business_name").notNull(),
+  phone: text("phone"),
+  email: text("email"),
+  website: text("website"),
+  address: text("address"),
+  city: text("city"),
+  state: text("state"),
+  zip: text("zip"),
+  rating: real("rating"),
+  reviewCount: integer("review_count"),
+  placeId: text("place_id"),
+  rawData: jsonb("raw_data"),
+  status: text("status").notNull().default("new"),
+  merchantId: integer("merchant_id"),
+  dedupReason: text("dedup_reason"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertLeadDiscoveryResultSchema = createInsertSchema(leadDiscoveryResults).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type LeadDiscoveryResult = typeof leadDiscoveryResults.$inferSelect;
+export type InsertLeadDiscoveryResult = z.infer<typeof insertLeadDiscoveryResultSchema>;

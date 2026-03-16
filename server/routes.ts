@@ -8387,6 +8387,139 @@ Guidelines:
     }
   });
 
+  app.get("/api/sdr/discovery/config", isAuthenticated, async (_req, res) => {
+    try {
+      const { getSearchMatrix } = await import("./services/sdr/lead-finder");
+      const matrix = await getSearchMatrix();
+      res.json(matrix);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.put("/api/sdr/discovery/config", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin only" });
+    try {
+      const { updateSearchMatrix } = await import("./services/sdr/lead-finder");
+      const updated = await updateSearchMatrix(req.body);
+      res.json(updated);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.post("/api/sdr/discovery/run", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin only" });
+    try {
+      const { runLeadDiscovery, isDiscoveryRunning } = await import("./services/sdr/lead-finder");
+      if (isDiscoveryRunning()) {
+        return res.status(409).json({ message: "Lead discovery is already running" });
+      }
+      const { verticals, metros, dataSources } = req.body;
+      res.json({ message: "Lead discovery started", started: true });
+      runLeadDiscovery("manual", { verticals, metros, dataSources }).catch(err =>
+        console.error("[LeadDiscovery API] Error:", err)
+      );
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.get("/api/sdr/discovery/status", isAuthenticated, async (_req, res) => {
+    try {
+      const { isDiscoveryRunning, isNightlyDiscoveryRunning } = await import("./services/sdr/lead-finder");
+      res.json({
+        discoveryRunning: isDiscoveryRunning(),
+        nightlySchedulerActive: isNightlyDiscoveryRunning(),
+      });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.post("/api/sdr/discovery/nightly/start", isAuthenticated, async (req, res) => {
+    if ((req as any).user?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+    try {
+      const { startNightlyDiscovery } = await import("./services/sdr/lead-finder");
+      startNightlyDiscovery();
+      res.json({ message: "Nightly discovery scheduler started" });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.post("/api/sdr/discovery/nightly/stop", isAuthenticated, async (req, res) => {
+    if ((req as any).user?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+    try {
+      const { stopNightlyDiscovery } = await import("./services/sdr/lead-finder");
+      stopNightlyDiscovery();
+      res.json({ message: "Nightly discovery scheduler stopped" });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.get("/api/sdr/discovery/jobs", isAuthenticated, async (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 20;
+      const jobs = await storage.getLeadDiscoveryJobs(limit);
+      res.json(jobs);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.get("/api/sdr/discovery/jobs/:id", isAuthenticated, async (req, res) => {
+    try {
+      const job = await storage.getLeadDiscoveryJob(Number(req.params.id));
+      if (!job) return res.status(404).json({ message: "Job not found" });
+      const results = await storage.getLeadDiscoveryResults(job.id);
+      res.json({ ...job, results });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.get("/api/sdr/discovery/stats", isAuthenticated, async (_req, res) => {
+    try {
+      const stats = await storage.getLeadDiscoveryStats();
+      res.json(stats);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.get("/api/sdr/discovery/source-status", isAuthenticated, async (_req, res) => {
+    try {
+      const { isOutscraperConfigured, getOutscraperUsage } = await import("./services/sdr/outscraper");
+      const { isApifyConfigured, getApifyUsage } = await import("./services/sdr/apify");
+      const serperConfigured = isSerperConfigured();
+      const serperUsage = await getSerperUsage();
+      const outscrConfigured = isOutscraperConfigured();
+      const outscrUsage = outscrConfigured ? await getOutscraperUsage() : null;
+      const apifyConfigured = isApifyConfigured();
+      const apifyUsage = apifyConfigured ? await getApifyUsage() : null;
+
+      res.json({
+        serper: { configured: serperConfigured, usage: serperUsage },
+        outscraper: { configured: outscrConfigured, usage: outscrUsage },
+        apify: { configured: apifyConfigured, usage: apifyUsage },
+      });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
   app.get("/api/sdr/bot-contexts", isAuthenticated, async (_req, res) => {
     const { getAllBotContexts } = await import("./services/sdr/conversation-ai");
     const contexts = getAllBotContexts().map(c => ({
