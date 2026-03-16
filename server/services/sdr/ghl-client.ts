@@ -281,6 +281,94 @@ export function validateWebhookSignature(payload: string, signature: string): bo
   }
 }
 
+export interface SendMessageResult {
+  messageId?: string;
+  [key: string]: unknown;
+}
+
+export async function sendChatReply(params: {
+  contactId: string;
+  message: string;
+  conversationId?: string;
+}): Promise<SendMessageResult> {
+  const payload: Record<string, unknown> = {
+    type: "Custom",
+    contactId: params.contactId,
+    message: params.message,
+  };
+  if (params.conversationId) {
+    payload.conversationId = params.conversationId;
+  }
+
+  return sdrGhlFetch("/conversations/messages", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }) as unknown as SendMessageResult;
+}
+
+export async function sendSmsReply(params: {
+  contactId: string;
+  message: string;
+}): Promise<SendMessageResult> {
+  return sdrGhlFetch("/conversations/messages", {
+    method: "POST",
+    body: JSON.stringify({
+      type: "SMS",
+      contactId: params.contactId,
+      message: params.message,
+    }),
+  }) as unknown as SendMessageResult;
+}
+
+export async function sendEmailReply(params: {
+  contactId: string;
+  subject: string;
+  htmlBody: string;
+}): Promise<SendMessageResult> {
+  return sdrGhlFetch("/conversations/messages", {
+    method: "POST",
+    body: JSON.stringify({
+      type: "Email",
+      contactId: params.contactId,
+      subject: params.subject,
+      html: params.htmlBody,
+    }),
+  }) as unknown as SendMessageResult;
+}
+
+export async function disableConversationAi(contactId: string): Promise<void> {
+  try {
+    await sdrGhlFetch(`/conversations/ai/toggle`, {
+      method: "PUT",
+      body: JSON.stringify({ contactId, enabled: false }),
+    });
+  } catch {
+    await sdrGhlFetch(`/contacts/${contactId}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        dnd: true,
+        dndSettings: { all: { status: "active", message: "Handed off to human agent" } },
+      }),
+    });
+  }
+}
+
+export async function enableConversationAi(contactId: string): Promise<void> {
+  try {
+    await sdrGhlFetch(`/conversations/ai/toggle`, {
+      method: "PUT",
+      body: JSON.stringify({ contactId, enabled: true }),
+    });
+  } catch {
+    await sdrGhlFetch(`/contacts/${contactId}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        dnd: false,
+      }),
+    });
+  }
+}
+
 export interface SdrGhlConfigStatus {
   configured: boolean;
   hasToken: boolean;
@@ -317,6 +405,7 @@ export const REQUIRED_CUSTOM_FIELDS = [
 export const REQUIRED_TAGS = [
   "LB-AI-SDR", "LB-AUTO", "LB-MEDSPA", "LB-DENTAL", "LB-BOOKING-READY",
   "LB-STATEMENT-PENDING", "LB-PROPOSAL-SENT", "LB-HUMAN-HANDOFF", "LB-DO-NOT-AUTO",
+  "LB-CHAT-LEAD", "LB-CHAT-HANDOFF",
 ] as const;
 
 let bootstrapCompleted = false;

@@ -12,6 +12,7 @@ import { StickyMobileCTA } from "@/components/StickyMobileCTA";
 import { ExitIntentPopup } from "@/components/ExitIntentPopup";
 import { ContactBubble } from "@/components/ContactBubble";
 import { CookieConsent } from "@/components/CookieConsent";
+import ChatWidget from "@/components/ChatWidget";
 import { trackPageView } from "@/lib/tracking";
 import { captureUTMParams } from "@/lib/utm";
 
@@ -428,6 +429,7 @@ function PublicLayout() {
       {!isDashboard && !isAuthPage && <ExitIntentPopup />}
       {!isDashboard && !isThanksPage && !isAuthPage && <ContactBubble />}
       {!isDashboard && !isAuthPage && <CookieConsent />}
+      {!isDashboard && !isThanksPage && !isAuthPage && <ChatWidget />}
     </>
   );
 }
