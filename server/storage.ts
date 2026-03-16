@@ -2293,13 +2293,17 @@ export class DatabaseStorage implements IStorage {
     const todayEvents = await db.select().from(sdrLeadEvents).where(gte(sdrLeadEvents.createdAt, today));
 
     interface StageChangePayload { from?: string; to?: string; }
-    const newToday = todayEvents.filter(e => e.eventType === "stage_change" && (e.payloadJson as StageChangePayload | null)?.to === "DISCOVERED").length;
-    const qualifiedToday = allStates.filter(s => s.currentStage === "QUALIFIED" && s.updatedAt && s.updatedAt >= today).length;
-    const contactedToday = todayEvents.filter(e => ["message_sent", "call_made", "email_sent"].includes(e.eventType)).length;
-    const repliedToday = todayEvents.filter(e => e.eventType === "message_received").length;
-    const meetingsToday = todayEvents.filter(e => e.eventType === "appointment_booked").length;
-    const statementsToday = allStates.filter(s => s.currentStage === "STATEMENT_RECEIVED" && s.updatedAt && s.updatedAt >= today).length;
-    const proposalsToday = allStates.filter(s => s.currentStage === "PROPOSAL_SENT" && s.updatedAt && s.updatedAt >= today).length;
+    const newToday = todayEvents.filter(e => e.eventType === "stage_change" && (e.payloadJson as StageChangePayload | null)?.to === "DISCOVERED").length
+      || allStates.filter(s => s.stage === "DISCOVERED" && s.createdAt && s.createdAt >= today).length;
+    const qualifiedToday = allStates.filter(s => (s.stage === "QUALIFIED" || s.currentStage === "QUALIFIED") && s.updatedAt && s.updatedAt >= today).length;
+    const contactedToday = todayEvents.filter(e => ["message_sent", "call_made", "email_sent", "action_executed", "call_scheduled"].includes(e.eventType)).length;
+    const repliedToday = todayEvents.filter(e => ["message_received", "reply_received", "sms_reply_received"].includes(e.eventType)).length;
+    const meetingsToday = todayEvents.filter(e => ["appointment_booked", "call_booked"].includes(e.eventType)).length
+      || allStates.filter(s => s.stage === "MEETING_SET" && s.updatedAt && s.updatedAt >= today).length;
+    const statementsToday = allStates.filter(s => (s.stage === "STATEMENT_RECEIVED" || s.currentStage === "STATEMENT_RECEIVED") && s.updatedAt && s.updatedAt >= today).length;
+    const proposalsToday = allStates.filter(s => (s.stage === "PROPOSAL_SENT" || s.currentStage === "PROPOSAL_SENT") && s.updatedAt && s.updatedAt >= today).length;
+    const closedWonToday = allStates.filter(s => (s.stage === "CLOSED_WON" || s.stage === "BOARDED") && s.updatedAt && s.updatedAt >= today).length;
+    const humanOwnedCount = allStates.filter(s => s.assignedOwnerType === "human" || s.ownerType === "human").length;
 
     return {
       newToday,
@@ -2309,22 +2313,41 @@ export class DatabaseStorage implements IStorage {
       meetingsToday,
       statementsToday,
       proposalsToday,
+      closedWonToday,
+      humanOwnedCount,
       totalMerchants: (await db.select({ count: sql<number>`count(*)` }).from(sdrMerchants))[0]?.count || 0,
     };
   }
 
   async getSdrFunnelData() {
     const result = await db.select({
-      stage: sdrLeadState.currentStage,
+      stage: sdrLeadState.stage,
       count: sql<number>`count(*)`,
-    }).from(sdrLeadState).groupBy(sdrLeadState.currentStage);
+    }).from(sdrLeadState).groupBy(sdrLeadState.stage);
 
-    return result.map(r => ({ stage: r.stage, count: Number(r.count) }));
+    const stageOrder = ["DISCOVERED", "ENRICHED", "CLASSIFIED", "QUALIFIED", "OUTREACH_EMAIL", "OUTREACH_SMS", "OUTREACH_CALL", "ENGAGED", "MEETING_SET", "STATEMENT_REQUESTED", "STATEMENT_RECEIVED", "PROPOSAL_SENT", "CLOSED_WON", "BOARDED", "TERMINAL_SHIPPED", "NURTURE", "NO_SHOW", "DEAD", "CONVERTED"];
+    const sorted = result
+      .map(r => ({ stage: r.stage, count: Number(r.count) }))
+      .sort((a, b) => {
+        const aIdx = stageOrder.indexOf(a.stage);
+        const bIdx = stageOrder.indexOf(b.stage);
+        return (aIdx === -1 ? 999 : aIdx) - (bIdx === -1 ? 999 : bIdx);
+      });
+
+    let prevCount = sorted.length > 0 ? sorted[0].count : 0;
+    return sorted.map((s, idx) => {
+      const conversionRate = idx > 0 && prevCount > 0 ? Math.round((s.count / prevCount) * 100) : undefined;
+      const result = { ...s, conversionRate };
+      prevCount = s.count > 0 ? s.count : prevCount;
+      return result;
+    });
   }
 
   async getSdrStuckLeads() {
     const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000);
-    const stuck = await db.select({
+    const stageAgeCutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+    const allLeads = await db.select({
       leadState: sdrLeadState,
       merchant: sdrMerchants,
     })
@@ -2332,13 +2355,28 @@ export class DatabaseStorage implements IStorage {
       .innerJoin(sdrMerchants, eq(sdrLeadState.merchantId, sdrMerchants.id))
       .where(
         and(
-          lte(sdrLeadState.nextActionAt, cutoff),
-          ne(sdrLeadState.currentStage, "DEAD"),
-          ne(sdrLeadState.currentStage, "CLOSED_WON"),
-          ne(sdrLeadState.currentStage, "NURTURE"),
+          ne(sdrLeadState.stage, "DEAD"),
+          ne(sdrLeadState.stage, "CONVERTED"),
+          ne(sdrLeadState.stage, "TERMINAL_SHIPPED"),
         )
       )
-      .limit(50);
+      .limit(200);
+
+    const overdue = allLeads
+      .filter(s => s.leadState.nextActionAt && s.leadState.nextActionAt <= cutoff && s.leadState.stage !== "NURTURE" && s.leadState.stage !== "CLOSED_WON")
+      .slice(0, 50);
+
+    const waitingStatement = allLeads
+      .filter(s => s.leadState.stage === "STATEMENT_REQUESTED" && s.leadState.statementRequestedAt && s.leadState.statementRequestedAt <= stageAgeCutoff)
+      .slice(0, 20);
+
+    const staleLeads = allLeads
+      .filter(s => {
+        const updatedAt = s.leadState.updatedAt || s.leadState.createdAt;
+        return updatedAt && updatedAt <= stageAgeCutoff
+          && !["NURTURE", "CLOSED_WON", "BOARDED", "TERMINAL_SHIPPED"].includes(s.leadState.stage || "");
+      })
+      .slice(0, 20);
 
     const complianceBlocked = await db.select({
       compliance: sdrComplianceState,
@@ -2355,24 +2393,80 @@ export class DatabaseStorage implements IStorage {
       )
       .limit(50);
 
-    return [
-      ...stuck.map(s => ({
-        type: "overdue" as const,
+    function stageAgeDays(lead: typeof allLeads[0]["leadState"]): number {
+      const ref = lead.updatedAt || lead.createdAt;
+      if (!ref) return 0;
+      return Math.floor((Date.now() - new Date(ref).getTime()) / (24 * 60 * 60 * 1000));
+    }
+
+    const seenMerchants = new Set<number>();
+    const results: any[] = [];
+
+    for (const s of overdue) {
+      if (seenMerchants.has(s.merchant.id)) continue;
+      seenMerchants.add(s.merchant.id);
+      results.push({
+        type: "overdue",
+        leadId: s.leadState.id,
         merchantId: s.merchant.id,
         businessName: s.merchant.businessName,
-        currentStage: s.leadState.currentStage,
+        currentStage: s.leadState.stage || s.leadState.currentStage,
         nextActionAt: s.leadState.nextActionAt,
         reason: "Overdue next action",
-      })),
-      ...complianceBlocked.map(c => ({
-        type: "compliance_blocked" as const,
+        stageAgeDays: stageAgeDays(s.leadState),
+        assignedOwnerType: s.leadState.assignedOwnerType,
+      });
+    }
+
+    for (const s of waitingStatement) {
+      if (seenMerchants.has(s.merchant.id)) continue;
+      seenMerchants.add(s.merchant.id);
+      results.push({
+        type: "waiting_statement",
+        leadId: s.leadState.id,
+        merchantId: s.merchant.id,
+        businessName: s.merchant.businessName,
+        currentStage: s.leadState.stage || s.leadState.currentStage,
+        nextActionAt: s.leadState.nextActionAt,
+        reason: `Waiting for statement (${stageAgeDays(s.leadState)}d)`,
+        stageAgeDays: stageAgeDays(s.leadState),
+        assignedOwnerType: s.leadState.assignedOwnerType,
+      });
+    }
+
+    for (const s of staleLeads) {
+      if (seenMerchants.has(s.merchant.id)) continue;
+      seenMerchants.add(s.merchant.id);
+      results.push({
+        type: "stage_age",
+        leadId: s.leadState.id,
+        merchantId: s.merchant.id,
+        businessName: s.merchant.businessName,
+        currentStage: s.leadState.stage || s.leadState.currentStage,
+        nextActionAt: s.leadState.nextActionAt,
+        reason: `Stale in ${s.leadState.stage || s.leadState.currentStage} for ${stageAgeDays(s.leadState)}d`,
+        stageAgeDays: stageAgeDays(s.leadState),
+        assignedOwnerType: s.leadState.assignedOwnerType,
+      });
+    }
+
+    for (const c of complianceBlocked) {
+      if (seenMerchants.has(c.merchant.id)) continue;
+      seenMerchants.add(c.merchant.id);
+      results.push({
+        type: "compliance_blocked",
+        leadId: null,
         merchantId: c.merchant.id,
         businessName: c.merchant.businessName,
         currentStage: null,
         nextActionAt: null,
         reason: c.compliance.dncBlock ? "DNC block" : c.compliance.complaintBlock ? "Complaint block" : "Litigation block",
-      })),
-    ];
+        stageAgeDays: 0,
+        assignedOwnerType: null,
+      });
+    }
+
+    return results;
   }
 
   async getSdrActivityData() {
@@ -2390,6 +2484,8 @@ export class DatabaseStorage implements IStorage {
       .where(and(gte(sdrLeadEvents.createdAt, today), eq(sdrLeadEvents.eventType, "opt_out")))
     ).length;
 
+    const callsAnswered = attempts.filter(a => a.channel === "call" && a.repliedAt).length;
+
     return {
       emailsSent,
       smsSent,
@@ -2398,6 +2494,10 @@ export class DatabaseStorage implements IStorage {
       smsReplyRate: smsSent > 0 ? Math.round((smsReplied / smsSent) * 100) : 0,
       optOutRate: (emailsSent + smsSent) > 0 ? Math.round((optOuts / (emailsSent + smsSent)) * 100) : 0,
       optOuts,
+      noAnswerRate: callsMade > 0 ? Math.round(((callsMade - callsAnswered) / callsMade) * 100) : 0,
+      emailDailyLimit: 200,
+      smsDailyLimit: 100,
+      callDailyLimit: 50,
     };
   }
   async getSendingIdentities(): Promise<SendingIdentity[]> {

@@ -82,6 +82,12 @@ export function decideNextAction(lead: SdrLeadState, latestEvent?: { eventType: 
         decisionReason: "Statement received, generating proposal",
       };
 
+    case "PROPOSAL_SENT":
+      return decideProposalNext(lead, latestEvent);
+
+    case "NO_SHOW":
+      return decideNoShowNext(lead);
+
     case "NURTURE":
       return {
         nextStage: "NURTURE",
@@ -90,9 +96,27 @@ export function decideNextAction(lead: SdrLeadState, latestEvent?: { eventType: 
         decisionReason: "In nurture, scheduling next touch in 14 days",
       };
 
+    case "CLOSED_WON":
+      return {
+        nextStage: "BOARDED",
+        nextActionType: "create_equipment_order",
+        nextActionAt: futureDate(0),
+        decisionReason: "Deal closed won, creating equipment order and starting onboarding",
+      };
+
+    case "BOARDED":
+      return {
+        nextStage: "BOARDED",
+        nextActionType: "await_terminal_ship",
+        nextActionAt: futureDate(1 * DAYS),
+        decisionReason: "Boarded, awaiting terminal shipment",
+      };
+
+    case "TERMINAL_SHIPPED":
+      return null;
+
     case "DEAD":
     case "CONVERTED":
-    case "PROPOSAL_SENT":
       return null;
 
     default:
@@ -276,6 +300,105 @@ function decideCallNext(lead: SdrLeadState, latestEvent?: { eventType: string; m
   };
 }
 
+function decideProposalNext(lead: SdrLeadState, latestEvent?: { eventType: string; metadata?: any }): StageDecision | null {
+  if (latestEvent?.eventType === "proposal_accepted" || latestEvent?.eventType === "merchant_confirmed") {
+    return {
+      nextStage: "CLOSED_WON",
+      nextActionType: "create_equipment_order",
+      nextActionAt: futureDate(0),
+      decisionReason: "Merchant confirmed proposal, moving to closed won",
+    };
+  }
+
+  const proposalViewedAt = lead.proposalViewedAt;
+  const proposalClickedAt = lead.proposalClickedAt;
+  const resendCount = lead.proposalResendCount || 0;
+
+  if (proposalViewedAt && !proposalClickedAt) {
+    const viewedAgo = Date.now() - new Date(proposalViewedAt).getTime();
+    if (viewedAgo > 48 * HOURS) {
+      return {
+        nextStage: "PROPOSAL_SENT",
+        nextActionType: "send_sms",
+        nextActionAt: futureDate(0),
+        decisionReason: "Proposal viewed but no click after 48h, sending SMS follow-up",
+        actionParams: { proposalFollowUp: true },
+      };
+    }
+    return {
+      nextStage: "PROPOSAL_SENT",
+      nextActionType: "check_proposal_engagement",
+      nextActionAt: futureDate(24 * HOURS),
+      decisionReason: "Proposal viewed, checking for engagement in 24h",
+    };
+  }
+
+  if (!proposalViewedAt && resendCount < 2) {
+    const lastEmailMs = lead.lastEmailAt ? Date.now() - new Date(lead.lastEmailAt).getTime() : Infinity;
+    if (lastEmailMs > 72 * HOURS) {
+      return {
+        nextStage: "PROPOSAL_SENT",
+        nextActionType: "resend_proposal_email",
+        nextActionAt: futureDate(0),
+        decisionReason: "Proposal not viewed after 72h, resending with alternate subject",
+      };
+    }
+    return {
+      nextStage: "PROPOSAL_SENT",
+      nextActionType: "check_proposal_engagement",
+      nextActionAt: futureDate(24 * HOURS),
+      decisionReason: "Waiting for proposal to be viewed",
+    };
+  }
+
+  if (!proposalViewedAt && resendCount >= 2) {
+    return {
+      nextStage: "PROPOSAL_SENT",
+      nextActionType: "schedule_call",
+      nextActionAt: futureDate(0),
+      decisionReason: "Proposal not viewed after resends, scheduling AI call",
+    };
+  }
+
+  return {
+    nextStage: "PROPOSAL_SENT",
+    nextActionType: "check_proposal_engagement",
+    nextActionAt: futureDate(24 * HOURS),
+    decisionReason: "Monitoring proposal engagement",
+  };
+}
+
+function decideNoShowNext(lead: SdrLeadState): StageDecision {
+  const noShows = lead.noShowCount || 0;
+
+  if (noShows >= 3) {
+    return {
+      nextStage: "NURTURE",
+      nextActionType: "nurture_email",
+      nextActionAt: futureDate(14 * DAYS),
+      decisionReason: `${noShows} no-shows, moving to nurture`,
+    };
+  }
+
+  if (noShows === 0 || noShows === 1) {
+    return {
+      nextStage: "NO_SHOW",
+      nextActionType: "send_sms",
+      nextActionAt: futureDate(0),
+      decisionReason: "Missed meeting, sending immediate SMS",
+      actionParams: { noShowRecovery: true },
+    };
+  }
+
+  return {
+    nextStage: "NO_SHOW",
+    nextActionType: "send_email",
+    nextActionAt: futureDate(1 * DAYS),
+    decisionReason: "No-show follow-up, sending rebook email in 1 day",
+    actionParams: { noShowRecovery: true, rebookLink: true },
+  };
+}
+
 export function getAllowedTransitions(stage: string): string[] {
   const transitions: Record<string, string[]> = {
     "DISCOVERED": ["ENRICHED", "DEAD"],
@@ -288,10 +411,14 @@ export function getAllowedTransitions(stage: string): string[] {
     "OUTREACH_CALL": ["OUTREACH_CHAT", "ENGAGED", "MEETING_SET", "NURTURE", "DEAD"],
     "OUTREACH_CHAT": ["ENGAGED", "MEETING_SET", "NURTURE", "DEAD"],
     "ENGAGED": ["MEETING_SET", "STATEMENT_REQUESTED", "PROPOSAL_SENT", "CONVERTED", "NURTURE", "DEAD"],
-    "MEETING_SET": ["STATEMENT_REQUESTED", "PROPOSAL_SENT", "CONVERTED", "NURTURE", "DEAD"],
+    "MEETING_SET": ["STATEMENT_REQUESTED", "PROPOSAL_SENT", "NO_SHOW", "CONVERTED", "NURTURE", "DEAD"],
+    "NO_SHOW": ["MEETING_SET", "NURTURE", "DEAD"],
     "STATEMENT_REQUESTED": ["STATEMENT_RECEIVED", "NURTURE", "DEAD"],
     "STATEMENT_RECEIVED": ["PROPOSAL_SENT", "CONVERTED", "DEAD"],
-    "PROPOSAL_SENT": ["CONVERTED", "NURTURE", "DEAD"],
+    "PROPOSAL_SENT": ["CLOSED_WON", "CONVERTED", "NURTURE", "DEAD"],
+    "CLOSED_WON": ["BOARDED", "DEAD"],
+    "BOARDED": ["TERMINAL_SHIPPED", "DEAD"],
+    "TERMINAL_SHIPPED": ["CONVERTED", "DEAD"],
     "NURTURE": ["OUTREACH_EMAIL", "OUTREACH_SMS", "OUTREACH_CALL", "DEAD"],
     "DEAD": [],
     "CONVERTED": [],

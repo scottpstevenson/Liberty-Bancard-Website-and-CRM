@@ -2047,6 +2047,118 @@ const SEQUENCES: SequenceSeed[] = [
       },
     ],
   },
+  // ═══════════════════════════════════════════════════════
+  // SDR LAUNCH SEQUENCE 1: COLD OUTBOUND (Auto Repair)
+  // ═══════════════════════════════════════════════════════
+  {
+    name: "SDR: Cold Outbound — Auto Repair",
+    description: "AI SDR cold outbound sequence for Florida auto repair shops. Email → wait 2d → email → wait 2d → SMS → wait 2d → AI call → nurture.",
+    triggerType: "manual",
+    triggerConfig: { category: "sdr_cold_outbound", vertical: "Auto Repair" },
+    steps: [
+      { stepOrder: 1, actionType: "email", delayDays: 0, delayHours: 0, subject: "Quick question on card fees at {{firstName}}'s shop", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>We work with Florida auto repair shops on card processing costs, especially on larger repair tickets.</p>`, `<p>3 issues we commonly find:</p>`, `<ul><li>Overpriced processing on high-ticket repairs</li><li>No text-to-pay or financing options</li><li>Hidden fees in monthly statements</li></ul>`, `<p>We do a free 10-minute statement review that typically uncovers $200-500/month in savings.</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Get Your Free Review</a></p>`, `<p>— Liberty Bancard</p>`]) },
+      { stepOrder: 2, actionType: "email", delayDays: 2, delayHours: 0, subject: "How a shop like yours saved $400/month", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>A Florida auto repair shop similar to yours came to us overpaying on processing. After switching:</p>`, `<ul><li>Effective rate dropped significantly</li><li>Text-to-pay enabled for invoices over $500</li><li>Chargebacks cut in half</li></ul>`, `<p>Want to see what your numbers look like? Send us your latest statement.</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Upload Your Statement</a></p>`, `<p>— Liberty Bancard</p>`]) },
+      { stepOrder: 3, actionType: "sms", delayDays: 4, delayHours: 0, body: smsBody(`Hi {{firstName}}, Liberty Bancard here. We help FL auto shops cut card fees on big repair tickets. Free 10-min review? Reply YES. FL surcharging rules apply (credit only).`) },
+      { stepOrder: 4, actionType: "call", delayDays: 6, delayHours: 0, body: smsBody("AI call: cold outbound auto repair"), config: { voiceScript: "fl_auto", callType: "cold_outbound" } },
+      { stepOrder: 5, actionType: "email", delayDays: 14, delayHours: 0, subject: "Last note about processing at your shop", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>Last note — our free statement review covers your true effective rate, hidden fees, text-to-pay options, and chargeback exposure.</p>`, `<p>No pressure. If your setup is solid, we'll tell you.</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Get Your Free Review</a></p>`, `<p>— Liberty Bancard</p>`]) },
+    ],
+  },
+
+  // ═══════════════════════════════════════════════════════
+  // SDR LAUNCH SEQUENCE 2: COLD OUTBOUND (Med Spa)
+  // ═══════════════════════════════════════════════════════
+  {
+    name: "SDR: Cold Outbound — Med Spa",
+    description: "AI SDR cold outbound sequence for Florida med spas. Multi-channel: email, SMS, AI call.",
+    triggerType: "manual",
+    triggerConfig: { category: "sdr_cold_outbound", vertical: "Med Spa" },
+    steps: [
+      { stepOrder: 1, actionType: "email", delayDays: 0, delayHours: 0, subject: "Question about payments at your med spa", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>We work with Florida med spas on memberships, deposits, and payment flow.</p>`, `<p>4 issues we commonly find:</p>`, `<ul><li>No-show leakage without deposit protection</li><li>Weak card-on-file process</li><li>Clunky membership billing</li><li>Overpaying on processing</li></ul>`, `<p>Complimentary payment workflow review — usually uncovers $300-800/month in savings.</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Get Your Free Review</a></p>`, `<p>— Liberty Bancard</p>`]) },
+      { stepOrder: 2, actionType: "email", delayDays: 2, delayHours: 0, subject: "How a practice like yours improved membership revenue", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>A Florida med spa similar to yours saw significant improvements after implementing our payment workflow:</p>`, `<ul><li>Membership churn dropped with automated card updater</li><li>No-show rate cut with required card-on-file</li><li>Average ticket increased with patient financing</li></ul>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Book Your Review</a></p>`, `<p>— Liberty Bancard</p>`]) },
+      { stepOrder: 3, actionType: "sms", delayDays: 4, delayHours: 0, body: smsBody(`Hi {{firstName}}, Liberty Bancard here. We help FL med spas streamline memberships, deposits & payment flow. Quick review? Reply YES.`) },
+      { stepOrder: 4, actionType: "call", delayDays: 6, delayHours: 0, body: smsBody("AI call: cold outbound med spa"), config: { voiceScript: "fl_medspa", callType: "cold_outbound" } },
+      { stepOrder: 5, actionType: "email", delayDays: 14, delayHours: 0, subject: "Quick follow-up on payment flow", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>Our complimentary review covers membership billing, card-on-file policies, patient financing, and processing cost optimization.</p>`, `<p>No commodity pitch — just a workflow review focused on growth.</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Get Your Free Review</a></p>`, `<p>— Liberty Bancard</p>`]) },
+    ],
+  },
+
+  // ═══════════════════════════════════════════════════════
+  // SDR LAUNCH SEQUENCE 3: COLD OUTBOUND (Dental)
+  // ═══════════════════════════════════════════════════════
+  {
+    name: "SDR: Cold Outbound — Dental",
+    description: "AI SDR cold outbound sequence for Florida dental practices. Multi-channel approach.",
+    triggerType: "manual",
+    triggerConfig: { category: "sdr_cold_outbound", vertical: "Dental" },
+    steps: [
+      { stepOrder: 1, actionType: "email", delayDays: 0, delayHours: 0, subject: "Patient payment question for your dental practice", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>We help Florida dental practices improve patient payment flow.</p>`, `<p>4 common issues:</p>`, `<ul><li>Manual collection consuming front-desk time</li><li>No text-to-pay for patient balances</li><li>Lack of payment plans for larger balances</li><li>Processing fees unreviewed</li></ul>`, `<p>Free patient collections review — 10 minutes.</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Get Your Free Review</a></p>`, `<p>— Liberty Bancard</p>`]) },
+      { stepOrder: 2, actionType: "email", delayDays: 2, delayHours: 0, subject: "How a dental practice improved patient collections", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>A Florida dental practice similar to yours saw:</p>`, `<ul><li>Faster balance collection with text-to-pay</li><li>Hours saved at front desk each week</li><li>Reduced write-offs with structured payment plans</li></ul>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Book Your Review</a></p>`, `<p>— Liberty Bancard</p>`]) },
+      { stepOrder: 3, actionType: "sms", delayDays: 4, delayHours: 0, body: smsBody(`Hi {{firstName}}, Liberty Bancard here. We help FL dental practices improve patient payment flow & collections. Quick review? Reply YES.`) },
+      { stepOrder: 4, actionType: "call", delayDays: 6, delayHours: 0, body: smsBody("AI call: cold outbound dental"), config: { voiceScript: "fl_medical", callType: "cold_outbound" } },
+      { stepOrder: 5, actionType: "email", delayDays: 14, delayHours: 0, subject: "Last check-in about payments at your practice", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>Free patient collections review covers text-to-pay, payment plans, card-on-file, and fee benchmarking. Takes 10 minutes.</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Get Your Free Review</a></p>`, `<p>— Liberty Bancard</p>`]) },
+    ],
+  },
+
+  // ═══════════════════════════════════════════════════════
+  // SDR LAUNCH SEQUENCE 4: REPLY ENGAGED
+  // ═══════════════════════════════════════════════════════
+  {
+    name: "SDR: Reply Engaged",
+    description: "When a lead replies with interest. Intent classification → statement CTA or booking CTA.",
+    triggerType: "manual",
+    triggerConfig: { category: "sdr_reply_engaged", vertical: "all" },
+    steps: [
+      { stepOrder: 1, actionType: "email", delayDays: 0, delayHours: 0, subject: "Thanks for your interest — next steps", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>Thanks for getting back to us! Based on what you mentioned, here are two quick options:</p>`, `<p><strong>Option 1: Free Statement Review</strong><br/>Upload your latest processing statement and we'll have a savings analysis ready in 24 hours.</p>`, `<p><strong>Option 2: Quick Call</strong><br/>Book a 10-minute call and we'll walk through everything live.</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Book a Call</a></p>`, `<p>— Liberty Bancard</p>`]) },
+      { stepOrder: 2, actionType: "sms", delayDays: 1, delayHours: 0, body: smsBody(`Hi {{firstName}}, glad you're interested! Quickest way to see your savings: upload your latest statement or book a 10-min call. Reply CALL or STATEMENT. — Liberty Bancard`) },
+      { stepOrder: 3, actionType: "email", delayDays: 3, delayHours: 0, subject: "Following up on your interest", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>Just following up — would you prefer to:</p>`, `<ul><li>Upload a statement for a free analysis</li><li>Schedule a quick 10-minute call</li></ul>`, `<p>Either way works great. Most merchants are surprised by what we find.</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Book a Call</a></p>`, `<p>— Liberty Bancard</p>`]) },
+    ],
+  },
+
+  // ═══════════════════════════════════════════════════════
+  // SDR LAUNCH SEQUENCE 5: STATEMENT CHASE
+  // ═══════════════════════════════════════════════════════
+  {
+    name: "SDR: Statement Chase",
+    description: "Statement request → reminder Day 2 → reminder Day 5 → AI call Day 7.",
+    triggerType: "manual",
+    triggerConfig: { category: "sdr_statement_chase", vertical: "all" },
+    steps: [
+      { stepOrder: 1, actionType: "email", delayDays: 0, delayHours: 0, subject: "Upload your statement for a free savings analysis", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>Ready to find out what you're really paying in processing fees? Upload your latest statement and we'll have your personalized savings analysis within 24 hours.</p>`, `<p>We typically find 3 different options to reduce costs — and we'll show you all of them.</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Upload Your Statement</a></p>`, `<p>— Liberty Bancard</p>`]) },
+      { stepOrder: 2, actionType: "sms", delayDays: 2, delayHours: 0, body: smsBody(`Hi {{firstName}}, still waiting on your processing statement for the free savings analysis. Upload anytime — takes 30 seconds. — Liberty Bancard`) },
+      { stepOrder: 3, actionType: "email", delayDays: 5, delayHours: 0, subject: "Your free savings analysis is waiting", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>Just a reminder — we're ready to analyze your statement and show you where to save.</p>`, `<p>Most businesses find 15-30% in unnecessary fees. The review is free and takes us about 24 hours.</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Upload Your Statement</a></p>`, `<p>— Liberty Bancard</p>`]) },
+      { stepOrder: 4, actionType: "call", delayDays: 7, delayHours: 0, body: smsBody("AI call: statement chase"), config: { callType: "statement_chase" } },
+    ],
+  },
+
+  // ═══════════════════════════════════════════════════════
+  // SDR LAUNCH SEQUENCE 6: PROPOSAL FOLLOW-UP
+  // ═══════════════════════════════════════════════════════
+  {
+    name: "SDR: Proposal Follow-Up",
+    description: "Proposal sent → viewed/no reply → SMS → not viewed → resend → AI call.",
+    triggerType: "manual",
+    triggerConfig: { category: "sdr_proposal_followup", vertical: "all" },
+    steps: [
+      { stepOrder: 1, actionType: "email", delayDays: 0, delayHours: 0, subject: "Your savings proposal is ready", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>Great news — your personalized savings analysis is complete!</p>`, `<p>We found 3 options to reduce your processing costs. Take a look and let us know which one interests you most.</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">View Your Proposal</a></p>`, `<p>— Liberty Bancard</p>`]) },
+      { stepOrder: 2, actionType: "sms", delayDays: 2, delayHours: 0, body: smsBody(`Hi {{firstName}}, we finished your savings analysis and found some good options. Want to go over it? Reply YES for a quick 10-min call. — Liberty Bancard`) },
+      { stepOrder: 3, actionType: "email", delayDays: 3, delayHours: 0, subject: "Did you see your processing analysis?", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>Just checking — did you get a chance to review the savings analysis we put together?</p>`, `<p>We found some real opportunities to lower your costs. Happy to walk through it on a quick call if that's easier.</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Book a Quick Call</a></p>`, `<p>— Liberty Bancard</p>`]) },
+      { stepOrder: 4, actionType: "call", delayDays: 5, delayHours: 0, body: smsBody("AI call: proposal follow-up"), config: { callType: "proposal_followup" } },
+    ],
+  },
+
+  // ═══════════════════════════════════════════════════════
+  // SDR LAUNCH SEQUENCE 7: NO-SHOW RECOVERY
+  // ═══════════════════════════════════════════════════════
+  {
+    name: "SDR: No-Show Recovery",
+    description: "Missed meeting → SMS immediately → email Day 1 → rebook link Day 3.",
+    triggerType: "manual",
+    triggerConfig: { category: "sdr_noshow_recovery", vertical: "all" },
+    steps: [
+      { stepOrder: 1, actionType: "sms", delayDays: 0, delayHours: 0, body: smsBody(`Hi {{firstName}}, looks like we missed each other for our call. No worries — want to reschedule? Reply with a good time or book here: ${SALES_CALENDAR} — Liberty Bancard`) },
+      { stepOrder: 2, actionType: "email", delayDays: 1, delayHours: 0, subject: "Let's reschedule — no worries", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>Looks like we missed each other for our scheduled call. Totally understand — things come up.</p>`, `<p>Would you like to reschedule? Pick a time that works:</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Reschedule Your Call</a></p>`, `<p>— Liberty Bancard</p>`]) },
+      { stepOrder: 3, actionType: "email", delayDays: 3, delayHours: 0, subject: "One more try — your free savings review", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>Just wanted to reach out one more time about the free savings review we discussed.</p>`, `<p>If you'd still like to see how much you could save on processing, here's a link to rebook at your convenience:</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Rebook Your Call</a></p>`, `<p>If the timing isn't right, no worries at all.</p>`, `<p>— Liberty Bancard</p>`]) },
+    ],
+  },
 ];
 
 export async function seedSequences() {

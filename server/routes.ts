@@ -8482,6 +8482,122 @@ Guidelines:
     }
   });
 
+  app.post("/api/sdr/leads/:id/handoff", isAuthenticated, async (req, res) => {
+    try {
+      const leadId = Number(req.params.id);
+      if (!Number.isInteger(leadId) || leadId <= 0) return res.status(400).json({ message: "Invalid lead ID" });
+      const { assignedUserId, note } = req.body;
+      if (!assignedUserId || typeof assignedUserId !== "string") return res.status(400).json({ message: "assignedUserId required" });
+      if ((req.user as { role?: string })?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+      const { handoffToHuman } = await import("./services/sdr/human-handoff");
+      const result = await handoffToHuman(leadId, assignedUserId, note);
+      if (!result.success) return res.status(400).json({ message: result.error });
+      res.json({ success: true });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.post("/api/sdr/leads/:id/return-to-ai", isAuthenticated, async (req, res) => {
+    try {
+      const leadId = Number(req.params.id);
+      if (!Number.isInteger(leadId) || leadId <= 0) return res.status(400).json({ message: "Invalid lead ID" });
+      if ((req.user as { role?: string })?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+      const { note } = req.body;
+      const { returnToAi } = await import("./services/sdr/human-handoff");
+      const result = await returnToAi(leadId, note);
+      if (!result.success) return res.status(400).json({ message: result.error });
+      res.json({ success: true });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.post("/api/sdr/leads/:id/block-automation", isAuthenticated, async (req, res) => {
+    try {
+      const leadId = Number(req.params.id);
+      if (!Number.isInteger(leadId) || leadId <= 0) return res.status(400).json({ message: "Invalid lead ID" });
+      if ((req.user as { role?: string })?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+      const { reason } = req.body;
+      const { blockAutomation } = await import("./services/sdr/human-handoff");
+      const result = await blockAutomation(leadId, reason);
+      if (!result.success) return res.status(400).json({ message: result.error });
+      res.json({ success: true });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.post("/api/proposals/:trackingId/mark-viewed", async (req, res) => {
+    try {
+      const trackingId = req.params.trackingId;
+      if (!trackingId || trackingId.length < 16) return res.status(400).json({ message: "Invalid tracking ID" });
+      const { markProposalViewedByTrackingId } = await import("./services/sdr/proposal-tracking");
+      const result = await markProposalViewedByTrackingId(trackingId);
+      res.json({ success: result });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.post("/api/proposals/:trackingId/mark-clicked", async (req, res) => {
+    try {
+      const trackingId = req.params.trackingId;
+      if (!trackingId || trackingId.length < 16) return res.status(400).json({ message: "Invalid tracking ID" });
+      const { markProposalClickedByTrackingId } = await import("./services/sdr/proposal-tracking");
+      const result = await markProposalClickedByTrackingId(trackingId);
+      res.json({ success: result });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.post("/api/sdr/leads/:id/terminal-shipped", isAuthenticated, async (req, res) => {
+    try {
+      const leadId = Number(req.params.id);
+      if (!Number.isInteger(leadId) || leadId <= 0) return res.status(400).json({ message: "Invalid lead ID" });
+      if ((req.user as { role?: string })?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+      const { trackingNumber } = req.body;
+      if (!trackingNumber || typeof trackingNumber !== "string") return res.status(400).json({ message: "trackingNumber required" });
+      const { handleTerminalShipped } = await import("./services/sdr/terminal-shipping");
+      const result = await handleTerminalShipped(leadId, trackingNumber);
+      res.json({ success: result });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.get("/api/statement-upload/:token", async (req, res) => {
+    try {
+      const { findLeadByUploadToken } = await import("./services/sdr/statement-flow");
+      const lead = await findLeadByUploadToken(req.params.token);
+      if (!lead) return res.status(404).json({ message: "Invalid or expired upload link" });
+      res.json({ merchantId: lead.merchantId, companyName: lead.companyName, valid: true });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.post("/api/statement-upload/:token", async (req, res) => {
+    try {
+      const { findLeadByUploadToken, handleStatementReceived } = await import("./services/sdr/statement-flow");
+      const lead = await findLeadByUploadToken(req.params.token);
+      if (!lead) return res.status(404).json({ message: "Invalid or expired upload link" });
+      const result = await handleStatementReceived(lead.id);
+      res.json({ success: result });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
   setInterval(async () => {
     try {
       const scheduled = await storage.getScheduledBlogPosts();
