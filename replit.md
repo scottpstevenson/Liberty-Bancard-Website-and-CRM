@@ -1,7 +1,7 @@
 # Liberty Bancard AI Business Operating System
 
 ## Overview
-The Liberty Bancard AI Business Operating System is an AI-powered platform designed for the merchant payment processing industry. It integrates a public marketing website with advanced lead generation capabilities, an internal CRM for pipeline and task management, and an automated workflow engine. The system leverages AI for departmental advisory roles and compliance-driven communication to optimize operations, improve customer engagement, and boost sales efficiency, aiming to establish market leadership.
+The Liberty Bancard AI Business Operating System is an AI-powered platform for the merchant payment processing industry. It combines a public marketing website with advanced lead generation, an internal CRM for pipeline and task management, and an automated workflow engine. The system uses AI for departmental advisory roles and compliance-driven communication to optimize operations, improve customer engagement, and enhance sales efficiency, with the goal of achieving market leadership.
 
 ## User Preferences
 I want iterative development.
@@ -13,79 +13,54 @@ Do not make changes to the file `package-lock.json`.
 The system is built on a modern web stack, emphasizing scalability, responsiveness, and robust data management.
 
 ### UI/UX Decisions
-The frontend utilizes React with Vite, TypeScript, Tailwind CSS, and shadcn/ui for a responsive user interface. `wouter` is used for routing and `react-helmet-async` for SEO management. The design incorporates specific color schemes and templates for a professional and intuitive user experience. Key features include a public marketing website, a terminal shop, legal and compliance pages, and CRM dashboards.
+The frontend uses React with Vite, TypeScript, Tailwind CSS, and shadcn/ui for a responsive user interface. `wouter` is used for routing and `react-helmet-async` for SEO. The design incorporates specific color schemes and templates for a professional and intuitive user experience, including a public marketing website, a terminal shop, legal/compliance pages, and CRM dashboards.
 
 ### Technical Implementations
-- **Backend**: Express.js with TypeScript for API services.
+- **Backend**: Express.js with TypeScript.
 - **Database**: PostgreSQL with Drizzle ORM.
-- **Authentication**: Custom email/password authentication featuring session-based auth (passport-local + bcryptjs), email verification, password recovery, and role-based access control.
-- **AI Integration**: OpenAI powers department-specific AI advisors, lead enrichment and scoring, deal blueprint generation, and compliance-safe AI auto-replies.
+- **Authentication**: Custom email/password authentication with session-based auth (passport-local + bcryptjs), email verification, password recovery, and role-based access control.
+- **AI Integration**: OpenAI powers AI advisors, lead enrichment, deal blueprint generation, and compliance-safe auto-replies.
 - **External Communications**: GoHighLevel (GHL) is integrated for SMS, email, calendar management, and document e-signature.
-- **Analytics & Tracking**: GA4 and Facebook Pixel for comprehensive analytics, conversion tracking, and UTM parameter capture.
+- **Analytics & Tracking**: GA4 and Facebook Pixel for analytics, conversion tracking, and UTM parameter capture.
 - **Promo System**: Dynamic promotion display and tracking with end-to-end code persistence from URL to CRM.
-- **Lead Management**: Features AI-powered prospect enrichment, multi-step personalized email campaigns, lead scoring, and deal blueprint generation. Includes a universal CSV import pipeline with auto-detection, deduplication, vertical classification, and lead scoring.
-- **Sales Workflow**: A gated sales call follow-up system generates personalized email and SMS drafts via AI.
-- **Workflow Automation**: A centralized engine executes various actions triggered by events, with SLA enforcement.
+- **Lead Management**: AI-powered prospect enrichment, multi-step personalized email campaigns, lead scoring, deal blueprint generation, and a universal CSV import pipeline with auto-detection, deduplication, and vertical classification.
+- **Sales Workflow**: Gated sales call follow-up system generates personalized email and SMS drafts via AI.
+- **Workflow Automation**: Centralized engine for various actions triggered by events, with SLA enforcement.
 - **Profit Instrumentation**: Integrates merchant tier, risk, health scores, and profit estimates into deal management.
-- **Statement Review & Proposals**: AI-powered analysis generates multi-plan pricing proposals and automates proposal delivery.
-- **Merchant Application & Portal**: A multi-step merchant application wizard with e-signature and a self-service portal for account management.
-- **Outreach & Enrichment**: An Outreach Command Center manages automated sales lifecycles, including Sunbiz entity imports, AI enrichment/classification, lead scoring, and daily automated outreach. The enrichment pipeline includes deep enrichment with Serper.dev integration for email/phone/website discovery.
-- **AI SDR Pipeline**: An autonomous lead development system with a 24-stage pipeline, GHL sync, and two-way webhook integration for real-time updates and compliance.
+- **Statement Review & Proposals**: AI-powered analysis generates multi-plan pricing proposals and automates delivery.
+- **Merchant Application & Portal**: Multi-step merchant application wizard with e-signature and a self-service portal.
+- **Outreach & Enrichment**: Outreach Command Center manages automated sales lifecycles, including Sunbiz entity imports, AI enrichment/classification, lead scoring, and daily automated outreach. Deep enrichment includes Serper.dev integration.
+- **AI SDR Pipeline**: Autonomous lead development system with a 24-stage pipeline, GHL sync, and two-way webhook integration for real-time updates and compliance.
 - **Affiliate Program**: Public signup with referral codes, cookie-based attribution, performance tracking, tiered commissions, and an admin dashboard.
 - **Conversion Optimization**: A/B testing framework, enhanced thank-you pages with calendar booking links, and detailed GA4 tracking.
 
 ### Feature Specifications
-- **Public Website**: Marketing pages, conversion forms (quiz, statement upload, estimate), legal pages, and hidden sales enablement content, all SEO-optimized and compliant. Includes SEO infrastructure, dynamic XML sitemap, industry-specific landing pages, blog, savings calculator, rate comparison tool, Help Center, AI-optimized FAQ, Why Liberty Bancard page, Case Studies, and competitor comparison pages.
-- **Terminal Shop**: Public e-commerce checkout for 6 terminals, managing browse, detail, cart, and checkout flows. Orders create CRM contact, deal, and equipment_orders records. Promo codes captured from URL and stored on records.
-- **Confirmation SMS**: All public form submissions (quiz, get-started, statement upload, callback, equipment order, support) send an automated confirmation SMS via GHL asking if a team member can call now (during business hours 9-5 EST) or during the next business hours window. SMS respects consent flags and includes STOP opt-out language.
-- **Hidden Sales Enablement Pages**: Noindexed pages for equipment catalog, processing cost quiz, and industry/angle one-pagers.
-- **SEO & Content Marketing**: Schema.org structured data across public pages. Blog with category filtering, search, and pagination. Help Center with search and structured data.
-- **Legal & Compliance Pages**: 22 legal/consent pages covering privacy, terms, e-sign, SMS, TCPA, surcharging, and regulatory notices.
-- **CRM Dashboard**: Modules for contact, sales pipeline (Kanban), support tickets (with auto-acknowledgment, status change notifications, and quick reply templates), task management, notifications, and KPI digests. Notification system covers all key events (contact created, deal stage changed, deal closed won, ticket created/updated, task assigned, SLA breach, sequence completed, hot lead). Email notifications for critical events (hot leads, closed won, SLA breaches) sent via GHL. Automated daily digest (8 AM EST) and weekly KPI digest (Monday 9 AM EST) with in-app notifications and email delivery. Notification preferences UI with per-event in-app/email toggles and digest opt-in/out controls. Manual trigger endpoints: `POST /api/analytics/daily-digest`, `POST /api/analytics/weekly-digest`.
-- **Sales Call Follow-Up System** (`/dashboard/call-outcome`): Gated follow-up workflow — log call outcome, paste Fireflies/meeting recap, AI generates personalized email + SMS drafts using OpenAI, agent reviews/edits before approving send via GHL. Outcomes auto-update deal stage, create follow-up tasks, and enroll in outcome-specific sequences. Endpoints: `POST /api/call-follow-ups/generate` and `POST /api/call-follow-ups/send`. 25 total drip sequences including 4 call-specific: Post-Call Review Follow-Up, Proposal Follow-Up, No-Show Reschedule, Long-Term Nurture.
+- **Public Website**: Marketing pages, conversion forms (quiz, statement upload, estimate), legal pages, and hidden sales enablement content, all SEO-optimized. Includes SEO infrastructure, dynamic XML sitemap, industry-specific landing pages, blog, savings calculator, rate comparison tool, Help Center, AI-optimized FAQ, and case studies.
+- **Terminal Shop**: Public e-commerce checkout for 6 terminals, managing browse, detail, cart, and checkout flows.
+- **Confirmation SMS**: Automated SMS via GHL for all public form submissions.
+- **CRM Dashboard**: Modules for contact, sales pipeline (Kanban), support tickets, task management, notifications, and KPI digests.
+- **Sales Call Follow-Up System**: Gated workflow for logging call outcomes, AI-generated personalized email/SMS drafts, and automatic deal stage updates.
 - **AI Advisors**: Seven specialized AI advisors (Sales, Support, Onboarding, Marketing, Finance, Compliance, Executive).
-- **Workflow Automation**: Centralized workflow execution engine with various action types, triggered by events, and SLA enforcement.
-- **Profit Instrumentation**: Integrates merchant tier, risk, health score, average ticket, and estimated profit into deals, including a volume estimation engine.
-- **Free Analysis Quiz Landing Page**: High-conversion 5-step quiz optimized for ads and affiliate sharing, providing personalized savings estimates. Integrates with CRM for contact/deal creation, lead scoring, and automated follow-ups.
-- **Analytics & Ad Tracking**: GA4 (via `VITE_GA4_MEASUREMENT_ID` or `VITE_GA_ID`) and Facebook Pixel (`VITE_FB_PIXEL_ID`) tracking on all pages via auto page view tracking on route changes. Conversion events fire for: quiz start, quiz step completion (per-step with step name), quiz completion, statement upload, form submission, calendar booking, equipment order, merchant application, affiliate signup, estimate request. UTM parameters captured from URL on landing, persisted in sessionStorage, and passed through all form submissions to be stored on contact (utmSource/utmMedium/utmCampaign/utmContent/utmTerm/landingPage) and deal (leadSource/campaignName) records. CRM Overview dashboard shows real-time KPIs including today's leads, weekly trend, conversion funnel, top lead sources, pipeline value, and win rate. Weekly KPI digest endpoint at `POST /api/analytics/weekly-digest`. Analytics API endpoints: `/api/analytics/lead-sources`, `/api/analytics/conversion-funnel`, `/api/analytics/daily-leads`.
-- **Promo System**: Three promo offers (Free Terminal, Free Processing qualification via cash discount/surcharge program, Waived Setup Fee) with countdown timers, displayed on quiz landing and terminal shop. Promo codes are tracked end-to-end: captured from URL params (`?promo=FREE30`), persisted to localStorage, passed through quiz submission, stored on both contact (`promo_code`) and deal (`promo_code`) records, tagged in contact tags array, included in deal notes, and surfaced in sales notifications.
-- **Enhanced Email Signatures**: Includes CTA buttons and affiliate tracking for marketing purposes.
-- **Lead Generation & Qualification**: Bulk CSV import, AI-powered prospect enrichment, multi-step AI-personalized email campaigns, AI lead scoring, AI deal blueprint generation, and document readiness tracking. Contacts table extended with title, address, city, state, website, linkedinUrl, facebookUrl, industry, leadSource, employeeCount, annualRevenue columns.
-- **Lead File Imports**: 152,805 total contacts from 8 files (Google Maps scraper CSV/XLSX, 43K lead file, 100K lead file, CC Leads June, CC Leads Automotive, 26K Brands). Auto-classified into 20+ verticals. Import scripts: `server/scripts/import-leads.ts`, `server/scripts/import-100k-leads.ts`. Sources tracked via `lead_source` column. 10,325 cross-file duplicates removed by email.
-- **CSV Import Pipeline**: Universal drag-and-drop CSV import at `/api/leads/import-csv` that auto-detects Google Maps Outscraper, Apollo/lead list, and custom CSV formats. Deduplicates against existing contacts by email, phone, and company name. Auto-classifies verticals, scores leads via lead-scoring service, and creates deals for hot leads. Import history tracked in `csv_imports` table with source, date, row counts, dedup stats, vertical breakdown, and lead temperature. Dashboard at `/dashboard/lead-imports` with KPI cards, vertical distribution chart, import history table with expandable details, and Outscraper search reference for FL hot verticals.
-- **Lead Command Center**: Unified dashboard for managing lead enrichment, qualified pipeline, and intelligence, with mass actions and detailed views.
-- **Statement Review & Savings Proposals**: AI-powered analysis for multi-plan pricing proposals with savings calculations. Automated pipeline: statement upload triggers AI parsing, generates Interchange-Plus/Cash Discount/Flat Rate proposals, auto-emails branded proposal to merchant via GHL, notifies rep with briefing/talking points. Proposals viewable at public `/proposal/:token` URLs. Auto-send toggle in Automation settings. Manual override: reps can review and send proposals from Statement Review dashboard.
+- **Free Analysis Quiz Landing Page**: High-conversion 5-step quiz providing personalized savings estimates, integrated with CRM.
+- **Analytics & Ad Tracking**: GA4 and Facebook Pixel tracking with conversion events for key user actions. UTM parameters are captured and persisted.
+- **Promo System**: Three promo offers (Free Terminal, Free Processing, Waived Setup Fee) with countdown timers, tracked end-to-end.
+- **Lead Generation & Qualification**: Bulk CSV import, AI-powered enrichment, multi-step email campaigns, AI lead scoring, AI deal blueprint generation, and document readiness tracking.
+- **CSV Import Pipeline**: Universal drag-and-drop CSV import with auto-detection, deduplication, vertical classification, lead scoring, and import history tracking.
+- **Statement Review & Savings Proposals**: AI-powered analysis for multi-plan pricing proposals, automated email delivery via GHL, and manual override options.
 - **Multi-Step Merchant Application**: Public 6-step wizard for merchant signup, including e-signature via GHL.
-- **Merchant Self-Service Portal**: Dashboard for merchants to view account status, onboarding progress, documents, and support tickets.
-- **Compliance Rules**: Adherence to regulatory guidelines, including explicit disclaimers and PCI compliance features.
-- **Outreach Command Center**: Full pipeline dashboard for managing the automated sales lifecycle, including Sunbiz entity import, AI enrichment/classification, lead scoring, deal creation, GHL sync, and daily automated outreach.
-- **Sunbiz Data Imports**: Streamed processing of large Sunbiz corporate databases (corevt and cordata) for entity enrichment, with efficient bulk upsert mechanisms.
-- **Enhanced Enrichment Pipeline**: 909K active FL businesses organized by vertical. Pure-SQL keyword classification (183K into 15 verticals), 88K unqualified filtered out, 308K cold for AI reclassification. Deep enrichment with self-healing (timeout/retry per step) finds email/phone/website via Serper.dev API (primary) with YellowPages/Yelp/contact page scraping as fallback. API endpoints: `/api/sunbiz/enrichment-dashboard`, `/api/sunbiz/run-pipeline`, `/api/sunbiz/bulk-ai-classify`, `/api/sunbiz/deep-enrich/:id`, `/api/sunbiz/deduplicate`, `/api/sunbiz/verticals`.
-- **Serper.dev Integration**: Search API client (`server/services/serper.ts`) replaces raw Google scraping (which gets CAPTCHA'd). Functions: `searchBusiness()`, `searchBusinessEmail()`, `searchBusinessContacts()` with rate limiting (10 req/sec), usage tracking, and graceful fallback to raw Google when SERPER_API_KEY is not set. Usage tracked in system settings and displayed on enrichment dashboard. API endpoints: `/api/serper/status`, `/api/serper/reset-usage`.
-- **Contact Batch Enrichment**: Endpoint `/api/contacts/enrich-batch` enriches imported contacts missing email/phone using Serper search. Progress tracking via `/api/contacts/enrich-progress`.
-- **2-Way GHL Sync**: Bidirectional synchronization of contacts and deals with GoHighLevel.
-- **AI SDR Pipeline**: Autonomous lead development system with 6 dedicated tables (sdr_merchants, sdr_merchant_contacts, sdr_lead_state, sdr_lead_events, sdr_channel_attempts, sdr_compliance_state). 24-stage canonical pipeline from DISCOVERED to DEAD. GHL API client (`server/services/sdr/ghl-client.ts`) with private integration token auth, rate limiting (100 req/min), and retry on 429. Auto-bootstraps 12 custom fields and 9 tags on first GHL sync. Bidirectional webhook receiver at `/api/webhooks/ghl/*` for contact updates, messages, calls, appointments, and opt-outs with raw body HMAC-SHA256 signature verification (fail-closed in production). Zod schema validation on all webhook payloads. GHL sync rules auto-update custom fields on every lead_state mutation via storage layer hooks (stage changes sync lb_current_stage, score changes sync lb_fit_score/lb_revenue_score/lb_reachability_score/lb_priority_score). Tags: LB-AI-SDR, LB-HUMAN-HANDOFF, etc. SDR dashboard at `/dashboard/sdr` with summary cards, funnel visualization, stuck leads, and channel health tabs. Health check at `GET /health`. Admin endpoints: `POST /api/sdr/bootstrap-ghl`, `POST /api/sdr/sync-lead-state/:merchantId`. Dashboard API: `/api/sdr/dashboard/summary`, `/funnel`, `/stuck-leads`, `/activity`. Env vars: `GHL_PRIVATE_INTEGRATION_TOKEN` (required, private integration token), `GHL_LOCATION_ID` (required, GHL sub-account ID), `GHL_BASE_URL` (optional, default: https://services.leadconnectorhq.com), `GHL_WEBHOOK_SECRET` (required in production for HMAC verification, optional in dev). Schema includes qualificationTier, boardingProbability (real), nextActionType, nextActionPayload (jsonb), lastTouchAt fields on sdr_lead_state.
-- **Daily Outreach Automation**: Background worker for continuous enrichment, promotion of qualified leads, deal creation, GHL syncing, and automated campaign messages with daily limits.
-- **AI SDR Pipeline Brain**: Autonomous sales development engine with 4-dimension scoring (fit, revenue, reachability, priority), orchestrator sweep every 5 minutes processing leads through pipeline stages (DISCOVERED→ENRICHED→CLASSIFIED→QUALIFIED→OUTREACH_EMAIL→OUTREACH_SMS→OUTREACH_CALL→ENGAGED→MEETING_SET etc.), AI-personalized email/SMS outreach via GHL, channel escalation (email 3x → SMS 2x → call 3x → nurture), daily limits (200 emails, 100 SMS, 50 calls), quiet hours enforcement, and contact bridge for importing existing contacts. Schema: `sdr_lead_state`, `sdr_lead_events`, `sdr_channel_attempts`. Services: `server/services/sdr/scoring.ts`, `server/services/sdr/orchestrator.ts`, `server/services/sdr/stage-rules.ts`. API: `/api/sdr/dashboard`, `/api/sdr/leads`, `/api/sdr/orchestrator/*`, `/api/sdr/bridge-contacts`, `/api/sdr/daily-limits`.
-- **Affiliate / Sales Team Program**: Public signup for sales reps with optional email/password login, unique referral codes, 30-day cookie-based attribution, performance tracking, affiliate leaderboard, tiered commission rates, monthly payout reports, pre-built marketing materials library, and an admin dashboard with commission tier management.
-- **Conversion Optimization**: A/B testing framework on WelcomePopup (quiz vs upload variant, persisted in localStorage `lb_welcome_variant`, tracked via GA4). Enhanced thank-you pages (/thanks-statement, /thanks-estimate, /thanks-call) with GHL calendar booking links (`VITE_GHL_CALENDAR_URL`), "What Happens Next" timelines, merchant testimonials, and social proof sections. Auto-proposal generation on statement upload via OpenAI with deterministic fallback, consent-gated email sending, and rate limiting. Quiz step-by-step GA4 analytics tracking (`trackQuizStep`, `trackFormSubmission`, `trackCalendarBooking` in tracking.ts). Encouragement messages on quiz steps 3-5.
-- **Additional Modules**: Features for residual revenue, agent management, merchant health, competitive tracking, partner programs, knowledge base, testimonial requests, onboarding tracking, equipment order management, calendar booking, revenue forecasting, analytics, quota tracking, CSV export, bulk messaging, document storage, activity timeline, welcome notifications, and data retention.
-
-## SDR Configuration Defaults
-- `GHL_PRIVATE_INTEGRATION_TOKEN`: Required. GHL private integration API token.
-- `GHL_LOCATION_ID`: Required. GHL sub-account/location ID.
-- `GHL_BASE_URL`: Optional. Default: `https://services.leadconnectorhq.com`.
-- `GHL_WEBHOOK_SECRET`: Required in production for HMAC-SHA256 verification. Optional in dev (fail-open).
-- Orchestrator sweep: 5 minutes (hardcoded, future env: `ORCHESTRATOR_SWEEP_MINUTES`).
-- Daily outreach limits: 50 emails, 30 SMS, 20 calls per merchant per day.
-- Max contact attempts before DEAD: 12 total across all channels.
-- Default timezone: `America/New_York` (EST).
-- Rate limit: 100 GHL API requests per minute.
+- **Merchant Self-Service Portal**: Dashboard for merchants to view account status, onboarding progress, and support tickets.
+- **Compliance Rules**: Adherence to regulatory guidelines, including explicit disclaimers and PCI compliance.
+- **Outreach Command Center**: Full pipeline dashboard for managing automated sales lifecycle, including Sunbiz entity import, AI enrichment/classification, lead scoring, deal creation, and GHL sync.
+- **Enhanced Enrichment Pipeline**: Processing of Sunbiz data, SQL keyword classification, and deep enrichment via Serper.dev API and web scraping.
+- **Serper.dev Integration**: Search API client for business information discovery, with rate limiting and usage tracking.
+- **2-Way GHL Sync**: Bidirectional synchronization of contacts and deals with GoHighLevel, including custom field and tag management.
+- **AI SDR Pipeline Brain**: Autonomous sales development engine with 4-dimension scoring, orchestrator sweep for stage processing, AI-personalized email/SMS outreach via GHL, channel escalation, daily limits, and quiet hours enforcement.
+- **Affiliate / Sales Team Program**: Public signup for sales reps with referral codes, cookie-based attribution, performance tracking, tiered commissions, and marketing materials.
 
 ## External Dependencies
-- **PostgreSQL**: The primary relational database.
-- **OpenAI API**: Used for various AI functionalities including advisory, content generation, and lead processing.
-- **GoHighLevel (GHL) API**: Integrated for comprehensive communication (SMS, email), calendar scheduling, e-signatures, and bidirectional data synchronization.
-- **Serper.dev API**: Provides Google search capabilities for business information discovery and contact enrichment.
-- **Passport.js**: Utilized for authentication strategies, specifically `passport-local` with `bcryptjs`.
-- **Multer**: Employed for handling `multipart/form-data` uploads.
+- **PostgreSQL**: Primary relational database.
+- **OpenAI API**: For AI functionalities like advisory, content generation, and lead processing.
+- **GoHighLevel (GHL) API**: For communication (SMS, email), calendar scheduling, e-signatures, and data synchronization.
+- **Serper.dev API**: For Google search capabilities, business information discovery, and contact enrichment.
+- **Passport.js**: For authentication strategies (`passport-local` with `bcryptjs`).
+- **Multer**: For handling `multipart/form-data` uploads.
