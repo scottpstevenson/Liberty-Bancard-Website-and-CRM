@@ -1,0 +1,741 @@
+================================================================================
+   LIBERTY BANCARD AI BUSINESS OPERATING SYSTEM — FULL APPLICATION AUDIT
+                            Generated April 5, 2026
+================================================================================
+
+
+================================================================================
+SECTION 1: EXECUTIVE SUMMARY
+================================================================================
+
+What the App Does:
+Liberty Bancard is an AI-powered merchant payment processing acquisition
+platform. It combines a public marketing website (SEO-optimized for merchant
+services), a full CRM for sales pipeline management, and an autonomous AI SDR
+(Sales Development Representative) engine designed to find, score, contact, and
+convert merchants into payment processing customers — targeting zero manual
+intervention.
+
+Main User Types:
+  - Admin:      1 (scott@libertybancard.com) — Full system access
+  - Manager:    0 — Dashboard access, agent management
+  - Agent:      0 — Own pipeline, contacts, tasks
+  - Affiliate:  0 — Referral program, commission tracking
+  - Merchant:  18 — Merchant portal, self-service, statement uploads
+
+Core Flows:
+  1. Lead Acquisition: Sunbiz scraping -> Outscraper/Apify/Serper discovery ->
+     CSV import -> enrichment -> scoring -> SDR pipeline
+  2. Autonomous Outreach: SDR orchestrator sweep (5 min) -> email -> SMS ->
+     Voice AI (Rachel) -> channel escalation
+  3. Conversion Pipeline: Reply classification -> meeting booking -> statement
+     collection -> AI proposal generation -> human handoff -> close
+  4. Merchant Onboarding: Application wizard -> e-signature -> equipment order
+     -> go-live tracking
+  5. Public Conversion: Marketing pages -> cost quiz -> savings calculator ->
+     statement upload -> contact creation
+
+Current Maturity Level:
+INFRASTRUCTURE: 95% BUILT. ACTIVATION: 0%. The entire autonomous SDR pipeline,
+CRM, website, analytics, compliance, and AI intelligence layers are coded and
+deployed. However, no leads have been bridged into the SDR pipeline (0 SDR
+merchants, 0 businesses records), GHL credentials are not configured, and the
+orchestrator has never run a live sweep. The system is a fully assembled machine
+that has not been turned on.
+
+
+================================================================================
+SECTION 2: FEATURE INVENTORY
+================================================================================
+
+------------------------------------------------------------------------------
+2.1  PUBLIC WEBSITE
+------------------------------------------------------------------------------
+
+Feature                                        Status
+---------------------------------------------  --------
+Landing page with hero, industry cards         Working
+13 industry-specific SEO pages                 Working
+25 location-specific SEO pages                 Working
+12 blog posts (static + AI-generated)          Working
+Interactive savings calculator                 Working
+Rate comparison tool                           Working
+Competitor comparison pages (Square, Stripe)   Working
+Lead capture quiz (processing cost)            Working
+Statement upload form                          Working
+Estimate request form                          Working
+Get Started multi-step onboarding              Working
+Equipment/terminal catalog                     Working
+Terminal shop (e-commerce)                      Working
+FAQ page                                       Working
+Case studies                                   Working
+Affiliate program signup                       Working
+Help center / knowledge base                   Working
+Free analysis landing page                     Working
+Proposal viewer (token-based)                  Working
+Support form                                   Working
+Sales one-pagers                               Working
+Asset/collateral library                       Working
+Dynamic XML sitemap                            Working
+Cookie consent banner                          Working
+
+------------------------------------------------------------------------------
+2.2  LEGAL & COMPLIANCE PAGES (18 pages)
+------------------------------------------------------------------------------
+
+Privacy Policy, Terms of Service, Cookie Policy, SMS Terms, E-Sign Consent,
+TCPA Consent, California Privacy (CCPA), Do Not Sell, Data Retention, Data
+Processing Agreement, Responsible AI, Advertising Disclosure, Surcharging
+Disclosure, Testimonials Disclosure, Regulatory Notices, Accessibility
+Statement, ADA Compliance, Dispute Resolution, Refund Policy, Law Enforcement
+Guidelines, Merchant Policies
+
+------------------------------------------------------------------------------
+2.3  CRM DASHBOARD
+------------------------------------------------------------------------------
+
+Feature                                        Status
+---------------------------------------------  --------
+Overview/KPI dashboard                         Working
+Contact management (152K records)              Working
+Sales pipeline (Kanban board)                  Working
+Deal management (502 deals)                    Working
+Support tickets                                Working
+Task management                                Working
+Notification center                            Working
+Chat/messaging                                 Working
+Workflow automation builder                    Working
+Campaign management                            Working
+Sequence builder (drip campaigns)              Working
+Reporting & analytics                          Working
+Calendar/scheduling                            Working
+User management (admin only)                   Working
+Agent management                               Working
+Universal search                               Working
+Email composer                                 Working
+Document management                            Working
+CSV data export (contacts/deals/tickets)       Working
+Duplicate detection & merge                    Working
+Bulk operations (stage change, task assign)     Working
+Contact archiving/restore                      Working
+
+------------------------------------------------------------------------------
+2.4  AI SDR ENGINE (24 service files)
+------------------------------------------------------------------------------
+
+Feature                                        Status
+---------------------------------------------  --------
+6-dimension lead scoring                       Built, never run live
+  (fit/revenue/reachability/priority/
+   processor/growth)
+Orchestrator sweep (5-min, 100 leads/batch)    Built, never run live
+Email outreach via GHL                         Built, awaiting GHL creds
+SMS outreach via GHL                           Built, awaiting GHL creds
+Reply intent classification                    Built, never run live
+  (12 labels via GPT-4o-mini)
+Voice AI orchestration                         Built, needs GHL Voice AI
+  (Rachel, 6 bot modes)
+TCPA compliance engine                         Built
+Inbox rotation & deliverability                Built, 0 identities configured
+Meeting booking integration                    Built, needs GHL calendar
+Statement request/chase flow                   Built
+Proposal tracking (view/click)                 Built
+Human handoff controls                         Built
+Terminal shipping on close                     Built
+Conversation AI (6 bot contexts)               Built
+Chat message handlers                          Built
+  (SMS/email/chat threads)
+GHL webhook receiver (12 webhook types)        Built
+Canonical business identity & dedupe           Built, 0 businesses created
+Nightly lead discovery                         Built, never run
+  (Outscraper/Apify/Serper)
+Processor detection                            Built
+  (Square/Stripe/Toast/Clover)
+Ad detection (Facebook/Google ads)             Built
+Lookalike scoring model                        Built
+Re-enrichment worker (60-day cycle)            Built
+Daily funnel metrics aggregation               Built
+FL vertical playbooks                          Built
+  (Auto/Med Spa/Medical)
+
+------------------------------------------------------------------------------
+2.5  SDR DASHBOARD TABS
+------------------------------------------------------------------------------
+
+Tab                     Status
+----------------------  --------
+Summary                 Built, showing 0s (no data)
+Funnel                  Built, no data
+Stuck Leads             Built, no data
+Channel Health          Built, no data
+Chat AI Analytics       Built, no data
+Discovery               Built, no data
+Processor Intelligence  Built, no data
+
+------------------------------------------------------------------------------
+2.6  OTHER DASHBOARD FEATURES
+------------------------------------------------------------------------------
+
+Feature                                        Status
+---------------------------------------------  --------
+Sunbiz entity browser (1.9M+ entities)         Working
+Lead command center                            Working
+Outreach command center                        Working
+Merchant portal (self-service)                 Working
+Merchant application wizard                    Working
+Residual revenue tracking                      Working
+Inbox health monitoring                        Working
+Forecasting                                    Working
+Win/Loss analysis                              Working
+PCI assessment                                 Working
+GHL settings                                   Working
+Blog generator (AI)                            Working
+Consent audit trail                            Working
+Data deletion requests (GDPR)                  Working
+Onboarding kickoff                             Working
+Statement review                               Working
+
+------------------------------------------------------------------------------
+2.7  AUTHENTICATION & SECURITY
+------------------------------------------------------------------------------
+
+Feature                                        Status
+---------------------------------------------  --------
+Email/password login with bcrypt               Working
+Session-based auth (PostgreSQL, 7-day TTL)     Working
+Email verification flow                        Built
+Password reset flow                            Built
+Role-based access control (5 roles)            Working
+Admin/Manager/Agent/Affiliate/Merchant guards  Working
+Audit logging                                  Working
+GDPR data request handling                     Working
+
+------------------------------------------------------------------------------
+2.8  ANALYTICS & TRACKING
+------------------------------------------------------------------------------
+
+Feature                                        Status
+---------------------------------------------  --------
+GA4 page view & event tracking                 Built (needs env var)
+Facebook Pixel (standard + custom events)      Built (needs env var)
+UTM parameter capture                          Built
+Promo code tracking (FREE30, FREETM, NOSETUP)  Working
+
+------------------------------------------------------------------------------
+2.9  THIRD-PARTY INTEGRATIONS
+------------------------------------------------------------------------------
+
+Service          Purpose                            Status
+---------------  ---------------------------------  --------
+GoHighLevel      Email, SMS, calls, calendar,       Built, NOT CONFIGURED
+                 e-signatures, webhook sync         (missing 3 env vars)
+OpenAI           AI advisors, scoring, intent       Configured & working
+                 classification, content gen         (via Replit AI)
+Serper           Google Search enrichment            Built (needs API key)
+Outscraper       Google Maps bulk lead pulls         Built (needs API key)
+Apify            Yelp/Facebook scraping              Built (needs token)
+Sunbiz           FL business registrations           Working (1.9M+ imported)
+GA4              Website analytics                   Built (needs env var)
+Facebook Pixel   Ad conversion tracking              Built (needs env var)
+
+
+================================================================================
+SECTION 3: SCREEN / ROUTE AUDIT
+================================================================================
+
+------------------------------------------------------------------------------
+3.1  PUBLIC ROUTES
+------------------------------------------------------------------------------
+
+Path                          Component              Purpose
+----------------------------  ---------------------  -------------------------
+/                             Home                   Landing page, hero, CTA
+/login                        Login                  User authentication
+/signup                       Signup                 User registration
+/forgot-password              ForgotPassword         Password recovery
+/reset-password               ResetPassword          Set new password
+/verify-email                 VerifyEmail            Email verification
+/get-started                  GetStarted             Multi-step lead capture
+/upload-statement             UploadStatement        Statement upload form
+/0-percent-processing         ZeroPercent            Zero-percent sales page
+/beat-square-stripe           BeatSquareStripe       Competitor comparison
+/about-contact                AboutContact           Company info & contact
+/estimate                     Estimate               Pricing estimation
+/support                      Support                Support form
+/thanks-statement             ThanksStatement        Post-upload confirmation
+/thanks-estimate              ThanksEstimate         Post-estimate confirm
+/thanks-call                  ThanksCall             Post-call confirm
+/thanks-support               ThanksSupport          Post-support confirm
+/proposal/:token              ProposalViewer         View proposal by token
+/merchant-application         MerchantApplication    Formal application
+/equipment                    Equipment              Hardware catalog
+/shop                         TerminalShop           Terminal e-commerce
+/savings-calculator           SavingsCalculator      ROI calculator
+/compare-rates                RateComparison         Fee comparison table
+/compare/:competitor          CompareVs              vs specific competitor
+/why-liberty-bancard          WhyLiberty             Value proposition
+/case-studies                 CaseStudies            Success stories
+/faq                          FAQ                    FAQs
+/affiliate                    AffiliateProgram       Affiliate signup
+/blog                         Blog                   Blog index
+/blog/:slug                   BlogPost               Individual blog post
+/help                         HelpCenter             Knowledge base
+/help/:category               HelpArticle            Category listing
+/help/:category/:slug         HelpArticle            Specific article
+/free-analysis                FreeAnalysis            Free analysis landing
+/industries/:slug             IndustryPage           Industry SEO pages
+/locations/:city/:ind         LocationIndustryPage   Local SEO pages
+/assets                       AssetPage              Collateral library
+/quiz/processing-cost         CostQuiz               Lead-gen quiz
+/sales/:slug                  SalesOnePager          Sales one-pagers
+
+------------------------------------------------------------------------------
+3.2  PROTECTED DASHBOARD ROUTES (require login)
+------------------------------------------------------------------------------
+
+Path                          Component              Purpose
+----------------------------  ---------------------  -------------------------
+/dashboard                    Overview               Main KPI dashboard
+/dashboard/contacts           Contacts               CRM contact list
+/dashboard/contacts/:id       ContactDetail          Single contact view
+/dashboard/chat               Chat                   Messaging interface
+/dashboard/pipeline           Pipeline               Kanban sales pipeline
+/dashboard/onboarding         Onboarding             Merchant setup tracking
+/dashboard/tickets            Tickets                Support ticket mgmt
+/dashboard/tasks              Tasks                  Task management
+/dashboard/notifications      Notifications          Alert history
+/dashboard/workflows          Workflows              Automation builder
+/dashboard/prospects          Prospects              Lead database
+/dashboard/campaigns          Campaigns              Campaign management
+/dashboard/reporting          Reporting              Business intelligence
+/dashboard/sdr                SdrDashboard           SDR operations center
+/dashboard/lead-engine        LeadEngine             AI lead generation
+/dashboard/merchant-portal    MerchantPortal         Merchant self-service
+/dashboard/residual-rev       ResidualRevenue         Commission tracking
+/dashboard/calendar           Calendar               Scheduling
+/dashboard/user-mgmt          UserManagement         User admin
+/dashboard/inbox-health       InboxHealth            Email deliverability
+
+------------------------------------------------------------------------------
+3.3  LEGAL PAGES
+------------------------------------------------------------------------------
+
+/privacy-policy, /terms, /cookie-policy, /sms-terms, /esign-consent,
+/tcpa-consent, /california-privacy, /do-not-sell, /data-retention,
+/data-processing-agreement, /responsible-ai, /advertising-disclosure,
+/surcharging-disclosure, /testimonials-disclosure, /regulatory-notices,
+/accessibility, /ada-compliance, /dispute-resolution, /refund-policy,
+/law-enforcement, /merchant-policies
+
+------------------------------------------------------------------------------
+3.4  SYSTEM PAGES
+------------------------------------------------------------------------------
+
+404 Not Found page (not-found.tsx)
+Dashboard layout wrapper (DashboardLayout.tsx)
+
+
+================================================================================
+SECTION 4: DESIGN AUDIT
+================================================================================
+
+------------------------------------------------------------------------------
+4.1  COLORS
+------------------------------------------------------------------------------
+
+Token                  Value                      Usage
+---------------------  -------------------------  --------------------------
+Primary                hsl(222 47% 11%)           Deep Navy — headers, btns
+Accent                 hsl(221 83% 53%)           Trust Blue — links, highlights
+Background             hsl(210 40% 98%)           Light blue-gray page bg
+Card                   hsl(0 0% 100%)             White card surfaces
+Destructive            hsl(0 84.2% 60.2%)         Red — errors, delete
+Muted                  hsl(210 40% 96.1%)         Subtle backgrounds
+Border                 hsl(214.3 31.8% 91.4%)     Borders, dividers
+
+Dark mode fully configured with inverted color values.
+Status colors: Online (green), Away (amber), Busy (red), Offline (gray)
+Chart colors: 5 CSS variables (--chart-1 through --chart-5)
+
+------------------------------------------------------------------------------
+4.2  TYPOGRAPHY
+------------------------------------------------------------------------------
+
+Display font:  Outfit (headers) — weights 400, 500, 600, 700, 800
+Body font:     DM Sans (body text) — weights 400, 500, 600, 700
+Loaded via Google Fonts import in index.css
+CSS variables: --font-display, --font-body
+
+------------------------------------------------------------------------------
+4.3  COMPONENT LIBRARY
+------------------------------------------------------------------------------
+
+- UI Framework:      shadcn/ui (Radix-based headless components)
+- Icons:             lucide-react (action icons), react-icons/si (brand logos)
+- Animations:        tailwindcss-animate plugin
+- Typography plugin: @tailwindcss/typography for prose/blog content
+- Border radius:     0.75rem default (lg: 9px, md: 6px, sm: 3px)
+- Dark mode:         Class-based toggling (darkMode: ["class"])
+
+------------------------------------------------------------------------------
+4.4  LAYOUT SYSTEM
+------------------------------------------------------------------------------
+
+- Dashboard: Sidebar navigation + main content area with dedicated sidebar
+  CSS variables (--sidebar, --sidebar-foreground, etc.)
+- Public pages: Header + content + footer
+- Responsive: Tailwind breakpoints (sm/md/lg/xl/2xl)
+- Sidebar: Fully themed with primary and accent color variants
+
+------------------------------------------------------------------------------
+4.5  POTENTIAL DESIGN ISSUES
+------------------------------------------------------------------------------
+
+1. With 50+ dashboard pages, navigation depth could overwhelm new users
+2. Many dashboard pages show empty states since no data flows through SDR
+3. No formal design system documentation — relies on shadcn defaults
+4. Responsive behavior not independently verified across all 80+ pages
+5. Some legacy pages may have inconsistent styling vs newer SDR dashboard
+
+
+================================================================================
+SECTION 5: TECHNICAL ARCHITECTURE AUDIT
+================================================================================
+
+------------------------------------------------------------------------------
+5.1  STACK OVERVIEW
+------------------------------------------------------------------------------
+
+Layer             Technology
+----------------  ----------------------------------------
+Frontend          React 18 + TypeScript + Vite
+Styling           Tailwind CSS + shadcn/ui
+Routing           wouter
+Data Fetching     @tanstack/react-query v5
+SEO               react-helmet-async
+Backend           Express.js + TypeScript
+ORM               Drizzle ORM
+Database          PostgreSQL
+Auth              Passport.js (local) + express-session
+                  + connect-pg-simple
+AI                OpenAI gpt-4o-mini (via Replit AI)
+External Comms    GoHighLevel API
+Search/Enrich     Serper, Outscraper, Apify
+
+------------------------------------------------------------------------------
+5.2  FILE ORGANIZATION
+------------------------------------------------------------------------------
+
+server/
+  routes.ts            Thin orchestrator (~60 lines)
+  routes/              21 domain-specific route modules
+    activity.ts, admin.ts, ai.ts, analytics.ts, campaigns.ts,
+    contacts.ts, crm-operations.ts, deals.ts, documents.ts,
+    helpers.ts, imports.ts, integrations.ts, merchants.ts,
+    notifications.ts, partners.ts, prospects.ts, public.ts,
+    search.ts, sdr.ts, templates-settings.ts, tickets-tasks.ts,
+    workflows.ts
+  services/
+    sdr/               24 SDR service files
+      ad-detector.ts, apify.ts, chat-handlers.ts,
+      compliance-engine.ts, conversation-ai.ts, dedupe.ts,
+      funnel-metrics.ts, ghl-client.ts, ghl-sync-rules.ts,
+      human-handoff.ts, inbox-rotation.ts, lead-finder.ts,
+      lookalike.ts, orchestrator.ts, outscraper.ts,
+      processor-detector.ts, proposal-tracking.ts,
+      re-enrichment.ts, reply-intelligence.ts, scheduling.ts,
+      scoring.ts, stage-rules.ts, statement-flow.ts,
+      terminal-shipping.ts, voice-orchestrator.ts,
+      webhook-handlers.ts
+    *.ts               Legacy services (sunbiz, campaign, etc.)
+  storage.ts           2,801 lines — single storage layer
+  db.ts                Database connection
+
+shared/
+  schema.ts            2,597 lines — all 79 table definitions
+  routes.ts            Shared route constants
+  models/              TypeScript interfaces (auth, chat)
+  blog-slugs.ts        Blog URL utilities
+
+client/src/
+  pages/               50+ public page components
+  pages/dashboard/     50+ dashboard page components
+  components/          Reusable UI + shadcn components
+  hooks/               Custom React hooks (auth, contacts, etc.)
+  lib/                 Utilities, query client, static data
+
+------------------------------------------------------------------------------
+5.3  DATABASE
+------------------------------------------------------------------------------
+
+Total tables:     79
+Schema file:      shared/schema.ts (2,597 lines)
+ORM:              Drizzle with PostgreSQL
+Migrations:       Managed via drizzle-kit push
+
+Key table groups:
+  - CRM Core:     users, contacts, companies, deals
+  - SDR Engine:   sdr_merchants, sdr_lead_state, sdr_lead_events,
+                  sdr_channel_attempts, sdr_merchant_contacts,
+                  sdr_compliance_state
+  - Business ID:  businesses, business_aliases, business_locations,
+                  lead_sources, enrichment_runs
+  - Inbox Mgmt:   sending_identities, identity_performance_daily,
+                  domain_business_log
+  - Intelligence: processor_signals, ad_signals, daily_funnel_metrics,
+                  lead_discovery_jobs, lead_discovery_results
+  - Lead Import:  sunbiz_entities, prospects, prospect_lists
+  - Comms:        conversations, messages, message_templates,
+                  outbound_messages, email_logs, call_logs
+  - Operations:   merchant_applications, merchant_profiles,
+                  equipment_orders, onboarding_steps
+  - Support:      tickets, ticket_comments, tasks, notifications
+  - Revenue:      residual_reports, merchant_residuals, agents,
+                  agent_quotas, commission_tiers
+  - Automation:   workflows, workflow_runs, campaigns, campaign_steps,
+                  follow_up_sequences, sequence_enrollments
+  - Compliance:   consent_audit_logs, data_delete_requests, audit_logs
+
+------------------------------------------------------------------------------
+5.4  API STRUCTURE
+------------------------------------------------------------------------------
+
+Total endpoints:  ~440
+Route modules:    21 files under server/routes/
+Auth middleware:   isAuthenticated, isAdmin, isAffiliate, isDashboardUser
+
+Major API groups:
+  /api/contacts/*           CRM contact CRUD
+  /api/deals/*              Sales pipeline management
+  /api/tickets/*            Support ticket system
+  /api/tasks/*              Task management
+  /api/campaigns/*          Campaign/sequence management
+  /api/sdr/*                SDR operations & dashboard
+  /api/webhooks/ghl/*       GHL webhook receivers (12 types)
+  /api/ai/*                 AI services (chat, compose, classify)
+  /api/ghl/*                GHL integration management
+  /api/admin/*              User/system administration
+  /api/public/*             Public form submissions
+  /api/analytics/*          KPIs and reporting
+  /api/sunbiz/*             Sunbiz entity management
+  /api/prospects/*          Prospect/enrichment management
+
+------------------------------------------------------------------------------
+5.5  AUTH / ROLES / PERMISSIONS
+------------------------------------------------------------------------------
+
+Auth method:      Email/password with Passport.js local strategy
+Password hashing: bcrypt (12 salt rounds)
+Sessions:         PostgreSQL-backed (connect-pg-simple), 7-day TTL
+Cookies:          httpOnly: true, secure in production
+
+Roles:            admin, manager, agent, affiliate, merchant
+Middleware:       isAuthenticated, isAdmin, isDashboardUser, isAffiliate
+
+Admin seed:       scott@libertybancard.com / miami33137!
+                  (hardcoded in setupAuth)
+
+Features:
+  - Email verification (token-based)
+  - Password reset flow (secure tokens)
+  - Audit logging on signup
+  - GDPR data request handling
+
+------------------------------------------------------------------------------
+5.6  TECHNICAL DEBT
+------------------------------------------------------------------------------
+
+1. storage.ts (2,801 lines) — Single file handles all CRUD for 79 tables.
+   Should be split into domain-specific storage modules.
+
+2. schema.ts (2,597 lines) — All 79 table definitions in one file.
+   Could be organized into domain modules.
+
+3. Dual lead systems — Old prospect/contact system and new SDR
+   merchant/business system coexist with overlapping data models.
+   No clear migration/deprecation path.
+
+4. Legacy Sunbiz services — sunbiz-scraper.ts (1,014 lines),
+   sunbiz-enrichment.ts (1,496 lines), sunbiz-cron.ts, daily-outreach.ts
+   (792 lines) feed the OLD prospect system, not the new SDR pipeline.
+
+5. Multiple outreach engines — Old campaign-engine.ts + sequence-worker.ts
+   + daily-outreach.ts coexist alongside the new SDR orchestrator.ts.
+   Risk of conflicting sends when both systems are active.
+
+6. No Redis/caching — All state in PostgreSQL, including sessions.
+   May need caching for large dataset queries at scale.
+
+
+================================================================================
+SECTION 6: QA / RISK AUDIT
+================================================================================
+
+------------------------------------------------------------------------------
+6.1  CRITICAL BLOCKERS (system cannot operate)
+------------------------------------------------------------------------------
+
+1. GHL NOT CONNECTED — Missing GHL_PRIVATE_INTEGRATION_TOKEN,
+   GHL_LOCATION_ID, GHL_WEBHOOK_SECRET. Without these, zero emails,
+   SMS, or calls can be sent.
+
+2. SDR PIPELINE EMPTY — 0 SDR merchants, 0 businesses. The 152K contacts
+   and 78K enriched Sunbiz entities have never been bridged into the SDR
+   pipeline.
+
+3. NO SENDING IDENTITIES — Inbox rotation has 0 inboxes configured. No
+   cold outreach domains set up.
+
+4. ORCHESTRATOR NEVER STARTED — The 5-minute sweep loop has never been
+   activated.
+
+------------------------------------------------------------------------------
+6.2  MISSING ENVIRONMENT VARIABLES
+------------------------------------------------------------------------------
+
+Variable                       Purpose                     Status
+-----------------------------  --------------------------  ----------
+GHL_PRIVATE_INTEGRATION_TOKEN  GHL API access              NOT SET
+GHL_LOCATION_ID                GHL subaccount              NOT SET
+GHL_WEBHOOK_SECRET             Webhook verification        NOT SET
+SERPER_API_KEY                 Google Search enrichment    NOT SET
+VITE_GA4_MEASUREMENT_ID        GA4 analytics              NOT SET
+VITE_FB_PIXEL_ID               Facebook Pixel             NOT SET
+ADMIN_DIGEST_EMAIL             Daily digest recipient     NOT SET
+OUTSCRAPER_API_KEY             Google Maps scraping        NOT SET
+APIFY_TOKEN                    Yelp/Facebook scraping     NOT SET
+VITE_GHL_CHAT_WIDGET_ID        GHL chat widget            NOT SET
+
+------------------------------------------------------------------------------
+6.3  SECURITY NOTES
+------------------------------------------------------------------------------
+
+- Passwords hashed with bcrypt (12 rounds) — good
+- Sessions in PostgreSQL with httpOnly cookies — good
+- Role-based middleware on protected routes — good
+- TCPA compliance engine with audit trails — good
+- Consent logging for SMS/email — good
+- GDPR data request handling — good
+- Webhook signature verification ready (when secret is set)
+- Admin credentials hardcoded in seed function — acceptable for single-admin
+
+------------------------------------------------------------------------------
+6.4  PERFORMANCE CONSIDERATIONS
+------------------------------------------------------------------------------
+
+- 152K contacts query could be slow — pagination exists in UI
+- 1.9M sunbiz entities — queries filtered by status/score indexes
+- SDR orchestrator: 100 leads per 5-min sweep — reasonable
+- No caching layer — all queries hit PostgreSQL directly
+- storage.ts at 2,801 lines may slow IDE/TypeScript compiler
+
+------------------------------------------------------------------------------
+6.5  DATA INTEGRITY RISKS
+------------------------------------------------------------------------------
+
+- Two parallel lead systems (old contacts + new SDR merchants) with no
+  foreign key relationship between them. Risk of duplicate outreach if
+  both systems are active simultaneously.
+- Sunbiz entities scored as hot/warm in old system may score differently
+  in new 6-dimension SDR scoring model.
+- No automated cleanup for stale data (abandoned sessions, old audit logs).
+
+
+================================================================================
+SECTION 7: PRIORITIZED RECOMMENDATIONS / MASTER ROADMAP
+================================================================================
+
+------------------------------------------------------------------------------
+P0: CRITICAL — Do These Before Anything Else (Day 1)
+------------------------------------------------------------------------------
+
+1. SET GHL CREDENTIALS
+   Set GHL_PRIVATE_INTEGRATION_TOKEN, GHL_LOCATION_ID, GHL_WEBHOOK_SECRET.
+   This unblocks the entire outreach machine.
+
+2. BRIDGE CONTACTS INTO SDR PIPELINE
+   Run the contact-to-business bridge to move 152K contacts into the
+   canonical businesses table and create SDR merchants. The code exists
+   (dedupe.ts -> ingestBusinessFromContact).
+
+3. BRIDGE SUNBIZ LEADS
+   Move the 78K enriched hot/warm Sunbiz entities into the SDR pipeline.
+
+4. CONFIGURE SENDING IDENTITY
+   Add at least 1 inbox to the rotation system so emails can send.
+
+5. START THE ORCHESTRATOR
+   Hit /api/sdr/orchestrator/start and monitor the first sweep.
+
+------------------------------------------------------------------------------
+P1: QUICK WINS (Week 1)
+------------------------------------------------------------------------------
+
+6. Set analytics env vars (GA4 + Facebook Pixel)
+7. Set SERPER_API_KEY for enrichment
+8. Configure GHL webhooks to point to /api/webhooks/ghl/* endpoints
+9. Bootstrap GHL custom fields via /api/sdr/bootstrap-ghl
+10. Monitor first 100 outreach attempts (bounce rates, replies)
+
+------------------------------------------------------------------------------
+P2: MEDIUM EFFORT (Weeks 2-4)
+------------------------------------------------------------------------------
+
+11. Set up cold outreach domains (libertypayments.co, etc.) and add as
+    sending identities with warmup scheduling.
+12. Configure GHL Voice AI (Rachel bot with vertical playbook scripts)
+13. Configure GHL calendar for meeting booking flow
+14. Split storage.ts into domain-specific modules
+15. Consolidate outreach engines — deprecate old campaign-engine/
+    sequence-worker/daily-outreach in favor of SDR orchestrator
+16. Set up Outscraper/Apify API keys for nightly lead discovery
+
+------------------------------------------------------------------------------
+P3: MAJOR IMPROVEMENTS (Month 2+)
+------------------------------------------------------------------------------
+
+17. Deprecate legacy Sunbiz pipeline — redirect to canonical businesses
+18. Split schema.ts into domain modules
+19. Add monitoring/alerting (health checks, error alerts, daily reports)
+20. Build DBPR license scraper (FL professional licenses — free, high quality)
+21. Performance optimization (Redis caching, query optimization)
+22. Comprehensive end-to-end testing for critical flows
+
+------------------------------------------------------------------------------
+EXECUTION ORDER
+------------------------------------------------------------------------------
+
+Day 1:      P0 items 1-5 (activate the machine)
+Week 1:     P1 items 6-10 (instrument and monitor)
+Weeks 2-4:  P2 items 11-16 (scale and clean up)
+Month 2+:   P3 items 17-22 (optimize and expand)
+
+
+================================================================================
+SECTION 8: SCALE & COMPLEXITY METRICS
+================================================================================
+
+Metric                              Count
+----------------------------------  --------
+Total database tables               79
+Schema definition (schema.ts)       2,597 lines
+Storage layer (storage.ts)          2,801 lines
+API route modules                   21 files
+Total API endpoints                 ~440
+SDR service files                   24
+Dashboard page components           50+
+Public page components              50+
+Legal/compliance pages              18
+Total frontend routes               80+
+Total users                         19
+Total contacts                      152,917
+Total deals                         502
+Total Sunbiz entities               ~1,920,000
+SDR merchants (active pipeline)     0
+Canonical businesses                0
+Sending identities                  0
+Tasks completed (build)             24 of 29
+
+================================================================================
+                              END OF AUDIT
+================================================================================

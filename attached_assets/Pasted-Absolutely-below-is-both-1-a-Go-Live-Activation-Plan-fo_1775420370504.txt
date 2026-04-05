@@ -1,0 +1,787 @@
+Absolutely — below is both:
+	1.	a Go-Live Activation Plan for Liberty Bancard
+	2.	a Replit Build Sheet you can hand to a developer or use yourself inside Replit
+
+⸻
+
+Liberty Bancard Go-Live Activation Plan
+
+Primary objective
+
+Activate the first live revenue loop safely:
+
+lead -> SDR outreach -> reply -> booked call -> statement request -> proposal -> close
+
+Success definition for first launch
+
+The system is considered live only when all of the below happen on real leads:
+	•	leads are bridged into businesses
+	•	sdr_merchants are created
+	•	orchestrator selects leads without duplication
+	•	at least 1 outbound email is successfully sent
+	•	replies are captured and classified
+	•	at least 1 lead is moved to human handoff or booked call
+	•	no major compliance, deliverability, or data integrity failures occur
+
+⸻
+
+Phase 0: Launch rules
+
+Before touching anything, make these rules official.
+
+System rules
+	•	New SDR pipeline is the only active outbound engine
+	•	Legacy senders must be disabled
+	•	businesses becomes canonical business entity
+	•	sdr_merchants becomes canonical SDR execution entity
+	•	First live motion is email only
+	•	First cohort is 50–100 leads max
+	•	First cohort should be one vertical, one geography
+	•	Human review required before first live send
+
+Kill switch rules
+
+Pause all outbound if any of these happen:
+	•	bounce rate exceeds 5%
+	•	complaint/unsubscribe rate spikes unexpectedly
+	•	duplicate send detected
+	•	GHL webhook failures persist
+	•	reply classification misroutes critical responses
+	•	inbox reputation drops materially
+	•	stage transition logic fails
+	•	merchants receive messages without compliant consent logic where required
+
+⸻
+
+Phase 1: Technical activation checklist
+
+A. Environment variables
+
+Set these first.
+
+Required now
+	•	GHL_PRIVATE_INTEGRATION_TOKEN
+	•	GHL_LOCATION_ID
+	•	GHL_WEBHOOK_SECRET
+	•	ADMIN_DIGEST_EMAIL
+
+Required next
+	•	SERPER_API_KEY
+	•	VITE_GA4_MEASUREMENT_ID
+	•	VITE_FB_PIXEL_ID
+
+Required later
+	•	OUTSCRAPER_API_KEY
+	•	APIFY_TOKEN
+	•	VITE_GHL_CHAT_WIDGET_ID
+
+Acceptance criteria
+	•	env vars present in Replit Secrets
+	•	app boots without missing integration warnings
+	•	GHL auth test passes
+	•	webhook signature verification test passes
+
+⸻
+
+B. GHL configuration
+
+Inside GoHighLevel, configure:
+	•	subaccount/location
+	•	email service connection
+	•	SMS capability only if being used later
+	•	custom fields used by SDR pipeline
+	•	calendar for booking flow
+	•	webhook destinations for all required event types
+
+Acceptance criteria
+	•	test outbound email succeeds
+	•	inbound reply webhook hits app
+	•	calendar booking event can be received
+	•	custom field sync works
+
+⸻
+
+C. Sending identity
+
+Set up one mailbox only for pilot.
+
+Required items
+	•	domain or subdomain for outreach
+	•	SPF
+	•	DKIM
+	•	DMARC
+	•	mailbox connected to GHL/workflow
+	•	added to sending_identities
+	•	rotation rules validated even if only one sender exists
+
+Acceptance criteria
+	•	mailbox health marked valid
+	•	test send lands in inbox
+	•	no auth failures
+	•	inbox appears in system and is selectable
+
+⸻
+
+D. Disable old outreach systems
+
+Before first send, disable:
+	•	campaign-engine.ts
+	•	sequence-worker.ts
+	•	daily-outreach.ts
+	•	any cron or worker touching legacy outreach tables
+
+Acceptance criteria
+	•	only one outbound engine can send
+	•	no scheduled legacy jobs remain active
+	•	outbound logs show single execution path
+
+⸻
+
+Phase 2: Data activation checklist
+
+A. Bridge contacts into SDR pipeline
+
+Do not bridge all 152K initially.
+
+Pilot bridge scope
+	•	50–100 high-confidence leads
+	•	one vertical
+	•	one geographic market
+	•	ideally records with best email quality and clear business identity
+
+Bridge actions
+	•	map legacy contacts to canonical businesses
+	•	create aliases and locations where needed
+	•	create sdr_merchants
+	•	initialize sdr_lead_state
+	•	preserve original source attribution
+	•	preserve consent/compliance fields where applicable
+
+Acceptance criteria
+	•	no duplicate canonical businesses for same entity
+	•	no orphan SDR merchants
+	•	lead source preserved
+	•	stage initialized correctly
+	•	records visible in SDR dashboard
+
+⸻
+
+B. Bridge Sunbiz hot/warm leads
+
+Do this only after the contact pilot works.
+
+Acceptance criteria
+	•	enriched Sunbiz leads map cleanly to businesses
+	•	dedupe rules prevent contact overlap
+	•	no duplicate sends against already-bridged contacts
+	•	source type remains traceable
+
+⸻
+
+C. Dedupe and identity QA
+
+Review:
+	•	business name normalization
+	•	DBA vs legal name aliasing
+	•	address/location matching
+	•	website/domain matching
+	•	phone/email uniqueness
+	•	existing processor signals
+	•	existing outreach history
+
+Acceptance criteria
+	•	duplicate rate acceptable
+	•	alias logic verified on sample set
+	•	no double-enrollment into orchestrator
+
+⸻
+
+Phase 3: First live outbound pilot
+
+Pilot structure
+	•	channel: email only
+	•	cohort size: 50–100
+	•	batch size: low
+	•	vertical: one only
+	•	geography: one only
+	•	sending identity: one inbox
+	•	review mode: manual approval before first send
+
+Run order
+
+Step 1: Dry run
+
+Run orchestrator without sending:
+	•	verify selection logic
+	•	inspect excluded leads
+	•	inspect scoring output
+	•	inspect stage assignment
+	•	inspect compliance gating
+
+Step 2: Live send
+
+Send first wave:
+	•	monitor send success
+	•	monitor bounce behavior
+	•	monitor webhook capture
+	•	monitor reply threading
+	•	monitor classification labels
+
+Step 3: Human follow-up verification
+
+Ensure positive replies:
+	•	create tasks or alerts
+	•	move to correct stage
+	•	book calls or request statements
+	•	do not stall in inbox/thread state
+
+⸻
+
+Phase 4: Operator dashboard for first week
+
+These are the only metrics that matter initially:
+
+Daily launch metrics
+	•	leads bridged today
+	•	leads eligible today
+	•	leads contacted today
+	•	send success rate
+	•	bounce rate
+	•	reply rate
+	•	positive-intent rate
+	•	booked-call rate
+	•	statement-request rate
+	•	human-handoff count
+	•	inbox health status
+	•	duplicate-send incidents
+	•	webhook failures
+
+Required alerting
+	•	bounce spike
+	•	send failure spike
+	•	webhook failure
+	•	duplicate detection
+	•	inbox unhealthy
+	•	classifier confidence anomaly
+	•	orchestrator stuck/no picks
+
+⸻
+
+Owners
+
+CEO / Operator
+	•	approve launch scope
+	•	approve cohort
+	•	review first live sends
+	•	own kill-switch authority
+
+Dev / Replit builder
+	•	env vars
+	•	GHL integration
+	•	sender configuration
+	•	route/webhook validation
+	•	bridge scripts
+	•	orchestrator controls
+	•	logging/alerts
+
+SDR / Sales operator
+	•	review first outbound copy
+	•	handle positive replies
+	•	confirm stage movement
+	•	confirm meeting booking and statement flow
+
+⸻
+
+Replit Build Sheet
+
+This is the practical build/ops sheet for the Liberty Bancard app inside Replit.
+
+Project name
+
+Liberty Bancard AI Business Operating System
+
+Current stack
+	•	Frontend: React 18 + TypeScript + Vite
+	•	Styling: Tailwind CSS + shadcn/ui
+	•	Backend: Express.js + TypeScript
+	•	ORM: Drizzle ORM
+	•	DB: PostgreSQL
+	•	Auth: Passport.js + express-session + connect-pg-simple
+	•	AI: OpenAI GPT-4o-mini
+	•	Integrations: GoHighLevel, Serper, Outscraper, Apify, GA4, Facebook Pixel
+
+⸻
+
+Replit environment setup
+
+1. Secrets to add in Replit
+
+Add these in Secrets immediately:
+
+DATABASE_URL=
+SESSION_SECRET=
+OPENAI_API_KEY=
+
+GHL_PRIVATE_INTEGRATION_TOKEN=
+GHL_LOCATION_ID=
+GHL_WEBHOOK_SECRET=
+
+SERPER_API_KEY=
+OUTSCRAPER_API_KEY=
+APIFY_TOKEN=
+
+VITE_GA4_MEASUREMENT_ID=
+VITE_FB_PIXEL_ID=
+VITE_GHL_CHAT_WIDGET_ID=
+
+ADMIN_DIGEST_EMAIL=
+NODE_ENV=production
+
+Minimum go-live secret set
+
+For first launch, these are mandatory:
+
+DATABASE_URL=
+SESSION_SECRET=
+OPENAI_API_KEY=
+GHL_PRIVATE_INTEGRATION_TOKEN=
+GHL_LOCATION_ID=
+GHL_WEBHOOK_SECRET=
+ADMIN_DIGEST_EMAIL=
+NODE_ENV=production
+
+
+⸻
+
+2. Replit deployment checks
+
+Confirm:
+	•	app boots from correct entrypoint
+	•	backend and frontend serve correctly in deployment
+	•	PostgreSQL instance is connected
+	•	secrets are available in deployment environment, not just workspace
+	•	scheduled jobs/loops are intentionally controlled, not auto-triggered unintentionally on boot
+
+Important
+
+The orchestrator should not auto-run on deployment until manually approved.
+
+⸻
+
+3. Build/start commands
+
+Use or confirm equivalents:
+
+npm install
+npm run build
+npm run start
+
+If Vite dev/build split exists:
+
+npm run dev
+npm run build
+npm run preview
+
+If Drizzle migrations are used through push flow:
+
+npm run db:push
+
+or equivalent configured command.
+
+⸻
+
+4. Required health checks
+
+Create or validate:
+
+App health
+	•	GET /api/health
+	•	checks server boot
+	•	checks DB connectivity
+	•	checks session store
+	•	optionally checks OpenAI connectivity
+
+Integration health
+	•	GET /api/ghl/health
+	•	verifies token/auth
+	•	verifies location access
+
+SDR health
+	•	GET /api/sdr/health
+	•	counts active sending identities
+	•	counts eligible leads
+	•	shows orchestrator status
+	•	shows recent send failures
+	•	shows webhook heartbeat
+
+⸻
+
+5. Replit operational flags
+
+Add explicit runtime flags to prevent accidental activation.
+
+Example concept:
+
+SDR_ENABLED=false
+ORCHESTRATOR_ENABLED=false
+LEGACY_OUTREACH_ENABLED=false
+VOICE_AI_ENABLED=false
+SMS_ENABLED=false
+NIGHTLY_DISCOVERY_ENABLED=false
+
+Recommended launch progression
+
+Initial:
+
+SDR_ENABLED=true
+ORCHESTRATOR_ENABLED=false
+LEGACY_OUTREACH_ENABLED=false
+VOICE_AI_ENABLED=false
+SMS_ENABLED=false
+NIGHTLY_DISCOVERY_ENABLED=false
+
+First pilot:
+
+SDR_ENABLED=true
+ORCHESTRATOR_ENABLED=true
+LEGACY_OUTREACH_ENABLED=false
+VOICE_AI_ENABLED=false
+SMS_ENABLED=false
+NIGHTLY_DISCOVERY_ENABLED=false
+
+
+⸻
+
+6. Database go-live checklist
+
+Before first pilot, verify these tables behave correctly:
+
+Core
+	•	users
+	•	contacts
+	•	companies
+	•	deals
+
+SDR
+	•	businesses
+	•	business_aliases
+	•	business_locations
+	•	sdr_merchants
+	•	sdr_lead_state
+	•	sdr_lead_events
+	•	sdr_channel_attempts
+	•	sdr_compliance_state
+
+Outreach
+	•	sending_identities
+	•	outbound_messages
+	•	email_logs
+	•	conversations
+	•	messages
+
+Intelligence
+	•	processor_signals
+	•	ad_signals
+	•	daily_funnel_metrics
+	•	lead_discovery_jobs
+	•	lead_discovery_results
+
+Acceptance checks
+	•	foreign keys or logical associations are intact
+	•	insert/update paths work
+	•	no null/required-field failures during bridge
+	•	dashboards reflect data after insertion
+
+⸻
+
+7. Bridge script requirements
+
+Create or validate a dedicated bridge task for:
+
+A. Legacy contacts -> businesses
+
+Function:
+	•	read selected legacy contacts
+	•	resolve canonical business
+	•	create alias/location if needed
+	•	create sdr_merchant
+	•	initialize state
+	•	log bridge event
+
+B. Sunbiz enriched leads -> businesses
+
+Function:
+	•	read only eligible hot/warm leads
+	•	dedupe against bridged contacts
+	•	create canonical business
+	•	create SDR merchant/state
+	•	preserve source trail
+
+Required features
+	•	dry-run mode
+	•	limit mode
+	•	batch size control
+	•	duplicate report
+	•	rollback notes/log output
+
+Recommended controls
+
+BRIDGE_BATCH_SIZE=50
+BRIDGE_DRY_RUN=true
+
+
+⸻
+
+8. Orchestrator requirements
+
+Before launch, the orchestrator needs:
+
+Required controls
+	•	start
+	•	stop
+	•	current status
+	•	last run time
+	•	next run time
+	•	leads processed count
+	•	errors count
+	•	per-batch logs
+
+Safe launch requirements
+	•	batch limit configurable
+	•	review mode toggle
+	•	exclusion rules visible
+	•	duplicate suppression logging
+	•	channel attempt logging
+
+Recommended env
+
+ORCHESTRATOR_BATCH_SIZE=25
+ORCHESTRATOR_INTERVAL_MINUTES=5
+ORCHESTRATOR_REVIEW_MODE=true
+
+For first true live send:
+
+ORCHESTRATOR_BATCH_SIZE=10
+ORCHESTRATOR_REVIEW_MODE=false
+
+
+⸻
+
+9. GHL build sheet
+
+The GoHighLevel integration must support:
+
+Required immediately
+	•	outbound email send
+	•	inbound reply webhook
+	•	contact sync
+	•	calendar sync placeholder or active setup
+	•	custom field bootstrap
+	•	webhook signature validation
+
+Webhooks to verify
+	•	email reply
+	•	inbound conversation message
+	•	appointment booked
+	•	contact updated
+	•	opportunity/deal stage changes if used
+	•	call events later if voice is activated
+
+Must-have tests
+	•	send test email
+	•	receive reply
+	•	map reply to correct lead/business
+	•	move stage based on intent
+
+⸻
+
+10. Sending identity build sheet
+
+For each sending identity, track:
+	•	email address
+	•	domain
+	•	provider
+	•	warmup status
+	•	daily cap
+	•	health score
+	•	last send
+	•	bounce rate
+	•	complaint rate
+	•	paused flag
+
+Minimum first sender config
+	•	one real mailbox
+	•	authenticated domain
+	•	low daily cap
+	•	pause control enabled
+
+⸻
+
+11. Logging requirements
+
+In Replit, logs should clearly show:
+
+Bridge logs
+	•	input record count
+	•	created businesses
+	•	deduped businesses
+	•	created SDR merchants
+	•	skipped records
+	•	errors
+
+Orchestrator logs
+	•	run started
+	•	eligible leads found
+	•	leads selected
+	•	leads skipped with reason
+	•	sends attempted
+	•	sends successful
+	•	sends failed
+	•	run completed
+
+Webhook logs
+	•	event received
+	•	signature validation result
+	•	matched lead/business
+	•	stage change performed
+	•	failures
+
+⸻
+
+12. Admin control panel requirements
+
+Add or validate admin controls for:
+	•	test GHL connection
+	•	bootstrap GHL fields
+	•	add sending identity
+	•	pause all outbound
+	•	start/stop orchestrator
+	•	run bridge in dry-run
+	•	run bridge live with limit
+	•	inspect recent outbound attempts
+	•	inspect recent webhook events
+	•	inspect stuck leads
+
+⸻
+
+13. Replit launch sequence
+
+This is the order I’d use inside Replit.
+
+Step 1
+
+Set all secrets.
+
+Step 2
+
+Confirm DB and app boot.
+
+Step 3
+
+Run DB sync/migration.
+
+Step 4
+
+Set:
+	•	LEGACY_OUTREACH_ENABLED=false
+	•	ORCHESTRATOR_ENABLED=false
+
+Step 5
+
+Test GHL connection.
+
+Step 6
+
+Add first sending identity.
+
+Step 7
+
+Run bridge script in dry-run mode for 50 records.
+
+Step 8
+
+Inspect output and duplicates.
+
+Step 9
+
+Run bridge live for 50 records.
+
+Step 10
+
+Run orchestrator dry-run.
+
+Step 11
+
+Review chosen leads.
+
+Step 12
+
+Enable live orchestrator with tiny batch.
+
+Step 13
+
+Monitor logs and replies in real time.
+
+⸻
+
+14. Immediate backlog for developer in Replit
+
+Give this to your Replit builder as the exact next sprint.
+
+Sprint A: Go-live critical
+	•	add missing secrets
+	•	confirm GHL auth
+	•	confirm webhook verification
+	•	create first sending identity
+	•	disable legacy outreach jobs
+	•	create bridge script with dry-run
+	•	create orchestrator admin controls
+	•	create health endpoints
+	•	create global pause switch
+
+Sprint B: Pilot instrumentation
+	•	add send success dashboard
+	•	add bounce/reply monitoring
+	•	add inbox health monitoring
+	•	add recent webhook event panel
+	•	add stuck lead alerts
+	•	add admin digest email
+
+Sprint C: Scale readiness
+	•	add multiple sending identities
+	•	add nightly discovery toggles
+	•	add Serper enrichment
+	•	add calendar booking automation
+	•	add Voice AI later
+	•	add monitoring and alerting
+
+⸻
+
+15. Founder dashboard: what you should look at daily
+
+Once live, your daily founder screen should show:
+	•	active sending identities
+	•	leads queued today
+	•	emails sent today
+	•	bounce rate today
+	•	reply rate today
+	•	positive replies today
+	•	booked calls today
+	•	statement requests today
+	•	proposal count today
+	•	stuck leads needing human action
+	•	paused systems / failures
+
+⸻
+
+Final recommendation
+
+Your next goal is not “finish the app.”
+
+It is:
+
+Activate one clean outbound path in Replit, on one small lead cohort, with one mailbox, using only the new SDR system.
+
+That is the move that turns Liberty Bancard from a build into a machine.
+
+If you want, I can next turn this into a one-page founder launch checklist or a developer task board by file/module.
