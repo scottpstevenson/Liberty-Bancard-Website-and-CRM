@@ -52,6 +52,7 @@ import {
   Bot,
   Mailbox,
   Rocket as RocketIcon,
+  Activity,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -99,6 +100,7 @@ const menuItems: MenuItem[] = [
 const sdrItems: MenuItem[] = [
   { icon: RocketIcon, label: "Activation Panel", href: "/dashboard/activation", roles: ["admin"] },
   { icon: Bot, label: "AI SDR", href: "/dashboard/sdr", roles: ["admin", "manager"] },
+  { icon: Activity, label: "Operator Dashboard", href: "/dashboard/operator", roles: ["admin", "manager"] },
   { icon: Mailbox, label: "Inbox Health", href: "/dashboard/inbox-health", roles: ["admin", "manager"] },
 ];
 

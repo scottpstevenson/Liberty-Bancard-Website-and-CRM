@@ -429,6 +429,19 @@ export async function checkAndSendDigests(): Promise<void> {
 
   const lastDailyDigestDate = await storage.getSystemSetting("last_daily_digest_date");
   const lastWeeklyDigestDate = await storage.getSystemSetting("last_weekly_digest_date");
+  const lastSdrDigestDate = await storage.getSystemSetting("last_sdr_daily_digest_date");
+
+  if (estHour === 8 && lastSdrDigestDate !== todayStr) {
+    await storage.setSystemSetting("last_sdr_daily_digest_date", todayStr);
+    try {
+      const { buildSdrDailyDigest, sendSdrDailyDigest } = await import("./sdr/operator-digest");
+      const digest = await buildSdrDailyDigest();
+      await sendSdrDailyDigest(digest);
+      console.log("[Digest] SDR daily digest sent");
+    } catch (err) {
+      console.error("[Digest] SDR daily digest error:", err);
+    }
+  }
 
   if (estHour === 8 && lastDailyDigestDate !== todayStr) {
     await storage.setSystemSetting("last_daily_digest_date", todayStr);

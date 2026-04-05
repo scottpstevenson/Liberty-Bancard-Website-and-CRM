@@ -477,3 +477,240 @@ export function stopNightlyAggregation(): void {
     console.log("[FunnelMetrics] Nightly aggregation stopped");
   }
 }
+
+export async function getOperatorKpis(range: string = "today"): Promise<any> {
+  const now = new Date();
+  let startDate: string;
+  let endDate: string = getEstDateString(now);
+
+  if (range === "yesterday") {
+    const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    startDate = getEstDateString(yesterday);
+    endDate = startDate;
+  } else if (range === "7day") {
+    startDate = getEstDateString(new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000));
+  } else {
+    startDate = endDate;
+  }
+
+  const metricsRows = await db.select({
+    leadsFound: sql<number>`coalesce(sum(${dailyFunnelMetrics.leadsFound}), 0)`,
+    emailsSent: sql<number>`coalesce(sum(${dailyFunnelMetrics.emailsSent}), 0)`,
+    smsSent: sql<number>`coalesce(sum(${dailyFunnelMetrics.smsSent}), 0)`,
+    callsMade: sql<number>`coalesce(sum(${dailyFunnelMetrics.callsMade}), 0)`,
+    replies: sql<number>`coalesce(sum(${dailyFunnelMetrics.replies}), 0)`,
+    positiveReplies: sql<number>`coalesce(sum(${dailyFunnelMetrics.positiveReplies}), 0)`,
+    meetingsBooked: sql<number>`coalesce(sum(${dailyFunnelMetrics.meetingsBooked}), 0)`,
+    statementsReceived: sql<number>`coalesce(sum(${dailyFunnelMetrics.statementsReceived}), 0)`,
+    proposalsSent: sql<number>`coalesce(sum(${dailyFunnelMetrics.proposalsSent}), 0)`,
+    closedWon: sql<number>`coalesce(sum(${dailyFunnelMetrics.closedWon}), 0)`,
+    closedLost: sql<number>`coalesce(sum(${dailyFunnelMetrics.closedLost}), 0)`,
+  }).from(dailyFunnelMetrics).where(
+    sql`${dailyFunnelMetrics.date} >= ${startDate} AND ${dailyFunnelMetrics.date} <= ${endDate}
+        AND ${dailyFunnelMetrics.vertical} IS NULL AND ${dailyFunnelMetrics.state} IS NULL AND ${dailyFunnelMetrics.sourceType} IS NULL`
+  );
+
+  const m = metricsRows[0] || {};
+  const totalSent = (m.emailsSent || 0) + (m.smsSent || 0) + (m.callsMade || 0);
+  const totalContacted = m.emailsSent || 0;
+
+  const bounceData = await db.select({
+    totalBounced: sql<number>`coalesce(sum(${identityPerformanceDaily.bounced}), 0)`,
+    totalSent: sql<number>`coalesce(sum(${identityPerformanceDaily.emailsSent}), 0)`,
+  }).from(identityPerformanceDaily).where(
+    sql`${identityPerformanceDaily.date} >= ${startDate} AND ${identityPerformanceDaily.date} <= ${endDate}`
+  );
+
+  const bd = bounceData[0] || {};
+  const bounceRate = (bd.totalSent || 0) > 0 ? Math.round(((bd.totalBounced || 0) / (bd.totalSent || 1)) * 1000) / 10 : 0;
+
+  const identities = await db.select().from(sendingIdentities);
+  const activeIdentities = identities.filter(i => i.isActive);
+  const pausedIdentities = identities.filter(i => !i.isActive || i.warmupStatus === "paused");
+
+  const stuckLeads = await db.select({
+    count: sql<number>`count(*)`,
+  }).from(sdrLeadState).where(
+    sql`${sdrLeadState.updatedAt} < ${new Date(Date.now() - 48 * 60 * 60 * 1000)}
+        AND ${sdrLeadState.stage} NOT IN ('DEAD', 'CONVERTED', 'TERMINAL_SHIPPED', 'CLOSED_WON', 'BOARDED', 'NURTURE')`
+  );
+
+  return {
+    range,
+    startDate,
+    endDate,
+    leadsQueued: m.leadsFound || 0,
+    emailsSent: m.emailsSent || 0,
+    smsSent: m.smsSent || 0,
+    callsMade: m.callsMade || 0,
+    totalContacted: totalSent,
+    replies: m.replies || 0,
+    positiveReplies: m.positiveReplies || 0,
+    meetingsBooked: m.meetingsBooked || 0,
+    statementsRequested: m.statementsReceived || 0,
+    proposalsSent: m.proposalsSent || 0,
+    closedWon: m.closedWon || 0,
+    closedLost: m.closedLost || 0,
+    bounceRate,
+    replyRate: totalContacted > 0 ? Math.round(((m.replies || 0) / totalContacted) * 1000) / 10 : 0,
+    positiveIntentRate: (m.replies || 0) > 0 ? Math.round(((m.positiveReplies || 0) / (m.replies || 1)) * 100) : 0,
+    bookedCallRate: totalContacted > 0 ? Math.round(((m.meetingsBooked || 0) / totalContacted) * 1000) / 10 : 0,
+    sendSuccessRate: (bd.totalSent || 0) > 0 ? Math.round((((bd.totalSent || 0) - (bd.totalBounced || 0)) / (bd.totalSent || 1)) * 1000) / 10 : 100,
+    activeIdentities: activeIdentities.length,
+    pausedSystems: pausedIdentities.length,
+    stuckLeadsCount: stuckLeads[0]?.count || 0,
+  };
+}
+
+export async function getSendMonitoringData(): Promise<any> {
+  const identities = await db.select().from(sendingIdentities);
+  const today = getEstDateString();
+  const sevenDaysAgo = getEstDateString(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
+
+  const identityStats = await Promise.all(identities.map(async (identity) => {
+    const perf = await db.select({
+      totalSent: sql<number>`coalesce(sum(${identityPerformanceDaily.emailsSent}), 0)`,
+      totalDelivered: sql<number>`coalesce(sum(${identityPerformanceDaily.delivered}), 0)`,
+      totalBounced: sql<number>`coalesce(sum(${identityPerformanceDaily.bounced}), 0)`,
+      totalReplied: sql<number>`coalesce(sum(${identityPerformanceDaily.replied}), 0)`,
+      totalComplaints: sql<number>`coalesce(sum(${identityPerformanceDaily.complaints}), 0)`,
+      totalOpened: sql<number>`coalesce(sum(${identityPerformanceDaily.opened}), 0)`,
+      totalPositiveReplies: sql<number>`coalesce(sum(${identityPerformanceDaily.positiveReplies}), 0)`,
+    }).from(identityPerformanceDaily).where(
+      and(
+        eq(identityPerformanceDaily.sendingIdentityId, identity.id),
+        sql`${identityPerformanceDaily.date} >= ${sevenDaysAgo}`
+      )
+    );
+
+    const s = perf[0] || {};
+    const sent = s.totalSent || 0;
+
+    const warmupStarted = identity.warmupStartedAt ? new Date(identity.warmupStartedAt) : null;
+    const warmupDays = warmupStarted ? Math.floor((Date.now() - warmupStarted.getTime()) / (24 * 60 * 60 * 1000)) : 0;
+    const warmupProgress = identity.warmupStatus === "warm" ? 100 :
+      identity.warmupStatus === "warming" ? Math.min(Math.round((warmupDays / 14) * 100), 99) : 0;
+
+    return {
+      id: identity.id,
+      label: identity.label,
+      domain: identity.domain,
+      emailAddress: identity.emailAddress,
+      isActive: identity.isActive,
+      warmupStatus: identity.warmupStatus,
+      warmupProgress,
+      warmupDays,
+      dailyLimit: identity.dailyLimit || 30,
+      sentToday: identity.sentToday || 0,
+      bouncesToday: identity.bouncesToday || 0,
+      complaintsToday: identity.complaintsToday || 0,
+      healthScore: identity.healthScore || 100,
+      capUtilization: (identity.dailyLimit || 30) > 0 ? Math.round(((identity.sentToday || 0) / (identity.dailyLimit || 30)) * 100) : 0,
+      week: {
+        sent: sent,
+        delivered: s.totalDelivered || 0,
+        bounced: s.totalBounced || 0,
+        replied: s.totalReplied || 0,
+        complaints: s.totalComplaints || 0,
+        opened: s.totalOpened || 0,
+        positiveReplies: s.totalPositiveReplies || 0,
+        bounceRate: sent > 0 ? Math.round(((s.totalBounced || 0) / sent) * 1000) / 10 : 0,
+        replyRate: sent > 0 ? Math.round(((s.totalReplied || 0) / sent) * 1000) / 10 : 0,
+        complaintRate: sent > 0 ? Math.round(((s.totalComplaints || 0) / sent) * 1000) / 10 : 0,
+        openRate: sent > 0 ? Math.round(((s.totalOpened || 0) / sent) * 1000) / 10 : 0,
+      },
+    };
+  }));
+
+  const totalSent = identityStats.reduce((s, i) => s + i.sentToday, 0);
+  const totalLimit = identityStats.reduce((s, i) => s + i.dailyLimit, 0);
+
+  return {
+    identities: identityStats,
+    aggregated: {
+      totalIdentities: identities.length,
+      activeIdentities: identities.filter(i => i.isActive).length,
+      totalSentToday: totalSent,
+      totalDailyLimit: totalLimit,
+      overallCapUtilization: totalLimit > 0 ? Math.round((totalSent / totalLimit) * 100) : 0,
+    },
+  };
+}
+
+export async function getWebhookEventLog(options: { eventType?: string; limit?: number }): Promise<any[]> {
+  const { eventType, limit = 50 } = options;
+
+  const conditions = [];
+  if (eventType) {
+    conditions.push(eq(sdrLeadEvents.eventType, eventType));
+  }
+
+  const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+  const events = await db.select({
+    event: sdrLeadEvents,
+    merchantName: sdrMerchants.businessName,
+  })
+    .from(sdrLeadEvents)
+    .leftJoin(sdrMerchants, eq(sdrLeadEvents.merchantId, sdrMerchants.id))
+    .where(where)
+    .orderBy(sql`${sdrLeadEvents.createdAt} DESC`)
+    .limit(limit);
+
+  return events.map(row => ({
+    id: row.event.id,
+    eventType: row.event.eventType,
+    merchantId: row.event.merchantId,
+    businessName: row.merchantName || "Unknown",
+    leadStateId: row.event.leadStateId,
+    fromStage: row.event.fromStage,
+    toStage: row.event.toStage,
+    actionType: row.event.actionType,
+    channel: row.event.channel,
+    actorType: row.event.actorType,
+    decisionReason: row.event.decisionReason,
+    complianceResult: row.event.complianceResult,
+    metadata: row.event.metadata,
+    ghlRefId: row.event.ghlRefId,
+    createdAt: row.event.createdAt,
+    eventAt: row.event.eventAt,
+  }));
+}
+
+export async function getLowConfidenceClassifications(): Promise<any[]> {
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+  const events = await db.select({
+    event: sdrLeadEvents,
+    merchantName: sdrMerchants.businessName,
+  })
+    .from(sdrLeadEvents)
+    .leftJoin(sdrMerchants, eq(sdrLeadEvents.merchantId, sdrMerchants.id))
+    .where(
+      and(
+        eq(sdrLeadEvents.eventType, "reply_classified"),
+        sql`${sdrLeadEvents.createdAt} >= ${sevenDaysAgo}`
+      )
+    )
+    .orderBy(sql`${sdrLeadEvents.createdAt} DESC`)
+    .limit(100);
+
+  return events
+    .filter(row => {
+      const meta = row.event.metadata as any;
+      return meta && typeof meta.confidence === "number" && meta.confidence < 0.7;
+    })
+    .map(row => {
+      const meta = row.event.metadata as any;
+      return {
+        id: row.event.id,
+        merchantId: row.event.merchantId,
+        businessName: row.merchantName || "Unknown",
+        classifiedIntent: meta?.intent || "unknown",
+        confidence: meta?.confidence || 0,
+        replyText: meta?.replyText || meta?.message || "",
+        channel: row.event.channel,
+        createdAt: row.event.createdAt,
+      };
+    });
+}

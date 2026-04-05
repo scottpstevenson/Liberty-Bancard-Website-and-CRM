@@ -8,9 +8,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
+import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Loader2, Mail, Shield, AlertTriangle, Plus, Trash2, RefreshCw, Activity, Server, Gauge, Pause, Play, Settings } from "lucide-react";
+import { Loader2, Mail, Shield, AlertTriangle, Plus, Trash2, RefreshCw, Activity, Server, Gauge, Pause, Play, Settings, TrendingUp, BarChart3 } from "lucide-react";
 import { useState } from "react";
 
 interface SendingIdentity {
@@ -542,6 +543,215 @@ function DomainSummary({ data }: { data: InboxHealthData }) {
   );
 }
 
+interface SendMonitoringIdentity {
+  id: number;
+  label: string;
+  domain: string;
+  emailAddress: string;
+  isActive: boolean | null;
+  warmupStatus: string | null;
+  warmupProgress: number;
+  warmupDays: number;
+  dailyLimit: number;
+  sentToday: number;
+  bouncesToday: number;
+  complaintsToday: number;
+  healthScore: number;
+  capUtilization: number;
+  week: {
+    sent: number;
+    delivered: number;
+    bounced: number;
+    replied: number;
+    complaints: number;
+    opened: number;
+    positiveReplies: number;
+    bounceRate: number;
+    replyRate: number;
+    complaintRate: number;
+    openRate: number;
+  };
+}
+
+function WarmupAndCapPanel() {
+  const { toast } = useToast();
+  const { data, isLoading } = useQuery<{ identities: SendMonitoringIdentity[]; aggregated: any }>({
+    queryKey: ["/api/sdr/operator/send-monitoring"],
+    refetchInterval: 30000,
+  });
+
+  const pauseMutation = useMutation({
+    mutationFn: async ({ id, action }: { id: number; action: "pause" | "resume" }) => {
+      const updates = action === "pause"
+        ? { warmupStatus: "paused", isActive: false }
+        : { warmupStatus: "warming", isActive: true, warmupStartedAt: new Date().toISOString() };
+      await apiRequest("PUT", `/api/sdr/sending-identities/${id}`, updates);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/sdr/operator/send-monitoring"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sdr/inbox-health"] });
+      toast({ title: "Identity status updated" });
+    },
+  });
+
+  if (isLoading || !data) {
+    return (
+      <div className="flex items-center justify-center py-8">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4" data-testid="warmup-cap-panel">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Activity className="w-4 h-4 text-green-600" />
+              <span className="text-xs text-muted-foreground">Total Sent Today</span>
+            </div>
+            <div className="text-2xl font-bold">{data.aggregated.totalSentToday}</div>
+            <div className="text-xs text-muted-foreground">of {data.aggregated.totalDailyLimit} limit</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <BarChart3 className="w-4 h-4 text-purple-600" />
+              <span className="text-xs text-muted-foreground">Overall Capacity</span>
+            </div>
+            <div className="text-2xl font-bold">{data.aggregated.overallCapUtilization}%</div>
+            <Progress value={data.aggregated.overallCapUtilization} className="h-2 mt-2" />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <TrendingUp className="w-4 h-4 text-blue-600" />
+              <span className="text-xs text-muted-foreground">Active</span>
+            </div>
+            <div className="text-2xl font-bold">{data.aggregated.activeIdentities}</div>
+            <div className="text-xs text-muted-foreground">of {data.aggregated.totalIdentities} total</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <RefreshCw className="w-4 h-4 text-yellow-600" />
+              <span className="text-xs text-muted-foreground">Warming</span>
+            </div>
+            <div className="text-2xl font-bold">{data.identities.filter(i => i.warmupStatus === "warming").length}</div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {data.identities.map((identity) => (
+        <Card key={identity.id} data-testid={`warmup-identity-${identity.id}`}>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-3">
+                <div>
+                  <div className="font-medium text-sm">{identity.label}</div>
+                  <div className="text-xs text-muted-foreground">{identity.emailAddress}</div>
+                </div>
+                {getWarmupBadge(identity.warmupStatus)}
+              </div>
+              <div className="flex items-center gap-2">
+                {identity.warmupStatus === "paused" || !identity.isActive ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => pauseMutation.mutate({ id: identity.id, action: "resume" })}
+                    disabled={pauseMutation.isPending}
+                    data-testid={`button-resume-identity-${identity.id}`}
+                  >
+                    <Play className="w-3 h-3 mr-1" /> Resume
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => pauseMutation.mutate({ id: identity.id, action: "pause" })}
+                    disabled={pauseMutation.isPending}
+                    data-testid={`button-pause-identity-${identity.id}`}
+                  >
+                    <Pause className="w-3 h-3 mr-1" /> Pause
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <div className="flex items-center justify-between text-xs mb-1">
+                  <span>Daily Cap: {identity.sentToday} / {identity.dailyLimit}</span>
+                  <span>{identity.capUtilization}%</span>
+                </div>
+                <Progress value={identity.capUtilization} className="h-2" />
+              </div>
+
+              {identity.warmupStatus === "warming" && (
+                <div>
+                  <div className="flex items-center justify-between text-xs mb-1">
+                    <span>Warmup: Day {identity.warmupDays} of 14</span>
+                    <span>{identity.warmupProgress}%</span>
+                  </div>
+                  <Progress value={identity.warmupProgress} className="h-2" />
+                </div>
+              )}
+
+              <div className="grid grid-cols-4 gap-3 text-xs mt-2">
+                <div className="text-center">
+                  <div className="text-muted-foreground">7d Bounce</div>
+                  <div className={`font-medium ${identity.week.bounceRate > 5 ? "text-red-600" : ""}`}>
+                    {identity.week.bounceRate}%
+                  </div>
+                  <div className="w-full bg-muted rounded-full h-1.5 mt-1">
+                    <div
+                      className={`h-1.5 rounded-full ${identity.week.bounceRate > 5 ? "bg-red-500" : "bg-green-500"}`}
+                      style={{ width: `${Math.min(identity.week.bounceRate * 10, 100)}%` }}
+                    />
+                  </div>
+                </div>
+                <div className="text-center">
+                  <div className="text-muted-foreground">7d Reply</div>
+                  <div className="font-medium text-green-600">{identity.week.replyRate}%</div>
+                  <div className="w-full bg-muted rounded-full h-1.5 mt-1">
+                    <div className="h-1.5 rounded-full bg-green-500" style={{ width: `${Math.min(identity.week.replyRate * 5, 100)}%` }} />
+                  </div>
+                </div>
+                <div className="text-center">
+                  <div className="text-muted-foreground">7d Complaint</div>
+                  <div className={`font-medium ${identity.week.complaintRate > 0.1 ? "text-red-600" : ""}`}>
+                    {identity.week.complaintRate}%
+                  </div>
+                  <div className="w-full bg-muted rounded-full h-1.5 mt-1">
+                    <div
+                      className={`h-1.5 rounded-full ${identity.week.complaintRate > 0.1 ? "bg-red-500" : "bg-green-500"}`}
+                      style={{ width: `${Math.min(identity.week.complaintRate * 100, 100)}%` }}
+                    />
+                  </div>
+                </div>
+                <div className="text-center">
+                  <div className="text-muted-foreground">Health</div>
+                  <div className="font-medium">{Math.round(identity.healthScore)}</div>
+                  <div className="w-full bg-muted rounded-full h-1.5 mt-1">
+                    <div
+                      className={`h-1.5 rounded-full ${identity.healthScore >= 80 ? "bg-green-500" : identity.healthScore >= 60 ? "bg-yellow-500" : "bg-red-500"}`}
+                      style={{ width: `${identity.healthScore}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
 export default function InboxHealth() {
   const { toast } = useToast();
   const { data, isLoading } = useQuery<InboxHealthData>({
@@ -648,6 +858,10 @@ export default function InboxHealth() {
             <Mail className="w-4 h-4 mr-1" />
             Inboxes
           </TabsTrigger>
+          <TabsTrigger value="warmup" data-testid="tab-warmup">
+            <TrendingUp className="w-4 h-4 mr-1" />
+            Warmup & Cap
+          </TabsTrigger>
           <TabsTrigger value="domains" data-testid="tab-domains">
             <Server className="w-4 h-4 mr-1" />
             Domains
@@ -664,6 +878,20 @@ export default function InboxHealth() {
             </CardHeader>
             <CardContent>
               <IdentityHealthTable data={dashboardData} />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="warmup" className="mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <TrendingUp className="w-5 h-5" />
+                Warmup Progress & Capacity Utilization
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <WarmupAndCapPanel />
             </CardContent>
           </Card>
         </TabsContent>

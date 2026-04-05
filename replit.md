@@ -38,6 +38,9 @@ The frontend uses React with Vite, TypeScript, Tailwind CSS, and shadcn/ui, with
 - **Lookalike Scoring Model**: Scores pipeline leads based on similarity to closed-won merchants.
 - **Re-enrichment Worker**: Re-enriches businesses with outdated information.
 - **Daily Funnel Metrics & KPI Reporting**: Aggregation of funnel metrics and KPI reporting with market expansion logic.
+- **Operator Dashboard**: Pilot instrumentation dashboard at `/dashboard/operator` with 7 KPIs (leads queued, contacted, send success, bounce rate, reply rate, positive-intent, booked calls), time range toggle (today/yesterday/7-day), per-identity send monitoring with auto-refresh, webhook event log viewer with filtering, stuck lead alerts (>48h in same stage), low-confidence intent classification flagging (<70%), and on-demand daily digest sending.
+- **SDR Daily Digest Email**: Automated daily digest at 8 AM ET via `checkAndSendDigests()` including outreach stats, reply breakdown, inbox health, kill-switch status, and top 5 stuck leads. Uses `server/services/sdr/operator-digest.ts`.
+- **Enhanced Inbox Health**: Warmup progress tracking with day count and progress bars, daily cap utilization visualization, per-identity pause/resume controls, and bounce/complaint trend bars per identity.
 
 ### Feature Specifications
 - **Public Website**: Marketing pages, conversion forms, legal pages, and hidden sales enablement content, all SEO-optimized. Includes an e-commerce terminal shop.

@@ -1618,4 +1618,64 @@ export function registerSdrRoutes(app: Express) {
     }
   });
 
+  app.get("/api/sdr/operator/kpis", isAdmin, async (req, res) => {
+    try {
+      const { getOperatorKpis } = await import("../services/sdr/funnel-metrics");
+      const range = (req.query.range as string) || "today";
+      const data = await getOperatorKpis(range);
+      res.json(data);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.get("/api/sdr/operator/send-monitoring", isAdmin, async (_req, res) => {
+    try {
+      const { getSendMonitoringData } = await import("../services/sdr/funnel-metrics");
+      const data = await getSendMonitoringData();
+      res.json(data);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.get("/api/sdr/operator/webhook-events", isAdmin, async (req, res) => {
+    try {
+      const { getWebhookEventLog } = await import("../services/sdr/funnel-metrics");
+      const eventType = req.query.eventType as string | undefined;
+      const limit = parseInt(req.query.limit as string) || 50;
+      const data = await getWebhookEventLog({ eventType, limit });
+      res.json(data);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.get("/api/sdr/operator/low-confidence", isAdmin, async (_req, res) => {
+    try {
+      const { getLowConfidenceClassifications } = await import("../services/sdr/funnel-metrics");
+      const data = await getLowConfidenceClassifications();
+      res.json(data);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.post("/api/sdr/operator/send-daily-digest", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin only" });
+    try {
+      const { buildSdrDailyDigest, sendSdrDailyDigest } = await import("../services/sdr/operator-digest");
+      const digest = await buildSdrDailyDigest();
+      await sendSdrDailyDigest(digest);
+      res.json({ message: "Daily digest sent", summary: digest.summary });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
 }
