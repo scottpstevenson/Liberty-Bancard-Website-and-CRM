@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "nSoAGH_dz9gb21KzU0Ty_"
+uri = "file://LIBERTY_BANCARD_FULL_AUDIT.txt"
+type = "text"
+title = "Liberty Bancard — Full Application Audit"
