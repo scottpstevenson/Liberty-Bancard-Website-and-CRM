@@ -204,6 +204,35 @@ function EditInboxDialog({ identity, onClose }: { identity: SendingIdentity; onC
 function IdentityHealthTable({ data }: { data: InboxHealthData }) {
   const { toast } = useToast();
   const [editingIdentity, setEditingIdentity] = useState<SendingIdentity | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+
+  const bulkActionMutation = useMutation({
+    mutationFn: async ({ action, identityIds }: { action: "pause" | "resume"; identityIds: number[] }) => {
+      await apiRequest("POST", "/api/sdr/sending-identities/bulk-action", { action, identityIds });
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/sdr/inbox-health"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sdr/sending-identities"] });
+      toast({ title: `${variables.action === "pause" ? "Paused" : "Resumed"} ${variables.identityIds.length} inbox(es)` });
+      setSelectedIds(new Set());
+    },
+  });
+
+  const toggleSelected = (id: number) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    if (selectedIds.size === data.identities.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(data.identities.map(i => i.id)));
+    }
+  };
 
   const toggleMutation = useMutation({
     mutationFn: async ({ id, isActive }: { id: number; isActive: boolean }) => {
@@ -250,10 +279,45 @@ function IdentityHealthTable({ data }: { data: InboxHealthData }) {
       <Dialog open={!!editingIdentity} onOpenChange={(open) => { if (!open) setEditingIdentity(null); }}>
         {editingIdentity && <EditInboxDialog identity={editingIdentity} onClose={() => setEditingIdentity(null)} />}
       </Dialog>
+      {selectedIds.size > 0 && (
+        <div className="flex items-center gap-3 p-3 mb-3 bg-muted rounded-lg" data-testid="bulk-action-bar">
+          <span className="text-sm font-medium">{selectedIds.size} selected</span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => bulkActionMutation.mutate({ action: "pause", identityIds: Array.from(selectedIds) })}
+            disabled={bulkActionMutation.isPending}
+            data-testid="button-bulk-pause"
+          >
+            <Pause className="w-3 h-3 mr-1" />
+            Pause Selected
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => bulkActionMutation.mutate({ action: "resume", identityIds: Array.from(selectedIds) })}
+            disabled={bulkActionMutation.isPending}
+            data-testid="button-bulk-resume"
+          >
+            <Play className="w-3 h-3 mr-1" />
+            Resume Selected
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())} data-testid="button-clear-selection">Clear</Button>
+        </div>
+      )}
       <div className="overflow-x-auto" data-testid="identity-health-table">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b">
+              <th className="p-3 w-8">
+                <input
+                  type="checkbox"
+                  checked={selectedIds.size === data.identities.length && data.identities.length > 0}
+                  onChange={toggleAll}
+                  className="rounded"
+                  data-testid="checkbox-select-all"
+                />
+              </th>
               <th className="text-left p-3 font-medium">Inbox</th>
               <th className="text-left p-3 font-medium">Domain</th>
               <th className="text-center p-3 font-medium">Status</th>
@@ -271,6 +335,15 @@ function IdentityHealthTable({ data }: { data: InboxHealthData }) {
           <tbody>
             {data.identities.map((identity) => (
               <tr key={identity.id} className="border-b hover:bg-muted/50" data-testid={`identity-row-${identity.id}`}>
+                <td className="p-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(identity.id)}
+                    onChange={() => toggleSelected(identity.id)}
+                    className="rounded"
+                    data-testid={`checkbox-select-${identity.id}`}
+                  />
+                </td>
                 <td className="p-3">
                   <div className="font-medium">{identity.label}</div>
                   <div className="text-xs text-muted-foreground">{identity.emailAddress}</div>

@@ -1678,4 +1678,170 @@ export function registerSdrRoutes(app: Express) {
     }
   });
 
+  app.get("/api/sdr/anomaly-alerts", isAuthenticated, async (_req, res) => {
+    try {
+      const { getAnomalyAlertsSummary } = await import("../services/sdr/anomaly-detection");
+      const data = await getAnomalyAlertsSummary();
+      res.json(data);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.get("/api/sdr/serper-enrichment/metrics", isAuthenticated, async (_req, res) => {
+    try {
+      const { getSerperEnrichmentMetrics } = await import("../services/sdr/serper-enrichment");
+      const metrics = await getSerperEnrichmentMetrics();
+      res.json(metrics);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.post("/api/sdr/serper-enrichment/run", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin only" });
+    try {
+      const { runSerperEnrichmentBatch } = await import("../services/sdr/serper-enrichment");
+      const limit = parseInt(req.body.limit as string || "50", 10);
+      const stats = await runSerperEnrichmentBatch(limit);
+      res.json(stats);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.post("/api/sdr/serper-enrichment/merchant/:id", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin only" });
+    try {
+      const { enrichMerchantWithSerper } = await import("../services/sdr/serper-enrichment");
+      const merchantId = parseInt(req.params.id, 10);
+      const result = await enrichMerchantWithSerper(merchantId);
+      res.json(result);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.post("/api/sdr/sending-identities/bulk-action", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin only" });
+    try {
+      const { action, identityIds } = req.body as { action: "pause" | "resume"; identityIds: number[] };
+      if (!action || !["pause", "resume"].includes(action) || !identityIds || !Array.isArray(identityIds) || identityIds.length === 0) {
+        return res.status(400).json({ message: "action must be 'pause' or 'resume', identityIds must be a non-empty array" });
+      }
+
+      const { sendingIdentities } = await import("@shared/schema");
+      const { inArray } = await import("drizzle-orm");
+
+      if (action === "pause") {
+        await db.update(sendingIdentities).set({
+          isActive: false,
+          warmupStatus: "paused",
+          updatedAt: new Date(),
+        }).where(inArray(sendingIdentities.id, identityIds));
+      } else if (action === "resume") {
+        await db.update(sendingIdentities).set({
+          isActive: true,
+          warmupStatus: "warming",
+          warmupStartedAt: new Date(),
+          updatedAt: new Date(),
+        }).where(inArray(sendingIdentities.id, identityIds));
+      }
+
+      res.json({ message: `${action}d ${identityIds.length} identities`, count: identityIds.length });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.get("/api/sdr/discovery-controls", isAuthenticated, async (_req, res) => {
+    try {
+      const { getSearchMatrix, isNightlyDiscoveryRunning, isDiscoveryRunning } = await import("../services/sdr/lead-finder");
+      const matrix = await getSearchMatrix();
+      res.json({
+        ...matrix,
+        nightlySchedulerRunning: isNightlyDiscoveryRunning(),
+        discoveryInProgress: isDiscoveryRunning(),
+        nightlyDiscoveryEnabled: featureFlags.NIGHTLY_DISCOVERY_ENABLED,
+      });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.put("/api/sdr/discovery-controls", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin only" });
+    try {
+      const { updateSearchMatrix } = await import("../services/sdr/lead-finder");
+      const updated = await updateSearchMatrix(req.body);
+      res.json(updated);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.get("/api/sdr/voice-ai/status", isAuthenticated, async (_req, res) => {
+    try {
+      const { getAllVoiceScripts } = await import("../services/sdr/voice-orchestrator");
+      const scripts = getAllVoiceScripts();
+      res.json({
+        voiceAiEnabled: featureFlags.VOICE_AI_ENABLED,
+        configuredScripts: scripts.map(s => ({
+          verticalKey: s.verticalKey,
+          verticalLabel: s.verticalLabel,
+          hasOpening: !!s.opening,
+          hasQualifyingQuestions: s.qualifyingQuestions.length > 0,
+          hasObjectionHandlers: Object.keys(s.objectionHandlers).length > 0,
+          hasComplianceDisclosure: !!s.complianceDisclosure,
+        })),
+        totalScripts: scripts.length,
+        readyForActivation: scripts.length > 0 && scripts.every(s =>
+          s.opening && s.qualifyingQuestions.length > 0 && s.complianceDisclosure
+        ),
+      });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.get("/api/sdr/sms-metrics", isAuthenticated, async (_req, res) => {
+    try {
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+
+      const smsAttempts = await db.select({
+        total: sql<number>`count(*)`,
+        sent: sql<number>`count(case when ${sdrChannelAttempts.status} = 'sent' then 1 end)`,
+        failed: sql<number>`count(case when ${sdrChannelAttempts.status} = 'failed' then 1 end)`,
+        replied: sql<number>`count(case when ${sdrChannelAttempts.repliedAt} is not null then 1 end)`,
+      }).from(sdrChannelAttempts).where(
+        sql`${sdrChannelAttempts.channel} = 'sms' AND ${sdrChannelAttempts.sentAt} >= ${todayStart}`
+      );
+
+      const stats = smsAttempts[0] || { total: 0, sent: 0, failed: 0, replied: 0 };
+
+      res.json({
+        smsEnabled: featureFlags.SMS_ENABLED,
+        today: {
+          total: Number(stats.total),
+          sent: Number(stats.sent),
+          failed: Number(stats.failed),
+          replied: Number(stats.replied),
+          replyRate: Number(stats.sent) > 0 ? Math.round((Number(stats.replied) / Number(stats.sent)) * 100) : 0,
+        },
+      });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
 }

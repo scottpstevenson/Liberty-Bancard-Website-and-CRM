@@ -446,6 +446,11 @@ async function executeEmailAction(lead: SdrLeadState, strongerCta?: boolean): Pr
 }
 
 async function executeSmsAction(lead: SdrLeadState): Promise<boolean> {
+  if (!featureFlags.SMS_ENABLED) {
+    console.log("[SDR Orchestrator] SMS_ENABLED=false, skipping SMS send");
+    return false;
+  }
+
   if (!canSendSms()) {
     console.log(`[SDR Orchestrator] SMS daily limit reached (${dailyCounters.smsSent}/${SMS_DAILY_LIMIT})`);
     return false;
@@ -603,6 +608,10 @@ async function executeAction(lead: SdrLeadState, actionType: string, actionParam
       return executeSmsAction(lead);
 
     case "schedule_call":
+      if (!featureFlags.VOICE_AI_ENABLED) {
+        console.log("[SDR Orchestrator] VOICE_AI_ENABLED=false, skipping voice call");
+        return false;
+      }
       if (!canMakeCall()) {
         console.log(`[SDR Orchestrator] Call daily limit reached (${dailyCounters.callsMade}/${CALL_DAILY_LIMIT})`);
         return false;

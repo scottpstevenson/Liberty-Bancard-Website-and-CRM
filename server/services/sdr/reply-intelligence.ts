@@ -6,6 +6,7 @@ import { onStageChange, onOptOut } from "./ghl-sync-rules";
 
 export const INTENT_LABELS = [
   "interested",
+  "meeting_intent",
   "send_info",
   "pricing_question",
   "call_me",
@@ -37,6 +38,7 @@ export interface IntentContext {
 const INTENT_SYSTEM_PROMPT = `You are a reply classifier for a merchant services sales team. Classify the merchant's reply into exactly one of these intents:
 
 - interested: Merchant expresses interest in learning more, getting a quote, or moving forward
+- meeting_intent: Merchant wants to schedule a meeting, asks about availability, or expresses intent to meet/discuss in person
 - send_info: Merchant asks for more details, brochures, or information to be sent
 - pricing_question: Merchant asks about rates, fees, or pricing specifics
 - call_me: Merchant requests a phone call or callback
@@ -144,6 +146,9 @@ function ruleBasedClassify(text: string): IntentClassification {
   if (/\b(sent|sending|emailed|uploaded|attached|here('s| is) (my|the) statement)\b/.test(lower)) {
     return { intent: "sent_statement", confidence: 0.85, reasoning: "Statement sent indicator" };
   }
+  if (/\b(schedule|meeting|set up a time|when.*available|what time|calendar|book a time|meet with|sit down|come by)\b/.test(lower)) {
+    return { intent: "meeting_intent", confidence: 0.85, reasoning: "Meeting scheduling intent detected" };
+  }
   if (/\b(interested|tell me more|sounds good|let('s| us) (talk|discuss|set up)|sign me up|move forward)\b/.test(lower)) {
     return { intent: "interested", confidence: 0.8, reasoning: "Interest indicators detected" };
   }
@@ -187,6 +192,14 @@ export function mapIntentToAction(intent: IntentLabel, currentStage?: string): I
       return {
         actionType: "advance",
         newStage: currentStage === "STATEMENT_REQUESTED" ? "STATEMENT_REQUESTED" : "ENGAGED",
+        sendBookingLink: true,
+        sendResponse: true,
+        responseTemplate: "booking_cta",
+      };
+    case "meeting_intent":
+      return {
+        actionType: "advance",
+        newStage: "ENGAGED",
         sendBookingLink: true,
         sendResponse: true,
         responseTemplate: "booking_cta",

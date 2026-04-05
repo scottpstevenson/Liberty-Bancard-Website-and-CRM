@@ -3,7 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Loader2, Users, Target, MessageSquare, Calendar, FileText, Send, AlertTriangle, BarChart3, Mail, Phone, MessageCircle, Bot, ArrowRightLeft, Clock, ShieldCheck, UserCheck, ArrowRight, TrendingUp, Search, MapPin, Building2, Zap, Settings, Play, Square, CheckCircle2, XCircle, RefreshCw, Cpu, Megaphone, PieChart } from "lucide-react";
+import { Loader2, Users, Target, MessageSquare, Calendar, FileText, Send, AlertTriangle, BarChart3, Mail, Phone, MessageCircle, Bot, ArrowRightLeft, Clock, ShieldCheck, UserCheck, ArrowRight, TrendingUp, Search, MapPin, Building2, Zap, Settings, Play, Square, CheckCircle2, XCircle, RefreshCw, Cpu, Megaphone, PieChart, Mic, Bell, Globe, Smartphone } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useState } from "react";
 
@@ -1544,6 +1545,417 @@ function WeeklyKpiReport() {
   );
 }
 
+function AnomalyAlertsPanel() {
+  const { data, isLoading } = useQuery<{
+    alerts: Array<{
+      id: string;
+      type: string;
+      severity: "warning" | "critical";
+      title: string;
+      description: string;
+      metric: string;
+      currentValue: number;
+      expectedValue: number;
+      threshold: number;
+      detectedAt: string;
+      identityId?: number;
+      identityLabel?: string;
+    }>;
+    criticalCount: number;
+    warningCount: number;
+    lastChecked: string;
+  }>({
+    queryKey: ["/api/sdr/anomaly-alerts"],
+    refetchInterval: 30000,
+  });
+
+  if (isLoading) return <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>;
+
+  const alerts = data?.alerts || [];
+  const criticalAlerts = alerts.filter(a => a.severity === "critical");
+  const warningAlerts = alerts.filter(a => a.severity === "warning");
+
+  return (
+    <div className="space-y-4" data-testid="panel-anomaly-alerts">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card data-testid="card-total-alerts">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Bell className="w-4 h-4 text-muted-foreground" />
+              <span className="text-xs text-muted-foreground">Total Alerts</span>
+            </div>
+            <div className="text-2xl font-bold">{alerts.length}</div>
+          </CardContent>
+        </Card>
+        <Card className={criticalAlerts.length > 0 ? "border-red-300 dark:border-red-800" : ""} data-testid="card-critical-alerts">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <AlertTriangle className="w-4 h-4 text-red-500" />
+              <span className="text-xs text-muted-foreground">Critical</span>
+            </div>
+            <div className="text-2xl font-bold text-red-600">{criticalAlerts.length}</div>
+          </CardContent>
+        </Card>
+        <Card data-testid="card-warning-alerts">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <AlertTriangle className="w-4 h-4 text-yellow-500" />
+              <span className="text-xs text-muted-foreground">Warnings</span>
+            </div>
+            <div className="text-2xl font-bold text-yellow-600">{warningAlerts.length}</div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {alerts.length === 0 ? (
+        <Card>
+          <CardContent className="p-6 text-center text-muted-foreground" data-testid="text-no-alerts">
+            <CheckCircle2 className="w-8 h-8 mx-auto mb-2 text-green-500" />
+            No anomalies detected. All systems operating normally.
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-2">
+          {alerts.map((alert, idx) => (
+            <Card
+              key={idx}
+              className={alert.severity === "critical"
+                ? "border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950"
+                : "border-yellow-300 dark:border-yellow-800 bg-yellow-50 dark:bg-yellow-950"}
+              data-testid={`alert-item-${idx}`}
+            >
+              <CardContent className="p-4">
+                <div className="flex items-start justify-between">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className={`w-5 h-5 mt-0.5 ${alert.severity === "critical" ? "text-red-600" : "text-yellow-600"}`} />
+                    <div>
+                      <div className="font-medium text-sm">{alert.title}</div>
+                      <div className="text-xs text-muted-foreground mt-1">{alert.description}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {alert.metric}: {alert.currentValue.toFixed(1)} (expected: {alert.expectedValue.toFixed(1)}, threshold: {alert.threshold.toFixed(1)})
+                      </div>
+                    </div>
+                  </div>
+                  <Badge variant={alert.severity === "critical" ? "destructive" : "secondary"} data-testid={`badge-severity-${idx}`}>
+                    {alert.severity}
+                  </Badge>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {data?.lastChecked && (
+        <div className="text-xs text-muted-foreground text-right" data-testid="text-last-checked">
+          Last checked: {new Date(data.lastChecked).toLocaleString()}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SmsMetricsPanel() {
+  const { data, isLoading } = useQuery<{
+    smsEnabled: boolean;
+    today: { total: number; sent: number; failed: number; replied: number; replyRate: number };
+  }>({
+    queryKey: ["/api/sdr/sms-metrics"],
+  });
+
+  if (isLoading) return <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>;
+
+  if (!data?.smsEnabled) {
+    return (
+      <Card data-testid="card-sms-disabled">
+        <CardContent className="p-6 text-center">
+          <Smartphone className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+          <div className="font-medium text-muted-foreground">SMS Channel Disabled</div>
+          <div className="text-xs text-muted-foreground mt-1">Set SMS_ENABLED=true to activate SMS outreach</div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const stats = data.today;
+  return (
+    <div className="space-y-4" data-testid="panel-sms-metrics">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <Card data-testid="card-sms-total">
+          <CardContent className="p-4">
+            <div className="text-xs text-muted-foreground mb-1">Total Attempts</div>
+            <div className="text-xl font-bold">{stats.total}</div>
+          </CardContent>
+        </Card>
+        <Card data-testid="card-sms-sent">
+          <CardContent className="p-4">
+            <div className="text-xs text-muted-foreground mb-1">Sent</div>
+            <div className="text-xl font-bold text-green-600">{stats.sent}</div>
+          </CardContent>
+        </Card>
+        <Card data-testid="card-sms-failed">
+          <CardContent className="p-4">
+            <div className="text-xs text-muted-foreground mb-1">Failed</div>
+            <div className="text-xl font-bold text-red-600">{stats.failed}</div>
+          </CardContent>
+        </Card>
+        <Card data-testid="card-sms-replied">
+          <CardContent className="p-4">
+            <div className="text-xs text-muted-foreground mb-1">Replied</div>
+            <div className="text-xl font-bold text-blue-600">{stats.replied}</div>
+          </CardContent>
+        </Card>
+        <Card data-testid="card-sms-reply-rate">
+          <CardContent className="p-4">
+            <div className="text-xs text-muted-foreground mb-1">Reply Rate</div>
+            <div className="text-xl font-bold">{stats.replyRate}%</div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function VoiceAiStatusPanel() {
+  const { data, isLoading } = useQuery<{
+    voiceAiEnabled: boolean;
+    configuredScripts: Array<{
+      verticalKey: string;
+      verticalLabel: string;
+      hasOpening: boolean;
+      hasQualifyingQuestions: boolean;
+      hasObjectionHandlers: boolean;
+      hasComplianceDisclosure: boolean;
+    }>;
+    totalScripts: number;
+    readyForActivation: boolean;
+  }>({
+    queryKey: ["/api/sdr/voice-ai/status"],
+  });
+
+  if (isLoading) return <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>;
+
+  return (
+    <div className="space-y-4" data-testid="panel-voice-ai">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card data-testid="card-voice-status">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Mic className="w-4 h-4 text-muted-foreground" />
+              <span className="text-xs text-muted-foreground">Voice AI</span>
+            </div>
+            <Badge className={data?.voiceAiEnabled
+              ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
+              : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"
+            }>
+              {data?.voiceAiEnabled ? "Enabled" : "Disabled"}
+            </Badge>
+          </CardContent>
+        </Card>
+        <Card data-testid="card-voice-scripts">
+          <CardContent className="p-4">
+            <div className="text-xs text-muted-foreground mb-1">Configured Scripts</div>
+            <div className="text-xl font-bold">{data?.totalScripts || 0}</div>
+          </CardContent>
+        </Card>
+        <Card data-testid="card-voice-ready">
+          <CardContent className="p-4">
+            <div className="text-xs text-muted-foreground mb-1">Ready for Activation</div>
+            <Badge className={data?.readyForActivation
+              ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
+              : "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"
+            }>
+              {data?.readyForActivation ? "Ready" : "Not Ready"}
+            </Badge>
+          </CardContent>
+        </Card>
+      </div>
+
+      {data?.configuredScripts && data.configuredScripts.length > 0 && (
+        <Card data-testid="card-voice-script-list">
+          <CardHeader>
+            <CardTitle className="text-sm font-medium">Script Readiness</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {data.configuredScripts.map((script) => (
+                <div key={script.verticalKey} className="flex items-center justify-between p-2 rounded border" data-testid={`voice-script-${script.verticalKey}`}>
+                  <span className="text-sm font-medium">{script.verticalLabel}</span>
+                  <div className="flex items-center gap-2">
+                    {script.hasOpening && <Badge variant="outline" className="text-xs">Opening</Badge>}
+                    {script.hasQualifyingQuestions && <Badge variant="outline" className="text-xs">Questions</Badge>}
+                    {script.hasObjectionHandlers && <Badge variant="outline" className="text-xs">Objections</Badge>}
+                    {script.hasComplianceDisclosure && <Badge variant="outline" className="text-xs">Compliance</Badge>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {!data?.voiceAiEnabled && (
+        <Card className="border-dashed">
+          <CardContent className="p-6 text-center text-muted-foreground" data-testid="text-voice-disabled">
+            <Mic className="w-8 h-8 mx-auto mb-2 opacity-50" />
+            <div className="font-medium">Voice AI is not enabled</div>
+            <div className="text-xs mt-1">Set VOICE_AI_ENABLED=true to activate voice calling</div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function SerperEnrichmentPanel() {
+  const { toast } = useToast();
+  const { data, isLoading } = useQuery<{
+    serperConfigured: boolean;
+    totalEnriched: number;
+    last7Days: { totalProcessed: number; websitesFound: number; phonesFound: number; emailsFound: number; errors: number };
+  }>({
+    queryKey: ["/api/sdr/serper-enrichment/metrics"],
+  });
+
+  const runBatchMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("POST", "/api/sdr/serper-enrichment/run", { limit: 50 });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/sdr/serper-enrichment/metrics"] });
+      toast({ title: "Enrichment batch completed" });
+    },
+  });
+
+  if (isLoading) return <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>;
+
+  if (!data?.serperConfigured) {
+    return (
+      <Card data-testid="card-serper-disabled">
+        <CardContent className="p-6 text-center text-muted-foreground">
+          <Globe className="w-8 h-8 mx-auto mb-2 opacity-50" />
+          <div className="font-medium">Serper Enrichment Not Configured</div>
+          <div className="text-xs mt-1">Set SERPER_API_KEY to enable business data enrichment</div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const last7 = data.last7Days;
+  return (
+    <div className="space-y-4" data-testid="panel-serper-enrichment">
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-medium">Serper Business Enrichment</div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => runBatchMutation.mutate()}
+          disabled={runBatchMutation.isPending}
+          data-testid="button-run-enrichment"
+        >
+          {runBatchMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <RefreshCw className="w-3 h-3 mr-1" />}
+          Run Batch
+        </Button>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <Card data-testid="card-serper-total">
+          <CardContent className="p-4">
+            <div className="text-xs text-muted-foreground mb-1">Total Enriched</div>
+            <div className="text-xl font-bold">{data.totalEnriched}</div>
+          </CardContent>
+        </Card>
+        <Card data-testid="card-serper-7d-enriched">
+          <CardContent className="p-4">
+            <div className="text-xs text-muted-foreground mb-1">7d Processed</div>
+            <div className="text-xl font-bold">{last7.totalProcessed}</div>
+          </CardContent>
+        </Card>
+        <Card data-testid="card-serper-websites">
+          <CardContent className="p-4">
+            <div className="text-xs text-muted-foreground mb-1">7d Websites</div>
+            <div className="text-xl font-bold text-blue-600">{last7.websitesFound}</div>
+          </CardContent>
+        </Card>
+        <Card data-testid="card-serper-phones">
+          <CardContent className="p-4">
+            <div className="text-xs text-muted-foreground mb-1">7d Phones</div>
+            <div className="text-xl font-bold text-green-600">{last7.phonesFound}</div>
+          </CardContent>
+        </Card>
+        <Card data-testid="card-serper-emails">
+          <CardContent className="p-4">
+            <div className="text-xs text-muted-foreground mb-1">7d Emails</div>
+            <div className="text-xl font-bold text-purple-600">{last7.emailsFound}</div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function DiscoveryControlsPanel() {
+  const { data, isLoading } = useQuery<{
+    nightlySchedulerRunning: boolean;
+    discoveryInProgress: boolean;
+    nightlyDiscoveryEnabled: boolean;
+  }>({
+    queryKey: ["/api/sdr/discovery-controls"],
+    refetchInterval: 10000,
+  });
+
+  if (isLoading) return <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>;
+
+  return (
+    <div className="space-y-4" data-testid="panel-discovery-controls">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card data-testid="card-nightly-enabled">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Clock className="w-4 h-4 text-muted-foreground" />
+              <span className="text-xs text-muted-foreground">Nightly Discovery</span>
+            </div>
+            <Badge className={data?.nightlyDiscoveryEnabled
+              ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
+              : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"
+            }>
+              {data?.nightlyDiscoveryEnabled ? "Enabled" : "Disabled"}
+            </Badge>
+          </CardContent>
+        </Card>
+        <Card data-testid="card-scheduler-running">
+          <CardContent className="p-4">
+            <div className="text-xs text-muted-foreground mb-1">Scheduler Status</div>
+            <Badge className={data?.nightlySchedulerRunning
+              ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
+              : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"
+            }>
+              {data?.nightlySchedulerRunning ? "Running" : "Stopped"}
+            </Badge>
+          </CardContent>
+        </Card>
+        <Card data-testid="card-discovery-progress">
+          <CardContent className="p-4">
+            <div className="text-xs text-muted-foreground mb-1">Discovery Status</div>
+            <Badge className={data?.discoveryInProgress
+              ? "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200"
+              : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"
+            }>
+              {data?.discoveryInProgress ? "In Progress" : "Idle"}
+            </Badge>
+          </CardContent>
+        </Card>
+      </div>
+      {!data?.nightlyDiscoveryEnabled && (
+        <Card className="border-dashed">
+          <CardContent className="p-4 text-center text-muted-foreground text-sm" data-testid="text-nightly-disabled">
+            Nightly discovery is disabled. Set NIGHTLY_DISCOVERY_ENABLED=true to enable automated lead discovery.
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 export default function SdrDashboard() {
   return (
     <div className="space-y-6" data-testid="page-sdr-dashboard">
@@ -1559,6 +1971,11 @@ export default function SdrDashboard() {
           <TabsTrigger value="funnel" data-testid="tab-sdr-funnel">Funnel</TabsTrigger>
           <TabsTrigger value="stuck" data-testid="tab-sdr-stuck">Stuck Leads</TabsTrigger>
           <TabsTrigger value="channels" data-testid="tab-sdr-channels">Channel Health</TabsTrigger>
+          <TabsTrigger value="alerts" data-testid="tab-sdr-alerts">Anomaly Alerts</TabsTrigger>
+          <TabsTrigger value="sms" data-testid="tab-sdr-sms">SMS</TabsTrigger>
+          <TabsTrigger value="enrichment" data-testid="tab-sdr-enrichment">Enrichment</TabsTrigger>
+          <TabsTrigger value="voice" data-testid="tab-sdr-voice">Voice AI</TabsTrigger>
+          <TabsTrigger value="nightlycontrols" data-testid="tab-sdr-nightlycontrols">Discovery Controls</TabsTrigger>
           <TabsTrigger value="chat" data-testid="tab-sdr-chat">Chat AI</TabsTrigger>
           <TabsTrigger value="processors" data-testid="tab-sdr-processors">Processor Intel</TabsTrigger>
           <TabsTrigger value="sources" data-testid="tab-sdr-sources">Source Quality</TabsTrigger>
@@ -1585,6 +2002,26 @@ export default function SdrDashboard() {
 
         <TabsContent value="channels" className="mt-4">
           <ChannelHealth />
+        </TabsContent>
+
+        <TabsContent value="alerts" className="mt-4">
+          <AnomalyAlertsPanel />
+        </TabsContent>
+
+        <TabsContent value="sms" className="mt-4">
+          <SmsMetricsPanel />
+        </TabsContent>
+
+        <TabsContent value="enrichment" className="mt-4">
+          <SerperEnrichmentPanel />
+        </TabsContent>
+
+        <TabsContent value="voice" className="mt-4">
+          <VoiceAiStatusPanel />
+        </TabsContent>
+
+        <TabsContent value="nightlycontrols" className="mt-4">
+          <DiscoveryControlsPanel />
         </TabsContent>
 
         <TabsContent value="chat" className="mt-4">

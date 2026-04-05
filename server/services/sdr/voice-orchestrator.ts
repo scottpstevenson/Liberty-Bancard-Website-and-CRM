@@ -229,6 +229,11 @@ export async function triggerAiCall(
   merchantId: number,
   botMode: VoiceBotMode
 ): Promise<TriggerCallResult> {
+  const { featureFlags } = await import("../feature-flags");
+  if (!featureFlags.VOICE_AI_ENABLED) {
+    return { success: false, scheduled: false, reason: "VOICE_AI_ENABLED=false — voice AI is disabled" };
+  }
+
   const [merchant] = await db.select().from(sdrMerchants).where(eq(sdrMerchants.id, merchantId));
   if (!merchant) {
     return { success: false, scheduled: false, reason: "Merchant not found" };

@@ -545,6 +545,12 @@ function getNextRunTime(): Date {
 }
 
 export function startNightlyDiscovery(): void {
+  const { featureFlags } = require("../../services/feature-flags");
+  if (!featureFlags.NIGHTLY_DISCOVERY_ENABLED) {
+    console.log("[LeadFinder] NIGHTLY_DISCOVERY_ENABLED=false, nightly discovery not started");
+    return;
+  }
+
   if (nightlyInterval) {
     console.log("[LeadFinder] Nightly discovery already running");
     return;

@@ -41,6 +41,11 @@ The frontend uses React with Vite, TypeScript, Tailwind CSS, and shadcn/ui, with
 - **Operator Dashboard**: Pilot instrumentation dashboard at `/dashboard/operator` with 7 KPIs (leads queued, contacted, send success, bounce rate, reply rate, positive-intent, booked calls), time range toggle (today/yesterday/7-day), per-identity send monitoring with auto-refresh, webhook event log viewer with filtering, stuck lead alerts (>48h in same stage), low-confidence intent classification flagging (<70%), and on-demand daily digest sending.
 - **SDR Daily Digest Email**: Automated daily digest at 8 AM ET via `checkAndSendDigests()` including outreach stats, reply breakdown, inbox health, kill-switch status, and top 5 stuck leads. Uses `server/services/sdr/operator-digest.ts`.
 - **Enhanced Inbox Health**: Warmup progress tracking with day count and progress bars, daily cap utilization visualization, per-identity pause/resume controls, and bounce/complaint trend bars per identity.
+- **Anomaly Detection Monitoring**: Automated detection of send volume deviations (>50%), reply rate drops (>30%), inbox bounce spikes (>3%), and inbox health degradation (<70 score). Alerts surfaced on dashboard with severity levels (warning/critical).
+- **Serper Enrichment Service**: Batch enrichment of merchant data using Serper.dev API for website, phone, email, and address discovery. Metrics tracked and surfaced on dashboard.
+- **Calendar Booking Automation**: Meeting-intent reply classification triggers automatic booking link generation via GHL scheduling integration.
+- **Multi-Inbox Bulk Management**: Bulk pause/resume operations for sending identities with select-all capability in the inbox health dashboard.
+- **Sprint C Dashboard Tabs**: SDR Dashboard extended with Anomaly Alerts, SMS Metrics, Voice AI Status, Serper Enrichment, and Discovery Controls tabs.
 
 ### Feature Specifications
 - **Public Website**: Marketing pages, conversion forms, legal pages, and hidden sales enablement content, all SEO-optimized. Includes an e-commerce terminal shop.
