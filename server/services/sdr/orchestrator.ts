@@ -10,6 +10,7 @@ import { sendGhlEmail, sendGhlSms, isGhlConfigured } from "../ghl";
 import { resolveVoiceScriptForLead, buildGhlVoicePayload } from "./voice-orchestrator";
 import { selectBestInbox, recordSend, recordBounce, recordDelivered } from "./inbox-rotation";
 import { ingestBusiness } from "./dedupe";
+import { featureFlags } from "../feature-flags";
 import OpenAI from "openai";
 
 function getOpenAI() {
@@ -37,6 +38,82 @@ let dailyCounters: DailyCounters = {
 
 let sweepInterval: ReturnType<typeof setInterval> | null = null;
 let isSweeping = false;
+let globalPaused = false;
+let globalPauseReason = "";
+let lastSweepTime: Date | null = null;
+let lastSweepErrors = 0;
+let sweepBounceCount = 0;
+let sweepSendCount = 0;
+const sentMessageIds = new Set<string>();
+
+export function isGloballyPaused(): boolean { return globalPaused; }
+export function getGlobalPauseReason(): string { return globalPauseReason; }
+export function getLastSweepTime(): Date | null { return lastSweepTime; }
+export function getLastSweepErrors(): number { return lastSweepErrors; }
+
+export function pauseAll(reason?: string): void {
+  globalPaused = true;
+  globalPauseReason = reason || "Manual pause";
+  console.log(`[SDR Orchestrator] GLOBAL PAUSE activated: ${globalPauseReason}`);
+}
+
+export function resumeAll(): void {
+  globalPaused = false;
+  globalPauseReason = "";
+  sweepBounceCount = 0;
+  sweepSendCount = 0;
+  sentMessageIds.clear();
+  webhookFailureCount = 0;
+  console.log("[SDR Orchestrator] GLOBAL PAUSE released — resumed");
+}
+
+function checkKillSwitch(): boolean {
+  if (sweepSendCount > 0 && sweepBounceCount / sweepSendCount > 0.05) {
+    pauseAll(`Auto-pause: bounce rate ${((sweepBounceCount / sweepSendCount) * 100).toFixed(1)}% exceeds 5% threshold (${sweepBounceCount}/${sweepSendCount})`);
+    return true;
+  }
+  return false;
+}
+
+function trackSendForKillSwitch(messageId?: string | null): boolean {
+  sweepSendCount++;
+  if (messageId) {
+    if (sentMessageIds.has(messageId)) {
+      pauseAll(`Auto-pause: duplicate send detected for messageId=${messageId}`);
+      return true;
+    }
+    sentMessageIds.add(messageId);
+    if (sentMessageIds.size > 10000) {
+      const arr = Array.from(sentMessageIds);
+      sentMessageIds.clear();
+      arr.slice(-5000).forEach(id => sentMessageIds.add(id));
+    }
+  }
+  return false;
+}
+
+function trackBounceForKillSwitch(): void {
+  sweepBounceCount++;
+  checkKillSwitch();
+}
+
+let webhookFailureCount = 0;
+const WEBHOOK_FAILURE_THRESHOLD = 20;
+
+export function trackWebhookFailure(): void {
+  webhookFailureCount++;
+  if (webhookFailureCount >= WEBHOOK_FAILURE_THRESHOLD) {
+    pauseAll(`Auto-pause: webhook failure count (${webhookFailureCount}) exceeded threshold (${WEBHOOK_FAILURE_THRESHOLD})`);
+  }
+}
+
+export function resetWebhookFailureCount(): void {
+  webhookFailureCount = 0;
+}
+
+export function getWebhookFailureCount(): number {
+  return webhookFailureCount;
+}
 
 function getEstDateString(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
@@ -333,6 +410,7 @@ async function executeEmailAction(lead: SdrLeadState, strongerCta?: boolean): Pr
       dailyCounters.emailsSent++;
       await recordSend(selectedInbox.id, lead.merchantId);
       await recordDelivered(selectedInbox.id);
+      trackSendForKillSwitch(result.messageId);
       await db.update(sdrLeadState).set({
         emailAttempts: attemptNumber,
         lastEmailAt: new Date(),
@@ -342,6 +420,7 @@ async function executeEmailAction(lead: SdrLeadState, strongerCta?: boolean): Pr
       const errorLower = (result.error || "").toLowerCase();
       if (errorLower.includes("bounce") || errorLower.includes("invalid") || errorLower.includes("undeliverable")) {
         await recordBounce(selectedInbox.id);
+        trackBounceForKillSwitch();
       }
     }
 
@@ -350,6 +429,7 @@ async function executeEmailAction(lead: SdrLeadState, strongerCta?: boolean): Pr
     const errorLower = (err.message || "").toLowerCase();
     if (errorLower.includes("bounce") || errorLower.includes("invalid") || errorLower.includes("undeliverable")) {
       await recordBounce(selectedInbox.id);
+      trackBounceForKillSwitch();
     }
     await logChannelAttempt({
       leadStateId: lead.id,
@@ -692,15 +772,24 @@ async function processLead(lead: SdrLeadState): Promise<void> {
   }
 }
 
-export async function sweepLeads(): Promise<{ processed: number; errors: number }> {
+export async function sweepLeads(): Promise<{ processed: number; errors: number; reviewMode?: boolean; skippedSends?: number }> {
   if (isSweeping) {
     console.log("[SDR Orchestrator] Sweep already in progress, skipping");
     return { processed: 0, errors: 0 };
   }
 
+  if (globalPaused) {
+    console.log(`[SDR Orchestrator] Globally paused (${globalPauseReason}), skipping sweep`);
+    return { processed: 0, errors: 0 };
+  }
+
+  const reviewMode = featureFlags.ORCHESTRATOR_REVIEW_MODE;
+  const batchSize = featureFlags.ORCHESTRATOR_BATCH_SIZE;
+
   isSweeping = true;
   let processed = 0;
   let errors = 0;
+  let skippedSends = 0;
 
   try {
     resetDailyCountersIfNeeded();
@@ -715,12 +804,16 @@ export async function sweepLeads(): Promise<{ processed: number; errors: number 
         )
       )
       .orderBy(sql`COALESCE(${sdrLeadState.businessId}, 0), ${sdrLeadState.priorityScore} DESC NULLS LAST`)
-      .limit(100);
+      .limit(batchSize);
 
-    console.log(`[SDR Orchestrator] Found ${dueLeads.length} leads due for processing`);
+    console.log(`[SDR Orchestrator] Found ${dueLeads.length} leads due for processing (batch=${batchSize}, reviewMode=${reviewMode})`);
 
     const processedBusinessIds = new Set<number>();
     for (const lead of dueLeads) {
+      if (globalPaused) {
+        console.log("[SDR Orchestrator] Global pause triggered mid-sweep, stopping");
+        break;
+      }
       try {
         if (lead.pausedUntil && new Date(lead.pausedUntil) > now) {
           continue;
@@ -731,7 +824,12 @@ export async function sweepLeads(): Promise<{ processed: number; errors: number 
           }
           processedBusinessIds.add(lead.businessId);
         }
-        await processLead(lead);
+        if (reviewMode) {
+          console.log(`[SDR Orchestrator][REVIEW] Would process lead ${lead.id} (${lead.companyName || "unknown"}, stage=${lead.stage}, next=${lead.nextActionType})`);
+          skippedSends++;
+        } else {
+          await processLead(lead);
+        }
         processed++;
       } catch (err) {
         errors++;
@@ -739,23 +837,30 @@ export async function sweepLeads(): Promise<{ processed: number; errors: number 
       }
     }
 
-    console.log(`[SDR Orchestrator] Sweep complete: ${processed} processed, ${errors} errors`);
+    lastSweepTime = new Date();
+    lastSweepErrors = errors;
+    console.log(`[SDR Orchestrator] Sweep complete: ${processed} processed, ${errors} errors${reviewMode ? `, ${skippedSends} sends skipped (review mode)` : ""}`);
   } catch (err) {
     console.error("[SDR Orchestrator] Sweep failed:", err);
   } finally {
     isSweeping = false;
   }
 
-  return { processed, errors };
+  return { processed, errors, reviewMode, skippedSends };
 }
 
 export function startOrchestrator() {
+  if (!featureFlags.ORCHESTRATOR_ENABLED) {
+    console.log("[SDR Orchestrator] ORCHESTRATOR_ENABLED=false, refusing to start");
+    return;
+  }
+
   if (sweepInterval) {
     console.log("[SDR Orchestrator] Already running");
     return;
   }
 
-  console.log(`[SDR Orchestrator] Starting sweep every ${ORCHESTRATOR_SWEEP_MINUTES} minutes`);
+  console.log(`[SDR Orchestrator] Starting sweep every ${ORCHESTRATOR_SWEEP_MINUTES} minutes (batch=${featureFlags.ORCHESTRATOR_BATCH_SIZE}, reviewMode=${featureFlags.ORCHESTRATOR_REVIEW_MODE})`);
   sweepInterval = setInterval(async () => {
     try {
       await sweepLeads();

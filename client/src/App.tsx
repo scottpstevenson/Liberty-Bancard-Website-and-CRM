@@ -106,6 +106,7 @@ import DataRequests from "@/pages/dashboard/DataRequests";
 import BlogGenerator from "@/pages/dashboard/BlogGenerator";
 import SdrDashboard from "@/pages/dashboard/SdrDashboard";
 import InboxHealth from "@/pages/dashboard/InboxHealth";
+import ActivationPanel from "@/pages/dashboard/ActivationPanel";
 import DataRetention from "@/pages/DataRetention";
 import TCPAConsent from "@/pages/TCPAConsent";
 import RefundPolicy from "@/pages/RefundPolicy";
@@ -383,6 +384,9 @@ function Router() {
       </Route>
       <Route path="/dashboard/inbox-health">
         <ProtectedRoute component={InboxHealth} />
+      </Route>
+      <Route path="/dashboard/activation">
+        <ProtectedRoute component={ActivationPanel} />
       </Route>
 
       <Route component={NotFound} />

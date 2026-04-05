@@ -1,23 +1,344 @@
 import type { Express, Request as ExpressRequest } from "express";
 import { isAuthenticated, isAdmin } from "../replit_integrations/auth";
 import { storage } from "../storage";
-import { db } from "../db";
+import { db, pool } from "../db";
 import { z } from "zod";
-import { contacts, insertBusinessAliasSchema, insertBusinessLocationSchema, insertBusinessSchema, insertLeadSourceSchema, sdrLeadState } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { contacts, insertBusinessAliasSchema, insertBusinessLocationSchema, insertBusinessSchema, insertLeadSourceSchema, sdrLeadState, sdrChannelAttempts, sdrLeadEvents, sdrMerchants } from "@shared/schema";
+import { eq, sql, desc } from "drizzle-orm";
 import { getSerperUsage, isSerperConfigured } from "../services/serper";
 import { scoreLeadFull } from "../services/sdr/scoring";
-import { bridgeContactsToSdr, getDailyLimits, getSdrDashboardStats, isOrchestratorRunning, startOrchestrator, stopOrchestrator, sweepLeads } from "../services/sdr/orchestrator";
+import { bridgeContactsToSdr, getDailyLimits, getSdrDashboardStats, isOrchestratorRunning, startOrchestrator, stopOrchestrator, sweepLeads, pauseAll, resumeAll, isGloballyPaused, getGlobalPauseReason, getLastSweepTime, getLastSweepErrors, trackWebhookFailure, getWebhookFailureCount } from "../services/sdr/orchestrator";
 import { buildGhlVoicePayload, getAllVoiceScripts, getVoiceScript, personalizeVoiceScript, resolveVoiceScriptForLead } from "../services/sdr/voice-orchestrator";
 import { bridgeContactsToBusinesses, getDedupeStats, ingestBusiness } from "../services/sdr/dedupe";
+import { getAllFlags, featureFlags } from "../services/feature-flags";
 import { parse } from "csv-parse/sync";
 
 export function registerSdrRoutes(app: Express) {
-  // === HEALTH CHECK ===
+  // === HEALTH ENDPOINTS ===
   app.get("/health", (_req, res) => {
     res.json({ ok: true });
   });
 
+  app.get("/api/health", async (_req, res) => {
+    const uptime = process.uptime();
+    let dbOk = false;
+    let sessionOk = false;
+    try {
+      const result = await pool.query("SELECT 1 AS check");
+      dbOk = result.rows.length > 0;
+    } catch {}
+    try {
+      const sessResult = await pool.query("SELECT COUNT(*) FROM sessions");
+      sessionOk = sessResult.rows.length > 0;
+    } catch {}
+    res.json({
+      ok: dbOk && sessionOk,
+      uptime: Math.floor(uptime),
+      db: dbOk ? "connected" : "error",
+      session: sessionOk ? "connected" : "error",
+      timestamp: new Date().toISOString(),
+    });
+  });
+
+  app.get("/api/ghl/health", isAuthenticated, async (_req, res) => {
+    try {
+      const { getSdrGhlConfig, isSdrGhlConfigured } = await import("../services/sdr/ghl-client");
+      const config = getSdrGhlConfig();
+      let authTest = false;
+      if (isSdrGhlConfigured()) {
+        try {
+          const { fetchCalendars } = await import("../services/sdr/ghl-client");
+          await fetchCalendars();
+          authTest = true;
+        } catch {}
+      }
+      res.json({ ...config, authTest });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/sdr/health", isAuthenticated, async (_req, res) => {
+    try {
+      const identities = await storage.getSendingIdentities();
+      const activeIdentities = identities.filter((i: any) => i.status === "active");
+
+      const eligibleLeads = await db.select({ count: sql<number>`count(*)` })
+        .from(sdrLeadState)
+        .where(sql`${sdrLeadState.stage} NOT IN ('DEAD', 'CONVERTED') AND ${sdrLeadState.nextActionAt} IS NOT NULL`);
+
+      const recentFailures = await db.select({ count: sql<number>`count(*)` })
+        .from(sdrChannelAttempts)
+        .where(sql`${sdrChannelAttempts.status} = 'failed' AND ${sdrChannelAttempts.sentAt} > NOW() - INTERVAL '24 hours'`);
+
+      const lastWebhookEvent = await db.select({ createdAt: sdrLeadEvents.createdAt })
+        .from(sdrLeadEvents)
+        .where(sql`${sdrLeadEvents.eventType} LIKE '%webhook%' OR ${sdrLeadEvents.eventType} IN ('reply_received', 'call_outcome', 'appointment_booked')`)
+        .orderBy(desc(sdrLeadEvents.createdAt))
+        .limit(1);
+
+      res.json({
+        sendingIdentityCount: identities.length,
+        activeIdentityCount: activeIdentities.length,
+        eligibleLeadCount: Number(eligibleLeads[0]?.count || 0),
+        orchestratorRunning: isOrchestratorRunning(),
+        globalPaused: isGloballyPaused(),
+        globalPauseReason: getGlobalPauseReason(),
+        lastSweepTime: getLastSweepTime()?.toISOString() || null,
+        lastSweepErrors: getLastSweepErrors(),
+        recentFailures24h: Number(recentFailures[0]?.count || 0),
+        webhookLastReceived: lastWebhookEvent[0]?.createdAt?.toISOString() || null,
+        flags: getAllFlags(),
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === FEATURE FLAGS ===
+  app.get("/api/sdr/flags", isAuthenticated, (_req, res) => {
+    res.json(getAllFlags());
+  });
+
+  // === GLOBAL PAUSE / RESUME ===
+  app.post("/api/sdr/pause-all", isAuthenticated, (req, res) => {
+    if ((req.user as any)?.role !== "admin") return res.status(403).json({ message: "Admin only" });
+    const reason = req.body?.reason || "Manual pause from admin panel";
+    pauseAll(reason);
+    res.json({ success: true, paused: true, reason });
+  });
+
+  app.post("/api/sdr/resume-all", isAuthenticated, (req, res) => {
+    if ((req.user as any)?.role !== "admin") return res.status(403).json({ message: "Admin only" });
+    resumeAll();
+    res.json({ success: true, paused: false });
+  });
+
+  // === BRIDGE SCRIPT ===
+  app.post("/api/sdr/bridge", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== "admin") return res.status(403).json({ message: "Admin only" });
+    try {
+      const source = req.body?.source || "contacts";
+      const limit = Math.min(parseInt(req.body?.limit || "50", 10), 500);
+      const dryRun = req.body?.dryRun === true || req.query.dryRun === "true";
+      const verticalFilter = req.body?.vertical || null;
+      const geographyFilter = req.body?.geography || null;
+
+      if (source === "contacts") {
+        const allContacts = await storage.getContacts();
+        let filtered = allContacts;
+
+        if (verticalFilter) {
+          filtered = filtered.filter((c: any) => c.vertical && c.vertical.toLowerCase().includes(verticalFilter.toLowerCase()));
+        }
+        if (geographyFilter) {
+          filtered = filtered.filter((c: any) => (c.city && c.city.toLowerCase().includes(geographyFilter.toLowerCase())) || (c.state && c.state.toLowerCase().includes(geographyFilter.toLowerCase())));
+        }
+
+        filtered = filtered.slice(0, limit);
+
+        const existingLeads = await db.select({ contactId: sdrLeadState.contactId })
+          .from(sdrLeadState)
+          .where(sql`${sdrLeadState.contactId} IS NOT NULL`);
+        const existingContactIds = new Set(existingLeads.map((l: any) => l.contactId));
+
+        const results: any[] = [];
+        let created = 0, deduped = 0, skipped = 0, errors = 0;
+
+        for (const contact of filtered) {
+          if (existingContactIds.has(contact.id)) {
+            deduped++;
+            results.push({ id: contact.id, name: contact.companyName || `${contact.firstName} ${contact.lastName}`, status: "deduped" });
+            continue;
+          }
+          if (!contact.email && !contact.phone) {
+            skipped++;
+            results.push({ id: contact.id, name: contact.companyName || `${contact.firstName} ${contact.lastName}`, status: "skipped", reason: "No email or phone" });
+            continue;
+          }
+
+          if (dryRun) {
+            created++;
+            results.push({ id: contact.id, name: contact.companyName || `${contact.firstName} ${contact.lastName}`, status: "would_create", vertical: contact.vertical, city: contact.city });
+          } else {
+            try {
+              const bridgeResult = await bridgeContactsToSdr({ limit: 1, contactIds: [contact.id] });
+              if (bridgeResult.imported > 0) {
+                created++;
+                results.push({ id: contact.id, name: contact.companyName || `${contact.firstName} ${contact.lastName}`, status: "created" });
+              } else {
+                skipped++;
+                results.push({ id: contact.id, name: contact.companyName || `${contact.firstName} ${contact.lastName}`, status: "skipped" });
+              }
+            } catch (err: any) {
+              errors++;
+              results.push({ id: contact.id, name: contact.companyName || `${contact.firstName} ${contact.lastName}`, status: "error", reason: err.message });
+            }
+          }
+        }
+
+        res.json({ dryRun, source, totalProcessed: filtered.length, created, deduped, skipped, errors, results });
+      } else if (source === "sunbiz") {
+        let sunbizEntities: Record<string, unknown>[] = [];
+        try {
+          const rawResult = await db.execute(sql`
+            SELECT * FROM sunbiz_entities
+            WHERE TRUE
+            ${verticalFilter ? sql`AND vertical ILIKE ${'%' + verticalFilter + '%'}` : sql``}
+            ${geographyFilter ? sql`AND (city ILIKE ${'%' + geographyFilter + '%'} OR state ILIKE ${'%' + geographyFilter + '%'})` : sql``}
+            LIMIT ${limit}
+          `);
+          sunbizEntities = (rawResult.rows || []) as Record<string, unknown>[];
+        } catch {
+          sunbizEntities = [];
+        }
+
+        const existingMerchantRefs = await db.select({ sourceRef: sdrMerchants.sourceRef })
+          .from(sdrMerchants)
+          .where(sql`${sdrMerchants.source} = 'sunbiz_bridge'`);
+        const existingRefs = new Set(existingMerchantRefs.map(r => r.sourceRef));
+
+        interface BridgeResult { id: unknown; name: unknown; status: string; reason?: string; vertical?: unknown; city?: unknown; businessId?: number; merchantId?: number }
+        const results: BridgeResult[] = [];
+        let created = 0, deduped = 0, skipped = 0, errors = 0;
+
+        for (const entity of sunbizEntities) {
+          const entityId = entity.id;
+          const businessName = (entity.business_name || entity.businessName || "Unknown") as string;
+          const entityEmail = entity.email as string | null;
+          const entityPhone = entity.phone as string | null;
+
+          if (!entityEmail && !entityPhone) {
+            skipped++;
+            results.push({ id: entityId, name: businessName, status: "skipped", reason: "No contact info" });
+            continue;
+          }
+
+          const refKey = `sunbiz_${entityId}`;
+          if (existingRefs.has(refKey)) {
+            deduped++;
+            results.push({ id: entityId, name: businessName, status: "deduped" });
+            continue;
+          }
+
+          if (dryRun) {
+            created++;
+            results.push({ id: entityId, name: businessName, status: "would_create", vertical: entity.vertical, city: entity.city });
+          } else {
+            try {
+              const bizResult = await ingestBusiness({
+                name: businessName,
+                phone: entityPhone || undefined,
+                email: entityEmail || undefined,
+                address: (entity.address as string) || undefined,
+                city: (entity.city as string) || undefined,
+                state: (entity.state as string) || "FL",
+                vertical: (entity.vertical as string) || undefined,
+                sourceType: "sunbiz_bridge",
+                sourceLabel: refKey,
+              });
+              const resolvedBusinessId = bizResult.businessId;
+
+              const [merchant] = await db.insert(sdrMerchants).values({
+                businessName,
+                website: null,
+                mainPhone: entityPhone || null,
+                mainEmail: entityEmail || null,
+                address: (entity.address as string) || null,
+                city: (entity.city as string) || null,
+                state: (entity.state as string) || "FL",
+                vertical: (entity.vertical as string) || null,
+                source: "sunbiz_bridge",
+                sourceRef: refKey,
+                businessId: resolvedBusinessId,
+              }).returning();
+
+              await db.insert(sdrLeadState).values({
+                merchantId: merchant.id,
+                businessId: resolvedBusinessId,
+                companyName: businessName,
+                email: entityEmail || null,
+                phone: entityPhone || null,
+                vertical: (entity.vertical as string) || null,
+                city: (entity.city as string) || null,
+                state: (entity.state as string) || "FL",
+                stage: "DISCOVERED",
+                sourceType: "sunbiz_bridge",
+                sourceId: refKey,
+                nextActionType: "score",
+                nextActionAt: new Date(),
+              });
+
+              existingRefs.add(refKey);
+              created++;
+              results.push({ id: entityId, name: businessName, status: "created", businessId: resolvedBusinessId, merchantId: merchant.id });
+            } catch (err: unknown) {
+              const errMsg = err instanceof Error ? err.message : String(err);
+              if (errMsg.includes("duplicate") || errMsg.includes("already exists")) {
+                deduped++;
+                results.push({ id: entityId, name: businessName, status: "deduped" });
+              } else {
+                errors++;
+                results.push({ id: entityId, name: businessName, status: "error", reason: errMsg });
+              }
+            }
+          }
+        }
+
+        res.json({ dryRun, source, totalProcessed: sunbizEntities.length, created, deduped, skipped, errors, results });
+      } else {
+        res.status(400).json({ message: "source must be 'contacts' or 'sunbiz'" });
+      }
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === ACTIVATION PANEL DATA ===
+  app.get("/api/sdr/activation/recent-attempts", isAdmin, async (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit as string || "50", 10);
+      const attempts = await db.select()
+        .from(sdrChannelAttempts)
+        .orderBy(desc(sdrChannelAttempts.sentAt))
+        .limit(limit);
+      res.json(attempts);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/sdr/activation/recent-events", isAdmin, async (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit as string || "50", 10);
+      const events = await db.select()
+        .from(sdrLeadEvents)
+        .orderBy(desc(sdrLeadEvents.createdAt))
+        .limit(limit);
+      res.json(events);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/sdr/activation/stuck-leads", isAdmin, async (_req, res) => {
+    try {
+      const stuckLeads = await db.select()
+        .from(sdrLeadState)
+        .where(sql`
+          ${sdrLeadState.stage} NOT IN ('DEAD', 'CONVERTED')
+          AND (
+            (${sdrLeadState.nextActionAt} < NOW() - INTERVAL '24 hours')
+            OR (${sdrLeadState.updatedAt} < NOW() - INTERVAL '72 hours' AND ${sdrLeadState.stage} NOT IN ('DEAD', 'CONVERTED'))
+          )
+        `)
+        .orderBy(sql`${sdrLeadState.nextActionAt} ASC NULLS LAST`)
+        .limit(100);
+      res.json(stuckLeads);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
 
   // === SDR WEBHOOK RECEIVER ===
   function getSdrWebhookRawBody(req: ExpressRequest): string {
@@ -42,6 +363,7 @@ export function registerSdrRoutes(app: Express) {
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error("[SDR Webhook] contact-updated error:", errMsg);
+      trackWebhookFailure();
       res.status(500).json({ message: errMsg });
     }
   });
@@ -60,6 +382,7 @@ export function registerSdrRoutes(app: Express) {
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error("[SDR Webhook] message-received error:", errMsg);
+      trackWebhookFailure();
       res.status(500).json({ message: errMsg });
     }
   });
@@ -78,6 +401,7 @@ export function registerSdrRoutes(app: Express) {
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error("[SDR Webhook] call-outcome error:", errMsg);
+      trackWebhookFailure();
       res.status(500).json({ message: errMsg });
     }
   });
@@ -96,6 +420,7 @@ export function registerSdrRoutes(app: Express) {
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error("[SDR Webhook] appointment-booked error:", errMsg);
+      trackWebhookFailure();
       res.status(500).json({ message: errMsg });
     }
   });
@@ -114,6 +439,7 @@ export function registerSdrRoutes(app: Express) {
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error("[SDR Webhook] appointment-canceled error:", errMsg);
+      trackWebhookFailure();
       res.status(500).json({ message: errMsg });
     }
   });
@@ -132,6 +458,7 @@ export function registerSdrRoutes(app: Express) {
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error("[SDR Webhook] opt-out error:", errMsg);
+      trackWebhookFailure();
       res.status(500).json({ message: errMsg });
     }
   });
@@ -150,6 +477,7 @@ export function registerSdrRoutes(app: Express) {
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error("[SDR Webhook] conversation-created error:", errMsg);
+      trackWebhookFailure();
       res.status(500).json({ message: errMsg });
     }
   });
@@ -168,6 +496,7 @@ export function registerSdrRoutes(app: Express) {
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error("[SDR Webhook] chat-message error:", errMsg);
+      trackWebhookFailure();
       res.status(500).json({ message: errMsg });
     }
   });
@@ -186,6 +515,7 @@ export function registerSdrRoutes(app: Express) {
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error("[SDR Webhook] sms-thread error:", errMsg);
+      trackWebhookFailure();
       res.status(500).json({ message: errMsg });
     }
   });
@@ -204,6 +534,7 @@ export function registerSdrRoutes(app: Express) {
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error("[SDR Webhook] email-thread error:", errMsg);
+      trackWebhookFailure();
       res.status(500).json({ message: errMsg });
     }
   });
@@ -222,6 +553,7 @@ export function registerSdrRoutes(app: Express) {
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error("[SDR Webhook] chat-booking error:", errMsg);
+      trackWebhookFailure();
       res.status(500).json({ message: errMsg });
     }
   });
@@ -761,6 +1093,9 @@ export function registerSdrRoutes(app: Express) {
 
   app.post("/api/sdr/orchestrator/start", isAuthenticated, async (req, res) => {
     if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+    if (!featureFlags.ORCHESTRATOR_ENABLED) {
+      return res.status(400).json({ success: false, message: "Orchestrator is disabled via ORCHESTRATOR_ENABLED feature flag" });
+    }
     startOrchestrator();
     res.json({ success: true, message: "Orchestrator started" });
   });
@@ -774,6 +1109,8 @@ export function registerSdrRoutes(app: Express) {
   app.get("/api/sdr/orchestrator/status", isAuthenticated, async (req, res) => {
     res.json({
       running: isOrchestratorRunning(),
+      enabled: featureFlags.ORCHESTRATOR_ENABLED,
+      webhookFailures: getWebhookFailureCount(),
       dailyLimits: getDailyLimits(),
     });
   });

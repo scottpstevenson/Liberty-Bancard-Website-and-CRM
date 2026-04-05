@@ -9,6 +9,7 @@ import { seedVerticalCampaigns } from "./services/seed-vertical-campaigns";
 import { seedStageRules, seedDemoProspects } from "./services/seed-automation";
 import { startDailyOutreachWorker } from "./services/daily-outreach";
 import { startDailyMaintenanceScheduler } from "./services/sdr/inbox-rotation";
+import { featureFlags } from "./services/feature-flags";
 
 const app = express();
 const httpServer = createServer(app);
@@ -111,7 +112,14 @@ app.use((req, res, next) => {
       seedStageRules();
       seedDemoProspects();
       startSlaWorker();
-      startDailyOutreachWorker();
+
+      if (featureFlags.LEGACY_OUTREACH_ENABLED) {
+        log("LEGACY_OUTREACH_ENABLED=true — starting legacy outreach workers");
+        startDailyOutreachWorker();
+      } else {
+        log("LEGACY_OUTREACH_ENABLED=false — legacy outreach workers disabled");
+      }
+
       startDailyMaintenanceScheduler();
     },
   );
