@@ -11,6 +11,9 @@ import { bridgeContactsToSdr, getDailyLimits, getSdrDashboardStats, isOrchestrat
 import { buildGhlVoicePayload, getAllVoiceScripts, getVoiceScript, personalizeVoiceScript, resolveVoiceScriptForLead } from "../services/sdr/voice-orchestrator";
 import { bridgeContactsToBusinesses, getDedupeStats, ingestBusiness } from "../services/sdr/dedupe";
 import { getAllFlags, featureFlags } from "../services/feature-flags";
+import { validateWebhookSignature, getSdrGhlConfig, isSdrGhlConfigured, fetchCalendars } from "../services/sdr/ghl-client";
+import { handleContactUpdated, handleMessageReceived, handleCallOutcome, handleAppointmentBooked, handleAppointmentCanceled, handleOptOut } from "../services/sdr/webhook-handlers";
+import { handleConversationCreated, handleChatMessage, handleSmsThread, handleEmailThread, handleChatBooking } from "../services/sdr/chat-handlers";
 import { parse } from "csv-parse/sync";
 
 export function registerSdrRoutes(app: Express) {
@@ -42,12 +45,10 @@ export function registerSdrRoutes(app: Express) {
 
   app.get("/api/ghl/health", isAuthenticated, async (_req, res) => {
     try {
-      const { getSdrGhlConfig, isSdrGhlConfigured } = await import("../services/sdr/ghl-client");
       const config = getSdrGhlConfig();
       let authTest = false;
       if (isSdrGhlConfigured()) {
         try {
-          const { fetchCalendars } = await import("../services/sdr/ghl-client");
           await fetchCalendars();
           authTest = true;
         } catch {}
@@ -351,13 +352,11 @@ export function registerSdrRoutes(app: Express) {
 
   app.post("/api/webhooks/ghl/contact-updated", async (req, res) => {
     try {
-      const { validateWebhookSignature } = await import("../services/sdr/ghl-client");
       const signature = req.headers["x-ghl-signature"] as string || "";
       if (!validateWebhookSignature(getSdrWebhookRawBody(req), signature)) {
         return res.status(401).json({ message: "Invalid webhook signature" });
       }
 
-      const { handleContactUpdated } = await import("../services/sdr/webhook-handlers");
       await handleContactUpdated(req.body);
       res.json({ received: true });
     } catch (err: unknown) {
@@ -370,13 +369,11 @@ export function registerSdrRoutes(app: Express) {
 
   app.post("/api/webhooks/ghl/message-received", async (req, res) => {
     try {
-      const { validateWebhookSignature } = await import("../services/sdr/ghl-client");
       const signature = req.headers["x-ghl-signature"] as string || "";
       if (!validateWebhookSignature(getSdrWebhookRawBody(req), signature)) {
         return res.status(401).json({ message: "Invalid webhook signature" });
       }
 
-      const { handleMessageReceived } = await import("../services/sdr/webhook-handlers");
       await handleMessageReceived(req.body);
       res.json({ received: true });
     } catch (err: unknown) {
@@ -389,13 +386,11 @@ export function registerSdrRoutes(app: Express) {
 
   app.post("/api/webhooks/ghl/call-outcome", async (req, res) => {
     try {
-      const { validateWebhookSignature } = await import("../services/sdr/ghl-client");
       const signature = req.headers["x-ghl-signature"] as string || "";
       if (!validateWebhookSignature(getSdrWebhookRawBody(req), signature)) {
         return res.status(401).json({ message: "Invalid webhook signature" });
       }
 
-      const { handleCallOutcome } = await import("../services/sdr/webhook-handlers");
       await handleCallOutcome(req.body);
       res.json({ received: true });
     } catch (err: unknown) {
@@ -408,13 +403,11 @@ export function registerSdrRoutes(app: Express) {
 
   app.post("/api/webhooks/ghl/appointment-booked", async (req, res) => {
     try {
-      const { validateWebhookSignature } = await import("../services/sdr/ghl-client");
       const signature = req.headers["x-ghl-signature"] as string || "";
       if (!validateWebhookSignature(getSdrWebhookRawBody(req), signature)) {
         return res.status(401).json({ message: "Invalid webhook signature" });
       }
 
-      const { handleAppointmentBooked } = await import("../services/sdr/webhook-handlers");
       await handleAppointmentBooked(req.body);
       res.json({ received: true });
     } catch (err: unknown) {
@@ -427,13 +420,11 @@ export function registerSdrRoutes(app: Express) {
 
   app.post("/api/webhooks/ghl/appointment-canceled", async (req, res) => {
     try {
-      const { validateWebhookSignature } = await import("../services/sdr/ghl-client");
       const signature = req.headers["x-ghl-signature"] as string || "";
       if (!validateWebhookSignature(getSdrWebhookRawBody(req), signature)) {
         return res.status(401).json({ message: "Invalid webhook signature" });
       }
 
-      const { handleAppointmentCanceled } = await import("../services/sdr/webhook-handlers");
       await handleAppointmentCanceled(req.body);
       res.json({ received: true });
     } catch (err: unknown) {
@@ -446,13 +437,11 @@ export function registerSdrRoutes(app: Express) {
 
   app.post("/api/webhooks/ghl/opt-out", async (req, res) => {
     try {
-      const { validateWebhookSignature } = await import("../services/sdr/ghl-client");
       const signature = req.headers["x-ghl-signature"] as string || "";
       if (!validateWebhookSignature(getSdrWebhookRawBody(req), signature)) {
         return res.status(401).json({ message: "Invalid webhook signature" });
       }
 
-      const { handleOptOut } = await import("../services/sdr/webhook-handlers");
       await handleOptOut(req.body);
       res.json({ received: true });
     } catch (err: unknown) {
@@ -465,13 +454,11 @@ export function registerSdrRoutes(app: Express) {
 
   app.post("/api/webhooks/ghl/conversation-created", async (req, res) => {
     try {
-      const { validateWebhookSignature } = await import("../services/sdr/ghl-client");
       const signature = req.headers["x-ghl-signature"] as string || "";
       if (!validateWebhookSignature(getSdrWebhookRawBody(req), signature)) {
         return res.status(401).json({ message: "Invalid webhook signature" });
       }
 
-      const { handleConversationCreated } = await import("../services/sdr/chat-handlers");
       await handleConversationCreated(req.body);
       res.json({ received: true });
     } catch (err: unknown) {
@@ -484,13 +471,11 @@ export function registerSdrRoutes(app: Express) {
 
   app.post("/api/webhooks/ghl/chat-message", async (req, res) => {
     try {
-      const { validateWebhookSignature } = await import("../services/sdr/ghl-client");
       const signature = req.headers["x-ghl-signature"] as string || "";
       if (!validateWebhookSignature(getSdrWebhookRawBody(req), signature)) {
         return res.status(401).json({ message: "Invalid webhook signature" });
       }
 
-      const { handleChatMessage } = await import("../services/sdr/chat-handlers");
       const result = await handleChatMessage(req.body);
       res.json({ received: true, ...(result || {}) });
     } catch (err: unknown) {
@@ -503,13 +488,11 @@ export function registerSdrRoutes(app: Express) {
 
   app.post("/api/webhooks/ghl/sms-thread", async (req, res) => {
     try {
-      const { validateWebhookSignature } = await import("../services/sdr/ghl-client");
       const signature = req.headers["x-ghl-signature"] as string || "";
       if (!validateWebhookSignature(getSdrWebhookRawBody(req), signature)) {
         return res.status(401).json({ message: "Invalid webhook signature" });
       }
 
-      const { handleSmsThread } = await import("../services/sdr/chat-handlers");
       const result = await handleSmsThread(req.body);
       res.json({ received: true, ...(result || {}) });
     } catch (err: unknown) {
@@ -522,13 +505,11 @@ export function registerSdrRoutes(app: Express) {
 
   app.post("/api/webhooks/ghl/email-thread", async (req, res) => {
     try {
-      const { validateWebhookSignature } = await import("../services/sdr/ghl-client");
       const signature = req.headers["x-ghl-signature"] as string || "";
       if (!validateWebhookSignature(getSdrWebhookRawBody(req), signature)) {
         return res.status(401).json({ message: "Invalid webhook signature" });
       }
 
-      const { handleEmailThread } = await import("../services/sdr/chat-handlers");
       const result = await handleEmailThread(req.body);
       res.json({ received: true, ...(result || {}) });
     } catch (err: unknown) {
@@ -541,13 +522,11 @@ export function registerSdrRoutes(app: Express) {
 
   app.post("/api/webhooks/ghl/chat-booking", async (req, res) => {
     try {
-      const { validateWebhookSignature } = await import("../services/sdr/ghl-client");
       const signature = req.headers["x-ghl-signature"] as string || "";
       if (!validateWebhookSignature(getSdrWebhookRawBody(req), signature)) {
         return res.status(401).json({ message: "Invalid webhook signature" });
       }
 
-      const { handleChatBooking } = await import("../services/sdr/chat-handlers");
       await handleChatBooking(req.body);
       res.json({ received: true });
     } catch (err: unknown) {
@@ -1115,15 +1094,8 @@ export function registerSdrRoutes(app: Express) {
     });
   });
 
-  app.post("/api/sdr/bridge-contacts", isAuthenticated, async (req, res) => {
-    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
-    try {
-      const { limit, contactIds } = req.body || {};
-      const result = await bridgeContactsToSdr({ limit, contactIds });
-      res.json(result);
-    } catch (err: any) {
-      res.status(500).json({ message: err.message });
-    }
+  app.post("/api/sdr/bridge-contacts", isAuthenticated, async (_req, res) => {
+    res.status(410).json({ message: "Deprecated — use POST /api/sdr/bridge with source='contacts' instead" });
   });
 
   app.get("/api/sdr/daily-limits", isAuthenticated, async (req, res) => {
@@ -1354,15 +1326,8 @@ export function registerSdrRoutes(app: Express) {
     }
   });
 
-  app.post("/api/businesses/bridge-contacts", isAuthenticated, async (req, res) => {
-    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
-    try {
-      const { limit, contactIds } = req.body || {};
-      const result = await bridgeContactsToBusinesses({ limit, contactIds });
-      res.json(result);
-    } catch (err: any) {
-      res.status(500).json({ message: err.message });
-    }
+  app.post("/api/businesses/bridge-contacts", isAuthenticated, async (_req, res) => {
+    res.status(410).json({ message: "Deprecated — use POST /api/sdr/bridge with source='contacts' instead" });
   });
 
   app.get("/api/businesses/dedupe/stats", isAuthenticated, async (_req, res) => {

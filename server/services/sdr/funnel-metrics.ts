@@ -401,6 +401,7 @@ export async function getWeeklyKpiDigestData(): Promise<any> {
   const marketData = await getMarketExpansionData();
 
   const m = weekMetrics[0] || {};
+  const totalSent = (m.emailsSent || 0) + (m.smsSent || 0) + (m.callsMade || 0);
 
   return {
     period: { start: sevenDaysAgo, end: today },
@@ -416,7 +417,7 @@ export async function getWeeklyKpiDigestData(): Promise<any> {
       smsSent: m.smsSent || 0,
       callsMade: m.callsMade || 0,
       replies: m.replies || 0,
-      replyRate: (m.emailsSent || 0) > 0 ? Math.round(((m.replies || 0) / (m.emailsSent || 1)) * 100) : 0,
+      replyRate: totalSent > 0 ? Math.round(((m.replies || 0) / totalSent) * 100) : 0,
       meetingsBooked: m.meetingsBooked || 0,
     },
     midFunnel: {
@@ -512,7 +513,7 @@ export async function getOperatorKpis(range: string = "today"): Promise<any> {
 
   const m = metricsRows[0] || {};
   const totalSent = (m.emailsSent || 0) + (m.smsSent || 0) + (m.callsMade || 0);
-  const totalContacted = m.emailsSent || 0;
+  const totalContacted = totalSent;
 
   const bounceData = await db.select({
     totalBounced: sql<number>`coalesce(sum(${identityPerformanceDaily.bounced}), 0)`,

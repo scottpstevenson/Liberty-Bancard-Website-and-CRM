@@ -149,7 +149,7 @@ function KpiCard({ label, value, icon: Icon, color, suffix, subtext }: {
 function OperatorKpiPanel() {
   const [range, setRange] = useState("today");
 
-  const { data: kpis, isLoading } = useQuery<OperatorKpis>({
+  const { data: kpis, isLoading, isError, refetch } = useQuery<OperatorKpis>({
     queryKey: ["/api/sdr/operator/kpis", range],
     queryFn: async () => {
       const res = await fetch(`/api/sdr/operator/kpis?range=${range}`, { credentials: "include" });
@@ -165,6 +165,18 @@ function OperatorKpiPanel() {
     return (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 gap-3" data-testid="kpi-error">
+        <AlertTriangle className="w-8 h-8 text-red-500" />
+        <p className="text-sm text-muted-foreground">Failed to load KPI data</p>
+        <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="btn-retry-kpis">
+          <RefreshCw className="w-4 h-4 mr-1" /> Retry
+        </Button>
       </div>
     );
   }
@@ -271,7 +283,7 @@ function OperatorKpiPanel() {
 }
 
 function SendMonitoringPanel() {
-  const { data, isLoading } = useQuery<SendMonitoringData>({
+  const { data, isLoading, isError, refetch } = useQuery<SendMonitoringData>({
     queryKey: ["/api/sdr/operator/send-monitoring"],
     refetchInterval: 15000,
   });
@@ -280,6 +292,18 @@ function SendMonitoringPanel() {
     return (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 gap-3" data-testid="send-monitoring-error">
+        <AlertTriangle className="w-8 h-8 text-red-500" />
+        <p className="text-sm text-muted-foreground">Failed to load send monitoring data</p>
+        <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="btn-retry-send-monitoring">
+          <RefreshCw className="w-4 h-4 mr-1" /> Retry
+        </Button>
       </div>
     );
   }
@@ -383,7 +407,7 @@ function SendMonitoringPanel() {
 function WebhookEventViewer() {
   const [eventFilter, setEventFilter] = useState<string>("all");
 
-  const { data: events, isLoading } = useQuery<WebhookEvent[]>({
+  const { data: events, isLoading, isError, refetch } = useQuery<WebhookEvent[]>({
     queryKey: ["/api/sdr/operator/webhook-events", eventFilter],
     queryFn: async () => {
       const params = new URLSearchParams({ limit: "50" });
@@ -394,6 +418,18 @@ function WebhookEventViewer() {
     },
     refetchInterval: 30000,
   });
+
+  if (isError) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 gap-3" data-testid="webhook-events-error">
+        <AlertTriangle className="w-8 h-8 text-red-500" />
+        <p className="text-sm text-muted-foreground">Failed to load webhook events</p>
+        <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="btn-retry-webhook-events">
+          <RefreshCw className="w-4 h-4 mr-1" /> Retry
+        </Button>
+      </div>
+    );
+  }
 
   const eventTypes = [...new Set(events?.map(e => e.eventType) || [])];
 
@@ -472,7 +508,7 @@ function WebhookEventViewer() {
 }
 
 function StuckLeadsPanel() {
-  const { data: stuckLeads, isLoading } = useQuery<StuckLead[]>({
+  const { data: stuckLeads, isLoading, isError, refetch } = useQuery<StuckLead[]>({
     queryKey: ["/api/sdr/dashboard/stuck-leads"],
     refetchInterval: 60000,
   });
@@ -481,6 +517,18 @@ function StuckLeadsPanel() {
     return (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 gap-3" data-testid="stuck-leads-error">
+        <AlertTriangle className="w-8 h-8 text-red-500" />
+        <p className="text-sm text-muted-foreground">Failed to load stuck leads</p>
+        <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="btn-retry-stuck-leads">
+          <RefreshCw className="w-4 h-4 mr-1" /> Retry
+        </Button>
       </div>
     );
   }
@@ -526,7 +574,7 @@ function StuckLeadsPanel() {
 }
 
 function LowConfidencePanel() {
-  const { data: items, isLoading } = useQuery<LowConfidenceItem[]>({
+  const { data: items, isLoading, isError, refetch } = useQuery<LowConfidenceItem[]>({
     queryKey: ["/api/sdr/operator/low-confidence"],
     refetchInterval: 60000,
   });
@@ -535,6 +583,18 @@ function LowConfidencePanel() {
     return (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 gap-3" data-testid="low-confidence-error">
+        <AlertTriangle className="w-8 h-8 text-red-500" />
+        <p className="text-sm text-muted-foreground">Failed to load low confidence data</p>
+        <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="btn-retry-low-confidence">
+          <RefreshCw className="w-4 h-4 mr-1" /> Retry
+        </Button>
       </div>
     );
   }
