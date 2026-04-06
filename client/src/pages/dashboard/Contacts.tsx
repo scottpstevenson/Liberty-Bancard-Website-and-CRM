@@ -23,6 +23,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { exportToCSV } from "@/lib/export-csv";
 import { useToast } from "@/hooks/use-toast";
 import SavedFilterBar from "@/components/SavedFilterBar";
+import DashboardErrorState from "@/components/DashboardErrorState";
 
 const formSchema = z.object({
   firstName: z.string().min(1, "Required"),
@@ -375,7 +376,8 @@ function DuplicateFinderDialog({ open, onOpenChange }: { open: boolean; onOpenCh
 }
 
 export default function Contacts() {
-  const { data: contacts, isLoading } = useContacts();
+  const { data: contacts, isLoading, isError, refetch } = useContacts();
+  const [bulkUpdating, setBulkUpdating] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -456,9 +458,13 @@ export default function Contacts() {
   });
 
   const onSubmit = async (data: FormData) => {
-    await createContact.mutateAsync({ ...data, status: "New" });
-    setIsDialogOpen(false);
-    form.reset();
+    try {
+      await createContact.mutateAsync({ ...data, status: "New" });
+      setIsDialogOpen(false);
+      form.reset();
+    } catch {
+      // onError handler in useCreateContact shows toast
+    }
   };
 
   const filteredContacts = contacts?.filter((c: any) => {
@@ -498,11 +504,20 @@ export default function Contacts() {
   };
 
   const bulkUpdateStatus = async (status: string) => {
-    const ids = Array.from(selectedIds);
-    for (const id of ids) {
-      await updateContact.mutateAsync({ id, status });
+    if (bulkUpdating) return;
+    setBulkUpdating(true);
+    try {
+      const ids = Array.from(selectedIds);
+      for (const id of ids) {
+        await updateContact.mutateAsync({ id, status });
+      }
+      setSelectedIds(new Set());
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "An unexpected error occurred";
+      toast({ title: "Bulk update failed", description: message, variant: "destructive" });
+    } finally {
+      setBulkUpdating(false);
     }
-    setSelectedIds(new Set());
   };
 
   const openBulkDialog = (channel: "email" | "sms") => {
@@ -514,6 +529,10 @@ export default function Contacts() {
   };
 
   const selectedContacts = Array.from(selectedIds);
+
+  if (isError) {
+    return <DashboardErrorState title="Failed to load contacts" onRetry={() => refetch()} />;
+  }
 
   return (
     <div className="space-y-6">
@@ -549,9 +568,9 @@ export default function Contacts() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent>
-                <DropdownMenuItem onClick={() => bulkUpdateStatus("Contacted")} data-testid="bulk-mark-contacted">Mark Contacted</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => bulkUpdateStatus("Won")} data-testid="bulk-mark-won">Mark Won</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => bulkUpdateStatus("Lost")} data-testid="bulk-mark-lost">Mark Lost</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => bulkUpdateStatus("Contacted")} disabled={bulkUpdating} data-testid="bulk-mark-contacted">Mark Contacted</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => bulkUpdateStatus("Won")} disabled={bulkUpdating} data-testid="bulk-mark-won">Mark Won</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => bulkUpdateStatus("Lost")} disabled={bulkUpdating} data-testid="bulk-mark-lost">Mark Lost</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           )}

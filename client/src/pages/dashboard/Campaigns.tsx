@@ -36,6 +36,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Send, Plus, Play, Pause, Trash2, Mail, Clock } from "lucide-react";
+import DashboardErrorState from "@/components/DashboardErrorState";
 import type { Campaign, CampaignStep, ProspectList } from "@shared/schema";
 
 const campaignFormSchema = z.object({
@@ -382,7 +383,7 @@ export default function Campaigns() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
-  const { data: campaigns, isLoading } = useQuery<Campaign[]>({
+  const { data: campaigns, isLoading, isError, refetch } = useQuery<Campaign[]>({
     queryKey: ["/api/campaigns"],
   });
 
@@ -576,7 +577,9 @@ export default function Campaigns() {
         </Dialog>
       </div>
 
-      {isLoading ? (
+      {isError ? (
+        <DashboardErrorState title="Failed to load campaigns" onRetry={() => refetch()} />
+      ) : isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {Array.from({ length: 3 }).map((_, i) => (
             <Card key={i}>

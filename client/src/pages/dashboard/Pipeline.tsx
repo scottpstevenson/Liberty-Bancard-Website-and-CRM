@@ -24,6 +24,7 @@ import type { Deal, Contact, PipelineStage } from "@shared/schema";
 import { SALES_STAGES, OFFER_PATHS } from "@shared/schema";
 import Comments from "@/components/Comments";
 import SavedFilterBar from "@/components/SavedFilterBar";
+import DashboardErrorState from "@/components/DashboardErrorState";
 
 const STAGE_COLORS: Record<string, string> = {
   "New Lead": "bg-blue-500",
@@ -72,7 +73,7 @@ export default function Pipeline() {
   const [editNotes, setEditNotes] = useState("");
   const [editFollowUp, setEditFollowUp] = useState("");
 
-  const { data: deals, isLoading: dealsLoading } = useQuery<Deal[]>({
+  const { data: deals, isLoading: dealsLoading, isError: dealsError, refetch: refetchDeals } = useQuery<Deal[]>({
     queryKey: ["/api/deals", { pipeline: "sales" }],
     queryFn: async () => {
       const res = await fetch("/api/deals?pipeline=sales", { credentials: "include" });
@@ -392,6 +393,10 @@ export default function Pipeline() {
         <div className="text-muted-foreground">Loading pipeline...</div>
       </div>
     );
+  }
+
+  if (dealsError) {
+    return <DashboardErrorState title="Failed to load pipeline" onRetry={() => refetchDeals()} />;
   }
 
   return (

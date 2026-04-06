@@ -15,6 +15,7 @@ import { Plus, ArrowRight, Sparkles, Loader2, ChevronDown, UserPlus, CheckCircle
 import { useToast } from "@/hooks/use-toast";
 import Comments from "@/components/Comments";
 import SavedFilterBar from "@/components/SavedFilterBar";
+import DashboardErrorState from "@/components/DashboardErrorState";
 import type { Task } from "@shared/schema";
 
 const STATUS_OPTIONS = ["pending", "in_progress", "completed"] as const;
@@ -88,7 +89,7 @@ export default function Tasks() {
     ticketId: "",
   });
 
-  const { data: tasks, isLoading } = useQuery<Task[]>({
+  const { data: tasks, isLoading, isError, refetch } = useQuery<Task[]>({
     queryKey: ["/api/tasks"],
     queryFn: async () => {
       const res = await fetch("/api/tasks", { credentials: "include" });
@@ -251,6 +252,10 @@ export default function Tasks() {
         <div className="text-muted-foreground">Loading tasks...</div>
       </div>
     );
+  }
+
+  if (isError) {
+    return <DashboardErrorState title="Failed to load tasks" onRetry={() => refetch()} />;
   }
 
   return (

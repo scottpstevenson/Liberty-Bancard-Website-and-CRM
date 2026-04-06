@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useToast } from "@/hooks/use-toast";
 import { api, buildUrl } from "@shared/routes";
 import type { z } from "zod";
 
@@ -32,6 +33,7 @@ export function useContact(id: number) {
 
 export function useCreateContact() {
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   return useMutation({
     mutationFn: async (data: CreateContactInput) => {
       const res = await fetch(api.contacts.create.path, {
@@ -47,11 +49,15 @@ export function useCreateContact() {
       return res.json();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: [api.contacts.list.path] }),
+    onError: (err: Error) => {
+      toast({ title: "Failed to create contact", description: err.message, variant: "destructive" });
+    },
   });
 }
 
 export function useUpdateContact() {
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   return useMutation({
     mutationFn: async ({ id, ...updates }: { id: number } & UpdateContactInput) => {
       const url = buildUrl(api.contacts.update.path, { id });
@@ -68,5 +74,8 @@ export function useUpdateContact() {
       return res.json();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: [api.contacts.list.path] }),
+    onError: (err: Error) => {
+      toast({ title: "Failed to update contact", description: err.message, variant: "destructive" });
+    },
   });
 }

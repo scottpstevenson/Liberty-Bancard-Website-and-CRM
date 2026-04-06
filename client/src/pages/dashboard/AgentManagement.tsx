@@ -17,6 +17,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
 import { exportToCSV } from "@/lib/export-csv";
+import DashboardErrorState from "@/components/DashboardErrorState";
 import type { Agent, AgentQuota } from "@shared/schema";
 
 const agentFormSchema = z.object({
@@ -82,7 +83,7 @@ function ProgressBar({ value, max, label }: { value: number; max: number; label:
 }
 
 export default function AgentManagement() {
-  const { data: agents, isLoading } = useQuery<Agent[]>({ queryKey: ["/api/agents"] });
+  const { data: agents, isLoading, isError, refetch } = useQuery<Agent[]>({ queryKey: ["/api/agents"] });
   const { data: quotas } = useQuery<AgentQuota[]>({ queryKey: ["/api/agent-quotas"] });
   const [searchTerm, setSearchTerm] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -126,8 +127,8 @@ export default function AgentManagement() {
       toast({ title: "Agent created" });
       closeDialog();
     },
-    onError: () => {
-      toast({ title: "Failed to create agent", variant: "destructive" });
+    onError: (err: Error) => {
+      toast({ title: "Failed to create agent", description: err.message, variant: "destructive" });
     },
   });
 
@@ -141,8 +142,8 @@ export default function AgentManagement() {
       toast({ title: "Agent updated" });
       closeDialog();
     },
-    onError: () => {
-      toast({ title: "Failed to update agent", variant: "destructive" });
+    onError: (err: Error) => {
+      toast({ title: "Failed to update agent", description: err.message, variant: "destructive" });
     },
   });
 
@@ -161,8 +162,8 @@ export default function AgentManagement() {
       setIsQuotaDialogOpen(false);
       quotaForm.reset({ agentId: 0, period: "", periodStart: "", periodEnd: "", targetDeals: 0, targetRevenue: "0" });
     },
-    onError: () => {
-      toast({ title: "Failed to create quota", variant: "destructive" });
+    onError: (err: Error) => {
+      toast({ title: "Failed to create quota", description: err.message, variant: "destructive" });
     },
   });
 
@@ -197,10 +198,14 @@ export default function AgentManagement() {
   };
 
   const onSubmit = async (data: AgentFormData) => {
-    if (editingAgent) {
-      await updateAgent.mutateAsync({ id: editingAgent.id, data });
-    } else {
-      await createAgent.mutateAsync(data);
+    try {
+      if (editingAgent) {
+        await updateAgent.mutateAsync({ id: editingAgent.id, data });
+      } else {
+        await createAgent.mutateAsync(data);
+      }
+    } catch {
+      // onError handlers in createAgent/updateAgent show toasts
     }
   };
 
@@ -230,6 +235,10 @@ export default function AgentManagement() {
     if (!quota || !quota.targetDeals || quota.targetDeals === 0) return null;
     return Math.round(((quota.actualDeals || 0) / quota.targetDeals) * 100);
   };
+
+  if (isError) {
+    return <DashboardErrorState title="Failed to load agents" onRetry={() => refetch()} />;
+  }
 
   return (
     <div className="space-y-6">

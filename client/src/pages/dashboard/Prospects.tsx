@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/select";
 import { Search, Sparkles, Loader2, UserPlus, Users } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import DashboardErrorState from "@/components/DashboardErrorState";
 import type { Prospect, ProspectList } from "@shared/schema";
 
 function getScoreBadgeClass(score: string | null | undefined) {
@@ -67,7 +68,7 @@ export default function Prospects() {
     ? `/api/prospects?listId=${selectedListId}`
     : "/api/prospects";
 
-  const { data: prospects, isLoading: prospectsLoading } = useQuery<Prospect[]>({
+  const { data: prospects, isLoading: prospectsLoading, isError: prospectsError, refetch: refetchProspects } = useQuery<Prospect[]>({
     queryKey: ["/api/prospects", selectedListId],
     queryFn: async () => {
       const res = await fetch(prospectsUrl, { credentials: "include" });
@@ -164,6 +165,10 @@ export default function Prospects() {
   const warmCount = filteredProspects?.filter((p) => p.score === "warm").length || 0;
   const coldCount = filteredProspects?.filter((p) => p.score === "cold").length || 0;
 
+  if (prospectsError) {
+    return <DashboardErrorState title="Failed to load prospects" onRetry={() => refetchProspects()} />;
+  }
+
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
@@ -251,8 +256,8 @@ export default function Prospects() {
       </div>
 
       <Card>
-        <CardContent className="p-0">
-          <Table>
+        <CardContent className="p-0 overflow-x-auto">
+          <Table className="min-w-[900px]">
             <TableHeader>
               <TableRow>
                 <TableHead>Company Name</TableHead>

@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useToast } from "@/hooks/use-toast";
 import type { User } from "@shared/models/auth";
 
 type SafeUser = Omit<User, "passwordHash">;
@@ -21,6 +22,7 @@ async function fetchUser(): Promise<SafeUser | null> {
 
 export function useAuth() {
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const { data: user, isLoading } = useQuery<SafeUser | null>({
     queryKey: ["/api/auth/user"],
     queryFn: fetchUser,
@@ -45,6 +47,9 @@ export function useAuth() {
     onSuccess: (user) => {
       queryClient.setQueryData(["/api/auth/user"], user);
     },
+    onError: (err: Error) => {
+      toast({ title: "Login failed", description: err.message, variant: "destructive" });
+    },
   });
 
   const signupMutation = useMutation({
@@ -64,6 +69,9 @@ export function useAuth() {
     onSuccess: (user) => {
       queryClient.setQueryData(["/api/auth/user"], user);
     },
+    onError: (err: Error) => {
+      toast({ title: "Signup failed", description: err.message, variant: "destructive" });
+    },
   });
 
   const logoutMutation = useMutation({
@@ -73,6 +81,9 @@ export function useAuth() {
     onSuccess: () => {
       queryClient.setQueryData(["/api/auth/user"], null);
       window.location.href = "/login";
+    },
+    onError: (err: Error) => {
+      toast({ title: "Logout failed", description: err.message, variant: "destructive" });
     },
   });
 

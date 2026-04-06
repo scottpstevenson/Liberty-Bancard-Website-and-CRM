@@ -17,6 +17,7 @@ import { Plus, AlertTriangle, Sparkles, Loader2, Download, Send, Lock, Globe, Me
 import { useToast } from "@/hooks/use-toast";
 import { exportToCSV } from "@/lib/export-csv";
 import SavedFilterBar from "@/components/SavedFilterBar";
+import DashboardErrorState from "@/components/DashboardErrorState";
 import type { Ticket, Contact, TicketComment } from "@shared/schema";
 import { TICKET_CATEGORIES, SUPPORT_STAGES } from "@shared/schema";
 
@@ -289,7 +290,7 @@ export default function Tickets() {
   const [editAssignedTo, setEditAssignedTo] = useState("");
   const [aiResult, setAiResult] = useState<{category: string; priority: string; suggestedResponse: string; tags: string[]; estimatedResolutionHours: number} | null>(null);
 
-  const { data: tickets, isLoading } = useQuery<Ticket[]>({
+  const { data: tickets, isLoading, isError, refetch } = useQuery<Ticket[]>({
     queryKey: ["/api/tickets"],
     queryFn: async () => {
       const res = await fetch("/api/tickets", { credentials: "include" });
@@ -393,6 +394,10 @@ export default function Tickets() {
     setAiResult(null);
     setDetailOpen(true);
   };
+
+  if (isError) {
+    return <DashboardErrorState title="Failed to load tickets" onRetry={() => refetch()} />;
+  }
 
   return (
     <div className="space-y-6" data-testid="tickets-page">

@@ -16,6 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
 import type { Workflow, WorkflowRun } from "@shared/schema";
 import { WORKFLOW_TRIGGERS } from "@shared/schema";
+import DashboardErrorState from "@/components/DashboardErrorState";
 
 const triggerLabels: Record<string, string> = {
   deal_stage_changed: "Deal Stage Changed",
@@ -55,7 +56,7 @@ export default function Workflows() {
   const [newTrigger, setNewTrigger] = useState("");
   const [newActions, setNewActions] = useState<ActionDef[]>([]);
 
-  const { data: workflows, isLoading } = useQuery<Workflow[]>({ queryKey: ["/api/workflows"] });
+  const { data: workflows, isLoading, isError, refetch } = useQuery<Workflow[]>({ queryKey: ["/api/workflows"] });
   const { data: runs } = useQuery<WorkflowRun[]>({ queryKey: ["/api/workflow-runs"] });
 
   const createMutation = useMutation({
@@ -69,6 +70,9 @@ export default function Workflows() {
       setCreateOpen(false);
       resetForm();
     },
+    onError: (err: Error) => {
+      toast({ title: "Failed to create workflow", description: err.message, variant: "destructive" });
+    },
   });
 
   const toggleMutation = useMutation({
@@ -78,6 +82,9 @@ export default function Workflows() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/workflows"] });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to toggle workflow", description: err.message, variant: "destructive" });
     },
   });
 
@@ -89,6 +96,9 @@ export default function Workflows() {
       queryClient.invalidateQueries({ queryKey: ["/api/workflows"] });
       queryClient.invalidateQueries({ queryKey: ["/api/workflow-runs"] });
       toast({ title: "Workflow deleted" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to delete workflow", description: err.message, variant: "destructive" });
     },
   });
 
@@ -146,6 +156,10 @@ export default function Workflows() {
   const detailRuns = detailWorkflow
     ? (runs || []).filter((r) => r.workflowId === detailWorkflow.id)
     : [];
+
+  if (isError) {
+    return <DashboardErrorState title="Failed to load workflows" onRetry={() => refetch()} />;
+  }
 
   return (
     <div className="space-y-6" data-testid="page-workflows">
@@ -404,7 +418,8 @@ export default function Workflows() {
           ) : (
             <Card>
               <ScrollArea className="max-h-[500px]">
-                <Table>
+                <div className="overflow-x-auto">
+                <Table className="min-w-[700px]">
                   <TableHeader>
                     <TableRow>
                       <TableHead>Run ID</TableHead>
@@ -442,6 +457,7 @@ export default function Workflows() {
                     })}
                   </TableBody>
                 </Table>
+                </div>
               </ScrollArea>
             </Card>
           )}
