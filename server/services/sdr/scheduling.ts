@@ -5,13 +5,31 @@ import { eq } from "drizzle-orm";
 import { fetchCalendars, isSdrGhlConfigured, triggerWorkflow } from "./ghl-client";
 import { onStageChange } from "./ghl-sync-rules";
 
-const VERTICAL_CALENDAR_MAP: Record<string, string> = {
-  "Medical/Dental/Medspa": process.env.GHL_CALENDAR_MEDICAL || "",
-  "Automotive": process.env.GHL_CALENDAR_AUTO || "",
-  "Restaurant": process.env.GHL_CALENDAR_RESTAURANT || "",
-  "Home Services": process.env.GHL_CALENDAR_HOME || "",
-  "Retail": process.env.GHL_CALENDAR_RETAIL || "",
-};
+function getVerticalCalendarMap(): Record<string, string> {
+  return {
+    "Medical/Dental/Medspa": process.env.GHL_CALENDAR_MEDICAL || "",
+    "Automotive": process.env.GHL_CALENDAR_AUTO || "",
+    "Restaurant": process.env.GHL_CALENDAR_RESTAURANT || "",
+    "Home Services": process.env.GHL_CALENDAR_HOME || "",
+    "Retail": process.env.GHL_CALENDAR_RETAIL || "",
+  };
+}
+
+function requireCalendarId(vertical: string): string {
+  const map = getVerticalCalendarMap();
+  const calendarId = map[vertical];
+  if (!calendarId) {
+    const envVarName = {
+      "Medical/Dental/Medspa": "GHL_CALENDAR_MEDICAL",
+      "Automotive": "GHL_CALENDAR_AUTO",
+      "Restaurant": "GHL_CALENDAR_RESTAURANT",
+      "Home Services": "GHL_CALENDAR_HOME",
+      "Retail": "GHL_CALENDAR_RETAIL",
+    }[vertical] || `GHL_CALENDAR_${vertical.toUpperCase().replace(/\s+/g, "_")}`;
+    throw new Error(`Calendar not configured for vertical "${vertical}". Set the ${envVarName} environment variable.`);
+  }
+  return calendarId;
+}
 
 export interface CalendarSelection {
   calendarId: string;
@@ -22,9 +40,10 @@ export interface CalendarSelection {
 export async function decideBestCalendar(merchant: SdrMerchant): Promise<CalendarSelection | null> {
   if (!isSdrGhlConfigured()) return null;
 
-  if (merchant.vertical && VERTICAL_CALENDAR_MAP[merchant.vertical]) {
+  if (merchant.vertical && merchant.vertical in getVerticalCalendarMap()) {
+    const calendarId = requireCalendarId(merchant.vertical);
     return {
-      calendarId: VERTICAL_CALENDAR_MAP[merchant.vertical],
+      calendarId,
       calendarName: `${merchant.vertical} Calendar`,
       reason: `Matched by vertical: ${merchant.vertical}`,
     };
@@ -111,7 +130,10 @@ export async function sendBookingLink(
   }
 
   try {
-    const bookingWorkflowId = process.env.GHL_WORKFLOW_BOOKING_LINK || "send_booking_link";
+    const bookingWorkflowId = process.env.GHL_WORKFLOW_BOOKING_LINK;
+    if (!bookingWorkflowId) {
+      throw new Error("GHL_WORKFLOW_BOOKING_LINK environment variable is not set. Cannot trigger booking link workflow.");
+    }
     await triggerWorkflow({
       workflowId: bookingWorkflowId,
       contactId: merchant.ghlContactId!,
@@ -304,7 +326,10 @@ export async function sendReminders(merchantId: number): Promise<boolean> {
   }
 
   try {
-    const reminderWorkflowId = process.env.GHL_WORKFLOW_REMINDER || "appointment_reminder";
+    const reminderWorkflowId = process.env.GHL_WORKFLOW_REMINDER;
+    if (!reminderWorkflowId) {
+      throw new Error("GHL_WORKFLOW_REMINDER environment variable is not set. Cannot trigger appointment reminder workflow.");
+    }
     await triggerWorkflow({
       workflowId: reminderWorkflowId,
       contactId: merchant.ghlContactId,

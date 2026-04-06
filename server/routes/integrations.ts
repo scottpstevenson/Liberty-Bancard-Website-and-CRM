@@ -3,7 +3,7 @@ import { isAuthenticated } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { contacts } from "@shared/schema";
 import { and } from "drizzle-orm";
-import { checkGhlHealth, getCalendarBookingUrl, getGhlStatus, handleGhlWebhook, isGhlConfigured, sendGhlEmail, sendGhlSms, sendTemplatedMessage, upsertGhlContact } from "../services/ghl";
+import { checkGhlHealth, getCalendarBookingUrl, getGhlStatus, handleGhlWebhook, isGhlConfigured, sendGhlEmail, sendGhlSms, sendTemplatedMessage, upsertGhlContact, validateGhlWebhookSignature } from "../services/ghl";
 import { routeContact } from "../services/smart-router";
 import { fullSyncFromGhl, fullSyncToGhl, getGhlSyncStatus, syncContactToGhl, syncDealToGhl } from "../services/ghl-sync";
 
@@ -85,6 +85,14 @@ export function registerIntegrationsRoutes(app: Express) {
 
   app.post("/api/webhooks/ghl", async (req, res) => {
     try {
+      const signature = (req.headers["x-ghl-signature"] || req.headers["x-hub-signature-256"] || "") as string;
+      const rawBody = req.rawBody instanceof Buffer ? req.rawBody.toString("utf8") : JSON.stringify(req.body);
+
+      if (!validateGhlWebhookSignature(rawBody, signature)) {
+        console.error("[GHL Webhook] Signature verification failed");
+        return res.status(401).json({ message: "Invalid webhook signature" });
+      }
+
       await handleGhlWebhook(req.body);
       res.json({ success: true });
     } catch (err: any) {

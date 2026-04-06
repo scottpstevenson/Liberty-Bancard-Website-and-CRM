@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { storage } from "../storage";
 import type { Contact, Deal } from "@shared/schema";
 import OpenAI from "openai";
@@ -25,7 +26,7 @@ function getConfig(): GhlConfig | null {
   };
 }
 
-async function ghlFetch(path: string, options: RequestInit = {}) {
+async function ghlFetch(path: string, options: RequestInit = {}, retries = 3): Promise<any> {
   const config = getConfig();
   if (!config) throw new Error("GHL not configured. Set GHL_API_KEY and GHL_LOCATION_ID.");
 
@@ -37,12 +38,51 @@ async function ghlFetch(path: string, options: RequestInit = {}) {
     ...(options.headers as Record<string, string> || {}),
   };
 
-  const response = await fetch(url, { ...options, headers });
-  if (!response.ok) {
-    const errorBody = await response.text().catch(() => "");
-    throw new Error(`GHL API error ${response.status}: ${errorBody}`);
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const response = await fetch(url, { ...options, headers });
+
+      if (response.status === 429) {
+        const retryAfter = parseInt(response.headers.get("retry-after") || "5", 10);
+        const waitMs = retryAfter * 1000;
+        console.warn(`[GHL] 429 rate limited, retrying after ${waitMs}ms (attempt ${attempt + 1}/${retries})`);
+        await new Promise(resolve => setTimeout(resolve, waitMs));
+        continue;
+      }
+
+      if (response.status >= 500 && attempt < retries - 1) {
+        const backoffMs = Math.min(1000 * Math.pow(2, attempt) + Math.random() * 500, 15000);
+        console.warn(`[GHL] Server error ${response.status}, retrying in ${Math.round(backoffMs)}ms (attempt ${attempt + 1}/${retries})`);
+        await new Promise(resolve => setTimeout(resolve, backoffMs));
+        continue;
+      }
+
+      if (!response.ok) {
+        const errorBody = await response.text().catch(() => "");
+        throw new Error(`GHL API error ${response.status}: ${errorBody}`);
+      }
+
+      const contentType = response.headers.get("content-type") || "";
+      if (response.status === 204 || !contentType.includes("application/json")) {
+        return {};
+      }
+
+      const text = await response.text();
+      return text ? JSON.parse(text) : {};
+    } catch (err: unknown) {
+      if (attempt === retries - 1) throw err;
+      const errMsg = err instanceof Error ? err.message : String(err);
+      const isRetryable = errMsg.includes("429") || errMsg.includes("ECONNRESET") || errMsg.includes("ETIMEDOUT") || errMsg.includes("fetch failed");
+      if (isRetryable) {
+        const backoffMs = Math.min(1000 * Math.pow(2, attempt) + Math.random() * 500, 15000);
+        console.warn(`[GHL] Transient error, retrying in ${Math.round(backoffMs)}ms (attempt ${attempt + 1}/${retries}): ${errMsg.substring(0, 100)}`);
+        await new Promise(resolve => setTimeout(resolve, backoffMs));
+        continue;
+      }
+      throw err;
+    }
   }
-  return response.json();
+  throw new Error(`GHL API request to ${path} failed after ${retries} retries`);
 }
 
 export function isGhlConfigured(): boolean {
@@ -56,7 +96,38 @@ export function getGhlStatus() {
     hasApiKey: !!process.env.GHL_API_KEY,
     hasLocationId: !!process.env.GHL_LOCATION_ID,
     hasCalendarId: !!process.env.GHL_CALENDAR_ID,
+    hasWebhookSecret: !!process.env.GHL_WEBHOOK_SECRET,
+    missingConfig: [
+      ...(!process.env.GHL_API_KEY ? ["GHL_API_KEY"] : []),
+      ...(!process.env.GHL_LOCATION_ID ? ["GHL_LOCATION_ID"] : []),
+      ...(!process.env.GHL_CALENDAR_ID ? ["GHL_CALENDAR_ID"] : []),
+      ...(!process.env.GHL_WEBHOOK_SECRET ? ["GHL_WEBHOOK_SECRET"] : []),
+    ],
   };
+}
+
+export function validateGhlWebhookSignature(payload: string, signature: string): boolean {
+  const secret = process.env.GHL_WEBHOOK_SECRET;
+  if (!secret) {
+    if (process.env.NODE_ENV === "production") {
+      console.error("[GHL] GHL_WEBHOOK_SECRET not set in production — rejecting webhook");
+      return false;
+    }
+    console.warn("[GHL] GHL_WEBHOOK_SECRET not set — skipping signature verification (dev mode)");
+    return true;
+  }
+
+  try {
+    const expectedSig = crypto
+      .createHmac("sha256", secret)
+      .update(payload)
+      .digest("hex");
+    const sigToCompare = signature.startsWith("sha256=") ? signature.slice(7) : signature;
+    if (sigToCompare.length !== expectedSig.length) return false;
+    return crypto.timingSafeEqual(Buffer.from(sigToCompare, "hex"), Buffer.from(expectedSig, "hex"));
+  } catch {
+    return false;
+  }
 }
 
 export async function checkGhlHealth(): Promise<{
@@ -64,10 +135,17 @@ export async function checkGhlHealth(): Promise<{
   latencyMs: number;
   locationName?: string;
   error?: string;
+  configStatus?: ReturnType<typeof getGhlStatus>;
 }> {
+  const status = getGhlStatus();
   const config = getConfig();
   if (!config) {
-    return { connected: false, latencyMs: 0, error: "GHL_API_KEY and GHL_LOCATION_ID not set" };
+    return {
+      connected: false,
+      latencyMs: 0,
+      error: `GHL not configured. Missing: ${status.missingConfig.filter(k => ["GHL_API_KEY", "GHL_LOCATION_ID"].includes(k)).join(", ")}`,
+      configStatus: status,
+    };
   }
 
   const start = Date.now();
@@ -78,6 +156,7 @@ export async function checkGhlHealth(): Promise<{
       connected: true,
       latencyMs,
       locationName: data?.location?.name || data?.name || "Unknown",
+      configStatus: status,
     };
   } catch (err: any) {
     const latencyMs = Date.now() - start;
@@ -85,6 +164,7 @@ export async function checkGhlHealth(): Promise<{
       connected: false,
       latencyMs,
       error: err.message,
+      configStatus: status,
     };
   }
 }
