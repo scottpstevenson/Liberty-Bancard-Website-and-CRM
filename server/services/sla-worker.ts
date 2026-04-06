@@ -488,7 +488,7 @@ export function startSlaWorker() {
     await runSlaCheck();
     await checkWaitingWorkflows();
     if (featureFlags.LEGACY_OUTREACH_ENABLED) {
-      await processSequenceEnrollments();
+      await processSequenceEnrollments().catch(err => console.error("Sequence enrollment processing error:", err));
       await processSendQueue().catch(err => console.error("Campaign send queue error:", err));
       await runSunbizAutoConvert().catch(err => console.error("Sunbiz auto-convert error:", err));
     }
@@ -508,7 +508,7 @@ export function startSlaWorker() {
     await runSlaCheck();
     await checkWaitingWorkflows();
     if (featureFlags.LEGACY_OUTREACH_ENABLED) {
-      await processSequenceEnrollments();
+      await processSequenceEnrollments().catch(err => console.error("Sequence enrollment processing error:", err));
     }
   }, 30000);
 }

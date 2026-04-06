@@ -19,14 +19,22 @@ import { upload, uploadLarge } from "./helpers";
 export function registerProspectsRoutes(app: Express) {
   // === PROSPECT LISTS ===
   app.get("/api/prospect-lists", isAuthenticated, async (req, res) => {
-    const lists = await storage.getProspectLists();
-    res.json(lists);
+    try {
+      const lists = await storage.getProspectLists();
+      res.json(lists);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.get("/api/prospect-lists/:id", isAuthenticated, async (req, res) => {
-    const list = await storage.getProspectList(Number(req.params.id));
-    if (!list) return res.status(404).json({ message: "List not found" });
-    res.json(list);
+    try {
+      const list = await storage.getProspectList(Number(req.params.id));
+      if (!list) return res.status(404).json({ message: "List not found" });
+      res.json(list);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.post("/api/prospect-lists", isAuthenticated, async (req, res) => {
@@ -34,9 +42,9 @@ export function registerProspectsRoutes(app: Express) {
       const input = insertProspectListSchema.parse(req.body);
       const list = await storage.createProspectList(input);
       res.status(201).json(list);
-    } catch (err) {
+    } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      throw err;
+      res.status(500).json({ message: err.message });
     }
   });
 
@@ -56,9 +64,13 @@ export function registerProspectsRoutes(app: Express) {
   });
 
   app.get("/api/prospects/:id", isAuthenticated, async (req, res) => {
-    const prospect = await storage.getProspect(Number(req.params.id));
-    if (!prospect) return res.status(404).json({ message: "Prospect not found" });
-    res.json(prospect);
+    try {
+      const prospect = await storage.getProspect(Number(req.params.id));
+      if (!prospect) return res.status(404).json({ message: "Prospect not found" });
+      res.json(prospect);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.post("/api/prospects", isAuthenticated, async (req, res) => {
@@ -66,16 +78,20 @@ export function registerProspectsRoutes(app: Express) {
       const input = insertProspectSchema.parse(req.body);
       const prospect = await storage.createProspect(input);
       res.status(201).json(prospect);
-    } catch (err) {
+    } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      throw err;
+      res.status(500).json({ message: err.message });
     }
   });
 
   app.put("/api/prospects/:id", isAuthenticated, async (req, res) => {
-    const updated = await storage.updateProspect(Number(req.params.id), req.body);
-    if (!updated) return res.status(404).json({ message: "Prospect not found" });
-    res.json(updated);
+    try {
+      const updated = await storage.updateProspect(Number(req.params.id), req.body);
+      if (!updated) return res.status(404).json({ message: "Prospect not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.post("/api/prospects/:id/convert", isAuthenticated, async (req, res) => {
@@ -114,7 +130,9 @@ export function registerProspectsRoutes(app: Express) {
       try {
         const { autoEnrollFromTrigger } = await import("../services/sequence-worker");
         await autoEnrollFromTrigger("contact_created", { contactId: contact.id });
-      } catch {}
+      } catch (enrollErr) {
+        console.error("Auto-enroll error on prospect conversion:", enrollErr);
+      }
 
       try {
         const matchingRules = await storage.getMatchingStageRules("sales", null, "New Lead");
@@ -221,7 +239,9 @@ export function registerProspectsRoutes(app: Express) {
         for (const r of results) {
           await autoEnrollFromTrigger("contact_created", { contactId: r.contactId });
         }
-      } catch {}
+      } catch (enrollErr) {
+        console.error("Auto-enroll error on batch conversion:", enrollErr);
+      }
 
       try {
         const matchingRules = await storage.getMatchingStageRules("sales", null, "New Lead");
@@ -353,9 +373,13 @@ export function registerProspectsRoutes(app: Express) {
 
   // === ENRICHMENT ===
   app.get("/api/enrichment-jobs", isAuthenticated, async (req, res) => {
-    const listId = req.query.listId ? Number(req.query.listId) : undefined;
-    const jobs = await storage.getEnrichmentJobs(listId);
-    res.json(jobs);
+    try {
+      const listId = req.query.listId ? Number(req.query.listId) : undefined;
+      const jobs = await storage.getEnrichmentJobs(listId);
+      res.json(jobs);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.post("/api/enrichment-jobs", isAuthenticated, async (req, res) => {
@@ -372,17 +396,20 @@ export function registerProspectsRoutes(app: Express) {
       }
 
       res.status(201).json(job);
-    } catch (err) {
+    } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      throw err;
+      res.status(500).json({ message: err.message });
     }
   });
 
   app.post("/api/enrichment/process-queue", isAuthenticated, async (req, res) => {
-    processEnrichmentQueue().catch(console.error);
-    res.json({ message: "Enrichment queue processing started" });
+    try {
+      processEnrichmentQueue().catch(console.error);
+      res.json({ message: "Enrichment queue processing started" });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
-
 
   // === SUNBIZ LEAD GEN CLEANER ===
   app.get("/api/sunbiz/entities", isAuthenticated, async (req, res) => {
@@ -399,15 +426,23 @@ export function registerProspectsRoutes(app: Express) {
   });
 
   app.get("/api/sunbiz/entities/:id", isAuthenticated, async (req, res) => {
-    const entity = await storage.getSunbizEntity(Number(req.params.id));
-    if (!entity) return res.status(404).json({ message: "Entity not found" });
-    res.json(entity);
+    try {
+      const entity = await storage.getSunbizEntity(Number(req.params.id));
+      if (!entity) return res.status(404).json({ message: "Entity not found" });
+      res.json(entity);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.get("/api/sunbiz/stats", isAuthenticated, async (req, res) => {
-    const listId = req.query.listId ? Number(req.query.listId) : undefined;
-    const stats = await storage.getSunbizStats(listId);
-    res.json(stats);
+    try {
+      const listId = req.query.listId ? Number(req.query.listId) : undefined;
+      const stats = await storage.getSunbizStats(listId);
+      res.json(stats);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.post("/api/sunbiz/search", isAuthenticated, async (req, res) => {
@@ -946,8 +981,12 @@ export function registerProspectsRoutes(app: Express) {
   });
 
   app.get("/api/sunbiz/enrichment-progress", isAuthenticated, async (req, res) => {
-    const progress = await storage.getSystemSetting("enrichment_progress");
-    res.json(progress || { status: "idle" });
+    try {
+      const progress = await storage.getSystemSetting("enrichment_progress");
+      res.json(progress || { status: "idle" });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.post("/api/sunbiz/mass-enrich", isAuthenticated, async (req, res) => {
@@ -959,14 +998,22 @@ export function registerProspectsRoutes(app: Express) {
   });
 
   app.get("/api/sunbiz/mass-enrich-progress", isAuthenticated, async (req, res) => {
-    const progress = await storage.getSystemSetting("mass_enrichment_progress");
-    res.json({ progress: progress || { status: "idle" }, running: isMassEnrichmentRunning() });
+    try {
+      const progress = await storage.getSystemSetting("mass_enrichment_progress");
+      res.json({ progress: progress || { status: "idle" }, running: isMassEnrichmentRunning() });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.post("/api/sunbiz/promote-qualified", isAuthenticated, async (req, res) => {
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
-    const result = await promoteQualifiedToContacts();
-    res.json(result);
+    try {
+      const result = await promoteQualifiedToContacts();
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.post("/api/sunbiz/bulk-ai-classify", isAuthenticated, async (req, res) => {
@@ -977,8 +1024,12 @@ export function registerProspectsRoutes(app: Express) {
   });
 
   app.get("/api/sunbiz/ai-classify-progress", isAuthenticated, async (req, res) => {
-    const progress = await storage.getSystemSetting("ai_classify_progress");
-    res.json({ progress: progress || { status: "idle" } });
+    try {
+      const progress = await storage.getSystemSetting("ai_classify_progress");
+      res.json({ progress: progress || { status: "idle" } });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.post("/api/sunbiz/run-pipeline", isAuthenticated, async (req, res) => {
@@ -991,8 +1042,12 @@ export function registerProspectsRoutes(app: Express) {
   });
 
   app.get("/api/sunbiz/pipeline-progress", isAuthenticated, async (req, res) => {
-    const progress = await storage.getSystemSetting("daily_pipeline_progress");
-    res.json({ progress: progress || { status: "idle" }, running: isPipelineRunning() });
+    try {
+      const progress = await storage.getSystemSetting("daily_pipeline_progress");
+      res.json({ progress: progress || { status: "idle" }, running: isPipelineRunning() });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.post("/api/sunbiz/deep-enrich/:id", isAuthenticated, async (req, res) => {
@@ -1007,9 +1062,13 @@ export function registerProspectsRoutes(app: Express) {
 
   app.post("/api/sunbiz/deduplicate", isAuthenticated, async (req, res) => {
     if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
-    const limit = Number(req.body?.limit) || 500;
-    const result = await runAutoDeduplication(limit);
-    res.json({ message: `Deduplication complete: checked ${result.checked} groups, merged ${result.merged} records.`, ...result });
+    try {
+      const limit = Number(req.body?.limit) || 500;
+      const result = await runAutoDeduplication(limit);
+      res.json({ message: `Deduplication complete: checked ${result.checked} groups, merged ${result.merged} records.`, ...result });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.get("/api/sunbiz/enrichment-dashboard", isAuthenticated, async (req, res) => {

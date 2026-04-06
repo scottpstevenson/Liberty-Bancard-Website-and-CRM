@@ -43,22 +43,30 @@ export function registerContactsRoutes(app: Express) {
         sendCriticalEmailNotification({ eventType: "hot_lead", subject: `Hot Lead Alert: ${contact.firstName} ${contact.lastName}`, body: `<h3>Hot Lead Alert</h3><p><strong>${contact.firstName} ${contact.lastName}</strong>${contact.companyName ? ` (${contact.companyName})` : ""} has a lead score of ${contact.leadScore}.</p><p>Email: ${contact.email || "N/A"}<br/>Phone: ${contact.phone || "N/A"}</p><p>Take action immediately.</p>` }).catch(err => console.error("Hot lead email error:", err));
       }
       res.status(201).json(contact);
-    } catch (err) {
+    } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
-      throw err;
+      res.status(500).json({ message: err.message });
     }
   });
 
   app.get("/api/contacts/:id", isAuthenticated, async (req, res) => {
-    const contact = await storage.getContact(Number(req.params.id));
-    if (!contact) return res.status(404).json({ message: "Not found" });
-    res.json(contact);
+    try {
+      const contact = await storage.getContact(Number(req.params.id));
+      if (!contact) return res.status(404).json({ message: "Not found" });
+      res.json(contact);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.put("/api/contacts/:id", isAuthenticated, async (req, res) => {
-    const updated = await storage.updateContact(Number(req.params.id), req.body);
-    if (!updated) return res.status(404).json({ message: "Not found" });
-    res.json(updated);
+    try {
+      const updated = await storage.updateContact(Number(req.params.id), req.body);
+      if (!updated) return res.status(404).json({ message: "Not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.post("/api/contacts/enrich-batch", isAuthenticated, async (req, res) => {
@@ -112,27 +120,43 @@ export function registerContactsRoutes(app: Express) {
   });
 
   app.get("/api/contacts/enrich-progress", isAuthenticated, async (req, res) => {
-    const progress = await storage.getSystemSetting("contact_enrich_batch_progress");
-    res.json(progress || { status: "idle" });
+    try {
+      const progress = await storage.getSystemSetting("contact_enrich_batch_progress");
+      res.json(progress || { status: "idle" });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.get("/api/serper/status", isAuthenticated, async (req, res) => {
-    const configured = isSerperConfigured();
-    const usage = await getSerperUsage();
-    res.json({ configured, usage });
+    try {
+      const configured = isSerperConfigured();
+      const usage = await getSerperUsage();
+      res.json({ configured, usage });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.post("/api/serper/reset-usage", isAuthenticated, async (req, res) => {
-    if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
-    await resetSerperUsage();
-    res.json({ success: true, message: "Serper usage stats reset" });
+    try {
+      if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+      await resetSerperUsage();
+      res.json({ success: true, message: "Serper usage stats reset" });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
 
   // === COMPANIES ===
   app.get("/api/companies", isAuthenticated, async (req, res) => {
-    const companies = await storage.getCompanies();
-    res.json(companies);
+    try {
+      const companies = await storage.getCompanies();
+      res.json(companies);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.post("/api/companies", isAuthenticated, async (req, res) => {
@@ -140,9 +164,9 @@ export function registerContactsRoutes(app: Express) {
       const input = insertCompanySchema.parse(req.body);
       const company = await storage.createCompany(input);
       res.status(201).json(company);
-    } catch (err) {
+    } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      throw err;
+      res.status(500).json({ message: err.message });
     }
   });
 

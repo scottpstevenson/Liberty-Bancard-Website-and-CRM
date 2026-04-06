@@ -9,14 +9,22 @@ import { parse } from "csv-parse/sync";
 export function registerWorkflowsRoutes(app: Express) {
   // === RFIs ===
   app.get("/api/rfis", isAuthenticated, async (req, res) => {
-    const allRfis = await storage.getRfis();
-    res.json(allRfis);
+    try {
+      const allRfis = await storage.getRfis();
+      res.json(allRfis);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.get("/api/rfis/:id", isAuthenticated, async (req, res) => {
-    const rfi = await storage.getRfi(Number(req.params.id));
-    if (!rfi) return res.status(404).json({ message: "Not found" });
-    res.json(rfi);
+    try {
+      const rfi = await storage.getRfi(Number(req.params.id));
+      if (!rfi) return res.status(404).json({ message: "Not found" });
+      res.json(rfi);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.post("/api/rfis", isAuthenticated, async (req, res) => {
@@ -31,9 +39,9 @@ export function registerWorkflowsRoutes(app: Express) {
         type: rfi.priority === "Urgent" ? "urgent" : "info",
       });
       res.status(201).json(rfi);
-    } catch (err) {
+    } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      throw err;
+      res.status(500).json({ message: err.message });
     }
   });
 
@@ -55,23 +63,31 @@ export function registerWorkflowsRoutes(app: Express) {
         });
       }
       res.json(updated);
-    } catch (err) {
+    } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      throw err;
+      res.status(500).json({ message: err.message });
     }
   });
 
 
   // === WORKFLOWS ===
   app.get("/api/workflows", isAuthenticated, async (req, res) => {
-    const wfs = await storage.getWorkflows();
-    res.json(wfs);
+    try {
+      const wfs = await storage.getWorkflows();
+      res.json(wfs);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.get("/api/workflows/:id", isAuthenticated, async (req, res) => {
-    const wf = await storage.getWorkflow(Number(req.params.id));
-    if (!wf) return res.status(404).json({ message: "Not found" });
-    res.json(wf);
+    try {
+      const wf = await storage.getWorkflow(Number(req.params.id));
+      if (!wf) return res.status(404).json({ message: "Not found" });
+      res.json(wf);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.post("/api/workflows", isAuthenticated, async (req, res) => {
@@ -80,9 +96,9 @@ export function registerWorkflowsRoutes(app: Express) {
       const wf = await storage.createWorkflow(input);
       await storage.createAuditLog({ action: "workflow_created", entityType: "workflow", entityId: wf.id, details: { name: wf.name, trigger: wf.triggerType } });
       res.status(201).json(wf);
-    } catch (err) {
+    } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      throw err;
+      res.status(500).json({ message: err.message });
     }
   });
 
@@ -92,23 +108,31 @@ export function registerWorkflowsRoutes(app: Express) {
       const updated = await storage.updateWorkflow(Number(req.params.id), allowed);
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
-    } catch (err) {
+    } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      throw err;
+      res.status(500).json({ message: err.message });
     }
   });
 
   app.delete("/api/workflows/:id", isAuthenticated, async (req, res) => {
-    await storage.deleteWorkflow(Number(req.params.id));
-    res.json({ success: true });
+    try {
+      await storage.deleteWorkflow(Number(req.params.id));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.get("/api/workflow-runs", isAuthenticated, async (req, res) => {
-    const workflowId = req.query.workflowId ? Number(req.query.workflowId) : undefined;
-    const runs = workflowId
-      ? await storage.getWorkflowRunsByWorkflow(workflowId)
-      : await storage.getWorkflowRuns();
-    res.json(runs);
+    try {
+      const workflowId = req.query.workflowId ? Number(req.query.workflowId) : undefined;
+      const runs = workflowId
+        ? await storage.getWorkflowRunsByWorkflow(workflowId)
+        : await storage.getWorkflowRuns();
+      res.json(runs);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.post("/api/workflows/:id/run", isAuthenticated, async (req, res) => {

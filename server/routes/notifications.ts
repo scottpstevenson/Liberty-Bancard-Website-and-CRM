@@ -6,7 +6,6 @@ import { buildDailyDigest } from "../services/digest-service";
 import type { InsertNotificationPreference } from "@shared/schema";
 
 export function registerNotificationsRoutes(app: Express) {
-  // === NOTIFICATIONS ===
   app.get("/api/notifications", isAuthenticated, async (req, res) => {
     try {
       const allNotifications = await storage.getNotifications();

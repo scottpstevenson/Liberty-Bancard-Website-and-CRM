@@ -15,9 +15,13 @@ import path from "path";
 export function registerDealsRoutes(app: Express) {
   // === DEALS ===
   app.get("/api/deals", isAuthenticated, async (req, res) => {
-    const pipeline = req.query.pipeline as string | undefined;
-    const deals = pipeline ? await storage.getDealsByPipeline(pipeline) : await storage.getDeals();
-    res.json(deals);
+    try {
+      const pipeline = req.query.pipeline as string | undefined;
+      const deals = pipeline ? await storage.getDealsByPipeline(pipeline) : await storage.getDeals();
+      res.json(deals);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.post("/api/deals", isAuthenticated, async (req, res) => {
@@ -30,122 +34,130 @@ export function registerDealsRoutes(app: Express) {
       }
       generateDealBlueprint(deal.id).catch(err => console.error("Blueprint generation error:", err));
       res.status(201).json(deal);
-    } catch (err) {
+    } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      throw err;
+      res.status(500).json({ message: err.message });
     }
   });
 
   app.get("/api/deals/:id", isAuthenticated, async (req, res) => {
-    const deal = await storage.getDeal(Number(req.params.id));
-    if (!deal) return res.status(404).json({ message: "Not found" });
-    res.json(deal);
+    try {
+      const deal = await storage.getDeal(Number(req.params.id));
+      if (!deal) return res.status(404).json({ message: "Not found" });
+      res.json(deal);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.put("/api/deals/:id", isAuthenticated, async (req, res) => {
-    const old = await storage.getDeal(Number(req.params.id));
-    const updated = await storage.updateDeal(Number(req.params.id), req.body);
-    if (!updated) return res.status(404).json({ message: "Not found" });
-    if (old && old.stage !== updated.stage) {
-      await storage.createAuditLog({ action: "deal_stage_changed", entityType: "deal", entityId: updated.id, details: { from: old.stage, to: updated.stage } });
-      await createPreferenceAwareNotification({ channel: "internal", title: "Deal Stage Changed", message: `Deal #${updated.id} moved from "${old.stage}" to "${updated.stage}"`, type: "info", metadata: { dealId: updated.id, eventType: "deal_stage_changed" } }, "deal_stage_changed");
+    try {
+      const old = await storage.getDeal(Number(req.params.id));
+      const updated = await storage.updateDeal(Number(req.params.id), req.body);
+      if (!updated) return res.status(404).json({ message: "Not found" });
+      if (old && old.stage !== updated.stage) {
+        await storage.createAuditLog({ action: "deal_stage_changed", entityType: "deal", entityId: updated.id, details: { from: old.stage, to: updated.stage } });
+        await createPreferenceAwareNotification({ channel: "internal", title: "Deal Stage Changed", message: `Deal #${updated.id} moved from "${old.stage}" to "${updated.stage}"`, type: "info", metadata: { dealId: updated.id, eventType: "deal_stage_changed" } }, "deal_stage_changed");
 
-      if (updated.stage === "Closed Won") {
-        const closedContact = updated.contactId ? await storage.getContact(updated.contactId) : null;
-        await createPreferenceAwareNotification({ channel: "internal", title: "Deal Closed Won!", message: `Deal #${updated.id}${closedContact ? ` — ${closedContact.firstName} ${closedContact.lastName}` : ""} has been closed won.`, type: "alert", metadata: { dealId: updated.id, eventType: "deal_closed_won" } }, "deal_closed_won");
-        sendCriticalEmailNotification({ eventType: "deal_closed_won", subject: `Closed Won: Deal #${updated.id}${closedContact ? ` — ${closedContact.companyName || closedContact.firstName}` : ""}`, body: `<h3>Deal Closed Won</h3><p>Deal #${updated.id} has moved to <strong>Closed Won</strong>.</p>${closedContact ? `<p>Contact: ${closedContact.firstName} ${closedContact.lastName}${closedContact.companyName ? ` (${closedContact.companyName})` : ""}</p>` : ""}<p>Owner: ${updated.owner || "Unassigned"}</p>`, ownerName: updated.owner }).catch(err => console.error("Closed won email error:", err));
-      }
+        if (updated.stage === "Closed Won") {
+          const closedContact = updated.contactId ? await storage.getContact(updated.contactId) : null;
+          await createPreferenceAwareNotification({ channel: "internal", title: "Deal Closed Won!", message: `Deal #${updated.id}${closedContact ? ` — ${closedContact.firstName} ${closedContact.lastName}` : ""} has been closed won.`, type: "alert", metadata: { dealId: updated.id, eventType: "deal_closed_won" } }, "deal_closed_won");
+          sendCriticalEmailNotification({ eventType: "deal_closed_won", subject: `Closed Won: Deal #${updated.id}${closedContact ? ` — ${closedContact.companyName || closedContact.firstName}` : ""}`, body: `<h3>Deal Closed Won</h3><p>Deal #${updated.id} has moved to <strong>Closed Won</strong>.</p>${closedContact ? `<p>Contact: ${closedContact.firstName} ${closedContact.lastName}${closedContact.companyName ? ` (${closedContact.companyName})` : ""}</p>` : ""}<p>Owner: ${updated.owner || "Unassigned"}</p>`, ownerName: updated.owner }).catch(err => console.error("Closed won email error:", err));
+        }
 
-      try {
-        const matchingRules = await storage.getMatchingStageRules(updated.pipeline, old.stage, updated.stage);
-        for (const rule of matchingRules) {
-          const ruleActions = (rule.actions as any[]) || [];
-          for (const action of ruleActions) {
-            if (action.type === "create_task") {
-              await storage.createTask({
-                title: action.title || `Auto: Stage moved to ${updated.stage}`,
-                assignedTo: action.assignedTo || updated.owner || "Unassigned",
-                priority: action.priority || "medium",
-                dueDate: action.dueHours ? new Date(Date.now() + action.dueHours * 3600000) : undefined,
-                dealId: updated.id,
-                contactId: updated.contactId || undefined,
-              });
-            } else if (action.type === "send_notification") {
-              await storage.createNotification({
-                channel: action.channel || "internal",
-                title: action.title || `Stage Automation: ${rule.name}`,
-                message: action.message || `Deal moved to ${updated.stage}`,
-                type: "info",
-              });
-            } else if (action.type === "create_follow_up") {
-              const followUpDate = new Date(Date.now() + (action.delayHours || 24) * 3600000);
-              await storage.createTask({
-                title: action.title || `Follow up: ${updated.stage}`,
-                assignedTo: updated.owner || "Unassigned",
-                priority: "high",
-                dueDate: followUpDate,
-                dealId: updated.id,
-                contactId: updated.contactId || undefined,
-                description: action.description || `Auto-generated follow-up from stage automation rule: ${rule.name}`,
-              });
-            } else if (action.type === "enroll_sequence" && action.sequenceId) {
-              await storage.createSequenceEnrollment({
-                sequenceId: action.sequenceId,
-                contactId: updated.contactId || undefined,
-                dealId: updated.id,
-                status: "active",
-                nextActionAt: new Date(),
-                currentStep: 0,
-              });
+        try {
+          const matchingRules = await storage.getMatchingStageRules(updated.pipeline, old.stage, updated.stage);
+          for (const rule of matchingRules) {
+            const ruleActions = (rule.actions as any[]) || [];
+            for (const action of ruleActions) {
+              if (action.type === "create_task") {
+                await storage.createTask({
+                  title: action.title || `Auto: Stage moved to ${updated.stage}`,
+                  assignedTo: action.assignedTo || updated.owner || "Unassigned",
+                  priority: action.priority || "medium",
+                  dueDate: action.dueHours ? new Date(Date.now() + action.dueHours * 3600000) : undefined,
+                  dealId: updated.id,
+                  contactId: updated.contactId || undefined,
+                });
+              } else if (action.type === "send_notification") {
+                await storage.createNotification({
+                  channel: action.channel || "internal",
+                  title: action.title || `Stage Automation: ${rule.name}`,
+                  message: action.message || `Deal moved to ${updated.stage}`,
+                  type: "info",
+                });
+              } else if (action.type === "create_follow_up") {
+                const followUpDate = new Date(Date.now() + (action.delayHours || 24) * 3600000);
+                await storage.createTask({
+                  title: action.title || `Follow up: ${updated.stage}`,
+                  assignedTo: updated.owner || "Unassigned",
+                  priority: "high",
+                  dueDate: followUpDate,
+                  dealId: updated.id,
+                  contactId: updated.contactId || undefined,
+                  description: action.description || `Auto-generated follow-up from stage automation rule: ${rule.name}`,
+                });
+              } else if (action.type === "enroll_sequence" && action.sequenceId) {
+                await storage.createSequenceEnrollment({
+                  sequenceId: action.sequenceId,
+                  contactId: updated.contactId || undefined,
+                  dealId: updated.id,
+                  status: "active",
+                  nextActionAt: new Date(),
+                  currentStep: 0,
+                });
+              }
             }
+            await storage.createAuditLog({
+              action: "stage_rule_triggered",
+              entityType: "deal",
+              entityId: updated.id,
+              details: { ruleName: rule.name, fromStage: old.stage, toStage: updated.stage },
+            });
           }
-          await storage.createAuditLog({
-            action: "stage_rule_triggered",
-            entityType: "deal",
-            entityId: updated.id,
-            details: { ruleName: rule.name, fromStage: old.stage, toStage: updated.stage },
-          });
+        } catch (ruleErr) {
+          console.error("Stage automation error:", ruleErr);
         }
-      } catch (ruleErr) {
-        console.error("Stage automation error:", ruleErr);
-      }
 
-      try {
-        const contact = updated.contactId ? await storage.getContact(updated.contactId) : null;
-        const volumeEst = estimateFromDeal(updated, contact);
-        await storage.updateDeal(updated.id, {
-          estimatedGrossProfitBps: volumeEst.estimatedGrossProfitBps,
-          estimatedGrossProfitMonthly: volumeEst.estimatedGrossProfitMonthly,
-          estimatedNetProfitMonthly: volumeEst.estimatedNetProfitMonthly,
-          merchantTier: volumeEst.merchantTier,
-        });
-        if (contact) {
-          await storage.updateContact(contact.id, {
-            estimatedProcessingVolume: volumeEst.estimatedProcessingVolume,
-            estimatedResidual: volumeEst.estimatedResidual,
-            volumeConfidence: volumeEst.volumeConfidence,
+        try {
+          const contact = updated.contactId ? await storage.getContact(updated.contactId) : null;
+          const volumeEst = estimateFromDeal(updated, contact);
+          await storage.updateDeal(updated.id, {
+            estimatedGrossProfitBps: volumeEst.estimatedGrossProfitBps,
+            estimatedGrossProfitMonthly: volumeEst.estimatedGrossProfitMonthly,
+            estimatedNetProfitMonthly: volumeEst.estimatedNetProfitMonthly,
+            merchantTier: volumeEst.merchantTier,
           });
+          if (contact) {
+            await storage.updateContact(contact.id, {
+              estimatedProcessingVolume: volumeEst.estimatedProcessingVolume,
+              estimatedResidual: volumeEst.estimatedResidual,
+              volumeConfidence: volumeEst.volumeConfidence,
+            });
+          }
+        } catch (volErr) {
+          console.error("Volume estimate recalc error:", volErr);
         }
-      } catch (volErr) {
-        console.error("Volume estimate recalc error:", volErr);
+
+        autoEnrollFromTrigger("deal_stage_changed", {
+          contactId: updated.contactId || undefined,
+          dealId: updated.id,
+          toStage: updated.stage,
+          fromStage: old.stage,
+          pipeline: updated.pipeline,
+        } as any).catch(err => console.error("Auto-enroll on stage change error:", err));
+
+        triggerWorkflowsByEvent("deal_stage_changed", {
+          entityType: "deal",
+          entityId: updated.id,
+          contactId: updated.contactId || undefined,
+          dealId: updated.id,
+        }, { toStage: updated.stage, fromStage: old.stage }).catch(err => console.error("Workflow trigger error:", err));
       }
-
-      autoEnrollFromTrigger("deal_stage_changed", {
-        contactId: updated.contactId || undefined,
-        dealId: updated.id,
-        toStage: updated.stage,
-        fromStage: old.stage,
-        pipeline: updated.pipeline,
-      } as any).catch(err => console.error("Auto-enroll on stage change error:", err));
-
-      triggerWorkflowsByEvent("deal_stage_changed", {
-        entityType: "deal",
-        entityId: updated.id,
-        contactId: updated.contactId || undefined,
-        dealId: updated.id,
-      }, { toStage: updated.stage, fromStage: old.stage }).catch(err => console.error("Workflow trigger error:", err));
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
     }
-    res.json(updated);
   });
 
   app.post("/api/deals/:id/recalculate-volume", isAuthenticated, async (req, res) => {
@@ -249,15 +261,23 @@ export function registerDealsRoutes(app: Express) {
 
   // === STAGE AUTOMATION RULES ===
   app.get("/api/stage-rules", isAuthenticated, async (req, res) => {
-    const pipeline = req.query.pipeline as string | undefined;
-    const rules = await storage.getStageAutomationRules(pipeline);
-    res.json(rules);
+    try {
+      const pipeline = req.query.pipeline as string | undefined;
+      const rules = await storage.getStageAutomationRules(pipeline);
+      res.json(rules);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.get("/api/stage-rules/:id", isAuthenticated, async (req, res) => {
-    const rule = await storage.getStageAutomationRule(Number(req.params.id));
-    if (!rule) return res.status(404).json({ message: "Not found" });
-    res.json(rule);
+    try {
+      const rule = await storage.getStageAutomationRule(Number(req.params.id));
+      if (!rule) return res.status(404).json({ message: "Not found" });
+      res.json(rule);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.post("/api/stage-rules", isAuthenticated, async (req, res) => {
@@ -266,29 +286,41 @@ export function registerDealsRoutes(app: Express) {
       const rule = await storage.createStageAutomationRule(input);
       await storage.createAuditLog({ action: "stage_rule_created", entityType: "stage_rule", entityId: rule.id, details: { name: rule.name, pipeline: rule.pipeline } });
       res.status(201).json(rule);
-    } catch (err) {
+    } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      throw err;
+      res.status(500).json({ message: err.message });
     }
   });
 
   app.put("/api/stage-rules/:id", isAuthenticated, async (req, res) => {
-    const updated = await storage.updateStageAutomationRule(Number(req.params.id), req.body);
-    if (!updated) return res.status(404).json({ message: "Not found" });
-    res.json(updated);
+    try {
+      const updated = await storage.updateStageAutomationRule(Number(req.params.id), req.body);
+      if (!updated) return res.status(404).json({ message: "Not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.delete("/api/stage-rules/:id", isAuthenticated, async (req, res) => {
-    await storage.deleteStageAutomationRule(Number(req.params.id));
-    res.json({ success: true });
+    try {
+      await storage.deleteStageAutomationRule(Number(req.params.id));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
 
   // === PIPELINE STAGES CONFIGURATION ===
   app.get("/api/pipeline-stages", isAuthenticated, async (req, res) => {
-    const pipeline = req.query.pipeline ? String(req.query.pipeline) : undefined;
-    const stages = await storage.getPipelineStages(pipeline);
-    res.json(stages);
+    try {
+      const pipeline = req.query.pipeline ? String(req.query.pipeline) : undefined;
+      const stages = await storage.getPipelineStages(pipeline);
+      res.json(stages);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.post("/api/pipeline-stages", isAuthenticated, async (req, res) => {
@@ -297,33 +329,45 @@ export function registerDealsRoutes(app: Express) {
       const input = insertPipelineStageSchema.parse(req.body);
       const stage = await storage.createPipelineStage(input);
       res.status(201).json(stage);
-    } catch (err) {
+    } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      throw err;
+      res.status(500).json({ message: err.message });
     }
   });
 
   app.put("/api/pipeline-stages/:id", isAuthenticated, async (req, res) => {
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
-    const updated = await storage.updatePipelineStage(Number(req.params.id), req.body);
-    if (!updated) return res.status(404).json({ message: "Not found" });
-    res.json(updated);
+    try {
+      const updated = await storage.updatePipelineStage(Number(req.params.id), req.body);
+      if (!updated) return res.status(404).json({ message: "Not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.delete("/api/pipeline-stages/:id", isAuthenticated, async (req, res) => {
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
-    await storage.deletePipelineStage(Number(req.params.id));
-    res.json({ success: true });
+    try {
+      await storage.deletePipelineStage(Number(req.params.id));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.post("/api/pipeline-stages/reorder", isAuthenticated, async (req, res) => {
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
-    const { stages } = req.body;
-    if (!Array.isArray(stages)) return res.status(400).json({ message: "stages array required" });
-    for (const s of stages) {
-      await storage.updatePipelineStage(s.id, { sortOrder: s.sortOrder });
+    try {
+      const { stages } = req.body;
+      if (!Array.isArray(stages)) return res.status(400).json({ message: "stages array required" });
+      for (const s of stages) {
+        await storage.updatePipelineStage(s.id, { sortOrder: s.sortOrder });
+      }
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
     }
-    res.json({ success: true });
   });
 
 
