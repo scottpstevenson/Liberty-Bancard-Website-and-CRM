@@ -68,14 +68,15 @@ export default function Prospects() {
     ? `/api/prospects?listId=${selectedListId}`
     : "/api/prospects";
 
-  const { data: prospects, isLoading: prospectsLoading, isError: prospectsError, refetch: refetchProspects } = useQuery<Prospect[]>({
+  const { data: prospectsResult, isLoading: prospectsLoading, isError: prospectsError, refetch: refetchProspects } = useQuery<{ data: Prospect[]; total: number }>({
     queryKey: ["/api/prospects", selectedListId],
     queryFn: async () => {
-      const res = await fetch(prospectsUrl, { credentials: "include" });
+      const res = await fetch(`${prospectsUrl}${prospectsUrl.includes('?') ? '&' : '?'}limit=500`, { credentials: "include" });
       if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
       return res.json();
     },
   });
+  const prospects = prospectsResult?.data;
 
   const { data: prospectLists } = useQuery<ProspectList[]>({
     queryKey: ["/api/prospect-lists"],

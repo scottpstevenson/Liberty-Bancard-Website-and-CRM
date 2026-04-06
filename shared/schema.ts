@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb, varchar, real, index } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, jsonb, varchar, real, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { users } from "./models/auth";
@@ -73,7 +73,12 @@ export const contacts = pgTable("contacts", {
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
   archivedAt: timestamp("archived_at"),
-});
+}, (table) => [
+  index("contacts_email_idx").on(table.email),
+  index("contacts_phone_idx").on(table.phone),
+  index("contacts_ghl_contact_id_idx").on(table.ghlContactId),
+  index("contacts_created_at_idx").on(table.createdAt),
+]);
 
 export const insertContactSchema = createInsertSchema(contacts).omit({
   id: true,
@@ -164,7 +169,13 @@ export const deals = pgTable("deals", {
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
   archivedAt: timestamp("archived_at"),
-});
+}, (table) => [
+  index("deals_contact_id_idx").on(table.contactId),
+  index("deals_pipeline_idx").on(table.pipeline),
+  index("deals_stage_idx").on(table.stage),
+  index("deals_pipeline_stage_idx").on(table.pipeline, table.stage),
+  index("deals_created_at_idx").on(table.createdAt),
+]);
 
 export const insertDealSchema = createInsertSchema(deals).omit({
   id: true,
@@ -239,7 +250,10 @@ export const auditLogs = pgTable("audit_logs", {
   entityId: integer("entity_id"),
   details: jsonb("details"),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => [
+  index("audit_logs_created_at_idx").on(table.createdAt),
+  index("audit_logs_entity_type_entity_id_idx").on(table.entityType, table.entityId),
+]);
 
 export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({
   id: true,
@@ -666,7 +680,11 @@ export const prospects = pgTable("prospects", {
   lastContactedAt: timestamp("last_contacted_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => [
+  index("prospects_list_id_idx").on(table.listId),
+  index("prospects_status_idx").on(table.status),
+  index("prospects_created_at_idx").on(table.createdAt),
+]);
 
 export const insertProspectSchema = createInsertSchema(prospects).omit({
   id: true,
@@ -802,7 +820,11 @@ export const outboundMessages = pgTable("outbound_messages", {
   error: text("error"),
   metadata: jsonb("metadata"),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => [
+  index("outbound_messages_campaign_id_idx").on(table.campaignId),
+  index("outbound_messages_status_idx").on(table.status),
+  index("outbound_messages_campaign_status_idx").on(table.campaignId, table.status),
+]);
 
 export const insertOutboundMessageSchema = createInsertSchema(outboundMessages).omit({
   id: true,
@@ -864,7 +886,10 @@ export const emailLogs = pgTable("email_logs", {
   repliedAt: timestamp("replied_at"),
   metadata: jsonb("metadata"),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => [
+  index("email_logs_created_at_idx").on(table.createdAt),
+  index("email_logs_contact_id_idx").on(table.contactId),
+]);
 
 export const insertEmailLogSchema = createInsertSchema(emailLogs).omit({
   id: true,
@@ -1095,7 +1120,13 @@ export const sunbizEntities = pgTable("sunbiz_entities", {
   detailUrl: text("detail_url"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => [
+  index("sunbiz_entities_filing_number_idx").on(table.filingNumber),
+  index("sunbiz_entities_entity_name_idx").on(table.entityName),
+  index("sunbiz_entities_enrichment_status_idx").on(table.enrichmentStatus),
+  index("sunbiz_entities_list_id_idx").on(table.listId),
+  index("sunbiz_entities_created_at_idx").on(table.createdAt),
+]);
 
 export const insertSunbizEntitySchema = createInsertSchema(sunbizEntities).omit({
   id: true,
@@ -2259,7 +2290,11 @@ export const sdrLeadState = pgTable("sdr_lead_state", {
   dealId: integer("deal_id"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => [
+  index("sdr_lead_state_stage_idx").on(table.stage),
+  index("sdr_lead_state_priority_bucket_idx").on(table.priorityBucket),
+  index("sdr_lead_state_merchant_id_idx").on(table.merchantId),
+]);
 
 export const insertSdrLeadStateSchema = createInsertSchema(sdrLeadState).omit({
   id: true,

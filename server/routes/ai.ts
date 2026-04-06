@@ -62,13 +62,17 @@ OUTPUT FORMAT:
   // === AI DASHBOARD COPILOT ===
   app.post("/api/ai/insights", isAuthenticated, async (req, res) => {
     try {
-      const [allDeals, allTickets, allContacts, allTasks, allProspects] = await Promise.all([
-        storage.getDeals(),
-        storage.getTickets(),
-        storage.getContacts(),
+      const [dealsR, ticketsR, contactsR, allTasks, prospectsR] = await Promise.all([
+        storage.getDeals({ limit: 500 }),
+        storage.getTickets({ limit: 500 }),
+        storage.getContacts({ limit: 500 }),
         storage.getTasks(),
-        storage.getProspects(),
+        storage.getProspects(undefined, { limit: 500 }),
       ]);
+      const allDeals = dealsR.data;
+      const allTickets = ticketsR.data;
+      const allContacts = contactsR.data;
+      const allProspects = prospectsR.data;
 
       const now = new Date();
       const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -176,12 +180,15 @@ FORMAT your response as JSON: {"subject": "...", "body": "..."}`
   // === AI SMART TASK GENERATOR ===
   app.post("/api/ai/generate-tasks", isAuthenticated, async (req, res) => {
     try {
-      const [allDeals, allTickets, allTasks, allContacts] = await Promise.all([
-        storage.getDeals(),
-        storage.getTickets(),
+      const [dealsR2, ticketsR2, allTasks, contactsR2] = await Promise.all([
+        storage.getDeals({ limit: 500 }),
+        storage.getTickets({ limit: 500 }),
         storage.getTasks(),
-        storage.getContacts(),
+        storage.getContacts({ limit: 500 }),
       ]);
+      const allDeals = dealsR2.data;
+      const allTickets = ticketsR2.data;
+      const allContacts = contactsR2.data;
 
       const now = new Date();
       const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -620,7 +627,7 @@ Notes: ${deal.notes || "None"}`
     try {
       const token = req.params.token;
       if (!token || token.length < 10) return res.status(400).json({ message: "Invalid token" });
-      const allDeals = await storage.getDeals();
+      const { data: allDeals } = await storage.getDeals({ limit: 500 });
       const deal = allDeals.find(d => d.proposalToken === token);
       if (!deal || !deal.savingsProposal) return res.status(404).json({ message: "Proposal not found" });
       const contact = deal.contactId ? await storage.getContact(deal.contactId) : null;
@@ -758,7 +765,7 @@ Notes: ${deal.notes || "None"}`
   // === AI ONBOARDING STATUS ===
   app.get("/api/ai/onboarding-status", isAuthenticated, async (req, res) => {
     try {
-      const allDeals = await storage.getDeals();
+      const { data: allDeals } = await storage.getDeals({ limit: 500 });
       const onboardingDeals = allDeals.filter(d => d.pipeline === "onboarding" && d.stage !== "Cancelled");
       const allTasks = await storage.getTasks();
 

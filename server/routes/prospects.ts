@@ -53,10 +53,10 @@ export function registerProspectsRoutes(app: Express) {
   app.get("/api/prospects", isAuthenticated, async (req, res) => {
     try {
       const listId = req.query.listId ? Number(req.query.listId) : undefined;
-      const limit = req.query.limit ? Math.min(Number(req.query.limit), 1000) : undefined;
+      const limit = req.query.limit ? Number(req.query.limit) : undefined;
       const offset = req.query.offset ? Number(req.query.offset) : undefined;
-      const prospects = await storage.getProspects(listId, limit || offset ? { limit: limit || 500, offset } : undefined);
-      res.json(prospects);
+      const result = await storage.getProspects(listId, { limit, offset });
+      res.json(result);
     } catch (err: any) {
       console.error("Get prospects error:", err.message);
       res.status(500).json({ message: err.message });
@@ -415,10 +415,10 @@ export function registerProspectsRoutes(app: Express) {
   app.get("/api/sunbiz/entities", isAuthenticated, async (req, res) => {
     try {
       const listId = req.query.listId ? Number(req.query.listId) : undefined;
-      const limit = req.query.limit ? Math.min(Number(req.query.limit), 1000) : undefined;
+      const limit = req.query.limit ? Number(req.query.limit) : undefined;
       const offset = req.query.offset ? Number(req.query.offset) : undefined;
-      const entities = await storage.getSunbizEntities(listId, limit || offset ? { limit: limit || 500, offset } : undefined);
-      res.json(entities);
+      const result = await storage.getSunbizEntities(listId, { limit, offset });
+      res.json(result);
     } catch (err: any) {
       console.error("Get sunbiz entities error:", err.message);
       res.status(500).json({ message: err.message });

@@ -110,13 +110,15 @@ export default function CalendarPage() {
     },
   });
 
-  const { data: allDeals } = useQuery<Deal[]>({
+  const { data: dealsRes } = useQuery<{ data: Deal[]; total: number }>({
     queryKey: ["/api/deals"],
   });
+  const allDeals = dealsRes?.data;
 
-  const { data: contacts } = useQuery<Contact[]>({
+  const { data: contactsRes } = useQuery<{ data: Contact[]; total: number }>({
     queryKey: ["/api/contacts"],
   });
+  const contacts = contactsRes?.data;
 
   const contactMap = useMemo(() => {
     const m = new Map<number, string>();

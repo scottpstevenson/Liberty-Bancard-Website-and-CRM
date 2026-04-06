@@ -143,7 +143,7 @@ export function registerIntegrationsRoutes(app: Express) {
 
     (async () => {
       try {
-        const deals = await storage.getDeals();
+        const { data: deals } = await storage.getDeals({ limit: 500 });
         const newLeadDeals = deals.filter(d => d.stage === "New Lead" && d.contactId);
         const contactIds = [...new Set(newLeadDeals.map(d => d.contactId!))].slice(0, maxContacts);
 
@@ -205,7 +205,7 @@ export function registerIntegrationsRoutes(app: Express) {
     (async () => {
       try {
         const { routeContact } = await import("../services/smart-router");
-        const deals = await storage.getDeals();
+        const { data: deals } = await storage.getDeals({ limit: 500 });
         const hotDeals = deals.filter(d => d.stage === "New Lead" && d.contactId);
         const contactIds = [...new Set(hotDeals.map(d => d.contactId!))].slice(0, maxLeads);
 

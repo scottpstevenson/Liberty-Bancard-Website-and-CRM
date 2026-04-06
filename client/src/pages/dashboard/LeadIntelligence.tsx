@@ -127,9 +127,10 @@ export default function LeadIntelligence() {
   const [searchTerm, setSearchTerm] = useState("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
-  const { data: contacts, isLoading: contactsLoading } = useQuery<Contact[]>({
+  const { data: contactsRes, isLoading: contactsLoading } = useQuery<{ data: Contact[]; total: number }>({
     queryKey: ["/api/contacts"],
   });
+  const contacts = contactsRes?.data;
 
   const { data: intel, isLoading: intelLoading } = useQuery<LeadIntelligenceData>({
     queryKey: ["/api/lead-intelligence/full", selectedContactId],

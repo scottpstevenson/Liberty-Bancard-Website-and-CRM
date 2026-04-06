@@ -73,23 +73,25 @@ export default function Pipeline() {
   const [editNotes, setEditNotes] = useState("");
   const [editFollowUp, setEditFollowUp] = useState("");
 
-  const { data: deals, isLoading: dealsLoading, isError: dealsError, refetch: refetchDeals } = useQuery<Deal[]>({
+  const { data: dealsResult, isLoading: dealsLoading, isError: dealsError, refetch: refetchDeals } = useQuery<{ data: Deal[]; total: number }>({
     queryKey: ["/api/deals", { pipeline: "sales" }],
     queryFn: async () => {
-      const res = await fetch("/api/deals?pipeline=sales", { credentials: "include" });
+      const res = await fetch("/api/deals?pipeline=sales&limit=500", { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch deals");
       return res.json();
     },
   });
+  const deals = dealsResult?.data;
 
-  const { data: contacts } = useQuery<Contact[]>({
+  const { data: contactsResult } = useQuery<{ data: Contact[]; total: number }>({
     queryKey: ["/api/contacts"],
     queryFn: async () => {
-      const res = await fetch("/api/contacts", { credentials: "include" });
+      const res = await fetch("/api/contacts?limit=500", { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch contacts");
       return res.json();
     },
   });
+  const contacts = contactsResult?.data;
 
   const { data: pipelineStages } = useQuery<PipelineStage[]>({
     queryKey: ["/api/pipeline-stages", configPipeline],

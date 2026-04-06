@@ -106,13 +106,15 @@ export default function StatementReview() {
   const [manualTicket, setManualTicket] = useState("");
   const [activeProposal, setActiveProposal] = useState<Proposal | null>(null);
 
-  const { data: deals = [], isLoading: dealsLoading } = useQuery<Deal[]>({
+  const { data: dealsRes, isLoading: dealsLoading } = useQuery<{ data: Deal[]; total: number }>({
     queryKey: ["/api/deals"],
   });
+  const deals = dealsRes?.data ?? [];
 
-  const { data: contacts = [] } = useQuery<Contact[]>({
+  const { data: contactsRes } = useQuery<{ data: Contact[]; total: number }>({
     queryKey: ["/api/contacts"],
   });
+  const contacts = contactsRes?.data ?? [];
 
   const dealsWithStatements = deals.filter(
     (d) => d.statementReceived || d.stage === "Statement Received" || d.effectiveRate

@@ -27,12 +27,15 @@ export async function buildDailyDigest(): Promise<{
   const now = new Date();
   const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
-  const [allDeals, allContacts, allTickets, allTasks] = await Promise.all([
-    storage.getDeals(),
-    storage.getContacts(),
-    storage.getTickets(),
+  const [dealsResult, contactsResult, ticketsResult, allTasks] = await Promise.all([
+    storage.getDeals({ limit: 500 }),
+    storage.getContacts({ limit: 500 }),
+    storage.getTickets({ limit: 500 }),
     storage.getTasks(),
   ]);
+  const allDeals = dealsResult.data;
+  const allContacts = contactsResult.data;
+  const allTickets = ticketsResult.data;
 
   const newLeads = allContacts.filter(
     (c) => c.createdAt && new Date(c.createdAt) >= twentyFourHoursAgo
@@ -137,12 +140,15 @@ export async function buildWeeklyDigest(): Promise<{
   const now = new Date();
   const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-  const [allDeals, allContacts, allTickets, allTasks] = await Promise.all([
-    storage.getDeals(),
-    storage.getContacts(),
-    storage.getTickets(),
+  const [dealsResult2, contactsResult2, ticketsResult2, allTasks] = await Promise.all([
+    storage.getDeals({ limit: 500 }),
+    storage.getContacts({ limit: 500 }),
+    storage.getTickets({ limit: 500 }),
     storage.getTasks(),
   ]);
+  const allDeals = dealsResult2.data;
+  const allContacts = contactsResult2.data;
+  const allTickets = ticketsResult2.data;
 
   const newLeads = allContacts.filter(
     (c) => c.createdAt && new Date(c.createdAt) >= sevenDaysAgo

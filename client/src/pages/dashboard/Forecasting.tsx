@@ -37,13 +37,15 @@ export default function Forecasting() {
     queryKey: ["/api/forecasting/summary"],
   });
 
-  const { data: deals, isLoading: dealsLoading } = useQuery<Deal[]>({
+  const { data: dealsRes, isLoading: dealsLoading } = useQuery<{ data: Deal[]; total: number }>({
     queryKey: ["/api/deals"],
   });
+  const deals = dealsRes?.data;
 
-  const { data: contacts } = useQuery<Contact[]>({
+  const { data: contactsRes } = useQuery<{ data: Contact[]; total: number }>({
     queryKey: ["/api/contacts"],
   });
+  const contacts = contactsRes?.data;
 
   const contactMap = new Map((contacts || []).map(c => [c.id, c]));
 

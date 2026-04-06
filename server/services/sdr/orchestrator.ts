@@ -909,7 +909,7 @@ export async function bridgeContactsToSdr(options?: { limit?: number; contactIds
   let errorCount = 0;
 
   try {
-    const allContacts = await storage.getContacts();
+    const { data: allContacts } = await storage.getContacts({ limit: 500 });
     let contactsToProcess = allContacts;
 
     if (options?.contactIds && options.contactIds.length > 0) {

@@ -81,10 +81,22 @@ import {
   type GeneratedBlogPost, type InsertGeneratedBlogPost,
   type UpdateSdrLeadState,
 } from "@shared/schema";
-import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike } from "drizzle-orm";
+import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, count } from "drizzle-orm";
+
+export interface PaginationParams {
+  limit?: number;
+  offset?: number;
+}
+
+export interface PaginatedResult<T> {
+  data: T[];
+  total: number;
+  limit: number;
+  offset: number;
+}
 
 export interface IStorage {
-  getContacts(opts?: { limit?: number; offset?: number }): Promise<typeof contacts.$inferSelect[]>;
+  getContacts(params?: PaginationParams): Promise<PaginatedResult<typeof contacts.$inferSelect>>;
   getContact(id: number): Promise<typeof contacts.$inferSelect | undefined>;
   createContact(contact: InsertContact): Promise<typeof contacts.$inferSelect>;
   updateContact(id: number, contact: UpdateContactRequest): Promise<typeof contacts.$inferSelect | undefined>;
@@ -92,14 +104,14 @@ export interface IStorage {
   getCompanies(): Promise<typeof companies.$inferSelect[]>;
   createCompany(company: InsertCompany): Promise<typeof companies.$inferSelect>;
 
-  getDeals(opts?: { limit?: number; offset?: number }): Promise<typeof deals.$inferSelect[]>;
+  getDeals(params?: PaginationParams): Promise<PaginatedResult<typeof deals.$inferSelect>>;
   getDeal(id: number): Promise<typeof deals.$inferSelect | undefined>;
-  getDealsByPipeline(pipeline: string): Promise<typeof deals.$inferSelect[]>;
+  getDealsByPipeline(pipeline: string, params?: PaginationParams): Promise<PaginatedResult<typeof deals.$inferSelect>>;
   getDealsByContact(contactId: number): Promise<typeof deals.$inferSelect[]>;
   createDeal(deal: InsertDeal): Promise<typeof deals.$inferSelect>;
   updateDeal(id: number, deal: UpdateDealRequest): Promise<typeof deals.$inferSelect | undefined>;
 
-  getTickets(opts?: { limit?: number; offset?: number }): Promise<typeof tickets.$inferSelect[]>;
+  getTickets(params?: PaginationParams): Promise<PaginatedResult<typeof tickets.$inferSelect>>;
   getTicket(id: number): Promise<typeof tickets.$inferSelect | undefined>;
   createTicket(ticket: InsertTicket): Promise<typeof tickets.$inferSelect>;
   updateTicket(id: number, ticket: UpdateTicketRequest): Promise<typeof tickets.$inferSelect | undefined>;
@@ -160,7 +172,7 @@ export interface IStorage {
   createProspectList(list: InsertProspectList): Promise<typeof prospectLists.$inferSelect>;
   updateProspectList(id: number, updates: Partial<InsertProspectList>): Promise<typeof prospectLists.$inferSelect | undefined>;
 
-  getProspects(listId?: number, opts?: { limit?: number; offset?: number }): Promise<typeof prospects.$inferSelect[]>;
+  getProspects(listId?: number, params?: PaginationParams): Promise<PaginatedResult<typeof prospects.$inferSelect>>;
   getProspect(id: number): Promise<typeof prospects.$inferSelect | undefined>;
   createProspect(prospect: InsertProspect): Promise<typeof prospects.$inferSelect>;
   createProspectsBulk(prospectData: InsertProspect[]): Promise<Prospect[]>;
@@ -225,7 +237,7 @@ export interface IStorage {
   updateSequenceEnrollment(id: number, updates: Partial<InsertSequenceEnrollment>): Promise<typeof sequenceEnrollments.$inferSelect | undefined>;
   getActiveEnrollments(): Promise<typeof sequenceEnrollments.$inferSelect[]>;
 
-  getSunbizEntities(listId?: number, opts?: { limit?: number; offset?: number }): Promise<SunbizEntity[]>;
+  getSunbizEntities(listId?: number, params?: PaginationParams): Promise<PaginatedResult<SunbizEntity>>;
   getSunbizEntity(id: number): Promise<SunbizEntity | undefined>;
   getSunbizEntityByFiling(filingNumber: string): Promise<SunbizEntity | undefined>;
   createSunbizEntity(entity: InsertSunbizEntity): Promise<SunbizEntity>;
@@ -421,7 +433,7 @@ export interface IStorage {
   createEnrichmentRun(run: InsertEnrichmentRun): Promise<EnrichmentRun>;
   updateEnrichmentRun(id: number, updates: Partial<InsertEnrichmentRun>): Promise<EnrichmentRun | undefined>;
 
-  getSdrMerchants(): Promise<SdrMerchant[]>;
+  getSdrMerchants(params?: PaginationParams): Promise<PaginatedResult<SdrMerchant>>;
   getSdrMerchant(id: number): Promise<SdrMerchant | undefined>;
   createSdrMerchant(data: InsertSdrMerchant): Promise<SdrMerchant>;
   updateSdrMerchant(id: number, updates: Partial<InsertSdrMerchant>): Promise<SdrMerchant | undefined>;
@@ -469,12 +481,21 @@ export interface IStorage {
   findSdrMerchantByNameCity(businessName: string, city: string | null): Promise<SdrMerchant | undefined>;
 }
 
+const DEFAULT_LIMIT = 100;
+const MAX_LIMIT = 500;
+
+function normalizePagination(params?: PaginationParams): { limit: number; offset: number } {
+  const limit = Math.min(Math.max(params?.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
+  const offset = Math.max(params?.offset ?? 0, 0);
+  return { limit, offset };
+}
+
 export class DatabaseStorage implements IStorage {
-  async getContacts(opts?: { limit?: number; offset?: number }) {
-    let query = db.select().from(contacts).orderBy(desc(contacts.createdAt));
-    if (opts?.limit) query = query.limit(opts.limit) as any;
-    if (opts?.offset) query = query.offset(opts.offset) as any;
-    return await query;
+  async getContacts(params?: PaginationParams) {
+    const { limit, offset } = normalizePagination(params);
+    const [totalResult] = await db.select({ count: count() }).from(contacts);
+    const data = await db.select().from(contacts).orderBy(desc(contacts.createdAt)).limit(limit).offset(offset);
+    return { data, total: totalResult.count, limit, offset };
   }
 
   async getContact(id: number) {
@@ -501,11 +522,11 @@ export class DatabaseStorage implements IStorage {
     return company;
   }
 
-  async getDeals(opts?: { limit?: number; offset?: number }) {
-    let query = db.select().from(deals).orderBy(desc(deals.createdAt));
-    if (opts?.limit) query = query.limit(opts.limit) as any;
-    if (opts?.offset) query = query.offset(opts.offset) as any;
-    return await query;
+  async getDeals(params?: PaginationParams) {
+    const { limit, offset } = normalizePagination(params);
+    const [totalResult] = await db.select({ count: count() }).from(deals);
+    const data = await db.select().from(deals).orderBy(desc(deals.createdAt)).limit(limit).offset(offset);
+    return { data, total: totalResult.count, limit, offset };
   }
 
   async getDeal(id: number) {
@@ -513,8 +534,11 @@ export class DatabaseStorage implements IStorage {
     return deal;
   }
 
-  async getDealsByPipeline(pipeline: string) {
-    return await db.select().from(deals).where(eq(deals.pipeline, pipeline)).orderBy(desc(deals.createdAt));
+  async getDealsByPipeline(pipeline: string, params?: PaginationParams) {
+    const { limit, offset } = normalizePagination(params);
+    const [totalResult] = await db.select({ count: count() }).from(deals).where(eq(deals.pipeline, pipeline));
+    const data = await db.select().from(deals).where(eq(deals.pipeline, pipeline)).orderBy(desc(deals.createdAt)).limit(limit).offset(offset);
+    return { data, total: totalResult.count, limit, offset };
   }
 
   async getDealsByContact(contactId: number) {
@@ -531,11 +555,11 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async getTickets(opts?: { limit?: number; offset?: number }) {
-    let query = db.select().from(tickets).orderBy(desc(tickets.createdAt));
-    if (opts?.limit) query = query.limit(opts.limit) as any;
-    if (opts?.offset) query = query.offset(opts.offset) as any;
-    return await query;
+  async getTickets(params?: PaginationParams) {
+    const { limit, offset } = normalizePagination(params);
+    const [totalResult] = await db.select({ count: count() }).from(tickets);
+    const data = await db.select().from(tickets).orderBy(desc(tickets.createdAt)).limit(limit).offset(offset);
+    return { data, total: totalResult.count, limit, offset };
   }
 
   async getTicket(id: number) {
@@ -770,13 +794,12 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async getProspects(listId?: number, opts?: { limit?: number; offset?: number }) {
-    let query = listId
-      ? db.select().from(prospects).where(eq(prospects.listId, listId)).orderBy(desc(prospects.createdAt))
-      : db.select().from(prospects).orderBy(desc(prospects.createdAt));
-    if (opts?.limit) query = query.limit(opts.limit) as any;
-    if (opts?.offset) query = query.offset(opts.offset) as any;
-    return await query;
+  async getProspects(listId?: number, params?: PaginationParams) {
+    const { limit, offset } = normalizePagination(params);
+    const condition = listId ? eq(prospects.listId, listId) : undefined;
+    const [totalResult] = await db.select({ count: count() }).from(prospects).where(condition);
+    const data = await db.select().from(prospects).where(condition).orderBy(desc(prospects.createdAt)).limit(limit).offset(offset);
+    return { data, total: totalResult.count, limit, offset };
   }
 
   async getProspect(id: number) {
@@ -1059,13 +1082,12 @@ export class DatabaseStorage implements IStorage {
     );
   }
 
-  async getSunbizEntities(listId?: number, opts?: { limit?: number; offset?: number }) {
-    let query = listId
-      ? db.select().from(sunbizEntities).where(eq(sunbizEntities.listId, listId)).orderBy(desc(sunbizEntities.createdAt))
-      : db.select().from(sunbizEntities).orderBy(desc(sunbizEntities.createdAt));
-    if (opts?.limit) query = query.limit(opts.limit) as any;
-    if (opts?.offset) query = query.offset(opts.offset) as any;
-    return await query;
+  async getSunbizEntities(listId?: number, params?: PaginationParams) {
+    const { limit, offset } = normalizePagination(params);
+    const condition = listId ? eq(sunbizEntities.listId, listId) : undefined;
+    const [totalResult] = await db.select({ count: count() }).from(sunbizEntities).where(condition);
+    const data = await db.select().from(sunbizEntities).where(condition).orderBy(desc(sunbizEntities.createdAt)).limit(limit).offset(offset);
+    return { data, total: totalResult.count, limit, offset };
   }
 
   async getSunbizEntity(id: number) {
@@ -2290,8 +2312,11 @@ export class DatabaseStorage implements IStorage {
     return r;
   }
 
-  async getSdrMerchants() {
-    return db.select().from(sdrMerchants).orderBy(desc(sdrMerchants.createdAt));
+  async getSdrMerchants(params?: PaginationParams) {
+    const { limit, offset } = normalizePagination(params);
+    const [totalResult] = await db.select({ count: count() }).from(sdrMerchants);
+    const data = await db.select().from(sdrMerchants).orderBy(desc(sdrMerchants.createdAt)).limit(limit).offset(offset);
+    return { data, total: totalResult.count, limit, offset };
   }
 
   async getSdrMerchant(id: number) {

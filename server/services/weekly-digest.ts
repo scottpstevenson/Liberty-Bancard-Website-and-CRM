@@ -15,12 +15,15 @@ export async function generateAndSendWeeklyDigest(): Promise<void> {
   }
 
   try {
-    const [allDeals, allContacts, allTickets, allTasks] = await Promise.all([
-      storage.getDeals(),
-      storage.getContacts(),
-      storage.getTickets(),
+    const [dealsResult, contactsResult, ticketsResult, allTasks] = await Promise.all([
+      storage.getDeals({ limit: 500 }),
+      storage.getContacts({ limit: 500 }),
+      storage.getTickets({ limit: 500 }),
       storage.getTasks(),
     ]);
+    const allDeals = dealsResult.data;
+    const allContacts = contactsResult.data;
+    const allTickets = ticketsResult.data;
 
     const now = new Date();
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);

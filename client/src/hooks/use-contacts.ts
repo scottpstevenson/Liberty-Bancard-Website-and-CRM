@@ -6,13 +6,17 @@ import type { z } from "zod";
 type CreateContactInput = z.infer<typeof api.contacts.create.input>;
 type UpdateContactInput = z.infer<typeof api.contacts.update.input>;
 
-export function useContacts() {
+export function useContacts(params?: { limit?: number; offset?: number }) {
+  const limit = params?.limit ?? 100;
+  const offset = params?.offset ?? 0;
+  const url = `${api.contacts.list.path}?limit=${limit}&offset=${offset}`;
   return useQuery({
-    queryKey: [api.contacts.list.path],
+    queryKey: [api.contacts.list.path, { limit, offset }],
     queryFn: async () => {
-      const res = await fetch(api.contacts.list.path, { credentials: "include" });
+      const res = await fetch(url, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch contacts");
-      return res.json();
+      const json = await res.json();
+      return json as { data: any[]; total: number; limit: number; offset: number };
     },
   });
 }

@@ -77,9 +77,15 @@ export default function LeadGenCleaner() {
   const [detailEntity, setDetailEntity] = useState<SunbizEntity | null>(null);
   const [dragOver, setDragOver] = useState(false);
 
-  const { data: entities = [], isLoading } = useQuery<SunbizEntity[]>({
+  const { data: entitiesResult, isLoading } = useQuery<{ data: SunbizEntity[]; total: number }>({
     queryKey: ["/api/sunbiz/entities"],
+    queryFn: async () => {
+      const res = await fetch("/api/sunbiz/entities?limit=500", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch entities");
+      return res.json();
+    },
   });
+  const entities = entitiesResult?.data ?? [];
 
   const { data: stats } = useQuery<{
     total: number;

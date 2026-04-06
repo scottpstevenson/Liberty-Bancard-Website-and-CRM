@@ -112,7 +112,7 @@ export function registerDocumentsRoutes(app: Express) {
         }
       }
 
-      const allContacts = await storage.getContacts();
+      const { data: allContacts } = await storage.getContacts({ limit: 500 });
       const uploaderContact = allContacts.find((c: any) => c.userId === user.id || c.email === user.email);
       const uploaderContactId = uploaderContact?.id || null;
 
@@ -120,7 +120,7 @@ export function registerDocumentsRoutes(app: Express) {
       let associatedDealId: number | null = null;
       let dealId: number | undefined;
       if (uploaderContact) {
-        const allDeals = await storage.getDeals();
+        const { data: allDeals } = await storage.getDeals({ limit: 500 });
         if (targetDealId) {
           const matchingDeal = allDeals.find(d => d.id === targetDealId && d.contactId === uploaderContact.id);
           if (matchingDeal) associatedDealId = matchingDeal.id;
@@ -164,7 +164,7 @@ export function registerDocumentsRoutes(app: Express) {
       }
 
       if (uploaderContactId) {
-        const allDeals = await storage.getDeals();
+        const { data: allDeals } = await storage.getDeals({ limit: 500 });
         const merchantDeals = allDeals.filter(
           d => d.pipeline === "onboarding" &&
             d.contactId === uploaderContactId &&

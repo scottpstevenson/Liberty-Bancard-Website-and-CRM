@@ -14,15 +14,15 @@ export function registerCrmOperationsRoutes(app: Express) {
       const contact = await storage.getContact(contactId);
       if (!contact) return res.status(404).json({ message: "Not found" });
       
-      const [allDeals, allTickets, allTasks, contactNotes] = await Promise.all([
-        storage.getDeals(),
-        storage.getTickets(),
+      const [dealsResult, ticketsResult, allTasks, contactNotes] = await Promise.all([
+        storage.getDeals({ limit: 500 }),
+        storage.getTickets({ limit: 500 }),
         storage.getTasks(),
         storage.getNotes("contact", contactId),
       ]);
       
-      const contactDeals = allDeals.filter(d => d.contactId === contactId);
-      const contactTickets = allTickets.filter(t => t.contactId === contactId);
+      const contactDeals = dealsResult.data.filter(d => d.contactId === contactId);
+      const contactTickets = ticketsResult.data.filter(t => t.contactId === contactId);
       const contactTasks = allTasks.filter(t => t.contactId === contactId);
       
       res.json({ contact, deals: contactDeals, tickets: contactTickets, tasks: contactTasks, notes: contactNotes });
@@ -35,7 +35,7 @@ export function registerCrmOperationsRoutes(app: Express) {
   // === EXPORT CSV ===
   app.get("/api/export/contacts", isAuthenticated, async (req, res) => {
     try {
-      const allContacts = await storage.getContacts();
+      const { data: allContacts } = await storage.getContacts({ limit: 500 });
       const headers = ["ID","First Name","Last Name","Email","Phone","Company","Status","Tags","Created"];
       const rows = allContacts.map(c => [
         c.id, c.firstName, c.lastName, c.email, c.phone, c.companyName || "", c.status || "", 
@@ -52,8 +52,8 @@ export function registerCrmOperationsRoutes(app: Express) {
 
   app.get("/api/export/deals", isAuthenticated, async (req, res) => {
     try {
-      const allDeals = await storage.getDeals();
-      const allContacts = await storage.getContacts();
+      const { data: allDeals } = await storage.getDeals({ limit: 500 });
+      const { data: allContacts } = await storage.getContacts({ limit: 500 });
       const contactMap = new Map(allContacts.map(c => [c.id, c]));
       const headers = ["ID","Contact","Company","Pipeline","Stage","Offer Path","Volume","Fees","Profit/mo","Created"];
       const rows = allDeals.map(d => {
@@ -75,7 +75,7 @@ export function registerCrmOperationsRoutes(app: Express) {
 
   app.get("/api/export/tickets", isAuthenticated, async (req, res) => {
     try {
-      const allTickets = await storage.getTickets();
+      const { data: allTickets } = await storage.getTickets({ limit: 500 });
       const headers = ["ID","Subject","Category","Priority","Status","Assigned To","SLA Deadline","Created"];
       const rows = allTickets.map(t => [
         t.id, t.subject, t.category || "", t.priority || "", t.status || "", t.assignedTo || "",

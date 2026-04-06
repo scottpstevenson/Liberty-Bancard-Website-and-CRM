@@ -72,14 +72,15 @@ export default function Onboarding() {
   const [editTerminalRec, setEditTerminalRec] = useState("");
   const [editTerminalStatus, setEditTerminalStatus] = useState("");
 
-  const { data: deals, isLoading: dealsLoading } = useQuery<Deal[]>({
+  const { data: dealsResult, isLoading: dealsLoading } = useQuery<{ data: Deal[]; total: number }>({
     queryKey: ["/api/deals", { pipeline: "onboarding" }],
     queryFn: async () => {
-      const res = await fetch("/api/deals?pipeline=onboarding", { credentials: "include" });
+      const res = await fetch("/api/deals?pipeline=onboarding&limit=500", { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch deals");
       return res.json();
     },
   });
+  const deals = dealsResult?.data;
 
   const { data: onboardingStatuses } = useQuery<OnboardingStatus[]>({
     queryKey: ["/api/ai/onboarding-status"],
@@ -90,14 +91,15 @@ export default function Onboarding() {
     },
   });
 
-  const { data: contacts } = useQuery<Contact[]>({
+  const { data: contactsResult } = useQuery<{ data: Contact[]; total: number }>({
     queryKey: ["/api/contacts"],
     queryFn: async () => {
-      const res = await fetch("/api/contacts", { credentials: "include" });
+      const res = await fetch("/api/contacts?limit=500", { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch contacts");
       return res.json();
     },
   });
+  const contacts = contactsResult?.data;
 
   const updateDealMutation = useMutation({
     mutationFn: async ({ id, ...data }: { id: number } & Record<string, unknown>) => {

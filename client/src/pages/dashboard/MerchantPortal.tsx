@@ -485,9 +485,10 @@ function SupportTab({ contactId }: { contactId: number | null | undefined }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [newTicket, setNewTicket] = useState({ subject: "", description: "", priority: "Normal" });
 
-  const { data: allTickets, isLoading } = useQuery<Ticket[]>({
+  const { data: ticketsRes, isLoading } = useQuery<{ data: Ticket[]; total: number }>({
     queryKey: ["/api/tickets"],
   });
+  const allTickets = ticketsRes?.data;
 
   const tickets = contactId
     ? allTickets?.filter((t) => t.contactId === contactId)

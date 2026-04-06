@@ -63,7 +63,7 @@ export async function syncContactToGhl(contactId: number): Promise<{ success: bo
 export async function syncContactFromGhl(ghlContact: any): Promise<{ contactId: number; created: boolean } | null> {
   try {
     const existingByGhlId = ghlContact.id
-      ? (await storage.getContacts()).find(c => c.ghlContactId === ghlContact.id)
+      ? (await storage.getContacts({ limit: 500 })).data.find(c => c.ghlContactId === ghlContact.id)
       : null;
 
     if (existingByGhlId) {
@@ -79,7 +79,7 @@ export async function syncContactFromGhl(ghlContact: any): Promise<{ contactId: 
     }
 
     if (ghlContact.email) {
-      const existingByEmail = (await storage.getContacts()).find(c => c.email?.toLowerCase() === ghlContact.email?.toLowerCase());
+      const existingByEmail = (await storage.getContacts({ limit: 500 })).data.find(c => c.email?.toLowerCase() === ghlContact.email?.toLowerCase());
       if (existingByEmail) {
         await storage.updateContact(existingByEmail.id, {
           ghlContactId: ghlContact.id,
@@ -112,7 +112,7 @@ export async function syncContactFromGhl(ghlContact: any): Promise<{ contactId: 
 export async function fullSyncToGhl(): Promise<{ synced: number; failed: number; skipped: number }> {
   if (!isGhlConfigured()) return { synced: 0, failed: 0, skipped: 0 };
 
-  const contacts = await storage.getContacts();
+  const { data: contacts } = await storage.getContacts({ limit: 500 });
   const unsyncedContacts = contacts.filter(c => !c.ghlContactId && c.email);
 
   let synced = 0;

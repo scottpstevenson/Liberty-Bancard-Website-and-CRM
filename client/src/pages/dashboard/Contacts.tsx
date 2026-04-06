@@ -376,7 +376,12 @@ function DuplicateFinderDialog({ open, onOpenChange }: { open: boolean; onOpenCh
 }
 
 export default function Contacts() {
-  const { data: contacts, isLoading, isError, refetch } = useContacts();
+  const [page, setPage] = useState(0);
+  const pageSize = 100;
+  const { data: contactsResult, isLoading, isError, refetch } = useContacts({ limit: pageSize, offset: page * pageSize });
+  const contacts = contactsResult?.data;
+  const totalContacts = contactsResult?.total ?? 0;
+  const totalPages = Math.ceil(totalContacts / pageSize);
   const [bulkUpdating, setBulkUpdating] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -833,6 +838,21 @@ export default function Contacts() {
             </TableBody>
           </Table>
         </CardContent>
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-6 py-4 border-t" data-testid="contacts-pagination">
+            <span className="text-sm text-muted-foreground" data-testid="text-contacts-total">
+              Showing {page * pageSize + 1}–{Math.min((page + 1) * pageSize, totalContacts)} of {totalContacts}
+            </span>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)} data-testid="button-contacts-prev">
+                Previous
+              </Button>
+              <Button variant="outline" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)} data-testid="button-contacts-next">
+                Next
+              </Button>
+            </div>
+          </div>
+        )}
       </Card>
 
       <DuplicateFinderDialog open={duplicatesOpen} onOpenChange={setDuplicatesOpen} />

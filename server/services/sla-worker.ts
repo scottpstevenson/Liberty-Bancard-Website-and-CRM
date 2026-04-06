@@ -211,7 +211,7 @@ async function checkWaitingWorkflows() {
 
 async function checkDocumentReadiness() {
   try {
-    const allDeals = await storage.getDeals();
+    const { data: allDeals } = await storage.getDeals({ limit: 500 });
     const activeSalesDeals = allDeals.filter(
       d => d.pipeline === "sales" &&
         d.stage !== "Closed Won" && d.stage !== "Closed Lost" && d.stage !== "New Lead" &&
@@ -298,7 +298,7 @@ async function checkDocumentReadiness() {
 
 async function periodicLeadScoring() {
   try {
-    const contacts = await storage.getContacts();
+    const { data: contacts } = await storage.getContacts({ limit: 500 });
     const now = new Date();
     const sixHoursAgo = new Date(now.getTime() - 6 * 60 * 60 * 1000);
 
@@ -333,10 +333,10 @@ const AI_OPS_EVERY_N_CYCLES = 2;
 
 async function runScheduledAiOps() {
   try {
-    const allDeals = await storage.getDeals();
+    const { data: allDeals } = await storage.getDeals({ limit: 500 });
     const allTasks = await storage.getTasks();
-    const allTickets = await storage.getTickets();
-    const allContacts = await storage.getContacts();
+    const { data: allTickets } = await storage.getTickets({ limit: 500 });
+    const { data: allContacts } = await storage.getContacts({ limit: 500 });
 
     const now = new Date();
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -397,7 +397,7 @@ async function runScheduledAiOps() {
 
 async function checkApplicationReminders() {
   try {
-    const allDeals = await storage.getDeals();
+    const { data: allDeals } = await storage.getDeals({ limit: 500 });
     const onboardingDeals = allDeals.filter(
       d => d.pipeline === "onboarding" &&
         (d.stage === "Contract Sent" || d.stage === "Application Started") &&

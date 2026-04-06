@@ -126,7 +126,7 @@ export function registerSdrRoutes(app: Express) {
       const geographyFilter = req.body?.geography || null;
 
       if (source === "contacts") {
-        const allContacts = await storage.getContacts();
+        const { data: allContacts } = await storage.getContacts({ limit: 500 });
         let filtered = allContacts;
 
         if (verticalFilter) {

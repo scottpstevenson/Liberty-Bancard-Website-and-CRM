@@ -524,7 +524,7 @@ export async function promoteQualifiedToContacts(): Promise<{
   skipped: number;
   dealsCreated: number;
 }> {
-  const allEntities = await storage.getSunbizEntities();
+  const { data: allEntities } = await storage.getSunbizEntities(undefined, { limit: 500 });
   const qualified = allEntities.filter(e =>
     e.enrichmentStatus === "enriched" &&
     (e.score === "hot" || e.score === "warm") &&
@@ -616,7 +616,7 @@ export async function promoteQualifiedToContacts(): Promise<{
 
 export async function processQuizLeadsForSunbizMatch(): Promise<number> {
   try {
-    const contacts = await storage.getContacts();
+    const { data: contacts } = await storage.getContacts({ limit: 500 });
     const quizLeads = contacts.filter(c => {
       const tags = c.tags || [];
       return tags.includes("lead_free_analysis") && !tags.includes("sunbiz_matched") && !tags.includes("sunbiz_no_match");

@@ -50,13 +50,15 @@ export default function OnboardingKickoff() {
     },
   });
 
-  const { data: contacts, isLoading: contactsLoading } = useQuery<Contact[]>({
+  const { data: contactsRes, isLoading: contactsLoading } = useQuery<{ data: Contact[]; total: number }>({
     queryKey: ["/api/contacts"],
   });
+  const contacts = contactsRes?.data;
 
-  const { data: deals, isLoading: dealsLoading } = useQuery<Deal[]>({
+  const { data: dealsRes, isLoading: dealsLoading } = useQuery<{ data: Deal[]; total: number }>({
     queryKey: ["/api/deals"],
   });
+  const deals = dealsRes?.data;
 
   const contactDeals = deals?.filter(
     (d) => d.contactId === Number(selectedContactId)

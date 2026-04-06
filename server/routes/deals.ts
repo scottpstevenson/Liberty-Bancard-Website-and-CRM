@@ -17,8 +17,12 @@ export function registerDealsRoutes(app: Express) {
   app.get("/api/deals", isAuthenticated, async (req, res) => {
     try {
       const pipeline = req.query.pipeline as string | undefined;
-      const deals = pipeline ? await storage.getDealsByPipeline(pipeline) : await storage.getDeals();
-      res.json(deals);
+      const limit = req.query.limit ? Number(req.query.limit) : undefined;
+      const offset = req.query.offset ? Number(req.query.offset) : undefined;
+      const result = pipeline
+        ? await storage.getDealsByPipeline(pipeline, { limit, offset })
+        : await storage.getDeals({ limit, offset });
+      res.json(result);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -374,7 +378,7 @@ export function registerDealsRoutes(app: Express) {
   // === AUTO DEAL STAGE PROGRESSION ===
   app.post("/api/ai/auto-progress-deals", isAuthenticated, async (req, res) => {
     try {
-      const allDeals = await storage.getDeals();
+      const { data: allDeals } = await storage.getDeals({ limit: 500 });
       const salesDeals = allDeals.filter(d => d.pipeline === "sales" && d.stage !== "Closed Won" && d.stage !== "Closed Lost");
       const progressions: Array<{ dealId: number; from: string; to: string; reason: string }> = [];
 

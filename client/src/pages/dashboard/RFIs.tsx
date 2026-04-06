@@ -48,7 +48,8 @@ export default function RFIs() {
   const [newContactId, setNewContactId] = useState("");
 
   const { data: allRfis, isLoading } = useQuery<Rfi[]>({ queryKey: ["/api/rfis"] });
-  const { data: contacts } = useQuery<Contact[]>({ queryKey: ["/api/contacts"] });
+  const { data: contactsRes } = useQuery<{ data: Contact[]; total: number }>({ queryKey: ["/api/contacts"] });
+  const contacts = contactsRes?.data;
 
   const createMutation = useMutation({
     mutationFn: async (body: any) => {

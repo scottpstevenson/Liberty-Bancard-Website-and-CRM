@@ -79,9 +79,10 @@ export default function Sequences() {
     queryKey: ["/api/sequence-enrollments"],
   });
 
-  const { data: contacts } = useQuery<any[]>({
+  const { data: contactsRes } = useQuery<{ data: any[]; total: number }>({
     queryKey: ["/api/contacts"],
   });
+  const contacts = contactsRes?.data;
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -598,9 +599,10 @@ function SequenceStepsView({ sequenceId, enrollments }: { sequenceId: number; en
     },
   });
 
-  const { data: contacts } = useQuery<any[]>({
+  const { data: contactsRes2 } = useQuery<{ data: any[]; total: number }>({
     queryKey: ["/api/contacts"],
   });
+  const contacts = contactsRes2?.data;
 
   const contactMap = new Map((contacts || []).map((c: any) => [c.id, c]));
 

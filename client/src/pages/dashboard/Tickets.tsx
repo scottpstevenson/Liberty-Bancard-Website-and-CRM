@@ -290,23 +290,25 @@ export default function Tickets() {
   const [editAssignedTo, setEditAssignedTo] = useState("");
   const [aiResult, setAiResult] = useState<{category: string; priority: string; suggestedResponse: string; tags: string[]; estimatedResolutionHours: number} | null>(null);
 
-  const { data: tickets, isLoading, isError, refetch } = useQuery<Ticket[]>({
+  const { data: ticketsResult, isLoading, isError, refetch } = useQuery<{ data: Ticket[]; total: number }>({
     queryKey: ["/api/tickets"],
     queryFn: async () => {
-      const res = await fetch("/api/tickets", { credentials: "include" });
+      const res = await fetch("/api/tickets?limit=500", { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch tickets");
       return res.json();
     },
   });
+  const tickets = ticketsResult?.data;
 
-  const { data: contacts } = useQuery<Contact[]>({
+  const { data: contactsResult } = useQuery<{ data: Contact[]; total: number }>({
     queryKey: ["/api/contacts"],
     queryFn: async () => {
-      const res = await fetch("/api/contacts", { credentials: "include" });
+      const res = await fetch("/api/contacts?limit=500", { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch contacts");
       return res.json();
     },
   });
+  const contacts = contactsResult?.data;
 
   const createTicketMutation = useMutation({
     mutationFn: async (data: Record<string, unknown>) => {

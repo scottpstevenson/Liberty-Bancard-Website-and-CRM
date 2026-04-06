@@ -10,12 +10,15 @@ export function registerAnalyticsRoutes(app: Express) {
   // === KPI DASHBOARD ===
   app.get("/api/kpi/summary", isAuthenticated, async (req, res) => {
     try {
-      const [allDeals, allTickets, allContacts, allTasks] = await Promise.all([
-        storage.getDeals(),
-        storage.getTickets(),
-        storage.getContacts(),
+      const [dealsR, ticketsR, contactsR, allTasks] = await Promise.all([
+        storage.getDeals({ limit: 500 }),
+        storage.getTickets({ limit: 500 }),
+        storage.getContacts({ limit: 500 }),
         storage.getTasks(),
       ]);
+      const allDeals = dealsR.data;
+      const allTickets = ticketsR.data;
+      const allContacts = contactsR.data;
 
       const now = new Date();
       const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
@@ -90,11 +93,14 @@ export function registerAnalyticsRoutes(app: Express) {
   // === KPI COMPARATIVE ===
   app.get("/api/kpi/comparative", isAuthenticated, async (req, res) => {
     try {
-      const [allDeals, allContacts, allTickets] = await Promise.all([
-        storage.getDeals(),
-        storage.getContacts(),
-        storage.getTickets(),
+      const [dealsR2, contactsR2, ticketsR2] = await Promise.all([
+        storage.getDeals({ limit: 500 }),
+        storage.getContacts({ limit: 500 }),
+        storage.getTickets({ limit: 500 }),
       ]);
+      const allDeals = dealsR2.data;
+      const allContacts = contactsR2.data;
+      const allTickets = ticketsR2.data;
 
       const now = new Date();
       const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -133,7 +139,7 @@ export function registerAnalyticsRoutes(app: Express) {
   // === ANALYTICS / REPORTING ===
   app.get("/api/analytics/pipeline", isAuthenticated, async (req, res) => {
     try {
-      const allDeals = await storage.getDeals();
+      const { data: allDeals } = await storage.getDeals({ limit: 500 });
       const salesDeals = allDeals.filter(d => d.pipeline === "sales");
       const onboardingDeals = allDeals.filter(d => d.pipeline === "onboarding");
 
@@ -180,7 +186,7 @@ export function registerAnalyticsRoutes(app: Express) {
 
   app.get("/api/analytics/support", isAuthenticated, async (req, res) => {
     try {
-      const allTickets = await storage.getTickets();
+      const { data: allTickets } = await storage.getTickets({ limit: 500 });
       const now = new Date();
 
       const open = allTickets.filter(t => t.status !== "Resolved" && t.status !== "Closed");
@@ -239,8 +245,8 @@ export function registerAnalyticsRoutes(app: Express) {
 
   app.get("/api/analytics/lead-sources", isAuthenticated, async (req, res) => {
     try {
-      const allContacts = await storage.getContacts();
-      const allDeals = await storage.getDeals();
+      const { data: allContacts } = await storage.getContacts({ limit: 500 });
+      const { data: allDeals } = await storage.getDeals({ limit: 500 });
       const now = new Date();
       const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
       const recentContacts = allContacts.filter(c => c.createdAt && new Date(c.createdAt) >= thirtyDaysAgo);
@@ -280,8 +286,8 @@ export function registerAnalyticsRoutes(app: Express) {
 
   app.get("/api/analytics/conversion-funnel", isAuthenticated, async (req, res) => {
     try {
-      const allDeals = await storage.getDeals();
-      const allContacts = await storage.getContacts();
+      const { data: allDeals } = await storage.getDeals({ limit: 500 });
+      const { data: allContacts } = await storage.getContacts({ limit: 500 });
       const now = new Date();
       const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
@@ -310,8 +316,8 @@ export function registerAnalyticsRoutes(app: Express) {
 
   app.get("/api/analytics/daily-leads", isAuthenticated, async (req, res) => {
     try {
-      const allContacts = await storage.getContacts();
-      const allDeals = await storage.getDeals();
+      const { data: allContacts } = await storage.getContacts({ limit: 500 });
+      const { data: allDeals } = await storage.getDeals({ limit: 500 });
       const now = new Date();
       const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
@@ -374,7 +380,7 @@ export function registerAnalyticsRoutes(app: Express) {
   // === FORECASTING ===
   app.get("/api/forecasting/summary", isAuthenticated, async (req, res) => {
     try {
-      const deals = await storage.getDeals();
+      const { data: deals } = await storage.getDeals({ limit: 500 });
       const activeDeals = deals.filter(d => d.pipeline === "sales" && d.stage !== "Closed Lost");
 
       const stageWeights: Record<string, number> = {

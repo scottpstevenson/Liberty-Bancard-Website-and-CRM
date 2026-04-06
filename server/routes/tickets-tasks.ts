@@ -12,8 +12,10 @@ export function registerTicketsTasksRoutes(app: Express) {
   // === TICKETS ===
   app.get("/api/tickets", isAuthenticated, async (req, res) => {
     try {
-      const tickets = await storage.getTickets();
-      res.json(tickets);
+      const limit = req.query.limit ? Number(req.query.limit) : undefined;
+      const offset = req.query.offset ? Number(req.query.offset) : undefined;
+      const result = await storage.getTickets({ limit, offset });
+      res.json(result);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -46,7 +48,7 @@ export function registerTicketsTasksRoutes(app: Express) {
   app.put("/api/tickets/:id", isAuthenticated, async (req, res) => {
     try {
       const ticketId = Number(req.params.id);
-      const existing = await storage.getTickets();
+      const { data: existing } = await storage.getTickets({ limit: 500 });
       const oldTicket = existing.find(t => t.id === ticketId);
       const updated = await storage.updateTicket(ticketId, req.body);
       if (!updated) return res.status(404).json({ message: "Not found" });

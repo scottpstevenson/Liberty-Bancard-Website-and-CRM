@@ -481,7 +481,7 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
   const { type, contactId, messageId, direction, body, subject, status: deliveryStatus } = payload;
 
   if (deliveryStatus && contactId) {
-    const contacts = await storage.getContacts();
+    const { data: contacts } = await storage.getContacts({ limit: 500 });
     const contact = contacts.find(c => c.ghlContactId === contactId);
     if (contact) {
       const recentLogs = await storage.getGhlActivityLogs(contact.id);
@@ -498,12 +498,12 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
       return;
     }
 
-    const contacts = await storage.getContacts();
+    const { data: contacts } = await storage.getContacts({ limit: 500 });
     const contact = contacts.find(c => c.ghlContactId === contactId);
     if (contact) {
       const channel = type === "SMS" ? "sms" : "email";
 
-      const deals = await storage.getDeals();
+      const { data: deals } = await storage.getDeals({ limit: 500 });
       const contactDeal = deals.find(d => d.contactId === contact.id);
 
       await storage.createGhlActivityLog({
@@ -625,7 +625,7 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
   }
 
   if (type === "unsubscribe" && contactId) {
-    const contacts = await storage.getContacts();
+    const { data: contacts } = await storage.getContacts({ limit: 500 });
     const contact = contacts.find(c => c.ghlContactId === contactId);
     if (contact) {
       await storage.updateContact(contact.id, { doNotContact: true });

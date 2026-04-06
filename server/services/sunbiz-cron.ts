@@ -62,7 +62,7 @@ async function autoConvertEnrichedEntities(): Promise<number> {
   let converted = 0;
   for (const entity of qualifiedEntities.slice(0, BATCH_SIZE)) {
     try {
-      const existingProspects = await storage.getProspects();
+      const { data: existingProspects } = await storage.getProspects(undefined, { limit: 500 });
       const alreadyExists = existingProspects.some(p =>
         (p.companyName && entity.entityName &&
           p.companyName.toLowerCase() === entity.entityName.toLowerCase()) ||
@@ -95,7 +95,7 @@ async function autoConvertEnrichedEntities(): Promise<number> {
 }
 
 async function autoPromoteProspects(): Promise<number> {
-  const prospects = await storage.getProspects();
+  const { data: prospects } = await storage.getProspects(undefined, { limit: 500 });
 
   const qualified = prospects.filter(p =>
     !p.contactId &&
@@ -112,7 +112,7 @@ async function autoPromoteProspects(): Promise<number> {
 
   for (const prospect of qualified.slice(0, BATCH_SIZE)) {
     try {
-      const contacts = await storage.getContacts();
+      const { data: contacts } = await storage.getContacts({ limit: 500 });
       const email = prospect.ownerEmail || prospect.email || "";
       const phone = prospect.ownerPhone || prospect.phone || "";
 
@@ -228,7 +228,7 @@ async function autoPromoteProspects(): Promise<number> {
 }
 
 async function updateVolumeEstimates(): Promise<number> {
-  const deals = await storage.getDeals();
+  const { data: deals } = await storage.getDeals({ limit: 500 });
   let updated = 0;
 
   const activeSalesDeals = deals.filter(d =>
@@ -275,7 +275,7 @@ async function updateVolumeEstimates(): Promise<number> {
 
 async function autoQualifyProspects(): Promise<number> {
   const gradeRank: Record<string, number> = { A: 5, B: 4, C: 3, D: 2, F: 1 };
-  const prospects = await storage.getProspects();
+  const { data: prospects } = await storage.getProspects(undefined, { limit: 500 });
   let qualified = 0;
 
   const eligible = prospects.filter(p =>

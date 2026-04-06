@@ -81,8 +81,10 @@ export default function Overview() {
     revenue: { totalEstVolume: number; totalEstResidual: number; totalEstProfit: number; avgDealProfit: number };
   }>({ queryKey: ["/api/kpi/summary"], refetchInterval: 30000 });
 
-  const { data: contacts } = useQuery<Contact[]>({ queryKey: ["/api/contacts"], refetchInterval: 30000 });
-  const { data: deals } = useQuery<Deal[]>({ queryKey: ["/api/deals"], refetchInterval: 30000 });
+  const { data: contactsResult } = useQuery<{ data: Contact[]; total: number }>({ queryKey: ["/api/contacts"], refetchInterval: 30000 });
+  const contacts = contactsResult?.data;
+  const { data: dealsResult } = useQuery<{ data: Deal[]; total: number }>({ queryKey: ["/api/deals"], refetchInterval: 30000 });
+  const deals = dealsResult?.data;
 
   const { data: pipelineStats } = useQuery<{
     contactsByTier: Record<string, number>;

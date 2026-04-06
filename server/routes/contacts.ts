@@ -18,10 +18,10 @@ export function registerContactsRoutes(app: Express) {
   // === CONTACTS ===
   app.get("/api/contacts", isAuthenticated, async (req, res) => {
     try {
-      const limit = req.query.limit ? Math.min(Number(req.query.limit), 1000) : undefined;
+      const limit = req.query.limit ? Number(req.query.limit) : undefined;
       const offset = req.query.offset ? Number(req.query.offset) : undefined;
-      const contacts = await storage.getContacts(limit || offset ? { limit: limit || 500, offset } : undefined);
-      res.json(contacts);
+      const result = await storage.getContacts({ limit, offset });
+      res.json(result);
     } catch (err: any) {
       console.error("Get contacts error:", err.message);
       res.status(500).json({ message: err.message });
@@ -94,7 +94,7 @@ export function registerContactsRoutes(app: Express) {
       const limit = parsed.data.limit;
 
       if (contactIds.length === 0) {
-        const allContacts = await storage.getContacts();
+        const { data: allContacts } = await storage.getContacts({ limit: 500 });
         contactIds = allContacts
           .filter(c => !c.email || !c.phone)
           .slice(0, limit)

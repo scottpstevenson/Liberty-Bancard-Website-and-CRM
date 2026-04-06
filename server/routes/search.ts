@@ -10,13 +10,17 @@ export function registerSearchRoutes(app: Express) {
       const q = (req.query.q as string || "").toLowerCase().trim();
       if (!q || q.length < 2) return res.json({ results: [] });
 
-      const [contacts, deals, tickets, tasks, prospects] = await Promise.all([
-        storage.getContacts(),
-        storage.getDeals(),
-        storage.getTickets(),
+      const [contactsResult, dealsResult, ticketsResult, tasks, prospectsResult] = await Promise.all([
+        storage.getContacts({ limit: 500 }),
+        storage.getDeals({ limit: 500 }),
+        storage.getTickets({ limit: 500 }),
         storage.getTasks(),
-        storage.getProspects(),
+        storage.getProspects(undefined, { limit: 500 }),
       ]);
+      const contacts = contactsResult.data;
+      const deals = dealsResult.data;
+      const tickets = ticketsResult.data;
+      const prospects = prospectsResult.data;
 
       const results: Array<{ type: string; id: number; title: string; subtitle: string; href: string }> = [];
 
@@ -58,12 +62,15 @@ export function registerSearchRoutes(app: Express) {
       const q = String(req.query.q || "").toLowerCase().trim();
       if (!q) return res.json({ contacts: [], deals: [], tickets: [], tasks: [] });
       
-      const [allContacts, allDeals, allTickets, allTasks] = await Promise.all([
-        storage.getContacts(),
-        storage.getDeals(),
-        storage.getTickets(),
+      const [contactsRes, dealsRes, ticketsRes, allTasks] = await Promise.all([
+        storage.getContacts({ limit: 500 }),
+        storage.getDeals({ limit: 500 }),
+        storage.getTickets({ limit: 500 }),
         storage.getTasks(),
       ]);
+      const allContacts = contactsRes.data;
+      const allDeals = dealsRes.data;
+      const allTickets = ticketsRes.data;
       
       const matchContacts = allContacts.filter(c => 
         c.firstName.toLowerCase().includes(q) || c.lastName.toLowerCase().includes(q) || 
@@ -99,7 +106,7 @@ export function registerSearchRoutes(app: Express) {
     const results: any = { contacts: [], deals: [], tickets: [], tasks: [] };
 
     if (!entityType || entityType === 'contact') {
-      const allContacts = await storage.getContacts();
+      const { data: allContacts } = await storage.getContacts({ limit: 500 });
       results.contacts = allContacts.filter(c => {
         if (query && !`${c.firstName} ${c.lastName} ${c.email} ${c.companyName || ''}`.toLowerCase().includes(query)) return false;
         if (dateFrom && new Date(c.createdAt!) < new Date(String(dateFrom))) return false;
@@ -113,7 +120,7 @@ export function registerSearchRoutes(app: Express) {
     }
 
     if (!entityType || entityType === 'deal') {
-      const allDeals = await storage.getDeals();
+      const { data: allDeals } = await storage.getDeals({ limit: 500 });
       results.deals = allDeals.filter(d => {
         if (query && !`${d.stage} ${d.pipeline} ${d.notes || ''} ${d.owner || ''}`.toLowerCase().includes(query)) return false;
         if (assignedTo && d.owner !== String(assignedTo)) return false;
@@ -124,7 +131,7 @@ export function registerSearchRoutes(app: Express) {
     }
 
     if (!entityType || entityType === 'ticket') {
-      const allTickets = await storage.getTickets();
+      const { data: allTickets } = await storage.getTickets({ limit: 500 });
       results.tickets = allTickets.filter(t => {
         if (query && !`${t.subject} ${t.description} ${t.category || ''}`.toLowerCase().includes(query)) return false;
         if (assignedTo && t.assignedTo !== String(assignedTo)) return false;
