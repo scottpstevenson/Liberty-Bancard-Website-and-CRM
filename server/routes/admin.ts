@@ -73,7 +73,7 @@ export function registerAdminRoutes(app: Express) {
       res.status(201).json(agent);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
-      res.status(400).json({ message: err.message });
+      res.status(500).json({ message: err.message });
     }
   });
 
@@ -83,7 +83,7 @@ export function registerAdminRoutes(app: Express) {
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
-      res.status(400).json({ message: err.message });
+      res.status(500).json({ message: err.message });
     }
   });
 
@@ -105,7 +105,7 @@ export function registerAdminRoutes(app: Express) {
       res.status(201).json(quota);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
-      res.status(400).json({ message: err.message });
+      res.status(500).json({ message: err.message });
     }
   });
 
@@ -115,7 +115,7 @@ export function registerAdminRoutes(app: Express) {
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
-      res.status(400).json({ message: err.message });
+      res.status(500).json({ message: err.message });
     }
   });
 
@@ -137,7 +137,7 @@ export function registerAdminRoutes(app: Express) {
       res.status(201).json(report);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
-      res.status(400).json({ message: err.message });
+      res.status(500).json({ message: err.message });
     }
   });
 
@@ -197,7 +197,7 @@ export function registerAdminRoutes(app: Express) {
       res.status(201).json(alert);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
-      res.status(400).json({ message: err.message });
+      res.status(500).json({ message: err.message });
     }
   });
 
@@ -207,7 +207,7 @@ export function registerAdminRoutes(app: Express) {
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
-      res.status(400).json({ message: err.message });
+      res.status(500).json({ message: err.message });
     }
   });
 
@@ -236,9 +236,9 @@ export function registerAdminRoutes(app: Express) {
       const input = insertConsentAuditLogSchema.parse(req.body);
       const log = await storage.createConsentAuditLog(input);
       res.status(201).json(log);
-    } catch (err) {
+    } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      throw err;
+      res.status(500).json({ message: err.message });
     }
   });
 
@@ -249,9 +249,9 @@ export function registerAdminRoutes(app: Express) {
       const input = insertDataDeleteRequestSchema.parse(req.body);
       const request = await storage.createDataDeleteRequest(input);
       res.status(201).json(request);
-    } catch (err) {
+    } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      throw err;
+      res.status(500).json({ message: err.message });
     }
   });
 
@@ -303,7 +303,7 @@ export function registerAdminRoutes(app: Express) {
       res.status(201).json(request);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
-      res.status(400).json({ message: err.message });
+      res.status(500).json({ message: err.message });
     }
   });
 
@@ -313,7 +313,7 @@ export function registerAdminRoutes(app: Express) {
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
-      res.status(400).json({ message: err.message });
+      res.status(500).json({ message: err.message });
     }
   });
 

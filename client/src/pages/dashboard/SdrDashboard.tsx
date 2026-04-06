@@ -202,6 +202,7 @@ function FunnelVisualization() {
 }
 
 function StuckLeads() {
+  const { toast } = useToast();
   const { data, isLoading, isError, refetch } = useQuery<StuckLeadData[]>({
     queryKey: ["/api/sdr/dashboard/stuck-leads"],
   });
@@ -215,7 +216,7 @@ function StuckLeads() {
       queryClient.invalidateQueries({ queryKey: ["/api/sdr/dashboard/summary"] });
     },
     onError: (err: any) => {
-      console.error("Handoff failed:", err);
+      toast({ title: "Handoff failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -231,9 +232,11 @@ function StuckLeads() {
     return (
       <Card data-testid="card-sdr-stuck-leads-error">
         <CardContent className="p-6 text-center">
-          <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-destructive" />
-          <div className="font-medium text-destructive">Failed to load stuck leads</div>
-          <Button variant="outline" size="sm" className="mt-3" onClick={() => refetch()} data-testid="button-retry-stuck-leads">Retry</Button>
+          <AlertTriangle className="w-8 h-8 text-destructive mx-auto mb-2" />
+          <p className="text-sm text-muted-foreground mb-3">Failed to load stuck leads</p>
+          <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="btn-retry-stuck-leads">
+            <RefreshCw className="w-4 h-4 mr-1" /> Retry
+          </Button>
         </CardContent>
       </Card>
     );
@@ -564,7 +567,7 @@ function DiscoveryDashboard() {
   const { toast } = useToast();
   const [showConfig, setShowConfig] = useState(false);
 
-  const { data: stats, isLoading: statsLoading } = useQuery<DiscoveryStatsData>({
+  const { data: stats, isLoading: statsLoading, isError: statsError, refetch: refetchStats } = useQuery<DiscoveryStatsData>({
     queryKey: ["/api/sdr/discovery/stats"],
   });
 
@@ -581,7 +584,7 @@ function DiscoveryDashboard() {
     queryKey: ["/api/sdr/discovery/source-status"],
   });
 
-  const { data: jobs } = useQuery<DiscoveryJob[]>({
+  const { data: jobs, isError: jobsError, refetch: refetchJobs } = useQuery<DiscoveryJob[]>({
     queryKey: ["/api/sdr/discovery/jobs"],
   });
 
@@ -607,7 +610,7 @@ function DiscoveryDashboard() {
       queryClient.invalidateQueries({ queryKey: ["/api/sdr/discovery/status"] });
     },
     onError: (err: any) => {
-      toast({ title: "Toggle failed", description: err.message, variant: "destructive" });
+      toast({ title: "Toggle nightly failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -628,6 +631,20 @@ function DiscoveryDashboard() {
       <div className="flex items-center justify-center py-12">
         <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
       </div>
+    );
+  }
+
+  if (statsError) {
+    return (
+      <Card data-testid="card-discovery-error">
+        <CardContent className="p-6 text-center">
+          <AlertTriangle className="w-8 h-8 text-destructive mx-auto mb-2" />
+          <p className="text-sm text-muted-foreground mb-3">Failed to load discovery data</p>
+          <Button variant="outline" size="sm" onClick={() => refetchStats()} data-testid="btn-retry-discovery">
+            <RefreshCw className="w-4 h-4 mr-1" /> Retry
+          </Button>
+        </CardContent>
+      </Card>
     );
   }
 
@@ -903,7 +920,15 @@ function DiscoveryDashboard() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {(!jobs || jobs.length === 0) ? (
+          {jobsError ? (
+            <div className="text-center py-4" data-testid="panel-discovery-jobs-error">
+              <AlertTriangle className="w-5 h-5 text-destructive mx-auto mb-1" />
+              <p className="text-sm text-muted-foreground mb-2">Failed to load discovery jobs</p>
+              <Button variant="outline" size="sm" onClick={() => refetchJobs()} data-testid="btn-retry-discovery-jobs">
+                <RefreshCw className="w-3 h-3 mr-1" /> Retry
+              </Button>
+            </div>
+          ) : (!jobs || jobs.length === 0) ? (
             <div className="text-sm text-muted-foreground text-center py-4">
               No discovery jobs yet. Click "Run Discovery" to start finding leads.
             </div>
@@ -1851,7 +1876,7 @@ function SerperEnrichmentPanel() {
       toast({ title: "Enrichment batch completed" });
     },
     onError: (err: any) => {
-      toast({ title: "Enrichment failed", description: err.message, variant: "destructive" });
+      toast({ title: "Enrichment batch failed", description: err.message, variant: "destructive" });
     },
   });
 

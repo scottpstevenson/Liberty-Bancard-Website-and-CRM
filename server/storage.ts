@@ -2335,7 +2335,8 @@ export class DatabaseStorage implements IStorage {
 
   async upsertSdrLeadState(data: InsertSdrLeadState) {
     const existing = await this.getSdrLeadStateByMerchant(data.merchantId);
-    const [s] = await db.insert(sdrLeadState).values(data)
+    const [s] = await db.insert(sdrLeadState)
+      .values(data)
       .onConflictDoUpdate({
         target: sdrLeadState.merchantId,
         set: { ...data, updatedAt: new Date() },

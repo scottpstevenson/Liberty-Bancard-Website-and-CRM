@@ -10,7 +10,7 @@ import path from "path";
 
 export function registerMerchantsRoutes(app: Express) {
   // === MERCHANT APPLICATIONS ===
-  app.post("/api/merchant-applications", async (req, res) => {
+  app.post("/api/merchant-applications", isAuthenticated, async (req, res) => {
     try {
       const input = insertMerchantApplicationSchema.parse(req.body);
       const application = await storage.createMerchantApplication(input);

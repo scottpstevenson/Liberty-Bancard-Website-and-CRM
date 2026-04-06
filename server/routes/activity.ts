@@ -48,35 +48,6 @@ export function registerActivityRoutes(app: Express) {
   });
 
 
-  // === UNIFIED ACTIVITY FEED ===
-  app.get("/api/contacts/:contactId/activity", isAuthenticated, async (req, res) => {
-    try {
-      const contactId = Number(req.params.contactId);
-      const [emails, calls, contactNotes, auditLogsList, ghlLogs] = await Promise.all([
-        storage.getEmailLogs(contactId),
-        storage.getCallLogs(contactId),
-        storage.getNotes("contact", contactId),
-        storage.getAuditLogs(),
-        storage.getGhlActivityLogs(contactId),
-      ]);
-
-      const filteredAudit = auditLogsList.filter(a => (a.entityType === "contact" && a.entityId === contactId) || (a.entityType === "deal" && a.details && (a.details as any).contactId === contactId));
-
-      const activities = [
-        ...emails.map(e => ({ id: `email-${e.id}`, type: "email" as const, data: e, createdAt: e.createdAt })),
-        ...calls.map(c => ({ id: `call-${c.id}`, type: "call" as const, data: c, createdAt: c.createdAt })),
-        ...contactNotes.map(n => ({ id: `note-${n.id}`, type: "note" as const, data: n, createdAt: n.createdAt })),
-        ...filteredAudit.map(a => ({ id: `audit-${a.id}`, type: "audit" as const, data: a, createdAt: a.createdAt })),
-        ...ghlLogs.map(g => ({ id: `ghl-${g.id}`, type: "ghl" as const, data: g, createdAt: g.createdAt })),
-      ].sort((a, b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime());
-
-      res.json(activities);
-    } catch (err: any) {
-      res.status(500).json({ message: err.message });
-    }
-  });
-
-
   // === CONTACT ACTIVITY TIMELINE ===
   app.get("/api/contacts/:id/activity", isAuthenticated, async (req, res) => {
     try {

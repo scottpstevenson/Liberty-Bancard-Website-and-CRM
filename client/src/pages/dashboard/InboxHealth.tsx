@@ -148,7 +148,7 @@ function EditInboxDialog({ identity, onClose }: { identity: SendingIdentity; onC
       onClose();
     },
     onError: (err: any) => {
-      toast({ title: "Update failed", description: err.message, variant: "destructive" });
+      toast({ title: "Failed to update inbox", description: err.message, variant: "destructive" });
     },
   });
 
@@ -681,7 +681,7 @@ function WarmupAndCapPanel() {
       toast({ title: "Identity status updated" });
     },
     onError: (err: any) => {
-      toast({ title: "Action failed", description: err.message, variant: "destructive" });
+      toast({ title: "Status update failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -845,7 +845,7 @@ function WarmupAndCapPanel() {
 
 export default function InboxHealth() {
   const { toast } = useToast();
-  const { data, isLoading } = useQuery<InboxHealthData>({
+  const { data, isLoading, isError, refetch } = useQuery<InboxHealthData>({
     queryKey: ["/api/sdr/inbox-health"],
     refetchInterval: 30000,
   });
@@ -872,7 +872,7 @@ export default function InboxHealth() {
       toast({ title: "Health scores recalculated" });
     },
     onError: (err: any) => {
-      toast({ title: "Score calculation failed", description: err.message, variant: "destructive" });
+      toast({ title: "Health score recalculation failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -880,6 +880,20 @@ export default function InboxHealth() {
     return (
       <div className="flex items-center justify-center py-24">
         <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="flex items-center justify-center py-24" data-testid="page-inbox-health-error">
+        <div className="text-center">
+          <AlertTriangle className="w-8 h-8 text-destructive mx-auto mb-2" />
+          <p className="text-sm text-muted-foreground mb-3">Failed to load inbox health data</p>
+          <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="btn-retry-inbox-health">
+            <RefreshCw className="w-4 h-4 mr-1" /> Retry
+          </Button>
+        </div>
       </div>
     );
   }

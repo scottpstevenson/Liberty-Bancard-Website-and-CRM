@@ -8,7 +8,7 @@ import { buildWeeklyDigest } from "../services/digest-service";
 
 export function registerAnalyticsRoutes(app: Express) {
   // === KPI DASHBOARD ===
-  app.get("/api/kpi/summary", async (req, res) => {
+  app.get("/api/kpi/summary", isAuthenticated, async (req, res) => {
     try {
       const [allDeals, allTickets, allContacts, allTasks] = await Promise.all([
         storage.getDeals(),
@@ -419,7 +419,7 @@ export function registerAnalyticsRoutes(app: Express) {
 
 
   // === PIPELINE STATS (contacts by tier, deals by stage, outreach stats) ===
-  app.get("/api/kpi/pipeline-stats", async (req, res) => {
+  app.get("/api/kpi/pipeline-stats", isAuthenticated, async (req, res) => {
     try {
       const tierResult = await pool.query(`
         SELECT
