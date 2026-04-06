@@ -1,4 +1,5 @@
 import type { Express } from "express";
+import { isAuthenticated } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
 import { insertRfiSchema, insertWorkflowSchema } from "@shared/schema";
@@ -7,18 +8,18 @@ import { parse } from "csv-parse/sync";
 
 export function registerWorkflowsRoutes(app: Express) {
   // === RFIs ===
-  app.get("/api/rfis", async (req, res) => {
+  app.get("/api/rfis", isAuthenticated, async (req, res) => {
     const allRfis = await storage.getRfis();
     res.json(allRfis);
   });
 
-  app.get("/api/rfis/:id", async (req, res) => {
+  app.get("/api/rfis/:id", isAuthenticated, async (req, res) => {
     const rfi = await storage.getRfi(Number(req.params.id));
     if (!rfi) return res.status(404).json({ message: "Not found" });
     res.json(rfi);
   });
 
-  app.post("/api/rfis", async (req, res) => {
+  app.post("/api/rfis", isAuthenticated, async (req, res) => {
     try {
       const input = insertRfiSchema.parse(req.body);
       const rfi = await storage.createRfi(input);
@@ -36,7 +37,7 @@ export function registerWorkflowsRoutes(app: Express) {
     }
   });
 
-  app.put("/api/rfis/:id", async (req, res) => {
+  app.put("/api/rfis/:id", isAuthenticated, async (req, res) => {
     try {
       const allowed = insertRfiSchema.partial().parse(req.body);
       const old = await storage.getRfi(Number(req.params.id));
@@ -62,18 +63,18 @@ export function registerWorkflowsRoutes(app: Express) {
 
 
   // === WORKFLOWS ===
-  app.get("/api/workflows", async (req, res) => {
+  app.get("/api/workflows", isAuthenticated, async (req, res) => {
     const wfs = await storage.getWorkflows();
     res.json(wfs);
   });
 
-  app.get("/api/workflows/:id", async (req, res) => {
+  app.get("/api/workflows/:id", isAuthenticated, async (req, res) => {
     const wf = await storage.getWorkflow(Number(req.params.id));
     if (!wf) return res.status(404).json({ message: "Not found" });
     res.json(wf);
   });
 
-  app.post("/api/workflows", async (req, res) => {
+  app.post("/api/workflows", isAuthenticated, async (req, res) => {
     try {
       const input = insertWorkflowSchema.parse(req.body);
       const wf = await storage.createWorkflow(input);
@@ -85,7 +86,7 @@ export function registerWorkflowsRoutes(app: Express) {
     }
   });
 
-  app.put("/api/workflows/:id", async (req, res) => {
+  app.put("/api/workflows/:id", isAuthenticated, async (req, res) => {
     try {
       const allowed = insertWorkflowSchema.partial().parse(req.body);
       const updated = await storage.updateWorkflow(Number(req.params.id), allowed);
@@ -97,12 +98,12 @@ export function registerWorkflowsRoutes(app: Express) {
     }
   });
 
-  app.delete("/api/workflows/:id", async (req, res) => {
+  app.delete("/api/workflows/:id", isAuthenticated, async (req, res) => {
     await storage.deleteWorkflow(Number(req.params.id));
     res.json({ success: true });
   });
 
-  app.get("/api/workflow-runs", async (req, res) => {
+  app.get("/api/workflow-runs", isAuthenticated, async (req, res) => {
     const workflowId = req.query.workflowId ? Number(req.query.workflowId) : undefined;
     const runs = workflowId
       ? await storage.getWorkflowRunsByWorkflow(workflowId)
@@ -110,7 +111,7 @@ export function registerWorkflowsRoutes(app: Express) {
     res.json(runs);
   });
 
-  app.post("/api/workflows/:id/run", async (req, res) => {
+  app.post("/api/workflows/:id/run", isAuthenticated, async (req, res) => {
     try {
       const wf = await storage.getWorkflow(Number(req.params.id));
       if (!wf) return res.status(404).json({ message: "Workflow not found" });

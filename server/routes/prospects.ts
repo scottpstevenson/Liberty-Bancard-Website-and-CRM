@@ -18,18 +18,18 @@ import { upload, uploadLarge } from "./helpers";
 
 export function registerProspectsRoutes(app: Express) {
   // === PROSPECT LISTS ===
-  app.get("/api/prospect-lists", async (req, res) => {
+  app.get("/api/prospect-lists", isAuthenticated, async (req, res) => {
     const lists = await storage.getProspectLists();
     res.json(lists);
   });
 
-  app.get("/api/prospect-lists/:id", async (req, res) => {
+  app.get("/api/prospect-lists/:id", isAuthenticated, async (req, res) => {
     const list = await storage.getProspectList(Number(req.params.id));
     if (!list) return res.status(404).json({ message: "List not found" });
     res.json(list);
   });
 
-  app.post("/api/prospect-lists", async (req, res) => {
+  app.post("/api/prospect-lists", isAuthenticated, async (req, res) => {
     try {
       const input = insertProspectListSchema.parse(req.body);
       const list = await storage.createProspectList(input);
@@ -42,19 +42,19 @@ export function registerProspectsRoutes(app: Express) {
 
 
   // === PROSPECTS ===
-  app.get("/api/prospects", async (req, res) => {
+  app.get("/api/prospects", isAuthenticated, async (req, res) => {
     const listId = req.query.listId ? Number(req.query.listId) : undefined;
     const prospects = await storage.getProspects(listId);
     res.json(prospects);
   });
 
-  app.get("/api/prospects/:id", async (req, res) => {
+  app.get("/api/prospects/:id", isAuthenticated, async (req, res) => {
     const prospect = await storage.getProspect(Number(req.params.id));
     if (!prospect) return res.status(404).json({ message: "Prospect not found" });
     res.json(prospect);
   });
 
-  app.post("/api/prospects", async (req, res) => {
+  app.post("/api/prospects", isAuthenticated, async (req, res) => {
     try {
       const input = insertProspectSchema.parse(req.body);
       const prospect = await storage.createProspect(input);
@@ -65,7 +65,7 @@ export function registerProspectsRoutes(app: Express) {
     }
   });
 
-  app.put("/api/prospects/:id", async (req, res) => {
+  app.put("/api/prospects/:id", isAuthenticated, async (req, res) => {
     const updated = await storage.updateProspect(Number(req.params.id), req.body);
     if (!updated) return res.status(404).json({ message: "Prospect not found" });
     res.json(updated);
@@ -272,7 +272,7 @@ export function registerProspectsRoutes(app: Express) {
   });
 
   // CSV Upload endpoint
-  app.post("/api/prospects/import", upload.single("file"), async (req, res) => {
+  app.post("/api/prospects/import", isAuthenticated, upload.single("file"), async (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ message: "No file uploaded" });
 
@@ -345,13 +345,13 @@ export function registerProspectsRoutes(app: Express) {
 
 
   // === ENRICHMENT ===
-  app.get("/api/enrichment-jobs", async (req, res) => {
+  app.get("/api/enrichment-jobs", isAuthenticated, async (req, res) => {
     const listId = req.query.listId ? Number(req.query.listId) : undefined;
     const jobs = await storage.getEnrichmentJobs(listId);
     res.json(jobs);
   });
 
-  app.post("/api/enrichment-jobs", async (req, res) => {
+  app.post("/api/enrichment-jobs", isAuthenticated, async (req, res) => {
     try {
       const input = insertEnrichmentJobSchema.parse(req.body);
       const job = await storage.createEnrichmentJob(input);
@@ -371,7 +371,7 @@ export function registerProspectsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/enrichment/process-queue", async (req, res) => {
+  app.post("/api/enrichment/process-queue", isAuthenticated, async (req, res) => {
     processEnrichmentQueue().catch(console.error);
     res.json({ message: "Enrichment queue processing started" });
   });

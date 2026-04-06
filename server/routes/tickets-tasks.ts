@@ -10,12 +10,12 @@ import { parse } from "csv-parse/sync";
 
 export function registerTicketsTasksRoutes(app: Express) {
   // === TICKETS ===
-  app.get("/api/tickets", async (req, res) => {
+  app.get("/api/tickets", isAuthenticated, async (req, res) => {
     const tickets = await storage.getTickets();
     res.json(tickets);
   });
 
-  app.post("/api/tickets", async (req, res) => {
+  app.post("/api/tickets", isAuthenticated, async (req, res) => {
     try {
       const input = insertTicketSchema.parse(req.body);
       const ticket = await storage.createTicket(input);
@@ -29,13 +29,13 @@ export function registerTicketsTasksRoutes(app: Express) {
     }
   });
 
-  app.get("/api/tickets/:id", async (req, res) => {
+  app.get("/api/tickets/:id", isAuthenticated, async (req, res) => {
     const ticket = await storage.getTicket(Number(req.params.id));
     if (!ticket) return res.status(404).json({ message: "Not found" });
     res.json(ticket);
   });
 
-  app.put("/api/tickets/:id", async (req, res) => {
+  app.put("/api/tickets/:id", isAuthenticated, async (req, res) => {
     const ticketId = Number(req.params.id);
     const existing = await storage.getTickets();
     const oldTicket = existing.find(t => t.id === ticketId);
@@ -82,12 +82,12 @@ export function registerTicketsTasksRoutes(app: Express) {
 
 
   // === TASKS ===
-  app.get("/api/tasks", async (req, res) => {
+  app.get("/api/tasks", isAuthenticated, async (req, res) => {
     const tasks = await storage.getTasks();
     res.json(tasks);
   });
 
-  app.post("/api/tasks", async (req, res) => {
+  app.post("/api/tasks", isAuthenticated, async (req, res) => {
     try {
       const input = insertTaskSchema.parse(req.body);
       const task = await storage.createTask(input);
@@ -101,7 +101,7 @@ export function registerTicketsTasksRoutes(app: Express) {
     }
   });
 
-  app.put("/api/tasks/:id", async (req, res) => {
+  app.put("/api/tasks/:id", isAuthenticated, async (req, res) => {
     const updated = await storage.updateTask(Number(req.params.id), req.body);
     if (!updated) return res.status(404).json({ message: "Not found" });
     res.json(updated);

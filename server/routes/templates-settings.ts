@@ -8,7 +8,7 @@ import { parse } from "csv-parse/sync";
 
 export function registerTemplatesSettingsRoutes(app: Express) {
   // === MESSAGE TEMPLATES ===
-  app.get("/api/message-templates", async (req, res) => {
+  app.get("/api/message-templates", isAuthenticated, async (req, res) => {
     const category = req.query.category as string | undefined;
     const templates = category
       ? await storage.getMessageTemplatesByCategory(category)
@@ -16,13 +16,13 @@ export function registerTemplatesSettingsRoutes(app: Express) {
     res.json(templates);
   });
 
-  app.get("/api/message-templates/:id", async (req, res) => {
+  app.get("/api/message-templates/:id", isAuthenticated, async (req, res) => {
     const template = await storage.getMessageTemplate(Number(req.params.id));
     if (!template) return res.status(404).json({ message: "Not found" });
     res.json(template);
   });
 
-  app.post("/api/message-templates", async (req, res) => {
+  app.post("/api/message-templates", isAuthenticated, async (req, res) => {
     try {
       const input = insertMessageTemplateSchema.parse(req.body);
       const template = await storage.createMessageTemplate(input);
@@ -33,7 +33,7 @@ export function registerTemplatesSettingsRoutes(app: Express) {
     }
   });
 
-  app.put("/api/message-templates/:id", async (req, res) => {
+  app.put("/api/message-templates/:id", isAuthenticated, async (req, res) => {
     const updated = await storage.updateMessageTemplate(Number(req.params.id), req.body);
     if (!updated) return res.status(404).json({ message: "Not found" });
     res.json(updated);
@@ -41,12 +41,12 @@ export function registerTemplatesSettingsRoutes(app: Express) {
 
 
   // === SLA CONFIGS ===
-  app.get("/api/sla-configs", async (req, res) => {
+  app.get("/api/sla-configs", isAuthenticated, async (req, res) => {
     const configs = await storage.getSlaConfigs();
     res.json(configs);
   });
 
-  app.post("/api/sla-configs", async (req, res) => {
+  app.post("/api/sla-configs", isAuthenticated, async (req, res) => {
     try {
       const input = insertSlaConfigSchema.parse(req.body);
       const config = await storage.createSlaConfig(input);
@@ -57,7 +57,7 @@ export function registerTemplatesSettingsRoutes(app: Express) {
     }
   });
 
-  app.put("/api/sla-configs/:id", async (req, res) => {
+  app.put("/api/sla-configs/:id", isAuthenticated, async (req, res) => {
     const updated = await storage.updateSlaConfig(Number(req.params.id), req.body);
     if (!updated) return res.status(404).json({ message: "Not found" });
     res.json(updated);

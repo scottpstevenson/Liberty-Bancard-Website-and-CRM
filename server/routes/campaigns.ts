@@ -1,4 +1,5 @@
 import type { Express } from "express";
+import { isAuthenticated } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
 import { contacts, insertCampaignSchema, insertCampaignStepSchema, insertFollowUpSequenceSchema, insertSequenceEnrollmentSchema, insertSequenceStepSchema } from "@shared/schema";
@@ -7,18 +8,18 @@ import { parse } from "csv-parse/sync";
 
 export function registerCampaignsRoutes(app: Express) {
   // === CAMPAIGNS ===
-  app.get("/api/campaigns", async (req, res) => {
+  app.get("/api/campaigns", isAuthenticated, async (req, res) => {
     const campaigns = await storage.getCampaigns();
     res.json(campaigns);
   });
 
-  app.get("/api/campaigns/:id", async (req, res) => {
+  app.get("/api/campaigns/:id", isAuthenticated, async (req, res) => {
     const campaign = await storage.getCampaign(Number(req.params.id));
     if (!campaign) return res.status(404).json({ message: "Campaign not found" });
     res.json(campaign);
   });
 
-  app.post("/api/campaigns", async (req, res) => {
+  app.post("/api/campaigns", isAuthenticated, async (req, res) => {
     try {
       const input = insertCampaignSchema.parse(req.body);
       const campaign = await storage.createCampaign(input);
@@ -29,13 +30,13 @@ export function registerCampaignsRoutes(app: Express) {
     }
   });
 
-  app.put("/api/campaigns/:id", async (req, res) => {
+  app.put("/api/campaigns/:id", isAuthenticated, async (req, res) => {
     const updated = await storage.updateCampaign(Number(req.params.id), req.body);
     if (!updated) return res.status(404).json({ message: "Campaign not found" });
     res.json(updated);
   });
 
-  app.get("/api/campaigns/:id/analytics", async (req, res) => {
+  app.get("/api/campaigns/:id/analytics", isAuthenticated, async (req, res) => {
     try {
       const analytics = await getCampaignAnalytics(Number(req.params.id));
       res.json(analytics);
@@ -46,12 +47,12 @@ export function registerCampaignsRoutes(app: Express) {
 
 
   // === CAMPAIGN STEPS ===
-  app.get("/api/campaigns/:id/steps", async (req, res) => {
+  app.get("/api/campaigns/:id/steps", isAuthenticated, async (req, res) => {
     const steps = await storage.getCampaignSteps(Number(req.params.id));
     res.json(steps);
   });
 
-  app.post("/api/campaigns/:id/steps", async (req, res) => {
+  app.post("/api/campaigns/:id/steps", isAuthenticated, async (req, res) => {
     try {
       const input = insertCampaignStepSchema.parse({ ...req.body, campaignId: Number(req.params.id) });
       const step = await storage.createCampaignStep(input);
@@ -62,26 +63,26 @@ export function registerCampaignsRoutes(app: Express) {
     }
   });
 
-  app.put("/api/campaign-steps/:id", async (req, res) => {
+  app.put("/api/campaign-steps/:id", isAuthenticated, async (req, res) => {
     const updated = await storage.updateCampaignStep(Number(req.params.id), req.body);
     if (!updated) return res.status(404).json({ message: "Step not found" });
     res.json(updated);
   });
 
-  app.delete("/api/campaign-steps/:id", async (req, res) => {
+  app.delete("/api/campaign-steps/:id", isAuthenticated, async (req, res) => {
     await storage.deleteCampaignStep(Number(req.params.id));
     res.json({ message: "Step deleted" });
   });
 
 
   // === OUTBOUND MESSAGES ===
-  app.get("/api/outbound-messages", async (req, res) => {
+  app.get("/api/outbound-messages", isAuthenticated, async (req, res) => {
     const campaignId = req.query.campaignId ? Number(req.query.campaignId) : undefined;
     const messages = await storage.getOutboundMessages(campaignId);
     res.json(messages);
   });
 
-  app.post("/api/campaigns/:id/queue", async (req, res) => {
+  app.post("/api/campaigns/:id/queue", isAuthenticated, async (req, res) => {
     try {
       const queued = await queueCampaignMessages(Number(req.params.id));
       res.json({ queued, message: `${queued} messages queued for sending` });
@@ -90,7 +91,7 @@ export function registerCampaignsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/outbound/process-queue", async (req, res) => {
+  app.post("/api/outbound/process-queue", isAuthenticated, async (req, res) => {
     try {
       const result = await processSendQueue();
       res.json(result);
@@ -132,18 +133,18 @@ export function registerCampaignsRoutes(app: Express) {
 
 
   // === FOLLOW-UP SEQUENCES (DRIP CAMPAIGNS) ===
-  app.get("/api/sequences", async (req, res) => {
+  app.get("/api/sequences", isAuthenticated, async (req, res) => {
     const sequences = await storage.getFollowUpSequences();
     res.json(sequences);
   });
 
-  app.get("/api/sequences/:id", async (req, res) => {
+  app.get("/api/sequences/:id", isAuthenticated, async (req, res) => {
     const seq = await storage.getFollowUpSequence(Number(req.params.id));
     if (!seq) return res.status(404).json({ message: "Not found" });
     res.json(seq);
   });
 
-  app.post("/api/sequences", async (req, res) => {
+  app.post("/api/sequences", isAuthenticated, async (req, res) => {
     try {
       const input = insertFollowUpSequenceSchema.parse(req.body);
       const seq = await storage.createFollowUpSequence(input);
@@ -155,25 +156,25 @@ export function registerCampaignsRoutes(app: Express) {
     }
   });
 
-  app.put("/api/sequences/:id", async (req, res) => {
+  app.put("/api/sequences/:id", isAuthenticated, async (req, res) => {
     const updated = await storage.updateFollowUpSequence(Number(req.params.id), req.body);
     if (!updated) return res.status(404).json({ message: "Not found" });
     res.json(updated);
   });
 
-  app.delete("/api/sequences/:id", async (req, res) => {
+  app.delete("/api/sequences/:id", isAuthenticated, async (req, res) => {
     await storage.deleteFollowUpSequence(Number(req.params.id));
     res.json({ success: true });
   });
 
 
   // === SEQUENCE STEPS ===
-  app.get("/api/sequences/:sequenceId/steps", async (req, res) => {
+  app.get("/api/sequences/:sequenceId/steps", isAuthenticated, async (req, res) => {
     const steps = await storage.getSequenceSteps(Number(req.params.sequenceId));
     res.json(steps);
   });
 
-  app.post("/api/sequences/:sequenceId/steps", async (req, res) => {
+  app.post("/api/sequences/:sequenceId/steps", isAuthenticated, async (req, res) => {
     try {
       const input = insertSequenceStepSchema.parse({ ...req.body, sequenceId: Number(req.params.sequenceId) });
       const step = await storage.createSequenceStep(input);
@@ -189,26 +190,26 @@ export function registerCampaignsRoutes(app: Express) {
     }
   });
 
-  app.put("/api/sequence-steps/:id", async (req, res) => {
+  app.put("/api/sequence-steps/:id", isAuthenticated, async (req, res) => {
     const updated = await storage.updateSequenceStep(Number(req.params.id), req.body);
     if (!updated) return res.status(404).json({ message: "Not found" });
     res.json(updated);
   });
 
-  app.delete("/api/sequence-steps/:id", async (req, res) => {
+  app.delete("/api/sequence-steps/:id", isAuthenticated, async (req, res) => {
     await storage.deleteSequenceStep(Number(req.params.id));
     res.json({ success: true });
   });
 
 
   // === SEQUENCE ENROLLMENTS ===
-  app.get("/api/sequence-enrollments", async (req, res) => {
+  app.get("/api/sequence-enrollments", isAuthenticated, async (req, res) => {
     const sequenceId = req.query.sequenceId ? Number(req.query.sequenceId) : undefined;
     const enrollments = await storage.getSequenceEnrollments(sequenceId);
     res.json(enrollments);
   });
 
-  app.post("/api/sequence-enrollments", async (req, res) => {
+  app.post("/api/sequence-enrollments", isAuthenticated, async (req, res) => {
     try {
       const input = insertSequenceEnrollmentSchema.parse(req.body);
       const enrollment = await storage.createSequenceEnrollment(input);
@@ -220,13 +221,13 @@ export function registerCampaignsRoutes(app: Express) {
     }
   });
 
-  app.put("/api/sequence-enrollments/:id", async (req, res) => {
+  app.put("/api/sequence-enrollments/:id", isAuthenticated, async (req, res) => {
     const updated = await storage.updateSequenceEnrollment(Number(req.params.id), req.body);
     if (!updated) return res.status(404).json({ message: "Not found" });
     res.json(updated);
   });
 
-  app.get("/api/contacts/:contactId/enrollments", async (req, res) => {
+  app.get("/api/contacts/:contactId/enrollments", isAuthenticated, async (req, res) => {
     const enrollments = await storage.getContactEnrollments(Number(req.params.contactId));
     res.json(enrollments);
   });

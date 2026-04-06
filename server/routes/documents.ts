@@ -13,12 +13,12 @@ import { upload } from "./helpers";
 
 export function registerDocumentsRoutes(app: Express) {
   // === DOCUMENTS ===
-  app.get("/api/documents", async (req, res) => {
+  app.get("/api/documents", isAuthenticated, async (req, res) => {
     const documents = await storage.getDocuments();
     res.json(documents);
   });
 
-  app.post("/api/documents", async (req, res) => {
+  app.post("/api/documents", isAuthenticated, async (req, res) => {
     try {
       const input = insertDocumentSchema.parse(req.body);
       const doc = await storage.createDocument(input);
@@ -239,24 +239,13 @@ export function registerDocumentsRoutes(app: Express) {
   });
 
 
-  // === DOCUMENTS LIST ===
-  app.get("/api/documents", isAuthenticated, async (req, res) => {
-    try {
-      const docs = await storage.getDocuments();
-      res.json(docs);
-    } catch (err: any) {
-      res.status(500).json({ message: err.message });
-    }
-  });
-
-
   // === COLLATERAL PACKETS ===
-  app.get("/api/collateral-packets", async (req, res) => {
+  app.get("/api/collateral-packets", isAuthenticated, async (req, res) => {
     const packets = await storage.getCollateralPackets();
     res.json(packets);
   });
 
-  app.post("/api/collateral-packets", async (req, res) => {
+  app.post("/api/collateral-packets", isAuthenticated, async (req, res) => {
     try {
       const input = insertCollateralPacketSchema.parse(req.body);
       const packet = await storage.createCollateralPacket(input);
@@ -269,7 +258,7 @@ export function registerDocumentsRoutes(app: Express) {
 
 
   // === KNOWLEDGE BASE ===
-  app.get("/api/knowledge-base", async (req, res) => {
+  app.get("/api/knowledge-base", isAuthenticated, async (req, res) => {
     try {
       const articles = await storage.getPublishedArticles();
       res.json(articles);
@@ -278,7 +267,7 @@ export function registerDocumentsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/knowledge-base/category/:category", async (req, res) => {
+  app.get("/api/knowledge-base/category/:category", isAuthenticated, async (req, res) => {
     try {
       const articles = await storage.getKnowledgeBaseByCategory(req.params.category);
       res.json(articles);
@@ -287,7 +276,7 @@ export function registerDocumentsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/knowledge-base/:id", async (req, res) => {
+  app.get("/api/knowledge-base/:id", isAuthenticated, async (req, res) => {
     try {
       const article = await storage.getKnowledgeBaseArticle(Number(req.params.id));
       if (!article) return res.status(404).json({ message: "Not found" });

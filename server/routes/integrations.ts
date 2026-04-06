@@ -22,7 +22,7 @@ export function registerIntegrationsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/ghl/send-email", async (req, res) => {
+  app.post("/api/ghl/send-email", isAuthenticated, async (req, res) => {
     try {
       const { contactId, dealId, subject, body } = req.body;
       if (!contactId || !subject || !body) return res.status(400).json({ message: "contactId, subject, and body required" });
@@ -33,7 +33,7 @@ export function registerIntegrationsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/ghl/send-sms", async (req, res) => {
+  app.post("/api/ghl/send-sms", isAuthenticated, async (req, res) => {
     try {
       const { contactId, dealId, body } = req.body;
       if (!contactId || !body) return res.status(400).json({ message: "contactId and body required" });
@@ -44,7 +44,7 @@ export function registerIntegrationsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/ghl/send-template", async (req, res) => {
+  app.post("/api/ghl/send-template", isAuthenticated, async (req, res) => {
     try {
       const { templateId, contactId, dealId, extraData } = req.body;
       if (!templateId || !contactId) return res.status(400).json({ message: "templateId and contactId required" });
@@ -55,7 +55,7 @@ export function registerIntegrationsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/ghl/sync-contact", async (req, res) => {
+  app.post("/api/ghl/sync-contact", isAuthenticated, async (req, res) => {
     try {
       const { contactId } = req.body;
       if (!contactId) return res.status(400).json({ message: "contactId required" });
@@ -77,7 +77,7 @@ export function registerIntegrationsRoutes(app: Express) {
     res.json({ url });
   });
 
-  app.get("/api/ghl/activity", async (req, res) => {
+  app.get("/api/ghl/activity", isAuthenticated, async (req, res) => {
     const contactId = req.query.contactId ? Number(req.query.contactId) : undefined;
     const logs = await storage.getGhlActivityLogs(contactId);
     res.json(logs);
