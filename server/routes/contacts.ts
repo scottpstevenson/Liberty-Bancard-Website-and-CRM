@@ -16,12 +16,12 @@ import path from "path";
 
 export function registerContactsRoutes(app: Express) {
   // === CONTACTS ===
-  app.get("/api/contacts", async (req, res) => {
+  app.get("/api/contacts", isAuthenticated, async (req, res) => {
     const contacts = await storage.getContacts();
     res.json(contacts);
   });
 
-  app.post("/api/contacts", async (req, res) => {
+  app.post("/api/contacts", isAuthenticated, async (req, res) => {
     try {
       const input = insertContactSchema.parse(req.body);
       const contact = await storage.createContact(input);
@@ -42,13 +42,13 @@ export function registerContactsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/contacts/:id", async (req, res) => {
+  app.get("/api/contacts/:id", isAuthenticated, async (req, res) => {
     const contact = await storage.getContact(Number(req.params.id));
     if (!contact) return res.status(404).json({ message: "Not found" });
     res.json(contact);
   });
 
-  app.put("/api/contacts/:id", async (req, res) => {
+  app.put("/api/contacts/:id", isAuthenticated, async (req, res) => {
     const updated = await storage.updateContact(Number(req.params.id), req.body);
     if (!updated) return res.status(404).json({ message: "Not found" });
     res.json(updated);
@@ -123,12 +123,12 @@ export function registerContactsRoutes(app: Express) {
 
 
   // === COMPANIES ===
-  app.get("/api/companies", async (req, res) => {
+  app.get("/api/companies", isAuthenticated, async (req, res) => {
     const companies = await storage.getCompanies();
     res.json(companies);
   });
 
-  app.post("/api/companies", async (req, res) => {
+  app.post("/api/companies", isAuthenticated, async (req, res) => {
     try {
       const input = insertCompanySchema.parse(req.body);
       const company = await storage.createCompany(input);

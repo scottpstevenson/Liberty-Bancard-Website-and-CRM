@@ -147,6 +147,9 @@ function EditInboxDialog({ identity, onClose }: { identity: SendingIdentity; onC
       toast({ title: "Inbox settings updated" });
       onClose();
     },
+    onError: (err: any) => {
+      toast({ title: "Update failed", description: err.message, variant: "destructive" });
+    },
   });
 
   return (
@@ -216,6 +219,9 @@ function IdentityHealthTable({ data }: { data: InboxHealthData }) {
       toast({ title: `${variables.action === "pause" ? "Paused" : "Resumed"} ${variables.identityIds.length} inbox(es)` });
       setSelectedIds(new Set());
     },
+    onError: (err: any) => {
+      toast({ title: "Bulk action failed", description: err.message, variant: "destructive" });
+    },
   });
 
   const toggleSelected = (id: number) => {
@@ -242,6 +248,9 @@ function IdentityHealthTable({ data }: { data: InboxHealthData }) {
       queryClient.invalidateQueries({ queryKey: ["/api/sdr/inbox-health"] });
       queryClient.invalidateQueries({ queryKey: ["/api/sdr/sending-identities"] });
     },
+    onError: (err: any) => {
+      toast({ title: "Toggle failed", description: err.message, variant: "destructive" });
+    },
   });
 
   const deleteMutation = useMutation({
@@ -253,6 +262,9 @@ function IdentityHealthTable({ data }: { data: InboxHealthData }) {
       queryClient.invalidateQueries({ queryKey: ["/api/sdr/sending-identities"] });
       toast({ title: "Inbox removed" });
     },
+    onError: (err: any) => {
+      toast({ title: "Delete failed", description: err.message, variant: "destructive" });
+    },
   });
 
   const resumeMutation = useMutation({
@@ -263,6 +275,9 @@ function IdentityHealthTable({ data }: { data: InboxHealthData }) {
       queryClient.invalidateQueries({ queryKey: ["/api/sdr/inbox-health"] });
       queryClient.invalidateQueries({ queryKey: ["/api/sdr/sending-identities"] });
       toast({ title: "Inbox resumed in warmup mode" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Resume failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -665,6 +680,9 @@ function WarmupAndCapPanel() {
       queryClient.invalidateQueries({ queryKey: ["/api/sdr/inbox-health"] });
       toast({ title: "Identity status updated" });
     },
+    onError: (err: any) => {
+      toast({ title: "Action failed", description: err.message, variant: "destructive" });
+    },
   });
 
   if (isLoading || !data) {
@@ -840,6 +858,9 @@ export default function InboxHealth() {
       queryClient.invalidateQueries({ queryKey: ["/api/sdr/inbox-health"] });
       toast({ title: "Daily maintenance completed" });
     },
+    onError: (err: any) => {
+      toast({ title: "Maintenance failed", description: err.message, variant: "destructive" });
+    },
   });
 
   const healthScoreMutation = useMutation({
@@ -849,6 +870,9 @@ export default function InboxHealth() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/sdr/inbox-health"] });
       toast({ title: "Health scores recalculated" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Score calculation failed", description: err.message, variant: "destructive" });
     },
   });
 

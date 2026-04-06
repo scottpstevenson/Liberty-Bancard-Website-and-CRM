@@ -12,29 +12,37 @@ export function registerAdminRoutes(app: Express) {
   // === ADMIN: USER MANAGEMENT ===
   app.get("/api/admin/users", isAuthenticated, async (req, res) => {
     if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
-    const allUsers = await db.select({
-      id: users.id,
-      email: users.email,
-      firstName: users.firstName,
-      lastName: users.lastName,
-      role: users.role,
-      authProvider: users.authProvider,
-      emailVerified: users.emailVerified,
-      createdAt: users.createdAt,
-    }).from(users).orderBy(desc(users.createdAt));
-    res.json(allUsers);
+    try {
+      const allUsers = await db.select({
+        id: users.id,
+        email: users.email,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        role: users.role,
+        authProvider: users.authProvider,
+        emailVerified: users.emailVerified,
+        createdAt: users.createdAt,
+      }).from(users).orderBy(desc(users.createdAt));
+      res.json(allUsers);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.put("/api/admin/users/:id/role", isAuthenticated, async (req, res) => {
     if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
-    const { role } = req.body;
-    if (!['admin', 'manager', 'agent', 'merchant'].includes(role)) {
-      return res.status(400).json({ message: "Invalid role" });
+    try {
+      const { role } = req.body;
+      if (!['admin', 'manager', 'agent', 'merchant'].includes(role)) {
+        return res.status(400).json({ message: "Invalid role" });
+      }
+      const [updated] = await db.update(users).set({ role, updatedAt: new Date() }).where(eq(users.id, String(req.params.id))).returning();
+      if (!updated) return res.status(404).json({ message: "User not found" });
+      const { passwordHash, ...safeUser } = updated;
+      res.json(safeUser);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
     }
-    const [updated] = await db.update(users).set({ role, updatedAt: new Date() }).where(eq(users.id, String(req.params.id))).returning();
-    if (!updated) return res.status(404).json({ message: "User not found" });
-    const { passwordHash, ...safeUser } = updated;
-    res.json(safeUser);
   });
 
 
@@ -206,16 +214,24 @@ export function registerAdminRoutes(app: Express) {
 
   // === CONSENT AUDIT LOGS ===
   app.get("/api/consent-audit", isAuthenticated, async (req, res) => {
-    const logs = await storage.getConsentAuditLogs();
-    res.json(logs);
+    try {
+      const logs = await storage.getConsentAuditLogs();
+      res.json(logs);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.get("/api/consent-audit/contact/:contactId", isAuthenticated, async (req, res) => {
-    const logs = await storage.getConsentAuditLogsByContact(Number(req.params.contactId));
-    res.json(logs);
+    try {
+      const logs = await storage.getConsentAuditLogsByContact(Number(req.params.contactId));
+      res.json(logs);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
-  app.post("/api/consent-audit", async (req, res) => {
+  app.post("/api/consent-audit", isAuthenticated, async (req, res) => {
     try {
       const input = insertConsentAuditLogSchema.parse(req.body);
       const log = await storage.createConsentAuditLog(input);
@@ -241,15 +257,23 @@ export function registerAdminRoutes(app: Express) {
 
   app.get("/api/data-requests", isAuthenticated, async (req, res) => {
     if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
-    const requests = await storage.getDataDeleteRequests();
-    res.json(requests);
+    try {
+      const requests = await storage.getDataDeleteRequests();
+      res.json(requests);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.put("/api/data-requests/:id", isAuthenticated, async (req, res) => {
     if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
-    const updated = await storage.updateDataDeleteRequest(Number(req.params.id), req.body);
-    if (!updated) return res.status(404).json({ message: "Not found" });
-    res.json(updated);
+    try {
+      const updated = await storage.updateDataDeleteRequest(Number(req.params.id), req.body);
+      if (!updated) return res.status(404).json({ message: "Not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
 

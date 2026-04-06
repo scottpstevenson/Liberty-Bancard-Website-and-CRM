@@ -202,7 +202,7 @@ function FunnelVisualization() {
 }
 
 function StuckLeads() {
-  const { data, isLoading } = useQuery<StuckLeadData[]>({
+  const { data, isLoading, isError, refetch } = useQuery<StuckLeadData[]>({
     queryKey: ["/api/sdr/dashboard/stuck-leads"],
   });
 
@@ -214,6 +214,9 @@ function StuckLeads() {
       queryClient.invalidateQueries({ queryKey: ["/api/sdr/dashboard/stuck-leads"] });
       queryClient.invalidateQueries({ queryKey: ["/api/sdr/dashboard/summary"] });
     },
+    onError: (err: any) => {
+      console.error("Handoff failed:", err);
+    },
   });
 
   if (isLoading) {
@@ -221,6 +224,18 @@ function StuckLeads() {
       <div className="flex items-center justify-center py-12">
         <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
       </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <Card data-testid="card-sdr-stuck-leads-error">
+        <CardContent className="p-6 text-center">
+          <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-destructive" />
+          <div className="font-medium text-destructive">Failed to load stuck leads</div>
+          <Button variant="outline" size="sm" className="mt-3" onClick={() => refetch()} data-testid="button-retry-stuck-leads">Retry</Button>
+        </CardContent>
+      </Card>
     );
   }
 
@@ -546,6 +561,7 @@ interface ProcessorIntelData {
 }
 
 function DiscoveryDashboard() {
+  const { toast } = useToast();
   const [showConfig, setShowConfig] = useState(false);
 
   const { data: stats, isLoading: statsLoading } = useQuery<DiscoveryStatsData>({
@@ -578,6 +594,9 @@ function DiscoveryDashboard() {
       queryClient.invalidateQueries({ queryKey: ["/api/sdr/discovery/stats"] });
       queryClient.invalidateQueries({ queryKey: ["/api/sdr/discovery/jobs"] });
     },
+    onError: (err: any) => {
+      toast({ title: "Discovery run failed", description: err.message, variant: "destructive" });
+    },
   });
 
   const toggleNightlyMutation = useMutation({
@@ -587,6 +606,9 @@ function DiscoveryDashboard() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/sdr/discovery/status"] });
     },
+    onError: (err: any) => {
+      toast({ title: "Toggle failed", description: err.message, variant: "destructive" });
+    },
   });
 
   const updateConfigMutation = useMutation({
@@ -595,6 +617,9 @@ function DiscoveryDashboard() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/sdr/discovery/config"] });
+    },
+    onError: (err: any) => {
+      toast({ title: "Config update failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -1824,6 +1849,9 @@ function SerperEnrichmentPanel() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/sdr/serper-enrichment/metrics"] });
       toast({ title: "Enrichment batch completed" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Enrichment failed", description: err.message, variant: "destructive" });
     },
   });
 

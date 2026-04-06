@@ -14,13 +14,13 @@ import path from "path";
 
 export function registerDealsRoutes(app: Express) {
   // === DEALS ===
-  app.get("/api/deals", async (req, res) => {
+  app.get("/api/deals", isAuthenticated, async (req, res) => {
     const pipeline = req.query.pipeline as string | undefined;
     const deals = pipeline ? await storage.getDealsByPipeline(pipeline) : await storage.getDeals();
     res.json(deals);
   });
 
-  app.post("/api/deals", async (req, res) => {
+  app.post("/api/deals", isAuthenticated, async (req, res) => {
     try {
       const input = insertDealSchema.parse(req.body);
       const deal = await storage.createDeal(input);
@@ -36,13 +36,13 @@ export function registerDealsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/deals/:id", async (req, res) => {
+  app.get("/api/deals/:id", isAuthenticated, async (req, res) => {
     const deal = await storage.getDeal(Number(req.params.id));
     if (!deal) return res.status(404).json({ message: "Not found" });
     res.json(deal);
   });
 
-  app.put("/api/deals/:id", async (req, res) => {
+  app.put("/api/deals/:id", isAuthenticated, async (req, res) => {
     const old = await storage.getDeal(Number(req.params.id));
     const updated = await storage.updateDeal(Number(req.params.id), req.body);
     if (!updated) return res.status(404).json({ message: "Not found" });
@@ -248,19 +248,19 @@ export function registerDealsRoutes(app: Express) {
 
 
   // === STAGE AUTOMATION RULES ===
-  app.get("/api/stage-rules", async (req, res) => {
+  app.get("/api/stage-rules", isAuthenticated, async (req, res) => {
     const pipeline = req.query.pipeline as string | undefined;
     const rules = await storage.getStageAutomationRules(pipeline);
     res.json(rules);
   });
 
-  app.get("/api/stage-rules/:id", async (req, res) => {
+  app.get("/api/stage-rules/:id", isAuthenticated, async (req, res) => {
     const rule = await storage.getStageAutomationRule(Number(req.params.id));
     if (!rule) return res.status(404).json({ message: "Not found" });
     res.json(rule);
   });
 
-  app.post("/api/stage-rules", async (req, res) => {
+  app.post("/api/stage-rules", isAuthenticated, async (req, res) => {
     try {
       const input = insertStageAutomationRuleSchema.parse(req.body);
       const rule = await storage.createStageAutomationRule(input);
@@ -272,13 +272,13 @@ export function registerDealsRoutes(app: Express) {
     }
   });
 
-  app.put("/api/stage-rules/:id", async (req, res) => {
+  app.put("/api/stage-rules/:id", isAuthenticated, async (req, res) => {
     const updated = await storage.updateStageAutomationRule(Number(req.params.id), req.body);
     if (!updated) return res.status(404).json({ message: "Not found" });
     res.json(updated);
   });
 
-  app.delete("/api/stage-rules/:id", async (req, res) => {
+  app.delete("/api/stage-rules/:id", isAuthenticated, async (req, res) => {
     await storage.deleteStageAutomationRule(Number(req.params.id));
     res.json({ success: true });
   });

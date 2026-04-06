@@ -21,7 +21,7 @@ export function registerMerchantsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/merchant-applications/user/:userId", async (req, res) => {
+  app.get("/api/merchant-applications/user/:userId", isAuthenticated, async (req, res) => {
     try {
       const application = await storage.getMerchantApplicationByUser(req.params.userId);
       if (!application) return res.status(404).json({ message: "Not found" });
@@ -31,7 +31,7 @@ export function registerMerchantsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/merchant-applications/:id", async (req, res) => {
+  app.get("/api/merchant-applications/:id", isAuthenticated, async (req, res) => {
     try {
       const application = await storage.getMerchantApplication(Number(req.params.id));
       if (!application) return res.status(404).json({ message: "Not found" });
@@ -41,7 +41,7 @@ export function registerMerchantsRoutes(app: Express) {
     }
   });
 
-  app.patch("/api/merchant-applications/:id", async (req, res) => {
+  app.patch("/api/merchant-applications/:id", isAuthenticated, async (req, res) => {
     try {
       const updated = await storage.updateMerchantApplication(Number(req.params.id), req.body);
       if (!updated) return res.status(404).json({ message: "Not found" });

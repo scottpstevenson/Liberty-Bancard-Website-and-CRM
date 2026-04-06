@@ -49,7 +49,7 @@ export function registerActivityRoutes(app: Express) {
 
 
   // === UNIFIED ACTIVITY FEED ===
-  app.get("/api/contacts/:contactId/activity", async (req, res) => {
+  app.get("/api/contacts/:contactId/activity", isAuthenticated, async (req, res) => {
     try {
       const contactId = Number(req.params.contactId);
       const [emails, calls, contactNotes, auditLogsList, ghlLogs] = await Promise.all([
@@ -216,18 +216,18 @@ export function registerActivityRoutes(app: Express) {
 
 
   // === EMAIL LOGS ===
-  app.get("/api/email-logs", async (req, res) => {
+  app.get("/api/email-logs", isAuthenticated, async (req, res) => {
     const contactId = req.query.contactId ? Number(req.query.contactId) : undefined;
     const logs = await storage.getEmailLogs(contactId);
     res.json(logs);
   });
 
-  app.get("/api/email-logs/contact/:contactId", async (req, res) => {
+  app.get("/api/email-logs/contact/:contactId", isAuthenticated, async (req, res) => {
     const logs = await storage.getEmailLogs(Number(req.params.contactId));
     res.json(logs);
   });
 
-  app.post("/api/email-logs", async (req, res) => {
+  app.post("/api/email-logs", isAuthenticated, async (req, res) => {
     try {
       const input = insertEmailLogSchema.parse(req.body);
       const log = await storage.createEmailLog(input);
@@ -241,18 +241,18 @@ export function registerActivityRoutes(app: Express) {
 
 
   // === CALL LOGS ===
-  app.get("/api/call-logs", async (req, res) => {
+  app.get("/api/call-logs", isAuthenticated, async (req, res) => {
     const contactId = req.query.contactId ? Number(req.query.contactId) : undefined;
     const logs = await storage.getCallLogs(contactId);
     res.json(logs);
   });
 
-  app.get("/api/call-logs/contact/:contactId", async (req, res) => {
+  app.get("/api/call-logs/contact/:contactId", isAuthenticated, async (req, res) => {
     const logs = await storage.getCallLogs(Number(req.params.contactId));
     res.json(logs);
   });
 
-  app.post("/api/call-logs", async (req, res) => {
+  app.post("/api/call-logs", isAuthenticated, async (req, res) => {
     try {
       const input = insertCallLogSchema.parse(req.body);
       const log = await storage.createCallLog(input);
@@ -267,7 +267,7 @@ export function registerActivityRoutes(app: Express) {
     }
   });
 
-  app.post("/api/call-follow-ups/generate", async (req, res) => {
+  app.post("/api/call-follow-ups/generate", isAuthenticated, async (req, res) => {
     try {
       const { contactId, dealId, outcome, callNotes, firefliesRecap, duration } = req.body;
       if (!contactId || !outcome) return res.status(400).json({ message: "contactId and outcome are required" });
@@ -384,7 +384,7 @@ Respond in this exact JSON format:
     }
   });
 
-  app.post("/api/call-follow-ups/send", async (req, res) => {
+  app.post("/api/call-follow-ups/send", isAuthenticated, async (req, res) => {
     try {
       const {
         contactId, dealId, outcome, callNotes, firefliesRecap, duration,

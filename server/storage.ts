@@ -2335,10 +2335,15 @@ export class DatabaseStorage implements IStorage {
 
   async upsertSdrLeadState(data: InsertSdrLeadState) {
     const existing = await this.getSdrLeadStateByMerchant(data.merchantId);
-    if (existing) {
-      const [s] = await db.update(sdrLeadState).set({ ...data, updatedAt: new Date() }).where(eq(sdrLeadState.merchantId, data.merchantId)).returning();
+    const [s] = await db.insert(sdrLeadState).values(data)
+      .onConflictDoUpdate({
+        target: sdrLeadState.merchantId,
+        set: { ...data, updatedAt: new Date() },
+      })
+      .returning();
 
-      const { onStageChange, onScoreChange } = await import("./services/sdr/ghl-sync-rules");
+    const { onStageChange, onScoreChange } = await import("./services/sdr/ghl-sync-rules");
+    if (existing) {
       if (data.currentStage && data.currentStage !== existing.currentStage) {
         onStageChange(data.merchantId, data.currentStage, existing.currentStage).catch(e => console.error("[SDR] stage sync error:", e));
       }
@@ -2354,12 +2359,7 @@ export class DatabaseStorage implements IStorage {
           priorityScore: data.priorityScore ?? undefined,
         }).catch(e => console.error("[SDR] score sync error:", e));
       }
-
-      return s;
-    }
-    const [s] = await db.insert(sdrLeadState).values(data).returning();
-    if (data.currentStage) {
-      const { onStageChange } = await import("./services/sdr/ghl-sync-rules");
+    } else if (data.currentStage) {
       onStageChange(data.merchantId, data.currentStage).catch(e => console.error("[SDR] stage sync error:", e));
     }
     return s;
