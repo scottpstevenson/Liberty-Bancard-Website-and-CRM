@@ -314,7 +314,9 @@ async function periodicLeadScoring() {
       try {
         await scoreContact(contact.id);
         scored++;
-      } catch (err) {}
+      } catch (err) {
+        console.warn(`Periodic scoring failed for contact ${contact.id}:`, err instanceof Error ? err.message : err);
+      }
     }
 
     if (scored > 0) {

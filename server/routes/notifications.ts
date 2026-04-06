@@ -7,57 +7,82 @@ import type { InsertNotificationPreference } from "@shared/schema";
 
 export function registerNotificationsRoutes(app: Express) {
   // === NOTIFICATIONS ===
-  app.get("/api/notifications", async (req, res) => {
-    const allNotifications = await storage.getNotifications();
-    const userId = (req.user as any)?.id;
-    if (userId) {
-      const prefs = await storage.getNotificationPreferences(userId);
-      const disabledEvents = prefs
-        .filter((p) => p.enabled === false)
-        .map((p) => p.eventType);
-      if (disabledEvents.length > 0) {
-        const filtered = allNotifications.filter((n) => {
-          const meta = n.metadata as Record<string, unknown> | null;
-          const eventType = meta?.eventType as string | undefined;
-          return !eventType || !disabledEvents.includes(eventType);
-        });
-        return res.json(filtered);
+  app.get("/api/notifications", isAuthenticated, async (req, res) => {
+    try {
+      const allNotifications = await storage.getNotifications();
+      const userId = (req.user as any)?.id;
+      if (userId) {
+        const prefs = await storage.getNotificationPreferences(userId);
+        const disabledEvents = prefs
+          .filter((p) => p.enabled === false)
+          .map((p) => p.eventType);
+        if (disabledEvents.length > 0) {
+          const filtered = allNotifications.filter((n) => {
+            const meta = n.metadata as Record<string, unknown> | null;
+            const eventType = meta?.eventType as string | undefined;
+            return !eventType || !disabledEvents.includes(eventType);
+          });
+          return res.json(filtered);
+        }
       }
+      res.json(allNotifications);
+    } catch (err: any) {
+      console.error("Get notifications error:", err.message);
+      res.status(500).json({ message: err.message });
     }
-    res.json(allNotifications);
   });
 
-  app.put("/api/notifications/:id/read", async (req, res) => {
-    await storage.markNotificationRead(Number(req.params.id));
-    res.json({ success: true });
+  app.put("/api/notifications/:id/read", isAuthenticated, async (req, res) => {
+    try {
+      await storage.markNotificationRead(Number(req.params.id));
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error("Mark notification read error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
   });
 
 
   // === AUDIT LOGS ===
-  app.get("/api/audit-logs", async (req, res) => {
-    const logs = await storage.getAuditLogs();
-    res.json(logs);
+  app.get("/api/audit-logs", isAuthenticated, async (req, res) => {
+    try {
+      const logs = await storage.getAuditLogs();
+      res.json(logs);
+    } catch (err: any) {
+      console.error("Get audit logs error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
   });
 
 
   // === NOTIFICATION PREFERENCES ===
   app.get("/api/notification-preferences", isAuthenticated, async (req, res) => {
-    const userId = (req.user as any)?.id;
-    const prefs = await storage.getNotificationPreferences(userId);
-    res.json(prefs);
+    try {
+      const userId = (req.user as any)?.id;
+      const prefs = await storage.getNotificationPreferences(userId);
+      res.json(prefs);
+    } catch (err: any) {
+      console.error("Get notification preferences error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.put("/api/notification-preferences", isAuthenticated, async (req, res) => {
-    const userId = (req.user as any)?.id;
-    const { eventType, enabled, emailEnabled, digestDaily, digestWeekly } = req.body;
-    if (!eventType) return res.status(400).json({ message: "eventType required" });
-    const updates: InsertNotificationPreference = { userId, eventType };
-    if (typeof enabled === "boolean") updates.enabled = enabled;
-    if (typeof emailEnabled === "boolean") updates.emailEnabled = emailEnabled;
-    if (typeof digestDaily === "boolean") updates.digestDaily = digestDaily;
-    if (typeof digestWeekly === "boolean") updates.digestWeekly = digestWeekly;
-    const pref = await storage.upsertNotificationPreference(updates);
-    res.json(pref);
+    try {
+      const userId = (req.user as any)?.id;
+      const { eventType, enabled, emailEnabled, digestDaily, digestWeekly } = req.body;
+      if (!eventType) return res.status(400).json({ message: "eventType required" });
+      const updates: InsertNotificationPreference = { userId, eventType };
+      if (typeof enabled === "boolean") updates.enabled = enabled;
+      if (typeof emailEnabled === "boolean") updates.emailEnabled = emailEnabled;
+      if (typeof digestDaily === "boolean") updates.digestDaily = digestDaily;
+      if (typeof digestWeekly === "boolean") updates.digestWeekly = digestWeekly;
+      const pref = await storage.upsertNotificationPreference(updates);
+      res.json(pref);
+    } catch (err: any) {
+      console.error("Update notification preference error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.post("/api/analytics/daily-digest", isAuthenticated, async (req, res) => {
@@ -78,6 +103,7 @@ export function registerNotificationsRoutes(app: Express) {
       }
       res.json({ ...summary, emailSent: false, html });
     } catch (err: any) {
+      console.error("Daily digest error:", err.message);
       res.status(500).json({ message: err.message });
     }
   });
@@ -85,15 +111,25 @@ export function registerNotificationsRoutes(app: Express) {
 
   // === MARK ALL NOTIFICATIONS READ ===
   app.put("/api/notifications/mark-all-read", isAuthenticated, async (req, res) => {
-    const userId = (req.user as any)?.id;
-    await storage.markAllNotificationsRead(userId);
-    res.json({ success: true });
+    try {
+      const userId = (req.user as any)?.id;
+      await storage.markAllNotificationsRead(userId);
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error("Mark all read error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.delete("/api/notifications/clear-all", isAuthenticated, async (req, res) => {
-    const userId = (req.user as any)?.id;
-    await storage.clearAllNotifications(userId);
-    res.json({ success: true });
+    try {
+      const userId = (req.user as any)?.id;
+      await storage.clearAllNotifications(userId);
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error("Clear all notifications error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
   });
 
 }

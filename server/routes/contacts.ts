@@ -17,8 +17,15 @@ import path from "path";
 export function registerContactsRoutes(app: Express) {
   // === CONTACTS ===
   app.get("/api/contacts", isAuthenticated, async (req, res) => {
-    const contacts = await storage.getContacts();
-    res.json(contacts);
+    try {
+      const limit = req.query.limit ? Math.min(Number(req.query.limit), 1000) : undefined;
+      const offset = req.query.offset ? Number(req.query.offset) : undefined;
+      const contacts = await storage.getContacts(limit || offset ? { limit: limit || 500, offset } : undefined);
+      res.json(contacts);
+    } catch (err: any) {
+      console.error("Get contacts error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.post("/api/contacts", isAuthenticated, async (req, res) => {

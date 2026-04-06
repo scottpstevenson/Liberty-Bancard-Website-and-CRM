@@ -53,6 +53,14 @@ The frontend uses React with Vite, TypeScript, Tailwind CSS, and shadcn/ui, with
 - **AI Advisors**: Seven specialized AI advisors (Sales, Support, Onboarding, Marketing, Finance, Compliance, Executive).
 - **Compliance Rules**: Adherence to regulatory guidelines, including explicit disclaimers and PCI compliance.
 
+### Pre-Deployment Security & Stability (Tasks #33-#38)
+- **Auth Middleware**: All CRM/internal API endpoints require `isAuthenticated` middleware. Only public marketing routes, health checks, and external webhook receivers are unprotected.
+- **Error Handling**: All route handlers wrapped in try/catch with structured error logging. SLA worker catch blocks log errors instead of swallowing silently.
+- **Database Indexes**: 33 performance indexes on contacts (email, phone, status, lead_score, ghl_contact_id), deals (pipeline, stage, contact_id), tickets, tasks, prospects, sunbiz_entities (filing_number, enrichment_status, list_id), audit_logs, documents, and notifications. Index creation SQL at `server/add-indexes.sql`.
+- **Pagination**: `getContacts()`, `getDeals()`, `getTickets()`, `getTasks()`, `getProspects()`, `getSunbizEntities()` accept optional `{ limit, offset }`. API routes support `?limit=N&offset=N` query params (max 1000).
+- **GHL Hardening**: Legacy webhook HMAC verification, `ghlFetch()` retry with exponential backoff, calendar/workflow env var runtime checks, production enforcement of `GHL_WEBHOOK_SECRET`.
+- **Required Env Vars for Go-Live**: `GHL_PRIVATE_INTEGRATION_TOKEN`, `GHL_LOCATION_ID`, `GHL_WEBHOOK_SECRET`, `SERPER_API_KEY`, `ADMIN_DIGEST_EMAIL`, `GHL_CALENDAR_ID`, `GHL_WORKFLOW_BOOKING_LINK`, `GHL_WORKFLOW_REMINDER`.
+
 ## External Dependencies
 - **PostgreSQL**: Primary relational database.
 - **OpenAI API**: For AI functionalities.

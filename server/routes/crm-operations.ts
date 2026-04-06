@@ -94,8 +94,13 @@ export function registerCrmOperationsRoutes(app: Express) {
 
   // === CONTACT-COMPANY ASSOCIATIONS ===
   app.get("/api/contacts/:id/companies", isAuthenticated, async (req, res) => {
-    const result = await storage.getContactCompanies(Number(req.params.id));
-    res.json(result);
+    try {
+      const result = await storage.getContactCompanies(Number(req.params.id));
+      res.json(result);
+    } catch (err: any) {
+      console.error("Get contact companies error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.post("/api/contacts/:id/companies", isAuthenticated, async (req, res) => {
@@ -106,81 +111,132 @@ export function registerCrmOperationsRoutes(app: Express) {
       });
       const link = await storage.addContactCompany(input);
       res.status(201).json(link);
-    } catch (err) {
+    } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      throw err;
+      console.error("Add contact company error:", err.message);
+      res.status(500).json({ message: err.message });
     }
   });
 
   app.delete("/api/contact-companies/:id", isAuthenticated, async (req, res) => {
-    await storage.removeContactCompany(Number(req.params.id));
-    res.json({ success: true });
+    try {
+      await storage.removeContactCompany(Number(req.params.id));
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error("Remove contact company error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
   });
 
 
   // === ARCHIVE / RESTORE ===
   app.post("/api/contacts/:id/archive", isAuthenticated, async (req, res) => {
-    const result = await storage.archiveContact(Number(req.params.id));
-    if (!result) return res.status(404).json({ message: "Not found" });
-    await storage.createAuditLog({ action: "contact_archived", entityType: "contact", entityId: result.id, userId: (req.user as any)?.id });
-    res.json(result);
+    try {
+      const result = await storage.archiveContact(Number(req.params.id));
+      if (!result) return res.status(404).json({ message: "Not found" });
+      await storage.createAuditLog({ action: "contact_archived", entityType: "contact", entityId: result.id, userId: (req.user as any)?.id });
+      res.json(result);
+    } catch (err: any) {
+      console.error("Archive contact error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.post("/api/contacts/:id/restore", isAuthenticated, async (req, res) => {
-    const result = await storage.restoreContact(Number(req.params.id));
-    if (!result) return res.status(404).json({ message: "Not found" });
-    res.json(result);
+    try {
+      const result = await storage.restoreContact(Number(req.params.id));
+      if (!result) return res.status(404).json({ message: "Not found" });
+      res.json(result);
+    } catch (err: any) {
+      console.error("Restore contact error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.post("/api/deals/:id/archive", isAuthenticated, async (req, res) => {
-    const result = await storage.archiveDeal(Number(req.params.id));
-    if (!result) return res.status(404).json({ message: "Not found" });
-    await storage.createAuditLog({ action: "deal_archived", entityType: "deal", entityId: result.id, userId: (req.user as any)?.id });
-    res.json(result);
+    try {
+      const result = await storage.archiveDeal(Number(req.params.id));
+      if (!result) return res.status(404).json({ message: "Not found" });
+      await storage.createAuditLog({ action: "deal_archived", entityType: "deal", entityId: result.id, userId: (req.user as any)?.id });
+      res.json(result);
+    } catch (err: any) {
+      console.error("Archive deal error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.post("/api/deals/:id/restore", isAuthenticated, async (req, res) => {
-    const result = await storage.restoreDeal(Number(req.params.id));
-    if (!result) return res.status(404).json({ message: "Not found" });
-    res.json(result);
+    try {
+      const result = await storage.restoreDeal(Number(req.params.id));
+      if (!result) return res.status(404).json({ message: "Not found" });
+      res.json(result);
+    } catch (err: any) {
+      console.error("Restore deal error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
   });
 
 
   // === BULK OPERATIONS ===
   app.post("/api/deals/bulk-stage", isAuthenticated, async (req, res) => {
-    const { dealIds, stage } = req.body;
-    if (!Array.isArray(dealIds) || !stage) return res.status(400).json({ message: "dealIds array and stage required" });
-    await storage.bulkUpdateDealStage(dealIds, stage);
-    await storage.createAuditLog({ action: "bulk_stage_update", entityType: "deal", details: { dealIds, stage }, userId: (req.user as any)?.id });
-    res.json({ success: true, count: dealIds.length });
+    try {
+      const { dealIds, stage } = req.body;
+      if (!Array.isArray(dealIds) || !stage) return res.status(400).json({ message: "dealIds array and stage required" });
+      await storage.bulkUpdateDealStage(dealIds, stage);
+      await storage.createAuditLog({ action: "bulk_stage_update", entityType: "deal", details: { dealIds, stage }, userId: (req.user as any)?.id });
+      res.json({ success: true, count: dealIds.length });
+    } catch (err: any) {
+      console.error("Bulk stage update error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.post("/api/tasks/bulk-assign", isAuthenticated, async (req, res) => {
-    const { taskIds, assignedTo } = req.body;
-    if (!Array.isArray(taskIds) || !assignedTo) return res.status(400).json({ message: "taskIds array and assignedTo required" });
-    await storage.bulkAssignTasks(taskIds, assignedTo);
-    res.json({ success: true, count: taskIds.length });
+    try {
+      const { taskIds, assignedTo } = req.body;
+      if (!Array.isArray(taskIds) || !assignedTo) return res.status(400).json({ message: "taskIds array and assignedTo required" });
+      await storage.bulkAssignTasks(taskIds, assignedTo);
+      res.json({ success: true, count: taskIds.length });
+    } catch (err: any) {
+      console.error("Bulk assign tasks error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.delete("/api/tasks/:id", isAuthenticated, async (req, res) => {
-    await storage.deleteTask(Number(req.params.id));
-    res.json({ success: true });
+    try {
+      await storage.deleteTask(Number(req.params.id));
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error("Delete task error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
   });
 
 
   // === DUPLICATE DETECTION & MERGE ===
   app.get("/api/contacts/duplicates", isAuthenticated, async (req, res) => {
-    const duplicates = await storage.findDuplicateContacts();
-    res.json(duplicates);
+    try {
+      const duplicates = await storage.findDuplicateContacts();
+      res.json(duplicates);
+    } catch (err: any) {
+      console.error("Find duplicates error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.post("/api/contacts/merge", isAuthenticated, async (req, res) => {
-    const { primaryId, duplicateId } = req.body;
-    if (!primaryId || !duplicateId) return res.status(400).json({ message: "primaryId and duplicateId required" });
-    const result = await storage.mergeContacts(Number(primaryId), Number(duplicateId));
-    if (!result) return res.status(404).json({ message: "Contact not found" });
-    await storage.createAuditLog({ action: "contacts_merged", entityType: "contact", entityId: result.id, details: { mergedFrom: duplicateId }, userId: (req.user as any)?.id });
-    res.json(result);
+    try {
+      const { primaryId, duplicateId } = req.body;
+      if (!primaryId || !duplicateId) return res.status(400).json({ message: "primaryId and duplicateId required" });
+      const result = await storage.mergeContacts(Number(primaryId), Number(duplicateId));
+      if (!result) return res.status(404).json({ message: "Contact not found" });
+      await storage.createAuditLog({ action: "contacts_merged", entityType: "contact", entityId: result.id, details: { mergedFrom: duplicateId }, userId: (req.user as any)?.id });
+      res.json(result);
+    } catch (err: any) {
+      console.error("Merge contacts error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
   });
 
 }
