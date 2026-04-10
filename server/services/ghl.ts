@@ -16,7 +16,7 @@ interface GhlConfig {
 }
 
 function getConfig(): GhlConfig | null {
-  const apiKey = process.env.GHL_API_KEY;
+  const apiKey = process.env.GHL_PRIVATE_INTEGRATION_TOKEN || process.env.GHL_API_KEY;
   const locationId = process.env.GHL_LOCATION_ID;
   if (!apiKey || !locationId) return null;
   return {
@@ -91,14 +91,17 @@ export function isGhlConfigured(): boolean {
 
 export function getGhlStatus() {
   const config = getConfig();
+  const hasToken = !!(process.env.GHL_PRIVATE_INTEGRATION_TOKEN || process.env.GHL_API_KEY);
   return {
     configured: !!config,
+    hasToken,
     hasApiKey: !!process.env.GHL_API_KEY,
+    hasPrivateToken: !!process.env.GHL_PRIVATE_INTEGRATION_TOKEN,
     hasLocationId: !!process.env.GHL_LOCATION_ID,
     hasCalendarId: !!process.env.GHL_CALENDAR_ID,
     hasWebhookSecret: !!process.env.GHL_WEBHOOK_SECRET,
     missingConfig: [
-      ...(!process.env.GHL_API_KEY ? ["GHL_API_KEY"] : []),
+      ...(!hasToken ? ["GHL_PRIVATE_INTEGRATION_TOKEN or GHL_API_KEY"] : []),
       ...(!process.env.GHL_LOCATION_ID ? ["GHL_LOCATION_ID"] : []),
       ...(!process.env.GHL_CALENDAR_ID ? ["GHL_CALENDAR_ID"] : []),
       ...(!process.env.GHL_WEBHOOK_SECRET ? ["GHL_WEBHOOK_SECRET"] : []),
