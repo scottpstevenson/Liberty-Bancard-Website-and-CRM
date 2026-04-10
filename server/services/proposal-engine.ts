@@ -517,7 +517,10 @@ export async function sendProposalEmail(dealId: number): Promise<boolean> {
 
     const proposal = deal.savingsProposal as ProposalPayload;
     const bestPlan = proposal.plans?.find((p) => p.shortName === proposal.recommendedPlan) || proposal.plans?.[0];
-    const proposalUrl = `${process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(",")[0]}` : "https://liberty-bancard.replit.app"}/proposal/${deal.proposalToken}`;
+    const baseUrl = process.env.APP_URL
+      || (process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(",")[0]}` : null)
+      || "https://libertybancard.com";
+    const proposalUrl = `${baseUrl}/proposal/${deal.proposalToken}`;
 
     const subject = `Your Savings Breakdown is Ready — ${contact.companyName || contact.firstName}`;
 

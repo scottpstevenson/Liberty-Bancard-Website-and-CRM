@@ -11,9 +11,10 @@ function generateUploadToken(): string {
 }
 
 function getUploadUrl(token: string): string {
-  const baseUrl = process.env.REPLIT_DEV_DOMAIN
-    ? `https://${process.env.REPLIT_DEV_DOMAIN}`
-    : process.env.APP_URL || "https://liberty-bancard.replit.app";
+  const baseUrl = process.env.APP_URL
+    || (process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(",")[0]}` : null)
+    || (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : null)
+    || "https://libertybancard.com";
   return `${baseUrl}/statement-upload/${token}`;
 }
 
