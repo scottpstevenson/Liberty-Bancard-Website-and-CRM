@@ -23,6 +23,7 @@ import bcrypt from "bcryptjs";
 import path from "path";
 import fs from "fs";
 import { uploadLarge, trackReferral, normalizePhoneForImport, classifyVerticalForImport, sendConfirmationSms } from "./helpers";
+import { syncAffiliateSignupToGhl } from "../services/ghl-form-sync";
 
 export function registerImportsRoutes(app: Express) {
   // === FULL COREVT IMPORT ===
@@ -515,6 +516,14 @@ Guidelines:
           },
         }).catch(err => console.error("GHL affiliate sync error:", err));
       }
+      syncAffiliateSignupToGhl({
+        firstName,
+        lastName: lastName || "",
+        email,
+        phone,
+        companyName: companyName || undefined,
+        affiliateCode: partner.affiliateCode || code,
+      }).catch(err => console.error("GHL affiliate sync error:", err));
 
       req.logIn(user, (loginErr) => {
         if (loginErr) {

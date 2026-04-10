@@ -184,10 +184,53 @@ export async function upsertGhlContact(contact: Contact): Promise<string> {
     customField: {} as Record<string, string>,
   };
 
-  if (contact.vertical) payload.customField["vertical"] = contact.vertical;
-  if (contact.monthlyVolume) payload.customField["monthly_volume"] = contact.monthlyVolume;
-  if (contact.primaryOfferPath) payload.customField["offer_path"] = contact.primaryOfferPath;
-  if (contact.currentProvider) payload.customField["current_provider"] = contact.currentProvider;
+  if (contact.vertical) {
+    payload.customField["vertical"] = contact.vertical;
+    payload.customField["lb_vertical"] = contact.vertical;
+  }
+  if (contact.monthlyVolume) {
+    payload.customField["monthly_volume"] = contact.monthlyVolume;
+    payload.customField["lb_monthly_volume"] = contact.monthlyVolume;
+  }
+  if (contact.primaryOfferPath) {
+    payload.customField["offer_path"] = contact.primaryOfferPath;
+    payload.customField["lb_preferred_program"] = contact.primaryOfferPath;
+  }
+  if (contact.currentProvider) {
+    payload.customField["current_provider"] = contact.currentProvider;
+    payload.customField["lb_current_processor"] = contact.currentProvider;
+  }
+  if (contact.painPoints && Array.isArray(contact.painPoints) && contact.painPoints.length > 0) {
+    payload.customField["lb_pain_points"] = contact.painPoints.join(", ");
+  }
+  if (contact.interestedIn0Percent !== undefined && contact.interestedIn0Percent !== null) {
+    payload.customField["lb_interested_0_percent"] = contact.interestedIn0Percent ? "Yes" : "No";
+  }
+  if (contact.needTerminal !== undefined && contact.needTerminal !== null) {
+    payload.customField["lb_terminal_need"] = contact.needTerminal ? "Yes" : "No";
+  }
+  if (contact.utmSource) payload.customField["lb_utm_source"] = contact.utmSource;
+  if (contact.utmMedium) payload.customField["lb_utm_medium"] = contact.utmMedium;
+  if (contact.utmCampaign) payload.customField["lb_utm_campaign"] = contact.utmCampaign;
+  if (contact.promoCode) payload.customField["lb_promo_code"] = contact.promoCode;
+  if (contact.consentSms !== undefined && contact.consentSms !== null) {
+    payload.customField["lb_consent_sms"] = contact.consentSms ? "Yes" : "No";
+  }
+  if (contact.consentEmail !== undefined && contact.consentEmail !== null) {
+    payload.customField["lb_consent_email"] = contact.consentEmail ? "Yes" : "No";
+  }
+  if (contact.landingPage) {
+    const sourceMap: Record<string, string> = {
+      "/free-analysis": "free-analysis",
+      "/get-started": "get-started",
+      "/upload-statement": "statement-upload",
+      "/support": "support",
+      "/merchant-application": "merchant-app",
+      "/affiliate": "affiliate",
+      "/estimate": "estimate",
+    };
+    payload.customField["lb_lead_source"] = sourceMap[contact.landingPage] || contact.landingPage;
+  }
 
   if (contact.ghlContactId) {
     const result = await ghlFetch(`/contacts/${contact.ghlContactId}`, {

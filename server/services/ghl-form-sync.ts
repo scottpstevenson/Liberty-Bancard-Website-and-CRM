@@ -2,6 +2,7 @@ import { isGhlConfigured } from "./ghl";
 import { syncContactToGhl, syncDealToGhl } from "./ghl-sync";
 import { triggerWorkflow, updateCustomFields, addTag, addNote, isSdrGhlConfigured } from "./sdr/ghl-client";
 import { storage } from "../storage";
+import type { Contact, MerchantApplication } from "@shared/schema";
 
 export type LeadSourceType =
   | "free_analysis"
@@ -68,7 +69,7 @@ export async function syncFormSubmissionToGhl(params: FormSyncParams): Promise<{
     if (contact.estimatedResidual) customFields["lb_estimated_savings"] = contact.estimatedResidual;
 
     customFields["lb_consent_sms"] = contact.consentSms ? "yes" : "no";
-    customFields["lb_consent_email"] = (contact as any).consentEmail ? "yes" : "no";
+    customFields["lb_consent_email"] = contact.consentEmail ? "yes" : "no";
 
     if (contact.interestedIn0Percent) customFields["lb_interested_0_percent"] = "yes";
     if (contact.needTerminal) customFields["lb_terminal_need"] = "yes";
@@ -107,6 +108,26 @@ export async function syncFormSubmissionToGhl(params: FormSyncParams): Promise<{
         await setGhlDnd(ghlContactId, "sms", true);
       } catch (dndErr) {
         console.error(`[GHL Form Sync] DND SMS set failed:`, dndErr);
+      }
+    } else {
+      try {
+        await setGhlDnd(ghlContactId, "sms", false);
+      } catch (dndErr) {
+        console.error(`[GHL Form Sync] DND SMS clear failed:`, dndErr);
+      }
+    }
+
+    if (!contact.consentEmail) {
+      try {
+        await setGhlDnd(ghlContactId, "email", true);
+      } catch (dndErr) {
+        console.error(`[GHL Form Sync] DND Email set failed:`, dndErr);
+      }
+    } else {
+      try {
+        await setGhlDnd(ghlContactId, "email", false);
+      } catch (dndErr) {
+        console.error(`[GHL Form Sync] DND Email clear failed:`, dndErr);
       }
     }
 
@@ -164,16 +185,69 @@ export async function syncMerchantApplicationToGhl(applicationId: number, contac
     };
 
     if (application.estimatedMonthlyVolume) appFields["lb_monthly_volume"] = String(application.estimatedMonthlyVolume);
-    if (application.avgTicket) appFields["lb_avg_ticket"] = String(application.avgTicket);
+    if (application.estimatedAvgTicket) appFields["lb_avg_ticket"] = String(application.estimatedAvgTicket);
     if (application.currentProcessor) appFields["lb_current_processor"] = application.currentProcessor;
-    if (application.currentRate) appFields["lb_current_processor"] += ` (${application.currentRate}%)`;
+    if (application.currentRate) appFields["lb_current_rate"] = application.currentRate;
     if (application.preferredProgram) appFields["lb_preferred_program"] = application.preferredProgram;
     if (application.terminalNeeded) appFields["lb_terminal_need"] = "yes";
-    if (application.terminalType) appFields["lb_terminal_need"] = application.terminalType;
+    if (application.terminalType) appFields["lb_terminal_type"] = application.terminalType;
+    if (application.ecommerceNeeded !== undefined && application.ecommerceNeeded !== null) {
+      appFields["lb_ecommerce_needed"] = application.ecommerceNeeded ? "yes" : "no";
+    }
+    if (application.ein) appFields["lb_ein_last4"] = application.ein.slice(-4);
 
     await updateCustomFields(ghlContactId, appFields);
 
     await addTag({ contactId: ghlContactId, tags: ["LB-MERCHANT-APP"] });
+
+    const maskedBank = application.bankAccountNumber
+      ? "****" + application.bankAccountNumber.slice(-4)
+      : "N/A";
+    const noteBody = [
+      `Merchant Application #${applicationId}`,
+      `Legal Name: ${application.legalBusinessName || "N/A"}`,
+      `DBA: ${application.dba || "N/A"}`,
+      `Business Type: ${application.businessType || "N/A"}`,
+      `Industry: ${application.vertical || "N/A"}`,
+      `Est. Monthly Volume: ${application.estimatedMonthlyVolume || "N/A"}`,
+      `Avg Ticket: ${application.estimatedAvgTicket || "N/A"}`,
+      `Current Processor: ${application.currentProcessor || "N/A"}`,
+      `Preferred Program: ${application.preferredProgram || "N/A"}`,
+      `Terminal: ${application.terminalNeeded ? `${application.terminalType || "Yes"} x${application.terminalQuantity || 1}` : "No"}`,
+      `Bank: ${application.bankName || "N/A"} (${maskedBank})`,
+    ].join("\n");
+
+    await addNote({ contactId: ghlContactId, body: noteBody });
+
+    const pipelineId = process.env.GHL_ONBOARDING_PIPELINE_ID;
+    if (pipelineId) {
+      const stageId = process.env.GHL_ONBOARDING_STAGE_NEW || "new";
+      try {
+        const apiKey = process.env.GHL_PRIVATE_INTEGRATION_TOKEN || process.env.GHL_API_KEY;
+        const locationId = process.env.GHL_LOCATION_ID;
+        if (apiKey && locationId) {
+          await fetch("https://services.leadconnectorhq.com/opportunities/", {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${apiKey}`,
+              "Content-Type": "application/json",
+              "Version": "2021-07-28",
+            },
+            body: JSON.stringify({
+              pipelineId,
+              pipelineStageId: stageId,
+              locationId,
+              contactId: ghlContactId,
+              name: `${application.legalBusinessName || application.dba || "Merchant"} - Application #${applicationId}`,
+              status: "open",
+              monetaryValue: application.estimatedMonthlyVolume ? parseFloat(String(application.estimatedMonthlyVolume).replace(/[^0-9.]/g, "")) || 0 : 0,
+            }),
+          });
+        }
+      } catch (oppErr: any) {
+        console.error(`[GHL Form Sync] Failed to create onboarding opportunity:`, oppErr.message);
+      }
+    }
 
     console.log(`[GHL Form Sync] Merchant application ${applicationId} synced to GHL contact ${ghlContactId}`);
     return { success: true };
@@ -188,11 +262,11 @@ export async function syncStatementUploadToGhl(contactId: number, fileName: stri
     if (!isGhlReady()) return { success: false, error: "GHL not configured" };
 
     const contact = await storage.getContact(contactId);
-    let ghlContactId = contact?.ghlContactId;
+    let ghlContactId = contact?.ghlContactId || null;
 
     if (!ghlContactId) {
       const syncResult = await syncContactToGhl(contactId);
-      ghlContactId = syncResult.ghlContactId;
+      ghlContactId = syncResult.ghlContactId || null;
     }
 
     if (!ghlContactId) return { success: false, error: "No GHL contact" };
@@ -229,11 +303,11 @@ export async function syncSupportTicketToGhl(contactId: number, ticketId: number
     if (!isGhlReady()) return { success: false, error: "GHL not configured" };
 
     const contact = await storage.getContact(contactId);
-    let ghlContactId = contact?.ghlContactId;
+    let ghlContactId = contact?.ghlContactId || null;
 
     if (!ghlContactId) {
       const syncResult = await syncContactToGhl(contactId);
-      ghlContactId = syncResult.ghlContactId;
+      ghlContactId = syncResult.ghlContactId || null;
     }
 
     if (!ghlContactId) return { success: false, error: "No GHL contact" };
@@ -244,6 +318,32 @@ export async function syncSupportTicketToGhl(contactId: number, ticketId: number
       contactId: ghlContactId,
       body: `Support ticket #${ticketId} created.\nIssue: ${issueType}\n${description}`,
     });
+
+    const supportAssignee = process.env.GHL_SUPPORT_TEAM_USER_ID;
+    const apiKey = process.env.GHL_PRIVATE_INTEGRATION_TOKEN || process.env.GHL_API_KEY;
+    if (apiKey && ghlContactId) {
+      try {
+        const taskPayload: Record<string, unknown> = {
+          title: `Support: ${issueType} - Ticket #${ticketId}`,
+          body: `Issue Type: ${issueType}\n${description.slice(0, 500)}`,
+          dueDate: new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString(),
+          completed: false,
+        };
+        if (supportAssignee) taskPayload.assignedTo = supportAssignee;
+
+        await fetch(`https://services.leadconnectorhq.com/contacts/${ghlContactId}/tasks`, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+            "Version": "2021-07-28",
+          },
+          body: JSON.stringify(taskPayload),
+        });
+      } catch (taskErr) {
+        console.error(`[GHL Form Sync] Support task creation failed:`, taskErr);
+      }
+    }
 
     const workflowId = process.env.GHL_WORKFLOW_SUPPORT_TICKET;
     if (workflowId) {
@@ -258,6 +358,57 @@ export async function syncSupportTicketToGhl(contactId: number, ticketId: number
   } catch (err: any) {
     console.error(`[GHL Form Sync] Support ticket sync error:`, err.message);
     return { success: false, error: err.message };
+  }
+}
+
+export async function syncAffiliateSignupToGhl(params: {
+  firstName: string;
+  lastName?: string;
+  email: string;
+  phone: string;
+  companyName?: string;
+  affiliateCode: string;
+}): Promise<void> {
+  if (!isGhlReady()) return;
+
+  const apiKey = process.env.GHL_PRIVATE_INTEGRATION_TOKEN || process.env.GHL_API_KEY;
+  const locationId = process.env.GHL_LOCATION_ID;
+  if (!apiKey || !locationId) return;
+
+  try {
+    const payload = {
+      locationId,
+      firstName: params.firstName,
+      lastName: params.lastName || "",
+      email: params.email,
+      phone: params.phone,
+      companyName: params.companyName || "",
+      tags: ["LB-AFFILIATE", "src_website", "lead_affiliate_signup"],
+      customField: {
+        lb_lead_source: "affiliate",
+        lb_affiliate_code: params.affiliateCode,
+      },
+    };
+
+    const response = await fetch("https://services.leadconnectorhq.com/contacts/", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "Version": "2021-07-28",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (response.ok) {
+      const result = await response.json();
+      const ghlId = result.contact?.id;
+      if (ghlId) {
+        console.log(`[GHL Form Sync] Affiliate ${params.email} synced to GHL as ${ghlId}`);
+      }
+    }
+  } catch (err: any) {
+    console.error(`[GHL Form Sync] Affiliate sync failed for ${params.email}:`, err.message);
   }
 }
 
@@ -297,11 +448,14 @@ async function setGhlDnd(ghlContactId: string, channel: "sms" | "email", dndActi
   const apiKey = process.env.GHL_PRIVATE_INTEGRATION_TOKEN || process.env.GHL_API_KEY;
   if (!apiKey) return;
 
-  const dndPayload: Record<string, any> = {
-    dnd: true,
+  const dndPayload: Record<string, unknown> = {
+    dnd: dndActive,
     dndSettings: {
       [channel === "sms" ? "SMS" : "Email"]: {
         status: dndActive ? "active" : "inactive",
+        message: dndActive
+          ? `No ${channel} consent from form submission`
+          : `${channel} consent granted via form submission`,
       },
     },
   };

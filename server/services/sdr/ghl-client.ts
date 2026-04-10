@@ -432,13 +432,19 @@ export const REQUIRED_CUSTOM_FIELDS = [
   { key: "lb_landing_page", name: "LB Landing Page", dataType: "TEXT" },
   { key: "lb_deal_stage", name: "LB Deal Stage", dataType: "TEXT" },
   { key: "lb_deal_pipeline", name: "LB Deal Pipeline", dataType: "TEXT" },
+  { key: "lb_ein_last4", name: "LB EIN Last 4", dataType: "TEXT" },
+  { key: "lb_current_rate", name: "LB Current Rate", dataType: "TEXT" },
+  { key: "lb_terminal_type", name: "LB Terminal Type", dataType: "TEXT" },
+  { key: "lb_ecommerce_needed", name: "LB E-Commerce Needed", dataType: "TEXT" },
+  { key: "lb_affiliate_code", name: "LB Affiliate Code", dataType: "TEXT" },
+  { key: "lb_estimated_savings", name: "LB Estimated Savings", dataType: "TEXT" },
 ] as const;
 
 export const REQUIRED_TAGS = [
   "LB-AI-SDR", "LB-AUTO", "LB-MEDSPA", "LB-DENTAL", "LB-BOOKING-READY",
   "LB-STATEMENT-PENDING", "LB-PROPOSAL-SENT", "LB-HUMAN-HANDOFF", "LB-DO-NOT-AUTO",
   "LB-CHAT-LEAD", "LB-CHAT-HANDOFF", "LB-ACTIVE-PIPELINE",
-  "LB-AFFILIATE", "LB-SUPPORT", "LB-STATEMENT-RECEIVED", "LB-EQUIPMENT-ORDER",
+  "LB-AFFILIATE", "LB-SUPPORT", "LB-SUPPORT-REQUEST", "LB-STATEMENT-RECEIVED", "LB-EQUIPMENT-ORDER",
   "LB-QUIZ-LEAD", "LB-ESTIMATE", "LB-CALLBACK", "LB-MERCHANT-APP",
 ] as const;
 

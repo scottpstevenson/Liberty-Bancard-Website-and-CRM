@@ -23,7 +23,7 @@ export function registerMerchantsRoutes(app: Express) {
           lastName: application.ownerLastName || "",
           email: contactEmail,
           phone: application.businessPhone || application.ownerPhone || "",
-          companyName: application.legalBusinessName || application.dbaName || "",
+          companyName: application.legalBusinessName || application.dba || "",
           vertical: application.vertical || undefined,
           status: "New",
           tags: ["src_merchant_app", "merchant_application"],
