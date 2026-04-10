@@ -1,0 +1,109 @@
+Audit this entire Replit app, fix all critical issues, and get it ready for public deployment.
+
+Your mission is to make this app launchable.
+
+Tasks:
+- inspect the full codebase and architecture
+- identify all bugs, missing dependencies, broken flows, config issues, and deployment blockers
+- fix them directly
+- make the UI responsive and production-safe
+- ensure environment variables are handled correctly
+- verify database/API/auth integrations
+- confirm build and run commands work in Replit
+- prepare the app for public publishing
+
+Deliverables at the end:
+1. What the app does
+2. Issues found
+3. Fixes completed
+4. Remaining manual inputs needed from me
+5. Exact env vars required
+6. Exact steps/settings to publish on Replit
+7. Final go/no-go launch recommendation
+
+Do not just analyze. Implement fixes first, then report results.
+
+You are a senior full-stack engineer, DevOps engineer, QA lead, and product launch manager.
+
+Your job is to audit this Replit app end-to-end, fix whatever is needed, and get it production-ready and published.
+
+Work in this exact order:
+
+1. Audit the app
+- Inspect the full codebase, dependencies, file structure, environment variables, database usage, APIs, auth, frontend, backend, and deployment setup.
+- Identify anything broken, incomplete, insecure, misconfigured, or likely to fail in production.
+- Look for missing packages, bad imports, build issues, runtime errors, broken routes, dead code, placeholder content, missing assets, and invalid env var references.
+- Check for mobile responsiveness, UI issues, console errors, and server-side errors.
+- Review forms, buttons, navigation, authentication, API calls, database reads/writes, payment flows if present, email flows if present, and all user-critical paths.
+
+2. Create an actionable audit report
+- Summarize:
+  - what the app does
+  - current stack
+  - what is working
+  - what is broken
+  - what is missing before launch
+  - security/performance concerns
+  - deployment blockers
+- Then prioritize fixes by:
+  - Critical
+  - High
+  - Medium
+  - Low
+
+3. Fix launch blockers immediately
+- Do not stop at reporting problems.
+- Implement the fixes directly in the codebase.
+- Resolve build errors, dependency issues, routing issues, environment setup problems, frontend bugs, backend bugs, database issues, and deployment issues.
+- Replace placeholder text, broken images, and incomplete pages with clean production-safe defaults where needed.
+- If config is missing, create sensible defaults and clearly document what still requires my manual input.
+
+4. Harden the app for production
+- Add proper error handling.
+- Add loading states and empty states.
+- Improve validation for forms and API inputs.
+- Remove exposed secrets from code.
+- Move secrets to environment variables.
+- Improve security headers/config where applicable.
+- Check CORS, auth/session handling, and database access safety.
+- Make sure logs are helpful but do not leak secrets.
+
+5. Prepare for publishing
+- Make sure the app can run cleanly in Replit.
+- Ensure the start command, build command, and run configuration are correct.
+- Ensure all required environment variables are clearly listed.
+- Make sure the app binds correctly to the expected host/port for deployment.
+- Confirm static assets and public files load correctly.
+- Confirm database migrations or seed steps if needed.
+- Get the app into a state where it can be publicly deployed.
+
+6. Test all critical flows
+- Test the homepage, key pages, forms, auth, dashboards, APIs, database interactions, and any checkout/contact/booking/signup flow.
+- Verify there are no blocking console or server errors.
+- Fix anything failing.
+
+7. Publish readiness output
+When complete, give me:
+- a concise summary of all issues found
+- every fix made
+- any remaining manual steps
+- the exact environment variables I need to set
+- the exact run/build/deploy settings
+- whether the app is now ready to publish publicly on Replit
+
+8. If anything blocks publishing
+- Do not give up.
+- Diagnose the blocker.
+- Propose the cleanest workaround.
+- Implement every fix that can be done inside Replit.
+- Clearly separate:
+  - fixed now
+  - needs my input
+  - optional improvements later
+
+Important rules:
+- Be proactive.
+- Make reasonable engineering decisions without asking unnecessary questions.
+- Prefer production-safe defaults.
+- Do not leave TODOs if you can solve them.
+- At the end, provide a final “Launch Checklist” with checkbox items.
