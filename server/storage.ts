@@ -204,6 +204,7 @@ export interface IStorage {
   getOutboundStats(campaignId: number): Promise<{sent: number, opened: number, replied: number, bounced: number}>;
 
   getNotes(entityType: string, entityId: number): Promise<typeof notes.$inferSelect[]>;
+  getNote(id: number): Promise<typeof notes.$inferSelect | undefined>;
   createNote(note: InsertNote): Promise<typeof notes.$inferSelect>;
   deleteNote(id: number): Promise<void>;
 
@@ -935,6 +936,11 @@ export class DatabaseStorage implements IStorage {
   }
   async getNotes(entityType: string, entityId: number) {
     return await db.select().from(notes).where(and(eq(notes.entityType, entityType), eq(notes.entityId, entityId))).orderBy(desc(notes.createdAt));
+  }
+
+  async getNote(id: number) {
+    const [note] = await db.select().from(notes).where(eq(notes.id, id));
+    return note;
   }
 
   async createNote(note: InsertNote) {

@@ -2630,3 +2630,76 @@ export const insertDailyFunnelMetricsSchema = createInsertSchema(dailyFunnelMetr
 
 export type DailyFunnelMetrics = typeof dailyFunnelMetrics.$inferSelect;
 export type InsertDailyFunnelMetrics = z.infer<typeof insertDailyFunnelMetricsSchema>;
+
+export const ghlSyncStatus = pgTable("ghl_sync_status", {
+  id: serial("id").primaryKey(),
+  entityType: text("entity_type").notNull(),
+  lastSyncAt: timestamp("last_sync_at"),
+  lastSyncDirection: text("last_sync_direction"),
+  syncedCount: integer("synced_count").default(0),
+  errorCount: integer("error_count").default(0),
+  lastError: text("last_error"),
+  localCount: integer("local_count").default(0),
+  ghlCount: integer("ghl_count").default(0),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("ghl_sync_status_entity_type_idx").on(table.entityType),
+]);
+
+export type GhlSyncStatusRecord = typeof ghlSyncStatus.$inferSelect;
+
+export const GHL_PIPELINE_STAGE_MAP: Record<string, string> = {
+  "New Lead": "new_lead",
+  "Statement Received": "statement_received",
+  "Review In Progress": "review_in_progress",
+  "Call Booked": "call_booked",
+  "Proposal Sent": "proposal_sent",
+  "Negotiation / Follow-Up": "negotiation",
+  "Nurture / Not Now": "nurture",
+  "Closed Won": "won",
+  "Closed Lost": "lost",
+  "Contract Sent": "contract_sent",
+  "Application Started": "application_started",
+  "Underwriting Submitted": "underwriting_submitted",
+  "Approved": "approved",
+  "Terminal Ordered": "terminal_ordered",
+  "Go-Live Scheduled": "go_live_scheduled",
+  "Live (First Batch)": "live_first_batch",
+  "Active (7 Days)": "active_7_days",
+  "Active (30 Days)": "active_30_days",
+};
+
+export const GHL_PIPELINE_STAGE_REVERSE: Record<string, string> = Object.fromEntries(
+  Object.entries(GHL_PIPELINE_STAGE_MAP).map(([k, v]) => [v, k])
+);
+
+export const ALLOWED_SENDING_DOMAINS = [
+  "libertypayments.co",
+  "getlibertyprocessing.com",
+  "libertybancard.com",
+  "libertybancardconsulting.com",
+] as const;
+
+export const ACTIVE_DEAL_STAGES = [
+  "New Lead",
+  "Statement Received",
+  "Review In Progress",
+  "Call Booked",
+  "Proposal Sent",
+  "Negotiation / Follow-Up",
+  "Contract Sent",
+  "Application Started",
+  "Underwriting Submitted",
+  "Approved",
+  "Terminal Ordered",
+  "Go-Live Scheduled",
+] as const;
+
+export const CLOSED_DEAL_STAGES = [
+  "Closed Won",
+  "Closed Lost",
+  "Nurture / Not Now",
+  "Live (First Batch)",
+  "Active (7 Days)",
+  "Active (30 Days)",
+] as const;

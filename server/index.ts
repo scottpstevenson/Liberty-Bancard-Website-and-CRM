@@ -3,6 +3,7 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { startSlaWorker } from "./services/sla-worker";
+import { startAutoSyncLoop } from "./services/ghl-sync";
 import { seedDefaultData } from "./services/seed-workflows";
 import { seedSequences } from "./services/seed-sequences";
 import { seedVerticalCampaigns } from "./services/seed-vertical-campaigns";
@@ -112,6 +113,7 @@ app.use((req, res, next) => {
       seedStageRules();
       seedDemoProspects();
       startSlaWorker();
+      startAutoSyncLoop();
 
       if (featureFlags.LEGACY_OUTREACH_ENABLED) {
         log("LEGACY_OUTREACH_ENABLED=true — starting legacy outreach workers");

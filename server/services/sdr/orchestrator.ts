@@ -309,6 +309,54 @@ async function personalizeWithAI(template: string, lead: SdrLeadState, channel: 
   }
 }
 
+function isAllowedSendingDomain(email: string): boolean {
+  const domain = email.split("@")[1]?.toLowerCase();
+  if (!domain) return false;
+  const allowedDomains = [
+    "libertypayments.co",
+    "getlibertyprocessing.com",
+    "libertybancard.com",
+    "libertybancardconsulting.com",
+  ];
+  return allowedDomains.includes(domain);
+}
+
+function isPersonalInbox(email: string): boolean {
+  const domain = email.split("@")[1]?.toLowerCase();
+  if (!domain) return true;
+  const personalDomains = [
+    "gmail.com", "yahoo.com", "hotmail.com", "outlook.com",
+    "aol.com", "icloud.com", "me.com", "live.com", "msn.com",
+    "protonmail.com", "mail.com",
+  ];
+  return personalDomains.includes(domain);
+}
+
+async function isContactExcludedFromSdr(lead: SdrLeadState): Promise<boolean> {
+  if (!lead.contactId) return false;
+  try {
+    const contact = await storage.getContact(lead.contactId);
+    if (!contact) return false;
+    const tags = contact.tags || [];
+    if (tags.includes("LB-ACTIVE-PIPELINE")) return true;
+    if (tags.includes("LB-DO-NOT-AUTO")) return true;
+    if (contact.doNotContact) return true;
+
+    const deals = await storage.getDealsByContact(contact.id);
+    const activeStages = [
+      "Statement Received", "Review In Progress", "Call Booked",
+      "Proposal Sent", "Negotiation / Follow-Up", "Contract Sent",
+      "Application Started", "Underwriting Submitted", "Approved",
+      "Terminal Ordered", "Go-Live Scheduled",
+    ];
+    const hasActiveDeal = deals.some(d => activeStages.includes(d.stage));
+    if (hasActiveDeal) return true;
+  } catch (err) {
+    console.error(`[SDR Orchestrator] Error checking SDR exclusion for lead ${lead.id}:`, err);
+  }
+  return false;
+}
+
 async function executeEmailAction(lead: SdrLeadState, strongerCta?: boolean): Promise<boolean> {
   if (!canSendEmail()) {
     console.log(`[SDR Orchestrator] Email daily limit reached (${dailyCounters.emailsSent}/${EMAIL_DAILY_LIMIT})`);
@@ -320,6 +368,11 @@ async function executeEmailAction(lead: SdrLeadState, strongerCta?: boolean): Pr
     return false;
   }
 
+  if (await isContactExcludedFromSdr(lead)) {
+    console.log(`[SDR Orchestrator] Lead ${lead.id} excluded from SDR (active pipeline or do-not-sdr)`);
+    return false;
+  }
+
   const toEmail = lead.ownerEmail || lead.email;
   if (!toEmail) return false;
 
@@ -328,6 +381,17 @@ async function executeEmailAction(lead: SdrLeadState, strongerCta?: boolean): Pr
     console.log(`[SDR Orchestrator] No eligible inbox available for lead ${lead.id} (merchantId: ${lead.merchantId}), deferring email`);
     return false;
   }
+
+  if (isPersonalInbox(selectedInbox.emailAddress)) {
+    console.log(`[SDR Orchestrator] Rejecting personal inbox ${selectedInbox.emailAddress} for lead ${lead.id} — domain sending identities required`);
+    return false;
+  }
+
+  if (!isAllowedSendingDomain(selectedInbox.emailAddress)) {
+    console.log(`[SDR Orchestrator] Rejecting inbox ${selectedInbox.emailAddress} — not from allowed sending domain for lead ${lead.id}`);
+    return false;
+  }
+
   console.log(`[SDR Orchestrator] Using inbox ${selectedInbox.label} (${selectedInbox.emailAddress}) for lead ${lead.id}`);
 
   const attemptNumber = (lead.emailAttempts || 0) + 1;

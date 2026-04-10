@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2, Settings, CheckCircle2, XCircle, Key, MapPin, Calendar, Activity, Mail, Clock, Zap, ArrowRightLeft, Send } from "lucide-react";
+import { Loader2, Settings, CheckCircle2, XCircle, Key, MapPin, Calendar, Activity, Mail, Clock, Zap, ArrowRightLeft, Send, Database, AlertTriangle } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { GhlActivityLog, MessageTemplate, SlaConfig } from "@shared/schema";
@@ -34,6 +34,35 @@ interface SyncStatus {
   hotLeadEnrollment?: { timestamp: string; enrolled: number; skipped: number; blocked: number; total: number };
 }
 
+interface EntitySyncStatus {
+  entityType: string;
+  lastSyncAt: string | null;
+  lastSyncDirection: string | null;
+  syncedCount: number;
+  errorCount: number;
+  lastError: string | null;
+  localCount: number;
+  ghlCount: number;
+}
+
+interface SyncDashboard {
+  configured: boolean;
+  totalContacts: number;
+  syncedToGhl: number;
+  unsyncedToGhl: number;
+  totalDeals: number;
+  entitySyncStatuses: EntitySyncStatus[];
+  entityStatuses: Record<string, {
+    lastSyncAt: string | null;
+    lastSyncDirection: string | null;
+    syncedCount: number;
+    errorCount: number;
+    lastError: string | null;
+    localCount?: number;
+    ghlSyncedCount?: number;
+  }>;
+}
+
 export default function GhlSettings() {
   const { toast } = useToast();
 
@@ -49,6 +78,11 @@ export default function GhlSettings() {
   const { data: syncStatus } = useQuery<SyncStatus>({
     queryKey: ["/api/ghl/sync-status"],
     refetchInterval: 15000,
+  });
+
+  const { data: syncDashboard } = useQuery<SyncDashboard>({
+    queryKey: ["/api/ghl/sync-dashboard"],
+    refetchInterval: 30000,
   });
 
   const { data: activity, isLoading: activityLoading } = useQuery<GhlActivityLog[]>({
@@ -274,6 +308,100 @@ export default function GhlSettings() {
                 <p className="text-muted-foreground">Last Hot Lead Enrollment: {new Date(syncStatus.hotLeadEnrollment.timestamp).toLocaleString()}</p>
                 <p>{syncStatus.hotLeadEnrollment.enrolled} enrolled, {syncStatus.hotLeadEnrollment.skipped} skipped, {syncStatus.hotLeadEnrollment.blocked} blocked</p>
               </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {syncDashboard && (
+        <Card data-testid="card-sync-dashboard">
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Database className="w-4 h-4 text-muted-foreground" />
+              <CardTitle className="text-base">Sync Health Dashboard</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4 text-sm">
+              <div>
+                <p className="text-muted-foreground">Total Contacts</p>
+                <p className="text-lg font-semibold" data-testid="text-dashboard-contacts">{syncDashboard.totalContacts}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Synced Contacts</p>
+                <p className="text-lg font-semibold text-green-600" data-testid="text-dashboard-synced">{syncDashboard.syncedToGhl}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Unsynced</p>
+                <p className="text-lg font-semibold text-amber-600" data-testid="text-dashboard-unsynced">{syncDashboard.unsyncedToGhl}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Total Deals</p>
+                <p className="text-lg font-semibold" data-testid="text-dashboard-deals">{syncDashboard.totalDeals}</p>
+              </div>
+            </div>
+
+            {Object.keys(syncDashboard.entityStatuses || {}).length > 0 && (
+              <Table data-testid="table-entity-sync-status">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Entity Type</TableHead>
+                    <TableHead>Last Sync</TableHead>
+                    <TableHead>Direction</TableHead>
+                    <TableHead>Synced</TableHead>
+                    <TableHead>Errors</TableHead>
+                    <TableHead>Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {Object.entries(syncDashboard.entityStatuses).map(([entityType, status]) => (
+                    <TableRow key={entityType} data-testid={`row-sync-entity-${entityType}`}>
+                      <TableCell className="text-sm font-medium capitalize">{entityType}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {status.lastSyncAt ? new Date(status.lastSyncAt).toLocaleString() : "Never"}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="text-xs">
+                          {status.lastSyncDirection || "-"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-sm text-green-600" data-testid={`text-sync-count-${entityType}`}>
+                        {status.syncedCount || 0}
+                        {status.localCount != null && (
+                          <span className="text-muted-foreground ml-1">/ {status.localCount} local</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {(status.errorCount || 0) > 0 ? (
+                          <span className="text-red-600 flex items-center gap-1" data-testid={`text-error-count-${entityType}`}>
+                            <AlertTriangle className="w-3 h-3" />
+                            {status.errorCount}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">0</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {status.lastError ? (
+                          <Badge variant="destructive" className="text-xs" data-testid={`badge-sync-error-${entityType}`}>
+                            Error
+                          </Badge>
+                        ) : (
+                          <Badge variant="default" className="text-xs">
+                            OK
+                          </Badge>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+
+            {Object.keys(syncDashboard.entityStatuses || {}).length === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-4" data-testid="text-no-entity-sync">
+                No entity sync data yet. Sync operations will appear here once performed.
+              </p>
             )}
           </CardContent>
         </Card>

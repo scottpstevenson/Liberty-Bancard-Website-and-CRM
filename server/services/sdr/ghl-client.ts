@@ -410,12 +410,13 @@ export const REQUIRED_CUSTOM_FIELDS = [
   { key: "lb_proposal_status", name: "LB Proposal Status", dataType: "TEXT" },
   { key: "lb_last_ai_outcome", name: "LB Last AI Outcome", dataType: "TEXT" },
   { key: "lb_owner_type", name: "LB Owner Type", dataType: "TEXT" },
+  { key: "lb_do_not_sdr", name: "LB Do Not SDR", dataType: "TEXT" },
 ] as const;
 
 export const REQUIRED_TAGS = [
   "LB-AI-SDR", "LB-AUTO", "LB-MEDSPA", "LB-DENTAL", "LB-BOOKING-READY",
   "LB-STATEMENT-PENDING", "LB-PROPOSAL-SENT", "LB-HUMAN-HANDOFF", "LB-DO-NOT-AUTO",
-  "LB-CHAT-LEAD", "LB-CHAT-HANDOFF",
+  "LB-CHAT-LEAD", "LB-CHAT-HANDOFF", "LB-ACTIVE-PIPELINE",
 ] as const;
 
 let bootstrapCompleted = false;

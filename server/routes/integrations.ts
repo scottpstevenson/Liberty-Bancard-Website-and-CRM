@@ -5,7 +5,7 @@ import { contacts } from "@shared/schema";
 import { and } from "drizzle-orm";
 import { checkGhlHealth, getCalendarBookingUrl, getGhlStatus, handleGhlWebhook, isGhlConfigured, sendGhlEmail, sendGhlSms, sendTemplatedMessage, upsertGhlContact, validateGhlWebhookSignature } from "../services/ghl";
 import { routeContact } from "../services/smart-router";
-import { fullSyncFromGhl, fullSyncToGhl, getGhlSyncStatus, syncContactToGhl, syncDealToGhl } from "../services/ghl-sync";
+import { fullSyncFromGhl, fullSyncToGhl, getGhlSyncStatus, getFullSyncDashboard, syncContactToGhl, syncDealToGhl, syncCompanyToGhl, syncTaskToGhl, syncTicketToGhl, syncNoteToGhl, syncTagsToGhl } from "../services/ghl-sync";
 
 export function registerIntegrationsRoutes(app: Express) {
   // === GHL INTEGRATION ===
@@ -134,6 +134,75 @@ export function registerIntegrationsRoutes(app: Express) {
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
     const result = await syncDealToGhl(Number(req.params.id));
     res.json(result);
+  });
+
+  app.post("/api/ghl/sync-company/:id", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
+    const id = Number(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid company ID" });
+    try {
+      const result = await syncCompanyToGhl(id);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/ghl/sync-task/:id", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
+    const id = Number(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid task ID" });
+    try {
+      const result = await syncTaskToGhl(id);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/ghl/sync-ticket/:id", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
+    const id = Number(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ticket ID" });
+    try {
+      const result = await syncTicketToGhl(id);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/ghl/sync-note/:id", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
+    const id = Number(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid note ID" });
+    try {
+      const result = await syncNoteToGhl(id);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/ghl/sync-tags/:contactId", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
+    const id = Number(req.params.contactId);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid contact ID" });
+    try {
+      const result = await syncTagsToGhl(id);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/ghl/sync-dashboard", isAuthenticated, async (req, res) => {
+    try {
+      const dashboard = await getFullSyncDashboard();
+      res.json(dashboard);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.post("/api/ghl/sync-hot-leads", isAuthenticated, async (req, res) => {

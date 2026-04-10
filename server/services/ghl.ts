@@ -480,6 +480,41 @@ export async function sendTemplatedMessage(params: {
 export async function handleGhlWebhook(payload: any): Promise<void> {
   const { type, contactId, messageId, direction, body, subject, status: deliveryStatus } = payload;
 
+  if (type === "ContactUpdate" || type === "contact-updated" || type === "ContactCreate" || type === "contact-created") {
+    await handleContactUpdated(payload);
+    return;
+  }
+
+  if (type === "OpportunityUpdated" || type === "opportunity-updated" || type === "OpportunityStageUpdate") {
+    await handleOpportunityUpdated(payload);
+    return;
+  }
+
+  if (type === "TaskCompleted" || type === "task-completed") {
+    await handleTaskCompleted(payload);
+    return;
+  }
+
+  if (type === "TaskUpdated" || type === "task-updated" || type === "TaskCreate" || type === "task-created") {
+    await handleTaskUpdated(payload);
+    return;
+  }
+
+  if (type === "NoteAdded" || type === "note-added" || type === "NoteCreate") {
+    await handleNoteAdded(payload);
+    return;
+  }
+
+  if (type === "TagAdded" || type === "tag-added" || type === "ContactTagUpdate") {
+    await handleTagAdded(payload);
+    return;
+  }
+
+  if (type === "TagRemoved" || type === "tag-removed") {
+    await handleTagRemoved(payload);
+    return;
+  }
+
   if (deliveryStatus && contactId) {
     const { data: contacts } = await storage.getContacts({ limit: 500 });
     const contact = contacts.find(c => c.ghlContactId === contactId);
@@ -921,6 +956,177 @@ export async function getDocumentStatus(documentId: string): Promise<{
   } catch (err: any) {
     console.error("[GHL E-Sign] Error checking document status:", err.message);
     return { status: "error", error: err.message };
+  }
+}
+
+async function handleContactUpdated(payload: any): Promise<void> {
+  try {
+    const contactData = payload.contact || payload;
+    const ghlContactId = contactData.id || payload.contactId;
+
+    if (!ghlContactId) return;
+
+    const { syncContactFromGhl } = await import("./ghl-sync");
+    const result = await syncContactFromGhl({
+      id: ghlContactId,
+      firstName: contactData.firstName || contactData.first_name,
+      lastName: contactData.lastName || contactData.last_name,
+      email: contactData.email,
+      phone: contactData.phone,
+      companyName: contactData.companyName || contactData.company_name,
+      tags: contactData.tags || [],
+    });
+
+    if (result) {
+      console.log(`[GHL Webhook] Contact ${result.created ? "created" : "updated"} from GHL: ${result.contactId}`);
+    }
+  } catch (err: any) {
+    console.error("[GHL Webhook] Error handling contact update:", err.message);
+  }
+}
+
+async function handleOpportunityUpdated(payload: any): Promise<void> {
+  try {
+    const { syncDealFromGhl, syncActivityFromGhl } = await import("./ghl-sync");
+    const opportunityData = payload.opportunity || payload;
+    const ghlContactId = opportunityData.contactId || opportunityData.contact?.id;
+
+    if (opportunityData.id) {
+      const result = await syncDealFromGhl(opportunityData);
+      if (result) {
+        console.log(`[GHL Webhook] Opportunity updated: deal ${result.dealId} (${result.created ? "created" : "updated"})`);
+      }
+    }
+
+    if (ghlContactId) {
+      await syncActivityFromGhl({
+        contactId: ghlContactId,
+        type: "opportunity_updated",
+        channel: "sync",
+        body: `Opportunity "${opportunityData.name || ""}" updated. Status: ${opportunityData.status || "unknown"}`,
+        subject: "Opportunity Updated",
+      });
+    }
+  } catch (err: any) {
+    console.error("[GHL Webhook] Error handling opportunity update:", err.message);
+  }
+}
+
+async function handleTaskUpdated(payload: any): Promise<void> {
+  try {
+    const taskData = payload.task || payload;
+    const ghlContactId = taskData.contactId || payload.contactId;
+
+    if (!ghlContactId) return;
+
+    const { syncTaskFromGhl } = await import("./ghl-sync");
+    await syncTaskFromGhl(taskData, ghlContactId);
+    console.log(`[GHL Webhook] Task synced/updated from GHL for contact ${ghlContactId}`);
+  } catch (err: any) {
+    console.error("[GHL Webhook] Error handling task update:", err.message);
+  }
+}
+
+async function handleTaskCompleted(payload: any): Promise<void> {
+  try {
+    const taskData = payload.task || payload;
+    const ghlContactId = taskData.contactId || payload.contactId;
+
+    if (!ghlContactId) return;
+
+    const { syncTaskFromGhl, syncActivityFromGhl } = await import("./ghl-sync");
+    await syncTaskFromGhl(
+      { ...taskData, completed: true },
+      ghlContactId
+    );
+
+    await syncActivityFromGhl({
+      contactId: ghlContactId,
+      type: "task_completed",
+      channel: "sync",
+      body: `Task "${taskData.title || ""}" completed`,
+      subject: "Task Completed",
+    });
+  } catch (err: any) {
+    console.error("[GHL Webhook] Error handling task completed:", err.message);
+  }
+}
+
+async function handleNoteAdded(payload: any): Promise<void> {
+  try {
+    const noteData = payload.note || payload;
+    const ghlContactId = noteData.contactId || payload.contactId;
+    const ghlNoteId = noteData.id || payload.noteId;
+
+    if (!ghlContactId) return;
+
+    const { data: contacts } = await storage.getContacts({ limit: 500 });
+    const contact = contacts.find(c => c.ghlContactId === ghlContactId);
+    if (!contact) return;
+
+    const noteContent = noteData.body || noteData.content || "Note from GHL";
+
+    if (ghlNoteId) {
+      const existingNotes = await storage.getNotes("contact", contact.id);
+      const alreadySynced = existingNotes.some(n =>
+        n.authorName === "GHL Sync" &&
+        n.content === noteContent
+      );
+      if (alreadySynced) {
+        console.log(`[GHL Webhook] Note already exists for contact ${contact.id}, skipping duplicate`);
+        return;
+      }
+    }
+
+    await storage.createNote({
+      entityType: "contact",
+      entityId: contact.id,
+      content: noteContent,
+      authorName: "GHL Sync",
+    });
+
+    const { syncActivityFromGhl } = await import("./ghl-sync");
+    await syncActivityFromGhl({
+      contactId: ghlContactId,
+      type: "note_added",
+      channel: "sync",
+      body: noteContent,
+      subject: "Note Added",
+    });
+
+    console.log(`[GHL Webhook] Note synced from GHL for contact ${contact.id}`);
+  } catch (err: any) {
+    console.error("[GHL Webhook] Error handling note added:", err.message);
+  }
+}
+
+async function handleTagAdded(payload: any): Promise<void> {
+  try {
+    const ghlContactId = payload.contactId || payload.contact?.id;
+    const tags = payload.tags || (payload.tag ? [payload.tag] : []);
+
+    if (!ghlContactId || tags.length === 0) return;
+
+    const { syncTagsFromGhl } = await import("./ghl-sync");
+    await syncTagsFromGhl(ghlContactId, tags);
+    console.log(`[GHL Webhook] Tags added from GHL: ${tags.join(", ")}`);
+  } catch (err: any) {
+    console.error("[GHL Webhook] Error handling tag added:", err.message);
+  }
+}
+
+async function handleTagRemoved(payload: any): Promise<void> {
+  try {
+    const ghlContactId = payload.contactId || payload.contact?.id;
+    const tags = payload.tags || (payload.tag ? [payload.tag] : []);
+
+    if (!ghlContactId || tags.length === 0) return;
+
+    const { removeTagsFromLocal } = await import("./ghl-sync");
+    await removeTagsFromLocal(ghlContactId, tags);
+    console.log(`[GHL Webhook] Tags removed from GHL: ${tags.join(", ")}`);
+  } catch (err: any) {
+    console.error("[GHL Webhook] Error handling tag removed:", err.message);
   }
 }
 
