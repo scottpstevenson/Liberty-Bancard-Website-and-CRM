@@ -9,6 +9,7 @@ import { decideNextAction, getAllowedTransitions } from "./stage-rules";
 import { sendGhlEmail, sendGhlSms, isGhlConfigured } from "../ghl";
 import { resolveVoiceScriptForLead, buildGhlVoicePayload } from "./voice-orchestrator";
 import { selectBestInbox, recordSend, recordBounce, recordDelivered } from "./inbox-rotation";
+import { tagContactForInboxOrganization } from "../ghl-workflow-enrollment";
 import { ingestBusiness } from "./dedupe";
 import { featureFlags } from "../feature-flags";
 import OpenAI from "openai";
@@ -480,6 +481,21 @@ async function executeEmailAction(lead: SdrLeadState, strongerCta?: boolean): Pr
         lastEmailAt: new Date(),
         updatedAt: new Date(),
       }).where(eq(sdrLeadState.id, lead.id));
+
+      if (lead.contactId && lead.ghlContactId) {
+        const vertKey = normalizeVerticalKey(lead.vertical);
+        const resolvedSeqName = vertKey === "Auto" ? "SDR: Cold Outbound — Auto Repair"
+          : vertKey === "Salon/Spa" ? "SDR: Cold Outbound — Med Spa"
+          : vertKey === "Healthcare" || vertKey === "Medical/Dental/Medspa" ? "SDR: Cold Outbound — Dental"
+          : `SDR: Cold Outbound — ${lead.vertical || "General"}`;
+        tagContactForInboxOrganization({
+          contactId: lead.contactId,
+          ghlContactId: lead.ghlContactId,
+          sequenceName: resolvedSeqName,
+          vertical: lead.vertical || undefined,
+          stage: "active",
+        }).catch(err => console.warn("[SDR Orchestrator] Inbox tagging failed:", err));
+      }
     } else if (result.error) {
       const errorLower = (result.error || "").toLowerCase();
       if (errorLower.includes("bounce") || errorLower.includes("invalid") || errorLower.includes("undeliverable")) {
@@ -613,6 +629,21 @@ async function executeSmsAction(lead: SdrLeadState): Promise<boolean> {
         lastSmsAt: new Date(),
         updatedAt: new Date(),
       }).where(eq(sdrLeadState.id, lead.id));
+
+      if (lead.contactId && lead.ghlContactId) {
+        const smsVertKey = normalizeVerticalKey(lead.vertical);
+        const smsResolvedSeqName = smsVertKey === "Auto" ? "SDR: Cold Outbound — Auto Repair"
+          : smsVertKey === "Salon/Spa" ? "SDR: Cold Outbound — Med Spa"
+          : smsVertKey === "Healthcare" || smsVertKey === "Medical/Dental/Medspa" ? "SDR: Cold Outbound — Dental"
+          : `SDR: Cold Outbound — ${lead.vertical || "General"}`;
+        tagContactForInboxOrganization({
+          contactId: lead.contactId,
+          ghlContactId: lead.ghlContactId,
+          sequenceName: smsResolvedSeqName,
+          vertical: lead.vertical || undefined,
+          stage: "active",
+        }).catch(err => console.warn("[SDR Orchestrator] SMS inbox tagging failed:", err));
+      }
     }
 
     return result.success;

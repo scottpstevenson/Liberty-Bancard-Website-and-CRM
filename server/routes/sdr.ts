@@ -8,6 +8,7 @@ import { eq, sql, desc } from "drizzle-orm";
 import { getSerperUsage, isSerperConfigured } from "../services/serper";
 import { scoreLeadFull } from "../services/sdr/scoring";
 import { bridgeContactsToSdr, getDailyLimits, getSdrDashboardStats, isOrchestratorRunning, startOrchestrator, stopOrchestrator, sweepLeads, pauseAll, resumeAll, isGloballyPaused, getGlobalPauseReason, getLastSweepTime, getLastSweepErrors, trackWebhookFailure, getWebhookFailureCount } from "../services/sdr/orchestrator";
+import { getEnrollmentStatus, getWorkflowMappings, getInboxSmartListTags } from "../services/ghl-workflow-enrollment";
 import { buildGhlVoicePayload, getAllVoiceScripts, getVoiceScript, personalizeVoiceScript, resolveVoiceScriptForLead } from "../services/sdr/voice-orchestrator";
 import { bridgeContactsToBusinesses, getDedupeStats, ingestBusiness } from "../services/sdr/dedupe";
 import { getAllFlags, featureFlags } from "../services/feature-flags";
@@ -1803,6 +1804,27 @@ export function registerSdrRoutes(app: Express) {
           replyRate: Number(stats.sent) > 0 ? Math.round((Number(stats.replied) / Number(stats.sent)) * 100) : 0,
         },
       });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.get("/api/sdr/ghl-enrollment/status", isAuthenticated, async (_req, res) => {
+    try {
+      const status = getEnrollmentStatus();
+      res.json(status);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.get("/api/sdr/ghl-enrollment/mappings", isAuthenticated, async (_req, res) => {
+    try {
+      const mappings = getWorkflowMappings();
+      const smartListTags = getInboxSmartListTags();
+      res.json({ mappings, smartListTags });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
       res.status(500).json({ message: errMsg });

@@ -2,8 +2,9 @@ import { storage } from "../storage";
 import { sendGhlEmail, sendGhlSms, isGhlConfigured } from "./ghl";
 import { getEmailSignatureHtml } from "./email-signatures";
 import { createPreferenceAwareNotification } from "./digest-service";
-import { enrollInGhlWorkflow, getWorkflowId, getSdrWorkflowForVertical } from "./ghl-workflows";
-import { isSdrGhlConfigured } from "./sdr/ghl-client";
+import { enrollContactInGhlWorkflow, tagContactForInboxOrganization } from "./ghl-workflow-enrollment";
+
+const GHL_WORKFLOW_ONLY = process.env.GHL_WORKFLOW_ONLY_MODE === "true";
 
 export async function processSequenceEnrollments(): Promise<{ processed: number; errors: number }> {
   let processed = 0;
@@ -36,6 +37,91 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
           await createPreferenceAwareNotification({ channel: "internal", title: "Sequence Completed", message: `Sequence "${sequence.name}" completed for contact #${enrollment.contactId || 0}.`, type: "info", metadata: { sequenceId: sequence.id, contactId: enrollment.contactId, eventType: "sequence_completed" } }, "sequence_completed");
           processed++;
           continue;
+        }
+
+        if (currentStep === 0 && enrollment.contactId) {
+          const triggerConfig = (sequence.triggerConfig as any) || {};
+          const enrollResult = await enrollContactInGhlWorkflow({
+            contactId: enrollment.contactId,
+            sequenceName: sequence.name,
+            sequenceId: sequence.id,
+            vertical: triggerConfig.vertical,
+            dealId: enrollment.dealId || undefined,
+          });
+
+          if (enrollResult.enrolled && enrollResult.method === "ghl_workflow") {
+            await storage.updateSequenceEnrollment(enrollment.id, {
+              status: "completed",
+              completedAt: new Date(),
+            });
+            await storage.createAuditLog({
+              action: "sequence_delegated_to_ghl",
+              entityType: "contact",
+              entityId: enrollment.contactId,
+              details: {
+                sequenceId: sequence.id,
+                sequenceName: sequence.name,
+                ghlWorkflowId: enrollResult.ghlWorkflowId,
+                method: enrollResult.method,
+              },
+            });
+            await createPreferenceAwareNotification({
+              channel: "internal",
+              title: "Sequence Delegated to GHL",
+              message: `Sequence "${sequence.name}" for contact #${enrollment.contactId} delegated to GHL workflow.`,
+              type: "info",
+              metadata: { sequenceId: sequence.id, contactId: enrollment.contactId, eventType: "sequence_delegated_ghl" },
+            }, "sequence_delegated_ghl");
+            processed++;
+            continue;
+          }
+
+          if (enrollResult.method === "skipped") {
+            await storage.updateSequenceEnrollment(enrollment.id, {
+              status: "paused",
+            });
+            await storage.createAuditLog({
+              action: "sequence_enrollment_skipped",
+              entityType: "contact",
+              entityId: enrollment.contactId,
+              details: {
+                sequenceId: sequence.id,
+                sequenceName: sequence.name,
+                reason: enrollResult.reason,
+              },
+            });
+            processed++;
+            continue;
+          }
+
+          if (enrollResult.contactGhlId) {
+            const triggerConfig = (sequence.triggerConfig as any) || {};
+            tagContactForInboxOrganization({
+              contactId: enrollment.contactId,
+              ghlContactId: enrollResult.contactGhlId,
+              sequenceName: sequence.name,
+              vertical: triggerConfig.vertical,
+            }).catch(err => console.warn("[Sequence Worker] Inbox tagging failed:", err));
+          }
+
+          if (GHL_WORKFLOW_ONLY) {
+            await storage.updateSequenceEnrollment(enrollment.id, {
+              status: "paused",
+            });
+            await storage.createAuditLog({
+              action: "sequence_direct_send_blocked",
+              entityType: "contact",
+              entityId: enrollment.contactId,
+              details: {
+                sequenceId: sequence.id,
+                sequenceName: sequence.name,
+                reason: "GHL_WORKFLOW_ONLY_MODE enabled — direct sends disabled",
+                enrollResult: enrollResult.reason,
+              },
+            });
+            processed++;
+            continue;
+          }
         }
 
         const step = steps.find(s => s.stepOrder === currentStep + 1) || steps[currentStep];
@@ -98,48 +184,6 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
         };
 
         let stepExecuted = false;
-
-        const ghlWorkflowId = sequence.ghlWorkflowId || (sequence as any).metadata?.ghlWorkflowId;
-        if (ghlWorkflowId && isSdrGhlConfigured() && enrollment.contactId && currentStep === 0) {
-          try {
-            let contactForWorkflow = await storage.getContact(enrollment.contactId);
-            if (!contactForWorkflow?.ghlContactId) {
-              const { syncContactToGhl } = await import("./ghl-sync");
-              const syncResult = await syncContactToGhl(enrollment.contactId);
-              if (syncResult.ghlContactId) {
-                contactForWorkflow = await storage.getContact(enrollment.contactId);
-              }
-            }
-            if (contactForWorkflow?.ghlContactId) {
-              const wfResult = await enrollInGhlWorkflow({
-                workflowKey: ghlWorkflowId,
-                ghlContactId: contactForWorkflow.ghlContactId,
-                metadata: {
-                  sequenceId: sequence.id,
-                  sequenceName: sequence.name,
-                  contactId: enrollment.contactId,
-                  enrolledAt: new Date().toISOString(),
-                },
-              });
-              if (wfResult.success) {
-                await storage.updateSequenceEnrollment(enrollment.id, {
-                  status: "completed",
-                  completedAt: new Date(),
-                });
-                await storage.createAuditLog({
-                  action: "sequence_delegated_to_ghl",
-                  entityType: "contact",
-                  entityId: enrollment.contactId,
-                  details: { sequenceId: sequence.id, workflowKey: ghlWorkflowId },
-                });
-                processed++;
-                continue;
-              }
-            }
-          } catch (wfErr) {
-            console.error(`[Sequence] GHL workflow delegation failed, falling back to direct send:`, wfErr);
-          }
-        }
 
         switch (step.actionType) {
           case "email": {

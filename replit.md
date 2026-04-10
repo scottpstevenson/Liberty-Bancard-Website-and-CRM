@@ -53,6 +53,17 @@ The frontend uses React with Vite, TypeScript, Tailwind CSS, and shadcn/ui, with
 - **AI Advisors**: Seven specialized AI advisors (Sales, Support, Onboarding, Marketing, Finance, Compliance, Executive).
 - **Compliance Rules**: Adherence to regulatory guidelines, including explicit disclaimers and PCI compliance.
 
+### GHL Workflow Enrollment & Automation (Task #40)
+- **GHL Workflow Enrollment Service** (`server/services/ghl-workflow-enrollment.ts`): Maps all 30+ seed sequences to GHL workflow IDs via env vars (`GHL_WORKFLOW_<SEQUENCE_NAME>`) or a default (`GHL_DEFAULT_WORKFLOW_ID`). Enrolls contacts into GHL-native workflows via `triggerWorkflow()`, tags contacts for LeadConnector inbox organization, and falls back to Replit direct sends when no workflow ID is configured.
+- **Sequence Worker Bridge**: Modified `server/services/sequence-worker.ts` to attempt GHL workflow enrollment at step 0 before falling back to Replit direct email/SMS sends. Respects `LB-ACTIVE-PIPELINE` tag exclusion and `doNotContact` flags.
+- **Inbound Lead Confirmation**: All public form submissions (statement upload, estimate, get-started, callback) trigger `enrollInInboundConfirmation()` which sends welcome email + SMS with booking link + 24h follow-up via GHL workflow (or direct sends as fallback).
+- **Appointment Scheduling Automation**: `enrollInAppointmentWorkflow()` sends confirmation email, 24h reminder, 1h SMS reminder, and post-meeting follow-up. Wired into GHL appointment-booked webhook handler.
+- **LeadConnector Inbox Organization**: Contacts tagged with sequence-specific tags (e.g., `LB-SEQ-STATEMENT-AUDIT`), vertical tags (`LB-AUTO`, `LB-MEDSPA`, `LB-DENTAL`), and smart list tags (`LB-SDR`, `LB-REPLIED`, `LB-BOOKING-READY`, `LB-STATEMENT-PENDING`, `LB-HUMAN-HANDOFF`, `LB-ACTIVE-PIPELINE`). SDR orchestrator email/SMS sends also tag via `tagContactForInboxOrganization()`.
+- **Platform Email Separation**: Transactional emails (password reset, email verification, security alerts) stay in Replit. Marketing/sales emails (SDR sequences, inbound confirmations, appointment reminders, proposals, nurture drips) route through GHL.
+- **E-Sign Flow**: Verified complete — `sendDocumentForEsign()` and `getDocumentStatus()` in ghl.ts, full endpoint chain in merchants.ts with webhook handler at `/api/webhooks/ghl-document`, `markEsignComplete()` verification in enrollment service.
+- **API Endpoints**: `GET /api/sdr/ghl-enrollment/status` (enrollment system status), `GET /api/sdr/ghl-enrollment/mappings` (sequence-to-workflow mappings and smart list tags).
+- **Required Env Vars**: `GHL_WORKFLOW_INBOUND_CONFIRMATION`, `GHL_WORKFLOW_APPOINTMENT`, `GHL_DEFAULT_WORKFLOW_ID`, `GHL_MERCHANT_AGREEMENT_TEMPLATE_ID`.
+
 ### Pre-Deployment Security & Stability (Tasks #33-#38)
 - **Auth Middleware**: All CRM/internal API endpoints require `isAuthenticated` middleware. Only public marketing routes, health checks, and external webhook receivers are unprotected.
 - **Error Handling**: All route handlers wrapped in try/catch with structured error logging. SLA worker catch blocks log errors instead of swallowing silently.

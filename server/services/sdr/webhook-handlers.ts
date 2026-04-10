@@ -1,12 +1,13 @@
 import { z } from "zod";
 import { db } from "../../db";
-import { sdrLeadEvents, sdrMerchants, sdrLeadState } from "@shared/schema";
+import { sdrLeadEvents, sdrMerchants, sdrLeadState, contacts } from "@shared/schema";
 import type { SdrMerchant } from "@shared/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { onOptOut, onAppointmentBooked, onStageChange } from "./ghl-sync-rules";
 import { classifyIntent, executeIntentAction } from "./reply-intelligence";
 import { handleCallDisposition, CALL_DISPOSITIONS, type CallDisposition } from "./voice-orchestrator";
 import { handleAppointmentBooked as schedulingHandleBooked, handleAppointmentCanceled as schedulingHandleCanceled } from "./scheduling";
+import { enrollInAppointmentWorkflow, tagContactForInboxOrganization } from "../ghl-workflow-enrollment";
 import { checkAndLogCompliance } from "./compliance-engine";
 
 const contactUpdatedSchema = z.object({
@@ -40,6 +41,7 @@ const appointmentSchema = z.object({
   id: z.string().optional(),
   calendarId: z.string().optional(),
   status: z.string().optional(),
+  startTime: z.string().optional(),
 }).passthrough();
 
 const optOutSchema = z.object({
@@ -258,6 +260,29 @@ export async function handleAppointmentBooked(rawPayload: unknown): Promise<void
   const ghlContactId = payload.contactId;
 
   await schedulingHandleBooked(payload);
+
+  if (ghlContactId) {
+    try {
+      const [crmContact] = await db.select().from(contacts).where(eq(contacts.ghlContactId, ghlContactId)).limit(1);
+      if (crmContact) {
+        const appointmentDate = payload.startTime ? new Date(payload.startTime) : new Date(Date.now() + 24 * 60 * 60 * 1000);
+        enrollInAppointmentWorkflow({
+          contactId: crmContact.id,
+          appointmentDate,
+          calendarType: "sales",
+        }).catch(err => console.error("[SDR Webhook] Appointment workflow enrollment failed:", err));
+
+        tagContactForInboxOrganization({
+          contactId: crmContact.id,
+          ghlContactId,
+          sequenceName: "Appointment Booked",
+          stage: "meeting_set",
+        }).catch(err => console.warn("[SDR Webhook] Appointment tagging failed:", err));
+      }
+    } catch (lookupErr) {
+      console.warn("[SDR Webhook] CRM contact lookup for appointment failed:", lookupErr);
+    }
+  }
 
   console.log(`[SDR Webhook] appointment-booked processed for GHL contact ${ghlContactId}`);
 }
