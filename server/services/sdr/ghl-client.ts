@@ -411,12 +411,35 @@ export const REQUIRED_CUSTOM_FIELDS = [
   { key: "lb_last_ai_outcome", name: "LB Last AI Outcome", dataType: "TEXT" },
   { key: "lb_owner_type", name: "LB Owner Type", dataType: "TEXT" },
   { key: "lb_do_not_sdr", name: "LB Do Not SDR", dataType: "TEXT" },
+  { key: "lb_monthly_volume", name: "LB Monthly Volume", dataType: "TEXT" },
+  { key: "lb_current_processor", name: "LB Current Processor", dataType: "TEXT" },
+  { key: "lb_pain_points", name: "LB Pain Points", dataType: "TEXT" },
+  { key: "lb_terminal_need", name: "LB Terminal Need", dataType: "TEXT" },
+  { key: "lb_preferred_program", name: "LB Preferred Program", dataType: "TEXT" },
+  { key: "lb_interested_0_percent", name: "LB Interested 0%", dataType: "TEXT" },
+  { key: "lb_avg_ticket", name: "LB Avg Ticket", dataType: "TEXT" },
+  { key: "lb_utm_source", name: "LB UTM Source", dataType: "TEXT" },
+  { key: "lb_utm_medium", name: "LB UTM Medium", dataType: "TEXT" },
+  { key: "lb_utm_campaign", name: "LB UTM Campaign", dataType: "TEXT" },
+  { key: "lb_promo_code", name: "LB Promo Code", dataType: "TEXT" },
+  { key: "lb_lead_source", name: "LB Lead Source", dataType: "TEXT" },
+  { key: "lb_consent_sms", name: "LB Consent SMS", dataType: "TEXT" },
+  { key: "lb_consent_email", name: "LB Consent Email", dataType: "TEXT" },
+  { key: "lb_business_type", name: "LB Business Type", dataType: "TEXT" },
+  { key: "lb_estimated_savings", name: "LB Estimated Savings", dataType: "TEXT" },
+  { key: "lb_recommended_program", name: "LB Recommended Program", dataType: "TEXT" },
+  { key: "lb_referral_code", name: "LB Referral Code", dataType: "TEXT" },
+  { key: "lb_landing_page", name: "LB Landing Page", dataType: "TEXT" },
+  { key: "lb_deal_stage", name: "LB Deal Stage", dataType: "TEXT" },
+  { key: "lb_deal_pipeline", name: "LB Deal Pipeline", dataType: "TEXT" },
 ] as const;
 
 export const REQUIRED_TAGS = [
   "LB-AI-SDR", "LB-AUTO", "LB-MEDSPA", "LB-DENTAL", "LB-BOOKING-READY",
   "LB-STATEMENT-PENDING", "LB-PROPOSAL-SENT", "LB-HUMAN-HANDOFF", "LB-DO-NOT-AUTO",
   "LB-CHAT-LEAD", "LB-CHAT-HANDOFF", "LB-ACTIVE-PIPELINE",
+  "LB-AFFILIATE", "LB-SUPPORT", "LB-STATEMENT-RECEIVED", "LB-EQUIPMENT-ORDER",
+  "LB-QUIZ-LEAD", "LB-ESTIMATE", "LB-CALLBACK", "LB-MERCHANT-APP",
 ] as const;
 
 let bootstrapCompleted = false;

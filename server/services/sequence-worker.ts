@@ -2,6 +2,8 @@ import { storage } from "../storage";
 import { sendGhlEmail, sendGhlSms, isGhlConfigured } from "./ghl";
 import { getEmailSignatureHtml } from "./email-signatures";
 import { createPreferenceAwareNotification } from "./digest-service";
+import { enrollInGhlWorkflow, getWorkflowId, getSdrWorkflowForVertical } from "./ghl-workflows";
+import { isSdrGhlConfigured } from "./sdr/ghl-client";
 
 export async function processSequenceEnrollments(): Promise<{ processed: number; errors: number }> {
   let processed = 0;
@@ -97,6 +99,48 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
 
         let stepExecuted = false;
 
+        const ghlWorkflowId = sequence.ghlWorkflowId || (sequence as any).metadata?.ghlWorkflowId;
+        if (ghlWorkflowId && isSdrGhlConfigured() && enrollment.contactId && currentStep === 0) {
+          try {
+            let contactForWorkflow = await storage.getContact(enrollment.contactId);
+            if (!contactForWorkflow?.ghlContactId) {
+              const { syncContactToGhl } = await import("./ghl-sync");
+              const syncResult = await syncContactToGhl(enrollment.contactId);
+              if (syncResult.ghlContactId) {
+                contactForWorkflow = await storage.getContact(enrollment.contactId);
+              }
+            }
+            if (contactForWorkflow?.ghlContactId) {
+              const wfResult = await enrollInGhlWorkflow({
+                workflowKey: ghlWorkflowId,
+                ghlContactId: contactForWorkflow.ghlContactId,
+                metadata: {
+                  sequenceId: sequence.id,
+                  sequenceName: sequence.name,
+                  contactId: enrollment.contactId,
+                  enrolledAt: new Date().toISOString(),
+                },
+              });
+              if (wfResult.success) {
+                await storage.updateSequenceEnrollment(enrollment.id, {
+                  status: "completed",
+                  completedAt: new Date(),
+                });
+                await storage.createAuditLog({
+                  action: "sequence_delegated_to_ghl",
+                  entityType: "contact",
+                  entityId: enrollment.contactId,
+                  details: { sequenceId: sequence.id, workflowKey: ghlWorkflowId },
+                });
+                processed++;
+                continue;
+              }
+            }
+          } catch (wfErr) {
+            console.error(`[Sequence] GHL workflow delegation failed, falling back to direct send:`, wfErr);
+          }
+        }
+
         switch (step.actionType) {
           case "email": {
             const emailBody = interpolate(step.body) + getEmailSignatureHtml("sales");
@@ -117,9 +161,8 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
               direction: "outbound",
               subject: interpolate(step.subject),
               body: emailBody,
-              status: stepExecuted ? "sent" : "queued",
+              status: stepExecuted ? "sent" : "failed",
             });
-            stepExecuted = true;
             break;
           }
 
@@ -135,7 +178,6 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                 console.error(`Sequence SMS failed for enrollment ${enrollment.id}:`, smsErr);
               }
             }
-            stepExecuted = true;
             break;
           }
 

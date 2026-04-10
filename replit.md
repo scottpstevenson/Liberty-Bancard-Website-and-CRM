@@ -20,7 +20,7 @@ The frontend uses React with Vite, TypeScript, Tailwind CSS, and shadcn/ui, with
 - **Database**: PostgreSQL with Drizzle ORM.
 - **Authentication**: Custom email/password authentication with session-based auth, email verification, password recovery, and role-based access control.
 - **AI Integration**: OpenAI powers AI advisors, lead enrichment, deal blueprint generation, and compliance-safe auto-replies. Includes an autonomous AI SDR pipeline with intent classification, voice AI orchestration, and a comprehensive compliance engine.
-- **External Communications**: GoHighLevel (GHL) is integrated for SMS, email, calendar management, and document e-signature, including a 2-way sync for contacts and deals.
+- **External Communications**: GoHighLevel (GHL) is the primary day-to-day CRM/communications hub. Full 2-way sync engine covers contacts, deals/opportunities, companies, tasks, tickets, notes, tags, and activity logs. The sync engine runs on a 45-second auto-loop. All website form submissions (7+ forms) sync to GHL with 35+ custom fields and lead source tagging. GHL workflow enrollment bridge allows sequences to delegate to native GHL workflows. Platform emails (password reset, verification) stay in the Replit app; all sales/support communications route through GHL.
 - **Analytics & Tracking**: GA4 and Facebook Pixel for analytics, conversion tracking, and UTM parameter capture.
 - **Promo System**: Dynamic promotion display and tracking with end-to-end code persistence.
 - **Lead Management**: AI-powered prospect enrichment, multi-step personalized email campaigns, lead scoring, deal blueprint generation, universal CSV import, and a Nightly Lead Discovery Engine.
@@ -60,6 +60,14 @@ The frontend uses React with Vite, TypeScript, Tailwind CSS, and shadcn/ui, with
 - **Pagination**: `getContacts()`, `getDeals()`, `getTickets()`, `getTasks()`, `getProspects()`, `getSunbizEntities()` accept optional `{ limit, offset }`. API routes support `?limit=N&offset=N` query params (max 1000).
 - **GHL Hardening**: Legacy webhook HMAC verification, `ghlFetch()` retry with exponential backoff, calendar/workflow env var runtime checks, production enforcement of `GHL_WEBHOOK_SECRET`.
 - **Required Env Vars for Go-Live**: `GHL_PRIVATE_INTEGRATION_TOKEN`, `GHL_LOCATION_ID`, `GHL_WEBHOOK_SECRET`, `SERPER_API_KEY`, `ADMIN_DIGEST_EMAIL`, `GHL_CALENDAR_ID`, `GHL_WORKFLOW_BOOKING_LINK`, `GHL_WORKFLOW_REMINDER`.
+
+### GHL Integration Architecture (Tasks #39-#41)
+- **Full 2-Way Sync Engine** (`server/services/ghl-sync.ts`): Bidirectional sync for contacts, deals/opportunities, companies, tasks, tickets, notes, tags, and activity. Pipeline stage mapping with auto-discovery. Active pipeline exclusion via `LB-ACTIVE-PIPELINE` tag. Auto-sync loop every 45 seconds.
+- **GHL Form Sync** (`server/services/ghl-form-sync.ts`): Centralized service that syncs all website form submissions to GHL with full custom field mapping. Handles statement uploads (adds note + triggers workflow), support tickets (creates GHL task), merchant applications (syncs all fields), and consent/DND settings.
+- **GHL Workflow Registry** (`server/services/ghl-workflows.ts`): 21 registered workflow types covering SDR outbound (6 verticals), inbound lead confirmation, scheduling (booking/reminder/no-show), support, onboarding, and nurture. Each mapped to an env var for configuration. Platform email separation clearly documented (password reset/verification stay in Replit app).
+- **Sequence Worker GHL Bridge**: The sequence worker (`server/services/sequence-worker.ts`) now checks for a `ghlWorkflowId` on sequences. If present, it enrolls the contact in the corresponding GHL workflow instead of sending directly, making the worker an enrollment dispatcher.
+- **35+ GHL Custom Fields**: Bootstrap includes: lb_merchant_id, lb_current_stage, lb_fit_score, lb_revenue_score, lb_vertical, lb_monthly_volume, lb_current_processor, lb_pain_points, lb_terminal_need, lb_preferred_program, lb_utm_source/medium/campaign, lb_promo_code, lb_lead_source, lb_consent_sms/email, lb_estimated_savings, lb_recommended_program, lb_referral_code, lb_landing_page, lb_deal_stage/pipeline, and more.
+- **GHL API Endpoints**: `/api/ghl/workflows` (workflow registry status), `/api/ghl/email-config` (platform email routing), plus existing sync/health/status endpoints.
 
 ## External Dependencies
 - **PostgreSQL**: Primary relational database.

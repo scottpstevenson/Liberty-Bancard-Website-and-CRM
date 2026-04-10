@@ -6,6 +6,7 @@ import { and } from "drizzle-orm";
 import { checkGhlHealth, getCalendarBookingUrl, getGhlStatus, handleGhlWebhook, isGhlConfigured, sendGhlEmail, sendGhlSms, sendTemplatedMessage, upsertGhlContact, validateGhlWebhookSignature } from "../services/ghl";
 import { routeContact } from "../services/smart-router";
 import { fullSyncFromGhl, fullSyncToGhl, getGhlSyncStatus, getFullSyncDashboard, syncContactToGhl, syncDealToGhl, syncCompanyToGhl, syncTaskToGhl, syncTicketToGhl, syncNoteToGhl, syncTagsToGhl } from "../services/ghl-sync";
+import { getWorkflowStatus, GHL_WORKFLOW_REGISTRY, getPlatformEmailConfig } from "../services/ghl-workflows";
 
 export function registerIntegrationsRoutes(app: Express) {
   // === GHL INTEGRATION ===
@@ -445,6 +446,33 @@ export function registerIntegrationsRoutes(app: Express) {
       res.json({ success: true, received: true });
     } catch (err: any) {
       console.error("Blaze webhook error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/ghl/workflows", isAuthenticated, async (req, res) => {
+    try {
+      const status = getWorkflowStatus();
+      res.json({
+        ...status,
+        registry: GHL_WORKFLOW_REGISTRY.map(w => ({
+          id: w.id,
+          name: w.name,
+          category: w.category,
+          envKey: w.envKey,
+          configured: !!process.env[w.envKey],
+          description: w.description,
+        })),
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/ghl/email-config", isAuthenticated, async (req, res) => {
+    try {
+      res.json(getPlatformEmailConfig());
+    } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
   });

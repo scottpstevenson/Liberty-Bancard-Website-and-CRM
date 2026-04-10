@@ -10,6 +10,7 @@ import { generateDealBlueprint } from "../services/deal-blueprint";
 import { autoGenerateProposal } from "../services/proposal-engine";
 import { routeContact } from "../services/smart-router";
 import { ingestBusinessFromContact } from "../services/sdr/dedupe";
+import { syncFormSubmissionToGhl, syncStatementUploadToGhl, syncSupportTicketToGhl } from "../services/ghl-form-sync";
 import { parse } from "csv-parse/sync";
 import path from "path";
 import fs from "fs";
@@ -250,6 +251,8 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       if (parseBool(consentSms)) sendConfirmationSms(contact.id, firstName, "statement_upload", deal.id).catch(err => console.error("Confirm SMS error:", err));
       generateDealBlueprint(deal.id).catch(err => console.error("Blueprint generation error:", err));
       autoGenerateProposal(deal.id, statementFileBuffer).catch(err => console.error("Auto-proposal error:", err));
+      syncFormSubmissionToGhl({ contactId: contact.id, dealId: deal.id, leadSource: "statement_upload", skipWorkflowTrigger: true }).catch(err => console.error("GHL form sync error:", err));
+      syncStatementUploadToGhl(contact.id, statementFileName).catch(err => console.error("GHL statement sync error:", err));
 
       res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id });
     } catch (err: any) {
@@ -300,6 +303,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
       autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "estimate" }).catch(err => console.error("Auto-enroll error:", err));
       triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: deal.id }, { formType: "estimate" }).catch(err => console.error("Workflow trigger error:", err));
+      syncFormSubmissionToGhl({ contactId: contact.id, dealId: deal.id, leadSource: "estimate" }).catch(err => console.error("GHL form sync error:", err));
       res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id });
     } catch (err: any) {
       res.status(400).json({ message: err.message || "Invalid submission" });
@@ -366,6 +370,8 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
 
       triggerWorkflowsByEvent("ticket_created", { entityType: "ticket", entityId: ticket.id }).catch(err => console.error("Workflow trigger error:", err));
       if (consentSms && mobile) sendConfirmationSms(contact.id, firstName, "support").catch(err => console.error("Confirm SMS error:", err));
+      syncFormSubmissionToGhl({ contactId: contact.id, leadSource: "support", skipWorkflowTrigger: true }).catch(err => console.error("GHL form sync error:", err));
+      syncSupportTicketToGhl(contact.id, ticket.id, issueType || "General", msg || "").catch(err => console.error("GHL support sync error:", err));
 
       res.status(201).json({ success: true, ticketId: ticket.id });
     } catch (err: any) {
@@ -437,6 +443,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "get_started" }).catch(err => console.error("Auto-enroll error:", err));
       triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: deal.id }, { formType: "get_started" }).catch(err => console.error("Workflow trigger error:", err));
       if (consentSms && phone) sendConfirmationSms(contact.id, firstName, "get_started", deal.id).catch(err => console.error("Confirm SMS error:", err));
+      syncFormSubmissionToGhl({ contactId: contact.id, dealId: deal.id, leadSource: "get_started" }).catch(err => console.error("GHL form sync error:", err));
       res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id, offerPath });
     } catch (err: any) {
       res.status(400).json({ message: err.message || "Invalid submission" });
@@ -473,8 +480,8 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
       autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "callback" }).catch(err => console.error("Auto-enroll error:", err));
       triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: deal.id }, { formType: "callback" }).catch(err => console.error("Workflow trigger error:", err));
-      // callback form: person explicitly requested a call, treat as implied consent for confirmation
       if (phone) sendConfirmationSms(contact.id, firstName, "callback", deal.id).catch(err => console.error("Confirm SMS error:", err));
+      syncFormSubmissionToGhl({ contactId: contact.id, dealId: deal.id, leadSource: "callback" }).catch(err => console.error("GHL form sync error:", err));
       res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id });
     } catch (err: any) {
       res.status(400).json({ message: err.message || "Invalid submission" });
@@ -574,8 +581,8 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
       autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "equipment_order" }).catch(err => console.error("Auto-enroll error:", err));
       triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: deal.id }, { formType: "equipment_order" }).catch(err => console.error("Workflow trigger error:", err));
-      // equipment order: customer placed an order, confirmation SMS is transactional
       if (phone) sendConfirmationSms(contact.id, firstName, "equipment_order", deal.id).catch(err => console.error("Confirm SMS error:", err));
+      syncFormSubmissionToGhl({ contactId: contact.id, dealId: deal.id, leadSource: "equipment_order" }).catch(err => console.error("GHL form sync error:", err));
       res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id });
     } catch (err: any) {
       res.status(400).json({ message: err.message || "Invalid submission" });

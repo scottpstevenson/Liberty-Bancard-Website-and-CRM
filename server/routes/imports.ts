@@ -17,6 +17,7 @@ import { importCordataEnrichment, importFullCorevt, isWorkerRunning, runDailyOut
 import { getGhlSyncStatus } from "../services/ghl-sync";
 import { runBulkFastClassification } from "../services/sunbiz-enrichment";
 import { ingestBusiness, ingestBusinessFromContact } from "../services/sdr/dedupe";
+import { syncFormSubmissionToGhl } from "../services/ghl-form-sync";
 import { parse } from "csv-parse/sync";
 import bcrypt from "bcryptjs";
 import path from "path";
@@ -495,6 +496,26 @@ Guidelines:
         role: "affiliate",
         authProvider: "local",
       });
+      const affiliateContact = await storage.createContact({
+        firstName,
+        lastName: lastName || "",
+        email: email.toLowerCase(),
+        phone,
+        companyName: companyName || undefined,
+        status: "Active",
+        tags: ["src_website", "affiliate"],
+      }).catch(() => null);
+
+      if (affiliateContact) {
+        syncFormSubmissionToGhl({
+          contactId: affiliateContact.id,
+          leadSource: "affiliate",
+          formData: {
+            lb_referral_code: partner.affiliateCode || "",
+          },
+        }).catch(err => console.error("GHL affiliate sync error:", err));
+      }
+
       req.logIn(user, (loginErr) => {
         if (loginErr) {
           return res.status(201).json({
@@ -859,6 +880,17 @@ Guidelines:
       }).catch(err => console.error("Auto-enroll quiz error:", err));
 
       if (consentSms && phone) sendConfirmationSms(contact.id, firstName, "free_analysis_quiz", deal.id).catch(err => console.error("Confirm SMS error:", err));
+
+      syncFormSubmissionToGhl({
+        contactId: contact.id,
+        dealId: deal.id,
+        leadSource: "free_analysis",
+        formData: {
+          lb_estimated_savings: `$${estimatedSavings.toLocaleString()}`,
+          lb_recommended_program: recommendedProgram,
+          lb_business_type: businessType || "",
+        },
+      }).catch(err => console.error("GHL form sync error:", err));
 
       res.status(201).json({
         success: true,

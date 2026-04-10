@@ -5,6 +5,7 @@ import { z } from "zod";
 import { and } from "drizzle-orm";
 import { insertEquipmentOrderSchema, insertMerchantApplicationSchema, insertMerchantProfileSchema, insertOnboardingStepSchema } from "@shared/schema";
 import { getDocumentStatus, sendDocumentForEsign } from "../services/ghl";
+import { syncMerchantApplicationToGhl } from "../services/ghl-form-sync";
 import { parse } from "csv-parse/sync";
 import path from "path";
 
@@ -14,6 +15,27 @@ export function registerMerchantsRoutes(app: Express) {
     try {
       const input = insertMerchantApplicationSchema.parse(req.body);
       const application = await storage.createMerchantApplication(input);
+
+      const contactEmail = application.ownerEmail || application.businessEmail;
+      if (contactEmail) {
+        const contact = await storage.createContact({
+          firstName: application.ownerFirstName || "",
+          lastName: application.ownerLastName || "",
+          email: contactEmail,
+          phone: application.businessPhone || application.ownerPhone || "",
+          companyName: application.legalBusinessName || application.dbaName || "",
+          vertical: application.vertical || undefined,
+          status: "New",
+          tags: ["src_merchant_app", "merchant_application"],
+        }).catch(() => null);
+
+        if (contact) {
+          syncMerchantApplicationToGhl(application.id, contact.id).catch(err =>
+            console.error("GHL merchant app sync error:", err)
+          );
+        }
+      }
+
       res.status(201).json(application);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
