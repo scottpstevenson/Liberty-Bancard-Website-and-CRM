@@ -5,6 +5,7 @@ import type { Express, RequestHandler } from "express";
 import connectPg from "connect-pg-simple";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
+import rateLimit from "express-rate-limit";
 import { authStorage } from "./storage";
 import { storage } from "../../storage";
 import { isGhlConfigured, sendGhlEmailForMerchant as sendGhlEmail } from "../../services/ghl";
@@ -18,8 +19,13 @@ export function getSession() {
     ttl: sessionTtl,
     tableName: "sessions",
   });
+  const secret =
+    process.env.SESSION_SECRET ||
+    (process.env.NODE_ENV !== "production"
+      ? "dev-insecure-fallback-secret-do-not-use-in-production"
+      : (() => { throw new Error("SESSION_SECRET must be set in production"); })());
   return session({
-    secret: process.env.SESSION_SECRET!,
+    secret,
     store: sessionStore,
     resave: false,
     saveUninitialized: false,
@@ -38,10 +44,11 @@ export function getSession() {
 // - merchant: can only access the merchant portal
 
 async function seedAdminUser() {
-  const adminEmail = "scott@libertybancard.com";
+  const adminEmail = process.env.ADMIN_SEED_EMAIL || "scott@libertybancard.com";
+  const adminPassword = process.env.ADMIN_SEED_PASSWORD || "miami33137!";
   const existing = await authStorage.getUserByEmail(adminEmail);
   if (!existing) {
-    const passwordHash = await bcrypt.hash("miami33137!", 12);
+    const passwordHash = await bcrypt.hash(adminPassword, 12);
     await authStorage.upsertUser({
       email: adminEmail,
       firstName: "Scott",
@@ -50,9 +57,33 @@ async function seedAdminUser() {
       role: "admin",
       authProvider: "local",
     });
-    console.log("[Auth] Admin user seeded: scott@libertybancard.com");
+    console.log(`[Auth] Admin user seeded: ${adminEmail}`);
   }
 }
+
+const loginRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many login attempts, please try again later." },
+});
+
+const signupRateLimit = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 3,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many signup attempts, please try again later." },
+});
+
+const forgotPasswordRateLimit = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 3,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many password reset requests, please try again later." },
+});
 
 export async function setupAuth(app: Express) {
   app.set("trust proxy", 1);
@@ -97,7 +128,7 @@ export async function setupAuth(app: Express) {
     }
   });
 
-  app.post("/api/auth/login", (req, res, next) => {
+  app.post("/api/auth/login", loginRateLimit, (req, res, next) => {
     passport.authenticate("local", (err: any, user: any, info: any) => {
       if (err) return res.status(500).json({ message: "Server error" });
       if (!user) return res.status(401).json({ message: info?.message || "Invalid credentials" });
@@ -109,7 +140,7 @@ export async function setupAuth(app: Express) {
     })(req, res, next);
   });
 
-  app.post("/api/auth/signup", async (req, res) => {
+  app.post("/api/auth/signup", signupRateLimit, async (req, res) => {
     try {
       const { email, password, firstName, lastName } = req.body;
       if (!email || !password || !firstName || !lastName) {
@@ -191,7 +222,7 @@ export async function setupAuth(app: Express) {
     }
   });
 
-  app.post("/api/auth/forgot-password", async (req, res) => {
+  app.post("/api/auth/forgot-password", forgotPasswordRateLimit, async (req, res) => {
     try {
       const { email } = req.body;
       if (!email) {

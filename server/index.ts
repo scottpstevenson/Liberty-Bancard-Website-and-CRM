@@ -1,4 +1,5 @@
 import express, { type Request, Response, NextFunction } from "express";
+import helmet from "helmet";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
@@ -12,6 +13,15 @@ import { startDailyOutreachWorker } from "./services/daily-outreach";
 import { startDailyMaintenanceScheduler } from "./services/sdr/inbox-rotation";
 import { featureFlags } from "./services/feature-flags";
 
+if (!process.env.SESSION_SECRET) {
+  if (process.env.NODE_ENV === "production") {
+    console.error("[FATAL] SESSION_SECRET environment variable is not set. Exiting.");
+    process.exit(1);
+  } else {
+    console.warn("[WARN] SESSION_SECRET is not set. This is insecure and must be set before going to production.");
+  }
+}
+
 const app = express();
 const httpServer = createServer(app);
 
@@ -20,6 +30,66 @@ declare module "http" {
     rawBody: unknown;
   }
 }
+
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: [
+          "'self'",
+          "'unsafe-inline'",
+          "'unsafe-eval'",
+          "*.leadconnectorhq.com",
+          "*.ghl.io",
+          "*.googletagmanager.com",
+          "*.google-analytics.com",
+          "*.facebook.com",
+          "connect.facebook.net",
+          "fonts.googleapis.com",
+        ],
+        styleSrc: [
+          "'self'",
+          "'unsafe-inline'",
+          "fonts.googleapis.com",
+          "*.leadconnectorhq.com",
+          "*.ghl.io",
+        ],
+        fontSrc: [
+          "'self'",
+          "fonts.gstatic.com",
+          "*.leadconnectorhq.com",
+          "*.ghl.io",
+        ],
+        imgSrc: [
+          "'self'",
+          "data:",
+          "blob:",
+          "*.google-analytics.com",
+          "*.googletagmanager.com",
+          "*.facebook.com",
+          "*.leadconnectorhq.com",
+          "*.ghl.io",
+        ],
+        connectSrc: [
+          "'self'",
+          "*.leadconnectorhq.com",
+          "*.ghl.io",
+          "*.googletagmanager.com",
+          "*.google-analytics.com",
+          "*.facebook.com",
+          "connect.facebook.net",
+        ],
+        frameSrc: [
+          "'self'",
+          "*.leadconnectorhq.com",
+          "*.ghl.io",
+        ],
+        frameAncestors: ["'self'"],
+      },
+    },
+  })
+);
 
 app.use(
   express.json({
