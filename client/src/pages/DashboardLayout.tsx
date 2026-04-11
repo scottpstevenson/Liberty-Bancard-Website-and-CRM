@@ -12,12 +12,11 @@ import {
   MessageSquare,
   LogOut,
   TrendingUp,
+  LineChart,
   Package,
   ClipboardList,
   Bell,
-  PhoneCall,
   FileCheck,
-  Rocket,
   Zap,
   FileQuestion,
   Settings,
@@ -30,11 +29,10 @@ import {
   Mail,
   PieChart,
   GitBranch,
+  GitMerge,
   Repeat,
-  Wand2,
   Brain,
   ListOrdered,
-  Megaphone,
   Sparkles,
   FileSearch,
   FileBarChart,
@@ -51,10 +49,18 @@ import {
   Pencil,
   Bot,
   Mailbox,
-  Rocket as RocketIcon,
   Activity,
+  PlayCircle,
+  Megaphone,
+  Wand2,
+  ChevronDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   Sidebar,
   SidebarContent,
@@ -80,77 +86,88 @@ interface MenuItem {
   icon: any;
   label: string;
   href: string;
+  tooltip: string;
   roles?: UserRole[];
 }
 
-const menuItems: MenuItem[] = [
-  { icon: LayoutDashboard, label: "Overview", href: "/dashboard", roles: ["admin", "manager", "agent"] },
-  { icon: Users, label: "Contacts", href: "/dashboard/contacts", roles: ["admin", "manager", "agent"] },
-  { icon: TrendingUp, label: "Pipeline", href: "/dashboard/pipeline", roles: ["admin", "manager", "agent"] },
-  { icon: Package, label: "Onboarding", href: "/dashboard/onboarding", roles: ["admin", "manager"] },
-  { icon: Ticket, label: "Tickets", href: "/dashboard/tickets", roles: ["admin", "manager"] },
-  { icon: ClipboardList, label: "Tasks", href: "/dashboard/tasks", roles: ["admin", "manager", "agent"] },
-  { icon: Bell, label: "Notifications", href: "/dashboard/notifications", roles: ["admin", "manager", "agent"] },
-  { icon: MessageSquare, label: "AI Advisor", href: "/dashboard/chat", roles: ["admin", "manager", "agent"] },
-  { icon: FileQuestion, label: "RFIs", href: "/dashboard/rfis", roles: ["admin", "manager"] },
-  { icon: PieChart, label: "Reporting", href: "/dashboard/reporting", roles: ["admin", "manager"] },
-  { icon: Calendar, label: "Calendar", href: "/dashboard/calendar", roles: ["admin", "manager", "agent"] },
+// Group 1: Core — daily-use items (6 items)
+const coreItems: MenuItem[] = [
+  { icon: LayoutDashboard, label: "Overview", href: "/dashboard", tooltip: "Overview", roles: ["admin", "manager", "agent"] },
+  { icon: Users, label: "Contacts", href: "/dashboard/contacts", tooltip: "Contacts", roles: ["admin", "manager", "agent"] },
+  { icon: TrendingUp, label: "Pipeline", href: "/dashboard/pipeline", tooltip: "Pipeline", roles: ["admin", "manager", "agent"] },
+  { icon: Ticket, label: "Tickets", href: "/dashboard/tickets", tooltip: "Tickets", roles: ["admin", "manager"] },
+  { icon: ClipboardList, label: "Tasks", href: "/dashboard/tasks", tooltip: "Tasks", roles: ["admin", "manager", "agent"] },
+  { icon: Calendar, label: "Calendar", href: "/dashboard/calendar", tooltip: "Calendar", roles: ["admin", "manager", "agent"] },
 ];
 
-const sdrItems: MenuItem[] = [
-  { icon: RocketIcon, label: "Activation Panel", href: "/dashboard/activation", roles: ["admin"] },
-  { icon: Bot, label: "AI SDR", href: "/dashboard/sdr", roles: ["admin", "manager"] },
-  { icon: Activity, label: "Operator Dashboard", href: "/dashboard/operator", roles: ["admin", "manager"] },
-  { icon: Mailbox, label: "Inbox Health", href: "/dashboard/inbox-health", roles: ["admin", "manager"] },
+// Group 2: Outreach & AI — operational items (5 items)
+const outreachItems: MenuItem[] = [
+  { icon: Bot, label: "AI SDR Dashboard", href: "/dashboard/sdr", tooltip: "AI SDR Dashboard", roles: ["admin", "manager"] },
+  { icon: Megaphone, label: "Outreach Command", href: "/dashboard/outreach-command", tooltip: "Outreach Command", roles: ["admin", "manager"] },
+  { icon: ListOrdered, label: "Sequences", href: "/dashboard/sequences", tooltip: "Sequences", roles: ["admin", "manager"] },
+  { icon: Mailbox, label: "Inbox Health", href: "/dashboard/inbox-health", tooltip: "Inbox Health", roles: ["admin", "manager"] },
+  { icon: Sparkles, label: "Lead Intelligence", href: "/dashboard/lead-intelligence", tooltip: "Lead Intelligence", roles: ["admin", "manager"] },
 ];
 
-const automationItems: MenuItem[] = [
-  { icon: BarChart3, label: "Automation", href: "/dashboard/automation", roles: ["admin", "manager"] },
-  { icon: Zap, label: "Workflows", href: "/dashboard/workflows", roles: ["admin", "manager"] },
-  { icon: ListOrdered, label: "Sequences", href: "/dashboard/sequences", roles: ["admin", "manager"] },
-  { icon: GitBranch, label: "Stage Rules", href: "/dashboard/stage-rules", roles: ["admin", "manager"] },
-  { icon: Repeat, label: "Outreach", href: "/dashboard/outreach", roles: ["admin", "manager"] },
-  { icon: Megaphone, label: "Campaigns", href: "/dashboard/campaigns", roles: ["admin", "manager"] },
-  { icon: Wand2, label: "Blaze.ai Marketing", href: "/dashboard/blaze", roles: ["admin", "manager"] },
-  { icon: Settings, label: "GHL Settings", href: "/dashboard/ghl-settings", roles: ["admin"] },
-];
-
+// Group 3: Lead Generation — growth tools (5 items)
 const leadGenItems: MenuItem[] = [
-  { icon: Rocket, label: "Outreach Command", href: "/dashboard/outreach-command", roles: ["admin", "manager"] },
-  { icon: Brain, label: "Lead Command Center", href: "/dashboard/lead-command-center", roles: ["admin", "manager"] },
-  { icon: Upload, label: "Lead Imports", href: "/dashboard/lead-imports", roles: ["admin", "manager"] },
-  { icon: Target, label: "Prospects", href: "/dashboard/prospects", roles: ["admin", "manager"] },
-  { icon: FileSearch, label: "Sunbiz Lead Gen", href: "/dashboard/lead-gen", roles: ["admin", "manager"] },
-  { icon: Sparkles, label: "Lead Intelligence", href: "/dashboard/lead-intelligence", roles: ["admin", "manager"] },
-  { icon: FileBarChart, label: "Statement Review", href: "/dashboard/statement-review", roles: ["admin", "manager"] },
-  { icon: BarChart2, label: "Outreach Analytics", href: "/dashboard/outreach-analytics", roles: ["admin", "manager"] },
+  { icon: Target, label: "Prospects", href: "/dashboard/prospects", tooltip: "Prospects / Sunbiz", roles: ["admin", "manager"] },
+  { icon: Upload, label: "Lead Imports", href: "/dashboard/lead-imports", tooltip: "Lead Imports", roles: ["admin", "manager"] },
+  { icon: FileBarChart, label: "Statement Review", href: "/dashboard/statement-review", tooltip: "Statement Review", roles: ["admin", "manager"] },
+  { icon: BarChart2, label: "Outreach Analytics", href: "/dashboard/outreach-analytics", tooltip: "Outreach Analytics", roles: ["admin", "manager"] },
+  { icon: Send, label: "Campaign Manager", href: "/dashboard/campaigns", tooltip: "Campaign Manager", roles: ["admin", "manager"] },
 ];
 
+// Group 4: Business Intelligence — management items (5 items)
 const businessItems: MenuItem[] = [
-  { icon: DollarSign, label: "Revenue Dashboard", href: "/dashboard/residual-revenue", roles: ["admin", "manager"] },
-  { icon: TrendingUp, label: "Forecasting", href: "/dashboard/forecasting", roles: ["admin", "manager"] },
-  { icon: UserPlus, label: "Agent Management", href: "/dashboard/agent-management", roles: ["admin", "manager"] },
-  { icon: HeartPulse, label: "Merchant Health", href: "/dashboard/merchant-health", roles: ["admin", "manager"] },
-  { icon: Trophy, label: "Win/Loss Analysis", href: "/dashboard/win-loss", roles: ["admin", "manager"] },
-  { icon: Handshake, label: "Referral Program", href: "/dashboard/referral-program", roles: ["admin", "manager"] },
-  { icon: Star, label: "Review Requests", href: "/dashboard/review-requests", roles: ["admin", "manager"] },
+  { icon: DollarSign, label: "Revenue & Residuals", href: "/dashboard/residual-revenue", tooltip: "Revenue & Residuals", roles: ["admin", "manager"] },
+  { icon: LineChart, label: "Forecasting", href: "/dashboard/forecasting", tooltip: "Forecasting", roles: ["admin", "manager"] },
+  { icon: Trophy, label: "Win/Loss Analysis", href: "/dashboard/win-loss", tooltip: "Win/Loss Analysis", roles: ["admin", "manager"] },
+  { icon: HeartPulse, label: "Merchant Health", href: "/dashboard/merchant-health", tooltip: "Merchant Health", roles: ["admin", "manager"] },
+  { icon: Handshake, label: "Referral Program", href: "/dashboard/referral-program", tooltip: "Referral Program", roles: ["admin", "manager"] },
 ];
 
+// Group 5: Settings & Admin — collapsible, secondary items
+const settingsItems: MenuItem[] = [
+  { icon: Settings, label: "GHL Settings", href: "/dashboard/ghl-settings", tooltip: "GHL Settings", roles: ["admin"] },
+  { icon: GitMerge, label: "Automation Rules", href: "/dashboard/workflows", tooltip: "Automation Rules", roles: ["admin", "manager"] },
+  { icon: GitBranch, label: "Pipeline Stages", href: "/dashboard/stage-rules", tooltip: "Pipeline Stages", roles: ["admin", "manager"] },
+  { icon: UserCog, label: "User Management", href: "/dashboard/user-management", tooltip: "User Management", roles: ["admin"] },
+  { icon: Zap, label: "Activation Panel", href: "/dashboard/activation", tooltip: "Activation Panel", roles: ["admin"] },
+  { icon: Pencil, label: "Blog Generator", href: "/dashboard/blog-generator", tooltip: "Blog Generator", roles: ["admin"] },
+];
+
+// Merchant-only items
 const merchantItems: MenuItem[] = [
-  { icon: ShieldCheck, label: "My Portal", href: "/dashboard/merchant-portal" },
-  { icon: HelpCircle, label: "Knowledge Base", href: "/dashboard/knowledge-base" },
+  { icon: ShieldCheck, label: "My Portal", href: "/dashboard/merchant-portal", tooltip: "My Portal" },
+  { icon: HelpCircle, label: "Knowledge Base", href: "/dashboard/knowledge-base", tooltip: "Knowledge Base" },
 ];
 
-const adminItems: MenuItem[] = [
-  { icon: UserCog, label: "User Management", href: "/dashboard/user-management", roles: ["admin"] },
-  { icon: Pencil, label: "Blog Generator", href: "/dashboard/blog-generator", roles: ["admin"] },
-];
-
-const formItems: MenuItem[] = [
-  { icon: PhoneCall, label: "Call Outcome", href: "/dashboard/call-outcome", roles: ["admin", "manager", "agent"] },
-  { icon: FileCheck, label: "Review Complete", href: "/dashboard/review-complete", roles: ["admin", "manager", "agent"] },
-  { icon: Rocket, label: "Onboarding Kickoff", href: "/dashboard/onboarding-kickoff", roles: ["admin", "manager"] },
-  { icon: BookOpen, label: "Case Study Intake", href: "/dashboard/case-study-intake", roles: ["admin", "manager"] },
+// All items (for page title lookup) — includes items moved out of sidebar but still routable
+const allItems: MenuItem[] = [
+  ...coreItems,
+  ...outreachItems,
+  ...leadGenItems,
+  ...businessItems,
+  ...settingsItems,
+  ...merchantItems,
+  // Additional routable items not in sidebar (Forms group moved to contextual)
+  { icon: Activity, label: "Operator Dashboard", href: "/dashboard/operator", tooltip: "Operator Dashboard" },
+  { icon: Bell, label: "Notifications", href: "/dashboard/notifications", tooltip: "Notifications" },
+  { icon: Package, label: "Onboarding", href: "/dashboard/onboarding", tooltip: "Onboarding" },
+  { icon: FileQuestion, label: "RFIs", href: "/dashboard/rfis", tooltip: "RFIs" },
+  { icon: PieChart, label: "Reporting", href: "/dashboard/reporting", tooltip: "Reporting" },
+  { icon: Brain, label: "Lead Command Center", href: "/dashboard/lead-command-center", tooltip: "Lead Command Center" },
+  { icon: FileSearch, label: "Sunbiz Lead Gen", href: "/dashboard/lead-gen", tooltip: "Sunbiz Lead Gen" },
+  { icon: BarChart3, label: "Automation", href: "/dashboard/automation", tooltip: "Automation" },
+  { icon: Repeat, label: "Outreach", href: "/dashboard/outreach", tooltip: "Outreach" },
+  { icon: Wand2, label: "Blaze.ai Marketing", href: "/dashboard/blaze", tooltip: "Blaze.ai Marketing" },
+  { icon: UserPlus, label: "Agent Management", href: "/dashboard/agent-management", tooltip: "Agent Management" },
+  { icon: Star, label: "Review Requests", href: "/dashboard/review-requests", tooltip: "Review Requests" },
+  // Forms group items (contextual, accessible via Pipeline/Contacts)
+  { icon: PlayCircle, label: "Onboarding Kickoff", href: "/dashboard/onboarding-kickoff", tooltip: "Onboarding Kickoff" },
+  { icon: FileCheck, label: "Review Complete", href: "/dashboard/review-complete", tooltip: "Review Complete" },
+  { icon: BookOpen, label: "Case Study Intake", href: "/dashboard/case-study-intake", tooltip: "Case Study Intake" },
 ];
 
 function filterByRole(items: MenuItem[], role: UserRole): MenuItem[] {
@@ -161,17 +178,14 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [location] = useLocation();
   const { logout, user } = useAuth();
   const [emailOpen, setEmailOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const role = (user?.role as UserRole) || "merchant";
 
-  const filteredMenu = useMemo(() => filterByRole(menuItems, role), [role]);
-  const filteredSdr = useMemo(() => filterByRole(sdrItems, role), [role]);
-  const filteredAutomation = useMemo(() => filterByRole(automationItems, role), [role]);
+  const filteredCore = useMemo(() => filterByRole(coreItems, role), [role]);
+  const filteredOutreach = useMemo(() => filterByRole(outreachItems, role), [role]);
   const filteredLeadGen = useMemo(() => filterByRole(leadGenItems, role), [role]);
   const filteredBusiness = useMemo(() => filterByRole(businessItems, role), [role]);
-  const filteredAdmin = useMemo(() => filterByRole(adminItems, role), [role]);
-  const filteredForms = useMemo(() => filterByRole(formItems, role), [role]);
-
-  const allItems = [...menuItems, ...sdrItems, ...automationItems, ...leadGenItems, ...businessItems, ...merchantItems, ...adminItems, ...formItems];
+  const filteredSettings = useMemo(() => filterByRole(settingsItems, role), [role]);
 
   const style = {
     "--sidebar-width": "16rem",
@@ -182,7 +196,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     allItems.find((i) => i.href === location)?.label ||
     "Dashboard";
 
-  const renderGroup = (label: string, items: MenuItem[]) => {
+  const renderGroup = (label: string, items: MenuItem[], secondary = false) => {
     if (items.length === 0) return null;
     return (
       <SidebarGroup>
@@ -194,7 +208,13 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
               const isActive = location === item.href;
               return (
                 <SidebarMenuItem key={item.href}>
-                  <SidebarMenuButton asChild isActive={isActive} data-testid={`link-sidebar-${item.label.toLowerCase().replace(/\s+/g, "-")}`}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={isActive}
+                    tooltip={item.tooltip}
+                    data-testid={`link-sidebar-${item.label.toLowerCase().replace(/\s+/g, "-")}`}
+                    className={secondary ? "opacity-75 text-sm" : undefined}
+                  >
                     <Link href={item.href}>
                       <Icon className="w-4 h-4" />
                       <span>{item.label}</span>
@@ -220,14 +240,57 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           </SidebarHeader>
 
           <SidebarContent>
-            {renderGroup("Navigation", filteredMenu)}
-            {renderGroup("AI SDR", filteredSdr)}
-            {renderGroup("Automation", filteredAutomation)}
+            {renderGroup("Core", filteredCore)}
+            {renderGroup("Outreach & AI", filteredOutreach)}
             {renderGroup("Lead Generation", filteredLeadGen)}
             {renderGroup("Business Intelligence", filteredBusiness)}
-            {renderGroup("Merchant", merchantItems)}
-            {renderGroup("Administration", filteredAdmin)}
-            {renderGroup("Forms", filteredForms)}
+            {role === "merchant" && renderGroup("Merchant", merchantItems)}
+            {filteredSettings.length > 0 && (
+              <>
+                <div className="mx-4 my-1 border-t border-border/50" />
+                <Collapsible open={settingsOpen} onOpenChange={setSettingsOpen}>
+                  <SidebarGroup>
+                    <CollapsibleTrigger asChild>
+                      <SidebarGroupLabel
+                        className="flex items-center justify-between cursor-pointer select-none hover:text-foreground"
+                        data-testid="button-settings-admin-toggle"
+                      >
+                        Settings & Admin
+                        <ChevronDown
+                          className={`w-3.5 h-3.5 text-muted-foreground transition-transform duration-200 ${settingsOpen ? "rotate-180" : ""}`}
+                        />
+                      </SidebarGroupLabel>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <SidebarGroupContent>
+                        <SidebarMenu>
+                          {filteredSettings.map((item) => {
+                            const Icon = item.icon;
+                            const isActive = location === item.href;
+                            return (
+                              <SidebarMenuItem key={item.href}>
+                                <SidebarMenuButton
+                                  asChild
+                                  isActive={isActive}
+                                  tooltip={item.tooltip}
+                                  data-testid={`link-sidebar-${item.label.toLowerCase().replace(/\s+/g, "-")}`}
+                                  className="opacity-75 text-sm"
+                                >
+                                  <Link href={item.href}>
+                                    <Icon className="w-4 h-4" />
+                                    <span>{item.label}</span>
+                                  </Link>
+                                </SidebarMenuButton>
+                              </SidebarMenuItem>
+                            );
+                          })}
+                        </SidebarMenu>
+                      </SidebarGroupContent>
+                    </CollapsibleContent>
+                  </SidebarGroup>
+                </Collapsible>
+              </>
+            )}
           </SidebarContent>
 
           <SidebarFooter className="p-4 border-t">
@@ -246,7 +309,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
             </div>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton onClick={() => logout()} data-testid="button-logout">
+                <SidebarMenuButton onClick={() => logout()} tooltip="Sign Out" data-testid="button-logout">
                   <LogOut className="w-4 h-4" />
                   <span>Sign Out</span>
                 </SidebarMenuButton>
