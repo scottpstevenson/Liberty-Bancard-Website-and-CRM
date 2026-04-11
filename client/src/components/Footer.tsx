@@ -55,6 +55,17 @@ export function Footer() {
     { label: "Interchange Plus vs Flat Rate", href: "/blog/interchange-plus-vs-flat-rate" },
   ];
 
+  const learningCenterLinks = [
+    { label: "Payment Processing Glossary", href: "/learn" },
+    { label: "What Is Interchange?", href: "/learn/interchange-fees" },
+    { label: "What Is a Chargeback?", href: "/learn/chargeback" },
+    { label: "Interchange Plus Pricing", href: "/learn/interchange-plus-pricing" },
+    { label: "What Is a Merchant Account?", href: "/learn/merchant-account" },
+    { label: "PCI Compliance Guide", href: "/learn/pci-compliance" },
+    { label: "Cash Discount Program", href: "/learn/cash-discount-program" },
+    { label: "What Is a Payment Gateway?", href: "/learn/payment-gateway" },
+  ];
+
   const platformLinks = [
     { label: "Staff Login / Dashboard", href: "/dashboard" },
     { label: "Sales Pipeline", href: "/dashboard/pipeline" },
@@ -206,6 +217,21 @@ export function Footer() {
                   >
                     {link.label}
                   </Link>
+                </li>
+              ))}
+            </ul>
+
+            <h4 className="font-semibold text-lg mt-8 mb-4" data-testid="text-footer-learning-heading">Learning Center</h4>
+            <ul className="space-y-3">
+              {learningCenterLinks.map((link) => (
+                <li key={link.href}>
+                  <a
+                    href={link.href}
+                    className="text-primary-foreground/70 text-sm hover:text-primary-foreground transition-colors"
+                    data-testid={`link-footer-learn-${link.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                  >
+                    {link.label}
+                  </a>
                 </li>
               ))}
             </ul>

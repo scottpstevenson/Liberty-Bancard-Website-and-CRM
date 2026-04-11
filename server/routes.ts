@@ -25,6 +25,7 @@ import { registerCrmOperationsRoutes } from "./routes/crm-operations";
 import { registerImportsRoutes } from "./routes/imports";
 import { registerSdrRoutes } from "./routes/sdr";
 import { registerSsrRoutes } from "./routes/ssr-routes";
+import { registerGlossaryRoutes } from "./routes/glossary";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -56,6 +57,7 @@ export async function registerRoutes(
   registerImportsRoutes(app);
   registerSdrRoutes(app);
   registerSsrRoutes(app);
+  registerGlossaryRoutes(app);
 
   return httpServer;
 }
