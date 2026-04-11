@@ -309,6 +309,21 @@ Guidelines:
     const baseUrl = "https://libertybancard.com";
     const today = new Date().toISOString().split("T")[0];
 
+    let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
+    xml += `<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
+    xml += `  <sitemap><loc>${baseUrl}/sitemap-core.xml</loc><lastmod>${today}</lastmod></sitemap>\n`;
+    xml += `  <sitemap><loc>${baseUrl}/sitemap-blog.xml</loc><lastmod>${today}</lastmod></sitemap>\n`;
+    xml += `  <sitemap><loc>${baseUrl}/sitemap-locations.xml</loc><lastmod>${today}</lastmod></sitemap>\n`;
+    xml += `</sitemapindex>`;
+
+    res.set("Content-Type", "application/xml");
+    res.send(xml);
+  });
+
+  app.get("/sitemap-core.xml", async (_req, res) => {
+    const baseUrl = "https://libertybancard.com";
+    const today = new Date().toISOString().split("T")[0];
+
     const publicPages: Array<{ url: string; priority: string; changefreq: string }> = [
       { url: "/", priority: "1.0", changefreq: "weekly" },
       { url: "/get-started", priority: "0.9", changefreq: "monthly" },
@@ -356,16 +371,17 @@ Guidelines:
       { url: "/refund-policy", priority: "0.3", changefreq: "yearly" },
       { url: "/california-privacy", priority: "0.3", changefreq: "yearly" },
       { url: "/ada-compliance", priority: "0.3", changefreq: "yearly" },
+      { url: "/help", priority: "0.7", changefreq: "monthly" },
     ];
 
-    const blogSlugs = STATIC_BLOG_SLUGS;
-
-    const locationPages: string[] = [];
-    for (const city of LOCATION_CITIES) {
-      for (const vertical of LOCATION_VERTICALS) {
-        locationPages.push(`/locations/${city}/${vertical}`);
-      }
-    }
+    const helpArticles: { category: string; slugs: string[] }[] = [
+      { category: "getting-started", slugs: ["setting-up-your-merchant-account", "running-your-first-transaction", "connecting-your-pos-system", "understanding-your-pricing", "next-day-funding-setup"] },
+      { category: "billing-statements", slugs: ["reading-your-monthly-statement", "understanding-processing-fees", "disputing-a-charge-on-your-statement", "managing-chargebacks", "understanding-refunds-and-credits"] },
+      { category: "technical-support", slugs: ["terminal-troubleshooting", "gateway-setup-configuration", "resolving-batch-settlement-issues", "wifi-and-network-connectivity", "contactless-and-nfc-troubleshooting"] },
+      { category: "account-management", slugs: ["updating-business-information", "adding-users-and-permissions", "changing-your-processing-settings", "adding-a-new-location", "closing-or-pausing-your-account"] },
+      { category: "compliance-security", slugs: ["pci-compliance-basics", "protecting-customer-data", "fraud-prevention-tips", "handling-a-data-breach", "understanding-emv-and-liability-shift"] },
+      { category: "general-faq", slugs: ["what-is-payment-processing", "how-long-does-approval-take", "what-are-interchange-fees", "do-i-need-a-contract", "what-is-a-merchant-id", "can-i-accept-amex", "what-is-a-cash-discount-program", "how-to-read-your-rate", "what-is-next-day-funding", "how-to-switch-processors", "what-is-pci-compliance"] },
+    ];
 
     let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
     xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
@@ -378,6 +394,36 @@ Guidelines:
       xml += `    <priority>${page.priority}</priority>\n`;
       xml += `  </url>\n`;
     }
+
+    for (const group of helpArticles) {
+      xml += `  <url>\n`;
+      xml += `    <loc>${baseUrl}/help/${group.category}</loc>\n`;
+      xml += `    <lastmod>${today}</lastmod>\n`;
+      xml += `    <changefreq>monthly</changefreq>\n`;
+      xml += `    <priority>0.6</priority>\n`;
+      xml += `  </url>\n`;
+      for (const slug of group.slugs) {
+        xml += `  <url>\n`;
+        xml += `    <loc>${baseUrl}/help/${group.category}/${slug}</loc>\n`;
+        xml += `    <lastmod>${today}</lastmod>\n`;
+        xml += `    <changefreq>monthly</changefreq>\n`;
+        xml += `    <priority>0.5</priority>\n`;
+        xml += `  </url>\n`;
+      }
+    }
+
+    xml += `</urlset>`;
+    res.set("Content-Type", "application/xml");
+    res.send(xml);
+  });
+
+  app.get("/sitemap-blog.xml", async (_req, res) => {
+    const baseUrl = "https://libertybancard.com";
+    const today = new Date().toISOString().split("T")[0];
+    const blogSlugs = STATIC_BLOG_SLUGS;
+
+    let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
+    xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
 
     for (const slug of blogSlugs) {
       xml += `  <url>\n`;
@@ -401,49 +447,7 @@ Guidelines:
       }
     }
 
-    for (const locPage of locationPages) {
-      xml += `  <url>\n`;
-      xml += `    <loc>${baseUrl}${locPage}</loc>\n`;
-      xml += `    <lastmod>${today}</lastmod>\n`;
-      xml += `    <changefreq>monthly</changefreq>\n`;
-      xml += `    <priority>0.7</priority>\n`;
-      xml += `  </url>\n`;
-    }
-
-    xml += `  <url>\n`;
-    xml += `    <loc>${baseUrl}/help</loc>\n`;
-    xml += `    <lastmod>${today}</lastmod>\n`;
-    xml += `    <changefreq>monthly</changefreq>\n`;
-    xml += `    <priority>0.7</priority>\n`;
-    xml += `  </url>\n`;
-
-    const helpArticles: { category: string; slugs: string[] }[] = [
-      { category: "getting-started", slugs: ["setting-up-your-merchant-account", "running-your-first-transaction", "connecting-your-pos-system", "understanding-your-pricing", "next-day-funding-setup"] },
-      { category: "billing-statements", slugs: ["reading-your-monthly-statement", "understanding-processing-fees", "disputing-a-charge-on-your-statement", "managing-chargebacks", "understanding-refunds-and-credits"] },
-      { category: "technical-support", slugs: ["terminal-troubleshooting", "gateway-setup-configuration", "resolving-batch-settlement-issues", "wifi-and-network-connectivity", "contactless-and-nfc-troubleshooting"] },
-      { category: "account-management", slugs: ["updating-business-information", "adding-users-and-permissions", "changing-your-processing-settings", "adding-a-new-location", "closing-or-pausing-your-account"] },
-      { category: "compliance-security", slugs: ["pci-compliance-basics", "protecting-customer-data", "fraud-prevention-tips", "handling-a-data-breach", "understanding-emv-and-liability-shift"] },
-      { category: "general-faq", slugs: ["what-is-payment-processing", "how-long-does-approval-take", "what-are-interchange-fees", "do-i-need-a-contract", "what-is-a-merchant-id", "can-i-accept-amex", "what-is-a-cash-discount-program", "how-to-read-your-rate", "what-is-next-day-funding", "how-to-switch-processors", "what-is-pci-compliance"] },
-    ];
-    for (const group of helpArticles) {
-      xml += `  <url>\n`;
-      xml += `    <loc>${baseUrl}/help/${group.category}</loc>\n`;
-      xml += `    <lastmod>${today}</lastmod>\n`;
-      xml += `    <changefreq>monthly</changefreq>\n`;
-      xml += `    <priority>0.6</priority>\n`;
-      xml += `  </url>\n`;
-      for (const slug of group.slugs) {
-        xml += `  <url>\n`;
-        xml += `    <loc>${baseUrl}/help/${group.category}/${slug}</loc>\n`;
-        xml += `    <lastmod>${today}</lastmod>\n`;
-        xml += `    <changefreq>monthly</changefreq>\n`;
-        xml += `    <priority>0.5</priority>\n`;
-        xml += `  </url>\n`;
-      }
-    }
-
     xml += `</urlset>`;
-
     res.set("Content-Type", "application/xml");
     res.send(xml);
   });

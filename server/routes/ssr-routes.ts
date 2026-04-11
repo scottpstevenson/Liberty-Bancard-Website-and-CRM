@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { getIndustryHtml } from "../ssr/industries";
 import { getCompareHtml } from "../ssr/compare";
-import { getLocationHtml } from "../ssr/locations";
+import { getLocationHtml, getCityHubHtml } from "../ssr/locations";
 import { getHomeHtml } from "../ssr/home";
 import {
   getUploadStatementHtml,
@@ -18,6 +18,7 @@ import {
   getAffiliateProgramHtml,
   getFaqHtml,
 } from "../ssr/pages";
+import { CITIES, VERTICALS } from "../ssr/location-data";
 
 export function registerSsrRoutes(app: Express) {
   app.get("/", (_req, res) => {
@@ -49,6 +50,44 @@ export function registerSsrRoutes(app: Express) {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Cache-Control", "public, max-age=43200");
     res.send(html);
+  });
+
+  app.get("/locations/:city", (req, res) => {
+    const html = getCityHubHtml(req.params.city);
+    if (!html) return res.status(404).end();
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.send(html);
+  });
+
+  app.get("/sitemap-locations.xml", (_req, res) => {
+    const baseUrl = "https://libertybancard.com";
+    const today = new Date().toISOString().split("T")[0];
+
+    let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
+    xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
+
+    for (const city of CITIES) {
+      xml += `  <url>\n`;
+      xml += `    <loc>${baseUrl}/locations/${city.slug}</loc>\n`;
+      xml += `    <lastmod>${today}</lastmod>\n`;
+      xml += `    <changefreq>monthly</changefreq>\n`;
+      xml += `    <priority>0.7</priority>\n`;
+      xml += `  </url>\n`;
+
+      for (const vertical of VERTICALS) {
+        xml += `  <url>\n`;
+        xml += `    <loc>${baseUrl}/locations/${city.slug}/${vertical.slug}</loc>\n`;
+        xml += `    <lastmod>${today}</lastmod>\n`;
+        xml += `    <changefreq>monthly</changefreq>\n`;
+        xml += `    <priority>0.7</priority>\n`;
+        xml += `  </url>\n`;
+      }
+    }
+
+    xml += `</urlset>`;
+    res.set("Content-Type", "application/xml");
+    res.send(xml);
   });
 
   app.get("/upload-statement", (_req, res) => {

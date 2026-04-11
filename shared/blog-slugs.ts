@@ -80,5 +80,15 @@ export const INDUSTRY_SLUGS = [
   "hospitality-payment-processing",
 ];
 
-export const LOCATION_CITIES = ["miami", "fort-lauderdale", "tampa", "orlando", "jacksonville"];
-export const LOCATION_VERTICALS = ["restaurant", "auto-repair", "healthcare", "salon", "retail"];
+export const LOCATION_CITIES = [
+  "miami", "fort-lauderdale", "tampa", "orlando", "jacksonville",
+  "miami-beach", "boca-raton", "west-palm-beach", "pompano-beach", "hollywood-fl",
+  "coral-springs", "plantation", "hialeah", "sarasota", "st-petersburg",
+  "clearwater", "cape-coral", "fort-myers", "gainesville", "pensacola",
+  "houston", "dallas", "atlanta", "las-vegas", "phoenix",
+  "nashville", "charlotte", "denver", "austin", "chicago",
+];
+export const LOCATION_VERTICALS = [
+  "restaurant", "auto-repair", "healthcare", "salon", "retail",
+  "dental", "fitness", "hotel", "barbershop", "contractor",
+];

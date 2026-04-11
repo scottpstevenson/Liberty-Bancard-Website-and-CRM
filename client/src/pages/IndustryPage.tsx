@@ -36,6 +36,7 @@ import {
   Calculator,
   Dumbbell,
   Hotel,
+  MapPin,
 } from "lucide-react";
 
 import verticalRestaurant from "@assets/images/vertical-restaurant.jpg";
@@ -43,6 +44,60 @@ import verticalRetail from "@assets/images/vertical-retail.jpg";
 import verticalMedical from "@assets/images/vertical-medical.jpg";
 import verticalAuto from "@assets/images/vertical-auto.jpg";
 import verticalHomeServices from "@assets/images/vertical-home-services.jpg";
+
+const ALL_LOCATION_CITIES = [
+  { slug: "miami", name: "Miami, FL" },
+  { slug: "fort-lauderdale", name: "Fort Lauderdale, FL" },
+  { slug: "tampa", name: "Tampa, FL" },
+  { slug: "orlando", name: "Orlando, FL" },
+  { slug: "jacksonville", name: "Jacksonville, FL" },
+  { slug: "miami-beach", name: "Miami Beach, FL" },
+  { slug: "boca-raton", name: "Boca Raton, FL" },
+  { slug: "west-palm-beach", name: "West Palm Beach, FL" },
+  { slug: "pompano-beach", name: "Pompano Beach, FL" },
+  { slug: "hollywood-fl", name: "Hollywood, FL" },
+  { slug: "coral-springs", name: "Coral Springs, FL" },
+  { slug: "plantation", name: "Plantation, FL" },
+  { slug: "hialeah", name: "Hialeah, FL" },
+  { slug: "sarasota", name: "Sarasota, FL" },
+  { slug: "st-petersburg", name: "St. Petersburg, FL" },
+  { slug: "clearwater", name: "Clearwater, FL" },
+  { slug: "cape-coral", name: "Cape Coral, FL" },
+  { slug: "fort-myers", name: "Fort Myers, FL" },
+  { slug: "gainesville", name: "Gainesville, FL" },
+  { slug: "pensacola", name: "Pensacola, FL" },
+  { slug: "houston", name: "Houston, TX" },
+  { slug: "dallas", name: "Dallas, TX" },
+  { slug: "atlanta", name: "Atlanta, GA" },
+  { slug: "las-vegas", name: "Las Vegas, NV" },
+  { slug: "phoenix", name: "Phoenix, AZ" },
+  { slug: "nashville", name: "Nashville, TN" },
+  { slug: "charlotte", name: "Charlotte, NC" },
+  { slug: "denver", name: "Denver, CO" },
+  { slug: "austin", name: "Austin, TX" },
+  { slug: "chicago", name: "Chicago, IL" },
+];
+
+const INDUSTRY_SLUG_TO_VERTICAL: Record<string, string> = {
+  "restaurant-payment-processing": "restaurant",
+  "retail-payment-processing": "retail",
+  "healthcare-payment-processing": "healthcare",
+  "salon-spa-payment-processing": "salon",
+  "auto-repair-payment-processing": "auto-repair",
+  "dental-payment-processing": "dental",
+  "fitness-payment-processing": "fitness",
+  "hospitality-payment-processing": "hotel",
+  "construction-payment-processing": "contractor",
+};
+
+const INDUSTRY_CITY_LINKS: Record<string, { citySlug: string; cityName: string; href: string }[]> = {};
+for (const [industrySlug, verticalSlug] of Object.entries(INDUSTRY_SLUG_TO_VERTICAL)) {
+  INDUSTRY_CITY_LINKS[industrySlug] = ALL_LOCATION_CITIES.map((city) => ({
+    citySlug: city.slug,
+    cityName: city.name,
+    href: `/locations/${city.slug}/${verticalSlug}`,
+  }));
+}
 
 interface IndustryData {
   slug: string;
@@ -823,6 +878,28 @@ export default function IndustryPage() {
             <p className="text-xs text-white/40 mt-6 max-w-lg mx-auto" data-testid="text-cta-disclaimer">
               *Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.
             </p>
+          </div>
+        </section>
+
+        <section className="bg-muted/20 py-12" data-testid="section-industry-cities">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <h3 className="text-lg font-display font-bold text-foreground text-center mb-2" data-testid="text-cities-heading">
+              {industry.name} Payment Processing by City
+            </h3>
+            <p className="text-center text-muted-foreground text-sm mb-6">Local merchant services and industry-specific solutions for {industry.name.toLowerCase()} businesses in your market.</p>
+            <div className="flex flex-wrap justify-center gap-3">
+              {INDUSTRY_CITY_LINKS[industry.slug]?.map((cityLink) => (
+                <a
+                  key={cityLink.href}
+                  href={cityLink.href}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 border border-border rounded-md text-sm text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
+                  data-testid={`link-city-${cityLink.citySlug}`}
+                >
+                  <MapPin className="w-3.5 h-3.5" />
+                  {cityLink.cityName}
+                </a>
+              ))}
+            </div>
           </div>
         </section>
 
