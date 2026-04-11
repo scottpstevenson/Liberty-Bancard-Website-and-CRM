@@ -3,6 +3,7 @@ import { SEO, getLocalBusinessSchema, getWebSiteSchema } from "@/components/SEO"
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { WelcomePopup } from "@/components/WelcomePopup";
+import { MobileStickyCtA } from "@/components/MobileStickyCtA";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
@@ -168,12 +169,16 @@ export default function Home() {
         {/* SECTION 1: Social Proof Bar */}
         <section className="bg-primary text-primary-foreground" data-testid="section-proof-bar">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
-            <div className="flex flex-wrap justify-center gap-x-6 gap-y-1 text-sm font-medium">
-              <span className="flex items-center gap-1.5" data-testid="text-proof-1"><BadgeCheck className="w-4 h-4" /> Statement-Based Reviews</span>
-              <span className="flex items-center gap-1.5" data-testid="text-proof-2"><FileText className="w-4 h-4" /> Line-Item Breakdowns</span>
-              <span className="flex items-center gap-1.5" data-testid="text-proof-3"><DollarSign className="w-4 h-4" /> Wholesale Pricing</span>
-              <span className="flex items-center gap-1.5" data-testid="text-proof-4"><Zap className="w-4 h-4" /> Next-Day Funding*</span>
-              <span className="flex items-center gap-1.5" data-testid="text-proof-5"><Headphones className="w-4 h-4" /> Real Human Support</span>
+            <div className="flex flex-wrap justify-center items-center gap-y-1 text-sm font-medium">
+              <span className="flex items-center gap-1.5 px-3" data-testid="text-proof-1"><FileText className="w-4 h-4 shrink-0" /> Statement-Based Reviews</span>
+              <span className="hidden sm:block w-px h-4 bg-primary-foreground/20" aria-hidden="true" />
+              <span className="flex items-center gap-1.5 px-3" data-testid="text-proof-2"><FileText className="w-4 h-4 shrink-0" /> Line-Item Breakdowns</span>
+              <span className="hidden sm:block w-px h-4 bg-primary-foreground/20" aria-hidden="true" />
+              <span className="flex items-center gap-1.5 px-3" data-testid="text-proof-3"><TrendingDown className="w-4 h-4 shrink-0" /> Wholesale Pricing</span>
+              <span className="hidden sm:block w-px h-4 bg-primary-foreground/20" aria-hidden="true" />
+              <span className="flex items-center gap-1.5 px-3" data-testid="text-proof-4"><Zap className="w-4 h-4 shrink-0" /> Next-Day Funding*</span>
+              <span className="hidden sm:block w-px h-4 bg-primary-foreground/20" aria-hidden="true" />
+              <span className="flex items-center gap-1.5 px-3" data-testid="text-proof-5"><Headphones className="w-4 h-4 shrink-0" /> Real Human Support</span>
             </div>
             <p className="text-center text-xs text-primary-foreground/50 mt-1.5" data-testid="text-proof-bar-footnote">
               *Eligibility, underwriting, card brand rules, and applicable laws apply.
@@ -203,12 +208,15 @@ export default function Home() {
                   Your actual processing cost is hidden inside interchange downgrades, junk fees, and monthly add-ons. We pull your statement apart line-by-line — free — and show you exactly what you're paying and why.
                 </p>
                 <div className="flex flex-col sm:flex-row gap-4 flex-wrap">
-                  <Link href="/upload-statement" data-testid="link-hero-upload">
-                    <Button size="lg" className="gap-2 bg-sky-500 border-sky-500 text-white">
-                      <Upload className="w-4 h-4" />
-                      Get My Free Statement Analysis
-                    </Button>
-                  </Link>
+                  <div className="flex flex-col gap-1.5">
+                    <Link href="/upload-statement" data-testid="link-hero-upload">
+                      <Button size="lg" className="gap-2 bg-sky-500 hover:bg-sky-400 border-sky-500 text-white font-bold shadow-lg shadow-sky-500/30 w-full sm:w-auto" data-testid="cta-hero-primary">
+                        <Upload className="w-4 h-4" />
+                        Get My Free Statement Analysis
+                      </Button>
+                    </Link>
+                    <p className="text-xs text-white/70 text-center sm:text-left font-medium">Free &bull; No obligation &bull; Takes 2 minutes</p>
+                  </div>
                   <Link href="/get-started" data-testid="link-hero-quiz">
                     <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
                       Not Sure Where to Start?
@@ -1093,6 +1101,7 @@ export default function Home() {
       </main>
 
       <Footer />
+      <MobileStickyCtA />
     </div>
   );
 }

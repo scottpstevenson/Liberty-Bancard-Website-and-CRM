@@ -743,6 +743,35 @@ export default function IndustryPage() {
           </div>
         </section>
 
+        {/* Mid-page Contextual CTA */}
+        <section className="bg-sky-50 dark:bg-sky-950/20 border-y border-sky-200 dark:border-sky-800 py-10" data-testid="section-industry-mid-cta">
+          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex flex-col md:flex-row md:items-center gap-6">
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-2">
+                  <Icon className="w-5 h-5 text-sky-600 dark:text-sky-400 shrink-0" />
+                  <span className="text-sm font-semibold text-sky-700 dark:text-sky-300 uppercase tracking-wide">For {industry.name} Businesses</span>
+                </div>
+                <h3 className="text-xl md:text-2xl font-display font-bold text-foreground mb-2" data-testid="text-mid-cta-heading">
+                  Running a {industry.name} business? See what you're actually paying to process cards.
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  Upload your statement and get a free, line-by-line {industry.name.toLowerCase()} industry analysis — no obligation, no sales pitch.
+                </p>
+              </div>
+              <div className="flex flex-col gap-2 items-start md:items-center shrink-0">
+                <Link href={`/upload-statement?industry=${industry.slug}`} data-testid="link-mid-cta-upload">
+                  <Button size="lg" className="gap-2 bg-sky-500 hover:bg-sky-400 border-sky-500 text-white font-bold whitespace-nowrap">
+                    <Upload className="w-4 h-4" />
+                    Get My {industry.name} Analysis — Free
+                  </Button>
+                </Link>
+                <p className="text-xs text-muted-foreground text-center">Free &bull; No obligation &bull; Takes 2 minutes</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section className="bg-background py-16" data-testid="section-industry-faq">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="max-w-3xl mx-auto">

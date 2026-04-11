@@ -462,6 +462,10 @@ export default function GetStarted() {
 
                 {step === 3 && (
                   <div className="grid grid-cols-1 gap-3" data-testid="step-volume">
+                    <p className="text-xs text-muted-foreground bg-muted/50 rounded-md px-3 py-2 mb-1 flex items-start gap-2" data-testid="text-why-ask-volume">
+                      <HelpCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-primary" />
+                      We ask about volume to calculate your actual processing cost and identify the pricing structure that saves you the most money.
+                    </p>
                     {volumeOptions.map((option) => (
                       <Card
                         key={option.value}
@@ -495,6 +499,10 @@ export default function GetStarted() {
                     <p className="text-sm text-muted-foreground mb-4">
                       We offer the Liberty Smart Terminal - free for qualifying merchants.* Tap, dip, swipe, and manual key.
                     </p>
+                    <p className="text-xs text-muted-foreground bg-muted/50 rounded-md px-3 py-2 mb-4 flex items-start gap-2" data-testid="text-why-ask-terminal">
+                      <HelpCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-primary" />
+                      We ask about terminals to know if you need hardware included in your setup — this affects how we structure your account.
+                    </p>
                     <div className="grid grid-cols-2 gap-4">
                       <Button
                         variant={needTerminal === true ? "default" : "outline"}
@@ -523,6 +531,10 @@ export default function GetStarted() {
                   <div data-testid="step-zero-percent">
                     <p className="text-sm text-muted-foreground mb-4">
                       Where permitted by law and card brand rules, you can pass processing fees to the cardholder through a compliant cash discount or surcharge program.
+                    </p>
+                    <p className="text-xs text-muted-foreground bg-muted/50 rounded-md px-3 py-2 mb-4 flex items-start gap-2" data-testid="text-why-ask-zero">
+                      <HelpCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-primary" />
+                      We ask this to tailor your recommendation — 0% programs can eliminate processing costs entirely for qualifying businesses.
                     </p>
                     <div className="grid grid-cols-2 gap-4">
                       <Button

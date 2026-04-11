@@ -482,6 +482,63 @@ export default function CompareVs() {
           </div>
         </section>
 
+        {/* Price Comparison Snapshot */}
+        <section className="bg-muted/30 py-10 border-b border-border" data-testid="section-vs-price-snapshot">
+          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+            <h2 className="text-xl font-display font-bold text-foreground text-center mb-2" data-testid="text-snapshot-heading">
+              Price Comparison Snapshot
+            </h2>
+            <p className="text-center text-sm text-muted-foreground mb-6">
+              Based on a typical $30,000/month volume merchant
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <Card className="border-2 border-muted" data-testid="card-snapshot-competitor">
+                <CardContent className="p-5 text-center">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">{data.name}</p>
+                  <p className="text-2xl font-display font-bold text-foreground mb-1" data-testid="text-snapshot-competitor-cost">
+                    {data.savingsExample.competitorCost}
+                  </p>
+                  <p className="text-xs text-muted-foreground">/month estimate</p>
+                  <p className="text-xs text-muted-foreground mt-2">{data.comparison[0].competitor}</p>
+                </CardContent>
+              </Card>
+
+              <Card className="border-2 border-emerald-400 dark:border-emerald-600 bg-emerald-50 dark:bg-emerald-950/30" data-testid="card-snapshot-savings">
+                <CardContent className="p-5 text-center">
+                  <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 uppercase tracking-wide mb-2">Est. Annual Savings</p>
+                  <p className="text-3xl font-display font-bold text-emerald-600 dark:text-emerald-400 mb-1" data-testid="text-snapshot-savings">
+                    {data.savingsExample.annualSavings}
+                  </p>
+                  <p className="text-xs text-emerald-700 dark:text-emerald-400 font-medium">switching to Liberty Bancard</p>
+                  <p className="text-[10px] text-muted-foreground mt-2">$30k/month volume*</p>
+                </CardContent>
+              </Card>
+
+              <Card className="border-2 border-primary" data-testid="card-snapshot-liberty">
+                <CardContent className="p-5 text-center">
+                  <p className="text-xs font-semibold text-primary uppercase tracking-wide mb-2">Liberty Bancard</p>
+                  <p className="text-2xl font-display font-bold text-primary mb-1" data-testid="text-snapshot-liberty-cost">
+                    {data.savingsExample.libertyCost}
+                  </p>
+                  <p className="text-xs text-muted-foreground">/month estimate*</p>
+                  <p className="text-xs text-muted-foreground mt-2">Interchange + 0.15–0.40%</p>
+                </CardContent>
+              </Card>
+            </div>
+            <p className="text-[10px] text-muted-foreground text-center mt-4">
+              *Illustrative estimate. Actual savings depend on card mix and transaction types. Upload your statement for an exact comparison.
+            </p>
+            <div className="flex justify-center mt-4">
+              <Link href="/upload-statement" data-testid="link-snapshot-cta">
+                <Button size="sm" className="gap-2 bg-sky-500 hover:bg-sky-400 text-white">
+                  <Upload className="w-3.5 h-3.5" />
+                  Get My Exact Savings — Free
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </section>
+
         <section className="bg-background py-16" data-testid="section-vs-comparison-table">
           <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
             <h2 className="reveal text-2xl md:text-3xl font-display font-bold text-foreground text-center mb-4" data-testid="text-vs-table-heading">

@@ -7,6 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation } from "@tanstack/react-query";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
+import { MobileStickyCtA } from "@/components/MobileStickyCtA";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -717,6 +718,7 @@ export default function UploadStatement() {
       </main>
 
       <Footer />
+      <MobileStickyCtA />
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { Link } from "wouter";
-import { Phone, Mail, Calendar } from "lucide-react";
+import { Phone, Mail, Calendar, ShieldCheck, Award } from "lucide-react";
+import { SiVisa, SiMastercard, SiDiscover, SiAmericanexpress } from "react-icons/si";
 import logoWhite from "@assets/logo-white.png";
 
 export function Footer() {
@@ -240,6 +241,28 @@ export function Footer() {
                 </li>
               ))}
             </ul>
+          </div>
+        </div>
+
+        {/* Trust Signals Row */}
+        <div className="border-t border-white/10 pt-8 pb-6">
+          <div className="flex flex-wrap items-center justify-center gap-4 md:gap-6" data-testid="section-footer-trust">
+            <div className="flex items-center gap-2 text-primary-foreground/60 text-xs" data-testid="badge-pci-compliant">
+              <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>PCI DSS Compliant</span>
+            </div>
+            <span className="hidden md:block w-px h-4 bg-white/10" aria-hidden="true" />
+            <div className="flex items-center gap-2 text-primary-foreground/60 text-xs" data-testid="badge-registered-iso">
+              <Award className="w-4 h-4 text-sky-400 shrink-0" />
+              <span>Registered ISO/MSP</span>
+            </div>
+            <span className="hidden md:block w-px h-4 bg-white/10" aria-hidden="true" />
+            <div className="flex items-center gap-3 text-primary-foreground/50" data-testid="badge-card-networks">
+              <SiVisa className="w-8 h-5" aria-label="Visa" />
+              <SiMastercard className="w-6 h-5" aria-label="Mastercard" />
+              <SiDiscover className="w-8 h-5" aria-label="Discover" />
+              <SiAmericanexpress className="w-6 h-5" aria-label="American Express" />
+            </div>
           </div>
         </div>
 
