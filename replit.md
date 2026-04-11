@@ -64,6 +64,17 @@ The frontend uses React with Vite, TypeScript, Tailwind CSS, and shadcn/ui, with
 - **API Endpoints**: `GET /api/sdr/ghl-enrollment/status` (enrollment system status), `GET /api/sdr/ghl-enrollment/mappings` (sequence-to-workflow mappings and smart list tags).
 - **Required Env Vars**: `GHL_WORKFLOW_INBOUND_CONFIRMATION`, `GHL_WORKFLOW_APPOINTMENT`, `GHL_DEFAULT_WORKFLOW_ID`, `GHL_MERCHANT_AGREEMENT_TEMPLATE_ID`.
 
+### Express SSR for Public Marketing Pages (Task #49)
+- **Server-Side Rendering**: Express routes return full HTML before the Vite/SPA catch-all so Googlebot indexes all public marketing pages. Registered in `server/routes.ts` via `registerSsrRoutes`.
+- **SSR Files**: `server/ssrShared.ts` (shell, navbar, footer, inline CSS), `server/ssr/home.ts`, `server/ssr/industries.ts`, `server/ssr/compare.ts`, `server/ssr/locations.ts`, `server/routes/ssr-routes.ts`.
+- **Routes covered** (39 total):
+  - `GET /` — Homepage with Organization/LocalBusiness/WebSite JSON-LD schemas. Cache: `s-maxage=3600, stale-while-revalidate=86400`.
+  - `GET /industries/:slug` — 8 industry pages (restaurant, retail, healthcare, salon-spa, auto-repair, professional-services, ecommerce, construction). Cache: `max-age=86400`. FAQPage + Service JSON-LD.
+  - `GET /compare/:competitor` — 5 competitor comparison pages (square, stripe, clover, toast, paypal). Cache: `max-age=86400`. BreadcrumbList JSON-LD.
+  - `GET /locations/:city/:industry` — 25 location pages (5 FL cities × 5 verticals). Cache: `max-age=43200`. LocalBusiness + BreadcrumbList JSON-LD.
+- **Unknown slugs return 404** to avoid serving empty SSR pages.
+- **React SPA unchanged** — users clicking links still get the full SPA experience; SSR is pure progressive enhancement for crawlers.
+
 ### Pre-Deployment Security & Stability (Tasks #33-#38)
 - **Auth Middleware**: All CRM/internal API endpoints require `isAuthenticated` middleware. Only public marketing routes, health checks, and external webhook receivers are unprotected.
 - **Error Handling**: All route handlers wrapped in try/catch with structured error logging. SLA worker catch blocks log errors instead of swallowing silently.
