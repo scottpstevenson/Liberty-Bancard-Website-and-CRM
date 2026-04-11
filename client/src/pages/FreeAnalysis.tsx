@@ -716,6 +716,7 @@ export default function FreeAnalysis() {
         description="Take our 60-second quiz to get a personalized processing savings estimate. Free analysis, no obligation. Join 500+ Florida businesses saving with Liberty Bancard."
         path="/free-analysis"
         keywords="free statement analysis, payment processing savings, credit card processing, merchant services, rate comparison"
+        ogImage="https://libertybancard.com/og-free-analysis.jpg"
       />
 
       <PromoBanner variant="bar" promoId="free-processing" showCountdown />

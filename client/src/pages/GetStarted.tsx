@@ -355,7 +355,18 @@ export default function GetStarted() {
 
   return (
     <div className="min-h-screen flex flex-col font-body">
-      <SEO title="Get Started - Free Statement Analysis" description="Answer a few questions and get a personalized processing recommendation. Free statement review, no obligation." path="/get-started" breadcrumbs={[{ name: "Get Started", path: "/get-started" }]} />
+      <SEO title="Get Started - Free Statement Analysis" description="Answer a few questions and get a personalized processing recommendation. Free statement review, no obligation." path="/get-started" breadcrumbs={[{ name: "Get Started", path: "/get-started" }]} structuredData={[{
+          "@context": "https://schema.org",
+          "@type": "HowTo",
+          name: "Get a Free Merchant Statement Analysis",
+          description: "Answer a few questions about your business to get a personalized payment processing recommendation. Free statement review with no obligation.",
+          url: "https://libertybancard.com/get-started",
+          step: [
+            { "@type": "HowToStep", position: 1, name: "Answer Business Questions", text: "Tell us about your business type, monthly volume, and current processor." },
+            { "@type": "HowToStep", position: 2, name: "Upload Your Statement", text: "Optionally upload your current processing statement for a detailed analysis." },
+            { "@type": "HowToStep", position: 3, name: "Get Your Personalized Recommendation", text: "Receive a custom pricing recommendation and estimated savings report." },
+          ],
+        }]} />
       <Navbar />
       <main className="flex-grow pt-28">
         <section className="relative overflow-hidden" data-testid="section-get-started-hero">

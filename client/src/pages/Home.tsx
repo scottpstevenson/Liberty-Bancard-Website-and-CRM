@@ -159,7 +159,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen flex flex-col font-body">
-      <SEO title="Merchant Payment Processing" description="See exactly what you pay to accept cards. Liberty Bancard provides transparent, statement-based pricing for businesses. Upload your statement for a free analysis." path="/" keywords="payment processing, merchant services, credit card processing, statement review, interchange plus pricing, wholesale rates" structuredData={[getLocalBusinessSchema(), getWebSiteSchema()]} />
+      <SEO title="Merchant Payment Processing — See Your True Rate" description="See exactly what you pay to accept cards. Liberty Bancard provides transparent, interchange-plus pricing for businesses. Upload your statement for a free analysis." path="/" keywords="payment processing, merchant services, credit card processing, statement review, interchange plus pricing, wholesale rates, transparent pricing" ogImage="https://libertybancard.com/og-home.jpg" structuredData={[getLocalBusinessSchema(), getWebSiteSchema()]} />
       <Navbar />
       <WelcomePopup />
 

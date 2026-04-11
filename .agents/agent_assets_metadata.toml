@@ -1,5 +1,28 @@
 uploads = []
-generated = []
+
+[[generated]]
+id = "ysv5dtwx4gwKWu7iMmngO"
+uri = "file://attached_assets/generated_images/og-image-liberty-bancard.png"
+type = "image"
+title = "generated_image"
+
+[[generated]]
+id = "GfAojhclbpAb83PJ6mgtw"
+uri = "file://attached_assets/generated_images/og-home.png"
+type = "image"
+title = "generated_image"
+
+[[generated]]
+id = "OxfI3LxRvI0ieQkVZwxBL"
+uri = "file://attached_assets/generated_images/og-upload-statement.png"
+type = "image"
+title = "generated_image"
+
+[[generated]]
+id = "ZNkzoR2-v9I8qBkSirDBO"
+uri = "file://attached_assets/generated_images/og-free-analysis.png"
+type = "image"
+title = "generated_image"
 
 [[outputs]]
 id = "nSoAGH_dz9gb21KzU0Ty_"
