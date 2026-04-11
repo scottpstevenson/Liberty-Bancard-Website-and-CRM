@@ -122,9 +122,9 @@ export default function Home() {
   const { toast } = useToast();
 
   const containerRef = useScrollReveal();
-  const stat1 = useCountUp(15, 2000, "+");
-  const stat2 = useCountUp(500, 2000, "+");
-  const stat3 = useCountUp(98, 2000, "%");
+  const stat1 = useCountUp(2, 2000, "B+");
+  const stat2 = useCountUp(98, 2000, "%");
+  const stat3 = useCountUp(15, 2000, "+");
 
   const handleCallbackSubmit = async () => {
     if (!cbName.trim() || !cbPhone.trim()) return;
@@ -199,17 +199,14 @@ export default function Home() {
                 <h1 className="text-4xl md:text-5xl lg:text-6xl font-display font-bold text-white leading-tight mb-6" data-testid="text-hero-heading">
                   You're Not Paying a "Rate."<br />You're Paying a <span className="text-sky-400">Markup</span> You've Never Seen.
                 </h1>
-                <p className="text-lg text-white/85 mb-4 leading-relaxed" data-testid="text-hero-subheadline">
-                  Your processor quoted you a rate. But your actual cost is buried in interchange downgrades, monthly add-ons, PCI fees, and batch charges you've never been shown.
-                </p>
-                <p className="text-lg text-white/90 mb-8 leading-relaxed font-medium" data-testid="text-hero-subheadline-2">
-                  We pull it apart line-by-line and show you exactly where your money goes.
+                <p className="text-lg text-white/85 mb-8 leading-relaxed" data-testid="text-hero-subheadline">
+                  Your actual processing cost is hidden inside interchange downgrades, junk fees, and monthly add-ons. We pull your statement apart line-by-line — free — and show you exactly what you're paying and why.
                 </p>
                 <div className="flex flex-col sm:flex-row gap-4 flex-wrap">
                   <Link href="/upload-statement" data-testid="link-hero-upload">
                     <Button size="lg" className="gap-2 bg-sky-500 border-sky-500 text-white">
                       <Upload className="w-4 h-4" />
-                      Upload Statement - Free Review
+                      Get My Free Statement Analysis
                     </Button>
                   </Link>
                   <Link href="/get-started" data-testid="link-hero-quiz">
@@ -288,20 +285,20 @@ export default function Home() {
               Liberty Bancard by the Numbers
             </h2>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 text-center">
-              <div ref={stat1.ref} className="p-6" data-testid="stat-years">
-                <div className="text-5xl md:text-6xl font-display font-bold text-sky-400 mb-2">{stat1.display}</div>
+              <div ref={stat1.ref} className="p-6" data-testid="stat-volume">
+                <div className="text-5xl md:text-6xl font-display font-bold text-sky-400 mb-2">${stat1.display}</div>
+                <div className="text-sm font-medium text-white">Total Volume Processed</div>
+                <div className="text-xs text-white/50 mt-1">Annual card volume, nationwide</div>
+              </div>
+              <div ref={stat2.ref} className="p-6 border-y sm:border-y-0 sm:border-x border-white/10" data-testid="stat-retention">
+                <div className="text-5xl md:text-6xl font-display font-bold text-sky-400 mb-2">{stat2.display}</div>
+                <div className="text-sm font-medium text-white">Merchant Retention Rate</div>
+                <div className="text-xs text-white/50 mt-1">Merchants stay because the math works</div>
+              </div>
+              <div ref={stat3.ref} className="p-6" data-testid="stat-years">
+                <div className="text-5xl md:text-6xl font-display font-bold text-sky-400 mb-2">{stat3.display}</div>
                 <div className="text-sm font-medium text-white">Years in Business</div>
                 <div className="text-xs text-white/50 mt-1">South Florida roots, nationwide reach</div>
-              </div>
-              <div ref={stat2.ref} className="p-6 border-y sm:border-y-0 sm:border-x border-white/10" data-testid="stat-merchants">
-                <div className="text-5xl md:text-6xl font-display font-bold text-sky-400 mb-2">{stat2.display}</div>
-                <div className="text-sm font-medium text-white">Merchants Served</div>
-                <div className="text-xs text-white/50 mt-1">Across every major vertical</div>
-              </div>
-              <div ref={stat3.ref} className="p-6" data-testid="stat-retention">
-                <div className="text-5xl md:text-6xl font-display font-bold text-sky-400 mb-2">{stat3.display}</div>
-                <div className="text-sm font-medium text-white">Retention Rate</div>
-                <div className="text-xs text-white/50 mt-1">Merchants stay because the math works</div>
               </div>
             </div>
           </div>
@@ -311,7 +308,7 @@ export default function Home() {
         <section className="bg-background border-y border-border py-12" data-testid="section-partners">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <p className="text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-8">
-              Processing Infrastructure & Compliance
+              Industry Certifications
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-8 items-center justify-items-center">
               {[
@@ -337,7 +334,7 @@ export default function Home() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-start">
               <div className="reveal">
                 <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-what-you-get-heading">
-                  What You Get From a Liberty Statement Review
+                  Your Free Statement Analysis Includes:
                 </h2>
                 <p className="text-muted-foreground mb-8">Not a quote. Not a pitch. A clear breakdown of what you're paying and why.</p>
                 <ul className="space-y-5 mb-8">
@@ -1077,7 +1074,7 @@ export default function Home() {
               <Link href="/upload-statement" data-testid="link-final-upload">
                 <Button size="lg" className="gap-2 bg-sky-500 border-sky-500 text-white">
                   <Upload className="w-4 h-4" />
-                  Upload My Statement
+                  Get My Free Statement Analysis
                 </Button>
               </Link>
               <Link href="/get-started" data-testid="link-final-quiz">

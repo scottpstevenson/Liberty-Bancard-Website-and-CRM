@@ -383,7 +383,7 @@ export default function RateComparison() {
               <Link href="/upload-statement" data-testid="link-compare-cta-upload">
                 <Button size="lg" className="gap-2 bg-white text-primary border-white">
                   <Upload className="w-4 h-4" />
-                  Upload Statement - Free Review
+                  Get My Free Statement Analysis
                 </Button>
               </Link>
               <Link href="/savings-calculator" data-testid="link-compare-cta-calc">

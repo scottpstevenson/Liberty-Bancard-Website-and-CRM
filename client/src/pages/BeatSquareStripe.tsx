@@ -106,7 +106,7 @@ export default function BeatSquareStripe() {
                   <Link href="/upload-statement" data-testid="link-beat-primary-cta">
                     <Button size="lg" className="gap-2 bg-sky-500 border-sky-500 text-white">
                       <Upload className="w-4 h-4" />
-                      Compare My Statement
+                      Get My Free Statement Analysis
                       <ArrowRight className="w-4 h-4" />
                     </Button>
                   </Link>
@@ -134,6 +134,69 @@ export default function BeatSquareStripe() {
                     </p>
                   </CardContent>
                 </Card>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Savings Comparison Table */}
+        <section className="bg-background bg-grid py-20" data-testid="section-savings-table">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="reveal text-center mb-10">
+              <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-savings-heading">
+                The Numbers Side-by-Side
+              </h2>
+              <p className="text-muted-foreground max-w-xl mx-auto">
+                Same $50,000/month in volume. Here's what it costs on each platform.
+              </p>
+            </div>
+            <div className="max-w-3xl mx-auto">
+              <Card data-testid="card-savings-table">
+                <CardContent className="p-0 overflow-x-auto">
+                  <table className="w-full text-sm" data-testid="table-savings">
+                    <thead>
+                      <tr className="border-b border-border bg-muted/50">
+                        <th className="text-left p-4 font-medium text-foreground">Processor</th>
+                        <th className="text-right p-4 font-medium text-foreground">Monthly Cost</th>
+                        <th className="text-right p-4 font-medium text-foreground">Annual Cost</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr className="border-b border-border" data-testid="savings-row-square">
+                        <td className="p-4 text-foreground font-medium">Square (2.6% + $0.10 flat rate)</td>
+                        <td className="p-4 text-right text-red-500 font-semibold">$1,450/mo</td>
+                        <td className="p-4 text-right text-red-500 font-semibold">$17,400/yr</td>
+                      </tr>
+                      <tr className="border-b border-border" data-testid="savings-row-stripe">
+                        <td className="p-4 text-foreground font-medium">Stripe (2.9% + $0.30 flat rate)</td>
+                        <td className="p-4 text-right text-red-500 font-semibold">$1,450/mo</td>
+                        <td className="p-4 text-right text-red-500 font-semibold">$17,400/yr</td>
+                      </tr>
+                      <tr className="border-b border-border bg-emerald-50 dark:bg-emerald-950/20" data-testid="savings-row-liberty">
+                        <td className="p-4 text-foreground font-bold">Liberty (interchange-plus)*</td>
+                        <td className="p-4 text-right text-emerald-600 dark:text-emerald-400 font-bold">~$870/mo</td>
+                        <td className="p-4 text-right text-emerald-600 dark:text-emerald-400 font-bold">~$10,440/yr</td>
+                      </tr>
+                      <tr data-testid="savings-row-total">
+                        <td className="p-4 text-foreground font-bold text-base">Monthly Savings vs. Flat Rate</td>
+                        <td className="p-4 text-right font-bold text-base text-emerald-600 dark:text-emerald-400">~$580/mo</td>
+                        <td className="p-4 text-right font-bold text-base text-emerald-600 dark:text-emerald-400">~$6,960/yr</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </CardContent>
+              </Card>
+              <p className="text-xs text-muted-foreground text-center mt-4" data-testid="text-savings-footnote">
+                *Illustrative example based on $50,000/month volume with a typical card mix. Actual savings depend on your statement. Upload yours for a real comparison.
+              </p>
+              <div className="text-center mt-6">
+                <Link href="/upload-statement" data-testid="link-savings-cta">
+                  <Button size="lg" className="gap-2 bg-sky-500 border-sky-500 text-white">
+                    <Upload className="w-4 h-4" />
+                    Get My Free Statement Analysis
+                    <ArrowRight className="w-4 h-4" />
+                  </Button>
+                </Link>
               </div>
             </div>
           </div>
@@ -271,7 +334,7 @@ export default function BeatSquareStripe() {
               <Link href="/upload-statement" data-testid="link-beat-get-upload">
                 <Button className="gap-2">
                   <Upload className="w-4 h-4" />
-                  Upload Statement
+                  Get My Free Statement Analysis
                   <ArrowRight className="w-4 h-4" />
                 </Button>
               </Link>
@@ -373,7 +436,7 @@ export default function BeatSquareStripe() {
                 <Link href="/upload-statement" data-testid="link-faq-compare">
                   <Button className="gap-2">
                     <Upload className="w-4 h-4" />
-                    Compare My Statement
+                    Get My Free Statement Analysis
                     <ArrowRight className="w-4 h-4" />
                   </Button>
                 </Link>
@@ -408,7 +471,7 @@ export default function BeatSquareStripe() {
               <Link href="/upload-statement" data-testid="link-beat-final-compare">
                 <Button size="lg" className="gap-2 bg-sky-500 border-sky-500 text-white">
                   <Upload className="w-4 h-4" />
-                  Compare My Statement
+                  Get My Free Statement Analysis
                   <ArrowRight className="w-4 h-4" />
                 </Button>
               </Link>

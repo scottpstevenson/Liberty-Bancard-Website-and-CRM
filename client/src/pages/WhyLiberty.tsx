@@ -206,13 +206,13 @@ export default function WhyLiberty() {
                 className="text-4xl md:text-5xl font-display font-bold text-white leading-tight mb-6"
                 data-testid="text-why-heading"
               >
-                Why <span className="text-sky-400">Liberty Bancard</span>?
+                We Prove Your Real Cost First — <span className="text-sky-400">Then You Decide.</span>
               </h1>
               <p
                 className="text-lg text-white/70 leading-relaxed mb-4"
                 data-testid="text-why-subheading"
               >
-                For over a decade, we've helped thousands of businesses stop overpaying for payment processing. We don't sell a rate — we prove your real cost and fix it.
+                Most merchants overpay without knowing it. We started Liberty Bancard to fix that — with full-transparency pricing and a free audit that proves what you're really paying.
               </p>
               <p className="text-base text-white/60 leading-relaxed mb-8">
                 PCI Level 1 certified. Registered ISO. Serving restaurants, retail, healthcare, auto repair, and more across all 50 states with transparent, wholesale pricing and real human support.
@@ -221,7 +221,7 @@ export default function WhyLiberty() {
                 <Link href="/upload-statement" data-testid="link-why-upload">
                   <Button className="gap-2 cta-pulse">
                     <Upload className="w-4 h-4" />
-                    Free Statement Review
+                    Get My Free Statement Analysis
                   </Button>
                 </Link>
                 <a href="#" data-testid="link-why-book-call">
@@ -277,7 +277,7 @@ export default function WhyLiberty() {
                 <Link href="/upload-statement" data-testid="link-story-upload">
                   <Button className="gap-2">
                     <Upload className="w-4 h-4" />
-                    Get Your Free Statement Review
+                    Get My Free Statement Analysis
                   </Button>
                 </Link>
               </div>
@@ -498,7 +498,7 @@ export default function WhyLiberty() {
                 <Link href="/upload-statement" data-testid="link-cta-upload">
                   <Button className="gap-2 cta-pulse">
                     <Upload className="w-4 h-4" />
-                    Upload Statement Now
+                    Get My Free Statement Analysis
                   </Button>
                 </Link>
                 <Link href="/savings-calculator" data-testid="link-cta-calculator">
