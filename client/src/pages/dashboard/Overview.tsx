@@ -293,7 +293,10 @@ export default function Overview() {
           <CardContent>
             <div className="text-2xl font-bold" data-testid="text-pending-tasks">{kpi?.tasks.pending || 0}</div>
             {(kpi?.tasks.overdue || 0) > 0 ? (
-              <p className="text-xs text-destructive mt-1" data-testid="text-overdue-tasks">{kpi?.tasks.overdue} overdue</p>
+              <p className="text-xs text-destructive mt-1 flex items-center gap-1" data-testid="text-overdue-tasks">
+                <AlertTriangle className="w-3 h-3" aria-hidden="true" />
+                <span>{kpi?.tasks.overdue} overdue</span>
+              </p>
             ) : (
               <p className="text-xs text-muted-foreground mt-1" data-testid="text-tasks-ok">None overdue</p>
             )}
@@ -389,7 +392,7 @@ export default function Overview() {
           </CardHeader>
           <CardContent>
             {dailyData?.trend && dailyData.trend.length > 0 ? (
-              <div className="space-y-2">
+              <div role="img" aria-label="Weekly lead trend chart showing daily lead and deal counts" className="space-y-2">
                 {dailyData.trend.map((day) => {
                   const dayLabel = new Date(day.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
                   return (
@@ -408,6 +411,17 @@ export default function Overview() {
                     </div>
                   );
                 })}
+                <div className="sr-only">
+                  <table>
+                    <caption>Weekly Lead Trend</caption>
+                    <thead><tr><th>Day</th><th>Leads</th><th>Deals</th></tr></thead>
+                    <tbody>
+                      {dailyData.trend.map((day) => (
+                        <tr key={day.date}><td>{day.date}</td><td>{day.leads}</td><td>{day.deals}</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">No trend data available</p>
@@ -424,7 +438,7 @@ export default function Overview() {
           </CardHeader>
           <CardContent>
             {funnelData?.funnel && funnelData.funnel.length > 0 ? (
-              <div className="space-y-2">
+              <div role="img" aria-label="Conversion funnel chart showing lead progression through stages" className="space-y-2">
                 {funnelData.funnel.map((step) => (
                   <div key={step.stage} className="space-y-1" data-testid={`funnel-step-${step.stage.toLowerCase().replace(/\s+/g, "-")}`}>
                     <div className="flex items-center justify-between text-sm">
@@ -437,6 +451,17 @@ export default function Overview() {
                 <div className="pt-2 flex gap-4 text-xs text-muted-foreground">
                   <span>{funnelData.totalLeads} total leads</span>
                   <span>{funnelData.totalDeals} total deals</span>
+                </div>
+                <div className="sr-only">
+                  <table>
+                    <caption>Conversion Funnel (30d)</caption>
+                    <thead><tr><th>Stage</th><th>Count</th></tr></thead>
+                    <tbody>
+                      {funnelData.funnel.map((step) => (
+                        <tr key={step.stage}><td>{step.stage}</td><td>{step.count}</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             ) : (

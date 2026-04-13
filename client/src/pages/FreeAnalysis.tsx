@@ -758,7 +758,7 @@ export default function FreeAnalysis() {
               </Badge>
             </div>
           )}
-          <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-white/50">
+          <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-white/70">
             <span className="flex items-center gap-1" data-testid="text-social-proof-1">
               <Users className="w-3 h-3" />
               Join 500+ FL businesses

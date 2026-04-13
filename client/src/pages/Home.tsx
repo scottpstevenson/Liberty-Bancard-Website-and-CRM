@@ -58,11 +58,13 @@ import imgPaxA920 from "@assets/images/terminal-pax-a920.png";
 import dashboardPreview from "@assets/images/dashboard-preview.png";
 
 function useCountUp(end: number, duration: number = 2000, suffix: string = "") {
-  const [count, setCount] = useState(0);
+  const prefersReducedMotion = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const [count, setCount] = useState(prefersReducedMotion ? end : 0);
   const [started, setStarted] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (prefersReducedMotion) return;
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting && !started) {
@@ -73,10 +75,10 @@ function useCountUp(end: number, duration: number = 2000, suffix: string = "") {
     );
     if (ref.current) observer.observe(ref.current);
     return () => observer.disconnect();
-  }, [started]);
+  }, [started, prefersReducedMotion]);
 
   useEffect(() => {
-    if (!started) return;
+    if (!started || prefersReducedMotion) return;
     const steps = 60;
     const increment = end / steps;
     let current = 0;
@@ -90,7 +92,7 @@ function useCountUp(end: number, duration: number = 2000, suffix: string = "") {
       }
     }, duration / steps);
     return () => clearInterval(interval);
-  }, [started, end, duration]);
+  }, [started, end, duration, prefersReducedMotion]);
 
   return { ref, display: `${count.toLocaleString()}${suffix}` };
 }
@@ -164,7 +166,7 @@ export default function Home() {
       <Navbar />
       <WelcomePopup />
 
-      <main className="flex-grow pt-28" ref={containerRef}>
+      <main className="flex-grow pt-20" ref={containerRef}>
 
         {/* SECTION 1: Social Proof Bar */}
         <section className="bg-primary text-primary-foreground" data-testid="section-proof-bar">
@@ -224,7 +226,7 @@ export default function Home() {
                     </Button>
                   </Link>
                 </div>
-                <p className="text-xs text-white/55 mt-4 max-w-md" data-testid="text-hero-microcopy">
+                <p className="text-xs text-white/70 mt-4 max-w-md" data-testid="text-hero-microcopy">
                   PDF or photo. 30 seconds. Redact account numbers if you want - we only need totals + fee lines.
                 </p>
               </div>
@@ -296,17 +298,17 @@ export default function Home() {
               <div ref={stat1.ref} className="p-6" data-testid="stat-volume">
                 <div className="text-5xl md:text-6xl font-display font-bold text-sky-400 mb-2">${stat1.display}</div>
                 <div className="text-sm font-medium text-white">Total Volume Processed</div>
-                <div className="text-xs text-white/50 mt-1">Annual card volume, nationwide</div>
+                <div className="text-xs text-white/70 mt-1">Annual card volume, nationwide</div>
               </div>
               <div ref={stat2.ref} className="p-6 border-y sm:border-y-0 sm:border-x border-white/10" data-testid="stat-retention">
                 <div className="text-5xl md:text-6xl font-display font-bold text-sky-400 mb-2">{stat2.display}</div>
                 <div className="text-sm font-medium text-white">Merchant Retention Rate</div>
-                <div className="text-xs text-white/50 mt-1">Merchants stay because the math works</div>
+                <div className="text-xs text-white/70 mt-1">Merchants stay because the math works</div>
               </div>
               <div ref={stat3.ref} className="p-6" data-testid="stat-years">
                 <div className="text-5xl md:text-6xl font-display font-bold text-sky-400 mb-2">{stat3.display}</div>
                 <div className="text-sm font-medium text-white">Years in Business</div>
-                <div className="text-xs text-white/50 mt-1">South Florida roots, nationwide reach</div>
+                <div className="text-xs text-white/70 mt-1">South Florida roots, nationwide reach</div>
               </div>
             </div>
           </div>
@@ -327,8 +329,8 @@ export default function Home() {
                 { name: "PCI DSS", icon: ShieldCheck },
                 { name: "EMV Chip", icon: ShieldCheck },
               ].map((partner, i) => (
-                <div key={i} className="flex flex-col items-center gap-2 opacity-60" data-testid={`partner-logo-${i}`}>
-                  <partner.icon className="w-8 h-8 text-muted-foreground" />
+                <div key={i} className="flex flex-col items-center gap-2" data-testid={`partner-logo-${i}`}>
+                  <partner.icon className="w-8 h-8 text-primary/80" />
                   <span className="text-xs font-medium text-muted-foreground">{partner.name}</span>
                 </div>
               ))}

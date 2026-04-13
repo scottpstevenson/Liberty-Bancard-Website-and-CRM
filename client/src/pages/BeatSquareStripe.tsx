@@ -117,7 +117,7 @@ export default function BeatSquareStripe() {
                   </a>
                 </div>
                 <p
-                  className="text-sm text-white/50"
+                  className="text-sm text-white/70"
                   data-testid="text-beat-subtext"
                 >
                   No pressure. You keep the breakdown.

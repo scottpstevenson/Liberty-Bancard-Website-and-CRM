@@ -321,7 +321,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         <div className="flex flex-col flex-1 overflow-hidden">
           <header className="h-14 bg-background border-b flex items-center justify-between gap-2 sm:gap-4 px-3 sm:px-6 sticky top-0 z-50">
             <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-              <SidebarTrigger data-testid="button-sidebar-toggle" />
+              <SidebarTrigger data-testid="button-sidebar-toggle" aria-label="Toggle navigation" />
               <h1 className="font-display font-semibold text-base sm:text-lg truncate" data-testid="text-page-title">
                 {currentLabel}
               </h1>
@@ -329,7 +329,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
             <div className="flex items-center gap-1 sm:gap-2 shrink-0">
               <UniversalSearch />
               <ThemeToggle />
-              <Button size="icon" variant="ghost" onClick={() => setEmailOpen(true)} data-testid="button-compose-email">
+              <Button size="icon" variant="ghost" onClick={() => setEmailOpen(true)} data-testid="button-compose-email" aria-label="Open email composer">
                 <Mail className="w-4 h-4" />
               </Button>
             </div>

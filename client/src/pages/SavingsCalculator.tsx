@@ -183,7 +183,7 @@ export default function SavingsCalculator() {
               <p className="text-lg text-white/80 mb-2" data-testid="text-calc-subheading">
                 See how much you could save with transparent, interchange-plus pricing. Enter your numbers below for an instant estimate.
               </p>
-              <p className="text-xs text-white/50" data-testid="text-calc-disclaimer">
+              <p className="text-xs text-white/70" data-testid="text-calc-disclaimer">
                 *Estimates are illustrative. Actual savings depend on card mix, transaction types, and statement review. No savings claims without review.
               </p>
             </div>

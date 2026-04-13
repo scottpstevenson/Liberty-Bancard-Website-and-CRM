@@ -71,17 +71,6 @@ export function Navbar() {
         </div>
       </div>
 
-      <div className="bg-muted/80 border-b border-border/30">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <p
-            className="text-[10px] text-muted-foreground text-center py-0.5 leading-tight"
-            data-testid="text-compliance"
-          >
-            Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.
-          </p>
-        </div>
-      </div>
-
       <div className="bg-background/80 backdrop-blur-md border-b border-border/50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16 gap-4">
@@ -270,7 +259,7 @@ export function Navbar() {
                 size="icon"
                 onClick={() => setIsOpen(!isOpen)}
                 data-testid="button-mobile-menu"
-                aria-label={isOpen ? "Close menu" : "Open menu"}
+                aria-label={isOpen ? "Close navigation menu" : "Open navigation menu"}
               >
                 {isOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
               </Button>
