@@ -78,11 +78,16 @@ const COMPETITOR_SLUGS = [
   "worldpay", "fiserv", "gravity-payments",
 ];
 
+const isDev = process.env.NODE_ENV !== "production";
+const SSR_CACHE = isDev ? "no-store, no-cache" : "public, s-maxage=3600, stale-while-revalidate=86400";
+const PAGE_CACHE = isDev ? "no-store, no-cache" : "public, max-age=86400";
+const CITY_CACHE = isDev ? "no-store, no-cache" : "public, max-age=43200";
+
 export function registerSsrRoutes(app: Express) {
   app.get("/", (_req, res) => {
     const html = getHomeHtml();
     res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.setHeader("Cache-Control", "public, s-maxage=3600, stale-while-revalidate=86400");
+    res.setHeader("Cache-Control", SSR_CACHE);
     res.send(html);
   });
 
@@ -90,7 +95,7 @@ export function registerSsrRoutes(app: Express) {
     const html = getIndustryHtml(req.params.slug);
     if (!html) return res.status(404).end();
     res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.setHeader("Cache-Control", PAGE_CACHE);
     res.send(html);
   });
 
@@ -98,7 +103,7 @@ export function registerSsrRoutes(app: Express) {
     const html = getCompareHtml(req.params.competitor);
     if (!html) return res.status(404).end();
     res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.setHeader("Cache-Control", PAGE_CACHE);
     res.send(html);
   });
 
@@ -106,7 +111,7 @@ export function registerSsrRoutes(app: Express) {
     const html = getLocationHtml(req.params.city, req.params.industry);
     if (!html) return res.status(404).end();
     res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.setHeader("Cache-Control", "public, max-age=43200");
+    res.setHeader("Cache-Control", CITY_CACHE);
     res.send(html);
   });
 
@@ -114,7 +119,7 @@ export function registerSsrRoutes(app: Express) {
     const html = getCityHubHtml(req.params.city);
     if (!html) return res.status(404).end();
     res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.setHeader("Cache-Control", PAGE_CACHE);
     res.send(html);
   });
 
