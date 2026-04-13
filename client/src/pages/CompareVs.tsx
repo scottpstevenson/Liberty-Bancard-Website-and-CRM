@@ -830,7 +830,7 @@ export default function CompareVs() {
     return (
       <div className="min-h-screen flex flex-col font-body">
         <Navbar />
-        <main className="flex-grow pt-28 flex items-center justify-center">
+        <main className="flex-grow pt-20 flex items-center justify-center">
           <div className="text-center px-4">
             <h1 className="text-3xl font-display font-bold text-foreground mb-4" data-testid="text-not-found">Comparison Not Found</h1>
             <p className="text-muted-foreground mb-6">We don't have a comparison page for that processor yet.</p>
@@ -869,7 +869,7 @@ export default function CompareVs() {
       />
       <Navbar />
 
-      <main className="flex-grow pt-28" ref={containerRef}>
+      <main className="flex-grow pt-20" ref={containerRef}>
         <section className="relative overflow-hidden" data-testid="section-vs-hero">
           <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 lg:py-20">
@@ -915,10 +915,10 @@ export default function CompareVs() {
               Based on a typical $30,000/month volume merchant
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <Card className="border-2 border-muted" data-testid="card-snapshot-competitor">
+              <Card className="border-2 border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/20" data-testid="card-snapshot-competitor">
                 <CardContent className="p-5 text-center">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">{data.name}</p>
-                  <p className="text-2xl font-display font-bold text-foreground mb-1" data-testid="text-snapshot-competitor-cost">
+                  <p className="text-xs font-semibold text-red-500 dark:text-red-400 uppercase tracking-wide mb-2">{data.name}</p>
+                  <p className="text-2xl font-display font-bold text-red-600 dark:text-red-400 mb-1" data-testid="text-snapshot-competitor-cost">
                     {data.savingsExample.competitorCost}
                   </p>
                   <p className="text-xs text-muted-foreground">/month estimate</p>
@@ -937,10 +937,15 @@ export default function CompareVs() {
                 </CardContent>
               </Card>
 
-              <Card className="border-2 border-primary" data-testid="card-snapshot-liberty">
-                <CardContent className="p-5 text-center">
-                  <p className="text-xs font-semibold text-primary uppercase tracking-wide mb-2">Liberty Bancard</p>
-                  <p className="text-2xl font-display font-bold text-primary mb-1" data-testid="text-snapshot-liberty-cost">
+              <Card className="border-2 border-emerald-500 dark:border-emerald-500 bg-emerald-50/80 dark:bg-emerald-950/40 relative" data-testid="card-snapshot-liberty">
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+                  <span className="inline-flex items-center gap-1 bg-emerald-500 text-white text-xs font-bold px-2.5 py-0.5 rounded-full shadow-sm">
+                    🏆 Winner
+                  </span>
+                </div>
+                <CardContent className="p-5 text-center pt-6">
+                  <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 uppercase tracking-wide mb-2">Liberty Bancard</p>
+                  <p className="text-2xl font-display font-bold text-emerald-700 dark:text-emerald-400 mb-1" data-testid="text-snapshot-liberty-cost">
                     {data.savingsExample.libertyCost}
                   </p>
                   <p className="text-xs text-muted-foreground">/month estimate*</p>

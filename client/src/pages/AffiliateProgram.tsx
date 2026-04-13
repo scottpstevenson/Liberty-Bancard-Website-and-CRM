@@ -328,7 +328,7 @@ export default function AffiliateProgram() {
       <div className="min-h-screen flex flex-col font-body">
         <SEO title="Affiliate Dashboard" description="Track your referrals and earnings" path="/affiliate" noindex={true} />
         <Navbar />
-        <main className="flex-grow pt-28 pb-16">
+        <main className="flex-grow pt-20 pb-16">
           <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
               <div>
@@ -804,7 +804,7 @@ export default function AffiliateProgram() {
       />
       <Navbar />
 
-      <main className="flex-grow pt-28">
+      <main className="flex-grow pt-20">
         <section className="bg-gradient-to-br from-primary/5 via-background to-primary/10 py-16 md:py-20">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-10 items-center">

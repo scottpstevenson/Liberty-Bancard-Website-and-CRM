@@ -97,7 +97,7 @@ export default function ZeroPercent() {
       <SEO title="0% Processing Program — Cash Discount Program for Merchants" description="Learn about compliant cash discount and surcharge programs. Eligibility depends on state law, card brand rules, and business model." path="/0-percent-processing" keywords="0% processing, cash discount program, surcharging, zero cost processing, compliant surcharge, eliminate credit card fees" breadcrumbs={[{ name: "0% Processing Program", path: "/0-percent-processing" }]} structuredData={[getFAQSchema(faqItems), getServiceSchema("0% Processing Program", "Compliant cash discount and surcharge programs for businesses. Eliminate credit card processing fees with proper disclosure and configuration.", "/0-percent-processing")]} />
       <Navbar />
 
-      <main className="flex-grow pt-28" ref={containerRef}>
+      <main className="flex-grow pt-20" ref={containerRef}>
         {/* Hero */}
         <section className="relative overflow-hidden" data-testid="section-zero-hero">
           <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />

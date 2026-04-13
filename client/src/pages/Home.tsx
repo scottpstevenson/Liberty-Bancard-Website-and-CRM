@@ -193,6 +193,7 @@ export default function Home() {
           <div className="absolute inset-0">
             <img src={heroBg} alt="" className="w-full h-full object-cover" />
             <div className="absolute inset-0 bg-gradient-to-r from-[hsl(222,47%,6%)/0.97] via-[hsl(222,47%,6%)/0.93] to-[hsl(222,47%,6%)/0.85]" />
+            <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'linear-gradient(45deg, rgba(255,255,255,0.05) 1px, transparent 1px), linear-gradient(-45deg, rgba(255,255,255,0.05) 1px, transparent 1px)', backgroundSize: '40px 40px' }} />
           </div>
           <div className="glow-blob w-72 h-72 bg-sky-500 top-20 right-1/4" />
           <div className="glow-blob glow-blob-2 w-56 h-56 bg-blue-600 bottom-10 left-1/3" />
@@ -231,23 +232,48 @@ export default function Home() {
                 </p>
               </div>
 
-              <div className="relative flex items-center justify-center" data-testid="hero-visual">
+              <div className="relative flex items-center justify-center animate-in fade-in slide-in-from-bottom-4 duration-700 fill-mode-both" style={{ animationDelay: '0.2s' }} data-testid="hero-visual">
                 <div className="w-full max-w-sm">
                   <Card className="border border-white/10 bg-white/5 backdrop-blur-md shadow-2xl">
                     <CardContent className="p-6 space-y-4">
-                      <div className="text-sm font-medium text-white/60 uppercase tracking-wider">What a review reveals</div>
-                      <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="text-sm font-medium text-white/60 uppercase tracking-wider">Statement Review</div>
+                        <span className="text-xs text-emerald-400 font-medium">Analysis Complete</span>
+                      </div>
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-xs text-white/40 mb-1">
+                          <span>Analyzing fees...</span>
+                          <span>100%</span>
+                        </div>
+                        <div className="h-1.5 w-full bg-white/10 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-emerald-400 rounded-full"
+                            style={{ animation: 'hero-progress 1.5s ease-out forwards', width: '0%' }}
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-2">
                         {[
-                          { label: "Your real effective rate", value: "3.47%", flag: true },
-                          { label: "Hidden monthly fees", value: "$127/mo", flag: true },
-                          { label: "Interchange downgrades", value: "23% of volume", flag: true },
-                          { label: "Potential annual reduction*", value: "$4,200+", flag: false },
+                          { label: "Your real effective rate", value: "3.47%", type: "fee" },
+                          { label: "Hidden monthly fees", value: "$127/mo", type: "fee" },
+                          { label: "Interchange downgrades", value: "23% of volume", type: "fee" },
+                          { label: "Savings opportunity", value: "$7,200/yr", type: "savings" },
                         ].map((item, i) => (
-                          <div key={i} className="flex items-center justify-between py-2 border-b border-white/10 last:border-0">
+                          <div key={i} className={cn(
+                            "flex items-center justify-between px-3 py-2 rounded-md",
+                            item.type === "fee" ? "bg-red-500/10" : "bg-emerald-500/10"
+                          )}>
                             <span className="text-sm text-white/80">{item.label}</span>
-                            <span className={`text-sm font-semibold ${item.flag ? "text-red-400" : "text-emerald-400"}`}>{item.value}</span>
+                            <span className={cn(
+                              "text-sm font-semibold",
+                              item.type === "fee" ? "text-red-400" : "text-emerald-400"
+                            )}>{item.value}</span>
                           </div>
                         ))}
+                      </div>
+                      <div className="flex items-center justify-between bg-emerald-500/20 border border-emerald-500/30 rounded-md px-3 py-2.5">
+                        <span className="text-sm font-bold text-emerald-300">RESULT: Save $7,200/yr</span>
+                        <span className="text-xs text-emerald-400 font-semibold">vs. current processor</span>
                       </div>
                       <p className="text-[10px] text-white/30">*Illustrative example. Actual results depend on statement review. No savings claims without review.</p>
                     </CardContent>
@@ -288,25 +314,32 @@ export default function Home() {
         </section>
 
         {/* SECTION 3.5: By the Numbers */}
-        <section className="relative overflow-hidden py-20" data-testid="section-stats">
+        <section className="reveal relative overflow-hidden py-20" data-testid="section-stats">
           <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />
+          <div className="absolute top-0 left-0 right-0 h-[3px] bg-sky-500" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <h2 className="text-2xl md:text-3xl font-display font-bold text-white text-center mb-12" data-testid="text-stats-heading">
               Liberty Bancard by the Numbers
             </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 text-center">
-              <div ref={stat1.ref} className="p-6" data-testid="stat-volume">
-                <div className="text-5xl md:text-6xl font-display font-bold text-sky-400 mb-2">${stat1.display}</div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-0 text-center">
+              <div ref={stat1.ref} className="p-6 border-b sm:border-b-0 sm:border-r border-white/10" data-testid="stat-volume">
+                <div className="text-5xl md:text-6xl font-display font-bold text-sky-400 mb-2 tabular-nums">
+                  <span className="text-sky-300 mr-0.5">$</span>{stat1.display}
+                </div>
                 <div className="text-sm font-medium text-white">Total Volume Processed</div>
                 <div className="text-xs text-white/70 mt-1">Annual card volume, nationwide</div>
               </div>
-              <div ref={stat2.ref} className="p-6 border-y sm:border-y-0 sm:border-x border-white/10" data-testid="stat-retention">
-                <div className="text-5xl md:text-6xl font-display font-bold text-sky-400 mb-2">{stat2.display}</div>
+              <div ref={stat2.ref} className="p-6 border-b sm:border-b-0 sm:border-r border-white/10" data-testid="stat-retention">
+                <div className="text-5xl md:text-6xl font-display font-bold text-sky-400 mb-2 tabular-nums">
+                  <span className="text-sky-300 mr-0.5">+</span>{stat2.display}
+                </div>
                 <div className="text-sm font-medium text-white">Merchant Retention Rate</div>
                 <div className="text-xs text-white/70 mt-1">Merchants stay because the math works</div>
               </div>
               <div ref={stat3.ref} className="p-6" data-testid="stat-years">
-                <div className="text-5xl md:text-6xl font-display font-bold text-sky-400 mb-2">{stat3.display}</div>
+                <div className="text-5xl md:text-6xl font-display font-bold text-sky-400 mb-2 tabular-nums">
+                  <span className="text-sky-300 mr-0.5">+</span>{stat3.display}
+                </div>
                 <div className="text-sm font-medium text-white">Years in Business</div>
                 <div className="text-xs text-white/70 mt-1">South Florida roots, nationwide reach</div>
               </div>
@@ -315,7 +348,7 @@ export default function Home() {
         </section>
 
         {/* SECTION 3.7: Trusted By / Partners */}
-        <section className="bg-background border-y border-border py-12" data-testid="section-partners">
+        <section className="reveal bg-background border-y border-border py-12" data-testid="section-partners">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <p className="text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-8">
               Industry Certifications
@@ -879,7 +912,7 @@ export default function Home() {
         </section>
 
         {/* SECTION 10: Trust / Risk Reversal */}
-        <section className="relative overflow-hidden py-20" data-testid="section-risk-reversal">
+        <section className="reveal relative overflow-hidden py-20" data-testid="section-risk-reversal">
           <div className="absolute inset-0">
             <img src={teamCollab} alt="" className="w-full h-full object-cover" />
             <div className="absolute inset-0 bg-gradient-to-r from-[hsl(222,47%,8%)/0.92] via-[hsl(222,47%,8%)/0.88] to-[hsl(222,47%,8%)/0.80]" />
@@ -1070,7 +1103,7 @@ export default function Home() {
         </section>
 
         {/* SECTION 12: Final CTA */}
-        <section className="relative overflow-hidden py-24" data-testid="section-final-cta">
+        <section className="reveal relative overflow-hidden py-24" data-testid="section-final-cta">
           <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(221,83%,20%)] to-[hsl(222,47%,8%)]" />
           <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(circle at 20% 50%, rgba(56,189,248,0.3) 0%, transparent 50%), radial-gradient(circle at 80% 50%, rgba(56,189,248,0.2) 0%, transparent 50%)' }} />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">

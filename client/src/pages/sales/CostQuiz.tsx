@@ -349,7 +349,7 @@ export default function CostQuiz() {
         />
         <Navbar />
 
-        <main className="flex-grow pt-28">
+        <main className="flex-grow pt-20">
           <section className="relative overflow-hidden" data-testid="section-quiz-results-hero">
             <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />
             <div className="glow-blob w-64 h-64 bg-emerald-500 top-10 right-1/4" />
@@ -530,7 +530,7 @@ export default function CostQuiz() {
       />
       <Navbar />
 
-      <main className="flex-grow pt-28">
+      <main className="flex-grow pt-20">
         <section className="relative overflow-hidden" data-testid="section-quiz-hero">
           <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />
           <div className="glow-blob w-64 h-64 bg-sky-500 top-10 right-1/4" />

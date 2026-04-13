@@ -122,7 +122,7 @@ export default function Estimate() {
       <SEO title="Quick Estimate Request" description="Get a quick processing cost estimate. Provide your monthly volume and current fees for a preliminary analysis." path="/estimate" breadcrumbs={[{ name: "Quick Estimate", path: "/estimate" }]} />
       <Navbar />
 
-      <main className="flex-grow pt-28" ref={containerRef}>
+      <main className="flex-grow pt-20" ref={containerRef}>
         <section className="relative overflow-hidden" data-testid="section-estimate-hero">
           <div className="absolute inset-0">
             <img src={heroAnalytics} alt="" className="w-full h-full object-cover" />

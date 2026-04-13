@@ -287,7 +287,7 @@ export default function FAQ() {
       />
       <Navbar />
 
-      <main className="flex-grow pt-28" ref={containerRef}>
+      <main className="flex-grow pt-20" ref={containerRef}>
         <section
           className="bg-primary text-primary-foreground py-16"
           data-testid="section-faq-hero"

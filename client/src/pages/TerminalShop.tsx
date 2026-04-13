@@ -339,7 +339,7 @@ export default function TerminalShop() {
       <div className="min-h-screen flex flex-col font-body">
         <SEO title="Order Received" description="Your equipment order has been submitted." path="/shop" noindex={true} />
         <Navbar />
-        <main className="flex-grow pt-28">
+        <main className="flex-grow pt-20">
           <section className="py-20">
             <div className="max-w-lg mx-auto px-4 text-center">
               <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mx-auto mb-6">
@@ -420,7 +420,7 @@ export default function TerminalShop() {
       />
       <Navbar />
 
-      <main className="flex-grow pt-28">
+      <main className="flex-grow pt-20">
         <PromoBanner variant="bar" promoId="free-terminal" showCountdown />
 
         {step === "browse" && !detail && (

@@ -192,7 +192,7 @@ export default function WhyLiberty() {
       />
       <Navbar />
 
-      <main className="flex-grow pt-28" ref={containerRef}>
+      <main className="flex-grow pt-20" ref={containerRef}>
         <section className="relative overflow-hidden" data-testid="section-why-hero">
           <div className="absolute inset-0">
             <img src={heroTeam} alt="" className="w-full h-full object-cover" />

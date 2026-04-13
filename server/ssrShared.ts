@@ -131,12 +131,6 @@ export function ssrHtmlShell({
 
     /* Navbar */
     .ssr-navbar { position: relative; z-index: 50; }
-    .ssr-topbar { background: #1e3a5f; color: #fff; }
-    .ssr-topbar-inner { max-width: 1280px; margin: 0 auto; padding: 0 1rem; display: flex; justify-content: flex-end; align-items: center; height: 2rem; gap: 1rem; font-size: 0.75rem; }
-    .ssr-topbar a { color: #fff; opacity: 0.85; display: flex; align-items: center; gap: 0.375rem; }
-    .ssr-topbar a:hover { opacity: 1; }
-    .ssr-compliance-bar { background: #f8fafc; border-bottom: 1px solid #e2e8f0; }
-    .ssr-compliance-text { max-width: 1280px; margin: 0 auto; padding: 0 1rem; font-size: 0.625rem; color: #94a3b8; text-align: center; padding-top: 0.25rem; padding-bottom: 0.25rem; line-height: 1.4; }
     .ssr-mainbar { background: #fff; border-bottom: 1px solid #e2e8f0; box-shadow: 0 1px 3px 0 rgba(0,0,0,0.05); }
     .ssr-mainbar-inner { max-width: 1280px; margin: 0 auto; padding: 0 1rem; display: flex; justify-content: space-between; align-items: center; height: 4rem; }
     @media (min-width: 640px) { .ssr-mainbar-inner { padding: 0 1.5rem; } }
@@ -145,6 +139,9 @@ export function ssrHtmlShell({
     .ssr-nav-links { display: none; }
     @media (min-width: 768px) { .ssr-nav-links { display: flex; align-items: center; gap: 1.5rem; font-size: 0.875rem; font-weight: 500; color: #334155; } }
     .ssr-nav-links a:hover { color: #1e3a5f; }
+    .ssr-nav-phone { display: none; font-size: 0.875rem; color: #64748b; }
+    @media (min-width: 768px) { .ssr-nav-phone { display: flex; align-items: center; gap: 0.375rem; } }
+    .ssr-nav-phone:hover { color: #1e3a5f; }
     .ssr-cta-btn { display: inline-flex; align-items: center; gap: 0.5rem; background: #1e3a5f; color: #fff; padding: 0.5rem 1.25rem; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 600; white-space: nowrap; }
     .ssr-cta-btn:hover { background: #1a3254; }
 
@@ -288,30 +285,24 @@ export function ssrNavbar(): string {
     ? `data:image/png;base64,${LOGO_BLUE_B64}`
     : "/favicon.png";
   return `<header class="ssr-navbar">
-  <div class="ssr-topbar">
-    <div class="ssr-topbar-inner">
-      <a href="tel:9542668214">📞 Call/Text 954-266-8214</a>
-      <a href="mailto:support@libertybancard.com">✉ support@libertybancard.com</a>
-    </div>
-  </div>
-  <div class="ssr-compliance-bar">
-    <p class="ssr-compliance-text">Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.</p>
-  </div>
   <div class="ssr-mainbar">
     <div class="ssr-mainbar-inner">
       <a href="/" class="ssr-logo">
         <img src="${logoSrc}" alt="Liberty Bancard" />
       </a>
       <nav class="ssr-nav-links">
-        <a href="/upload-statement">Upload Statement</a>
-        <a href="/0-percent-processing">0% Processing</a>
+        <a href="/">Home</a>
+        <a href="/upload-statement">Solutions</a>
         <a href="/industries/restaurant-payment-processing">Industries</a>
-        <a href="/compare-rates">Compare Rates</a>
+        <a href="/blog">Resources</a>
         <a href="/about-contact">About</a>
       </nav>
-      <a href="/upload-statement" class="ssr-cta-btn">
-        Free Statement Review
-      </a>
+      <div style="display:flex;align-items:center;gap:0.75rem;">
+        <a href="tel:9542668214" class="ssr-nav-phone">📞 954-266-8214</a>
+        <a href="/upload-statement" class="ssr-cta-btn">
+          Upload Statement
+        </a>
+      </div>
     </div>
   </div>
 </header>`;

@@ -70,7 +70,7 @@ export default function HelpCenter() {
       />
       <Navbar />
 
-      <main className="flex-grow pt-28" ref={containerRef}>
+      <main className="flex-grow pt-20" ref={containerRef}>
         <section className="bg-primary text-primary-foreground py-16" data-testid="section-help-hero">
           <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center reveal">
             <BookOpen className="w-12 h-12 mx-auto mb-4 opacity-80" />

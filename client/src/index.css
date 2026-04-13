@@ -189,6 +189,12 @@
   50% { box-shadow: 0 0 20px 4px hsl(var(--accent) / 0.2); }
 }
 
+@keyframes hero-progress {
+  0% { width: 0%; }
+  60% { width: 75%; }
+  100% { width: 100%; }
+}
+
 @media (max-width: 1023px) {
   main {
     padding-bottom: 4.5rem;

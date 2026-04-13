@@ -222,7 +222,7 @@ export default function UploadStatement() {
       <SEO title="Free Statement Analysis — Upload Your Processing Statement" description="Upload your merchant processing statement for a free, no-obligation rate analysis. See exactly where your fees are going." path="/upload-statement" keywords="free statement analysis, upload processing statement, free statement review, merchant fee analysis" ogImage="https://libertybancard.com/og-upload-statement.jpg" breadcrumbs={[{ name: "Upload Statement", path: "/upload-statement" }]} structuredData={[getServiceSchema("Free Statement Review", "Upload your merchant processing statement for a free, no-obligation rate analysis.", "/upload-statement")]} />
       <Navbar />
 
-      <main className="flex-grow pt-28" ref={containerRef}>
+      <main className="flex-grow pt-20" ref={containerRef}>
         <section className="relative overflow-hidden" data-testid="section-upload-hero">
           <div className="absolute inset-0">
             <img src={heroSecure} alt="" className="w-full h-full object-cover" />

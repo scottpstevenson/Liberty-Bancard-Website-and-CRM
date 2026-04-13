@@ -2,7 +2,7 @@ import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Menu, X, Phone, Mail, Upload, Calendar, LayoutDashboard, ChevronDown } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import logoBlue from "@assets/logo-blue.png";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -44,34 +44,26 @@ export function Navbar() {
   const [solutionsOpen, setSolutionsOpen] = useState(false);
   const [industriesOpen, setIndustriesOpen] = useState(false);
   const [resourcesOpen, setResourcesOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setScrolled(window.scrollY > 20);
+    };
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
 
   return (
     <nav className="fixed w-full z-50" data-testid="navbar">
-      <div className="bg-primary text-primary-foreground">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-end items-center h-8 gap-2 sm:gap-4 text-xs">
-            <a
-              href="tel:9542668214"
-              className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
-              data-testid="link-phone"
-            >
-              <Phone className="w-3 h-3" />
-              <span className="hidden xs:inline">Call/Text</span> <span>954-266-8214</span>
-            </a>
-            <span className="opacity-60 hidden sm:inline">|</span>
-            <a
-              href="mailto:support@libertybancard.com"
-              className="hidden sm:flex items-center gap-1.5 hover:opacity-80 transition-opacity"
-              data-testid="link-email"
-            >
-              <Mail className="w-3 h-3" />
-              <span>support@libertybancard.com</span>
-            </a>
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-background/80 backdrop-blur-md border-b border-border/50">
+      <div
+        className={cn(
+          "border-b transition-all duration-200",
+          scrolled
+            ? "bg-background shadow-sm border-border/80"
+            : "bg-background/80 backdrop-blur-md border-border/50"
+        )}
+      >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16 gap-4">
             <Link
@@ -239,6 +231,14 @@ export function Navbar() {
 
             <div className="hidden lg:flex items-center gap-3">
               <ThemeToggle />
+              <a
+                href="tel:9542668214"
+                className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                data-testid="link-phone"
+              >
+                <Phone className="w-3.5 h-3.5" />
+                <span>954-266-8214</span>
+              </a>
               <a href="#" data-testid="link-book-call">
                 <Button variant="outline" className="gap-2">
                   <Calendar className="w-4 h-4" />

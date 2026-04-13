@@ -9,7 +9,7 @@ export default function ThanksSupport() {
   return (
     <div className="min-h-screen flex flex-col font-body">
       <Navbar />
-      <main className="flex-grow pt-28">
+      <main className="flex-grow pt-20">
         <section className="bg-primary text-primary-foreground py-16" data-testid="section-thanks-support-hero">
           <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
             <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center mx-auto mb-6">
