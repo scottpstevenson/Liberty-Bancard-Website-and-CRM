@@ -34,7 +34,7 @@ interface SEOProps {
 }
 
 const BASE_URL = "https://libertybancard.com";
-const DEFAULT_OG_IMAGE = `${BASE_URL}/og-image.jpg`;
+const DEFAULT_OG_IMAGE = `${BASE_URL}/favicon.png`;
 
 export function getOrganizationSchema(): StructuredData {
   return {

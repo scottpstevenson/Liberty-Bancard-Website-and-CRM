@@ -340,15 +340,9 @@ export default function Notifications() {
 
       <div className="space-y-3" data-testid="notifications-list">
         {filteredNotifications.length === 0 && (
-          <Card data-testid="empty-state-notifications">
-            <CardContent className="flex flex-col items-center justify-center py-16 gap-3">
-              <Bell className="w-12 h-12 text-muted-foreground/40" />
-              <div className="text-center">
-                <p className="font-medium">No notifications yet</p>
-                <p className="text-sm text-muted-foreground mt-1">You're all caught up! Check back later for updates.</p>
-              </div>
-            </CardContent>
-          </Card>
+          <div className="text-center text-muted-foreground py-12" data-testid="text-no-notifications">
+            No notifications
+          </div>
         )}
         {filteredNotifications.map((notification) => (
           <Card

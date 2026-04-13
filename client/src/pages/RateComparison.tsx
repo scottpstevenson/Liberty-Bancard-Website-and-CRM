@@ -217,7 +217,7 @@ export default function RateComparison() {
               <p className="text-lg text-white/80 mb-2" data-testid="text-compare-subheading">
                 Compare Liberty Bancard vs Square vs Stripe vs Clover vs Toast. See fees, features, and contract terms side by side.
               </p>
-              <p className="text-xs text-white/70" data-testid="text-compare-disclaimer">
+              <p className="text-xs text-white/50" data-testid="text-compare-disclaimer">
                 *Rate estimates based on publicly available pricing and common merchant scenarios. Actual rates vary. No savings claims without statement review.
               </p>
             </div>
@@ -383,7 +383,7 @@ export default function RateComparison() {
               <Link href="/upload-statement" data-testid="link-compare-cta-upload">
                 <Button size="lg" className="gap-2 bg-white text-primary border-white">
                   <Upload className="w-4 h-4" />
-                  Get My Free Statement Analysis
+                  Upload Statement - Free Review
                 </Button>
               </Link>
               <Link href="/savings-calculator" data-testid="link-compare-cta-calc">

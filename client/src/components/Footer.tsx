@@ -1,6 +1,5 @@
 import { Link } from "wouter";
-import { Phone, Mail, Calendar, ShieldCheck, Award } from "lucide-react";
-import { SiVisa, SiMastercard, SiDiscover, SiAmericanexpress } from "react-icons/si";
+import { Phone, Mail, Calendar } from "lucide-react";
 import logoWhite from "@assets/logo-white.png";
 
 export function Footer() {
@@ -53,17 +52,6 @@ export function Footer() {
     { label: "Hidden Fees Guide", href: "/blog/hidden-fees-payment-processing-guide" },
     { label: "PCI Compliance Checklist", href: "/blog/pci-compliance-checklist-small-business" },
     { label: "Interchange Plus vs Flat Rate", href: "/blog/interchange-plus-vs-flat-rate" },
-  ];
-
-  const learningCenterLinks = [
-    { label: "Payment Processing Glossary", href: "/learn" },
-    { label: "What Is Interchange?", href: "/learn/interchange-fees" },
-    { label: "What Is a Chargeback?", href: "/learn/chargeback" },
-    { label: "Interchange Plus Pricing", href: "/learn/interchange-plus-pricing" },
-    { label: "What Is a Merchant Account?", href: "/learn/merchant-account" },
-    { label: "PCI Compliance Guide", href: "/learn/pci-compliance" },
-    { label: "Cash Discount Program", href: "/learn/cash-discount-program" },
-    { label: "What Is a Payment Gateway?", href: "/learn/payment-gateway" },
   ];
 
   const platformLinks = [
@@ -220,21 +208,6 @@ export function Footer() {
                 </li>
               ))}
             </ul>
-
-            <h4 className="font-semibold text-lg mt-8 mb-4" data-testid="text-footer-learning-heading">Learning Center</h4>
-            <ul className="space-y-3">
-              {learningCenterLinks.map((link) => (
-                <li key={link.href}>
-                  <a
-                    href={link.href}
-                    className="text-primary-foreground/70 text-sm hover:text-primary-foreground transition-colors"
-                    data-testid={`link-footer-learn-${link.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
-                  >
-                    {link.label}
-                  </a>
-                </li>
-              ))}
-            </ul>
           </div>
 
           <div>
@@ -267,28 +240,6 @@ export function Footer() {
                 </li>
               ))}
             </ul>
-          </div>
-        </div>
-
-        {/* Trust Signals Row */}
-        <div className="border-t border-white/10 pt-8 pb-6">
-          <div className="flex flex-wrap items-center justify-center gap-4 md:gap-6" data-testid="section-footer-trust">
-            <div className="flex items-center gap-2 text-primary-foreground/60 text-xs" data-testid="badge-pci-compliant">
-              <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>PCI DSS Compliant</span>
-            </div>
-            <span className="hidden md:block w-px h-4 bg-white/10" aria-hidden="true" />
-            <div className="flex items-center gap-2 text-primary-foreground/60 text-xs" data-testid="badge-registered-iso">
-              <Award className="w-4 h-4 text-sky-400 shrink-0" />
-              <span>Registered ISO/MSP</span>
-            </div>
-            <span className="hidden md:block w-px h-4 bg-white/10" aria-hidden="true" />
-            <div className="flex items-center gap-3 text-primary-foreground/50" data-testid="badge-card-networks">
-              <SiVisa className="w-8 h-5" aria-label="Visa" />
-              <SiMastercard className="w-6 h-5" aria-label="Mastercard" />
-              <SiDiscover className="w-8 h-5" aria-label="Discover" />
-              <SiAmericanexpress className="w-6 h-5" aria-label="American Express" />
-            </div>
           </div>
         </div>
 

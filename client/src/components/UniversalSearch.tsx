@@ -202,7 +202,6 @@ export default function UniversalSearch() {
           size="icon"
           onClick={() => { setShowAdvanced(!showAdvanced); setIsOpen(false); }}
           data-testid="button-advanced-search"
-          aria-label={showAdvanced ? "Close advanced search" : "Open advanced search"}
         >
           <SlidersHorizontal className="w-4 h-4" />
         </Button>
@@ -216,7 +215,7 @@ export default function UniversalSearch() {
         >
           <div className="flex items-center justify-between gap-2">
             <span className="text-sm font-medium">Advanced Search</span>
-            <Button variant="ghost" size="icon" onClick={clearAdvanced} data-testid="button-close-advanced" aria-label="Close advanced search">
+            <Button variant="ghost" size="icon" onClick={clearAdvanced} data-testid="button-close-advanced">
               <X className="w-4 h-4" />
             </Button>
           </div>

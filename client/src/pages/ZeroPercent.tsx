@@ -94,7 +94,7 @@ export default function ZeroPercent() {
   const containerRef = useScrollReveal();
   return (
     <div className="min-h-screen flex flex-col font-body">
-      <SEO title="0% Processing Program — Cash Discount Program for Merchants" description="Learn about compliant cash discount and surcharge programs. Eligibility depends on state law, card brand rules, and business model." path="/0-percent-processing" keywords="0% processing, cash discount program, surcharging, zero cost processing, compliant surcharge, eliminate credit card fees" breadcrumbs={[{ name: "0% Processing Program", path: "/0-percent-processing" }]} structuredData={[getFAQSchema(faqItems), getServiceSchema("0% Processing Program", "Compliant cash discount and surcharge programs for businesses. Eliminate credit card processing fees with proper disclosure and configuration.", "/0-percent-processing")]} />
+      <SEO title="0% Processing Program" description="Learn about compliant cash discount and surcharge programs. Eligibility depends on state law, card brand rules, and business model." path="/0-percent-processing" keywords="0% processing, cash discount program, surcharging, zero cost processing, compliant surcharge" breadcrumbs={[{ name: "0% Processing Program", path: "/0-percent-processing" }]} structuredData={[getFAQSchema(faqItems), getServiceSchema("0% Processing Program", "Compliant cash discount and surcharge programs for businesses. Eliminate credit card processing fees with proper disclosure and configuration.", "/0-percent-processing")]} />
       <Navbar />
 
       <main className="flex-grow pt-20" ref={containerRef}>

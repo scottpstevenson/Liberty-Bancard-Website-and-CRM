@@ -355,18 +355,7 @@ export default function GetStarted() {
 
   return (
     <div className="min-h-screen flex flex-col font-body">
-      <SEO title="Get Started - Free Statement Analysis" description="Answer a few questions and get a personalized processing recommendation. Free statement review, no obligation." path="/get-started" breadcrumbs={[{ name: "Get Started", path: "/get-started" }]} structuredData={[{
-          "@context": "https://schema.org",
-          "@type": "HowTo",
-          name: "Get a Free Merchant Statement Analysis",
-          description: "Answer a few questions about your business to get a personalized payment processing recommendation. Free statement review with no obligation.",
-          url: "https://libertybancard.com/get-started",
-          step: [
-            { "@type": "HowToStep", position: 1, name: "Answer Business Questions", text: "Tell us about your business type, monthly volume, and current processor." },
-            { "@type": "HowToStep", position: 2, name: "Upload Your Statement", text: "Optionally upload your current processing statement for a detailed analysis." },
-            { "@type": "HowToStep", position: 3, name: "Get Your Personalized Recommendation", text: "Receive a custom pricing recommendation and estimated savings report." },
-          ],
-        }]} />
+      <SEO title="Get Started - Free Statement Analysis" description="Answer a few questions and get a personalized processing recommendation. Free statement review, no obligation." path="/get-started" breadcrumbs={[{ name: "Get Started", path: "/get-started" }]} />
       <Navbar />
       <main className="flex-grow pt-20">
         <section className="relative overflow-hidden" data-testid="section-get-started-hero">
@@ -462,10 +451,6 @@ export default function GetStarted() {
 
                 {step === 3 && (
                   <div className="grid grid-cols-1 gap-3" data-testid="step-volume">
-                    <p className="text-xs text-muted-foreground bg-muted/50 rounded-md px-3 py-2 mb-1 flex items-start gap-2" data-testid="text-why-ask-volume">
-                      <HelpCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-primary" />
-                      We ask about volume to calculate your actual processing cost and identify the pricing structure that saves you the most money.
-                    </p>
                     {volumeOptions.map((option) => (
                       <Card
                         key={option.value}
@@ -499,10 +484,6 @@ export default function GetStarted() {
                     <p className="text-sm text-muted-foreground mb-4">
                       We offer the Liberty Smart Terminal - free for qualifying merchants.* Tap, dip, swipe, and manual key.
                     </p>
-                    <p className="text-xs text-muted-foreground bg-muted/50 rounded-md px-3 py-2 mb-4 flex items-start gap-2" data-testid="text-why-ask-terminal">
-                      <HelpCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-primary" />
-                      We ask about terminals to know if you need hardware included in your setup — this affects how we structure your account.
-                    </p>
                     <div className="grid grid-cols-2 gap-4">
                       <Button
                         variant={needTerminal === true ? "default" : "outline"}
@@ -531,10 +512,6 @@ export default function GetStarted() {
                   <div data-testid="step-zero-percent">
                     <p className="text-sm text-muted-foreground mb-4">
                       Where permitted by law and card brand rules, you can pass processing fees to the cardholder through a compliant cash discount or surcharge program.
-                    </p>
-                    <p className="text-xs text-muted-foreground bg-muted/50 rounded-md px-3 py-2 mb-4 flex items-start gap-2" data-testid="text-why-ask-zero">
-                      <HelpCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-primary" />
-                      We ask this to tailor your recommendation — 0% programs can eliminate processing costs entirely for qualifying businesses.
                     </p>
                     <div className="grid grid-cols-2 gap-4">
                       <Button

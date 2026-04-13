@@ -16,7 +16,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Calendar, Sparkles, Loader2, Download, ChevronDown, Archive, Settings, ArrowUp, ArrowDown, Pencil, Trash2, RotateCcw, MoreVertical, TrendingUp } from "lucide-react";
+import { Plus, Calendar, Sparkles, Loader2, Download, ChevronDown, Archive, Settings, ArrowUp, ArrowDown, Pencil, Trash2, RotateCcw, MoreVertical } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { exportToCSV } from "@/lib/export-csv";
@@ -687,14 +687,7 @@ export default function Pipeline() {
                     );
                   })}
                   {stageDeals.length === 0 && (
-                    <div className="flex flex-col items-center justify-center text-center py-8 gap-2" data-testid={`empty-stage-${stage.replace(/\s+/g, "-").toLowerCase()}`}>
-                      <TrendingUp className="w-6 h-6 text-muted-foreground/30" />
-                      <p className="text-xs text-muted-foreground">No deals in this stage</p>
-                      <Button variant="ghost" size="sm" className="text-xs h-7 px-2" onClick={() => setCreateOpen(true)} data-testid={`button-add-deal-${stage.replace(/\s+/g, "-").toLowerCase()}`}>
-                        <Plus className="w-3 h-3 mr-1" />
-                        Add Deal
-                      </Button>
-                    </div>
+                    <div className="text-xs text-muted-foreground text-center py-8">No deals</div>
                   )}
                 </div>
               </div>

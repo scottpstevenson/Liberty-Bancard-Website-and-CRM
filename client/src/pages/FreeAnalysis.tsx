@@ -597,7 +597,7 @@ export default function FreeAnalysis() {
                   <Link href="/upload-statement" data-testid="link-results-upload">
                     <Button size="lg" className="gap-2 w-full">
                       <Upload className="w-4 h-4" />
-                      Get My Free Statement Analysis
+                      Upload Statement for Exact Savings
                     </Button>
                   </Link>
                   <a href="tel:9542668214" data-testid="link-results-call">
@@ -716,7 +716,6 @@ export default function FreeAnalysis() {
         description="Take our 60-second quiz to get a personalized processing savings estimate. Free analysis, no obligation. Join 500+ Florida businesses saving with Liberty Bancard."
         path="/free-analysis"
         keywords="free statement analysis, payment processing savings, credit card processing, merchant services, rate comparison"
-        ogImage="https://libertybancard.com/og-free-analysis.jpg"
       />
 
       <PromoBanner variant="bar" promoId="free-processing" showCountdown />
@@ -758,7 +757,7 @@ export default function FreeAnalysis() {
               </Badge>
             </div>
           )}
-          <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-white/70">
+          <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-white/50">
             <span className="flex items-center gap-1" data-testid="text-social-proof-1">
               <Users className="w-3 h-3" />
               Join 500+ FL businesses

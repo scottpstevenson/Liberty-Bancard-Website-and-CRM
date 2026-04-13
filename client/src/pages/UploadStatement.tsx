@@ -7,7 +7,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation } from "@tanstack/react-query";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
-import { MobileStickyCtA } from "@/components/MobileStickyCtA";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -219,7 +218,7 @@ export default function UploadStatement() {
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      <SEO title="Free Statement Analysis — Upload Your Processing Statement" description="Upload your merchant processing statement for a free, no-obligation rate analysis. See exactly where your fees are going." path="/upload-statement" keywords="free statement analysis, upload processing statement, free statement review, merchant fee analysis" ogImage="https://libertybancard.com/og-upload-statement.jpg" breadcrumbs={[{ name: "Upload Statement", path: "/upload-statement" }]} structuredData={[getServiceSchema("Free Statement Review", "Upload your merchant processing statement for a free, no-obligation rate analysis.", "/upload-statement")]} />
+      <SEO title="Upload Your Processing Statement" description="Upload your merchant processing statement for a free, no-obligation rate analysis. See exactly where your fees are going." path="/upload-statement" keywords="upload processing statement, free statement review, merchant fee analysis" breadcrumbs={[{ name: "Upload Statement", path: "/upload-statement" }]} structuredData={[getServiceSchema("Free Statement Review", "Upload your merchant processing statement for a free, no-obligation rate analysis.", "/upload-statement")]} />
       <Navbar />
 
       <main className="flex-grow pt-20" ref={containerRef}>
@@ -718,7 +717,6 @@ export default function UploadStatement() {
       </main>
 
       <Footer />
-      <MobileStickyCtA />
     </div>
   );
 }

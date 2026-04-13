@@ -3,7 +3,6 @@ import { SEO, getLocalBusinessSchema, getWebSiteSchema } from "@/components/SEO"
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { WelcomePopup } from "@/components/WelcomePopup";
-import { MobileStickyCtA } from "@/components/MobileStickyCtA";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
@@ -58,13 +57,11 @@ import imgPaxA920 from "@assets/images/terminal-pax-a920.png";
 import dashboardPreview from "@assets/images/dashboard-preview.png";
 
 function useCountUp(end: number, duration: number = 2000, suffix: string = "") {
-  const prefersReducedMotion = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const [count, setCount] = useState(prefersReducedMotion ? end : 0);
+  const [count, setCount] = useState(0);
   const [started, setStarted] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (prefersReducedMotion) return;
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting && !started) {
@@ -75,10 +72,10 @@ function useCountUp(end: number, duration: number = 2000, suffix: string = "") {
     );
     if (ref.current) observer.observe(ref.current);
     return () => observer.disconnect();
-  }, [started, prefersReducedMotion]);
+  }, [started]);
 
   useEffect(() => {
-    if (!started || prefersReducedMotion) return;
+    if (!started) return;
     const steps = 60;
     const increment = end / steps;
     let current = 0;
@@ -92,7 +89,7 @@ function useCountUp(end: number, duration: number = 2000, suffix: string = "") {
       }
     }, duration / steps);
     return () => clearInterval(interval);
-  }, [started, end, duration, prefersReducedMotion]);
+  }, [started, end, duration]);
 
   return { ref, display: `${count.toLocaleString()}${suffix}` };
 }
@@ -125,9 +122,9 @@ export default function Home() {
   const { toast } = useToast();
 
   const containerRef = useScrollReveal();
-  const stat1 = useCountUp(2, 2000, "B+");
-  const stat2 = useCountUp(98, 2000, "%");
-  const stat3 = useCountUp(15, 2000, "+");
+  const stat1 = useCountUp(15, 2000, "+");
+  const stat2 = useCountUp(500, 2000, "+");
+  const stat3 = useCountUp(98, 2000, "%");
 
   const handleCallbackSubmit = async () => {
     if (!cbName.trim() || !cbPhone.trim()) return;
@@ -162,25 +159,21 @@ export default function Home() {
 
   return (
     <div className="min-h-screen flex flex-col font-body">
-      <SEO title="Merchant Payment Processing — See Your True Rate" description="See exactly what you pay to accept cards. Liberty Bancard provides transparent, interchange-plus pricing for businesses. Upload your statement for a free analysis." path="/" keywords="payment processing, merchant services, credit card processing, statement review, interchange plus pricing, wholesale rates, transparent pricing" ogImage="https://libertybancard.com/og-home.jpg" structuredData={[getLocalBusinessSchema(), getWebSiteSchema()]} />
+      <SEO title="Merchant Payment Processing" description="See exactly what you pay to accept cards. Liberty Bancard provides transparent, statement-based pricing for businesses. Upload your statement for a free analysis." path="/" keywords="payment processing, merchant services, credit card processing, statement review, interchange plus pricing, wholesale rates" structuredData={[getLocalBusinessSchema(), getWebSiteSchema()]} />
       <Navbar />
       <WelcomePopup />
 
-      <main className="flex-grow pt-20" ref={containerRef}>
+      <main className="flex-grow pt-28" ref={containerRef}>
 
         {/* SECTION 1: Social Proof Bar */}
         <section className="bg-primary text-primary-foreground" data-testid="section-proof-bar">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
-            <div className="flex flex-wrap justify-center items-center gap-y-1 text-sm font-medium">
-              <span className="flex items-center gap-1.5 px-3" data-testid="text-proof-1"><FileText className="w-4 h-4 shrink-0" /> Statement-Based Reviews</span>
-              <span className="hidden sm:block w-px h-4 bg-primary-foreground/20" aria-hidden="true" />
-              <span className="flex items-center gap-1.5 px-3" data-testid="text-proof-2"><FileText className="w-4 h-4 shrink-0" /> Line-Item Breakdowns</span>
-              <span className="hidden sm:block w-px h-4 bg-primary-foreground/20" aria-hidden="true" />
-              <span className="flex items-center gap-1.5 px-3" data-testid="text-proof-3"><TrendingDown className="w-4 h-4 shrink-0" /> Wholesale Pricing</span>
-              <span className="hidden sm:block w-px h-4 bg-primary-foreground/20" aria-hidden="true" />
-              <span className="flex items-center gap-1.5 px-3" data-testid="text-proof-4"><Zap className="w-4 h-4 shrink-0" /> Next-Day Funding*</span>
-              <span className="hidden sm:block w-px h-4 bg-primary-foreground/20" aria-hidden="true" />
-              <span className="flex items-center gap-1.5 px-3" data-testid="text-proof-5"><Headphones className="w-4 h-4 shrink-0" /> Real Human Support</span>
+            <div className="flex flex-wrap justify-center gap-x-6 gap-y-1 text-sm font-medium">
+              <span className="flex items-center gap-1.5" data-testid="text-proof-1"><BadgeCheck className="w-4 h-4" /> Statement-Based Reviews</span>
+              <span className="flex items-center gap-1.5" data-testid="text-proof-2"><FileText className="w-4 h-4" /> Line-Item Breakdowns</span>
+              <span className="flex items-center gap-1.5" data-testid="text-proof-3"><DollarSign className="w-4 h-4" /> Wholesale Pricing</span>
+              <span className="flex items-center gap-1.5" data-testid="text-proof-4"><Zap className="w-4 h-4" /> Next-Day Funding*</span>
+              <span className="flex items-center gap-1.5" data-testid="text-proof-5"><Headphones className="w-4 h-4" /> Real Human Support</span>
             </div>
             <p className="text-center text-xs text-primary-foreground/50 mt-1.5" data-testid="text-proof-bar-footnote">
               *Eligibility, underwriting, card brand rules, and applicable laws apply.
@@ -207,19 +200,19 @@ export default function Home() {
                 <h1 className="text-4xl md:text-5xl lg:text-6xl font-display font-bold text-white leading-tight mb-6" data-testid="text-hero-heading">
                   You're Not Paying a "Rate."<br />You're Paying a <span className="text-sky-400">Markup</span> You've Never Seen.
                 </h1>
-                <p className="text-lg text-white/85 mb-8 leading-relaxed" data-testid="text-hero-subheadline">
-                  Your actual processing cost is hidden inside interchange downgrades, junk fees, and monthly add-ons. We pull your statement apart line-by-line — free — and show you exactly what you're paying and why.
+                <p className="text-lg text-white/85 mb-4 leading-relaxed" data-testid="text-hero-subheadline">
+                  Your processor quoted you a rate. But your actual cost is buried in interchange downgrades, monthly add-ons, PCI fees, and batch charges you've never been shown.
+                </p>
+                <p className="text-lg text-white/90 mb-8 leading-relaxed font-medium" data-testid="text-hero-subheadline-2">
+                  We pull it apart line-by-line and show you exactly where your money goes.
                 </p>
                 <div className="flex flex-col sm:flex-row gap-4 flex-wrap">
-                  <div className="flex flex-col gap-1.5">
-                    <Link href="/upload-statement" data-testid="link-hero-upload">
-                      <Button size="lg" className="gap-2 bg-sky-500 hover:bg-sky-400 border-sky-500 text-white font-bold shadow-lg shadow-sky-500/30 w-full sm:w-auto" data-testid="cta-hero-primary">
-                        <Upload className="w-4 h-4" />
-                        Get My Free Statement Analysis
-                      </Button>
-                    </Link>
-                    <p className="text-xs text-white/70 text-center sm:text-left font-medium">Free &bull; No obligation &bull; Takes 2 minutes</p>
-                  </div>
+                  <Link href="/upload-statement" data-testid="link-hero-upload">
+                    <Button size="lg" className="gap-2 bg-sky-500 border-sky-500 text-white">
+                      <Upload className="w-4 h-4" />
+                      Upload Statement - Free Review
+                    </Button>
+                  </Link>
                   <Link href="/get-started" data-testid="link-hero-quiz">
                     <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
                       Not Sure Where to Start?
@@ -227,7 +220,7 @@ export default function Home() {
                     </Button>
                   </Link>
                 </div>
-                <p className="text-xs text-white/70 mt-4 max-w-md" data-testid="text-hero-microcopy">
+                <p className="text-xs text-white/55 mt-4 max-w-md" data-testid="text-hero-microcopy">
                   PDF or photo. 30 seconds. Redact account numbers if you want - we only need totals + fee lines.
                 </p>
               </div>
@@ -321,27 +314,21 @@ export default function Home() {
             <h2 className="text-2xl md:text-3xl font-display font-bold text-white text-center mb-12" data-testid="text-stats-heading">
               Liberty Bancard by the Numbers
             </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-0 text-center">
-              <div ref={stat1.ref} className="p-6 border-b sm:border-b-0 sm:border-r border-white/10" data-testid="stat-volume">
-                <div className="text-5xl md:text-6xl font-display font-bold text-sky-400 mb-2 tabular-nums">
-                  <span className="text-sky-300 mr-0.5">$</span>{stat1.display}
-                </div>
-                <div className="text-sm font-medium text-white">Total Volume Processed</div>
-                <div className="text-xs text-white/70 mt-1">Annual card volume, nationwide</div>
-              </div>
-              <div ref={stat2.ref} className="p-6 border-b sm:border-b-0 sm:border-r border-white/10" data-testid="stat-retention">
-                <div className="text-5xl md:text-6xl font-display font-bold text-sky-400 mb-2 tabular-nums">
-                  <span className="text-sky-300 mr-0.5">+</span>{stat2.display}
-                </div>
-                <div className="text-sm font-medium text-white">Merchant Retention Rate</div>
-                <div className="text-xs text-white/70 mt-1">Merchants stay because the math works</div>
-              </div>
-              <div ref={stat3.ref} className="p-6" data-testid="stat-years">
-                <div className="text-5xl md:text-6xl font-display font-bold text-sky-400 mb-2 tabular-nums">
-                  <span className="text-sky-300 mr-0.5">+</span>{stat3.display}
-                </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 text-center">
+              <div ref={stat1.ref} className="p-6" data-testid="stat-years">
+                <div className="text-5xl md:text-6xl font-display font-bold text-sky-400 mb-2">{stat1.display}</div>
                 <div className="text-sm font-medium text-white">Years in Business</div>
-                <div className="text-xs text-white/70 mt-1">South Florida roots, nationwide reach</div>
+                <div className="text-xs text-white/50 mt-1">South Florida roots, nationwide reach</div>
+              </div>
+              <div ref={stat2.ref} className="p-6" data-testid="stat-merchants">
+                <div className="text-5xl md:text-6xl font-display font-bold text-sky-400 mb-2">{stat2.display}</div>
+                <div className="text-sm font-medium text-white">Merchants Served</div>
+                <div className="text-xs text-white/50 mt-1">Across every major vertical</div>
+              </div>
+              <div ref={stat3.ref} className="p-6" data-testid="stat-retention">
+                <div className="text-5xl md:text-6xl font-display font-bold text-sky-400 mb-2">{stat3.display}</div>
+                <div className="text-sm font-medium text-white">Retention Rate</div>
+                <div className="text-xs text-white/50 mt-1">Merchants stay because the math works</div>
               </div>
             </div>
           </div>
@@ -351,7 +338,7 @@ export default function Home() {
         <section className="reveal bg-background border-y border-border py-12" data-testid="section-partners">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <p className="text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-8">
-              Industry Certifications
+              Processing Infrastructure & Compliance
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-8 items-center justify-items-center">
               {[
@@ -362,8 +349,8 @@ export default function Home() {
                 { name: "PCI DSS", icon: ShieldCheck },
                 { name: "EMV Chip", icon: ShieldCheck },
               ].map((partner, i) => (
-                <div key={i} className="flex flex-col items-center gap-2" data-testid={`partner-logo-${i}`}>
-                  <partner.icon className="w-8 h-8 text-primary/80" />
+                <div key={i} className="flex flex-col items-center gap-2 opacity-60" data-testid={`partner-logo-${i}`}>
+                  <partner.icon className="w-8 h-8 text-muted-foreground" />
                   <span className="text-xs font-medium text-muted-foreground">{partner.name}</span>
                 </div>
               ))}
@@ -377,7 +364,7 @@ export default function Home() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-start">
               <div className="reveal">
                 <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-what-you-get-heading">
-                  Your Free Statement Analysis Includes:
+                  What You Get From a Liberty Statement Review
                 </h2>
                 <p className="text-muted-foreground mb-8">Not a quote. Not a pitch. A clear breakdown of what you're paying and why.</p>
                 <ul className="space-y-5 mb-8">
@@ -1117,7 +1104,7 @@ export default function Home() {
               <Link href="/upload-statement" data-testid="link-final-upload">
                 <Button size="lg" className="gap-2 bg-sky-500 border-sky-500 text-white">
                   <Upload className="w-4 h-4" />
-                  Get My Free Statement Analysis
+                  Upload My Statement
                 </Button>
               </Link>
               <Link href="/get-started" data-testid="link-final-quiz">
@@ -1136,7 +1123,6 @@ export default function Home() {
       </main>
 
       <Footer />
-      <MobileStickyCtA />
     </div>
   );
 }
