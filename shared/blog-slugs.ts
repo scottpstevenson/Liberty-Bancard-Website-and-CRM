@@ -61,6 +61,16 @@ export const STATIC_BLOG_SLUGS = [
   "hotel-payment-processing-pre-authorization-guide",
   "what-is-dual-pricing-complete-guide",
   "accounting-firm-payment-processing-guide",
+  "how-to-read-your-merchant-processing-statement",
+  "good-credit-card-processing-rate-for-my-business",
+  "interchange-plus-vs-flat-rate-pricing-comparison",
+  "complete-guide-to-interchange-fees",
+  "cash-discount-vs-surcharging-what-is-legal",
+  "how-to-implement-cash-discount-program",
+  "how-to-fight-a-chargeback-and-win",
+  "chargeback-prevention-restaurants-retailers",
+  "best-credit-card-terminals-small-business-2025",
+  "square-vs-dedicated-merchant-account-when-to-upgrade",
 ];
 
 export const INDUSTRY_SLUGS = [
