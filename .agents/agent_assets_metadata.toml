@@ -10,22 +10,250 @@ title = "generated_image"
 id = "GfAojhclbpAb83PJ6mgtw"
 uri = "file://attached_assets/generated_images/og-home.png"
 type = "image"
-title = "generated_image"
+title = "og home preview"
 
 [[generated]]
 id = "OxfI3LxRvI0ieQkVZwxBL"
 uri = "file://attached_assets/generated_images/og-upload-statement.png"
 type = "image"
-title = "generated_image"
+title = "og upload statement"
 
 [[generated]]
 id = "ZNkzoR2-v9I8qBkSirDBO"
 uri = "file://attached_assets/generated_images/og-free-analysis.png"
 type = "image"
-title = "generated_image"
+title = "og free analysis"
+
+[[generated]]
+id = "zHqQV6T7Rs_eOr7jeS6aj"
+uri = "file://attached_assets/images/hero-bg.png"
+type = "image"
+title = "hero background fintech"
+
+[[generated]]
+id = "Zg52d3-tG1QvYj_KyFjFc"
+uri = "file://attached_assets/images/dashboard-preview.png"
+type = "image"
+title = "CRM dashboard preview"
+
+[[generated]]
+id = "Rf7E9CNhJavJt3rN3Iyrv"
+uri = "file://attached_assets/images/zero-percent.png"
+type = "image"
+title = "zero percent processing"
+
+[[generated]]
+id = "MbQmpBqav7F1offcKAyn0"
+uri = "file://attached_assets/images/compare-rates.png"
+type = "image"
+title = "compare rates chart"
+
+[[generated]]
+id = "KHdrWz2-cCAgst4stUrwH"
+uri = "file://attached_assets/images/hidden-fees.png"
+type = "image"
+title = "hidden fees magnifying glass"
+
+[[generated]]
+id = "BOs7SOGcKPEiqtKUa2TxN"
+uri = "file://attached_assets/generated_images/og-image.png"
+type = "image"
+title = "og image default"
 
 [[outputs]]
 id = "nSoAGH_dz9gb21KzU0Ty_"
 uri = "file://LIBERTY_BANCARD_FULL_AUDIT.txt"
 type = "text"
 title = "Liberty Bancard — Full Application Audit"
+
+[[outputs]]
+id = "psznr1WqmE_J1qYrPKman"
+uri = "file://attached_assets/stock_images/vertical-medical.jpg"
+type = "image"
+title = "Medical spa or clinic front desk with payment terminal, clean modern office, healthcare professional"
+
+[[outputs]]
+id = "bO_JByhOj9hdN2OtZSRF5"
+uri = "file://attached_assets/stock_images/vertical-auto.jpg"
+type = "image"
+title = "Auto shop mechanic customer paying with card, genuine professional automotive service"
+
+[[outputs]]
+id = "ASDXz-Oiz196SkjKqkXYx"
+uri = "file://attached_assets/stock_images/vertical-home-services.jpg"
+type = "image"
+title = "Plumber or contractor using mobile payment on phone at job site, home services professional"
+
+[[outputs]]
+id = "s1EFKz-L0cGFos3ZsFEHw"
+uri = "file://attached_assets/stock_images/vertical-restaurant.jpg"
+type = "image"
+title = "Restaurant owner smiling at point of sale terminal, small business dining"
+
+[[outputs]]
+id = "0zsPak43n8RTcdYb2U4rU"
+uri = "file://attached_assets/stock_images/case-restaurant.jpg"
+type = "image"
+title = "Busy restaurant full of happy diners, success atmosphere, thriving small business"
+
+[[outputs]]
+id = "Eb0SLNqE33LC94waSfRcL"
+uri = "file://attached_assets/stock_images/vertical-retail.jpg"
+type = "image"
+title = "Retail store owner ringing up customer with card reader, shop counter"
+
+[[outputs]]
+id = "PWSUn_DhFLEZOyGbGbxQq"
+uri = "file://attached_assets/stock_images/case-retail.jpg"
+type = "image"
+title = "Packed retail store with customers shopping, growth and success feel"
+
+[[outputs]]
+id = "pykJClfJn0suLHjhcJJKc"
+uri = "file://attached_assets/stock_images/case-medical.jpg"
+type = "image"
+title = "Modern medical office with satisfied patients and professional staff"
+
+[[outputs]]
+id = "M86RdT19nV-O78bCu6zh5"
+uri = "file://attached_assets/stock_images/case-auto.jpg"
+type = "image"
+title = "Successful auto dealership or repair shop, prosperous business growth"
+
+[[outputs]]
+id = "qlHsanZmy-xZaZCveKyJC"
+uri = "file://attached_assets/stock_images/case-home-services.jpg"
+type = "image"
+title = "Home services contractor with satisfied homeowner, trust and professional service"
+
+[[outputs]]
+id = "_FPjMs64VSFJdBDUbssh2"
+uri = "file://attached_assets/stock_images/funding-deposits.jpg"
+type = "image"
+title = "Business owner looking at bank account on phone with satisfaction, financial growth, mobile banking"
+
+[[outputs]]
+id = "1NNkDQoQ9DbAybpcrpj14"
+uri = "file://attached_assets/stock_images/hero-secure.jpg"
+type = "image"
+title = "Digital security and encryption concept, shield with payment data, professional, blue tone cybersecurity"
+
+[[outputs]]
+id = "Nc019bvi7NKUpJf4Q5eX0"
+uri = "file://attached_assets/stock_images/hero-team.jpg"
+type = "image"
+title = "Diverse professional team in modern office, tech company aesthetic, warm and approachable, business team"
+
+[[outputs]]
+id = "A2R26Nzfz02qZQZF-HxLy"
+uri = "file://attached_assets/stock_images/statement-review.jpg"
+type = "image"
+title = "business owner reviewing financial documents at desk"
+
+[[outputs]]
+id = "J1IoftmM5tnLB_OO9K1QK"
+uri = "file://attached_assets/stock_images/security-upload.jpg"
+type = "image"
+title = "cybersecurity digital padlock protection"
+
+[[outputs]]
+id = "EGU4FYJ0qly-66d-jhAT8"
+uri = "file://attached_assets/stock_images/merchant-owner.jpg"
+type = "image"
+title = "small business owner at store counter smiling"
+
+[[outputs]]
+id = "9dZ_VHwrvGggiVg8ZlzlU"
+uri = "file://attached_assets/stock_images/team-collab.jpg"
+type = "image"
+title = "diverse team meeting in modern office with laptops"
+
+[[outputs]]
+id = "Z5SW0TBaGdfNkwHXVKwWh"
+uri = "file://attached_assets/stock_images/hero-analytics.jpg"
+type = "image"
+title = "business analytics data dashboard on computer screen"
+
+[[outputs]]
+id = "QJsYwN0IdgaCWYukqED2T"
+uri = "file://attached_assets/stock_images/hero-support.jpg"
+type = "image"
+title = "customer support agent with headset at computer"
+
+[[outputs]]
+id = "24cNTdlis10qkLqk56xkI"
+uri = "file://attached_assets/stock_images/case-medical-clinic.jpg"
+type = "image"
+title = "modern medical clinic reception area with satisfied patients waiting"
+
+[[outputs]]
+id = "2lVPG1Uw-UBpKV4yGUPi0"
+uri = "file://attached_assets/stock_images/case-retail-customers.jpg"
+type = "image"
+title = "busy retail shop with multiple customers browsing products, successful store"
+
+[[outputs]]
+id = "XSVa6DnGwGqute53ZhemN"
+uri = "file://attached_assets/stock_images/case-restaurant-busy.jpg"
+type = "image"
+title = "busy full restaurant dining room crowded with happy customers, thriving small business success"
+
+[[outputs]]
+id = "XC1eilpCF_EvLJar_apCZ"
+uri = "file://attached_assets/stock_images/case-auto-business.jpg"
+type = "image"
+title = "successful auto repair business exterior signage, growing dealership"
+
+[[outputs]]
+id = "pdeScOmR47z5EiLwB2XzR"
+uri = "file://attached_assets/stock_images/team-collaboration-meeting.jpg"
+type = "image"
+title = "diverse colleagues collaborating in modern conference room with laptops presentations"
+
+[[outputs]]
+id = "hPvMEkp_y7-QHefRmdXnm"
+uri = "file://attached_assets/stock_images/case-home-contractor.jpg"
+type = "image"
+title = "home contractor shaking hands with happy homeowner after job completion"
+
+[[outputs]]
+id = "BlkoB7nrzRdZyhCxJLPtJ"
+uri = "file://attached_assets/stock_images/team-office-meeting.jpg"
+type = "image"
+title = "business team meeting whiteboard brainstorming startup office"
+
+[[outputs]]
+id = "1TP442eXkixbA6MVt1eWq"
+uri = "file://attached_assets/stock_images/case-auto-dealership.jpg"
+type = "image"
+title = "car dealership showroom interior with sales staff and vehicles"
+
+[[outputs]]
+id = "XWnHI_SDVW6eaM9XG05vk"
+uri = "file://attached_assets/stock_images/vertical-auto-mechanic.jpg"
+type = "image"
+title = "auto mechanic in garage holding car keys smiling at customer payment"
+
+[[outputs]]
+id = "xRqOPfZe1Vn94n6eZtymC"
+uri = "file://attached_assets/stock_images/hero-support-agent.jpg"
+type = "image"
+title = "call center agent with headset smiling at computer helping customer"
+
+[[outputs]]
+id = "wIaiKkM933rjyCnBgNYOX"
+uri = "file://attached_assets/stock_images/hero-analytics-data.jpg"
+type = "image"
+title = "financial data charts graphs on laptop screen business analysis"
+
+[[outputs]]
+id = "1Aog5JorUm_ZusVZp7trm"
+uri = "file://attached_assets/stock_images/vertical-auto-pay.jpg"
+type = "image"
+title = "woman paying for car service at auto shop counter"
+
+[[outputs]]
+id = "OyY0hBjLQ3Tidbe8Iafme"
+uri = "file://attached_assets/stock_images/vertical-auto-dealer.jpg"
+type = "image"
+title = "car dealership salesperson showing vehicle to couple"

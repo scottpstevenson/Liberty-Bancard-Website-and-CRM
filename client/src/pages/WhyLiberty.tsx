@@ -195,7 +195,7 @@ export default function WhyLiberty() {
       <main className="flex-grow pt-20" ref={containerRef}>
         <section className="relative overflow-hidden" data-testid="section-why-hero">
           <div className="absolute inset-0">
-            <img src={heroTeam} alt="" className="w-full h-full object-cover" />
+            <img src={heroTeam} alt="Liberty Bancard professional payment processing team" className="w-full h-full object-cover" width="1408" height="792" />
             <div className="absolute inset-0 bg-gradient-to-r from-[hsl(222,47%,6%)/0.97] via-[hsl(222,47%,6%)/0.93] to-[hsl(222,47%,6%)/0.85]" />
           </div>
           <div className="glow-blob w-64 h-64 bg-sky-500 top-10 right-1/4" />
@@ -286,6 +286,9 @@ export default function WhyLiberty() {
                   src={teamCollab}
                   alt="Liberty Bancard team collaborating on merchant solutions"
                   className="rounded-md w-full"
+                  loading="lazy"
+                  width="1408"
+                  height="792"
                 />
               </div>
             </div>
@@ -480,7 +483,7 @@ export default function WhyLiberty() {
 
         <section className="relative overflow-hidden py-20" data-testid="section-cta">
           <div className="absolute inset-0">
-            <img src={heroTeam} alt="" className="w-full h-full object-cover" />
+            <img src={heroTeam} alt="Liberty Bancard team behind transparent payment processing" className="w-full h-full object-cover" loading="lazy" width="1408" height="792" />
             <div className="absolute inset-0 bg-gradient-to-r from-[hsl(222,47%,6%)/0.97] via-[hsl(222,47%,6%)/0.95] to-[hsl(222,47%,6%)/0.90]" />
           </div>
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">

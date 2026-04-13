@@ -642,7 +642,7 @@ export default function IndustryPage() {
         <section className="relative overflow-hidden" data-testid="section-industry-hero">
           <div className="absolute inset-0">
             {industry.image ? (
-              <img src={industry.image} alt="" className="w-full h-full object-cover" />
+              <img src={industry.image} alt={`${industry.name} payment processing`} className="w-full h-full object-cover" width="1408" height="792" />
             ) : (
               <div className="w-full h-full bg-gradient-to-br from-[hsl(222,47%,11%)] to-[hsl(221,83%,25%)]" />
             )}

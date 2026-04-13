@@ -662,8 +662,10 @@ export default function SalesOnePager() {
           <div className="absolute inset-0">
             <img
               src={data.heroImage}
-              alt={data.industry}
+              alt={`${data.industry} payment processing solutions`}
               className="w-full h-full object-cover"
+              width="1408"
+              height="792"
             />
             <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/70 to-black/50" />
           </div>

@@ -55,7 +55,7 @@ export default function AboutContact() {
       <main className="flex-grow pt-20" ref={containerRef}>
         <section className="relative overflow-hidden" data-testid="section-about-hero">
           <div className="absolute inset-0">
-            <img src={heroTeam} alt="" className="w-full h-full object-cover" />
+            <img src={heroTeam} alt="Liberty Bancard team of payment processing professionals" className="w-full h-full object-cover" width="1408" height="792" />
             <div className="absolute inset-0 bg-gradient-to-r from-[hsl(222,47%,6%)/0.97] via-[hsl(222,47%,6%)/0.93] to-[hsl(222,47%,6%)/0.85]" />
           </div>
           <div className="glow-blob w-64 h-64 bg-sky-500 top-10 right-1/4" />

@@ -224,7 +224,7 @@ export default function UploadStatement() {
       <main className="flex-grow pt-20" ref={containerRef}>
         <section className="relative overflow-hidden" data-testid="section-upload-hero">
           <div className="absolute inset-0">
-            <img src={heroSecure} alt="" className="w-full h-full object-cover" />
+            <img src={heroSecure} alt="Secure payment statement analysis and digital security" className="w-full h-full object-cover" width="1408" height="792" />
             <div className="absolute inset-0 bg-gradient-to-r from-[hsl(222,47%,6%)/0.97] via-[hsl(222,47%,6%)/0.93] to-[hsl(222,47%,6%)/0.85]" />
           </div>
           <div className="glow-blob w-64 h-64 bg-sky-500 top-10 right-1/4" />
@@ -672,7 +672,7 @@ export default function UploadStatement() {
           <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 reveal">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
               <div className="flex justify-center reveal reveal-delay-1">
-                <img src={imgCloverFlex3} alt="Clover Flex 3 payment terminal" className="w-full max-w-[240px] rounded-md object-contain" data-testid="img-upload-terminal" />
+                <img src={imgCloverFlex3} alt="Clover Flex 3 payment terminal" className="w-full max-w-[240px] rounded-md object-contain" loading="lazy" width="240" height="240" data-testid="img-upload-terminal" />
               </div>
               <div className="reveal reveal-delay-2">
                 <h2 className="text-2xl font-bold text-foreground mb-3" data-testid="text-terminal-promo-heading">

@@ -184,7 +184,7 @@ export default function Home() {
         {/* SECTION 2: Hero */}
         <section className="relative overflow-hidden" data-testid="section-hero">
           <div className="absolute inset-0">
-            <img src={heroBg} alt="" className="w-full h-full object-cover" />
+            <img src={heroBg} alt="Professional payment processing technology background with fintech aesthetic" className="w-full h-full object-cover" fetchPriority="high" width="1408" height="792" />
             <div className="absolute inset-0 bg-gradient-to-r from-[hsl(222,47%,6%)/0.97] via-[hsl(222,47%,6%)/0.93] to-[hsl(222,47%,6%)/0.85]" />
             <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'linear-gradient(45deg, rgba(255,255,255,0.05) 1px, transparent 1px), linear-gradient(-45deg, rgba(255,255,255,0.05) 1px, transparent 1px)', backgroundSize: '40px 40px' }} />
           </div>
@@ -689,7 +689,7 @@ export default function Home() {
                 </CardHeader>
                 <CardContent>
                   <div className="rounded-md overflow-hidden mb-3">
-                    <img src={imgCloverFlex3} alt="Clover Flex 3 payment terminal" className="w-full h-48 object-contain bg-muted/50 p-2" data-testid="img-home-terminal" />
+                    <img src={imgCloverFlex3} alt="Clover Flex 3 payment terminal" className="w-full h-48 object-contain bg-muted/50 p-2" loading="lazy" width="400" height="192" data-testid="img-home-terminal" />
                   </div>
                   <ul className="space-y-2 text-sm text-muted-foreground">
                     <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Tap, dip, swipe, manual key</li>
@@ -750,7 +750,7 @@ export default function Home() {
               </div>
               <div className="relative">
                 <div className="rounded-md overflow-hidden shadow-2xl border border-border">
-                  <img src={dashboardPreview} alt="Liberty Bancard Dashboard" className="w-full h-auto" data-testid="img-platform-preview" />
+                  <img src={dashboardPreview} alt="Liberty Bancard CRM dashboard showing merchant pipeline and KPI metrics" className="w-full h-auto" loading="lazy" width="1408" height="792" data-testid="img-platform-preview" />
                 </div>
                 <div className="absolute -bottom-4 -right-4 -z-10 w-full h-full rounded-md bg-gradient-to-br from-sky-500/20 to-primary/20" />
               </div>
@@ -826,10 +826,10 @@ export default function Home() {
                 <p className="text-xs text-muted-foreground mt-3">*Eligibility, underwriting, card brand rules, and applicable laws apply.</p>
               </div>
               <div className="grid grid-cols-2 gap-4">
-                <img src={imgCloverFlex3} alt="Clover Flex 3 handheld POS terminal" className="w-full rounded-md object-contain" data-testid="img-showcase-hero" />
-                <img src={imgCloverStationDuo} alt="Clover Station Duo full register system" className="w-full rounded-md object-contain" data-testid="img-showcase-stand" />
-                <img src={imgCloverMini3} alt="Clover Mini 3 countertop POS" className="w-full rounded-md object-contain" data-testid="img-showcase-angle" />
-                <img src={imgPaxA920} alt="PAX A920 smart payment terminal" className="w-full rounded-md object-contain" data-testid="img-showcase-tap" />
+                <img src={imgCloverFlex3} alt="Clover Flex 3 handheld POS terminal" className="w-full rounded-md object-contain" loading="lazy" width="400" height="400" data-testid="img-showcase-hero" />
+                <img src={imgCloverStationDuo} alt="Clover Station Duo full register system" className="w-full rounded-md object-contain" loading="lazy" width="400" height="400" data-testid="img-showcase-stand" />
+                <img src={imgCloverMini3} alt="Clover Mini 3 countertop POS" className="w-full rounded-md object-contain" loading="lazy" width="400" height="400" data-testid="img-showcase-angle" />
+                <img src={imgPaxA920} alt="PAX A920 smart payment terminal" className="w-full rounded-md object-contain" loading="lazy" width="400" height="400" data-testid="img-showcase-tap" />
               </div>
             </div>
           </div>
@@ -901,7 +901,7 @@ export default function Home() {
         {/* SECTION 10: Trust / Risk Reversal */}
         <section className="reveal relative overflow-hidden py-20" data-testid="section-risk-reversal">
           <div className="absolute inset-0">
-            <img src={teamCollab} alt="" className="w-full h-full object-cover" />
+            <img src={teamCollab} alt="Liberty Bancard team collaborating" className="w-full h-full object-cover" loading="lazy" width="1408" height="792" />
             <div className="absolute inset-0 bg-gradient-to-r from-[hsl(222,47%,8%)/0.92] via-[hsl(222,47%,8%)/0.88] to-[hsl(222,47%,8%)/0.80]" />
           </div>
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">

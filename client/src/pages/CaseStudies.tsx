@@ -375,8 +375,11 @@ export default function CaseStudies() {
                         <div className="lg:col-span-2 relative">
                           <img
                             src={cs.image}
-                            alt={`${cs.businessType} payment processing case study`}
+                            alt={`${cs.businessType} payment processing success story`}
                             className="w-full h-64 lg:h-full object-cover rounded-t-md lg:rounded-l-md lg:rounded-tr-none"
+                            loading="lazy"
+                            width="800"
+                            height="600"
                           />
                           <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent rounded-t-md lg:rounded-l-md lg:rounded-tr-none" />
                           <div className="absolute bottom-4 left-4 right-4">
