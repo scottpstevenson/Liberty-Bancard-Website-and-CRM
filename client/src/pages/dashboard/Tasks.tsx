@@ -500,8 +500,14 @@ export default function Tasks() {
           <TableBody>
             {filteredTasks.length === 0 && (
               <TableRow>
-                <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
-                  No tasks found
+                <TableCell colSpan={8}>
+                  <div className="flex flex-col items-center justify-center py-14 gap-3" data-testid="empty-state-tasks">
+                    <CheckCircle className="w-12 h-12 text-green-500/40" />
+                    <div className="text-center">
+                      <p className="font-medium">You're all caught up!</p>
+                      <p className="text-sm text-muted-foreground mt-1">No pending tasks. Great work!</p>
+                    </div>
+                  </div>
                 </TableCell>
               </TableRow>
             )}

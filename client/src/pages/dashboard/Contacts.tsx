@@ -725,7 +725,18 @@ export default function Contacts() {
                 </TableRow>
               ) : filteredContacts?.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center h-24 text-muted-foreground">No contacts found</TableCell>
+                  <TableCell colSpan={7}>
+                    <div className="flex flex-col items-center justify-center py-12 gap-3" data-testid="empty-state-contacts">
+                      <Users className="w-10 h-10 text-muted-foreground/40" />
+                      <div className="text-center">
+                        <p className="font-medium text-sm">No contacts yet</p>
+                        <p className="text-sm text-muted-foreground mt-1">Import your first leads to get started.</p>
+                      </div>
+                      <Button variant="outline" size="sm" onClick={() => setLocation("/dashboard/lead-imports")} data-testid="button-import-csv">
+                        Import CSV
+                      </Button>
+                    </div>
+                  </TableCell>
                 </TableRow>
               ) : (
                 filteredContacts?.map((contact: any) => {

@@ -3,13 +3,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import {
-  Users, Ticket, TrendingUp, CheckCircle, AlertTriangle, Clock,
+  Users, Ticket, TrendingUp, TrendingDown, Minus, CheckCircle, AlertTriangle, Clock,
   Target, ArrowUpRight, ArrowDownRight, Loader2, Brain, Sparkles,
   RefreshCw, DollarSign, Banknote, CalendarDays, BarChart3, Globe,
-  Mail, Flame, Thermometer, Snowflake, Ban,
+  Mail, Flame, Thermometer, Snowflake,
 } from "lucide-react";
 import type { Contact, Deal } from "@shared/schema";
 
@@ -21,6 +22,51 @@ function formatInsights(text: string) {
     }
     return <span key={i}>{part}</span>;
   });
+}
+
+function KpiCardSkeleton() {
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <Skeleton className="h-4 w-24" />
+      </CardHeader>
+      <CardContent>
+        <Skeleton className="h-8 w-16 mb-1" />
+        <Skeleton className="h-3 w-32" />
+      </CardContent>
+    </Card>
+  );
+}
+
+function TableRowSkeleton() {
+  return (
+    <div className="flex items-center justify-between gap-3 p-3 rounded-md">
+      <div className="flex items-center gap-3 min-w-0">
+        <Skeleton className="w-9 h-9 rounded-full shrink-0" />
+        <div className="space-y-1 min-w-0">
+          <Skeleton className="h-4 w-32" />
+          <Skeleton className="h-3 w-24" />
+        </div>
+      </div>
+      <Skeleton className="h-5 w-16 shrink-0" />
+    </div>
+  );
+}
+
+function ChartSkeleton() {
+  return (
+    <div className="space-y-3">
+      {[60, 40, 80, 55, 70, 45, 65].map((w, i) => (
+        <div key={i} className="space-y-1">
+          <div className="flex items-center justify-between">
+            <Skeleton className="h-3 w-20" />
+            <Skeleton className="h-3 w-16" />
+          </div>
+          <Skeleton className={`h-3`} style={{ width: `${w}%` }} />
+        </div>
+      ))}
+    </div>
+  );
 }
 
 interface LeadSource {
@@ -81,9 +127,9 @@ export default function Overview() {
     revenue: { totalEstVolume: number; totalEstResidual: number; totalEstProfit: number; avgDealProfit: number };
   }>({ queryKey: ["/api/kpi/summary"], refetchInterval: 30000 });
 
-  const { data: contactsResult } = useQuery<{ data: Contact[]; total: number }>({ queryKey: ["/api/contacts"], refetchInterval: 30000 });
+  const { data: contactsResult, isLoading: contactsLoading } = useQuery<{ data: Contact[]; total: number }>({ queryKey: ["/api/contacts"], refetchInterval: 30000 });
   const contacts = contactsResult?.data;
-  const { data: dealsResult } = useQuery<{ data: Deal[]; total: number }>({ queryKey: ["/api/deals"], refetchInterval: 30000 });
+  const { data: dealsResult, isLoading: dealsLoading } = useQuery<{ data: Deal[]; total: number }>({ queryKey: ["/api/deals"], refetchInterval: 30000 });
   const deals = dealsResult?.data;
 
   const { data: pipelineStats } = useQuery<{
@@ -113,18 +159,10 @@ export default function Overview() {
     refetchInterval: 60000,
   });
 
-  const { data: dailyData } = useQuery<{ todayLeads: number; todayDeals: number; trend: DailyTrend[] }>({
+  const { data: dailyData, isLoading: dailyLoading } = useQuery<{ todayLeads: number; todayDeals: number; trend: DailyTrend[] }>({
     queryKey: ["/api/analytics/daily-leads"],
     refetchInterval: 30000,
   });
-
-  if (kpiLoading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
 
   if (isError) {
     return (
@@ -151,15 +189,45 @@ export default function Overview() {
   };
 
   const maxFunnelCount = funnelData?.funnel ? Math.max(...funnelData.funnel.map(f => f.count), 1) : 1;
-  const maxTrendLeads = dailyData?.trend ? Math.max(...dailyData.trend.map(t => t.leads), 1) : 1;
+
+  const weeklyTrend = dailyData?.trend || [];
+  const maxTrendLeads = weeklyTrend.length > 0 ? Math.max(...weeklyTrend.map(t => t.leads), 1) : 1;
+
+  function ChangeIndicator({ change }: { change: number }) {
+    if (change > 0) {
+      return (
+        <>
+          <TrendingUp className="w-3 h-3 text-green-600" />
+          <span className="text-green-600">+{change}%</span>
+        </>
+      );
+    } else if (change < 0) {
+      return (
+        <>
+          <TrendingDown className="w-3 h-3 text-red-600" />
+          <span className="text-red-600">{change}%</span>
+        </>
+      );
+    }
+    return (
+      <>
+        <Minus className="w-3 h-3 text-muted-foreground" />
+        <span className="text-muted-foreground">0%</span>
+      </>
+    );
+  }
 
   return (
     <div className="space-y-8">
-      <Card className="bg-primary/5 dark:bg-primary/10" data-testid="card-ai-copilot">
+      <Card className="border-l-4 border-sky-500 bg-gradient-to-r from-primary/8 to-transparent dark:from-primary/15" data-testid="card-ai-copilot">
         <CardHeader className="flex flex-row items-center justify-between gap-2 flex-wrap">
           <div className="flex items-center gap-2">
             <Brain className="w-5 h-5 text-primary" />
             <CardTitle className="text-base">AI Operations Copilot</CardTitle>
+            <Badge variant="secondary" className="text-xs ml-1">
+              <Sparkles className="h-3 w-3 mr-1" />
+              AI-Powered
+            </Badge>
           </div>
           <div className="flex items-center gap-2">
             <Button
@@ -234,120 +302,143 @@ export default function Overview() {
       </Card>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        <Card data-testid="card-kpi-today-leads">
-          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Today's Leads</CardTitle>
-            <CalendarDays className="w-4 h-4 text-primary" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold" data-testid="text-today-leads">{dailyData?.todayLeads || 0}</div>
-            <p className="text-xs text-muted-foreground mt-1" data-testid="text-today-deals">{dailyData?.todayDeals || 0} deals created</p>
-          </CardContent>
-        </Card>
+        {kpiLoading || dailyLoading ? (
+          <>
+            <KpiCardSkeleton />
+            <KpiCardSkeleton />
+            <KpiCardSkeleton />
+            <KpiCardSkeleton />
+            <KpiCardSkeleton />
+          </>
+        ) : (
+          <>
+            <Card data-testid="card-kpi-today-leads">
+              <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Today's Leads</CardTitle>
+                <CalendarDays className="w-4 h-4 text-primary" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold tabular-nums min-h-[2rem] flex items-center" data-testid="text-today-leads">{dailyData?.todayLeads || 0}</div>
+                <p className="text-xs text-muted-foreground mt-1" data-testid="text-today-deals">{dailyData?.todayDeals || 0} deals created</p>
+              </CardContent>
+            </Card>
 
-        <Card data-testid="card-kpi-pipeline">
-          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Active Pipeline</CardTitle>
-            <TrendingUp className="w-4 h-4 text-primary" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold" data-testid="text-active-pipeline">{kpi?.pipeline.totalActive || 0}</div>
-            <p className="text-xs text-muted-foreground mt-1" data-testid="text-new-leads">{kpi?.pipeline.newLeads7d || 0} new this week</p>
-          </CardContent>
-        </Card>
+            <Card data-testid="card-kpi-pipeline">
+              <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Active Pipeline</CardTitle>
+                <TrendingUp className="w-4 h-4 text-primary" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold tabular-nums min-h-[2rem] flex items-center" data-testid="text-active-pipeline">{kpi?.pipeline.totalActive || 0}</div>
+                <p className="text-xs text-muted-foreground mt-1" data-testid="text-new-leads">{kpi?.pipeline.newLeads7d || 0} new this week</p>
+              </CardContent>
+            </Card>
 
-        <Card data-testid="card-kpi-conversion">
-          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Win Rate (30d)</CardTitle>
-            <Target className="w-4 h-4 text-green-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold" data-testid="text-conversion-rate">{kpi?.pipeline.conversionRate || 0}%</div>
-            <p className="text-xs text-muted-foreground mt-1" data-testid="text-won-lost">{kpi?.pipeline.closedWon30d || 0}W / {kpi?.pipeline.closedLost30d || 0}L</p>
-          </CardContent>
-        </Card>
+            <Card data-testid="card-kpi-conversion">
+              <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Win Rate (30d)</CardTitle>
+                <Target className="w-4 h-4 text-green-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold tabular-nums min-h-[2rem] flex items-center" data-testid="text-conversion-rate">{kpi?.pipeline.conversionRate || 0}%</div>
+                <p className="text-xs text-muted-foreground mt-1" data-testid="text-won-lost">{kpi?.pipeline.closedWon30d || 0}W / {kpi?.pipeline.closedLost30d || 0}L</p>
+              </CardContent>
+            </Card>
 
-        <Card data-testid="card-kpi-support">
-          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Open Tickets</CardTitle>
-            <Ticket className="w-4 h-4 text-orange-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold" data-testid="text-open-tickets">{kpi?.support.openTickets || 0}</div>
-            {(kpi?.support.breachedSla || 0) > 0 ? (
-              <p className="text-xs text-destructive mt-1 flex items-center gap-1" data-testid="text-sla-breach">
-                <AlertTriangle className="w-3 h-3" />
-                {kpi?.support.breachedSla} SLA breaches
-              </p>
-            ) : (
-              <p className="text-xs text-muted-foreground mt-1" data-testid="text-sla-ok">All within SLA</p>
-            )}
-          </CardContent>
-        </Card>
+            <Card data-testid="card-kpi-support">
+              <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Open Tickets</CardTitle>
+                <Ticket className="w-4 h-4 text-orange-500" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold tabular-nums min-h-[2rem] flex items-center" data-testid="text-open-tickets">{kpi?.support.openTickets || 0}</div>
+                {(kpi?.support.breachedSla || 0) > 0 ? (
+                  <p className="text-xs text-destructive mt-1 flex items-center gap-1" data-testid="text-sla-breach">
+                    <AlertTriangle className="w-3 h-3" />
+                    {kpi?.support.breachedSla} SLA breaches
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground mt-1" data-testid="text-sla-ok">All within SLA</p>
+                )}
+              </CardContent>
+            </Card>
 
-        <Card data-testid="card-kpi-tasks">
-          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Pending Tasks</CardTitle>
-            <Clock className="w-4 h-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold" data-testid="text-pending-tasks">{kpi?.tasks.pending || 0}</div>
-            {(kpi?.tasks.overdue || 0) > 0 ? (
-              <p className="text-xs text-destructive mt-1 flex items-center gap-1" data-testid="text-overdue-tasks">
-                <AlertTriangle className="w-3 h-3" aria-hidden="true" />
-                <span>{kpi?.tasks.overdue} overdue</span>
-              </p>
-            ) : (
-              <p className="text-xs text-muted-foreground mt-1" data-testid="text-tasks-ok">None overdue</p>
-            )}
-          </CardContent>
-        </Card>
+            <Card data-testid="card-kpi-tasks">
+              <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Pending Tasks</CardTitle>
+                <Clock className="w-4 h-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold tabular-nums min-h-[2rem] flex items-center" data-testid="text-pending-tasks">{kpi?.tasks.pending || 0}</div>
+                {(kpi?.tasks.overdue || 0) > 0 ? (
+                  <p className="text-xs text-destructive mt-1 flex items-center gap-1" data-testid="text-overdue-tasks">
+                    <AlertTriangle className="w-3 h-3" aria-hidden="true" />
+                    <span>{kpi?.tasks.overdue} overdue</span>
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground mt-1" data-testid="text-tasks-ok">None overdue</p>
+                )}
+              </CardContent>
+            </Card>
+          </>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card data-testid="card-kpi-volume">
-          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Pipeline Value</CardTitle>
-            <DollarSign className="w-4 h-4 text-green-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold" data-testid="text-est-volume">${(kpi?.revenue.totalEstVolume || 0).toLocaleString()}</div>
-            <p className="text-xs text-muted-foreground mt-1">Est. monthly volume</p>
-          </CardContent>
-        </Card>
+        {kpiLoading ? (
+          <>
+            <KpiCardSkeleton />
+            <KpiCardSkeleton />
+            <KpiCardSkeleton />
+            <KpiCardSkeleton />
+          </>
+        ) : (
+          <>
+            <Card data-testid="card-kpi-volume">
+              <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Pipeline Value</CardTitle>
+                <DollarSign className="w-4 h-4 text-green-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold tabular-nums min-h-[2rem] flex items-center" data-testid="text-est-volume">${(kpi?.revenue.totalEstVolume || 0).toLocaleString()}</div>
+                <p className="text-xs text-muted-foreground mt-1">Est. monthly volume</p>
+              </CardContent>
+            </Card>
 
-        <Card data-testid="card-kpi-residual">
-          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Monthly Residual</CardTitle>
-            <Banknote className="w-4 h-4 text-green-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold" data-testid="text-est-residual">${(kpi?.revenue.totalEstResidual || 0).toLocaleString()}</div>
-            <p className="text-xs text-muted-foreground mt-1">Projected income</p>
-          </CardContent>
-        </Card>
+            <Card data-testid="card-kpi-residual">
+              <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Monthly Residual</CardTitle>
+                <Banknote className="w-4 h-4 text-green-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold tabular-nums min-h-[2rem] flex items-center" data-testid="text-est-residual">${(kpi?.revenue.totalEstResidual || 0).toLocaleString()}</div>
+                <p className="text-xs text-muted-foreground mt-1">Projected income</p>
+              </CardContent>
+            </Card>
 
-        <Card data-testid="card-kpi-profit">
-          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Gross Profit</CardTitle>
-            <TrendingUp className="w-4 h-4 text-green-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold" data-testid="text-est-profit">${(kpi?.revenue.totalEstProfit || 0).toLocaleString()}</div>
-            <p className="text-xs text-muted-foreground mt-1">Monthly from all deals</p>
-          </CardContent>
-        </Card>
+            <Card data-testid="card-kpi-profit">
+              <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Gross Profit</CardTitle>
+                <TrendingUp className="w-4 h-4 text-green-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold tabular-nums min-h-[2rem] flex items-center" data-testid="text-est-profit">${(kpi?.revenue.totalEstProfit || 0).toLocaleString()}</div>
+                <p className="text-xs text-muted-foreground mt-1">Monthly from all deals</p>
+              </CardContent>
+            </Card>
 
-        <Card data-testid="card-kpi-avg-deal">
-          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Avg Deal Profit</CardTitle>
-            <Target className="w-4 h-4 text-green-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold" data-testid="text-avg-deal-profit">${(kpi?.revenue.avgDealProfit || 0).toLocaleString()}</div>
-            <p className="text-xs text-muted-foreground mt-1">Per deal average</p>
-          </CardContent>
-        </Card>
+            <Card data-testid="card-kpi-avg-deal">
+              <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Avg Deal Profit</CardTitle>
+                <Target className="w-4 h-4 text-green-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold tabular-nums min-h-[2rem] flex items-center" data-testid="text-avg-deal-profit">${(kpi?.revenue.avgDealProfit || 0).toLocaleString()}</div>
+                <p className="text-xs text-muted-foreground mt-1">Per deal average</p>
+              </CardContent>
+            </Card>
+          </>
+        )}
       </div>
 
       {comparative && (
@@ -364,16 +455,9 @@ export default function Overview() {
                 <item.icon className="w-4 h-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{item.data.current}</div>
+                <div className="text-2xl font-bold tabular-nums min-h-[2rem] flex items-center">{item.data.current}</div>
                 <div className="flex items-center gap-1 text-xs flex-wrap">
-                  {item.data.change >= 0 ? (
-                    <ArrowUpRight className="w-3 h-3 text-green-600" />
-                  ) : (
-                    <ArrowDownRight className="w-3 h-3 text-red-600" />
-                  )}
-                  <span className={item.data.change >= 0 ? "text-green-600" : "text-red-600"}>
-                    {item.data.change > 0 ? "+" : ""}{item.data.change}%
-                  </span>
+                  <ChangeIndicator change={item.data.change} />
                   <span className="text-muted-foreground">vs last month ({item.data.previous})</span>
                 </div>
               </CardContent>
@@ -391,40 +475,82 @@ export default function Overview() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {dailyData?.trend && dailyData.trend.length > 0 ? (
-              <div role="img" aria-label="Weekly lead trend chart showing daily lead and deal counts" className="space-y-2">
-                {dailyData.trend.map((day) => {
-                  const dayLabel = new Date(day.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+            {dailyLoading ? (
+              <ChartSkeleton />
+            ) : weeklyTrend.length > 0 ? (
+              <svg
+                role="img"
+                aria-label="Weekly lead trend: leads and deals per day"
+                viewBox={`0 0 ${weeklyTrend.length * 40} 110`}
+                className="w-full h-28"
+                data-testid="chart-weekly-trend-svg"
+              >
+                <title>Weekly lead trend: leads and deals per day</title>
+                {weeklyTrend.map((day, i) => {
+                  const dayLabel = new Date(day.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short" });
+                  const leadsH = maxTrendLeads > 0 ? (day.leads / maxTrendLeads) * 80 : 0;
+                  const dealsH = maxTrendLeads > 0 ? (day.deals / maxTrendLeads) * 80 : 0;
                   return (
-                    <div key={day.date} className="space-y-1" data-testid={`trend-row-${day.date}`}>
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground w-28 shrink-0">{dayLabel}</span>
-                        <span className="font-medium">{day.leads} leads / {day.deals} deals</span>
-                      </div>
-                      <div className="flex gap-1 h-3">
-                        <div
-                          className="bg-primary/70 rounded-sm transition-all"
-                          style={{ width: `${(day.leads / maxTrendLeads) * 100}%`, minWidth: day.leads > 0 ? "4px" : "0" }}
-                          title={`${day.leads} leads`}
-                        />
-                      </div>
-                    </div>
+                    <g key={day.date} data-testid={`trend-bar-${day.date}`}>
+                      <rect
+                        x={i * 40 + 4}
+                        y={90 - leadsH}
+                        width={16}
+                        height={leadsH}
+                        fill="hsl(var(--primary))"
+                        opacity={0.8}
+                        rx={2}
+                        aria-label={`${dayLabel}: ${day.leads} leads`}
+                      />
+                      <rect
+                        x={i * 40 + 22}
+                        y={90 - dealsH}
+                        width={16}
+                        height={dealsH}
+                        fill="hsl(199 89% 56%)"
+                        opacity={0.8}
+                        rx={2}
+                        aria-label={`${dayLabel}: ${day.deals} deals`}
+                      />
+                      <text
+                        x={i * 40 + 20}
+                        y={105}
+                        textAnchor="middle"
+                        fontSize={8}
+                        className="fill-muted-foreground"
+                        style={{ fill: "hsl(var(--muted-foreground))" }}
+                      >
+                        {dayLabel}
+                      </text>
+                    </g>
                   );
                 })}
-                <div className="sr-only">
-                  <table>
-                    <caption>Weekly Lead Trend</caption>
-                    <thead><tr><th>Day</th><th>Leads</th><th>Deals</th></tr></thead>
-                    <tbody>
-                      {dailyData.trend.map((day) => (
-                        <tr key={day.date}><td>{day.date}</td><td>{day.leads}</td><td>{day.deals}</td></tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+              </svg>
+              <div className="sr-only">
+                <table>
+                  <caption>Weekly Lead Trend</caption>
+                  <thead><tr><th>Day</th><th>Leads</th><th>Deals</th></tr></thead>
+                  <tbody>
+                    {weeklyTrend.map((day) => (
+                      <tr key={day.date}><td>{day.date}</td><td>{day.leads}</td><td>{day.deals}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">No trend data available</p>
+            )}
+            {weeklyTrend.length > 0 && !dailyLoading && (
+              <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1">
+                  <span className="w-3 h-3 rounded-sm inline-block bg-primary opacity-80" />
+                  Leads
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="w-3 h-3 rounded-sm inline-block" style={{ backgroundColor: "hsl(199 89% 56%)", opacity: 0.8 }} />
+                  Deals
+                </span>
+              </div>
             )}
           </CardContent>
         </Card>
@@ -443,7 +569,7 @@ export default function Overview() {
                   <div key={step.stage} className="space-y-1" data-testid={`funnel-step-${step.stage.toLowerCase().replace(/\s+/g, "-")}`}>
                     <div className="flex items-center justify-between text-sm">
                       <span>{step.stage}</span>
-                      <span className="font-medium text-muted-foreground">{step.count}</span>
+                      <span className="font-medium text-muted-foreground tabular-nums">{step.count}</span>
                     </div>
                     <Progress value={maxFunnelCount > 0 ? (step.count / maxFunnelCount) * 100 : 0} className="h-2" />
                   </div>
@@ -490,7 +616,7 @@ export default function Overview() {
                     <div className="flex items-center gap-3 text-xs text-muted-foreground shrink-0">
                       <span>{src.leads} leads</span>
                       <span>{src.deals} deals</span>
-                      <span className="font-medium text-foreground">{src.conversionRate}%</span>
+                      <span className="font-medium text-foreground tabular-nums">{src.conversionRate}%</span>
                     </div>
                   </div>
                 ))}
@@ -511,19 +637,19 @@ export default function Overview() {
           <CardContent className="space-y-4">
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">Total Contacts</span>
-              <span className="text-lg font-bold" data-testid="text-total-contacts">{kpi?.contacts.total || 0}</span>
+              <span className="text-lg font-bold tabular-nums" data-testid="text-total-contacts">{kpi?.contacts.total || 0}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">New (30d)</span>
-              <span className="text-lg font-medium">{kpi?.contacts.new30d || 0}</span>
+              <span className="text-lg font-medium tabular-nums">{kpi?.contacts.new30d || 0}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">Onboarding Active</span>
-              <span className="text-lg font-medium" data-testid="text-onboarding-active">{kpi?.onboarding.active || 0}</span>
+              <span className="text-lg font-medium tabular-nums" data-testid="text-onboarding-active">{kpi?.onboarding.active || 0}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">Live Merchants</span>
-              <span className="text-lg font-medium text-green-600">{kpi?.onboarding.live || 0}</span>
+              <span className="text-lg font-medium tabular-nums text-green-600">{kpi?.onboarding.live || 0}</span>
             </div>
           </CardContent>
         </Card>
@@ -559,7 +685,7 @@ export default function Overview() {
               <Flame className="w-4 h-4 text-red-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-red-600" data-testid="text-hot-count">{pipelineStats.contactsByTier.hot || 0}</div>
+              <div className="text-2xl font-bold tabular-nums min-h-[2rem] flex items-center text-red-600" data-testid="text-hot-count">{pipelineStats.contactsByTier.hot || 0}</div>
               <p className="text-xs text-muted-foreground mt-1">Ready for immediate outreach</p>
             </CardContent>
           </Card>
@@ -570,7 +696,7 @@ export default function Overview() {
               <Thermometer className="w-4 h-4 text-orange-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-orange-600" data-testid="text-warm-count">{pipelineStats.contactsByTier.warm || 0}</div>
+              <div className="text-2xl font-bold tabular-nums min-h-[2rem] flex items-center text-orange-600" data-testid="text-warm-count">{pipelineStats.contactsByTier.warm || 0}</div>
               <p className="text-xs text-muted-foreground mt-1">Nurture pipeline</p>
             </CardContent>
           </Card>
@@ -581,7 +707,7 @@ export default function Overview() {
               <Snowflake className="w-4 h-4 text-blue-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-blue-600" data-testid="text-cold-count">{pipelineStats.contactsByTier.cold || 0}</div>
+              <div className="text-2xl font-bold tabular-nums min-h-[2rem] flex items-center text-blue-600" data-testid="text-cold-count">{pipelineStats.contactsByTier.cold || 0}</div>
               <p className="text-xs text-muted-foreground mt-1">Long-term nurture</p>
             </CardContent>
           </Card>
@@ -592,7 +718,7 @@ export default function Overview() {
               <Mail className="w-4 h-4 text-purple-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-purple-600" data-testid="text-awaiting-outreach">{pipelineStats.awaitingOutreach || 0}</div>
+              <div className="text-2xl font-bold tabular-nums min-h-[2rem] flex items-center text-purple-600" data-testid="text-awaiting-outreach">{pipelineStats.awaitingOutreach || 0}</div>
               <p className="text-xs text-muted-foreground mt-1">Scored but not yet contacted</p>
             </CardContent>
           </Card>
@@ -607,7 +733,7 @@ export default function Overview() {
               <Target className="w-4 h-4 text-primary" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold" data-testid="text-scored-count">{pipelineStats.scored.toLocaleString()}</div>
+              <div className="text-2xl font-bold tabular-nums" data-testid="text-scored-count">{pipelineStats.scored.toLocaleString()}</div>
               <p className="text-xs text-muted-foreground mt-1">{pipelineStats.unscored.toLocaleString()} unscored remaining</p>
               <div className="mt-2 w-full bg-muted rounded-full h-2">
                 <div
@@ -625,7 +751,7 @@ export default function Overview() {
               <TrendingUp className="w-4 h-4 text-green-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold" data-testid="text-total-deals">{pipelineStats.totalDeals.toLocaleString()}</div>
+              <div className="text-2xl font-bold tabular-nums" data-testid="text-total-deals">{pipelineStats.totalDeals.toLocaleString()}</div>
               <p className="text-xs text-muted-foreground mt-1">Across all pipelines</p>
             </CardContent>
           </Card>
@@ -636,7 +762,7 @@ export default function Overview() {
               <DollarSign className="w-4 h-4 text-green-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold" data-testid="text-pipeline-value">${Math.round(pipelineStats.pipelineValue).toLocaleString()}</div>
+              <div className="text-2xl font-bold tabular-nums" data-testid="text-pipeline-value">${Math.round(pipelineStats.pipelineValue).toLocaleString()}</div>
               <p className="text-xs text-muted-foreground mt-1">Est. monthly gross profit</p>
             </CardContent>
           </Card>
@@ -660,7 +786,7 @@ export default function Overview() {
                         style={{ width: `${Math.min(100, (count / Math.max(...Object.values(pipelineStats.dealsByStage))) * 100)}%` }}
                       />
                     </div>
-                    <span className="text-sm font-medium w-12 text-right">{count.toLocaleString()}</span>
+                    <span className="text-sm font-medium tabular-nums w-12 text-right">{count.toLocaleString()}</span>
                   </div>
                 </div>
               ))}
@@ -676,26 +802,33 @@ export default function Overview() {
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {recentContacts.map((contact: Contact) => (
-                <div key={contact.id} className="flex items-center justify-between gap-3 p-3 rounded-md hover-elevate transition-colors" data-testid={`row-contact-${contact.id}`}>
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm shrink-0">
-                      {contact.firstName[0]}{contact.lastName[0]}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="font-medium text-sm truncate" data-testid={`text-contact-name-${contact.id}`}>{contact.firstName} {contact.lastName}</div>
-                      <div className="text-xs text-muted-foreground truncate">
-                        {contact.companyName || contact.email}
-                        {contact.utmSource && <span className="ml-1 text-primary/70">({contact.utmSource})</span>}
+              {contactsLoading ? (
+                <>
+                  <TableRowSkeleton />
+                  <TableRowSkeleton />
+                  <TableRowSkeleton />
+                </>
+              ) : recentContacts.length > 0 ? (
+                recentContacts.map((contact: Contact) => (
+                  <div key={contact.id} className="flex items-center justify-between gap-3 p-3 rounded-md hover-elevate transition-colors" data-testid={`row-contact-${contact.id}`}>
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm shrink-0">
+                        {contact.firstName[0]}{contact.lastName[0]}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="font-medium text-sm truncate" data-testid={`text-contact-name-${contact.id}`}>{contact.firstName} {contact.lastName}</div>
+                        <div className="text-xs text-muted-foreground truncate">
+                          {contact.companyName || contact.email}
+                          {contact.utmSource && <span className="ml-1 text-primary/70">({contact.utmSource})</span>}
+                        </div>
                       </div>
                     </div>
+                    <Badge variant="secondary" className="shrink-0" data-testid={`badge-contact-status-${contact.id}`}>
+                      {contact.status}
+                    </Badge>
                   </div>
-                  <Badge variant="secondary" className="shrink-0" data-testid={`badge-contact-status-${contact.id}`}>
-                    {contact.status}
-                  </Badge>
-                </div>
-              ))}
-              {recentContacts.length === 0 && (
+                ))
+              ) : (
                 <div className="text-center text-muted-foreground py-8" data-testid="text-no-contacts">No recent contacts</div>
               )}
             </div>
@@ -708,21 +841,28 @@ export default function Overview() {
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {activeDeals.map((deal: Deal) => (
-                <div key={deal.id} className="flex items-center justify-between gap-3 p-3 rounded-md hover-elevate transition-colors" data-testid={`row-deal-${deal.id}`}>
-                  <div className="min-w-0">
-                    <div className="font-medium text-sm" data-testid={`text-deal-id-${deal.id}`}>Deal #{deal.id}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {deal.offerPath || "No offer path"}
-                      {deal.leadSource && <span className="ml-1 text-primary/70">({deal.leadSource})</span>}
+              {dealsLoading ? (
+                <>
+                  <TableRowSkeleton />
+                  <TableRowSkeleton />
+                  <TableRowSkeleton />
+                </>
+              ) : activeDeals.length > 0 ? (
+                activeDeals.map((deal: Deal) => (
+                  <div key={deal.id} className="flex items-center justify-between gap-3 p-3 rounded-md hover-elevate transition-colors" data-testid={`row-deal-${deal.id}`}>
+                    <div className="min-w-0">
+                      <div className="font-medium text-sm" data-testid={`text-deal-id-${deal.id}`}>Deal #{deal.id}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {deal.offerPath || "No offer path"}
+                        {deal.leadSource && <span className="ml-1 text-primary/70">({deal.leadSource})</span>}
+                      </div>
                     </div>
+                    <Badge variant="outline" className="shrink-0" data-testid={`badge-deal-stage-${deal.id}`}>
+                      {deal.stage}
+                    </Badge>
                   </div>
-                  <Badge variant="outline" className="shrink-0" data-testid={`badge-deal-stage-${deal.id}`}>
-                    {deal.stage}
-                  </Badge>
-                </div>
-              ))}
-              {activeDeals.length === 0 && (
+                ))
+              ) : (
                 <div className="text-center text-muted-foreground py-8" data-testid="text-no-deals">No active deals</div>
               )}
             </div>

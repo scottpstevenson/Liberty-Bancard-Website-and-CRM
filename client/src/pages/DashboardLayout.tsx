@@ -1,5 +1,7 @@
 import { ReactNode, useState, useMemo } from "react";
 import { Link, useLocation } from "wouter";
+import { useQuery } from "@tanstack/react-query";
+import type { Notification } from "@shared/schema";
 import { useAuth } from "@/hooks/use-auth";
 import logoBlue from "@assets/logo-blue.png";
 import UniversalSearch from "@/components/UniversalSearch";
@@ -181,6 +183,17 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const role = (user?.role as UserRole) || "merchant";
 
+  const { data: notifications } = useQuery<Notification[]>({
+    queryKey: ["/api/notifications"],
+    queryFn: async () => {
+      const res = await fetch("/api/notifications", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch notifications");
+      return res.json();
+    },
+    refetchInterval: 60000,
+  });
+  const unreadCount = notifications?.filter((n) => !n.read).length || 0;
+
   const filteredCore = useMemo(() => filterByRole(coreItems, role), [role]);
   const filteredOutreach = useMemo(() => filterByRole(outreachItems, role), [role]);
   const filteredLeadGen = useMemo(() => filterByRole(leadGenItems, role), [role]);
@@ -328,6 +341,23 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
             </div>
             <div className="flex items-center gap-1 sm:gap-2 shrink-0">
               <UniversalSearch />
+              <Link href="/dashboard/notifications">
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="relative"
+                  aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ""}`}
+                  data-testid="button-notifications"
+                >
+                  <Bell className="w-4 h-4" />
+                  {unreadCount > 0 && (
+                    <span
+                      className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-500"
+                      data-testid="badge-unread-notifications"
+                    />
+                  )}
+                </Button>
+              </Link>
               <ThemeToggle />
               <Button size="icon" variant="ghost" onClick={() => setEmailOpen(true)} data-testid="button-compose-email" aria-label="Open email composer">
                 <Mail className="w-4 h-4" />
