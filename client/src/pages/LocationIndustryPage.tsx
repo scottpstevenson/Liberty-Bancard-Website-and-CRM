@@ -201,7 +201,7 @@ export default function LocationIndustryPage() {
     return (
       <div className="min-h-screen flex flex-col font-body">
         <Navbar />
-        <main className="flex-grow pt-20 flex items-center justify-center">
+        <main className="flex-grow pt-28 flex items-center justify-center">
           <div className="text-center">
             <h1 className="text-2xl font-bold text-foreground mb-4" data-testid="text-location-not-found">Page Not Found</h1>
             <Link href="/" data-testid="link-back-home">
@@ -263,7 +263,7 @@ export default function LocationIndustryPage() {
       />
       <Navbar />
 
-      <main className="flex-grow pt-20">
+      <main className="flex-grow pt-28">
         <section className="relative overflow-hidden" data-testid="section-location-hero">
           <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 md:py-28">

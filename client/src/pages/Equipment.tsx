@@ -272,7 +272,7 @@ export default function Equipment() {
       />
       <Navbar />
 
-      <main className="flex-grow pt-20">
+      <main className="flex-grow pt-28">
         <section className="bg-gradient-to-br from-primary/5 via-background to-primary/10 py-20">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="text-center max-w-3xl mx-auto">

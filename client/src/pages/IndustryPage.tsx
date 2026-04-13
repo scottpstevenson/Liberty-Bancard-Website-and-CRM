@@ -575,7 +575,7 @@ export default function IndustryPage() {
     return (
       <div className="min-h-screen flex flex-col font-body">
         <Navbar />
-        <main className="flex-grow pt-20 flex items-center justify-center">
+        <main className="flex-grow pt-28 flex items-center justify-center">
           <div className="text-center">
             <h1 className="text-2xl font-bold text-foreground mb-4" data-testid="text-industry-not-found">Industry Not Found</h1>
             <Link href="/" data-testid="link-back-home">
@@ -638,7 +638,7 @@ export default function IndustryPage() {
       />
       <Navbar />
 
-      <main className="flex-grow pt-20">
+      <main className="flex-grow pt-28">
         <section className="relative overflow-hidden" data-testid="section-industry-hero">
           <div className="absolute inset-0">
             {industry.image ? (

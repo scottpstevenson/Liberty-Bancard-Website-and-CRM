@@ -125,7 +125,7 @@ export default function BlogPost() {
     return (
       <div className="min-h-screen flex flex-col font-body">
         <Navbar />
-        <main className="flex-grow pt-20 flex items-center justify-center">
+        <main className="flex-grow pt-28 flex items-center justify-center">
           <div className="text-center p-8">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto" />
           </div>
@@ -139,7 +139,7 @@ export default function BlogPost() {
     return (
       <div className="min-h-screen flex flex-col font-body">
         <Navbar />
-        <main className="flex-grow pt-20 flex items-center justify-center">
+        <main className="flex-grow pt-28 flex items-center justify-center">
           <div className="text-center p-8">
             <h1 className="text-2xl font-display font-bold text-foreground mb-4" data-testid="text-not-found">
               Article Not Found
@@ -232,7 +232,7 @@ export default function BlogPost() {
       />
       <Navbar />
 
-      <main className="flex-grow pt-20">
+      <main className="flex-grow pt-28">
         <article className="max-w-3xl mx-auto px-4 sm:px-6 py-12">
           <Link href="/blog" data-testid="link-breadcrumb-blog">
             <Button variant="ghost" className="gap-2 mb-6 -ml-2">

@@ -407,7 +407,7 @@ export default function CompareVs() {
     return (
       <div className="min-h-screen flex flex-col font-body">
         <Navbar />
-        <main className="flex-grow pt-20 flex items-center justify-center">
+        <main className="flex-grow pt-28 flex items-center justify-center">
           <div className="text-center px-4">
             <h1 className="text-3xl font-display font-bold text-foreground mb-4" data-testid="text-not-found">Comparison Not Found</h1>
             <p className="text-muted-foreground mb-6">We don't have a comparison page for that processor yet.</p>
@@ -446,7 +446,7 @@ export default function CompareVs() {
       />
       <Navbar />
 
-      <main className="flex-grow pt-20" ref={containerRef}>
+      <main className="flex-grow pt-28" ref={containerRef}>
         <section className="relative overflow-hidden" data-testid="section-vs-hero">
           <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 lg:py-20">

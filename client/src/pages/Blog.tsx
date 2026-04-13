@@ -77,7 +77,7 @@ export default function Blog() {
       />
       <Navbar />
 
-      <main className="flex-grow pt-20">
+      <main className="flex-grow pt-28">
         <section className="bg-muted/30 py-16">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <h1 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-3" data-testid="text-blog-heading">

@@ -1,15 +1,8 @@
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
-import {
-  NavigationMenu,
-  NavigationMenuContent,
-  NavigationMenuItem,
-  NavigationMenuList,
-  NavigationMenuTrigger,
-} from "@/components/ui/navigation-menu";
-import { Menu, X, Phone, Mail, Upload, Calendar, LayoutDashboard } from "lucide-react";
-import { useState, useEffect } from "react";
+import { Menu, X, Phone, Mail, Upload, Calendar, LayoutDashboard, ChevronDown } from "lucide-react";
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 import logoBlue from "@assets/logo-blue.png";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -48,28 +41,13 @@ export function Navbar() {
   const { user } = useAuth();
   const [location] = useLocation();
   const [isOpen, setIsOpen] = useState(false);
-  const [scrolled, setScrolled] = useState(false);
-
-  useEffect(() => {
-    const handleScroll = () => {
-      setScrolled(window.scrollY > 20);
-    };
-    window.addEventListener("scroll", handleScroll, { passive: true });
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, []);
+  const [solutionsOpen, setSolutionsOpen] = useState(false);
+  const [industriesOpen, setIndustriesOpen] = useState(false);
+  const [resourcesOpen, setResourcesOpen] = useState(false);
 
   return (
     <nav className="fixed w-full z-50" data-testid="navbar">
-      {isOpen && (
-        <div
-          className="fixed inset-0 bg-black/40 z-40 lg:hidden"
-          onClick={() => setIsOpen(false)}
-          aria-hidden="true"
-          data-testid="mobile-nav-backdrop"
-        />
-      )}
-
-      <div className="bg-primary text-primary-foreground relative z-50">
+      <div className="bg-primary text-primary-foreground">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-end items-center h-8 gap-2 sm:gap-4 text-xs">
             <a
@@ -93,7 +71,7 @@ export function Navbar() {
         </div>
       </div>
 
-      <div className="bg-muted/80 border-b border-border/30 relative z-50">
+      <div className="bg-muted/80 border-b border-border/30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <p
             className="text-[10px] text-muted-foreground text-center py-0.5 leading-tight"
@@ -104,14 +82,7 @@ export function Navbar() {
         </div>
       </div>
 
-      <div
-        className={cn(
-          "transition-all duration-200 border-b relative z-50",
-          scrolled
-            ? "bg-background shadow-sm border-border/80"
-            : "bg-background/80 backdrop-blur-md border-border/50"
-        )}
-      >
+      <div className="bg-background/80 backdrop-blur-md border-b border-border/50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16 gap-4">
             <Link
@@ -122,7 +93,7 @@ export function Navbar() {
               <img src={logoBlue} alt="Liberty Bancard" className="h-10 w-auto" />
             </Link>
 
-            <div className="hidden lg:flex items-center gap-4">
+            <div className="hidden lg:flex items-center gap-6">
               <Link
                 href="/"
                 className={cn(
@@ -136,108 +107,131 @@ export function Navbar() {
                 Home
               </Link>
 
-              <NavigationMenu>
-                <NavigationMenuList>
-                  <NavigationMenuItem>
-                    <NavigationMenuTrigger
+              <div
+                className="relative"
+                onMouseEnter={() => setSolutionsOpen(true)}
+                onMouseLeave={() => setSolutionsOpen(false)}
+              >
+                <button
+                  className={cn(
+                    "text-sm font-medium transition-colors flex items-center gap-1",
+                    solutionLinks.some(l => location === l.href)
+                      ? "text-primary"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                  data-testid="button-nav-solutions"
+                >
+                  Solutions
+                  <ChevronDown className="w-3.5 h-3.5" />
+                </button>
+                <div
+                  className={cn(
+                    "absolute top-full left-0 mt-1 w-56 bg-background border border-border rounded-md shadow-lg py-1 z-50 transition-all",
+                    solutionsOpen ? "opacity-100 visible" : "opacity-0 invisible"
+                  )}
+                >
+                  {solutionLinks.map((link) => (
+                    <Link
+                      key={link.name}
+                      href={link.href}
                       className={cn(
-                        "text-sm font-medium transition-colors bg-transparent hover:bg-transparent focus:bg-transparent data-[active]:bg-transparent data-[state=open]:bg-transparent h-auto p-0",
-                        solutionLinks.some(l => location === l.href)
-                          ? "text-primary"
-                          : "text-muted-foreground hover:text-foreground"
+                        "block px-4 py-2.5 text-sm transition-colors",
+                        location === link.href
+                          ? "text-primary bg-primary/5"
+                          : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
                       )}
-                      data-testid="button-nav-solutions"
+                      onClick={() => setSolutionsOpen(false)}
+                      data-testid={`link-nav-solution-${link.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
                     >
-                      Solutions
-                    </NavigationMenuTrigger>
-                    <NavigationMenuContent>
-                      <div className="w-56 py-1">
-                        {solutionLinks.map((link) => (
-                          <Link
-                            key={link.name}
-                            href={link.href}
-                            className={cn(
-                              "block px-4 py-2.5 text-sm transition-colors",
-                              location === link.href
-                                ? "text-primary bg-primary/5"
-                                : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                            )}
-                            data-testid={`link-nav-solution-${link.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
-                          >
-                            {link.name}
-                          </Link>
-                        ))}
-                      </div>
-                    </NavigationMenuContent>
-                  </NavigationMenuItem>
+                      {link.name}
+                    </Link>
+                  ))}
+                </div>
+              </div>
 
-                  <NavigationMenuItem>
-                    <NavigationMenuTrigger
+              <div
+                className="relative"
+                onMouseEnter={() => setIndustriesOpen(true)}
+                onMouseLeave={() => setIndustriesOpen(false)}
+              >
+                <button
+                  className={cn(
+                    "text-sm font-medium transition-colors flex items-center gap-1",
+                    location.startsWith("/industries")
+                      ? "text-primary"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                  data-testid="button-nav-industries"
+                >
+                  Industries
+                  <ChevronDown className="w-3.5 h-3.5" />
+                </button>
+                <div
+                  className={cn(
+                    "absolute top-full left-0 mt-1 w-60 bg-background border border-border rounded-md shadow-lg py-1 z-50 transition-all",
+                    industriesOpen ? "opacity-100 visible" : "opacity-0 invisible"
+                  )}
+                >
+                  {industryLinks.map((link) => (
+                    <Link
+                      key={link.name}
+                      href={link.href}
                       className={cn(
-                        "text-sm font-medium transition-colors bg-transparent hover:bg-transparent focus:bg-transparent data-[active]:bg-transparent data-[state=open]:bg-transparent h-auto p-0",
-                        location.startsWith("/industries")
-                          ? "text-primary"
-                          : "text-muted-foreground hover:text-foreground"
+                        "block px-4 py-2.5 text-sm transition-colors",
+                        location === link.href
+                          ? "text-primary bg-primary/5"
+                          : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
                       )}
-                      data-testid="button-nav-industries"
+                      onClick={() => setIndustriesOpen(false)}
+                      data-testid={`link-nav-industry-${link.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
                     >
-                      Industries
-                    </NavigationMenuTrigger>
-                    <NavigationMenuContent>
-                      <div className="w-64 py-1">
-                        {industryLinks.map((link) => (
-                          <Link
-                            key={link.name}
-                            href={link.href}
-                            className={cn(
-                              "block px-4 py-2.5 text-sm transition-colors",
-                              location === link.href
-                                ? "text-primary bg-primary/5"
-                                : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                            )}
-                            data-testid={`link-nav-industry-${link.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
-                          >
-                            {link.name}
-                          </Link>
-                        ))}
-                      </div>
-                    </NavigationMenuContent>
-                  </NavigationMenuItem>
+                      {link.name}
+                    </Link>
+                  ))}
+                </div>
+              </div>
 
-                  <NavigationMenuItem>
-                    <NavigationMenuTrigger
+              <div
+                className="relative"
+                onMouseEnter={() => setResourcesOpen(true)}
+                onMouseLeave={() => setResourcesOpen(false)}
+              >
+                <button
+                  className={cn(
+                    "text-sm font-medium transition-colors flex items-center gap-1",
+                    resourceLinks.some(l => location === l.href)
+                      ? "text-primary"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                  data-testid="button-nav-resources"
+                >
+                  Resources
+                  <ChevronDown className="w-3.5 h-3.5" />
+                </button>
+                <div
+                  className={cn(
+                    "absolute top-full left-0 mt-1 w-52 bg-background border border-border rounded-md shadow-lg py-1 z-50 transition-all",
+                    resourcesOpen ? "opacity-100 visible" : "opacity-0 invisible"
+                  )}
+                >
+                  {resourceLinks.map((link) => (
+                    <Link
+                      key={link.name}
+                      href={link.href}
                       className={cn(
-                        "text-sm font-medium transition-colors bg-transparent hover:bg-transparent focus:bg-transparent data-[active]:bg-transparent data-[state=open]:bg-transparent h-auto p-0",
-                        resourceLinks.some(l => location === l.href)
-                          ? "text-primary"
-                          : "text-muted-foreground hover:text-foreground"
+                        "block px-4 py-2.5 text-sm transition-colors",
+                        location === link.href
+                          ? "text-primary bg-primary/5"
+                          : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
                       )}
-                      data-testid="button-nav-resources"
+                      onClick={() => setResourcesOpen(false)}
+                      data-testid={`link-nav-resource-${link.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
                     >
-                      Resources
-                    </NavigationMenuTrigger>
-                    <NavigationMenuContent>
-                      <div className="w-52 py-1">
-                        {resourceLinks.map((link) => (
-                          <Link
-                            key={link.name}
-                            href={link.href}
-                            className={cn(
-                              "block px-4 py-2.5 text-sm transition-colors",
-                              location === link.href
-                                ? "text-primary bg-primary/5"
-                                : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                            )}
-                            data-testid={`link-nav-resource-${link.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
-                          >
-                            {link.name}
-                          </Link>
-                        ))}
-                      </div>
-                    </NavigationMenuContent>
-                  </NavigationMenuItem>
-                </NavigationMenuList>
-              </NavigationMenu>
+                      {link.name}
+                    </Link>
+                  ))}
+                </div>
+              </div>
 
               <Link
                 href="/dashboard"
@@ -256,14 +250,6 @@ export function Navbar() {
 
             <div className="hidden lg:flex items-center gap-3">
               <ThemeToggle />
-              <a
-                href="tel:9542668214"
-                className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-                data-testid="link-phone"
-              >
-                <Phone className="w-3.5 h-3.5" />
-                <span>954-266-8214</span>
-              </a>
               <a href="#" data-testid="link-book-call">
                 <Button variant="outline" className="gap-2">
                   <Calendar className="w-4 h-4" />
@@ -278,7 +264,7 @@ export function Navbar() {
               </Link>
             </div>
 
-            <div className="lg:hidden relative z-50">
+            <div className="lg:hidden">
               <Button
                 variant="ghost"
                 size="icon"
@@ -293,7 +279,7 @@ export function Navbar() {
         </div>
 
         {isOpen && (
-          <div className="lg:hidden bg-background border-t border-border/50 animate-in slide-in-from-top-2 duration-200 relative z-50">
+          <div className="lg:hidden bg-background border-t border-border/50 animate-in slide-in-from-top-2 duration-200">
             <div className="max-w-7xl mx-auto px-4 py-4 flex flex-col gap-1">
               <Link
                 href="/"

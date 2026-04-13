@@ -140,7 +140,7 @@ export default function Support() {
       <SEO title="Support" description="Submit a support request to Liberty Bancard. We respond within 4 hours during business hours." path="/support" breadcrumbs={[{ name: "Support", path: "/support" }]} />
       <Navbar />
 
-      <main className="flex-grow pt-20" ref={containerRef}>
+      <main className="flex-grow pt-28" ref={containerRef}>
         <section className="relative overflow-hidden" data-testid="section-support-hero">
           <div className="absolute inset-0">
             <img src={heroSupport} alt="Liberty Bancard customer support team ready to help" className="w-full h-full object-cover" width="1408" height="792" />

@@ -166,7 +166,7 @@ export default function SavingsCalculator() {
       />
       <Navbar />
 
-      <main className="flex-grow pt-20" ref={containerRef}>
+      <main className="flex-grow pt-28" ref={containerRef}>
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }} />
 
         <section className="relative overflow-hidden" data-testid="section-calc-hero">

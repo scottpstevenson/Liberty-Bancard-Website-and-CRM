@@ -627,7 +627,7 @@ export default function SalesOnePager() {
           noindex={true}
         />
         <Navbar />
-        <main className="flex-grow pt-20 flex items-center justify-center">
+        <main className="flex-grow pt-28 flex items-center justify-center">
           <div className="text-center px-4">
             <h1 className="text-3xl font-display font-bold text-foreground mb-4" data-testid="text-not-found-heading">
               Page Not Found
@@ -657,7 +657,7 @@ export default function SalesOnePager() {
       />
       <Navbar />
 
-      <main className="flex-grow pt-20">
+      <main className="flex-grow pt-28">
         <section className="relative overflow-hidden">
           <div className="absolute inset-0">
             <img

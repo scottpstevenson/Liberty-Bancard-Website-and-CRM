@@ -186,7 +186,6 @@ export default function Home() {
           <div className="absolute inset-0">
             <img src={heroBg} alt="Professional payment processing technology background with fintech aesthetic" className="w-full h-full object-cover" fetchPriority="high" width="1408" height="792" />
             <div className="absolute inset-0 bg-gradient-to-r from-[hsl(222,47%,6%)/0.97] via-[hsl(222,47%,6%)/0.93] to-[hsl(222,47%,6%)/0.85]" />
-            <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'linear-gradient(45deg, rgba(255,255,255,0.05) 1px, transparent 1px), linear-gradient(-45deg, rgba(255,255,255,0.05) 1px, transparent 1px)', backgroundSize: '40px 40px' }} />
           </div>
           <div className="glow-blob w-72 h-72 bg-sky-500 top-20 right-1/4" />
           <div className="glow-blob glow-blob-2 w-56 h-56 bg-blue-600 bottom-10 left-1/3" />
@@ -225,48 +224,23 @@ export default function Home() {
                 </p>
               </div>
 
-              <div className="relative flex items-center justify-center animate-in fade-in slide-in-from-bottom-4 duration-700 fill-mode-both" style={{ animationDelay: '0.2s' }} data-testid="hero-visual">
+              <div className="relative flex items-center justify-center" data-testid="hero-visual">
                 <div className="w-full max-w-sm">
                   <Card className="border border-white/10 bg-white/5 backdrop-blur-md shadow-2xl">
                     <CardContent className="p-6 space-y-4">
-                      <div className="flex items-center justify-between">
-                        <div className="text-sm font-medium text-white/60 uppercase tracking-wider">Statement Review</div>
-                        <span className="text-xs text-emerald-400 font-medium">Analysis Complete</span>
-                      </div>
-                      <div className="space-y-1">
-                        <div className="flex justify-between text-xs text-white/40 mb-1">
-                          <span>Analyzing fees...</span>
-                          <span>100%</span>
-                        </div>
-                        <div className="h-1.5 w-full bg-white/10 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-emerald-400 rounded-full"
-                            style={{ animation: 'hero-progress 1.5s ease-out forwards', width: '0%' }}
-                          />
-                        </div>
-                      </div>
-                      <div className="space-y-2">
+                      <div className="text-sm font-medium text-white/60 uppercase tracking-wider">What a review reveals</div>
+                      <div className="space-y-3">
                         {[
-                          { label: "Your real effective rate", value: "3.47%", type: "fee" },
-                          { label: "Hidden monthly fees", value: "$127/mo", type: "fee" },
-                          { label: "Interchange downgrades", value: "23% of volume", type: "fee" },
-                          { label: "Savings opportunity", value: "$7,200/yr", type: "savings" },
+                          { label: "Your real effective rate", value: "3.47%", flag: true },
+                          { label: "Hidden monthly fees", value: "$127/mo", flag: true },
+                          { label: "Interchange downgrades", value: "23% of volume", flag: true },
+                          { label: "Potential annual reduction*", value: "$4,200+", flag: false },
                         ].map((item, i) => (
-                          <div key={i} className={cn(
-                            "flex items-center justify-between px-3 py-2 rounded-md",
-                            item.type === "fee" ? "bg-red-500/10" : "bg-emerald-500/10"
-                          )}>
+                          <div key={i} className="flex items-center justify-between py-2 border-b border-white/10 last:border-0">
                             <span className="text-sm text-white/80">{item.label}</span>
-                            <span className={cn(
-                              "text-sm font-semibold",
-                              item.type === "fee" ? "text-red-400" : "text-emerald-400"
-                            )}>{item.value}</span>
+                            <span className={`text-sm font-semibold ${item.flag ? "text-red-400" : "text-emerald-400"}`}>{item.value}</span>
                           </div>
                         ))}
-                      </div>
-                      <div className="flex items-center justify-between bg-emerald-500/20 border border-emerald-500/30 rounded-md px-3 py-2.5">
-                        <span className="text-sm font-bold text-emerald-300">RESULT: Save $7,200/yr</span>
-                        <span className="text-xs text-emerald-400 font-semibold">vs. current processor</span>
                       </div>
                       <p className="text-[10px] text-white/30">*Illustrative example. Actual results depend on statement review. No savings claims without review.</p>
                     </CardContent>
