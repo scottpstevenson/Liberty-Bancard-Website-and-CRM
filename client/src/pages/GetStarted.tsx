@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { SEO } from "@/components/SEO";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
@@ -164,6 +164,7 @@ export default function GetStarted() {
   const [submitted, setSubmitted] = useState(false);
   const { toast } = useToast();
   const resultsRef = useScrollReveal();
+  const stepHeadingRef = useRef<HTMLHeadingElement>(null);
 
   const canProceed = () => {
     switch (step) {
@@ -183,12 +184,14 @@ export default function GetStarted() {
         trackQuizStart();
       }
       setStep(step + 1);
+      setTimeout(() => stepHeadingRef.current?.focus(), 50);
     }
   };
 
   const handleBack = () => {
     if (step > 1) {
       setStep(step - 1);
+      setTimeout(() => stepHeadingRef.current?.focus(), 50);
     }
   };
 
@@ -388,91 +391,123 @@ export default function GetStarted() {
 
             <Card data-testid="card-quiz">
               <CardContent className="p-6 sm:p-8">
-                <h2 className="text-xl font-display font-bold text-foreground mb-6" data-testid="text-step-heading">
+                <h2
+                  ref={stepHeadingRef}
+                  tabIndex={-1}
+                  className="text-xl font-display font-bold text-foreground mb-6 outline-none"
+                  data-testid="text-step-heading"
+                >
                   {stepHeadings[step - 1]}
                 </h2>
 
                 {step === 1 && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" data-testid="step-goal">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" data-testid="step-goal" role="radiogroup" aria-label="What's the #1 thing you want to solve?">
                     {goalOptions.map((option) => (
-                      <Card
+                      <button
                         key={option.value}
-                        className={`cursor-pointer transition-all duration-200 ${
-                          goal === option.value
-                            ? "ring-2 ring-primary ring-offset-2"
-                            : "hover-elevate"
-                        }`}
+                        role="radio"
+                        aria-checked={goal === option.value}
+                        className="w-full text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 rounded-lg"
                         onClick={() => setGoal(option.value)}
+                        onKeyDown={(e) => { if (e.key === " ") { e.preventDefault(); setGoal(option.value); } }}
                         data-testid={`card-goal-${option.value.replace(/\s+/g, "-")}`}
                       >
-                        <CardContent className="p-4 flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
-                            <option.icon className="w-5 h-5 text-primary" />
-                          </div>
-                          <div className="min-w-0">
-                            <span className="text-sm font-medium text-foreground block">{option.label}</span>
-                            <span className="text-xs text-muted-foreground">{option.desc}</span>
-                          </div>
-                          {goal === option.value && (
-                            <CheckCircle className="w-5 h-5 text-primary ml-auto shrink-0" />
-                          )}
-                        </CardContent>
-                      </Card>
+                        <Card
+                          className={`transition-all duration-200 ${
+                            goal === option.value
+                              ? "ring-2 ring-primary ring-offset-2"
+                              : "hover-elevate"
+                          }`}
+                        >
+                          <CardContent className="p-4 flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+                              <option.icon className="w-5 h-5 text-primary" />
+                            </div>
+                            <div className="min-w-0">
+                              <span className="text-sm font-medium text-foreground block">{option.label}</span>
+                              <span className="text-xs text-muted-foreground">{option.desc}</span>
+                            </div>
+                            {goal === option.value && (
+                              <CheckCircle className="w-5 h-5 text-primary ml-auto shrink-0" />
+                            )}
+                          </CardContent>
+                        </Card>
+                      </button>
                     ))}
                   </div>
                 )}
 
                 {step === 2 && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" data-testid="step-vertical">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" data-testid="step-vertical" role="radiogroup" aria-label="What type of business do you run?">
                     {verticalOptions.map((option) => (
-                      <Card
+                      <button
                         key={option.value}
-                        className={`cursor-pointer transition-all duration-200 ${
-                          vertical === option.value
-                            ? "ring-2 ring-primary ring-offset-2"
-                            : "hover-elevate"
-                        }`}
+                        role="radio"
+                        aria-checked={vertical === option.value}
+                        className="w-full text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 rounded-lg"
                         onClick={() => setVertical(option.value)}
+                        onKeyDown={(e) => { if (e.key === " ") { e.preventDefault(); setVertical(option.value); } }}
                         data-testid={`card-vertical-${option.value.replace(/[/\s]+/g, "-").toLowerCase()}`}
                       >
-                        <CardContent className="p-4 flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
-                            <option.icon className="w-5 h-5 text-primary" />
-                          </div>
-                          <span className="text-sm font-medium text-foreground">{option.label}</span>
-                          {vertical === option.value && (
-                            <CheckCircle className="w-5 h-5 text-primary ml-auto shrink-0" />
-                          )}
-                        </CardContent>
-                      </Card>
+                        <Card
+                          className={`transition-all duration-200 ${
+                            vertical === option.value
+                              ? "ring-2 ring-primary ring-offset-2"
+                              : "hover-elevate"
+                          }`}
+                        >
+                          <CardContent className="p-4 flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+                              <option.icon className="w-5 h-5 text-primary" />
+                            </div>
+                            <span className="text-sm font-medium text-foreground">{option.label}</span>
+                            {vertical === option.value && (
+                              <CheckCircle className="w-5 h-5 text-primary ml-auto shrink-0" />
+                            )}
+                          </CardContent>
+                        </Card>
+                      </button>
                     ))}
                   </div>
                 )}
 
                 {step === 3 && (
                   <div className="grid grid-cols-1 gap-3" data-testid="step-volume">
+                    <p className="text-xs text-muted-foreground bg-muted/50 rounded-md px-3 py-2 mb-1 flex items-start gap-2" data-testid="text-why-ask-volume">
+                      <HelpCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-primary" />
+                      We ask about volume to calculate your actual processing cost and identify the pricing structure that saves you the most money.
+                    </p>
+                    <div role="radiogroup" aria-label="What's your monthly card volume?">
                     {volumeOptions.map((option) => (
-                      <Card
+                      <button
                         key={option.value}
-                        className={`cursor-pointer transition-all duration-200 ${
-                          monthlyVolume === option.value
-                            ? "ring-2 ring-primary ring-offset-2"
-                            : "hover-elevate"
-                        }`}
+                        role="radio"
+                        aria-checked={monthlyVolume === option.value}
+                        className="w-full text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 rounded-lg mb-3 last:mb-0"
                         onClick={() => setMonthlyVolume(option.value)}
+                        onKeyDown={(e) => { if (e.key === " ") { e.preventDefault(); setMonthlyVolume(option.value); } }}
                         data-testid={`card-volume-${option.value.replace(/[$ +]/g, "").toLowerCase()}`}
                       >
-                        <CardContent className="p-4 flex items-center justify-between gap-3">
-                          <div>
-                            <span className="text-sm font-medium text-foreground block">{option.label}</span>
-                            <span className="text-xs text-muted-foreground">{option.sub}</span>
-                          </div>
-                          {monthlyVolume === option.value && (
-                            <CheckCircle className="w-5 h-5 text-primary shrink-0" />
-                          )}
-                        </CardContent>
-                      </Card>
+                        <Card
+                          className={`transition-all duration-200 ${
+                            monthlyVolume === option.value
+                              ? "ring-2 ring-primary ring-offset-2"
+                              : "hover-elevate"
+                          }`}
+                        >
+                          <CardContent className="p-4 flex items-center justify-between gap-3">
+                            <div>
+                              <span className="text-sm font-medium text-foreground block">{option.label}</span>
+                              <span className="text-xs text-muted-foreground">{option.sub}</span>
+                            </div>
+                            {monthlyVolume === option.value && (
+                              <CheckCircle className="w-5 h-5 text-primary shrink-0" />
+                            )}
+                          </CardContent>
+                        </Card>
+                      </button>
                     ))}
+                    </div>
                   </div>
                 )}
 

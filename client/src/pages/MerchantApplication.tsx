@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { SEO } from "@/components/SEO";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
@@ -28,7 +28,10 @@ import {
   CreditCard,
   Monitor,
   FileCheck,
+  ClipboardList,
 } from "lucide-react";
+
+const DRAFT_KEY = "merchant_app_draft";
 
 const TOTAL_STEPS = 6;
 
@@ -82,6 +85,10 @@ export default function MerchantApplication() {
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [applicationId, setApplicationId] = useState<number | null>(null);
+  const [hasDraft, setHasDraft] = useState(false);
+  const [draftTime, setDraftTime] = useState<string | null>(null);
+  const [draftDismissed, setDraftDismissed] = useState(false);
+  const stepHeadingRef = useRef<HTMLHeadingElement>(null);
   const { toast } = useToast();
 
   const [legalBusinessName, setLegalBusinessName] = useState("");
@@ -131,6 +138,117 @@ export default function MerchantApplication() {
   const [esignSending, setEsignSending] = useState(false);
   const [esignStatus, setEsignStatus] = useState<string | null>(null);
   const [reviewConfirmed, setReviewConfirmed] = useState(false);
+
+  useEffect(() => {
+    const saved = localStorage.getItem(DRAFT_KEY);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.formData) {
+          setHasDraft(true);
+          setDraftTime(parsed.lastSaved || null);
+        }
+      } catch {
+        localStorage.removeItem(DRAFT_KEY);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (submitted) return;
+    const formData = {
+      legalBusinessName, dba, businessType, ein, businessStartDate,
+      businessAddress, businessCity, businessState, businessZip,
+      businessPhone, businessEmail, website, vertical,
+      ownerFirstName, ownerLastName, ownerEmail, ownerPhone,
+      ownerDob, ownerAddress, ownerCity, ownerState, ownerZip,
+      ownershipPercent,
+      ssnEntered: ownerSsn.replace(/\D/g, "").length === 9,
+      bankName,
+      bankAccountType,
+      bankAccountEntered: bankRoutingNumber.trim() !== "" && bankAccountNumber.trim() !== "",
+      estimatedMonthlyVolume, estimatedAvgTicket, highestTicket,
+      currentProcessor, currentRate, acceptedCardTypes,
+      terminalNeeded, terminalType, terminalQuantity, ecommerceNeeded, preferredProgram,
+      reviewConfirmed,
+    };
+    const draft = { currentStep, formData, lastSaved: new Date().toISOString() };
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+  }, [currentStep, legalBusinessName, dba, businessType, ein, businessStartDate,
+    businessAddress, businessCity, businessState, businessZip, businessPhone,
+    businessEmail, website, vertical, ownerFirstName, ownerLastName, ownerEmail,
+    ownerPhone, ownerDob, ownerSsn, ownerAddress, ownerCity, ownerState, ownerZip,
+    ownershipPercent, bankName, bankRoutingNumber, bankAccountNumber, bankAccountType,
+    estimatedMonthlyVolume, estimatedAvgTicket, highestTicket, currentProcessor,
+    currentRate, acceptedCardTypes, terminalNeeded, terminalType, terminalQuantity,
+    ecommerceNeeded, preferredProgram, reviewConfirmed, submitted]);
+
+  useEffect(() => {
+    if (currentStep >= 2 && !submitted) {
+      const warn = (e: BeforeUnloadEvent) => {
+        e.preventDefault();
+        e.returnValue = "";
+      };
+      window.addEventListener("beforeunload", warn);
+      return () => window.removeEventListener("beforeunload", warn);
+    }
+  }, [currentStep, submitted]);
+
+  const restoreDraft = () => {
+    const saved = localStorage.getItem(DRAFT_KEY);
+    if (!saved) return;
+    try {
+      const { currentStep: step, formData: data } = JSON.parse(saved);
+      if (data.legalBusinessName) setLegalBusinessName(data.legalBusinessName);
+      if (data.dba) setDba(data.dba);
+      if (data.businessType) setBusinessType(data.businessType);
+      if (data.ein) setEin(data.ein);
+      if (data.businessStartDate) setBusinessStartDate(data.businessStartDate);
+      if (data.businessAddress) setBusinessAddress(data.businessAddress);
+      if (data.businessCity) setBusinessCity(data.businessCity);
+      if (data.businessState) setBusinessState(data.businessState);
+      if (data.businessZip) setBusinessZip(data.businessZip);
+      if (data.businessPhone) setBusinessPhone(data.businessPhone);
+      if (data.businessEmail) setBusinessEmail(data.businessEmail);
+      if (data.website) setWebsite(data.website);
+      if (data.vertical) setVertical(data.vertical);
+      if (data.ownerFirstName) setOwnerFirstName(data.ownerFirstName);
+      if (data.ownerLastName) setOwnerLastName(data.ownerLastName);
+      if (data.ownerEmail) setOwnerEmail(data.ownerEmail);
+      if (data.ownerPhone) setOwnerPhone(data.ownerPhone);
+      if (data.ownerDob) setOwnerDob(data.ownerDob);
+      if (data.ownerAddress) setOwnerAddress(data.ownerAddress);
+      if (data.ownerCity) setOwnerCity(data.ownerCity);
+      if (data.ownerState) setOwnerState(data.ownerState);
+      if (data.ownerZip) setOwnerZip(data.ownerZip);
+      if (data.ownershipPercent) setOwnershipPercent(data.ownershipPercent);
+      if (data.bankName) setBankName(data.bankName);
+      if (data.bankAccountType) setBankAccountType(data.bankAccountType);
+      if (data.estimatedMonthlyVolume) setEstimatedMonthlyVolume(data.estimatedMonthlyVolume);
+      if (data.estimatedAvgTicket) setEstimatedAvgTicket(data.estimatedAvgTicket);
+      if (data.highestTicket) setHighestTicket(data.highestTicket);
+      if (data.currentProcessor) setCurrentProcessor(data.currentProcessor);
+      if (data.currentRate) setCurrentRate(data.currentRate);
+      if (data.acceptedCardTypes) setAcceptedCardTypes(data.acceptedCardTypes);
+      if (data.terminalNeeded !== undefined) setTerminalNeeded(data.terminalNeeded);
+      if (data.terminalType) setTerminalType(data.terminalType);
+      if (data.terminalQuantity) setTerminalQuantity(data.terminalQuantity);
+      if (data.ecommerceNeeded !== undefined) setEcommerceNeeded(data.ecommerceNeeded);
+      if (data.preferredProgram) setPreferredProgram(data.preferredProgram);
+      if (step) setCurrentStep(step);
+      setHasDraft(false);
+      setDraftDismissed(true);
+      toast({ title: "Draft restored", description: "Your application progress has been restored." });
+    } catch {
+      localStorage.removeItem(DRAFT_KEY);
+    }
+  };
+
+  const discardDraft = () => {
+    localStorage.removeItem(DRAFT_KEY);
+    setHasDraft(false);
+    setDraftDismissed(true);
+  };
 
   const toggleCardType = (type: string) => {
     setAcceptedCardTypes((prev) =>
@@ -205,12 +323,14 @@ export default function MerchantApplication() {
   const handleNext = () => {
     if (canProceed() && currentStep < TOTAL_STEPS) {
       setCurrentStep(currentStep + 1);
+      setTimeout(() => stepHeadingRef.current?.focus(), 50);
     }
   };
 
   const handleBack = () => {
     if (currentStep > 1) {
       setCurrentStep(currentStep - 1);
+      setTimeout(() => stepHeadingRef.current?.focus(), 50);
     }
   };
 
@@ -283,6 +403,7 @@ export default function MerchantApplication() {
         setEsignSending(false);
       }
 
+      localStorage.removeItem(DRAFT_KEY);
       setSubmitted(true);
     } catch (error: any) {
       toast({
@@ -439,6 +560,31 @@ export default function MerchantApplication() {
 
         <section className="bg-muted/30 py-12" data-testid="section-application-form">
           <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8">
+            {hasDraft && !draftDismissed && (
+              <div
+                className="mb-4 p-4 rounded-lg border border-primary/20 bg-primary/5 flex flex-col sm:flex-row items-start sm:items-center gap-3"
+                data-testid="banner-draft-restore"
+              >
+                <ClipboardList className="w-5 h-5 text-primary shrink-0 mt-0.5 sm:mt-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-foreground">You have a saved draft</p>
+                  {draftTime && (
+                    <p className="text-xs text-muted-foreground">
+                      Last saved {new Date(draftTime).toLocaleString()}
+                    </p>
+                  )}
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  <Button size="sm" onClick={restoreDraft} data-testid="button-restore-draft">
+                    Continue Draft
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={discardDraft} data-testid="button-discard-draft">
+                    Start Fresh
+                  </Button>
+                </div>
+              </div>
+            )}
+
             <div className="mb-2" data-testid="progress-bar">
               <div className="h-2 w-full bg-muted rounded-full">
                 <div
@@ -466,7 +612,12 @@ export default function MerchantApplication() {
                       </div>
                     );
                   })()}
-                  <h2 className="text-xl font-display font-bold text-foreground" data-testid="text-step-heading">
+                  <h2
+                    ref={stepHeadingRef}
+                    tabIndex={-1}
+                    className="text-xl font-display font-bold text-foreground outline-none"
+                    data-testid="text-step-heading"
+                  >
                     {stepInfo[currentStep - 1].label}
                   </h2>
                 </div>

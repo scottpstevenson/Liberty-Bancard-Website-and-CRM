@@ -31,6 +31,8 @@ const typeIcons: Record<string, typeof Users> = {
   prospect: Target,
 };
 
+const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
+
 export default function UniversalSearch() {
   const [, setLocation] = useLocation();
   const [query, setQuery] = useState("");
@@ -40,8 +42,11 @@ export default function UniversalSearch() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [advancedResults, setAdvancedResults] = useState<AdvancedResults | null>(null);
   const [advancedLoading, setAdvancedLoading] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const listboxId = "search-results-listbox";
 
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -50,10 +55,22 @@ export default function UniversalSearch() {
   const [entityType, setEntityType] = useState("all");
 
   useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        inputRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  useEffect(() => {
     if (showAdvanced) return;
     if (!query.trim()) {
       setResults([]);
       setIsOpen(false);
+      setSelectedIndex(-1);
       return;
     }
 
@@ -72,6 +89,7 @@ export default function UniversalSearch() {
         });
         const data = await response.json();
         setResults(data.results || []);
+        setSelectedIndex(-1);
         setIsOpen(true);
       } catch (err: unknown) {
         if (err instanceof Error && err.name !== "AbortError") {
@@ -100,6 +118,22 @@ export default function UniversalSearch() {
     if (e.key === "Escape") {
       setIsOpen(false);
       setShowAdvanced(false);
+      setSelectedIndex(-1);
+      return;
+    }
+
+    if (!isOpen || results.length === 0 || showAdvanced) return;
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setSelectedIndex(prev => Math.min(prev + 1, results.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setSelectedIndex(prev => Math.max(prev - 1, -1));
+    } else if (e.key === "Enter" && selectedIndex >= 0) {
+      e.preventDefault();
+      const result = results[selectedIndex];
+      handleResultClick(result.href);
     }
   }
 
@@ -107,6 +141,7 @@ export default function UniversalSearch() {
     setIsOpen(false);
     setShowAdvanced(false);
     setQuery("");
+    setSelectedIndex(-1);
     setAdvancedResults(null);
     setLocation(href);
   }
@@ -170,6 +205,8 @@ export default function UniversalSearch() {
     return acc;
   }, {});
 
+  const flatResults = results;
+
   const totalAdvancedResults = advancedResults
     ? (advancedResults.contacts?.length || 0) + (advancedResults.deals?.length || 0) + (advancedResults.tickets?.length || 0) + (advancedResults.tasks?.length || 0)
     : 0;
@@ -181,20 +218,34 @@ export default function UniversalSearch() {
     tasks: ClipboardList,
   };
 
+  const shortcutHint = isMac ? "⌘K" : "Ctrl+K";
+
   return (
     <div ref={containerRef} className="relative max-w-sm" onKeyDown={handleKeyDown}>
       <div className="relative flex items-center gap-1">
         <div className="relative flex-1">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
           <Input
+            ref={inputRef}
             data-testid="input-universal-search"
-            placeholder="Search contacts, deals, tickets..."
+            placeholder={`Search... ${shortcutHint}`}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            className="pl-8"
+            className="pl-8 pr-14"
+            aria-label="Search contacts, deals, tickets"
+            aria-autocomplete="list"
+            aria-controls={isOpen && !showAdvanced ? listboxId : undefined}
+            aria-activedescendant={selectedIndex >= 0 ? `search-result-item-${selectedIndex}` : undefined}
+            aria-expanded={isOpen && !showAdvanced}
+            role="combobox"
           />
           {isLoading && (
-            <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />
+            <Loader2 className="absolute right-8 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />
+          )}
+          {!isLoading && (
+            <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground/60 pointer-events-none hidden sm:block">
+              {shortcutHint}
+            </span>
           )}
         </div>
         <Button
@@ -331,6 +382,9 @@ export default function UniversalSearch() {
         <Card
           data-testid="dropdown-search-results"
           className="absolute top-full left-0 right-0 mt-1 max-h-80 overflow-auto z-50"
+          id={listboxId}
+          role="listbox"
+          aria-label="Search results"
         >
           {results.length === 0 ? (
             <div
@@ -341,33 +395,41 @@ export default function UniversalSearch() {
             </div>
           ) : (
             <div className="py-1">
-              {Object.entries(grouped).map(([type, items]) => (
-                <div key={type}>
-                  <div className="px-3 py-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    {type}s
+              {(() => {
+                let globalIndex = 0;
+                return Object.entries(grouped).map(([type, items]) => (
+                  <div key={type}>
+                    <div className="px-3 py-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                      {type}s
+                    </div>
+                    {items.map((item) => {
+                      const currentIndex = globalIndex++;
+                      const isSelected = currentIndex === selectedIndex;
+                      const Icon = typeIcons[item.type] || Search;
+                      return (
+                        <button
+                          key={`${item.type}-${item.id}`}
+                          id={`search-result-item-${currentIndex}`}
+                          data-testid={`search-result-${item.type}-${item.id}`}
+                          onClick={() => handleResultClick(item.href)}
+                          className={`w-full flex items-center gap-3 px-3 py-2 text-left hover-elevate ${isSelected ? "bg-accent" : ""}`}
+                          role="option"
+                          aria-selected={isSelected}
+                        >
+                          <Icon className="w-4 h-4 shrink-0 text-muted-foreground" />
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium truncate">{item.title}</div>
+                            <div className="text-xs text-muted-foreground truncate">{item.subtitle}</div>
+                          </div>
+                          <Badge variant="secondary" className="text-xs shrink-0">
+                            {item.type}
+                          </Badge>
+                        </button>
+                      );
+                    })}
                   </div>
-                  {items.map((item) => {
-                    const Icon = typeIcons[item.type] || Search;
-                    return (
-                      <button
-                        key={`${item.type}-${item.id}`}
-                        data-testid={`search-result-${item.type}-${item.id}`}
-                        onClick={() => handleResultClick(item.href)}
-                        className="w-full flex items-center gap-3 px-3 py-2 text-left hover-elevate"
-                      >
-                        <Icon className="w-4 h-4 shrink-0 text-muted-foreground" />
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm font-medium truncate">{item.title}</div>
-                          <div className="text-xs text-muted-foreground truncate">{item.subtitle}</div>
-                        </div>
-                        <Badge variant="secondary" className="text-xs shrink-0">
-                          {item.type}
-                        </Badge>
-                      </button>
-                    );
-                  })}
-                </div>
-              ))}
+                ));
+              })()}
             </div>
           )}
         </Card>

@@ -16,7 +16,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Calendar, Sparkles, Loader2, Download, ChevronDown, Archive, Settings, ArrowUp, ArrowDown, Pencil, Trash2, RotateCcw, MoreVertical } from "lucide-react";
+import { Plus, Calendar, Sparkles, Loader2, Download, ChevronDown, Archive, Settings, ArrowUp, ArrowDown, Pencil, Trash2, RotateCcw, MoreVertical, TrendingUp } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { exportToCSV } from "@/lib/export-csv";
@@ -25,6 +25,18 @@ import { SALES_STAGES, OFFER_PATHS } from "@shared/schema";
 import Comments from "@/components/Comments";
 import SavedFilterBar from "@/components/SavedFilterBar";
 import DashboardErrorState from "@/components/DashboardErrorState";
+import {
+  DndContext,
+  DragOverlay,
+  closestCorners,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragStartEvent,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 const STAGE_COLORS: Record<string, string> = {
   "New Lead": "bg-blue-500",
@@ -44,8 +56,187 @@ const PRESET_COLORS = [
   "#14b8a6", "#84cc16",
 ];
 
+function SortableDealCard({
+  deal,
+  isDealArchived,
+  selectedDealIds,
+  toggleDealSelection,
+  openDealDetail,
+  archiveDealMutation,
+  restoreDealMutation,
+  getContactName,
+  getCompanyName,
+}: {
+  deal: Deal;
+  isDealArchived: boolean;
+  selectedDealIds: Set<number>;
+  toggleDealSelection: (id: number) => void;
+  openDealDetail: (deal: Deal) => void;
+  archiveDealMutation: any;
+  restoreDealMutation: any;
+  getContactName: (id: number | null) => string;
+  getCompanyName: (id: number | null) => string;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: deal.id,
+    data: { stage: deal.stage },
+  });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} {...attributes}>
+      <Card
+        className={`cursor-pointer hover-elevate ${isDealArchived ? "opacity-50" : ""}`}
+        onClick={() => openDealDetail(deal)}
+        data-testid={`card-deal-${deal.id}`}
+      >
+        <CardContent className="p-3 space-y-2">
+          <div className="flex items-start gap-2">
+            <Checkbox
+              checked={selectedDealIds.has(deal.id)}
+              onCheckedChange={() => toggleDealSelection(deal.id)}
+              onClick={(e) => e.stopPropagation()}
+              data-testid={`checkbox-deal-${deal.id}`}
+            />
+            <div
+              {...listeners}
+              className="flex-1 cursor-grab active:cursor-grabbing touch-none"
+              onClick={(e) => e.stopPropagation()}
+              title="Drag to move"
+            >
+              <div className={`font-medium text-sm ${isDealArchived ? "line-through" : ""}`} data-testid={`text-deal-contact-${deal.id}`}>
+                {getContactName(deal.contactId)}
+              </div>
+            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="shrink-0" onClick={(e) => e.stopPropagation()} data-testid={`button-deal-actions-${deal.id}`}>
+                  <MoreVertical className="h-3 w-3" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {isDealArchived ? (
+                  <DropdownMenuItem
+                    onClick={(e) => { e.stopPropagation(); restoreDealMutation.mutate(deal.id); }}
+                    data-testid={`menu-restore-deal-${deal.id}`}
+                  >
+                    <RotateCcw className="w-4 h-4 mr-2" /> Restore
+                  </DropdownMenuItem>
+                ) : (
+                  <DropdownMenuItem
+                    onClick={(e) => { e.stopPropagation(); archiveDealMutation.mutate(deal.id); }}
+                    data-testid={`menu-archive-deal-${deal.id}`}
+                  >
+                    <Archive className="w-4 h-4 mr-2" /> Archive
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+          {isDealArchived && (
+            <Badge variant="outline" className="text-xs no-default-hover-elevate no-default-active-elevate" data-testid={`badge-archived-deal-${deal.id}`}>
+              <Archive className="w-3 h-3 mr-1" /> Archived
+            </Badge>
+          )}
+          {getCompanyName(deal.contactId) && (
+            <div className="text-xs text-muted-foreground" data-testid={`text-deal-company-${deal.id}`}>
+              {getCompanyName(deal.contactId)}
+            </div>
+          )}
+          {deal.offerPath && (
+            <Badge variant="outline" className="text-xs no-default-hover-elevate no-default-active-elevate" data-testid={`badge-offer-${deal.id}`}>
+              {deal.offerPath}
+            </Badge>
+          )}
+          <div className="text-xs text-muted-foreground" data-testid={`text-deal-date-${deal.id}`}>
+            <Calendar className="w-3 h-3 inline-block mr-1" />
+            {deal.createdAt ? new Date(deal.createdAt).toLocaleDateString() : "N/A"}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function DroppableColumn({
+  stage,
+  colorClass,
+  stageDeals,
+  selectedDealIds,
+  toggleDealSelection,
+  openDealDetail,
+  archiveDealMutation,
+  restoreDealMutation,
+  getContactName,
+  getCompanyName,
+  setCreateOpen,
+}: {
+  stage: string;
+  colorClass: string;
+  stageDeals: Deal[];
+  selectedDealIds: Set<number>;
+  toggleDealSelection: (id: number) => void;
+  openDealDetail: (deal: Deal) => void;
+  archiveDealMutation: any;
+  restoreDealMutation: any;
+  getContactName: (id: number | null) => string;
+  getCompanyName: (id: number | null) => string;
+  setCreateOpen: (open: boolean) => void;
+}) {
+  return (
+    <div className="w-[270px] flex-shrink-0" data-testid={`stage-column-${stage.replace(/\s+/g, "-").toLowerCase()}`}>
+      <div className={`${colorClass} text-white px-3 py-2 rounded-md mb-3 flex items-center justify-between gap-2`}>
+        <span className="text-sm font-semibold truncate">{stage}</span>
+        <Badge variant="secondary" className="text-xs no-default-hover-elevate no-default-active-elevate" data-testid={`badge-count-${stage.replace(/\s+/g, "-").toLowerCase()}`}>
+          {stageDeals.length}
+        </Badge>
+      </div>
+      <SortableContext items={stageDeals.map((d) => d.id)} strategy={verticalListSortingStrategy}>
+        <div className="space-y-3 min-h-[200px]" data-droppable-stage={stage}>
+          {stageDeals.map((deal) => {
+            const isDealArchived = !!(deal as any).archivedAt;
+            return (
+              <SortableDealCard
+                key={deal.id}
+                deal={deal}
+                isDealArchived={isDealArchived}
+                selectedDealIds={selectedDealIds}
+                toggleDealSelection={toggleDealSelection}
+                openDealDetail={openDealDetail}
+                archiveDealMutation={archiveDealMutation}
+                restoreDealMutation={restoreDealMutation}
+                getContactName={getContactName}
+                getCompanyName={getCompanyName}
+              />
+            );
+          })}
+          {stageDeals.length === 0 && (
+            <div className="flex flex-col items-center justify-center text-center py-8 gap-2" data-testid={`empty-state-${stage.replace(/\s+/g, "-").toLowerCase()}`}>
+              <TrendingUp className="w-6 h-6 text-muted-foreground/30" />
+              <p className="text-xs text-muted-foreground">No deals in this stage</p>
+              <Button variant="ghost" size="sm" className="text-xs h-7 px-2" onClick={() => setCreateOpen(true)} data-testid={`button-add-deal-${stage.replace(/\s+/g, "-").toLowerCase()}`}>
+                <Plus className="w-3 h-3 mr-1" />
+                Add Deal
+              </Button>
+            </div>
+          )}
+        </div>
+      </SortableContext>
+    </div>
+  );
+}
+
 export default function Pipeline() {
   const { toast } = useToast();
+  const [activeDeal, setActiveDeal] = useState<Deal | null>(null);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+  );
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedDeal, setSelectedDeal] = useState<Deal | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -190,6 +381,50 @@ export default function Pipeline() {
   });
 
   const sortedStages = (pipelineStages || []).slice().sort((a, b) => a.sortOrder - b.sortOrder);
+
+  const handleDragStart = (event: DragStartEvent) => {
+    const deal = deals?.find((d) => d.id === event.active.id);
+    setActiveDeal(deal || null);
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    setActiveDeal(null);
+    const { active, over } = event;
+    if (!over) return;
+
+    const activeDealId = active.id as number;
+    const overStage = (over.data.current as any)?.stage || (over.data.current as any)?.sortable?.containerId;
+
+    let newStage: string | null = null;
+
+    if (typeof over.id === "string" && SALES_STAGES.includes(over.id)) {
+      newStage = over.id;
+    } else {
+      const overDeal = deals?.find((d) => d.id === over.id);
+      if (overDeal) {
+        newStage = overDeal.stage;
+      } else if (overStage && SALES_STAGES.includes(overStage)) {
+        newStage = overStage;
+      }
+    }
+
+    if (!newStage) return;
+
+    const activeDealObj = deals?.find((d) => d.id === activeDealId);
+    if (!activeDealObj || activeDealObj.stage === newStage) return;
+
+    queryClient.setQueryData(["/api/deals", { pipeline: "sales" }], (old: any) => {
+      if (!old) return old;
+      return {
+        ...old,
+        data: old.data.map((d: Deal) =>
+          d.id === activeDealId ? { ...d, stage: newStage } : d
+        ),
+      };
+    });
+
+    updateDealMutation.mutate({ id: activeDealId, stage: newStage });
+  };
 
   const getDealsInStage = (stageName: string) => {
     return (deals || []).filter((d) => d.stage === stageName).length;
@@ -603,99 +838,52 @@ export default function Pipeline() {
         }}
       />
 
-      <ScrollArea className="w-full" data-testid="pipeline-board">
-        <div className="flex gap-4 pb-4" style={{ minWidth: `${SALES_STAGES.length * 280}px` }}>
-          {SALES_STAGES.map((stage) => {
-            const stageDeals = getDealsByStage(stage);
-            const colorClass = STAGE_COLORS[stage] || "bg-gray-500";
-
-            return (
-              <div key={stage} className="w-[270px] flex-shrink-0" data-testid={`stage-column-${stage.replace(/\s+/g, "-").toLowerCase()}`}>
-                <div className={`${colorClass} text-white px-3 py-2 rounded-md mb-3 flex items-center justify-between gap-2`}>
-                  <span className="text-sm font-semibold truncate">{stage}</span>
-                  <Badge variant="secondary" className="text-xs no-default-hover-elevate no-default-active-elevate" data-testid={`badge-count-${stage.replace(/\s+/g, "-").toLowerCase()}`}>
-                    {stageDeals.length}
-                  </Badge>
-                </div>
-                <div className="space-y-3 min-h-[200px]">
-                  {stageDeals.map((deal) => {
-                    const isDealArchived = !!(deal as any).archivedAt;
-                    return (
-                    <Card
-                      key={deal.id}
-                      className={`cursor-pointer hover-elevate ${isDealArchived ? "opacity-50" : ""}`}
-                      onClick={() => openDealDetail(deal)}
-                      data-testid={`card-deal-${deal.id}`}
-                    >
-                      <CardContent className="p-3 space-y-2">
-                        <div className="flex items-start gap-2">
-                          <Checkbox
-                            checked={selectedDealIds.has(deal.id)}
-                            onCheckedChange={() => toggleDealSelection(deal.id)}
-                            onClick={(e) => e.stopPropagation()}
-                            data-testid={`checkbox-deal-${deal.id}`}
-                          />
-                          <div className={`font-medium text-sm flex-1 ${isDealArchived ? "line-through" : ""}`} data-testid={`text-deal-contact-${deal.id}`}>
-                            {getContactName(deal.contactId)}
-                          </div>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon" className="shrink-0" onClick={(e) => e.stopPropagation()} data-testid={`button-deal-actions-${deal.id}`}>
-                                <MoreVertical className="h-3 w-3" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              {isDealArchived ? (
-                                <DropdownMenuItem
-                                  onClick={(e) => { e.stopPropagation(); restoreDealMutation.mutate(deal.id); }}
-                                  data-testid={`menu-restore-deal-${deal.id}`}
-                                >
-                                  <RotateCcw className="w-4 h-4 mr-2" /> Restore
-                                </DropdownMenuItem>
-                              ) : (
-                                <DropdownMenuItem
-                                  onClick={(e) => { e.stopPropagation(); archiveDealMutation.mutate(deal.id); }}
-                                  data-testid={`menu-archive-deal-${deal.id}`}
-                                >
-                                  <Archive className="w-4 h-4 mr-2" /> Archive
-                                </DropdownMenuItem>
-                              )}
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </div>
-                        {isDealArchived && (
-                          <Badge variant="outline" className="text-xs no-default-hover-elevate no-default-active-elevate" data-testid={`badge-archived-deal-${deal.id}`}>
-                            <Archive className="w-3 h-3 mr-1" /> Archived
-                          </Badge>
-                        )}
-                        {getCompanyName(deal.contactId) && (
-                          <div className="text-xs text-muted-foreground" data-testid={`text-deal-company-${deal.id}`}>
-                            {getCompanyName(deal.contactId)}
-                          </div>
-                        )}
-                        {deal.offerPath && (
-                          <Badge variant="outline" className="text-xs no-default-hover-elevate no-default-active-elevate" data-testid={`badge-offer-${deal.id}`}>
-                            {deal.offerPath}
-                          </Badge>
-                        )}
-                        <div className="text-xs text-muted-foreground" data-testid={`text-deal-date-${deal.id}`}>
-                          <Calendar className="w-3 h-3 inline-block mr-1" />
-                          {deal.createdAt ? new Date(deal.createdAt).toLocaleDateString() : "N/A"}
-                        </div>
-                      </CardContent>
-                    </Card>
-                    );
-                  })}
-                  {stageDeals.length === 0 && (
-                    <div className="text-xs text-muted-foreground text-center py-8">No deals</div>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCorners}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+      >
+        <ScrollArea className="w-full" data-testid="pipeline-board">
+          <div className="flex gap-4 pb-4" style={{ minWidth: `${SALES_STAGES.length * 280}px` }}>
+            {SALES_STAGES.map((stage) => {
+              const stageDeals = getDealsByStage(stage);
+              const colorClass = STAGE_COLORS[stage] || "bg-gray-500";
+              return (
+                <DroppableColumn
+                  key={stage}
+                  stage={stage}
+                  colorClass={colorClass}
+                  stageDeals={stageDeals}
+                  selectedDealIds={selectedDealIds}
+                  toggleDealSelection={toggleDealSelection}
+                  openDealDetail={openDealDetail}
+                  archiveDealMutation={archiveDealMutation}
+                  restoreDealMutation={restoreDealMutation}
+                  getContactName={getContactName}
+                  getCompanyName={getCompanyName}
+                  setCreateOpen={setCreateOpen}
+                />
+              );
+            })}
+          </div>
+          <ScrollBar orientation="horizontal" />
+        </ScrollArea>
+        <DragOverlay>
+          {activeDeal && (
+            <div className="w-[270px] opacity-90 shadow-xl">
+              <Card className="cursor-grabbing">
+                <CardContent className="p-3">
+                  <div className="font-medium text-sm">{getContactName(activeDeal.contactId)}</div>
+                  {getCompanyName(activeDeal.contactId) && (
+                    <div className="text-xs text-muted-foreground">{getCompanyName(activeDeal.contactId)}</div>
                   )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        <ScrollBar orientation="horizontal" />
-      </ScrollArea>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+        </DragOverlay>
+      </DndContext>
 
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto" data-testid="dialog-deal-detail">
