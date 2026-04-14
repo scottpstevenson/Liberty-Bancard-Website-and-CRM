@@ -812,11 +812,49 @@ export default function Home() {
         {/* SECTION 8.5: Why Liberty - Differentiators */}
         <section className="bg-muted/30 py-20" data-testid="section-why-liberty">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="reveal text-center mb-12">
+            <div className="reveal text-center mb-8">
               <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-why-liberty-heading">
                 Why Merchants Switch to Liberty
               </h2>
               <p className="text-muted-foreground max-w-xl mx-auto">The differences you feel every day, not just on paper.</p>
+            </div>
+
+            {/* Rate Transparency Callout */}
+            <div className="reveal mb-12" data-testid="section-rate-transparency">
+              <div className="max-w-3xl mx-auto bg-background border-2 border-primary/20 rounded-lg p-6 md:p-8">
+                <div className="flex items-start gap-4">
+                  <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
+                    <DollarSign className="w-5 h-5 text-primary" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-lg font-display font-bold text-foreground mb-2" data-testid="text-rate-transparency-heading">
+                      What Do Most Merchants Actually Pay?
+                    </h3>
+                    <p className="text-muted-foreground text-sm mb-4 leading-relaxed">
+                      On interchange-plus pricing, most merchants end up paying between <strong className="text-foreground">1.7% and 2.3% all-in</strong> — depending on their card mix and volume. That compares to <strong className="text-foreground">2.6%–3.5%+</strong> on flat-rate plans like Square or Stripe.
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+                      {[
+                        { label: "Restaurant (card-present)", range: "1.80–2.20%", note: "High debit, fast turns" },
+                        { label: "Retail (mixed cards)", range: "1.75–2.15%", note: "Debit + credit mix" },
+                        { label: "Services / B2B", range: "2.00–2.60%", note: "More rewards + keyed" },
+                      ].map((item, i) => (
+                        <div key={i} className="bg-muted/50 rounded-md p-3 text-center" data-testid={`text-rate-range-${i}`}>
+                          <div className="text-xs text-muted-foreground mb-1">{item.label}</div>
+                          <div className="text-lg font-display font-bold text-primary">{item.range}</div>
+                          <div className="text-[10px] text-muted-foreground mt-0.5">{item.note}</div>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      *Typical effective rate ranges for interchange-plus pricing. Actual rate depends on your card mix, transaction types, and volume — upload a statement for your exact number. No savings claims without a statement review.
+                    </p>
+                    <Link href="/compare-rates" className="inline-flex items-center gap-1.5 text-primary text-sm font-medium mt-3 hover:underline" data-testid="link-rate-transparency-compare">
+                      See full processor comparison <ArrowRight className="w-3.5 h-3.5" />
+                    </Link>
+                  </div>
+                </div>
+              </div>
             </div>
             <div className="reveal grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               {[

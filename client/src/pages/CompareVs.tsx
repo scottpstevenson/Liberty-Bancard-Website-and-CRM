@@ -56,6 +56,7 @@ interface CompetitorData {
     competitorCost: string;
     libertyCost: string;
     annualSavings: string;
+    mathNote: string;
   };
   faqs: { question: string; answer: string }[];
 }
@@ -116,6 +117,7 @@ const competitors: Record<string, CompetitorData> = {
       competitorCost: "$675/month",
       libertyCost: "$475/month*",
       annualSavings: "$2,400*",
+      mathNote: "Square: 2.6% × $25,000 = $650 + $0.10 × ~250 txn = $25 → $675/mo\nLiberty: avg interchange ~1.70% + 0.20% markup × $25,000 + $0.07 × ~250 txn → ~$475/mo*",
     },
     faqs: [
       { question: "Is Liberty Bancard better than Square?", answer: "For businesses processing over $5,000/month, Liberty Bancard's interchange-plus pricing typically saves $2,000-$6,000 per year compared to Square's flat 2.6% + $0.10 rate. Square's flat rate overcharges on debit cards and lower-cost card types. Liberty Bancard passes through actual interchange costs with a small, transparent markup." },
@@ -180,6 +182,7 @@ const competitors: Record<string, CompetitorData> = {
       competitorCost: "$960/month",
       libertyCost: "$540/month*",
       annualSavings: "$5,040*",
+      mathNote: "Stripe: 2.9% × $30,000 = $870 + $0.30 × ~300 txn = $90 → $960/mo\nLiberty: avg interchange ~1.60% + 0.20% markup × $30,000 + $0.07 × ~300 txn → ~$540/mo*",
     },
     faqs: [
       { question: "Is Liberty Bancard better than Stripe?", answer: "For in-person businesses processing over $5,000/month, Liberty Bancard typically saves $3,000-$8,000 per year compared to Stripe's 2.9% + $0.30. Stripe excels at online-only and developer-centric use cases, but its pricing is expensive for card-present transactions." },
@@ -245,6 +248,7 @@ const competitors: Record<string, CompetitorData> = {
       competitorCost: "$560/month",
       libertyCost: "$360/month*",
       annualSavings: "$2,400*",
+      mathNote: "Clover: ~2.6% × $20,000 = $520 + $14.95 software fee + misc = ~$560/mo\nLiberty: avg interchange ~1.60% + 0.20% markup × $20,000 + $0.07 × ~400 txn → ~$360/mo*",
     },
     faqs: [
       { question: "Is Liberty Bancard better than Clover?", answer: "For most businesses, yes. Liberty Bancard offers lower interchange-plus pricing without the long-term contracts, equipment leases, and add-on fees that Clover is known for. Businesses typically save $2,500-$5,000 per year by switching from Clover to Liberty Bancard." },
@@ -310,6 +314,7 @@ const competitors: Record<string, CompetitorData> = {
       competitorCost: "$1,085/month",
       libertyCost: "$630/month*",
       annualSavings: "$5,460*",
+      mathNote: "Toast: ~2.99% × $35,000 = $1,047 + $0.15 × ~250 txn = $38 → ~$1,085/mo\nLiberty: avg interchange ~1.60% + 0.20% markup × $35,000 + $0.07 × ~250 txn → ~$630/mo*",
     },
     faqs: [
       { question: "Is Liberty Bancard better than Toast for restaurants?", answer: "For payment processing costs, yes. Liberty Bancard's interchange-plus pricing saves most restaurants $3,000-$7,000 per year compared to Toast's 2.49-3.69% rates. Toast offers a full restaurant POS, but you pay a premium for processing that's locked to their platform." },
@@ -375,6 +380,7 @@ const competitors: Record<string, CompetitorData> = {
       competitorCost: "$696/month",
       libertyCost: "$380/month*",
       annualSavings: "$3,792*",
+      mathNote: "PayPal: 2.99% × $20,000 = $598 + $0.49 × ~200 txn = $98 → ~$696/mo\nLiberty: avg interchange ~1.65% + 0.20% markup × $20,000 + $0.07 × ~200 txn → ~$380/mo*",
     },
     faqs: [
       { question: "Is Liberty Bancard better than PayPal for businesses?", answer: "For in-person businesses processing over $5,000/month, Liberty Bancard is significantly better. PayPal's 2.99% + $0.49 in-person rate is one of the highest in the industry, and their account hold policies create cash flow risk. Liberty Bancard offers interchange-plus pricing, stable accounts, and dedicated support." },
@@ -531,7 +537,7 @@ export default function CompareVs() {
             </h2>
             <Card className="reveal" data-testid="card-savings-example">
               <CardContent className="p-6 md:p-8">
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 text-center">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 text-center mb-6">
                   <div>
                     <p className="text-sm text-muted-foreground mb-1">Monthly Volume</p>
                     <p className="text-xl font-display font-bold text-foreground" data-testid="text-savings-volume">{data.savingsExample.monthlyVolume}</p>
@@ -549,10 +555,14 @@ export default function CompareVs() {
                     <p className="text-xl font-display font-bold text-emerald-600 dark:text-emerald-400" data-testid="text-savings-annual">{data.savingsExample.annualSavings}</p>
                   </div>
                 </div>
+                <div className="border-t border-border pt-4">
+                  <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">How we calculate this</p>
+                  <pre className="text-xs text-muted-foreground font-mono whitespace-pre-wrap leading-relaxed bg-muted/40 rounded px-3 py-2" data-testid="text-savings-math">{data.savingsExample.mathNote}</pre>
+                </div>
               </CardContent>
             </Card>
             <p className="text-[10px] text-muted-foreground text-center mt-4">
-              *Illustrative estimate based on typical card mix and interchange-plus pricing. Actual savings depend on card mix, transaction types, and underwriting. Upload your statement for an exact comparison.
+              *Illustrative estimate based on typical card mix and interchange-plus pricing. Actual rate depends on card mix, transaction types, and volume — upload a statement for your exact number. No savings claims without a statement review.
             </p>
           </div>
         </section>

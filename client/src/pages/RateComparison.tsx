@@ -325,6 +325,87 @@ export default function RateComparison() {
           </div>
         </section>
 
+        {/* Merchant Profile Rate Card */}
+        <section className="bg-background py-16" data-testid="section-merchant-profiles">
+          <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+            <h2 className="reveal text-2xl md:text-3xl font-display font-bold text-foreground text-center mb-4" data-testid="text-profiles-heading">
+              Typical Rate by Merchant Profile
+            </h2>
+            <p className="text-center text-muted-foreground mb-8 max-w-2xl mx-auto text-sm">
+              What merchants in each category typically pay on interchange-plus pricing — based on their card mix, average ticket, and volume.
+            </p>
+            <div className="reveal grid grid-cols-1 sm:grid-cols-2 gap-6 mb-6">
+              {[
+                {
+                  type: "Restaurant",
+                  volume: "$20K–$60K/month",
+                  effectiveRate: "1.80–2.20%",
+                  flatRateEst: "2.6%+ (Square/Toast)",
+                  profile: "High debit card usage, card-present, fast average ticket ($25–$50), high transaction count",
+                  savings: "~$180–$600/month vs flat rate",
+                  icon: "🍽️",
+                },
+                {
+                  type: "Retail",
+                  volume: "$15K–$50K/month",
+                  effectiveRate: "1.75–2.15%",
+                  flatRateEst: "2.6%+ (Square/Clover)",
+                  profile: "Mixed debit + credit, card-present, moderate ticket ($30–$80), consistent volume",
+                  savings: "~$125–$450/month vs flat rate",
+                  icon: "🏪",
+                },
+                {
+                  type: "Medical / Dental",
+                  volume: "$20K–$80K/month",
+                  effectiveRate: "2.00–2.40%",
+                  flatRateEst: "2.9%+ (Stripe typical)",
+                  profile: "Higher rewards and HSA cards, mix of card-present and keyed, larger average ticket ($150–$500)",
+                  savings: "~$200–$700/month vs flat rate",
+                  icon: "🏥",
+                },
+                {
+                  type: "B2B Services",
+                  volume: "$10K–$40K/month",
+                  effectiveRate: "2.10–2.60%",
+                  flatRateEst: "2.9%+ (Stripe/PayPal)",
+                  profile: "Corporate and purchasing cards, often keyed or invoiced, higher interchange but transparent markup",
+                  savings: "~$100–$400/month vs flat rate",
+                  icon: "💼",
+                },
+              ].map((profile, i) => (
+                <Card key={i} data-testid={`card-profile-${i}`}>
+                  <CardContent className="p-5">
+                    <div className="flex items-start gap-3 mb-3">
+                      <div className="text-2xl">{profile.icon}</div>
+                      <div>
+                        <h3 className="font-display font-bold text-foreground" data-testid={`text-profile-type-${i}`}>{profile.type}</h3>
+                        <p className="text-xs text-muted-foreground">{profile.volume}</p>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between bg-muted/50 rounded px-3 py-2">
+                        <span className="text-xs text-muted-foreground">Interchange-plus effective rate</span>
+                        <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400" data-testid={`text-profile-rate-${i}`}>{profile.effectiveRate}</span>
+                      </div>
+                      <div className="flex items-center justify-between bg-muted/30 rounded px-3 py-2">
+                        <span className="text-xs text-muted-foreground">Flat-rate comparison</span>
+                        <span className="text-sm font-medium text-muted-foreground">{profile.flatRateEst}</span>
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-3 leading-relaxed">{profile.profile}</p>
+                    <div className="mt-3 text-xs font-medium text-emerald-600 dark:text-emerald-400" data-testid={`text-profile-savings-${i}`}>
+                      Typical savings: {profile.savings}*
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+            <p className="text-[10px] text-muted-foreground text-center">
+              *Illustrative ranges. Actual effective rate depends on your card mix, transaction types, average ticket, and underwriting. Actual rate depends on card mix and volume — upload a statement for your exact number. No savings claims without a statement review.
+            </p>
+          </div>
+        </section>
+
         <section className="bg-background py-16" data-testid="section-why-liberty">
           <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
             <h2 className="reveal text-2xl md:text-3xl font-display font-bold text-foreground text-center mb-10" data-testid="text-why-liberty-heading">

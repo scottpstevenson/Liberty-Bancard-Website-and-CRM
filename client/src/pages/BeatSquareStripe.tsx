@@ -139,6 +139,88 @@ export default function BeatSquareStripe() {
           </div>
         </section>
 
+        {/* Real Dollar Math: $50K/Month Example */}
+        <section className="bg-background py-20" data-testid="section-dollar-math">
+          <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="reveal text-center mb-10">
+              <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-dollar-math-heading">
+                Real Numbers. $50,000/Month Example.
+              </h2>
+              <p className="text-muted-foreground max-w-2xl mx-auto text-sm">
+                Same volume, same card mix — what each processor actually costs. Based on $50K/month, ~1,000 transactions (avg $50 each), typical Visa credit card mix.
+              </p>
+            </div>
+
+            <div className="reveal grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+              {[
+                {
+                  processor: "Square",
+                  rate: "2.6% + $0.10/txn",
+                  monthly: "$1,400",
+                  annual: "$16,800",
+                  breakdown: "2.6% × $50,000 = $1,300\n+ $0.10 × 1,000 txn = $100",
+                  highlight: false,
+                  color: "text-foreground",
+                },
+                {
+                  processor: "Stripe",
+                  rate: "2.9% + $0.30/txn",
+                  monthly: "$1,750",
+                  annual: "$21,000",
+                  breakdown: "2.9% × $50,000 = $1,450\n+ $0.30 × 1,000 txn = $300",
+                  highlight: false,
+                  color: "text-foreground",
+                },
+                {
+                  processor: "Liberty Bancard",
+                  rate: "Interchange + ~0.20%",
+                  monthly: "~$1,070",
+                  annual: "~$12,840",
+                  breakdown: "Avg interchange ~1.80% × $50K = $900\n+ 0.20% markup = $100\n+ $0.07 × 1,000 txn = $70",
+                  highlight: true,
+                  color: "text-emerald-600 dark:text-emerald-400",
+                },
+              ].map((item, i) => (
+                <Card
+                  key={i}
+                  className={item.highlight ? "border-2 border-primary/30 bg-primary/5" : ""}
+                  data-testid={`card-dollar-math-${i}`}
+                >
+                  <CardContent className="p-6">
+                    {item.highlight && (
+                      <div className="text-xs font-semibold text-primary uppercase tracking-wider mb-3">Best Value</div>
+                    )}
+                    <h3 className="text-lg font-display font-bold text-foreground mb-1">{item.processor}</h3>
+                    <p className="text-xs text-muted-foreground mb-4">{item.rate}</p>
+                    <div className="space-y-1 text-xs text-muted-foreground bg-muted/50 rounded-md p-3 mb-4 font-mono whitespace-pre-line" data-testid={`text-math-breakdown-${i}`}>
+                      {item.breakdown}
+                    </div>
+                    <div className="flex justify-between items-end">
+                      <div>
+                        <div className="text-xs text-muted-foreground">Monthly cost</div>
+                        <div className={`text-2xl font-display font-bold ${item.color}`} data-testid={`text-monthly-cost-${i}`}>{item.monthly}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xs text-muted-foreground">Annual cost</div>
+                        <div className={`text-lg font-semibold ${item.color}`} data-testid={`text-annual-cost-${i}`}>{item.annual}</div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            <div className="reveal bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800 rounded-lg p-5 text-center" data-testid="card-math-savings-summary">
+              <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400 mb-1">
+                At $50K/month: Liberty saves ~$3,960/year vs Square and ~$8,160/year vs Stripe*
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                *Illustrative estimate. Interchange rate varies by card type (debit, credit, rewards, corporate). Liberty's markup of 0.10–0.40% depends on your profile. Per-transaction fee of $0.05–$0.10 also applies. Actual rate depends on card mix and volume — upload a statement for your exact number. No savings claims without review.
+              </p>
+            </div>
+          </div>
+        </section>
+
         {/* Head-to-Head Comparison Table */}
         <section className="bg-muted bg-dots py-20" data-testid="section-comparison-table">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
