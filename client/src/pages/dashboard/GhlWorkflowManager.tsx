@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { CheckCircle, XCircle, Save, RefreshCw, Workflow, Search, Copy, Download, ChevronDown, ChevronRight, Bot, FileText, Phone, Mic, Mail, MessageSquare, Settings2, Map } from "lucide-react";
+import { CheckCircle, XCircle, Save, RefreshCw, Workflow, Search, Copy, Download, ChevronDown, ChevronRight, Bot, FileText, Phone, Mic, Mail, MessageSquare, Settings2, Map, Play, Pause, Loader2 } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { jsPDF } from "jspdf";
 import {
@@ -283,8 +283,55 @@ const CHANNEL_CHIP_STYLES: Record<string, { bg: string; icon: React.ReactNode }>
   ai_conversation: { bg: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300", icon: <Bot className="w-3 h-3" /> },
 };
 
+type DbSequence = {
+  id: number;
+  name: string;
+  status: string;
+};
+
+const DB_NAME_BY_PROMPT_ID: Record<string, string> = {
+  "cold-outbound-auto-repair": "SDR: Cold Outbound — Auto Repair",
+  "cold-outbound-medspa": "SDR: Cold Outbound — Med Spa",
+  "cold-outbound-dental": "SDR: Cold Outbound — Dental",
+};
+
+const GHL_TAG_BY_PROMPT_ID: Record<string, string> = {
+  "cold-outbound-auto-repair": "LB-COLD-AUTO-REPAIR",
+  "cold-outbound-medspa": "LB-COLD-MEDSPA",
+  "cold-outbound-dental": "LB-COLD-DENTAL",
+};
+
 function CadenceBlueprints() {
+  const { toast } = useToast();
   const sequences = SEQUENCE_PROMPTS.filter(s => COLD_OUTBOUND_IDS.includes(s.id));
+
+  const { data: dbSequences = [], isLoading: dbLoading } = useQuery<DbSequence[]>({
+    queryKey: ["/api/sequences"],
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: async ({ id, newStatus }: { id: number; newStatus: string }) => {
+      return apiRequest("PUT", `/api/sequences/${id}`, { status: newStatus });
+    },
+    onSuccess: (_, { newStatus }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/sequences"] });
+      toast({
+        title: newStatus === "active" ? "Sequence activated" : "Sequence paused",
+        description: newStatus === "active"
+          ? "This sequence will now auto-enroll matching contacts."
+          : "This sequence is paused. No new contacts will be enrolled.",
+      });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to update sequence status.", variant: "destructive" });
+    },
+  });
+
+  const getDbSeq = (promptId: string): DbSequence | undefined =>
+    dbSequences.find(s => s.name === DB_NAME_BY_PROMPT_ID[promptId]);
+
+  const isTogglingId = (id: number) =>
+    toggleMutation.isPending && (toggleMutation.variables as { id: number })?.id === id;
 
   return (
     <div className="space-y-8">
@@ -294,96 +341,140 @@ function CadenceBlueprints() {
           Cold Outbound Cadence Blueprints
         </h2>
         <p className="text-sm text-muted-foreground mt-1">
-          Visual cadence timelines for all 3 cold outbound sequences. Use these to build each workflow in GHL.
+          Build each workflow in GHL using the scripts in the "AI Workflow Prompts" tab, then activate it here when ready.
         </p>
       </div>
 
-      {sequences.map(seq => (
-        <Card key={seq.id} className="overflow-hidden" data-testid={`card-blueprint-${seq.id}`}>
-          <CardHeader className="pb-3">
-            <div className="flex items-start justify-between gap-3 flex-wrap">
+      {sequences.map(seq => {
+        const dbSeq = getDbSeq(seq.id);
+        const isActive = dbSeq?.status === "active";
+        const isPaused = !isActive;
+        const isToggling = dbSeq ? isTogglingId(dbSeq.id) : false;
+
+        return (
+          <Card key={seq.id} className="overflow-hidden" data-testid={`card-blueprint-${seq.id}`}>
+            <CardHeader className="pb-3">
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${CATEGORY_COLORS[seq.category] || "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"}`}>
+                      {CATEGORY_LABELS[seq.category] || seq.category}
+                    </span>
+                    {!dbLoading && dbSeq && (
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-semibold flex items-center gap-1 ${isActive ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"}`}
+                        data-testid={`badge-status-${seq.id}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${isActive ? "bg-green-500" : "bg-slate-400"}`} />
+                        {isActive ? "Active" : "Paused"}
+                      </span>
+                    )}
+                  </div>
+                  <CardTitle className="text-base">{seq.name}</CardTitle>
+                  <p className="text-xs text-muted-foreground mt-1">{seq.triggerConditions}</p>
+                </div>
+
+                {dbSeq && (
+                  <Button
+                    size="sm"
+                    variant={isActive ? "outline" : "default"}
+                    className={isActive ? "text-slate-600 border-slate-300" : "bg-green-600 hover:bg-green-700 text-white"}
+                    disabled={isToggling}
+                    onClick={() => toggleMutation.mutate({ id: dbSeq.id, newStatus: isActive ? "paused" : "active" })}
+                    data-testid={`button-toggle-${seq.id}`}
+                  >
+                    {isToggling ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
+                    ) : isActive ? (
+                      <Pause className="w-3.5 h-3.5 mr-1.5" />
+                    ) : (
+                      <Play className="w-3.5 h-3.5 mr-1.5" />
+                    )}
+                    {isToggling ? "Saving..." : isActive ? "Pause" : "Activate"}
+                  </Button>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              {isPaused && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-900/10 dark:border-amber-800 px-4 py-3 text-xs text-amber-800 dark:text-amber-300 flex items-start gap-2">
+                  <span className="shrink-0 mt-0.5">⚠</span>
+                  <span>This sequence is <strong>paused</strong>. No contacts will be enrolled until you click Activate. Build and test the GHL workflow first, then activate.</span>
+                </div>
+              )}
+
               <div>
-                <div className="flex items-center gap-2 mb-1 flex-wrap">
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${CATEGORY_COLORS[seq.category] || "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"}`}>
-                    {CATEGORY_LABELS[seq.category] || seq.category}
-                  </span>
-                </div>
-                <CardTitle className="text-base">{seq.name}</CardTitle>
-                <p className="text-xs text-muted-foreground mt-1">{seq.triggerConditions}</p>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Cadence Timeline</p>
-              <div className="overflow-x-auto pb-2">
-                <div className="flex gap-2 min-w-max">
-                  {seq.steps.map(step => {
-                    const style = CHANNEL_CHIP_STYLES[step.channel] || CHANNEL_CHIP_STYLES.email;
-                    return (
-                      <div
-                        key={step.stepNumber}
-                        className={`flex flex-col items-center gap-1 px-2.5 py-2 rounded-lg border text-center min-w-[72px] ${style.bg}`}
-                        data-testid={`chip-step-${seq.id}-${step.stepNumber}`}
-                      >
-                        <span className="flex items-center gap-1">{style.icon}</span>
-                        <span className="text-[10px] font-semibold leading-tight">{CHANNEL_LABELS[step.channel]}</span>
-                        <span className="text-[10px] opacity-70 leading-tight">{step.delayDescription}</span>
-                      </div>
-                    );
-                  })}
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Cadence Timeline</p>
+                <div className="overflow-x-auto pb-2">
+                  <div className="flex gap-2 min-w-max">
+                    {seq.steps.map(step => {
+                      const style = CHANNEL_CHIP_STYLES[step.channel] || CHANNEL_CHIP_STYLES.email;
+                      return (
+                        <div
+                          key={step.stepNumber}
+                          className={`flex flex-col items-center gap-1 px-2.5 py-2 rounded-lg border text-center min-w-[72px] ${style.bg}`}
+                          data-testid={`chip-step-${seq.id}-${step.stepNumber}`}
+                        >
+                          <span className="flex items-center gap-1">{style.icon}</span>
+                          <span className="text-[10px] font-semibold leading-tight">{CHANNEL_LABELS[step.channel]}</span>
+                          <span className="text-[10px] opacity-70 leading-tight">{step.delayDescription}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">If/Then Branch Logic</p>
-              <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-1.5 text-xs text-foreground/80">
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
-                  <span><span className="font-semibold">Call Answered</span> → Remove from sequence, enroll in Inbound Nurture workflow</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-purple-500 shrink-0" />
-                  <span><span className="font-semibold">Voicemail</span> → Drop voicemail audio + send follow-up SMS (5 min delay)</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-slate-400 shrink-0" />
-                  <span><span className="font-semibold">No Answer</span> → Continue sequence to next step</span>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">If/Then Branch Logic</p>
+                <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-1.5 text-xs text-foreground/80">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
+                    <span><span className="font-semibold">Call Answered</span> → Remove from sequence, enroll in Inbound Nurture workflow</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-purple-500 shrink-0" />
+                    <span><span className="font-semibold">Voicemail</span> → Drop voicemail audio + send follow-up SMS (5 min delay)</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-slate-400 shrink-0" />
+                    <span><span className="font-semibold">No Answer</span> → Continue sequence to next step</span>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Exit Conditions</p>
-              <ul className="text-xs text-foreground/80 space-y-1 list-none">
-                <li className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5 text-green-500 shrink-0" /> Contact replies to any email or SMS → stop sequence</li>
-                <li className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5 text-green-500 shrink-0" /> Appointment booked (tag LB-BOOKING-READY added) → stop sequence</li>
-                <li className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5 text-green-500 shrink-0" /> DNC / STOP reply received → stop sequence immediately</li>
-              </ul>
-            </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Exit Conditions</p>
+                <ul className="text-xs text-foreground/80 space-y-1 list-none">
+                  <li className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5 text-green-500 shrink-0" /> Contact replies to any email or SMS → stop sequence</li>
+                  <li className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5 text-green-500 shrink-0" /> Appointment booked (tag LB-BOOKING-READY added) → stop sequence</li>
+                  <li className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5 text-green-500 shrink-0" /> DNC / STOP reply received → stop sequence immediately</li>
+                </ul>
+              </div>
 
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">GHL Build Checklist</p>
-              <ul className="text-xs text-foreground/80 space-y-1.5">
-                {[
-                  `Create workflow with trigger: Contact Tag Added = LB-COLD-${seq.id === "cold-outbound-auto-repair" ? "AUTO-REPAIR" : seq.id === "cold-outbound-dental" ? "DENTAL" : "MEDSPA"}`,
-                  "Add each step as a GHL action in order",
-                  "Configure If/Then branches on all Call steps",
-                  "Add exit conditions for reply detection and booking tag",
-                  "Upload voicemail audio files to GHL Voicemail Drops library",
-                  "Test with a dummy contact",
-                ].map((item, i) => (
-                  <li key={i} className="flex items-start gap-2" data-testid={`checklist-${seq.id}-${i}`}>
-                    <span className="w-4 h-4 border border-border rounded shrink-0 mt-0.5" />
-                    <span>{item}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </CardContent>
-        </Card>
-      ))}
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">GHL Build Checklist</p>
+                <ul className="text-xs text-foreground/80 space-y-1.5">
+                  {[
+                    `Create workflow in GHL with trigger: Contact Tag Added = ${GHL_TAG_BY_PROMPT_ID[seq.id]}`,
+                    "Add each step as a GHL action in order (use AI Workflow Prompts tab for scripts)",
+                    "Configure If/Then branches on all Call steps",
+                    "Add exit conditions for reply detection and booking tag",
+                    "Upload voicemail audio files to GHL Voicemail Drops library",
+                    "Test with a dummy contact in GHL",
+                    "Click Activate above to enable enrollment in this app",
+                  ].map((item, i) => (
+                    <li key={i} className="flex items-start gap-2" data-testid={`checklist-${seq.id}-${i}`}>
+                      <span className={`w-4 h-4 rounded shrink-0 mt-0.5 flex items-center justify-center ${i === 6 && isActive ? "bg-green-500" : "border border-border"}`}>
+                        {i === 6 && isActive && <CheckCircle className="w-3 h-3 text-white" />}
+                      </span>
+                      <span className={i === 6 ? "font-medium" : ""}>{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })}
     </div>
   );
 }
