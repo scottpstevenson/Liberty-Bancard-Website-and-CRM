@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { CheckCircle, XCircle, Save, RefreshCw, Workflow, Search, Copy, Download, ChevronDown, ChevronRight, Bot, FileText } from "lucide-react";
+import { CheckCircle, XCircle, Save, RefreshCw, Workflow, Search, Copy, Download, ChevronDown, ChevronRight, Bot, FileText, Phone, Mic, Mail, MessageSquare, Settings2, Map } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { jsPDF } from "jspdf";
 import {
@@ -86,6 +86,8 @@ const CATEGORY_COLORS: Record<string, string> = {
 const CHANNEL_LABELS: Record<string, string> = {
   email: "Email",
   sms: "SMS",
+  call: "Call",
+  voicemail_drop: "Voicemail Drop",
   task: "Internal Task",
   ai_conversation: "Conversation AI",
 };
@@ -93,6 +95,8 @@ const CHANNEL_LABELS: Record<string, string> = {
 const CHANNEL_COLORS: Record<string, string> = {
   email: "bg-blue-50 border-blue-200 dark:bg-blue-900/20 dark:border-blue-800",
   sms: "bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-800",
+  call: "bg-orange-50 border-orange-200 dark:bg-orange-900/20 dark:border-orange-800",
+  voicemail_drop: "bg-purple-50 border-purple-200 dark:bg-purple-900/20 dark:border-purple-800",
   task: "bg-amber-50 border-amber-200 dark:bg-amber-900/20 dark:border-amber-800",
   ai_conversation: "bg-purple-50 border-purple-200 dark:bg-purple-900/20 dark:border-purple-800",
 };
@@ -127,13 +131,37 @@ function CopyButton({ text, label }: { text: string; label: string }) {
   );
 }
 
+const CHANNEL_ICONS: Record<string, React.ReactNode> = {
+  email: <Mail className="w-3.5 h-3.5" />,
+  sms: <MessageSquare className="w-3.5 h-3.5" />,
+  call: <Phone className="w-3.5 h-3.5" />,
+  voicemail_drop: <Mic className="w-3.5 h-3.5" />,
+  task: <FileText className="w-3.5 h-3.5" />,
+  ai_conversation: <Bot className="w-3.5 h-3.5" />,
+};
+
 function StepCard({ step, sequenceId }: { step: SequenceStep; sequenceId: string }) {
   const [expanded, setExpanded] = useState(false);
   const channelColor = CHANNEL_COLORS[step.channel] || "";
 
-  const fullText = step.subject
+  const isCall = step.channel === "call";
+  const isVoicemail = step.channel === "voicemail_drop";
+
+  const primaryCopyText = isCall
+    ? (step.callScript || "")
+    : isVoicemail
+    ? (step.voicemailScript || "")
+    : step.subject
     ? `Subject: ${step.subject}\n\n${step.body}`
     : step.body;
+
+  const previewText = isCall
+    ? (step.callScript?.slice(0, 80) + "…")
+    : isVoicemail
+    ? (step.voicemailScript?.slice(0, 80) + "…")
+    : step.subject
+    ? step.subject
+    : step.body.slice(0, 80) + "…";
 
   return (
     <div className={`border rounded-lg overflow-hidden ${channelColor}`} data-testid={`card-step-${sequenceId}-${step.stepNumber}`}>
@@ -152,46 +180,210 @@ function StepCard({ step, sequenceId }: { step: SequenceStep; sequenceId: string
           </span>
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs font-semibold uppercase tracking-wide text-foreground/60">
+              <span className={`flex items-center gap-1 text-xs font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide ${
+                isCall ? "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300"
+                : isVoicemail ? "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300"
+                : "bg-foreground/10 text-foreground/60"
+              }`}>
+                {CHANNEL_ICONS[step.channel]}
                 {CHANNEL_LABELS[step.channel] || step.channel}
               </span>
               <span className="text-xs text-muted-foreground">— {step.delayDescription}</span>
+              {step.callMode && (
+                <span className="text-xs text-orange-600 dark:text-orange-400 font-medium">Mode: {step.callMode}</span>
+              )}
             </div>
-            {step.subject && (
-              <p className="text-sm font-medium text-foreground truncate mt-0.5">{step.subject}</p>
-            )}
-            {!step.subject && (
-              <p className="text-sm text-foreground/80 truncate mt-0.5">{step.body.slice(0, 80)}…</p>
-            )}
+            <p className="text-sm text-foreground/80 truncate mt-0.5">{previewText}</p>
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0 ml-2">
-          <CopyButton text={fullText} label={`Step ${step.stepNumber} of ${sequenceId}`} />
+          <CopyButton text={primaryCopyText} label={`Step ${step.stepNumber} of ${sequenceId}`} />
           {expanded ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
         </div>
       </div>
       {expanded && (
         <div className="px-4 pb-4 space-y-3">
-          {step.subject && (
-            <div>
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Subject Line</p>
-              <div className="flex items-start gap-2">
-                <p className="text-sm font-medium flex-1">{step.subject}</p>
-                <CopyButton text={step.subject} label={`Subject step ${step.stepNumber} ${sequenceId}`} />
+          {isCall && (
+            <>
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Call Script (30–45 sec)</p>
+                <div className="flex items-start gap-2">
+                  <pre className="text-sm whitespace-pre-wrap font-sans flex-1 leading-relaxed text-foreground/90 bg-orange-50 dark:bg-orange-900/10 rounded p-2 border border-orange-200 dark:border-orange-800">{step.callScript}</pre>
+                  <CopyButton text={step.callScript || ""} label={`Call script step ${step.stepNumber} ${sequenceId}`} />
+                </div>
               </div>
-            </div>
+              {step.callMode && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Mode:</span>
+                  <span className="text-xs bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300 px-2 py-0.5 rounded font-medium">{step.callMode}</span>
+                </div>
+              )}
+              {step.ghlNote && (
+                <div className="flex items-start gap-2 bg-blue-50 dark:bg-blue-900/10 border border-blue-200 dark:border-blue-800 rounded p-2">
+                  <Settings2 className="w-3.5 h-3.5 text-blue-500 shrink-0 mt-0.5" />
+                  <p className="text-xs text-blue-800 dark:text-blue-300"><span className="font-semibold">GHL Setup: </span>{step.ghlNote}</p>
+                </div>
+              )}
+            </>
           )}
-          <div>
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
-              {step.channel === "email" ? "Email Body" : step.channel === "sms" ? "SMS Message" : "Task / Notes"}
-            </p>
-            <div className="flex items-start gap-2">
-              <pre className="text-sm whitespace-pre-wrap font-sans flex-1 leading-relaxed text-foreground/90">{step.body}</pre>
-              <CopyButton text={step.body} label={`Body step ${step.stepNumber} ${sequenceId}`} />
-            </div>
-          </div>
+          {isVoicemail && (
+            <>
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Voicemail Script (15–20 sec)</p>
+                <div className="flex items-start gap-2">
+                  <pre className="text-sm whitespace-pre-wrap font-sans flex-1 leading-relaxed text-foreground/90 bg-purple-50 dark:bg-purple-900/10 rounded p-2 border border-purple-200 dark:border-purple-800">{step.voicemailScript}</pre>
+                  <CopyButton text={step.voicemailScript || ""} label={`Voicemail script step ${step.stepNumber} ${sequenceId}`} />
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground italic">Record this as an audio file and upload to GHL Voicemail Drops library.</p>
+              {step.ghlNote && (
+                <div className="flex items-start gap-2 bg-blue-50 dark:bg-blue-900/10 border border-blue-200 dark:border-blue-800 rounded p-2">
+                  <Settings2 className="w-3.5 h-3.5 text-blue-500 shrink-0 mt-0.5" />
+                  <p className="text-xs text-blue-800 dark:text-blue-300"><span className="font-semibold">GHL Setup: </span>{step.ghlNote}</p>
+                </div>
+              )}
+            </>
+          )}
+          {!isCall && !isVoicemail && (
+            <>
+              {step.subject && (
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Subject Line</p>
+                  <div className="flex items-start gap-2">
+                    <p className="text-sm font-medium flex-1">{step.subject}</p>
+                    <CopyButton text={step.subject} label={`Subject step ${step.stepNumber} ${sequenceId}`} />
+                  </div>
+                </div>
+              )}
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
+                  {step.channel === "email" ? "Email Body" : step.channel === "sms" ? "SMS Message" : "Task / Notes"}
+                </p>
+                <div className="flex items-start gap-2">
+                  <pre className="text-sm whitespace-pre-wrap font-sans flex-1 leading-relaxed text-foreground/90">{step.body}</pre>
+                  <CopyButton text={step.body} label={`Body step ${step.stepNumber} ${sequenceId}`} />
+                </div>
+              </div>
+            </>
+          )}
         </div>
       )}
+    </div>
+  );
+}
+
+const COLD_OUTBOUND_IDS = ["cold-outbound-auto-repair", "cold-outbound-dental", "cold-outbound-medspa"];
+
+const CHANNEL_CHIP_STYLES: Record<string, { bg: string; icon: React.ReactNode }> = {
+  email: { bg: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300", icon: <Mail className="w-3 h-3" /> },
+  sms: { bg: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300", icon: <MessageSquare className="w-3 h-3" /> },
+  call: { bg: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300", icon: <Phone className="w-3 h-3" /> },
+  voicemail_drop: { bg: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300", icon: <Mic className="w-3 h-3" /> },
+  task: { bg: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300", icon: <FileText className="w-3 h-3" /> },
+  ai_conversation: { bg: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300", icon: <Bot className="w-3 h-3" /> },
+};
+
+function CadenceBlueprints() {
+  const sequences = SEQUENCE_PROMPTS.filter(s => COLD_OUTBOUND_IDS.includes(s.id));
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
+          <Map className="w-5 h-5 text-primary" />
+          Cold Outbound Cadence Blueprints
+        </h2>
+        <p className="text-sm text-muted-foreground mt-1">
+          Visual cadence timelines for all 3 cold outbound sequences. Use these to build each workflow in GHL.
+        </p>
+      </div>
+
+      {sequences.map(seq => (
+        <Card key={seq.id} className="overflow-hidden" data-testid={`card-blueprint-${seq.id}`}>
+          <CardHeader className="pb-3">
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div>
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${CATEGORY_COLORS[seq.category] || "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"}`}>
+                    {CATEGORY_LABELS[seq.category] || seq.category}
+                  </span>
+                </div>
+                <CardTitle className="text-base">{seq.name}</CardTitle>
+                <p className="text-xs text-muted-foreground mt-1">{seq.triggerConditions}</p>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Cadence Timeline</p>
+              <div className="overflow-x-auto pb-2">
+                <div className="flex gap-2 min-w-max">
+                  {seq.steps.map(step => {
+                    const style = CHANNEL_CHIP_STYLES[step.channel] || CHANNEL_CHIP_STYLES.email;
+                    return (
+                      <div
+                        key={step.stepNumber}
+                        className={`flex flex-col items-center gap-1 px-2.5 py-2 rounded-lg border text-center min-w-[72px] ${style.bg}`}
+                        data-testid={`chip-step-${seq.id}-${step.stepNumber}`}
+                      >
+                        <span className="flex items-center gap-1">{style.icon}</span>
+                        <span className="text-[10px] font-semibold leading-tight">{CHANNEL_LABELS[step.channel]}</span>
+                        <span className="text-[10px] opacity-70 leading-tight">{step.delayDescription}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">If/Then Branch Logic</p>
+              <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-1.5 text-xs text-foreground/80">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
+                  <span><span className="font-semibold">Call Answered</span> → Remove from sequence, enroll in Inbound Nurture workflow</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-purple-500 shrink-0" />
+                  <span><span className="font-semibold">Voicemail</span> → Drop voicemail audio + send follow-up SMS (5 min delay)</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-slate-400 shrink-0" />
+                  <span><span className="font-semibold">No Answer</span> → Continue sequence to next step</span>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Exit Conditions</p>
+              <ul className="text-xs text-foreground/80 space-y-1 list-none">
+                <li className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5 text-green-500 shrink-0" /> Contact replies to any email or SMS → stop sequence</li>
+                <li className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5 text-green-500 shrink-0" /> Appointment booked (tag LB-BOOKING-READY added) → stop sequence</li>
+                <li className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5 text-green-500 shrink-0" /> DNC / STOP reply received → stop sequence immediately</li>
+              </ul>
+            </div>
+
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">GHL Build Checklist</p>
+              <ul className="text-xs text-foreground/80 space-y-1.5">
+                {[
+                  `Create workflow with trigger: Contact Tag Added = LB-COLD-${seq.id === "cold-outbound-auto-repair" ? "AUTO-REPAIR" : seq.id === "cold-outbound-dental" ? "DENTAL" : "MEDSPA"}`,
+                  "Add each step as a GHL action in order",
+                  "Configure If/Then branches on all Call steps",
+                  "Add exit conditions for reply detection and booking tag",
+                  "Upload voicemail audio files to GHL Voicemail Drops library",
+                  "Test with a dummy contact",
+                ].map((item, i) => (
+                  <li key={i} className="flex items-start gap-2" data-testid={`checklist-${seq.id}-${i}`}>
+                    <span className="w-4 h-4 border border-border rounded shrink-0 mt-0.5" />
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </CardContent>
+        </Card>
+      ))}
     </div>
   );
 }
@@ -217,15 +409,28 @@ function SequenceCard({ sequence }: { sequence: SequencePrompt }) {
       ? `USES CONVERSATION AI: Yes\n${aiPromptBlock}`
       : `USES CONVERSATION AI: No`,
     ``,
-    ...sequence.steps.flatMap(step => [
-      `─────────────────────────────────`,
-      `STEP ${step.stepNumber} — ${CHANNEL_LABELS[step.channel] || step.channel}`,
-      `Timing: ${step.delayDescription}`,
-      step.subject ? `Subject: ${step.subject}` : "",
-      step.subject ? `` : "",
-      step.body,
-      ``,
-    ]),
+    ...sequence.steps.flatMap(step => {
+      const lines = [
+        `─────────────────────────────────`,
+        `STEP ${step.stepNumber} — ${CHANNEL_LABELS[step.channel] || step.channel}`,
+        `Timing: ${step.delayDescription}`,
+      ];
+      if (step.channel === "call") {
+        if (step.callMode) lines.push(`Call Mode: ${step.callMode}`);
+        lines.push(``, `CALL SCRIPT (30–45 sec):`, step.callScript || "");
+        if (step.ghlNote) lines.push(``, `GHL SETUP: ${step.ghlNote}`);
+      } else if (step.channel === "voicemail_drop") {
+        lines.push(``, `VOICEMAIL SCRIPT (15–20 sec):`, step.voicemailScript || "");
+        if (step.ghlNote) lines.push(``, `GHL SETUP: ${step.ghlNote}`);
+        lines.push(`NOTE: Record as audio file and upload to GHL Voicemail Drops library.`);
+      } else {
+        if (step.subject) lines.push(`Subject: ${step.subject}`, ``);
+        lines.push(step.body);
+        if (step.ghlNote) lines.push(``, `GHL SETUP: ${step.ghlNote}`);
+      }
+      lines.push(``);
+      return lines;
+    }),
   ].filter(l => l !== undefined).join("\n");
 
   return (
@@ -384,9 +589,24 @@ function PromptsDocument() {
       for (const step of seq.steps) {
         addText(`STEP ${step.stepNumber} — ${CHANNEL_LABELS[step.channel] || step.channel}`, 9, true);
         addText(`Timing: ${step.delayDescription}`, 8);
-        if (step.subject) addText(`Subject: ${step.subject}`, 8);
-        addBlankLine();
-        addText(step.body, 7);
+        if (step.channel === "call") {
+          if (step.callMode) addText(`Call Mode: ${step.callMode}`, 8);
+          addBlankLine();
+          addText("CALL SCRIPT (30–45 sec):", 8, true);
+          addText(step.callScript || "", 7);
+          if (step.ghlNote) { addBlankLine(); addText(`GHL SETUP: ${step.ghlNote}`, 7); }
+        } else if (step.channel === "voicemail_drop") {
+          addBlankLine();
+          addText("VOICEMAIL SCRIPT (15–20 sec):", 8, true);
+          addText(step.voicemailScript || "", 7);
+          if (step.ghlNote) { addBlankLine(); addText(`GHL SETUP: ${step.ghlNote}`, 7); }
+          addText("NOTE: Record as audio file and upload to GHL Voicemail Drops library.", 7);
+        } else {
+          if (step.subject) addText(`Subject: ${step.subject}`, 8);
+          addBlankLine();
+          addText(step.body, 7);
+          if (step.ghlNote) { addBlankLine(); addText(`GHL SETUP: ${step.ghlNote}`, 7); }
+        }
         addBlankLine();
       }
       addBlankLine();
@@ -414,8 +634,19 @@ function PromptsDocument() {
       lines.push("");
       for (const step of seq.steps) {
         lines.push(`STEP ${step.stepNumber} [${CHANNEL_LABELS[step.channel]}] — ${step.delayDescription}`);
-        if (step.subject) lines.push(`Subject: ${step.subject}`);
-        lines.push(step.body);
+        if (step.channel === "call") {
+          if (step.callMode) lines.push(`Call Mode: ${step.callMode}`);
+          lines.push(`CALL SCRIPT: ${step.callScript || ""}`);
+          if (step.ghlNote) lines.push(`GHL SETUP: ${step.ghlNote}`);
+        } else if (step.channel === "voicemail_drop") {
+          lines.push(`VOICEMAIL SCRIPT: ${step.voicemailScript || ""}`);
+          if (step.ghlNote) lines.push(`GHL SETUP: ${step.ghlNote}`);
+          lines.push(`NOTE: Record as audio file and upload to GHL Voicemail Drops library.`);
+        } else {
+          if (step.subject) lines.push(`Subject: ${step.subject}`);
+          lines.push(step.body);
+          if (step.ghlNote) lines.push(`GHL SETUP: ${step.ghlNote}`);
+        }
         lines.push("");
       }
     }
@@ -590,6 +821,10 @@ export default function GhlWorkflowManager() {
             <FileText className="w-4 h-4 mr-1.5" />
             AI Workflow Prompts
           </TabsTrigger>
+          <TabsTrigger value="blueprints" data-testid="tab-blueprints">
+            <Map className="w-4 h-4 mr-1.5" />
+            Cadence Blueprints
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="id-manager" className="space-y-4 mt-4">
@@ -694,6 +929,10 @@ export default function GhlWorkflowManager() {
 
         <TabsContent value="prompts" className="mt-4">
           <PromptsDocument />
+        </TabsContent>
+
+        <TabsContent value="blueprints" className="mt-4">
+          <CadenceBlueprints />
         </TabsContent>
       </Tabs>
     </div>

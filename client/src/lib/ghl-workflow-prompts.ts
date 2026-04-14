@@ -1,9 +1,13 @@
 export interface SequenceStep {
   stepNumber: number;
-  channel: "email" | "sms" | "task" | "ai_conversation";
+  channel: "email" | "sms" | "call" | "voicemail_drop" | "task" | "ai_conversation";
   delayDescription: string;
   subject?: string;
   body: string;
+  callScript?: string;
+  voicemailScript?: string;
+  callMode?: string;
+  ghlNote?: string;
 }
 
 export interface SequencePrompt {
@@ -1161,13 +1165,13 @@ Liberty Bancard`,
     id: "cold-outbound-medspa",
     name: "SDR: Cold Outbound — Med Spa",
     category: "sdr_cold_outbound",
-    triggerConditions: "Cold outbound to med spa, aesthetic clinic, laser, or cosmetic surgery businesses. No prior contact.",
+    triggerConditions: "Cold outbound to med spas, aesthetic clinics, laser clinics, cosmetic surgery practices. No prior contact. GHL trigger: Contact tag = LB-COLD-MEDSPA OR business_type = medspa.",
     usesConversationAI: false,
     steps: [
       {
         stepNumber: 1,
         channel: "email",
-        delayDescription: "Day 1",
+        delayDescription: "Day 1 AM",
         subject: "Processing for high-value bookings — are you protected?",
         body: `Hi {{contact.firstName}},
 
@@ -1184,28 +1188,129 @@ Liberty Bancard | [Phone]`,
       },
       {
         stepNumber: 2,
-        channel: "sms",
-        delayDescription: "Day 2",
-        body: `Hi {{contact.firstName}}, [SDR Name] from Liberty Bancard. Do you take deposits for high-value bookings? There's a right way and a wrong way to process them that affects chargeback risk. Happy to talk. [Phone]. Reply STOP to opt out.`,
+        channel: "call",
+        delayDescription: "Day 1 +2h",
+        body: "",
+        callScript: "Hi {{contact.firstName}}, this is [SDR Name] with Liberty Bancard — I emailed you this morning about payment processing for your med spa. Specifically about chargeback protection on high-value bookings — Botox, filler, laser, body contouring — where a no-show or a results dispute can turn into a chargeback if your setup isn't airtight. We've worked with aesthetic clinics to structure their processing so they're protected. Happy to do a free review of your current setup — 15 minutes. Call or text me at [Phone] or book at [Calendar Link]. Thanks.",
+        callMode: "intro_qualification",
+        ghlNote: "GHL Action: Create Outbound Call. Branch: Answered → Inbound Nurture. Voicemail → Step 2b.",
       },
       {
         stepNumber: 3,
+        channel: "voicemail_drop",
+        delayDescription: "Day 1 +2h (if voicemail)",
+        body: "",
+        voicemailScript: "Hi {{contact.firstName}}, [SDR Name] from Liberty Bancard. Called about chargeback protection for med spa bookings — no-show fees and pre-authorization deposits. Wrong setup creates real exposure. Free review, 15 minutes. [Phone] or [Calendar Link]. Thanks.",
+        ghlNote: "Voicemail Drop → medspa voicemail 1 audio. Trigger Step 2c SMS immediately.",
+      },
+      {
+        stepNumber: 4,
+        channel: "sms",
+        delayDescription: "Day 1 +5min (if voicemail)",
+        body: "{{contact.firstName}}, [SDR Name] from Liberty Bancard — just left a voicemail. We help med spas reduce chargeback risk on high-value bookings. No-show fees, pre-auth, deposit handling — all covered. Free review: [Calendar Link]. Reply STOP to opt out.",
+      },
+      {
+        stepNumber: 5,
         channel: "email",
-        delayDescription: "Day 5",
-        subject: "Med spa chargeback risk — what the card brands actually say",
+        delayDescription: "Day 3",
+        subject: "The no-show deposit mistake most med spas make",
         body: `Hi {{contact.firstName}},
 
-Chargebacks in the aesthetic and med spa space often come from:
-- Clients disputing results ("services not as described")
-- No-show fees the client disputes
-- Deposits not properly disclosed at booking
+When a client no-shows a $600 filler appointment and disputes the deposit charge, here's what usually happens:
 
-The card brands (Visa, Mastercard) have specific rules about what you can and can't hold as a no-show fee and how you must disclose cancellation policies. If your processor isn't guiding you through this, you're exposed.
+The card brand investigates. They look at: (1) whether the cancellation policy was clearly disclosed at booking, (2) whether the cardholder signed or clicked to confirm they understood the policy, and (3) whether the charge description matches the cancellation policy language.
 
-Liberty Bancard includes chargeback guidance for high-risk transaction types as part of our merchant support. Want to review your current policies?
+Most med spas lose these disputes — not because their policy is wrong, but because their checkout flow doesn't capture the right documentation.
+
+Liberty Bancard has helped aesthetic practices update their booking and payment flow to pass card brand scrutiny. It's a process fix, not a technology overhaul.
+
+Want to walk through your current setup?
 
 — [SDR Name]
 Liberty Bancard | [Phone]`,
+      },
+      {
+        stepNumber: 6,
+        channel: "call",
+        delayDescription: "Day 5",
+        body: "",
+        callScript: "Hi {{contact.firstName}}, [SDR Name] from Liberty Bancard again. Quick follow-up — I've sent a couple of emails about chargeback protection for your med spa. I'll be straight with you: most aesthetic practices we review have at least one gap in their booking deposit or cancellation documentation that creates chargeback exposure. The fix is usually pretty simple. Worth 15 minutes to check. Call me at [Phone] or book at [Calendar Link].",
+        callMode: "statement_chase",
+        ghlNote: "GHL Action: Outbound Call. Branch: Answered → Inbound Nurture. Voicemail → Step 4b.",
+      },
+      {
+        stepNumber: 7,
+        channel: "voicemail_drop",
+        delayDescription: "Day 5 (if voicemail)",
+        body: "",
+        voicemailScript: "Hi {{contact.firstName}}, [SDR Name], Liberty Bancard. Following up on medspa processing — specifically deposit and cancellation documentation for chargeback protection. Free 15-minute review. [Phone] or [Calendar Link]. Talk soon.",
+        ghlNote: "Voicemail Drop → medspa voicemail 2. Trigger Step 4c SMS.",
+      },
+      {
+        stepNumber: 8,
+        channel: "sms",
+        delayDescription: "Day 5 +5min (if voicemail)",
+        body: "{{contact.firstName}}, [SDR Name] at Liberty Bancard. Med spa chargebacks on no-show fees are avoidable with the right setup. Free review: [Calendar Link]. Reply STOP to opt out.",
+      },
+      {
+        stepNumber: 9,
+        channel: "email",
+        delayDescription: "Day 7",
+        subject: "How a Miami med spa eliminated chargeback losses on aesthetic bookings",
+        body: `Hi {{contact.firstName}},
+
+A med spa in Miami was averaging 3–4 chargebacks per month on high-value bookings — mostly "services not as described" disputes on filler and laser treatments, plus no-show fee disputes.
+
+After working with Liberty Bancard, two things changed:
+
+1. Booking flow update: Added a compliant pre-authorization disclosure and a required checkbox confirmation at booking. Disputes dropped by 80% in the first quarter because the card brands couldn't rule in the cardholder's favor.
+
+2. Transaction descriptions: Changed how the charge appeared on the cardholder's statement — from a generic practice name to a specific service + date description. Reduced "don't recognize this charge" disputes.
+
+Total monthly chargeback loss before: ~$2,200. After: ~$400.
+
+If you want to walk through your current setup, I can usually spot the gaps in 15 minutes.
+
+— [SDR Name]
+Liberty Bancard | [Phone]`,
+      },
+      {
+        stepNumber: 10,
+        channel: "call",
+        delayDescription: "Day 10",
+        body: "",
+        callScript: "Hi {{contact.firstName}}, [SDR Name], Liberty Bancard. Last call from me. I know you've got a full schedule. If you ever want a free look at your chargeback exposure on aesthetic bookings — no cost, no pressure — I'm at [Phone]. Best of luck with the business.",
+        callMode: "intro_qualification",
+        ghlNote: "GHL Action: Outbound Call. Branch: Answered → Inbound Nurture. Voicemail → Step 6b.",
+      },
+      {
+        stepNumber: 11,
+        channel: "voicemail_drop",
+        delayDescription: "Day 10 (if voicemail)",
+        body: "",
+        voicemailScript: "Hi {{contact.firstName}}, [SDR Name], Liberty Bancard. Last message — if you ever want a free chargeback risk review for your med spa, call [Phone]. Take care.",
+        ghlNote: "Voicemail Drop → medspa final voicemail. Trigger Step 6c SMS.",
+      },
+      {
+        stepNumber: 12,
+        channel: "sms",
+        delayDescription: "Day 10 +5min (if voicemail)",
+        body: "{{contact.firstName}}, last one from [SDR Name] at Liberty Bancard. Free medspa chargeback review whenever you need it. [Phone]. Reply STOP to opt out.",
+      },
+      {
+        stepNumber: 13,
+        channel: "email",
+        delayDescription: "Day 14",
+        subject: "Closing the loop — here when you need it",
+        body: `Hi {{contact.firstName}},
+
+I've reached out a few times about chargeback protection and processing setup for your med spa. I don't want to keep showing up in your inbox if the timing isn't right.
+
+Closing this out. If anything changes — new processor questions, chargeback issues, looking to benchmark your rates — feel free to reach out directly.
+
+Liberty Bancard | [Phone] | [Calendar Link]
+
+— [SDR Name]`,
       },
     ],
   },
@@ -1217,13 +1322,13 @@ Liberty Bancard | [Phone]`,
     id: "cold-outbound-dental",
     name: "SDR: Cold Outbound — Dental",
     category: "sdr_cold_outbound",
-    triggerConditions: "Cold outbound to dental offices, dental groups, orthodontic practices. No prior contact.",
+    triggerConditions: "Cold outbound to dental offices, dental groups, orthodontic practices. No prior contact. GHL trigger: Contact tag = LB-COLD-DENTAL OR imported with business_type = dental.",
     usesConversationAI: false,
     steps: [
       {
         stepNumber: 1,
         channel: "email",
-        delayDescription: "Day 1",
+        delayDescription: "Day 1 AM",
         subject: "Payment processing for dental offices — three things worth checking",
         body: `Hi {{contact.firstName}},
 
@@ -1242,25 +1347,125 @@ Liberty Bancard | [Phone]`,
       },
       {
         stepNumber: 2,
-        channel: "sms",
-        delayDescription: "Day 3",
-        body: `Hi {{contact.firstName}}, [SDR Name] from Liberty Bancard. Dental offices have some specific payment processing needs that general processors miss. Happy to do a free review. [Phone]. Reply STOP to opt out.`,
+        channel: "call",
+        delayDescription: "Day 1 +2h",
+        body: "",
+        callScript: "Hi {{contact.firstName}}, this is [SDR Name] with Liberty Bancard. I sent you an email this morning about payment processing for dental practices. Three things that dental offices often miss: HSA and FSA card acceptance coding, HIPAA-compliant online payment pages, and proper setup for in-house payment plans on larger procedures. Any one of those can cost you patients or expose you to chargebacks. I'd love to do a free review of your current setup — takes about 15 minutes. Give me a call at [Phone] or book at [Calendar Link]. Thanks.",
+        callMode: "intro_qualification",
+        ghlNote: "GHL Action: Create Outbound Call task. Branch: Answered → move to Inbound Nurture. Voicemail → Step 2b.",
       },
       {
         stepNumber: 3,
+        channel: "voicemail_drop",
+        delayDescription: "Day 1 +2h (if voicemail)",
+        body: "",
+        voicemailScript: "Hi {{contact.firstName}}, [SDR Name] from Liberty Bancard. Calling about payment processing for your dental practice — specifically HSA/FSA card acceptance and HIPAA-compliant payment pages. Free 15-minute review. Call back at [Phone] or book at [Calendar Link]. Thanks.",
+        ghlNote: "GHL Action: Voicemail Drop → dental voicemail 1 audio. Trigger Step 2c SMS.",
+      },
+      {
+        stepNumber: 4,
+        channel: "sms",
+        delayDescription: "Day 1 +5min (if voicemail)",
+        body: "{{contact.firstName}}, [SDR Name] from Liberty Bancard — just left a voicemail. We help dental offices with HSA/FSA card acceptance, online payment compliance, and in-house plan setup. Free review. [Calendar Link]. Reply STOP to opt out.",
+      },
+      {
+        stepNumber: 5,
         channel: "email",
-        delayDescription: "Day 6",
-        subject: "In-house payment plans and processing risk",
+        delayDescription: "Day 3",
+        subject: "HSA/FSA card declines — is your terminal coded correctly?",
         body: `Hi {{contact.firstName}},
 
-If you offer in-house payment plans for large dental procedures, the way you charge recurring payments matters significantly.
+One of the most common complaints we hear from dental patients: their HSA or FSA card got declined at the office.
 
-Poor setup leads to: failed payments, patient disputes, and chargeback exposure if proper authorization language wasn't obtained at signing.
+This almost always comes down to MCC (merchant category code) setup. If your terminal or payment gateway isn't coded as a dental or healthcare merchant, HSA/FSA cards decline even when the balance is there. The patient blames your staff. It creates friction at checkout and can cost you reviews.
 
-Liberty Bancard includes recurring billing optimization and patient authorization guidance. If you're running in-house financing, it's worth 15 minutes to make sure your setup is airtight.
+Liberty Bancard verifies MCC coding as part of every dental account setup and reviews existing setups during our free analysis.
+
+Want us to check yours? [Calendar Link] or reply to this email.
 
 — [SDR Name]
 Liberty Bancard | [Phone]`,
+      },
+      {
+        stepNumber: 6,
+        channel: "call",
+        delayDescription: "Day 5",
+        body: "",
+        callScript: "Hi {{contact.firstName}}, [SDR Name] from Liberty Bancard. Quick follow-up on the emails I sent about dental practice payment processing. I'll be direct — most dental offices we analyze find 2 or 3 things that are costing them money or creating compliance risk. It's a free 15-minute review. If there's nothing wrong, great — you'll know for sure. Call me at [Phone] or book at [Calendar Link].",
+        callMode: "statement_chase",
+        ghlNote: "GHL Action: Create Outbound Call task. Branch: Answered → Inbound Nurture. Voicemail → Step 4b.",
+      },
+      {
+        stepNumber: 7,
+        channel: "voicemail_drop",
+        delayDescription: "Day 5 (if voicemail)",
+        body: "",
+        voicemailScript: "Hi {{contact.firstName}}, [SDR Name], Liberty Bancard. Following up on dental practice payment processing — just want to make sure your HSA/FSA setup and online payments are airtight. Free review. [Phone] or [Calendar Link]. Thanks.",
+        ghlNote: "Voicemail Drop → dental voicemail 2. Trigger Step 4c SMS.",
+      },
+      {
+        stepNumber: 8,
+        channel: "sms",
+        delayDescription: "Day 5 +5min (if voicemail)",
+        body: "{{contact.firstName}}, [SDR Name] from Liberty Bancard. Dental practices lose patients when HSA/FSA cards decline at checkout. We fix that. Free review: [Calendar Link]. Reply STOP to opt out.",
+      },
+      {
+        stepNumber: 9,
+        channel: "email",
+        delayDescription: "Day 7",
+        subject: "In-house payment plans and chargeback risk — what dental offices need to know",
+        body: `Hi {{contact.firstName}},
+
+If your practice offers in-house payment plans for implants, Invisalign, or other large procedures, here's what matters for chargeback protection:
+
+1. Authorization language at signing: Your payment plan agreement needs specific Visa/Mastercard-approved language or the recurring charges are disputable. Most dental offices don't know their agreement language is insufficient until they get their first chargeback.
+
+2. Recurring billing setup: Charging a card on file requires specific cardholder consent documentation. If your front desk is manually running the card each month without a signed recurring authorization, you're exposed.
+
+3. Returned payment handling: What happens when a payment plan installment fails? How you notify the patient and retry the charge matters for your chargeback ratio.
+
+Liberty Bancard includes a dental-specific payment plan compliance review at no additional cost. If you offer in-house financing, it's worth 15 minutes.
+
+— [SDR Name]
+Liberty Bancard | [Phone]`,
+      },
+      {
+        stepNumber: 10,
+        channel: "call",
+        delayDescription: "Day 10",
+        body: "",
+        callScript: "Hi {{contact.firstName}}, [SDR Name], Liberty Bancard. Last outreach from me for a while. I know you're busy running a practice — I just want to make sure you're not losing money on HSA card declines or sitting on any compliance risk with your payment setup. If you ever want the free review, I'm at [Phone]. Thanks for your time.",
+        callMode: "intro_qualification",
+        ghlNote: "GHL Action: Outbound Call. Branch: Answered → Inbound Nurture. Voicemail → Step 6b.",
+      },
+      {
+        stepNumber: 11,
+        channel: "voicemail_drop",
+        delayDescription: "Day 10 (if voicemail)",
+        body: "",
+        voicemailScript: "Hi {{contact.firstName}}, [SDR Name], Liberty Bancard. Last message — if you ever want a free review of your dental practice payment setup, I'm at [Phone]. Take care.",
+        ghlNote: "Voicemail Drop → dental final voicemail. Trigger Step 6c SMS.",
+      },
+      {
+        stepNumber: 12,
+        channel: "sms",
+        delayDescription: "Day 10 +5min (if voicemail)",
+        body: "{{contact.firstName}}, last one from [SDR Name] at Liberty Bancard. Free dental payment processing review whenever you're ready. [Phone]. Reply STOP to opt out.",
+      },
+      {
+        stepNumber: 13,
+        channel: "email",
+        delayDescription: "Day 14",
+        subject: "Closing the loop on your practice's payment setup",
+        body: `Hi {{contact.firstName}},
+
+I've reached out several times — I don't want to keep cluttering your inbox if the timing isn't right.
+
+Closing this one out. If you ever want a free review of your processing costs, HSA/FSA setup, or in-house payment plan compliance, feel free to reach out directly.
+
+Liberty Bancard | [Phone] | [Calendar Link]
+
+— [SDR Name]`,
       },
     ],
   },
@@ -1272,13 +1477,13 @@ Liberty Bancard | [Phone]`,
     id: "cold-outbound-auto-repair",
     name: "SDR: Cold Outbound — Auto Repair",
     category: "sdr_cold_outbound",
-    triggerConditions: "Cold outbound to auto repair shops, tire shops, body shops, oil change shops. No prior contact.",
+    triggerConditions: "Cold outbound to auto repair shops, tire shops, body shops, oil change shops. No prior contact. GHL trigger: Contact tag added = LB-COLD-AUTO-REPAIR OR contact enrolled via Sunbiz/Outscraper import with business_type = auto_repair.",
     usesConversationAI: false,
     steps: [
       {
         stepNumber: 1,
         channel: "email",
-        delayDescription: "Day 1",
+        delayDescription: "Day 1 AM",
         subject: "Auto repair processing — what's your effective rate on large tickets?",
         body: `Hi {{contact.firstName}},
 
@@ -1297,27 +1502,124 @@ Liberty Bancard | [Phone]`,
       },
       {
         stepNumber: 2,
-        channel: "sms",
-        delayDescription: "Day 2",
-        body: `{{contact.firstName}}, [SDR Name] from Liberty Bancard. Auto repair shops often overpay on large-ticket transactions. Know your effective rate? Happy to take a look. [Phone]. Reply STOP to opt out.`,
+        channel: "call",
+        delayDescription: "Day 1 +2h",
+        body: "",
+        callScript: "Hi {{contact.firstName}}, this is [SDR Name] with Liberty Bancard — I sent you a quick email this morning about processing costs for auto repair shops. On large tickets — $500, $1,500, $2,500+ — most shops are paying more than they need to because of how interchange is set up. We do a free 24-hour analysis, just need a recent statement. Happy to walk through what we find. Give me a call back at [Phone] or book online at [Calendar Link]. Thanks.",
+        callMode: "intro_qualification",
+        ghlNote: "GHL Action: Create Outbound Call task → assign to SDR. Branch: Answered → go to Step 3 email. Voicemail → go to Step 2b voicemail drop.",
       },
       {
         stepNumber: 3,
+        channel: "voicemail_drop",
+        delayDescription: "Day 1 +2h (if voicemail)",
+        body: "",
+        voicemailScript: "Hi {{contact.firstName}}, this is [SDR Name] from Liberty Bancard. Just tried you — calling about your processing costs on large repair tickets. Most auto shops we analyze save $800–$1,600 a month. Free review, 24 hours, just need a statement. Call me back at [Phone] or book at [Calendar Link]. Thanks.",
+        ghlNote: "GHL Action: Voicemail Drop → select pre-recorded auto repair voicemail audio. Immediately trigger Step 2c SMS.",
+      },
+      {
+        stepNumber: 4,
+        channel: "sms",
+        delayDescription: "Day 1 +5min (if voicemail)",
+        body: "{{contact.firstName}}, just left you a voicemail — [SDR Name] from Liberty Bancard. We help auto shops cut processing costs on large-ticket repairs. Free analysis, 24 hrs. Book here: [Calendar Link]. Reply STOP to opt out.",
+        ghlNote: "GHL Action: Send SMS. Set 5-minute wait after voicemail drop.",
+      },
+      {
+        stepNumber: 5,
         channel: "email",
-        delayDescription: "Day 5",
-        subject: "Cash discount for auto repair — cut processing costs to near zero",
+        delayDescription: "Day 3",
+        subject: "The two processing costs hitting auto shops hardest right now",
         body: `Hi {{contact.firstName}},
 
-A lot of auto shops have moved to cash discount programs — pricing that offers customers a small discount for paying cash, while covering processing costs through the card price.
+Two line items that consistently cost auto shops the most:
 
-For a shop doing $100K/month in processing, this can shift $2,000–$2,500/month in fees off your books.
+1. Commercial card interchange — When a business owner or fleet account pays with a corporate card, interchange is higher (sometimes 0.5–0.8% more than a standard consumer card). Most processors don't tell you this. There are surcharging programs specifically designed for shops that handle fleet business.
 
-The setup takes about 2 weeks (new terminal programming, updated signage, revised price sheet). Liberty Bancard handles the compliance side.
+2. Keyed transactions — Any repair order taken over the phone or billed remotely costs more to process than a card-present swipe. If you're doing $20–30K/month in keyed orders, that gap adds up.
 
-Worth a conversation? [Phone]
+Want to see exactly how these show up on your statement? I can turn a review around in 24 hours.
 
 — [SDR Name]
-Liberty Bancard`,
+Liberty Bancard | [Phone]`,
+      },
+      {
+        stepNumber: 6,
+        channel: "call",
+        delayDescription: "Day 5",
+        body: "",
+        callScript: "Hi {{contact.firstName}}, [SDR Name] again from Liberty Bancard — following up on the email I sent about your processing costs. I know you're busy, I'll keep it short — if you run $100K a month or more through your terminals, there's a real chance we can save you $1,000–$2,000 a month. Doesn't cost anything to find out. Call me at [Phone] or grab a time at [Calendar Link]. Thanks.",
+        callMode: "statement_chase",
+        ghlNote: "GHL Action: Create Outbound Call task. Branch: Answered → remove from sequence, move to V-Auto Inbound Nurture. Voicemail → Step 4b.",
+      },
+      {
+        stepNumber: 7,
+        channel: "voicemail_drop",
+        delayDescription: "Day 5 (if voicemail)",
+        body: "",
+        voicemailScript: "Hi {{contact.firstName}}, [SDR Name], Liberty Bancard. Third try — I'll make this the last one for a bit. We help auto shops cut processing costs on large tickets and fleet cards. Free review. [Phone] or [Calendar Link]. Talk soon.",
+        ghlNote: "GHL Action: Voicemail Drop → auto repair voicemail 2 audio. Trigger Step 4c SMS immediately.",
+      },
+      {
+        stepNumber: 8,
+        channel: "sms",
+        delayDescription: "Day 5 +5min (if voicemail)",
+        body: "{{contact.firstName}}, [SDR Name] from Liberty Bancard again. If your repair shop does $100K+/month in card volume, there's money being left on the table. Free analysis. [Calendar Link]. Reply STOP to opt out.",
+      },
+      {
+        stepNumber: 9,
+        channel: "email",
+        delayDescription: "Day 7",
+        subject: "How an Orlando auto shop dropped their effective rate from 2.8% to 1.9%",
+        body: `Hi {{contact.firstName}},
+
+Quick case example:
+
+A 3-bay auto repair shop in Orlando was processing about $180K/month. Effective rate: 2.8%. After our review, we found they had two problems: all fleet card transactions were being processed at retail interchange (wrong MCC classification), and they were paying a monthly equipment lease fee on a terminal they owned outright.
+
+After switching to Liberty Bancard: effective rate dropped to 1.9%. Fleet cards routed correctly. Equipment lease fee eliminated. Monthly savings: around $1,620.
+
+If you want to see what's on your statement, I'm happy to run the same analysis for your shop. Just send it over and I'll have results in 24 hours.
+
+— [SDR Name]
+Liberty Bancard | [Phone]`,
+      },
+      {
+        stepNumber: 10,
+        channel: "call",
+        delayDescription: "Day 10",
+        body: "",
+        callScript: "Hi {{contact.firstName}}, this is [SDR Name] from Liberty Bancard. Last call from me — I've reached out a few times about your processing costs. If the timing isn't right, no problem at all. If you do want to see what we find on a statement review — $0 cost, no obligation — I'm at [Phone]. Hope business is going well.",
+        callMode: "intro_qualification",
+        ghlNote: "GHL Action: Create Outbound Call task. Branch: Answered → move to Inbound Nurture. Voicemail → Step 6b.",
+      },
+      {
+        stepNumber: 11,
+        channel: "voicemail_drop",
+        delayDescription: "Day 10 (if voicemail)",
+        body: "",
+        voicemailScript: "Hi {{contact.firstName}}, [SDR Name], Liberty Bancard. Last message — if the timing ever works out, we do free statement reviews for auto shops and have helped shops in your area save real money. [Phone]. Take care.",
+        ghlNote: "GHL Action: Voicemail Drop → auto repair final voicemail audio. Trigger Step 6c SMS.",
+      },
+      {
+        stepNumber: 12,
+        channel: "sms",
+        delayDescription: "Day 10 +5min (if voicemail)",
+        body: "{{contact.firstName}}, last one from [SDR Name] at Liberty Bancard. If you ever want a free review of your processing costs, I'm here. [Phone]. Reply STOP to opt out.",
+      },
+      {
+        stepNumber: 13,
+        channel: "email",
+        delayDescription: "Day 14",
+        subject: "Closing the loop — free to reach out anytime",
+        body: `Hi {{contact.firstName}},
+
+I've reached out a few times about payment processing for your shop — I don't want to keep pinging you if the timing isn't right.
+
+I'll close this one out. If you ever want a free statement review — no cost, no commitment — you know where to find me.
+
+Liberty Bancard | [Phone] | [Calendar Link]
+
+— [SDR Name]`,
       },
     ],
   },
