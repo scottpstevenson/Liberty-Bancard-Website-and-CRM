@@ -20,6 +20,7 @@ import {
   Check,
   X,
   Minus,
+  ShieldCheck,
 } from "lucide-react";
 import imgCloverFlex3 from "@assets/images/terminal-clover-flex-3.png";
 import imgPaxA920 from "@assets/images/terminal-pax-a920.png";
@@ -344,6 +345,10 @@ export default function BeatSquareStripe() {
                   </li>
                 ))}
               </ul>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 rounded-md px-3 py-2 mb-4" data-testid="text-guarantee-oneliner">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                If we can't beat your current processor, we'll tell you upfront. No pressure — you keep the breakdown either way.
+              </div>
               <p
                 className="text-xs text-muted-foreground mb-6"
                 data-testid="text-beat-microcopy"
@@ -353,7 +358,7 @@ export default function BeatSquareStripe() {
               <Link href="/upload-statement" data-testid="link-beat-get-upload">
                 <Button className="gap-2">
                   <Upload className="w-4 h-4" />
-                  Upload Statement
+                  Start The Liberty Analysis
                   <ArrowRight className="w-4 h-4" />
                 </Button>
               </Link>

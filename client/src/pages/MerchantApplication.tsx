@@ -29,7 +29,9 @@ import {
   Monitor,
   FileCheck,
   ClipboardList,
+  ShieldCheck,
 } from "lucide-react";
+import { Link } from "wouter";
 
 const DRAFT_KEY = "merchant_app_draft";
 
@@ -1217,6 +1219,17 @@ export default function MerchantApplication() {
                 </div>
               </CardContent>
             </Card>
+
+            <div className="flex flex-col items-center gap-1.5 mt-6 py-4 border-t border-border" data-testid="section-no-lockin">
+              <div className="inline-flex items-center gap-2 text-sm text-foreground font-semibold">
+                <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                Cancel Anytime. No Early Termination Fee. No Penalty.
+              </div>
+              <p className="text-xs text-muted-foreground text-center max-w-sm">
+                We earn your business every month. No lock-in, no cancellation fees.{" "}
+                <Link href="/terms" className="underline text-primary">See merchant terms →</Link>
+              </p>
+            </div>
 
             <p className="text-xs text-muted-foreground text-center mt-4" data-testid="text-footer-disclaimer">
               Your information is encrypted and secure. Liberty Bancard is a registered ISO of [Bank Partner]. 

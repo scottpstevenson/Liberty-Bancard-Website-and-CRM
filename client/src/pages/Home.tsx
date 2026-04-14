@@ -119,7 +119,18 @@ export default function Home() {
   const [cbBestTime, setCbBestTime] = useState("Morning");
   const [cbSubmitting, setCbSubmitting] = useState(false);
   const [cbSubmitted, setCbSubmitted] = useState(false);
+  const [urgencyDismissed, setUrgencyDismissed] = useState(false);
   const { toast } = useToast();
+
+  useEffect(() => {
+    const dismissed = localStorage.getItem("lb_urgency_banner_dismissed");
+    if (dismissed === "true") setUrgencyDismissed(true);
+  }, []);
+
+  const dismissUrgency = () => {
+    setUrgencyDismissed(true);
+    localStorage.setItem("lb_urgency_banner_dismissed", "true");
+  };
 
   const containerRef = useScrollReveal();
   const stat1 = useCountUp(15, 2000, "+");
@@ -165,6 +176,22 @@ export default function Home() {
 
       <main className="flex-grow pt-28" ref={containerRef}>
 
+        {/* URGENCY BANNER */}
+        {!urgencyDismissed && (
+          <div className="bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-800" data-testid="banner-urgency">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2.5 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-2 text-sm text-amber-800 dark:text-amber-300 flex-1 justify-center">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span><strong>Interchange rates updated April 2026</strong> — now is a good time to review your processing costs.</span>
+                <Link href="/upload-statement" className="underline font-medium whitespace-nowrap" data-testid="link-urgency-cta">Get a free review →</Link>
+              </div>
+              <button onClick={dismissUrgency} className="text-amber-600 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-200 shrink-0" aria-label="Dismiss" data-testid="button-urgency-dismiss">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* SECTION 1: Social Proof Bar */}
         <section className="bg-primary text-primary-foreground" data-testid="section-proof-bar">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
@@ -209,7 +236,7 @@ export default function Home() {
                   <Link href="/upload-statement" data-testid="link-hero-upload">
                     <Button size="lg" className="gap-2 bg-sky-500 border-sky-500 text-white">
                       <Upload className="w-4 h-4" />
-                      Upload Statement - Free Review
+                      Get Your Liberty Analysis Free →
                     </Button>
                   </Link>
                   <Link href="/get-started" data-testid="link-hero-quiz">
@@ -345,7 +372,7 @@ export default function Home() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-start">
               <div className="reveal">
                 <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-what-you-get-heading">
-                  What You Get From a Liberty Statement Review
+                  What You Get From The Liberty Analysis
                 </h2>
                 <p className="text-muted-foreground mb-8">Not a quote. Not a pitch. A clear breakdown of what you're paying and why.</p>
                 <ul className="space-y-5 mb-8">
@@ -386,18 +413,21 @@ export default function Home() {
           </div>
         </section>
 
-        {/* SECTION 5: How It Works */}
+        {/* SECTION 5: How The Liberty Analysis Works */}
         <section className="bg-muted/30 py-20" data-testid="section-how-it-works">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="text-center mb-2">
+              <span className="inline-flex items-center gap-1.5 bg-primary/10 text-primary text-xs font-semibold px-3 py-1 rounded-md uppercase tracking-wider mb-3">The Liberty Analysis</span>
+            </div>
             <h2 className="reveal text-3xl md:text-4xl font-display font-bold text-foreground text-center mb-4" data-testid="text-how-heading">
-              Three Steps. No Guesswork.
+              How The Liberty Analysis Works
             </h2>
-            <p className="text-center text-muted-foreground mb-12 max-w-xl mx-auto">Upload your statement. We do the math. You make the call.</p>
+            <p className="text-center text-muted-foreground mb-12 max-w-xl mx-auto">Three clear steps. Same business day. You keep the results no matter what.</p>
             <div className="reveal grid grid-cols-1 md:grid-cols-3 gap-8">
               {[
-                { step: "1", icon: Upload, title: "Upload Your Statement", desc: "PDF or photo. Takes 30 seconds. Redact account numbers if you want.", cta: "Upload Now", href: "/upload-statement" },
-                { step: "2", icon: Calculator, title: "We Break It Down", desc: "Line-item review of every fee, markup, and cost driver on your statement.", cta: null, href: null },
-                { step: "3", icon: FileText, title: "You Get Options", desc: "2-3 clear paths forward with real numbers. Keep the breakdown either way.", cta: null, href: null },
+                { step: "1", icon: Upload, title: "Upload Your Statement", desc: "PDF or photo. 30 seconds. Redact account numbers if you want — we only need totals and fee lines.", cta: "Start Your Liberty Analysis", href: "/upload-statement" },
+                { step: "2", icon: Calculator, title: "We Run The Liberty Analysis", desc: "Same business day, we review every fee, markup, and cost driver line by line and calculate your true effective rate.", cta: null, href: null },
+                { step: "3", icon: FileText, title: "You Get 2–3 Clear Options", desc: "Real math, no pressure. Compare options side by side. Keep the full breakdown either way.", cta: null, href: null },
               ].map((item, i) => (
                 <div key={i} className="relative" data-testid={`step-${item.step}`}>
                   <div className="text-center">
@@ -887,6 +917,51 @@ export default function Home() {
           </div>
         </section>
 
+        {/* SECTION 8.75: Savings Guarantee */}
+        <section className="bg-background py-16" data-testid="section-savings-guarantee">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="reveal max-w-3xl mx-auto">
+              <Card className="border-2 border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/20">
+                <CardContent className="p-8">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5">
+                    <div className="w-14 h-14 rounded-full bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center shrink-0">
+                      <ShieldCheck className="w-7 h-7 text-emerald-600 dark:text-emerald-400" />
+                    </div>
+                    <div>
+                      <h2 className="text-xl md:text-2xl font-display font-bold text-foreground mb-2" data-testid="text-guarantee-heading">
+                        If We Can't Beat It, We'll Tell You
+                      </h2>
+                      <p className="text-muted-foreground leading-relaxed" data-testid="text-guarantee-body">
+                        We'll show you your real effective rate, compare it to your current processor line by line, and if we can't find meaningful savings — we'll tell you upfront. No pressure, no obligation. The breakdown is yours to keep either way.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-6 pt-5 border-t border-emerald-200 dark:border-emerald-800 grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    {[
+                      "No commitment to see your numbers",
+                      "Honest if the math doesn't work",
+                      "You keep the full breakdown regardless",
+                    ].map((point, i) => (
+                      <div key={i} className="flex items-center gap-2 text-sm text-foreground" data-testid={`guarantee-point-${i}`}>
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                        {point}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-5">
+                    <Link href="/upload-statement" data-testid="link-guarantee-cta">
+                      <Button className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600">
+                        <Upload className="w-4 h-4" />
+                        Get Your Liberty Analysis Free
+                      </Button>
+                    </Link>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </section>
+
         {/* SECTION 9: Social Proof / Reviews */}
         <section className="bg-muted/30 py-20" data-testid="section-reviews">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -1108,6 +1183,27 @@ export default function Home() {
           </div>
         </section>
 
+        {/* SECTION 11.75: No Lock-in Callout */}
+        <section className="bg-muted/30 py-12" data-testid="section-no-lockin">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="reveal max-w-3xl mx-auto text-center">
+              <div className="inline-flex items-center gap-2 bg-primary/10 text-primary text-xs font-semibold px-3 py-1 rounded-md mb-4">
+                <HandshakeIcon className="w-3.5 h-3.5" />
+                No Long-Term Commitment
+              </div>
+              <h2 className="text-2xl font-display font-bold text-foreground mb-3" data-testid="text-no-lockin-heading">
+                Cancel Anytime. No Early Termination Fee. No Penalty.
+              </h2>
+              <p className="text-muted-foreground mb-4 max-w-xl mx-auto" data-testid="text-no-lockin-body">
+                We earn your business every month. No lock-in, no cancellation fees, no penalty for leaving. We're confident in the math — you should be too.
+              </p>
+              <Link href="/terms" className="text-sm text-primary underline font-medium" data-testid="link-no-lockin-terms">
+                Review the merchant terms →
+              </Link>
+            </div>
+          </div>
+        </section>
+
         {/* SECTION 12: Final CTA */}
         <section className="reveal relative overflow-hidden py-24" data-testid="section-final-cta">
           <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(221,83%,20%)] to-[hsl(222,47%,8%)]" />
@@ -1123,7 +1219,7 @@ export default function Home() {
               <Link href="/upload-statement" data-testid="link-final-upload">
                 <Button size="lg" className="gap-2 bg-sky-500 border-sky-500 text-white">
                   <Upload className="w-4 h-4" />
-                  Upload My Statement
+                  Get Your Liberty Analysis Free →
                 </Button>
               </Link>
               <Link href="/get-started" data-testid="link-final-quiz">

@@ -974,6 +974,13 @@ export default function FreeAnalysis() {
                 </div>
               )}
 
+              {step === TOTAL_STEPS && (
+                <div className="mt-4 mb-2 flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 rounded-md px-3 py-2" data-testid="text-guarantee-oneliner">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  If we can't beat your rate, we'll tell you upfront. No pressure, no obligation — you keep the breakdown either way.
+                </div>
+              )}
+
               <div className="flex items-center justify-between gap-3 mt-8">
                 <Button
                   variant="outline"
