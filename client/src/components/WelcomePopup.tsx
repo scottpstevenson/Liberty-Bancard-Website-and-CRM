@@ -36,7 +36,7 @@ const variants: Record<PopupVariant, VariantConfig> = {
   quiz: {
     badge: "Limited Time Offer",
     heading: "See If You Qualify for Free Processing",
-    body: "Take our 60-second quiz and find out if your business qualifies for 0% processing fees through our cash discount program.",
+    body: "Take our 60-second quiz and find out if your business qualifies for Liberty Zero™ — our 0% processing program.",
     bullets: [
       { icon: DollarSign, text: "Businesses save $2,000 - $15,000+ per year" },
       { icon: Clock, text: "Takes 60 seconds — get your estimate instantly" },

@@ -242,8 +242,8 @@ const terminals: Terminal[] = [
 
 const programs = [
   {
-    title: "Cash Discount / Dual Pricing",
-    description: "Eliminate processing fees entirely. Customers who pay cash get the listed price; card payments include a small service fee. 100% compliant when implemented correctly.",
+    title: "Liberty Zero™ Program",
+    description: "Eliminate processing fees entirely. Customers who pay cash get the listed price; card payments include a small service fee — fully compliant with proper disclosures, signage, and staff scripts handled for you.",
     icon: DollarSign,
     savings: "Save up to 100% on processing",
   },

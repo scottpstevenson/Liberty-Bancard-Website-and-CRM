@@ -222,6 +222,13 @@ export default function Home() {
                 <p className="text-xs text-white/55 mt-4 max-w-md" data-testid="text-hero-microcopy">
                   PDF or photo. 30 seconds. Redact account numbers if you want - we only need totals + fee lines.
                 </p>
+                <Link href="/0-percent-processing" data-testid="link-hero-liberty-zero">
+                  <div className="inline-flex items-center gap-2 mt-4 bg-emerald-500/15 hover:bg-emerald-500/25 transition-colors border border-emerald-500/30 text-emerald-300 text-sm font-medium px-3 py-2 rounded-md">
+                    <Zap className="w-3.5 h-3.5 shrink-0" />
+                    Want to pay $0 to accept cards? Learn about <span className="font-bold ml-1">Liberty Zero™</span>
+                    <ArrowRight className="w-3.5 h-3.5 shrink-0" />
+                  </div>
+                </Link>
               </div>
 
               <div className="relative flex items-center justify-center" data-testid="hero-visual">

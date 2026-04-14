@@ -104,8 +104,8 @@ export function getHomeHtml(): string {
           <div class="ssr-card ssr-pain-item">
             <div class="ssr-solution-icon">⚡</div>
             <div>
-              <div class="ssr-item-title">0% Processing Programs</div>
-              <div class="ssr-item-text">Compliant cash discount and surcharging programs let qualifying merchants eliminate credit card fees. Available where permitted by state law and card brand rules.*</div>
+              <div class="ssr-item-title">Liberty Zero™ — 0% Processing</div>
+              <div class="ssr-item-text">Our Liberty Zero™ program lets qualifying merchants eliminate credit card fees through compliant cash discount and surcharging. Available where permitted by state law and card brand rules.*</div>
             </div>
           </div>
           <div class="ssr-card ssr-pain-item">

@@ -43,7 +43,7 @@ const TOTAL_STEPS = 6;
 const goalOptions = [
   { value: "lower fees", label: "I think I'm overpaying on processing", icon: DollarSign, desc: "We'll show you exactly where" },
   { value: "deposit clarity", label: "Deposits are unpredictable", icon: Landmark, desc: "Get funding you can plan around" },
-  { value: "0% interest", label: "Pass fees to the customer (0%)", icon: Percent, desc: "Where permitted by law" },
+  { value: "0% interest", label: "Liberty Zero™ — Pay $0 to Process", icon: Percent, desc: "Where permitted by state law" },
   { value: "need terminal", label: "I need a terminal or POS", icon: Monitor, desc: "Modern hardware, guided setup" },
   { value: "compare vs flat-rate", label: "Compare vs Square / Stripe", icon: Scale, desc: "See the real cost difference" },
   { value: "not sure", label: "Just exploring options", icon: HelpCircle, desc: "We'll point you in the right direction" },
@@ -71,14 +71,14 @@ function getRecommendation(goal: string, vertical: string, volume: string, inter
 
   if (goal === "0% interest" || interestedIn0) {
     return {
-      path: "Compliant 0% Program",
+      path: "Liberty Zero™ Program",
       icon: Percent,
-      headline: "A compliant fee-offset program could significantly reduce your processing cost.",
-      description: "Based on your answers, a cash discount or surcharge program could be a strong fit. We'll verify eligibility for your state, card brands, and business model - then handle disclosures, receipt formatting, and staff scripts.",
+      headline: "Liberty Zero could eliminate your processing costs entirely.",
+      description: "Based on your answers, Liberty Zero — our compliant fee-offset program — could be a strong fit. We'll verify eligibility for your state, card brands, and business model, then handle signage, receipt formatting, and your staff script.",
       urgency: "Most merchants in your vertical are already exploring this option.",
       nextSteps: [
         { label: "Upload your statement for exact comparison", primary: true, href: "/upload-statement?interest0=yes" },
-        { label: "Learn more about 0% programs", primary: false, href: "/0-percent-processing" },
+        { label: "Learn more about Liberty Zero™", primary: false, href: "/0-percent-processing" },
       ],
     };
   }

@@ -1,17 +1,17 @@
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
-import { Menu, X, Phone, Mail, Upload, Calendar, LayoutDashboard, ChevronDown } from "lucide-react";
+import { Menu, X, Phone, Mail, Upload, Calendar, LayoutDashboard, ChevronDown, Zap } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import logoBlue from "@assets/logo-blue.png";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
 const solutionLinks = [
-  { name: "0% Processing Programs", href: "/0-percent-processing" },
-  { name: "Beat Square & Stripe", href: "/beat-square-stripe" },
-  { name: "Upload Statement", href: "/upload-statement" },
-  { name: "Get Started", href: "/get-started" },
+  { name: "Liberty Zero™ — Pay $0 to Process", href: "/0-percent-processing", featured: true },
+  { name: "Beat Square & Stripe", href: "/beat-square-stripe", featured: false },
+  { name: "Upload Statement", href: "/upload-statement", featured: false },
+  { name: "Get Started", href: "/get-started", featured: false },
 ];
 
 const industryLinks = [
@@ -126,25 +126,43 @@ export function Navbar() {
                 </button>
                 <div
                   className={cn(
-                    "absolute top-full left-0 mt-1 w-56 bg-background border border-border rounded-md shadow-lg py-1 z-50 transition-all",
+                    "absolute top-full left-0 mt-1 w-72 bg-background border border-border rounded-md shadow-lg py-1 z-50 transition-all",
                     solutionsOpen ? "opacity-100 visible" : "opacity-0 invisible"
                   )}
                 >
                   {solutionLinks.map((link) => (
-                    <Link
-                      key={link.name}
-                      href={link.href}
-                      className={cn(
-                        "block px-4 py-2.5 text-sm transition-colors",
-                        location === link.href
-                          ? "text-primary bg-primary/5"
-                          : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                      )}
-                      onClick={() => setSolutionsOpen(false)}
-                      data-testid={`link-nav-solution-${link.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
-                    >
-                      {link.name}
-                    </Link>
+                    link.featured ? (
+                      <Link
+                        key={link.name}
+                        href={link.href}
+                        className={cn(
+                          "flex items-center gap-2 px-4 py-3 text-sm transition-colors border-b border-border",
+                          location === link.href
+                            ? "text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30"
+                            : "text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 bg-emerald-50/50 dark:bg-emerald-950/10"
+                        )}
+                        onClick={() => setSolutionsOpen(false)}
+                        data-testid={`link-nav-solution-liberty-zero`}
+                      >
+                        <Zap className="w-3.5 h-3.5 shrink-0" />
+                        <span className="font-semibold">{link.name}</span>
+                      </Link>
+                    ) : (
+                      <Link
+                        key={link.name}
+                        href={link.href}
+                        className={cn(
+                          "block px-4 py-2.5 text-sm transition-colors",
+                          location === link.href
+                            ? "text-primary bg-primary/5"
+                            : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                        )}
+                        onClick={() => setSolutionsOpen(false)}
+                        data-testid={`link-nav-solution-${link.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                      >
+                        {link.name}
+                      </Link>
+                    )
                   ))}
                 </div>
               </div>
@@ -299,20 +317,38 @@ export function Navbar() {
 
               <p className="px-3 py-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Solutions</p>
               {solutionLinks.map((link) => (
-                <Link
-                  key={link.name}
-                  href={link.href}
-                  className={cn(
-                    "px-3 py-2.5 rounded-md text-sm font-medium transition-colors",
-                    location === link.href
-                      ? "text-primary bg-primary/5"
-                      : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                  )}
-                  onClick={() => setIsOpen(false)}
-                  data-testid={`link-mobile-solution-${link.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
-                >
-                  {link.name}
-                </Link>
+                link.featured ? (
+                  <Link
+                    key={link.name}
+                    href={link.href}
+                    className={cn(
+                      "px-3 py-2.5 rounded-md text-sm font-semibold transition-colors flex items-center gap-2",
+                      location === link.href
+                        ? "text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30"
+                        : "text-emerald-600 bg-emerald-50/60 dark:bg-emerald-950/20 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
+                    )}
+                    onClick={() => setIsOpen(false)}
+                    data-testid="link-mobile-solution-liberty-zero"
+                  >
+                    <Zap className="w-4 h-4 shrink-0" />
+                    {link.name}
+                  </Link>
+                ) : (
+                  <Link
+                    key={link.name}
+                    href={link.href}
+                    className={cn(
+                      "px-3 py-2.5 rounded-md text-sm font-medium transition-colors",
+                      location === link.href
+                        ? "text-primary bg-primary/5"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                    )}
+                    onClick={() => setIsOpen(false)}
+                    data-testid={`link-mobile-solution-${link.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                  >
+                    {link.name}
+                  </Link>
+                )
               ))}
 
               <div className="h-px bg-border my-2" />

@@ -127,7 +127,7 @@ const featureRows: { label: string; key: keyof typeof processors[0]; tooltip?: s
   { label: "Dedicated Human Support", key: "dedicatedSupport" },
   { label: "Free Statement Review", key: "statementReview" },
   { label: "Free Terminal*", key: "freeTerminal" },
-  { label: "Cash Discount / 0% Programs*", key: "cashDiscount" },
+  { label: "Liberty Zero™ Program*", key: "cashDiscount" },
   { label: "Interchange Passthrough", key: "transparentPricing" },
   { label: "Guided Onboarding", key: "onboardingSupport" },
 ];
@@ -417,7 +417,7 @@ export default function RateComparison() {
                 { icon: ShieldCheck, title: "No Long-Term Contracts", desc: "Earn your business every month. No early termination fees for most merchants." },
                 { icon: Headphones, title: "Real Human Support", desc: "Call and talk to a real person who knows your account. No call centers, no ticket queues." },
                 { icon: BarChart3, title: "Statement-Based Analysis", desc: "We review your actual statement before recommending anything. Real numbers, not guesses." },
-                { icon: Calculator, title: "0% Processing Programs*", desc: "Cash discount and compliant surcharging programs for eligible merchants." },
+                { icon: Calculator, title: "Liberty Zero™ Program*", desc: "Cash discount and compliant surcharging — pay $0 to accept cards. Eligibility confirmed via statement review." },
                 { icon: CheckCircle2, title: "Fast Onboarding", desc: "From upload to live processing in as little as 48 hours. We handle the heavy lifting." },
               ].map((item, i) => (
                 <Card key={i} data-testid={`card-why-liberty-${i}`}>

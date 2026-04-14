@@ -32,7 +32,7 @@ const comparisonTable = [
   { feature: "Dedicated human support", square: false, stripe: false, liberty: true },
   { feature: "No long-term contract", square: true, stripe: true, liberty: true },
   { feature: "Free terminal for qualifying merchants*", square: false, stripe: false, liberty: true },
-  { feature: "Cash discount / 0% programs*", square: false, stripe: false, liberty: true },
+  { feature: "Liberty Zero™ — 0% Program*", square: false, stripe: false, liberty: true },
   { feature: "Easy online signup", square: true, stripe: true, liberty: true },
   { feature: "Guided onboarding + go-live support", square: false, stripe: false, liberty: true },
 ];

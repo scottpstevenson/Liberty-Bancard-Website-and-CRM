@@ -29,13 +29,13 @@ const competitorInfo: Record<string, CompetitorInfo> = {
       "No interchange-plus pricing — paying more on every transaction",
       "No dedicated account representative when issues arise",
       "Account holds and fund stability concerns at higher volumes",
-      "No cash discount or 0% processing programs available",
+      "No Liberty Zero™ or 0% processing programs available",
     ],
     whatLibertySolves: [
       "Interchange-plus pricing reduces costs by 0.5%–1.0% for most merchants",
       "Dedicated account rep available by phone — knows your business personally",
       "Stable merchant account underwritten specifically for your business",
-      "Cash discount program available — most card fees passed to card users",
+      "Liberty Zero™ program available — most card fees passed to card users*",
       "Free terminal for qualifying merchants",
     ],
     relatedIndustries: [
@@ -63,7 +63,7 @@ const competitorInfo: Record<string, CompetitorInfo> = {
       "Interchange-plus pricing is significantly lower for card-present transactions",
       "Purpose-built for in-person businesses with full terminal support",
       "Dedicated account rep available directly",
-      "Cash discount and 0% processing programs available",
+      "Liberty Zero™ — pay $0 to accept cards (where eligible)*",
       "Free terminal for qualifying merchants",
     ],
     relatedIndustries: [
@@ -172,7 +172,7 @@ const competitorInfo: Record<string, CompetitorInfo> = {
     ],
     whatLibertySolves: [
       "Dedicated account rep who answers the phone and knows your account",
-      "Cash discount and 0% processing programs available",
+      "Liberty Zero™ — pay $0 to accept cards (where eligible)*",
       "Free terminal for qualifying merchants",
       "Guided onboarding with personal go-live support",
       "Competitive interchange-plus markup with better service",
@@ -333,7 +333,7 @@ const competitorInfo: Record<string, CompetitorInfo> = {
     ],
     whatLibertySolves: [
       "Pure interchange-plus markup with no flat-fee layer",
-      "Cash discount and 0% processing programs available",
+      "Liberty Zero™ — pay $0 to accept cards (where eligible)*",
       "National coverage with local-level dedicated support",
       "Free terminal for qualifying merchants",
       "Full range of merchant program options",

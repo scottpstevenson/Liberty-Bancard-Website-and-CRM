@@ -831,7 +831,7 @@ export function getBeatSquareStripeHtml(): string {
             <li><span class="check-icon">✓</span>Actual network cost + fixed markup on statement</li>
             <li><span class="check-icon">✓</span>Full transparency — see every fee line item</li>
             <li><span class="check-icon">✓</span>You pay less on debit and basic credit cards</li>
-            <li><span class="check-icon">✓</span>0% processing programs available</li>
+            <li><span class="check-icon">✓</span>Liberty Zero™ — pay $0 to process cards (where eligible)*</li>
           </ul>
         </div>
       </div>

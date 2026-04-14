@@ -300,6 +300,7 @@ export function ssrNavbar(): string {
       </a>
       <nav class="ssr-nav-links">
         <a href="/">Home</a>
+        <a href="/0-percent-processing" style="color:#10b981;font-weight:600;">⚡ Liberty Zero™</a>
         <a href="/upload-statement">Solutions</a>
         <a href="/industries/restaurant-payment-processing">Industries</a>
         <a href="/blog">Resources</a>

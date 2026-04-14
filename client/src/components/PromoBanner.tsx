@@ -28,7 +28,7 @@ const activePromos: Promo[] = [
   {
     id: "free-processing",
     title: "See If You Qualify for Free Processing",
-    description: "Eligible businesses pay 0% processing fees with our cash discount program. Find out if you qualify.",
+    description: "Eligible businesses pay $0 in processing fees through Liberty Zero™. Find out if you qualify.",
     code: "FREE30",
     icon: Zap,
     ctaLabel: "Check Eligibility",
