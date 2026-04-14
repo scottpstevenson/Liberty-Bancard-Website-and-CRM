@@ -17,7 +17,16 @@ export function isGhlInboundActive(): boolean {
 
 async function unifiedUpsertContact(contact: { id: number; ghlContactId?: string | null; firstName?: string | null; lastName?: string | null; email?: string | null; phone?: string | null; companyName?: string | null; vertical?: string | null }): Promise<string | null> {
   if (isGhlConfigured()) {
-    return upsertGhlContact(contact as any);
+    return upsertGhlContact({
+      id: contact.id,
+      firstName: contact.firstName ?? "",
+      lastName: contact.lastName ?? "",
+      email: contact.email ?? "",
+      phone: contact.phone ?? "",
+      ghlContactId: contact.ghlContactId ?? null,
+      companyName: contact.companyName ?? undefined,
+      vertical: contact.vertical ?? undefined,
+    });
   }
   if (isSdrGhlConfigured()) {
     return sdrUpsertContact({
@@ -184,16 +193,34 @@ export async function enrollContactInGhlWorkflow(params: {
 
   let ghlContactId = contact.ghlContactId;
   if (!ghlContactId) {
+    console.warn(`[GHL Enrollment] GUARD: Contact ${contactId} (${contact.firstName} ${contact.lastName}) has no GHL contact ID — blocking enrollment for sequence "${sequenceName}". Attempting auto-upsert to GHL first.`);
     try {
       ghlContactId = await unifiedUpsertContact(contact);
+      if (ghlContactId) {
+        await storage.updateContact(contactId, { ghlContactId });
+        console.log(`[GHL Enrollment] Auto-upsert succeeded for contact ${contactId} — GHL ID: ${ghlContactId}. Retrying enrollment.`);
+      }
     } catch (err) {
-      console.error(`[GHL Enrollment] Failed to upsert contact ${contactId} in GHL:`, err);
-      return { enrolled: false, method: "replit_direct", reason: "Failed to create GHL contact" };
+      console.error(`[GHL Enrollment] Auto-upsert FAILED for contact ${contactId}:`, err);
+      await storage.createAuditLog({
+        action: "ghl_enrollment_blocked",
+        entityType: "contact",
+        entityId: contactId,
+        details: { sequenceName, sequenceId, reason: "ghl_upsert_failed" },
+      }).catch(() => {});
+      return { enrolled: false, method: "replit_direct", reason: "Failed to create GHL contact — enrollment blocked until GHL ID is confirmed" };
     }
   }
 
   if (!ghlContactId) {
-    return { enrolled: false, method: "replit_direct", reason: "No GHL contact ID available" };
+    console.warn(`[GHL Enrollment] BLOCKED: Contact ${contactId} still has no GHL contact ID after upsert attempt — enrollment in "${sequenceName}" is blocked.`);
+    await storage.createAuditLog({
+      action: "ghl_enrollment_blocked",
+      entityType: "contact",
+      entityId: contactId,
+      details: { sequenceName, sequenceId, reason: "no_ghl_contact_id" },
+    }).catch(() => {});
+    return { enrolled: false, method: "replit_direct", reason: "No confirmed GHL contact ID — enrollment blocked" };
   }
 
   const mapping = SEQUENCE_WORKFLOW_MAP[sequenceName];

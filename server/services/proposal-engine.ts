@@ -1,5 +1,6 @@
 import { storage } from "../storage";
 import type { Deal, Contact } from "@shared/schema";
+import { advanceDealStage } from "./deal-stage-service";
 import OpenAI from "openai";
 import crypto from "crypto";
 import fs from "fs";
@@ -609,8 +610,10 @@ export async function sendProposalEmail(dealId: number): Promise<boolean> {
     await storage.updateDeal(deal.id, {
       proposalEmailSentAt: new Date(),
       proposalStatus: "sent",
-      stage: deal.stage === "Statement Received" ? "Proposal Sent" : deal.stage,
     });
+    if (deal.stage === "Statement Received") {
+      await advanceDealStage(deal.id, "Proposal Sent", "proposal_engine_email_sent");
+    }
 
     await storage.createAuditLog({
       action: "proposal_email_sent",

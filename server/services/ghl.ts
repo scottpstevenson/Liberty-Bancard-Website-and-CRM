@@ -172,7 +172,16 @@ export async function checkGhlHealth(): Promise<{
   }
 }
 
-export async function upsertGhlContact(contact: Contact): Promise<string> {
+type GhlContactInput = Pick<Contact,
+  "id" | "firstName" | "lastName" | "email" | "phone" | "ghlContactId"
+> & Partial<Pick<Contact,
+  "companyName" | "tags" | "vertical" | "monthlyVolume" | "primaryOfferPath" |
+  "currentProvider" | "painPoints" | "interestedIn0Percent" | "needTerminal" |
+  "utmSource" | "utmMedium" | "utmCampaign" | "promoCode" | "consentSms" |
+  "consentEmail" | "landingPage"
+>>;
+
+export async function upsertGhlContact(contact: GhlContactInput): Promise<string> {
   const config = getConfig();
   if (!config) throw new Error("GHL not configured");
 
@@ -631,7 +640,8 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
 
       if (messageClassification.intent === "interested" && contactDeal) {
         if (["New Lead", "Contacted"].includes(contactDeal.stage)) {
-          await storage.updateDeal(contactDeal.id, { stage: "Engaged" });
+          const { advanceDealStage } = await import("./deal-stage-service");
+          await advanceDealStage(contactDeal.id, "Engaged", "ghl_inbound_interested");
           await storage.createAuditLog({
             action: "deal_auto_progressed",
             entityType: "deal",
@@ -1013,15 +1023,29 @@ async function handleContactUpdated(payload: any): Promise<void> {
     if (!ghlContactId) return;
 
     const { syncContactFromGhl } = await import("./ghl-sync");
-    const result = await syncContactFromGhl({
-      id: ghlContactId,
-      firstName: contactData.firstName || contactData.first_name,
-      lastName: contactData.lastName || contactData.last_name,
-      email: contactData.email,
-      phone: contactData.phone,
-      companyName: contactData.companyName || contactData.company_name,
-      tags: contactData.tags || [],
-    });
+    // Use ?? not || so that explicit empty string from GHL is preserved.
+    // For camelCase vs snake_case field names, prefer camelCase if present, fall back to
+    // snake_case only when camelCase is undefined (not just falsy).
+    const syncPayload: {
+      id: string;
+      firstName?: string;
+      lastName?: string;
+      email?: string;
+      phone?: string;
+      companyName?: string;
+      tags?: string[];
+    } = { id: ghlContactId };
+    const firstName = contactData.firstName !== undefined ? contactData.firstName : contactData.first_name;
+    const lastName = contactData.lastName !== undefined ? contactData.lastName : contactData.last_name;
+    const companyName = contactData.companyName !== undefined ? contactData.companyName : contactData.company_name;
+    if (firstName !== undefined) syncPayload.firstName = firstName ?? "";
+    if (lastName !== undefined) syncPayload.lastName = lastName ?? "";
+    if (contactData.email !== undefined) syncPayload.email = contactData.email ?? "";
+    if (contactData.phone !== undefined) syncPayload.phone = contactData.phone ?? "";
+    if (companyName !== undefined) syncPayload.companyName = companyName ?? "";
+    // Only pass tags when explicitly present in payload; omitting prevents accidental empty-array replace
+    if (Array.isArray(contactData.tags)) syncPayload.tags = contactData.tags;
+    const result = await syncContactFromGhl(syncPayload);
 
     if (result) {
       console.log(`[GHL Webhook] Contact ${result.created ? "created" : "updated"} from GHL: ${result.contactId}`);

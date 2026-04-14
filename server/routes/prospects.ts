@@ -10,6 +10,7 @@ import { generateDealBlueprint } from "../services/deal-blueprint";
 import { getRoutingRecommendation, routeContact } from "../services/smart-router";
 import { getEntityDetail, parseSunbizCsv, searchSunbiz, streamCorevtFromZip } from "../services/sunbiz-scraper";
 import { isMassEnrichmentRunning, promoteQualifiedToContacts, reEnrichAllSunbizEntities, runMassEnrichment } from "../services/daily-outreach";
+import { createContactGhlFirst } from "../services/contact-writer";
 import { convertToProspect, deepEnrichEntity, enrichSunbizEntity, isPipelineRunning, processSunbizEnrichmentQueue, runAutoDeduplication, runBulkAIClassification, runDailyEnrichmentPipeline } from "../services/sunbiz-enrichment";
 import { parse } from "csv-parse/sync";
 import path from "path";
@@ -100,7 +101,7 @@ export function registerProspectsRoutes(app: Express) {
       if (!prospect) return res.status(404).json({ message: "Prospect not found" });
       if (prospect.contactId) return res.json({ message: "Already converted", contactId: prospect.contactId });
 
-      const contact = await storage.createContact({
+      const contact = await createContactGhlFirst({
         firstName: prospect.ownerFirstName || prospect.companyName?.split(" ")[0] || "Unknown",
         lastName: prospect.ownerLastName || "",
         email: prospect.email || prospect.ownerEmail || "",
@@ -204,7 +205,7 @@ export function registerProspectsRoutes(app: Express) {
         const prospect = await storage.getProspect(pid);
         if (!prospect || prospect.contactId) continue;
 
-        const contact = await storage.createContact({
+        const contact = await createContactGhlFirst({
           firstName: prospect.ownerFirstName || prospect.companyName?.split(" ")[0] || "Unknown",
           lastName: prospect.ownerLastName || "",
           email: prospect.email || prospect.ownerEmail || "",

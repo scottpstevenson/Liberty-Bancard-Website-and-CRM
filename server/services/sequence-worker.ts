@@ -122,6 +122,29 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
             processed++;
             continue;
           }
+
+          if (
+            enrollResult.method === "replit_direct" &&
+            !enrollResult.contactGhlId &&
+            enrollResult.reason !== "GHL not configured — falling back to Replit direct sends"
+          ) {
+            await storage.updateSequenceEnrollment(enrollment.id, {
+              status: "paused",
+            });
+            await storage.createAuditLog({
+              action: "sequence_direct_send_blocked",
+              entityType: "contact",
+              entityId: enrollment.contactId,
+              details: {
+                sequenceId: sequence.id,
+                sequenceName: sequence.name,
+                reason: "GHL contact ID not confirmed — direct sends blocked until GHL sync succeeds",
+                enrollResult: enrollResult.reason,
+              },
+            });
+            processed++;
+            continue;
+          }
         }
 
         const step = steps.find(s => s.stepOrder === currentStep + 1) || steps[currentStep];

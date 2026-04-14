@@ -10,6 +10,9 @@ import { generateDealBlueprint } from "../services/deal-blueprint";
 import { estimateFromContact, estimateFromDeal, estimateFromProspect } from "../services/volume-estimator";
 import { createPreferenceAwareNotification, sendCriticalEmailNotification } from "../services/digest-service";
 import { sendGhlEmailForMerchant, isGhlConfigured } from "../services/ghl";
+import { syncDealToGhl } from "../services/ghl-sync";
+import { advanceDealStage } from "../services/deal-stage-service";
+import { updateContactGhlFirst } from "../services/contact-writer";
 import { parse } from "csv-parse/sync";
 import path from "path";
 
@@ -167,7 +170,7 @@ export function registerDealsRoutes(app: Express) {
             merchantTier: volumeEst.merchantTier,
           });
           if (contact) {
-            await storage.updateContact(contact.id, {
+            await updateContactGhlFirst(contact.id, {
               estimatedProcessingVolume: volumeEst.estimatedProcessingVolume,
               estimatedResidual: volumeEst.estimatedResidual,
               volumeConfidence: volumeEst.volumeConfidence,
@@ -191,6 +194,17 @@ export function registerDealsRoutes(app: Express) {
           contactId: updated.contactId || undefined,
           dealId: updated.id,
         }, { toStage: updated.stage, fromStage: old.stage }).catch(err => console.error("Workflow trigger error:", err));
+
+        syncDealToGhl(updated.id).then(ghlResult => {
+          if (!ghlResult.success) {
+            console.error(`[GHL Deal Stage] Failed to push stage change for deal ${updated.id} to GHL: ${ghlResult.error}`);
+            storage.createAuditLog({ action: "ghl_opportunity_sync_failed", entityType: "deal", entityId: updated.id, details: { error: ghlResult.error, stage: updated.stage } }).catch(() => {});
+          } else {
+            console.log(`[GHL Deal Stage] Deal ${updated.id} stage "${updated.stage}" pushed to GHL opportunity ${ghlResult.ghlOpportunityId}`);
+          }
+        }).catch((ghlErr: Error) => {
+          console.error(`[GHL Deal Stage] Exception syncing deal ${updated.id} stage to GHL:`, ghlErr.message);
+        });
       }
       res.json(updated);
     } catch (err: any) {
@@ -211,7 +225,7 @@ export function registerDealsRoutes(app: Express) {
         merchantTier: estimate.merchantTier,
       });
       if (contact) {
-        await storage.updateContact(contact.id, {
+        await updateContactGhlFirst(contact.id, {
           estimatedProcessingVolume: estimate.estimatedProcessingVolume,
           estimatedResidual: estimate.estimatedResidual,
           volumeConfidence: estimate.volumeConfidence,
@@ -228,7 +242,7 @@ export function registerDealsRoutes(app: Express) {
       const contact = await storage.getContact(Number(req.params.id));
       if (!contact) return res.status(404).json({ message: "Contact not found" });
       const estimate = estimateFromContact(contact);
-      await storage.updateContact(contact.id, {
+      await updateContactGhlFirst(contact.id, {
         estimatedProcessingVolume: estimate.estimatedProcessingVolume,
         estimatedResidual: estimate.estimatedResidual,
         volumeConfidence: estimate.volumeConfidence,
@@ -440,7 +454,7 @@ export function registerDealsRoutes(app: Express) {
 
         if (shouldAdvance && currentIndex + 1 < stageOrder.length) {
           const nextStage = stageOrder[currentIndex + 1];
-          await storage.updateDeal(deal.id, { stage: nextStage });
+          await advanceDealStage(deal.id, nextStage, "ai_auto_progress");
           progressions.push({ dealId: deal.id, from: deal.stage, to: nextStage, reason });
           await storage.createAuditLog({ action: "deal_auto_progressed", entityType: "deal", entityId: deal.id, details: { from: deal.stage, to: nextStage, reason } });
         }

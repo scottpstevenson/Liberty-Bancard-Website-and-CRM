@@ -1,5 +1,7 @@
 import { storage } from "../storage";
 import { sendGhlEmail, sendGhlSms, sendTemplatedMessage, isGhlConfigured } from "./ghl";
+import { advanceDealStage } from "./deal-stage-service";
+import { updateContactGhlFirst } from "./contact-writer";
 
 interface WorkflowContext {
   entityType?: string;
@@ -123,15 +125,19 @@ export async function executeWorkflowActions(
         logEntries.push({ step: i + 1, action: "create_audit_log", status: "completed", timestamp: new Date().toISOString() });
 
       } else if (action.type === "update_deal" && dealId) {
-        const updates: any = {};
-        if (action.stage) updates.stage = action.stage;
-        if (action.notes) updates.notes = action.notes;
-        if (action.offerPath) updates.offerPath = action.offerPath;
-        if (action.owner) updates.owner = action.owner;
-        if (action.pipeline) updates.pipeline = action.pipeline;
-        if (action.nextFollowUp) updates.nextFollowUp = new Date(Date.now() + (action.nextFollowUpHours || 24) * 3600000);
-        await storage.updateDeal(dealId, updates);
-        logEntries.push({ step: i + 1, action: "update_deal", updates, status: "completed", timestamp: new Date().toISOString() });
+        if (action.stage) {
+          await advanceDealStage(dealId, action.stage, "workflow_update_deal");
+        }
+        const nonStageUpdates: any = {};
+        if (action.notes) nonStageUpdates.notes = action.notes;
+        if (action.offerPath) nonStageUpdates.offerPath = action.offerPath;
+        if (action.owner) nonStageUpdates.owner = action.owner;
+        if (action.pipeline) nonStageUpdates.pipeline = action.pipeline;
+        if (action.nextFollowUp) nonStageUpdates.nextFollowUp = new Date(Date.now() + (action.nextFollowUpHours || 24) * 3600000);
+        if (Object.keys(nonStageUpdates).length > 0) {
+          await storage.updateDeal(dealId, nonStageUpdates);
+        }
+        logEntries.push({ step: i + 1, action: "update_deal", stage: action.stage, updates: nonStageUpdates, status: "completed", timestamp: new Date().toISOString() });
 
       } else if (action.type === "update_contact_tags" && contactId) {
         const contact = await storage.getContact(contactId);
@@ -140,7 +146,7 @@ export async function executeWorkflowActions(
           const addTags = action.addTags || [];
           const removeTags = action.removeTags || [];
           const newTags = Array.from(new Set([...currentTags, ...addTags])).filter((t: string) => !removeTags.includes(t));
-          await storage.updateContact(contactId, { tags: newTags });
+          await updateContactGhlFirst(contactId, { tags: newTags });
         }
         logEntries.push({ step: i + 1, action: "update_contact_tags", status: "completed", timestamp: new Date().toISOString() });
 
@@ -223,7 +229,7 @@ export async function executeWorkflowActions(
             body: proposalBody,
           });
           if (deal.stage === "Review In Progress") {
-            await storage.updateDeal(dealId, { stage: "Proposal Sent" });
+            await advanceDealStage(dealId, "Proposal Sent", "workflow_generate_proposal");
           }
           logEntries.push({ step: i + 1, action: "generate_proposal", status: result.success ? "completed" : "failed", timestamp: new Date().toISOString() });
         } else {

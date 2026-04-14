@@ -8,6 +8,7 @@ import { isSerperConfigured, searchBusiness, searchBusinessEmail } from "./serpe
 import { ingestBusinessFromContact } from "./sdr/dedupe";
 import { detectProcessors } from "./sdr/processor-detector";
 import { detectAds } from "./sdr/ad-detector";
+import { updateContactGhlFirst } from "./contact-writer";
 
 function getOpenAI() {
   return new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
@@ -344,7 +345,7 @@ export async function enrichContactBatch(
           }
 
           if (Object.keys(updates).length > 0) {
-            await storage.updateContact(contactId, updates);
+            await updateContactGhlFirst(contactId, updates);
           }
 
           try {

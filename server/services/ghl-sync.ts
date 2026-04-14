@@ -1,6 +1,6 @@
 import { storage } from "../storage";
 import { db } from "../db";
-import type { Contact, Deal, Company, Task, Ticket, Note } from "@shared/schema";
+import type { Contact, Deal, Company, Task, Ticket, Note, UpdateContactRequest } from "@shared/schema";
 import { ghlSyncStatus, GHL_PIPELINE_STAGE_MAP, GHL_PIPELINE_STAGE_REVERSE, ACTIVE_DEAL_STAGES } from "@shared/schema";
 import { upsertGhlContact, isGhlConfigured, sendGhlEmail } from "./ghl";
 import { getEmailSignatureHtml } from "./email-signatures";
@@ -106,14 +106,22 @@ export async function syncContactFromGhl(ghlContact: any): Promise<{ contactId: 
       : null;
 
     if (existingByGhlId) {
-      await storage.updateContact(existingByGhlId.id, {
-        firstName: ghlContact.firstName || existingByGhlId.firstName,
-        lastName: ghlContact.lastName || existingByGhlId.lastName,
-        email: ghlContact.email || existingByGhlId.email,
-        phone: ghlContact.phone || existingByGhlId.phone,
-        companyName: ghlContact.companyName || existingByGhlId.companyName,
-        tags: [...new Set([...(existingByGhlId.tags || []), ...(ghlContact.tags || [])])],
-      });
+      const updatePayload: UpdateContactRequest = {};
+      // GHL is authoritative: apply all fields present in the webhook payload,
+      // including explicit clears (empty string / null). Only skip fields that
+      // are entirely absent from the GHL payload (undefined = not sent by GHL).
+      if (ghlContact.firstName !== undefined) updatePayload.firstName = ghlContact.firstName ?? "";
+      if (ghlContact.lastName !== undefined) updatePayload.lastName = ghlContact.lastName ?? "";
+      if (ghlContact.email !== undefined) updatePayload.email = ghlContact.email ?? "";
+      if (ghlContact.phone !== undefined) updatePayload.phone = ghlContact.phone ?? "";
+      if (ghlContact.companyName !== undefined) updatePayload.companyName = ghlContact.companyName ?? "";
+      // Tags: fully replace from GHL (not merged) — GHL array is authoritative
+      if (Array.isArray(ghlContact.tags)) {
+        updatePayload.tags = ghlContact.tags;
+      }
+      if (Object.keys(updatePayload).length > 0) {
+        await storage.updateContact(existingByGhlId.id, updatePayload);
+      }
       await updateSyncStatusRecord("contacts", "inbound", 1, 0);
       return { contactId: existingByGhlId.id, created: false };
     }
@@ -121,11 +129,17 @@ export async function syncContactFromGhl(ghlContact: any): Promise<{ contactId: 
     if (ghlContact.email) {
       const existingByEmail = (await storage.getContacts({ limit: 500 })).data.find(c => c.email?.toLowerCase() === ghlContact.email?.toLowerCase());
       if (existingByEmail) {
-        await storage.updateContact(existingByEmail.id, {
-          ghlContactId: ghlContact.id,
-          phone: ghlContact.phone || existingByEmail.phone,
-          tags: [...new Set([...(existingByEmail.tags || []), ...(ghlContact.tags || [])])],
-        });
+        const updatePayload: UpdateContactRequest = { ghlContactId: ghlContact.id };
+        // GHL is authoritative for all fields present in the webhook payload
+        if (ghlContact.firstName !== undefined) updatePayload.firstName = ghlContact.firstName ?? "";
+        if (ghlContact.lastName !== undefined) updatePayload.lastName = ghlContact.lastName ?? "";
+        if (ghlContact.phone !== undefined) updatePayload.phone = ghlContact.phone ?? "";
+        if (ghlContact.companyName !== undefined) updatePayload.companyName = ghlContact.companyName ?? "";
+        // Tags: fully replace from GHL (not merged)
+        if (Array.isArray(ghlContact.tags)) {
+          updatePayload.tags = ghlContact.tags;
+        }
+        await storage.updateContact(existingByEmail.id, updatePayload);
         await updateSyncStatusRecord("contacts", "inbound", 1, 0);
         return { contactId: existingByEmail.id, created: false };
       }
@@ -432,10 +446,16 @@ export async function syncDealFromGhl(ghlOpportunity: any): Promise<{ dealId: nu
     const existingDeal = existingDeals.find(d => d.ghlOpportunityId === ghlOpportunity.id);
 
     if (existingDeal) {
-      await storage.updateDeal(existingDeal.id, {
-        stage: localStage,
-        totalVolume: ghlOpportunity.monetaryValue ? String(ghlOpportunity.monetaryValue) : existingDeal.totalVolume,
-      });
+      const updatePayload: Record<string, any> = { stage: localStage };
+      if (ghlOpportunity.monetaryValue !== undefined && ghlOpportunity.monetaryValue !== null) {
+        updatePayload.totalVolume = String(ghlOpportunity.monetaryValue);
+      } else if (ghlOpportunity.monetaryValue === null) {
+        updatePayload.totalVolume = null;
+      }
+      if (ghlOpportunity.name) {
+        updatePayload.notes = existingDeal.notes || `GHL Opportunity: ${ghlOpportunity.name}`;
+      }
+      await storage.updateDeal(existingDeal.id, updatePayload);
       await updateSyncStatusRecord("deals", "inbound", 1, 0);
       return { dealId: existingDeal.id, created: false };
     }
@@ -444,7 +464,7 @@ export async function syncDealFromGhl(ghlOpportunity: any): Promise<{ dealId: nu
       contactId: contact.id,
       stage: localStage,
       pipeline: "sales",
-      totalVolume: ghlOpportunity.monetaryValue ? String(ghlOpportunity.monetaryValue) : undefined,
+      totalVolume: (ghlOpportunity.monetaryValue !== undefined && ghlOpportunity.monetaryValue !== null) ? String(ghlOpportunity.monetaryValue) : undefined,
       notes: `Synced from GHL opportunity: ${ghlOpportunity.name || ghlOpportunity.id}`,
     });
 
@@ -920,6 +940,34 @@ export function startAutoSyncLoop(intervalMs: number = 45000): void {
         } catch (e: any) {
           console.error(`[GHL Sync] Auto-sync contact ${contact.id} error:`, e.message);
         }
+      }
+
+      // Retry contacts with recent ghl_sync_failed audit entries (update failures).
+      // This ensures contacts that have a ghlContactId but failed on a PUT update
+      // eventually re-sync — closing the durable retry loop.
+      try {
+        const auditLogs = await storage.getAuditLogs();
+        const oneHourAgo = Date.now() - 60 * 60 * 1000;
+        const failedContactIds = [...new Set(
+          auditLogs
+            .filter(l => l.action === "ghl_sync_failed" && l.entityType === "contact" && l.createdAt && new Date(l.createdAt).getTime() > oneHourAgo)
+            .map(l => l.entityId)
+            .filter((id): id is number => typeof id === "number")
+        )].slice(0, 5);
+        for (const contactId of failedContactIds) {
+          try {
+            const result = await syncContactToGhl(contactId);
+            if (result.success) {
+              synced++;
+              console.log(`[GHL Sync] Retry succeeded for previously-failed contact ${contactId}`);
+            }
+            await new Promise(r => setTimeout(r, 300));
+          } catch (e: any) {
+            console.warn(`[GHL Sync] Retry failed for contact ${contactId}:`, e.message);
+          }
+        }
+      } catch (auditErr: any) {
+        console.warn(`[GHL Sync] Could not check audit log for retry candidates:`, auditErr.message);
       }
 
       const { data: deals } = await storage.getDeals({ limit: 500 });

@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { isAuthenticated } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
-import { contacts, insertCompanySchema, insertContactSchema } from "@shared/schema";
+import { insertCompanySchema, insertContactSchema } from "@shared/schema";
 import { enrichContactBatch, isContactEnrichRunning } from "../services/enrichment";
 import { getSerperUsage, isSerperConfigured, resetSerperUsage } from "../services/serper";
 import { autoEnrollFromTrigger } from "../services/sequence-worker";
@@ -11,6 +11,9 @@ import { scoreContact } from "../services/lead-scoring";
 import { routeContact } from "../services/smart-router";
 import { createPreferenceAwareNotification, sendCriticalEmailNotification } from "../services/digest-service";
 import { ingestBusinessFromContact } from "../services/sdr/dedupe";
+import { isGhlConfigured } from "../services/ghl";
+import { syncContactToGhl } from "../services/ghl-sync";
+import { createContactGhlFirst, updateContactGhlFirst } from "../services/contact-writer";
 import { parse } from "csv-parse/sync";
 import path from "path";
 
@@ -31,7 +34,8 @@ export function registerContactsRoutes(app: Express) {
   app.post("/api/contacts", isAuthenticated, async (req, res) => {
     try {
       const input = insertContactSchema.parse(req.body);
-      const contact = await storage.createContact(input);
+      const contact = await createContactGhlFirst(input);
+
       await storage.createAuditLog({ action: "contact_created", entityType: "contact", entityId: contact.id, details: { name: `${contact.firstName} ${contact.lastName}` } });
       await createPreferenceAwareNotification({ channel: "internal", title: "New Contact Created", message: `${contact.firstName} ${contact.lastName}${contact.companyName ? ` — ${contact.companyName}` : ""} has been added as a new contact.`, type: "info", metadata: { contactId: contact.id, eventType: "contact_created" } }, "contact_created");
       triggerWorkflowsByEvent("contact_created", { entityType: "contact", entityId: contact.id, contactId: contact.id }).catch(err => console.error("Workflow trigger error:", err));
@@ -42,7 +46,9 @@ export function registerContactsRoutes(app: Express) {
       if (contact.leadScore && contact.leadScore >= 80) {
         sendCriticalEmailNotification({ eventType: "hot_lead", subject: `Hot Lead Alert: ${contact.firstName} ${contact.lastName}`, body: `<h3>Hot Lead Alert</h3><p><strong>${contact.firstName} ${contact.lastName}</strong>${contact.companyName ? ` (${contact.companyName})` : ""} has a lead score of ${contact.leadScore}.</p><p>Email: ${contact.email || "N/A"}<br/>Phone: ${contact.phone || "N/A"}</p><p>Take action immediately.</p>` }).catch(err => console.error("Hot lead email error:", err));
       }
-      res.status(201).json(contact);
+
+      const statusCode = contact._ghlSyncPending ? 202 : 201;
+      res.status(statusCode).json(contact);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
       res.status(500).json({ message: err.message });
@@ -53,6 +59,15 @@ export function registerContactsRoutes(app: Express) {
     try {
       const contact = await storage.getContact(Number(req.params.id));
       if (!contact) return res.status(404).json({ message: "Not found" });
+      if (!contact.ghlContactId && isGhlConfigured()) {
+        syncContactToGhl(contact.id).then(result => {
+          if (result.success) {
+            console.log(`[GHL Read-Touch] Auto-upserted contact ${contact.id} to GHL: ${result.ghlContactId}`);
+          }
+        }).catch((err: Error) => {
+          console.warn(`[GHL Read-Touch] Auto-upsert failed for contact ${contact.id}:`, err.message);
+        });
+      }
       res.json(contact);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -61,9 +76,11 @@ export function registerContactsRoutes(app: Express) {
 
   app.put("/api/contacts/:id", isAuthenticated, async (req, res) => {
     try {
-      const updated = await storage.updateContact(Number(req.params.id), req.body);
+      const contactId = Number(req.params.id);
+      const updated = await updateContactGhlFirst(contactId, req.body);
       if (!updated) return res.status(404).json({ message: "Not found" });
-      res.json(updated);
+      const statusCode = updated._ghlSyncFailed ? 202 : 200;
+      res.status(statusCode).json(updated);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

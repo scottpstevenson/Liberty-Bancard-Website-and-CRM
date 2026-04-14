@@ -6,6 +6,7 @@ import { routeContact } from "./smart-router";
 import { autoEnrollFromTrigger } from "./sequence-worker";
 import { triggerWorkflowsByEvent } from "./workflow-executor";
 import { syncContactToGhl } from "./ghl-sync";
+import { createContactGhlFirst, updateContactGhlFirst } from "./contact-writer";
 import { getEmailSignatureHtml } from "./email-signatures";
 import { streamCorevtFromZip, downloadCordataFromSunbiz, streamCordataFromZip, type CordataRecord } from "./sunbiz-scraper";
 import { toProperCase } from "./sunbiz-scraper";
@@ -566,7 +567,7 @@ export async function promoteQualifiedToContacts(): Promise<{
       const firstName = nameParts[0] || entity.entityName.split(" ")[0];
       const lastName = nameParts.slice(1).join(" ") || "";
 
-      const contact = await storage.createContact({
+      const contact = await createContactGhlFirst({
         firstName: firstName.charAt(0).toUpperCase() + firstName.slice(1).toLowerCase(),
         lastName: lastName ? lastName.charAt(0).toUpperCase() + lastName.slice(1).toLowerCase() : "(Business)",
         email: entity.email || entity.ownerEmail || "",
@@ -637,7 +638,7 @@ export async function processQuizLeadsForSunbizMatch(): Promise<number> {
           if (match.aiSummary) {
             enrichUpdates.notes = `${enrichUpdates.notes}\nSunbiz AI: ${match.aiSummary}`.trim();
           }
-          await storage.updateContact(contact.id, enrichUpdates);
+          await updateContactGhlFirst(contact.id, enrichUpdates);
           await storage.updateSunbizEntity(match.id, {
             tags: [...(match.tags || []), "quiz_lead_linked"],
             notes: `${match.notes || ""}\nLinked to quiz contact #${contact.id} (${contact.firstName} ${contact.lastName})`.trim(),
@@ -645,7 +646,7 @@ export async function processQuizLeadsForSunbizMatch(): Promise<number> {
           matched++;
         } else {
           const existingTags = contact.tags || [];
-          await storage.updateContact(contact.id, { tags: [...existingTags, "sunbiz_no_match"] });
+          await updateContactGhlFirst(contact.id, { tags: [...existingTags, "sunbiz_no_match"] });
         }
       } catch (err) {
         console.error(`[Quiz Lead Match] Error for contact ${contact.id}:`, err);

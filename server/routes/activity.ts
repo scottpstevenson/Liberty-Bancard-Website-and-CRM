@@ -5,6 +5,7 @@ import { z } from "zod";
 import { contacts, insertCalendarEventSchema, insertCallLogSchema, insertCommentSchema, insertEmailLogSchema, insertNoteSchema } from "@shared/schema";
 import { and } from "drizzle-orm";
 import { sendGhlEmail, sendGhlSms } from "../services/ghl";
+import { advanceDealStage } from "../services/deal-stage-service";
 import { parse } from "csv-parse/sync";
 
 export function registerActivityRoutes(app: Express) {
@@ -404,7 +405,7 @@ Respond in this exact JSON format:
       if (dealId) {
         const newStage = OUTCOME_TO_STAGE[outcome];
         if (newStage) {
-          await storage.updateDeal(Number(dealId), { stage: newStage });
+          await advanceDealStage(Number(dealId), newStage, "call_log_outcome");
           if (nextFollowUpDate) {
             await storage.updateDeal(Number(dealId), { nextFollowUp: new Date(nextFollowUpDate) });
           }

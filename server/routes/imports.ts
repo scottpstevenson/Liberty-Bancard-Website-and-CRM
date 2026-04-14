@@ -18,6 +18,7 @@ import { getGhlSyncStatus } from "../services/ghl-sync";
 import { runBulkFastClassification } from "../services/sunbiz-enrichment";
 import { ingestBusiness, ingestBusinessFromContact } from "../services/sdr/dedupe";
 import { syncFormSubmissionToGhl } from "../services/ghl-form-sync";
+import { createContactGhlFirst, updateContactGhlFirst } from "../services/contact-writer";
 import { parse } from "csv-parse/sync";
 import bcrypt from "bcryptjs";
 import path from "path";
@@ -503,7 +504,7 @@ Guidelines:
         role: "affiliate",
         authProvider: "local",
       });
-      const affiliateContact = await storage.createContact({
+      const affiliateContact = await createContactGhlFirst({
         firstName,
         lastName: lastName || "",
         email: email.toLowerCase(),
@@ -765,7 +766,7 @@ Guidelines:
       if (utmMedium) tags.push(`utm_med_${utmMedium}`);
       if (utmCampaign) tags.push(`utm_camp_${utmCampaign}`);
 
-      const contact = await storage.createContact({
+      const contact = await createContactGhlFirst({
         firstName,
         lastName: lastName || "",
         email,
@@ -865,7 +866,7 @@ Guidelines:
             if (match.aiSummary) {
               enrichUpdates.notes = `${enrichUpdates.notes || contact.notes || ""}\nSunbiz AI: ${match.aiSummary}`.trim();
             }
-            await storage.updateContact(contact.id, enrichUpdates);
+            await updateContactGhlFirst(contact.id, enrichUpdates);
             await storage.updateSunbizEntity(match.id, {
               tags: [...(match.tags || []), "quiz_lead_linked"],
               notes: `${match.notes || ""}\nLinked to quiz contact #${contact.id} (${firstName} ${lastName || ""})`.trim(),
@@ -1001,7 +1002,7 @@ Guidelines:
             const tier = total >= 70 ? "hot" : total >= 45 ? "warm" : total >= 20 ? "cold" : "unqualified";
             tierCounts[tier]++;
 
-            await storage.updateContact(row.id, {
+            await updateContactGhlFirst(row.id, {
               leadScore: total,
               revPotentialScore: revPotential.score,
               switchabilityScore: switchability.score,

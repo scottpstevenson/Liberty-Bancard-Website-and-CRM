@@ -5,6 +5,8 @@ import { z } from "zod";
 import { contacts, insertContactCompanySchema } from "@shared/schema";
 import { and } from "drizzle-orm";
 import { parse } from "csv-parse/sync";
+import { isGhlConfigured, upsertGhlContact } from "../services/ghl";
+import { syncContactToGhl, syncDealToGhl } from "../services/ghl-sync";
 
 export function registerCrmOperationsRoutes(app: Express) {
   // === CONTACT DETAIL AGGREGATE ===
@@ -13,6 +15,16 @@ export function registerCrmOperationsRoutes(app: Express) {
       const contactId = Number(req.params.id);
       const contact = await storage.getContact(contactId);
       if (!contact) return res.status(404).json({ message: "Not found" });
+
+      if (!contact.ghlContactId && isGhlConfigured()) {
+        syncContactToGhl(contactId).then(result => {
+          if (result.success) {
+            console.log(`[GHL Read-Touch] Auto-upserted contact ${contactId} to GHL: ${result.ghlContactId}`);
+          }
+        }).catch((err: Error) => {
+          console.warn(`[GHL Read-Touch] Auto-upsert failed for contact ${contactId}:`, err.message);
+        });
+      }
       
       const [dealsResult, ticketsResult, allTasks, contactNotes] = await Promise.all([
         storage.getDeals({ limit: 500 }),
@@ -184,6 +196,13 @@ export function registerCrmOperationsRoutes(app: Express) {
       if (!Array.isArray(dealIds) || !stage) return res.status(400).json({ message: "dealIds array and stage required" });
       await storage.bulkUpdateDealStage(dealIds, stage);
       await storage.createAuditLog({ action: "bulk_stage_update", entityType: "deal", details: { dealIds, stage }, userId: (req.user as any)?.id });
+      if (isGhlConfigured()) {
+        for (const dealId of dealIds) {
+          syncDealToGhl(dealId).catch((err: Error) => {
+            console.warn(`[GHL Bulk Stage] Failed to sync deal ${dealId} to GHL:`, err.message);
+          });
+        }
+      }
       res.json({ success: true, count: dealIds.length });
     } catch (err: any) {
       console.error("Bulk stage update error:", err.message);

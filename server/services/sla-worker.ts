@@ -1,5 +1,6 @@
 import { storage } from "../storage";
 import { sendGhlEmail, isGhlConfigured } from "./ghl";
+import { advanceDealStage } from "./deal-stage-service";
 import { processSequenceEnrollments } from "./sequence-worker";
 import { processSendQueue } from "./campaign-engine";
 import { processEnrichmentQueue } from "./enrichment";
@@ -380,7 +381,7 @@ async function runScheduledAiOps() {
 
       if (shouldAdvance && currentIndex + 1 < stageOrder.length) {
         const nextStage = stageOrder[currentIndex + 1];
-        await storage.updateDeal(deal.id, { stage: nextStage });
+        await advanceDealStage(deal.id, nextStage, "sla_scheduled");
         await storage.createAuditLog({ action: "deal_auto_progressed", entityType: "deal", entityId: deal.id, details: { from: deal.stage, to: nextStage, reason, source: "scheduled" } });
         dealsProgressed++;
       }

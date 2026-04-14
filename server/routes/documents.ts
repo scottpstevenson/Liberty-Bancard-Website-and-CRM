@@ -5,6 +5,7 @@ import { z } from "zod";
 import { and } from "drizzle-orm";
 import { insertCollateralPacketSchema, insertDocumentSchema, insertKnowledgeBaseSchema } from "@shared/schema";
 import { generateDealBlueprint } from "../services/deal-blueprint";
+import { advanceDealStage } from "../services/deal-stage-service";
 import { autoGenerateProposal } from "../services/proposal-engine";
 import { parse } from "csv-parse/sync";
 import path from "path";
@@ -204,7 +205,7 @@ export function registerDocumentsRoutes(app: Express) {
 
           if (hasStatement && hasVoidedCheck && hasId && deal.appCompleted) {
             if (deal.stage === "Contract Sent" || deal.stage === "Application Started") {
-              await storage.updateDeal(deal.id, { stage: "Underwriting Submitted" });
+              await advanceDealStage(deal.id, "Underwriting Submitted", "document_auto_advance");
               await storage.createNotification({
                 channel: "internal",
                 title: "Auto-Advanced to Underwriting",

@@ -12,6 +12,7 @@ import { autoGenerateProposal } from "../services/proposal-engine";
 import { routeContact } from "../services/smart-router";
 import { ingestBusinessFromContact } from "../services/sdr/dedupe";
 import { syncFormSubmissionToGhl, syncStatementUploadToGhl, syncSupportTicketToGhl } from "../services/ghl-form-sync";
+import { createContactGhlFirst } from "../services/contact-writer";
 import { parse } from "csv-parse/sync";
 import path from "path";
 import fs from "fs";
@@ -167,7 +168,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       const tags = ["src_website", "lead_statement_upload", `vertical_${(vertical || "unknown").toLowerCase().replace(/[^a-z]/g, "_")}`];
       if (utmSource) tags.push(`utm_src_${utmSource}`);
 
-      const contact = await storage.createContact({
+      const contact = await createContactGhlFirst({
         firstName, lastName, email, phone: mobile,
         companyName: businessName, vertical, currentProvider,
         interestedIn0Percent: parseBool(interestedIn0Percent),
@@ -272,7 +273,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       const tags = ["src_website", "lead_estimate"];
       if (utmSource) tags.push(`utm_src_${utmSource}`);
 
-      const contact = await storage.createContact({
+      const contact = await createContactGhlFirst({
         firstName, lastName, email, phone: phone || "",
         monthlyVolume, currentProvider, notes,
         utmSource: utmSource || undefined,
@@ -320,7 +321,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       const firstName = nameParts[0] || "there";
       const lastName = nameParts.slice(1).join(" ") || "";
 
-      let contact = await storage.createContact({
+      let contact = await createContactGhlFirst({
         firstName, lastName, email, phone: mobile || "",
         companyName: businessName, consentSms: consentSms === true,
         status: "Active",
@@ -397,7 +398,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       if (utmMedium) tags.push(`utm_med_${utmMedium}`);
       if (utmCampaign) tags.push(`utm_camp_${utmCampaign}`);
 
-      const contact = await storage.createContact({
+      const contact = await createContactGhlFirst({
         firstName, lastName, email, phone: phone || "",
         vertical, monthlyVolume, primaryOfferPath: offerPath,
         interestedIn0Percent: interestedIn0Percent === true,
@@ -463,7 +464,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       const firstName = nameParts[0] || "";
       const lastName = nameParts.slice(1).join(" ") || "";
 
-      const contact = await storage.createContact({
+      const contact = await createContactGhlFirst({
         firstName, lastName, email: "", phone: phone || "",
         status: "New",
         tags: ["src_website", "lead_callback", `callback_${(bestTime || "anytime").toLowerCase().replace(/[^a-z]/g, "_")}`],
@@ -526,7 +527,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
 
       if (utmSource) orderTags.push(`utm_src_${utmSource}`);
 
-      const contact = await storage.createContact({
+      const contact = await createContactGhlFirst({
         firstName: firstName.slice(0, 100), lastName: safeLastName, email: email.slice(0, 200), phone: phone.slice(0, 30),
         companyName: safeBusiness,
         promoCode: sanitizedPromo,

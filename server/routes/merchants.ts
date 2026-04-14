@@ -6,6 +6,7 @@ import { and } from "drizzle-orm";
 import { insertEquipmentOrderSchema, insertMerchantApplicationSchema, insertMerchantProfileSchema, insertOnboardingStepSchema } from "@shared/schema";
 import { getDocumentStatus, sendDocumentForEsign } from "../services/ghl";
 import { syncMerchantApplicationToGhl } from "../services/ghl-form-sync";
+import { createContactGhlFirst } from "../services/contact-writer";
 import { parse } from "csv-parse/sync";
 import path from "path";
 
@@ -18,7 +19,7 @@ export function registerMerchantsRoutes(app: Express) {
 
       const contactEmail = application.ownerEmail || application.businessEmail;
       if (contactEmail) {
-        const contact = await storage.createContact({
+        const contact = await createContactGhlFirst({
           firstName: application.ownerFirstName || "",
           lastName: application.ownerLastName || "",
           email: contactEmail,

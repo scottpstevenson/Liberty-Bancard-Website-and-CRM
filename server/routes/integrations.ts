@@ -125,8 +125,34 @@ export function registerIntegrationsRoutes(app: Express) {
     fullSyncFromGhl().catch(err => console.error("[GHL Sync API] Error:", err));
   });
 
+  app.get("/api/ghl/sync-status/contact/:id", isAuthenticated, async (req, res) => {
+    try {
+      const contactId = Number(req.params.id);
+      const contact = await storage.getContact(contactId);
+      if (!contact) return res.status(404).json({ message: "Not found" });
+      const logs = await storage.getGhlActivityLogs(contactId);
+      const lastOutboundSync = logs.find(l => l.direction === "outbound" && l.channel === "sync");
+      const lastSyncedAt = lastOutboundSync?.createdAt || null;
+      const isSynced = !!contact.ghlContactId && !!lastSyncedAt;
+      const syncAge = lastSyncedAt ? Date.now() - new Date(lastSyncedAt).getTime() : null;
+      const isRecent = syncAge !== null && syncAge < 24 * 60 * 60 * 1000;
+      res.json({
+        ghlContactId: contact.ghlContactId || null,
+        isSynced,
+        isRecent,
+        lastSyncedAt: lastSyncedAt ? new Date(lastSyncedAt).toISOString() : null,
+        syncAgeMs: syncAge,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/ghl/sync-contact/:id", isAuthenticated, async (req, res) => {
-    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
+    const userRole = (req.user as { role?: string } | undefined)?.role;
+    if (!userRole || !['admin', 'manager', 'agent'].includes(userRole)) {
+      return res.status(403).json({ message: "Insufficient permissions to trigger GHL sync" });
+    }
     const result = await syncContactToGhl(Number(req.params.id));
     res.json(result);
   });

@@ -1,5 +1,6 @@
 import { storage } from "../storage";
 import { convertToProspect, processSunbizEnrichmentQueue } from "./sunbiz-enrichment";
+import { createContactGhlFirst, updateContactGhlFirst } from "./contact-writer";
 import { estimateFromProspect, estimateFromContact, estimateFromDeal } from "./volume-estimator";
 import { toProperCase } from "./sunbiz-scraper";
 import type { SunbizEntity, Prospect, Contact, Deal } from "@shared/schema";
@@ -160,7 +161,7 @@ async function autoPromoteProspects(): Promise<number> {
         }
       }
 
-      const contact = await storage.createContact({
+      const contact = await createContactGhlFirst({
         firstName,
         lastName,
         email: email || `lead-${prospect.id}@placeholder.com`,
@@ -256,7 +257,7 @@ async function updateVolumeEstimates(): Promise<number> {
         });
 
         if (contact) {
-          await storage.updateContact(contact.id, {
+          await updateContactGhlFirst(contact.id, {
             estimatedProcessingVolume: estimate.estimatedProcessingVolume,
             estimatedResidual: estimate.estimatedResidual,
             volumeConfidence: estimate.volumeConfidence,

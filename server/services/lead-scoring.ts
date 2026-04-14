@@ -1,6 +1,7 @@
 import { storage } from "../storage";
 import type { Contact, Deal } from "@shared/schema";
 import { sendCriticalEmailNotification, createPreferenceAwareNotification } from "./digest-service";
+import { updateContactGhlFirst } from "./contact-writer";
 
 interface ScoreBreakdown {
   revPotential: { score: number; max: 30; factors: Record<string, number> };
@@ -359,7 +360,7 @@ export async function scoreContact(contactId: number): Promise<ScoreBreakdown | 
 
   const previousScore = contact.leadScore || 0;
 
-  await storage.updateContact(contactId, {
+  await updateContactGhlFirst(contactId, {
     leadScore: total,
     revPotentialScore: revPotential.score,
     switchabilityScore: switchability.score,
