@@ -12,8 +12,8 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Trash2, ArrowRight, Pencil, Loader2, Zap } from "lucide-react";
 
-const SALES_STAGES = ["New Lead", "Statement Received", "Review In Progress", "Call Booked", "Proposal Sent", "Negotiation / Follow-Up", "Nurture / Not Now", "Closed Won", "Closed Lost"];
-const ONBOARDING_STAGES = ["Contract Sent", "Application Started", "Underwriting Submitted", "Approved", "Terminal Ordered", "Go-Live Scheduled", "Live (First Batch)", "Active (7 Days)", "Active (30 Days)"];
+const SALES_STAGES = ["New Lead", "Statement Received", "Review In Progress", "Call Booked", "Proposal Sent", "Negotiation / Follow-Up", "Verbal Commit", "Nurture / Not Now", "Closed Won", "Closed Lost"];
+const ONBOARDING_STAGES = ["Application Submitted", "Application Started", "Underwriting Submitted", "Approved", "Terminal Ordered", "Go-Live Scheduled", "Live (First Batch)", "Active (7 Days)", "Active (30 Days)"];
 const SUPPORT_STAGES = ["New Ticket", "In Progress", "Waiting on Merchant", "Resolved", "Closed"];
 
 const PIPELINE_STAGES: Record<string, string[]> = {

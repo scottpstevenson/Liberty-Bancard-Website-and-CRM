@@ -80,6 +80,7 @@ import {
   generatedBlogPosts,
   type GeneratedBlogPost, type InsertGeneratedBlogPost,
   type UpdateSdrLeadState,
+  ghlWorkflowMappings, type GhlWorkflowMapping,
 } from "@shared/schema";
 import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, count } from "drizzle-orm";
 
@@ -480,6 +481,10 @@ export interface IStorage {
   createLeadDiscoveryResultsBulk(data: InsertLeadDiscoveryResult[]): Promise<LeadDiscoveryResult[]>;
   getLeadDiscoveryStats(): Promise<any>;
   findSdrMerchantByNameCity(businessName: string, city: string | null): Promise<SdrMerchant | undefined>;
+
+  getGhlWorkflowMappings(): Promise<import("@shared/schema").GhlWorkflowMapping[]>;
+  upsertGhlWorkflowMapping(sequenceName: string, ghlWorkflowId: string | null, category?: string, description?: string): Promise<import("@shared/schema").GhlWorkflowMapping>;
+  getGhlWorkflowIdBySequenceName(sequenceName: string): Promise<string | null>;
 }
 
 const DEFAULT_LIMIT = 100;
@@ -2843,6 +2848,33 @@ export class DatabaseStorage implements IStorage {
     }
     const [match] = await db.select().from(sdrMerchants).where(and(...conditions)).limit(1);
     return match;
+  }
+
+  async getGhlWorkflowMappings(): Promise<GhlWorkflowMapping[]> {
+    return db.select().from(ghlWorkflowMappings).orderBy(asc(ghlWorkflowMappings.sequenceName));
+  }
+
+  async upsertGhlWorkflowMapping(sequenceName: string, ghlWorkflowId: string | null, category?: string, description?: string): Promise<GhlWorkflowMapping> {
+    const [existing] = await db.select().from(ghlWorkflowMappings).where(eq(ghlWorkflowMappings.sequenceName, sequenceName));
+    if (existing) {
+      const [updated] = await db.update(ghlWorkflowMappings)
+        .set({ ghlWorkflowId, category: category || existing.category, description: description || existing.description, updatedAt: new Date() })
+        .where(eq(ghlWorkflowMappings.sequenceName, sequenceName))
+        .returning();
+      return updated;
+    } else {
+      const [created] = await db.insert(ghlWorkflowMappings)
+        .values({ sequenceName, ghlWorkflowId, category: category || null, description: description || null })
+        .returning();
+      return created;
+    }
+  }
+
+  async getGhlWorkflowIdBySequenceName(sequenceName: string): Promise<string | null> {
+    const [row] = await db.select({ ghlWorkflowId: ghlWorkflowMappings.ghlWorkflowId })
+      .from(ghlWorkflowMappings)
+      .where(eq(ghlWorkflowMappings.sequenceName, sequenceName));
+    return row?.ghlWorkflowId || null;
   }
 }
 

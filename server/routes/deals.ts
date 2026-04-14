@@ -9,6 +9,7 @@ import { scoreContact } from "../services/lead-scoring";
 import { generateDealBlueprint } from "../services/deal-blueprint";
 import { estimateFromContact, estimateFromDeal, estimateFromProspect } from "../services/volume-estimator";
 import { createPreferenceAwareNotification, sendCriticalEmailNotification } from "../services/digest-service";
+import { sendGhlEmailForMerchant, isGhlConfigured } from "../services/ghl";
 import { parse } from "csv-parse/sync";
 import path from "path";
 
@@ -68,6 +69,7 @@ export function registerDealsRoutes(app: Express) {
           await createPreferenceAwareNotification({ channel: "internal", title: "Deal Closed Won!", message: `Deal #${updated.id}${closedContact ? ` — ${closedContact.firstName} ${closedContact.lastName}` : ""} has been closed won.`, type: "alert", metadata: { dealId: updated.id, eventType: "deal_closed_won" } }, "deal_closed_won");
           sendCriticalEmailNotification({ eventType: "deal_closed_won", subject: `Closed Won: Deal #${updated.id}${closedContact ? ` — ${closedContact.companyName || closedContact.firstName}` : ""}`, body: `<h3>Deal Closed Won</h3><p>Deal #${updated.id} has moved to <strong>Closed Won</strong>.</p>${closedContact ? `<p>Contact: ${closedContact.firstName} ${closedContact.lastName}${closedContact.companyName ? ` (${closedContact.companyName})` : ""}</p>` : ""}<p>Owner: ${updated.owner || "Unassigned"}</p>`, ownerName: updated.owner }).catch(err => console.error("Closed won email error:", err));
 
+          // Auto-onboarding kickoff
           (async () => {
             try {
               const onboardingDeal = await storage.createDeal({
@@ -84,13 +86,15 @@ export function registerDealsRoutes(app: Express) {
 
               if (closedContact?.email) {
                 const { sendGhlEmail } = await import("../services/ghl");
+                const repName = updated.owner || "Scott Stevenson";
+                const repPhone = "954-266-8214";
                 const merchantName = closedContact.firstName || "there";
                 const bizName = closedContact.companyName || "your business";
                 await sendGhlEmail({
                   contactId: closedContact.id,
                   dealId: onboardingDeal.id,
                   subject: `Welcome to Liberty Bancard — Here's What Happens Next`,
-                  body: `Hi ${merchantName},\n\nWelcome to Liberty Bancard! We're excited to have ${bizName} on board.\n\nHere's what to expect in the next 48 hours:\n\n1. Our team will reach out to collect your merchant application and supporting documents (voided check, government ID).\n2. Once submitted, underwriting typically takes 1–3 business days.\n3. After approval, your terminal and account setup will be completed and you'll process your first batch.\n\nYour dedicated rep is Scott Stevenson. You can reach him directly at:\n📞 954-266-8214\n✉️ scott@libertybancard.com\n\nIf you have any questions at all, just reply to this email or give us a call.\n\nWelcome aboard,\nLiberty Bancard Team\n\nEligibility, underwriting, card brand rules, and applicable laws apply.`,
+                  body: `<h2>Welcome to Liberty Bancard, ${merchantName}!</h2><p>We're excited to have ${bizName} on board.</p><h3>Your Next Steps</h3><ol><li><strong>Complete your merchant application</strong> — your rep will send you a link or you can call us directly.</li><li><strong>Submit your voided check and owner ID</strong> — required for underwriting.</li><li><strong>Terminal setup</strong> — once approved, we'll coordinate equipment delivery and setup.</li></ol><h3>Your Dedicated Rep</h3><p><strong>${repName}</strong><br/>Phone: <a href="tel:${repPhone}">${repPhone}</a><br/>Email: <a href="mailto:scott@libertybancard.com">scott@libertybancard.com</a></p><p>We typically complete onboarding within 3-5 business days. If you have any questions, don't hesitate to reach out.</p><p>Welcome aboard,<br/><strong>The Liberty Bancard Team</strong></p>`,
                 }).catch(err => console.error("[Onboarding] Welcome email error:", err));
               }
             } catch (onboardErr) {

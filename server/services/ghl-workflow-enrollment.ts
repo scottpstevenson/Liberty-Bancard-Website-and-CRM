@@ -113,7 +113,7 @@ const INBOX_SMART_LIST_TAGS = {
   activePipeline: "LB-ACTIVE-PIPELINE",
 } as const;
 
-function resolveGhlWorkflowIdSync(sequenceName: string): string | null {
+async function resolveGhlWorkflowId(sequenceName: string): Promise<string | null> {
   const envKey = `GHL_WORKFLOW_${sequenceName
     .replace(/[^a-zA-Z0-9]+/g, "_")
     .replace(/^_|_$/g, "")
@@ -122,21 +122,17 @@ function resolveGhlWorkflowIdSync(sequenceName: string): string | null {
   const envValue = process.env[envKey];
   if (envValue) return envValue;
 
+  try {
+    const dbId = await storage.getGhlWorkflowIdBySequenceName(sequenceName);
+    if (dbId) return dbId;
+  } catch (err) {
+    console.warn(`[GHL Enrollment] DB workflow ID lookup failed for "${sequenceName}":`, err);
+  }
+
   const mapping = SEQUENCE_WORKFLOW_MAP[sequenceName];
   if (mapping?.ghlWorkflowId) return mapping.ghlWorkflowId;
 
   return process.env.GHL_DEFAULT_WORKFLOW_ID || null;
-}
-
-async function resolveGhlWorkflowId(sequenceName: string): Promise<string | null> {
-  const syncResult = resolveGhlWorkflowIdSync(sequenceName);
-  if (syncResult) return syncResult;
-  try {
-    const dbValue = await storage.getSystemSetting(`ghl_workflow_id:${sequenceName}`);
-    if (dbValue) return String(dbValue);
-  } catch {
-  }
-  return null;
 }
 
 function getVerticalTag(vertical: string | null | undefined): string {

@@ -1,227 +1,246 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2, Zap, CheckCircle2, XCircle, AlertTriangle, ExternalLink, Save } from "lucide-react";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
+import { CheckCircle, XCircle, Save, RefreshCw, Workflow, Search } from "lucide-react";
+
+const ALL_SEQUENCES = [
+  { name: "1. Switch & Save — Statement Audit", category: "sales" },
+  { name: "2. Payment Stack 101 — Education", category: "education" },
+  { name: "3. Fast Approval — Application Completion", category: "onboarding" },
+  { name: "4. Trust Builder — Authority Sequence", category: "sales" },
+  { name: "5. Chargeback Defense", category: "risk" },
+  { name: "6. Funding Speed & Reliability", category: "sales" },
+  { name: "8. Liberty Smart Terminal — Product Showcase", category: "hardware" },
+  { name: "9. Surcharge & Cash Discount — Compliance", category: "sales" },
+  { name: "10. Retail Merchants — SDR Outbound + Drip", category: "sdr_outbound" },
+  { name: "11. Auto Merchants — SDR Outbound + Drip", category: "sdr_outbound" },
+  { name: "12. Medical & Med Spa — SDR Outbound + Drip", category: "sdr_outbound" },
+  { name: "13. Recurring Billing — Subscription Merchants", category: "sales" },
+  { name: "15. Omnichannel — Online + In-Person", category: "sales" },
+  { name: "16. Security & PCI Compliance — Made Easy", category: "education" },
+  { name: "17. Contract Escape — Switch Help", category: "sales" },
+  { name: "18. Objection Crusher — Overcome Hesitation", category: "sales" },
+  { name: "19. Reactivation — Cold Lead Revival", category: "reactivation" },
+  { name: "20. Free Analysis Follow-Up", category: "sales" },
+  { name: "Post-Call Review Follow-Up", category: "sales" },
+  { name: "Proposal Follow-Up", category: "sales" },
+  { name: "No-Show Reschedule", category: "sales" },
+  { name: "Long-Term Nurture", category: "nurture" },
+  { name: "SDR: Cold Outbound — Auto Repair", category: "sdr_cold_outbound" },
+  { name: "SDR: Cold Outbound — Med Spa", category: "sdr_cold_outbound" },
+  { name: "SDR: Cold Outbound — Dental", category: "sdr_cold_outbound" },
+  { name: "SDR: Reply Engaged", category: "sdr_reply_engaged" },
+  { name: "SDR: Statement Chase", category: "sdr_statement_chase" },
+  { name: "SDR: Proposal Follow-Up", category: "sdr_proposal_followup" },
+  { name: "SDR: No-Show Recovery", category: "sdr_noshow_recovery" },
+  { name: "V-Retail: SDR Outbound Prospecting", category: "sdr" },
+  { name: "V-Retail: Inbound Lead Nurture", category: "inbound" },
+  { name: "V-Retail: Account Management Ops", category: "operations" },
+  { name: "V-Auto: SDR Outbound Prospecting", category: "sdr" },
+  { name: "V-Auto: Inbound Lead Nurture", category: "inbound" },
+  { name: "V-Auto: Account Management Ops", category: "operations" },
+  { name: "V-Medical: SDR Outbound Prospecting", category: "sdr" },
+];
 
 interface WorkflowMapping {
+  id: number;
   sequenceName: string;
-  category: string;
-  vertical: string;
   ghlWorkflowId: string | null;
-  source: "env" | "db" | null;
-  envKey: string;
+  category: string | null;
+  description: string | null;
+  updatedAt: string | null;
 }
 
 const CATEGORY_COLORS: Record<string, string> = {
   sales: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
   education: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300",
   onboarding: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
-  sdr_outbound: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
-  sdr_cold_outbound: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
-  sdr_reply_engaged: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300",
-  nurture: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300",
-  reactivation: "bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-300",
-  inbound: "bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300",
-  operations: "bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300",
   risk: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
   hardware: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300",
+  sdr_outbound: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
+  sdr_cold_outbound: "bg-slate-100 text-slate-700 dark:bg-slate-900/30 dark:text-slate-300",
+  sdr_reply_engaged: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300",
+  sdr_statement_chase: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300",
+  sdr_proposal_followup: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
+  sdr_noshow_recovery: "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300",
+  reactivation: "bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/30 dark:text-fuchsia-300",
+  nurture: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300",
+  sdr: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300",
+  inbound: "bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300",
+  operations: "bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300",
 };
 
-function MappingRow({ mapping }: { mapping: WorkflowMapping }) {
+export default function GhlWorkflowManager() {
   const { toast } = useToast();
-  const [editing, setEditing] = useState(false);
-  const [inputValue, setInputValue] = useState(mapping.ghlWorkflowId || "");
+  const [editingIds, setEditingIds] = useState<Record<string, string>>({});
+  const [savingSequences, setSavingSequences] = useState<Set<string>>(new Set());
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const { data: mappings = [], isLoading } = useQuery<WorkflowMapping[]>({
+    queryKey: ["/api/ghl/workflow-mappings"],
+  });
+
+  const mappingByName = Object.fromEntries(mappings.map(m => [m.sequenceName, m]));
 
   const saveMutation = useMutation({
-    mutationFn: async (ghlWorkflowId: string) => {
-      const res = await apiRequest("PUT", `/api/ghl/workflow-mappings/${encodeURIComponent(mapping.sequenceName)}`, { ghlWorkflowId });
-      return res.json();
+    mutationFn: async ({ sequenceName, ghlWorkflowId, category }: { sequenceName: string; ghlWorkflowId: string; category: string }) => {
+      return apiRequest("PUT", `/api/ghl/workflow-mappings/${encodeURIComponent(sequenceName)}`, { ghlWorkflowId: ghlWorkflowId || null, category });
     },
-    onSuccess: () => {
+    onSuccess: (_, { sequenceName }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/ghl/workflow-mappings"] });
-      setEditing(false);
-      toast({ title: "Saved", description: `Workflow ID saved for "${mapping.sequenceName}"` });
+      setSavingSequences(prev => { const next = new Set(prev); next.delete(sequenceName); return next; });
+      setEditingIds(prev => { const next = { ...prev }; delete next[sequenceName]; return next; });
+      toast({ title: "Saved", description: "Workflow ID updated successfully." });
     },
-    onError: (err: any) => {
-      toast({ title: "Error", description: err.message || "Failed to save", variant: "destructive" });
+    onError: (_, { sequenceName }) => {
+      setSavingSequences(prev => { const next = new Set(prev); next.delete(sequenceName); return next; });
+      toast({ title: "Error", description: "Failed to save workflow ID.", variant: "destructive" });
     },
   });
 
-  const handleSave = () => {
-    saveMutation.mutate(inputValue.trim());
+  const handleSave = (sequenceName: string, category: string) => {
+    const ghlWorkflowId = editingIds[sequenceName] ?? (mappingByName[sequenceName]?.ghlWorkflowId || "");
+    setSavingSequences(prev => new Set(prev).add(sequenceName));
+    saveMutation.mutate({ sequenceName, ghlWorkflowId, category });
   };
 
-  const handleCancel = () => {
-    setInputValue(mapping.ghlWorkflowId || "");
-    setEditing(false);
+  const getWorkflowId = (sequenceName: string) => {
+    if (sequenceName in editingIds) return editingIds[sequenceName];
+    return mappingByName[sequenceName]?.ghlWorkflowId || "";
   };
 
-  const isConfigured = !!mapping.ghlWorkflowId;
-  const catColor = CATEGORY_COLORS[mapping.category] || "bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300";
+  const isEdited = (sequenceName: string) => sequenceName in editingIds;
+  const hasId = (sequenceName: string) => {
+    const id = mappingByName[sequenceName]?.ghlWorkflowId;
+    return !!id && id.trim() !== "";
+  };
 
-  return (
-    <div className="border border-border rounded-lg p-4 space-y-3" data-testid={`row-workflow-${mapping.sequenceName}`}>
-      <div className="flex items-start gap-3">
-        <div className="mt-0.5 shrink-0">
-          {isConfigured
-            ? <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-            : <XCircle className="w-5 h-5 text-muted-foreground" />}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex flex-wrap items-center gap-2 mb-1">
-            <span className="font-medium text-sm text-foreground" data-testid="text-sequence-name">{mapping.sequenceName}</span>
-            <Badge variant="outline" className={`text-xs px-2 py-0 ${catColor}`}>{mapping.category}</Badge>
-            {mapping.vertical !== "all" && (
-              <Badge variant="outline" className="text-xs px-2 py-0">{mapping.vertical}</Badge>
-            )}
-            {mapping.source === "env" && (
-              <Badge variant="outline" className="text-xs px-2 py-0 bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">via env var</Badge>
-            )}
-          </div>
-          {isConfigured && !editing && (
-            <p className="text-xs text-muted-foreground font-mono truncate" data-testid="text-workflow-id">
-              {mapping.ghlWorkflowId}
-            </p>
-          )}
-          {!isConfigured && !editing && (
-            <p className="text-xs text-muted-foreground italic">No GHL workflow ID — outreach won't fire for this sequence</p>
-          )}
-        </div>
-        {mapping.source !== "env" && (
-          <div className="shrink-0">
-            {!editing ? (
-              <Button variant="outline" size="sm" onClick={() => setEditing(true)} data-testid={`button-edit-${mapping.sequenceName}`}>
-                {isConfigured ? "Edit" : "Add ID"}
-              </Button>
-            ) : null}
-          </div>
-        )}
-      </div>
+  const configuredCount = ALL_SEQUENCES.filter(s => hasId(s.name)).length;
 
-      {editing && (
-        <div className="flex gap-2 pl-8">
-          <Input
-            value={inputValue}
-            onChange={e => setInputValue(e.target.value)}
-            placeholder="Paste GHL Workflow ID from GHL admin..."
-            className="font-mono text-sm flex-1"
-            data-testid="input-workflow-id"
-            onKeyDown={e => { if (e.key === "Enter") handleSave(); if (e.key === "Escape") handleCancel(); }}
-          />
-          <Button size="sm" onClick={handleSave} disabled={saveMutation.isPending} data-testid="button-save-workflow-id">
-            {saveMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            Save
-          </Button>
-          <Button size="sm" variant="ghost" onClick={handleCancel} data-testid="button-cancel-workflow-id">Cancel</Button>
-        </div>
-      )}
-    </div>
+  const filteredSequences = ALL_SEQUENCES.filter(s =>
+    s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    s.category.toLowerCase().includes(searchQuery.toLowerCase())
   );
-}
-
-export default function GhlWorkflowManager() {
-  const [filter, setFilter] = useState<"all" | "configured" | "missing">("all");
-  const [search, setSearch] = useState("");
-
-  const { data: mappings, isLoading } = useQuery<WorkflowMapping[]>({
-    queryKey: ["/api/ghl/workflow-mappings"],
-    refetchInterval: 30000,
-  });
-
-  const filtered = (mappings || []).filter(m => {
-    if (filter === "configured" && !m.ghlWorkflowId) return false;
-    if (filter === "missing" && m.ghlWorkflowId) return false;
-    if (search && !m.sequenceName.toLowerCase().includes(search.toLowerCase()) && !m.category.toLowerCase().includes(search.toLowerCase())) return false;
-    return true;
-  });
-
-  const configured = (mappings || []).filter(m => !!m.ghlWorkflowId).length;
-  const total = (mappings || []).length;
-  const missing = total - configured;
 
   return (
-    <div className="p-6 space-y-6 max-w-4xl mx-auto" data-testid="page-ghl-workflow-manager">
-      <div>
-        <h1 className="text-2xl font-display font-bold text-foreground">GHL Workflow ID Manager</h1>
-        <p className="text-muted-foreground mt-1">
-          Map each outreach sequence to its GHL workflow ID so contacts get enrolled in GHL when sequences fire.
-        </p>
+    <div className="p-6 space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+            <Workflow className="w-6 h-6 text-primary" />
+            GHL Workflow ID Manager
+          </h1>
+          <p className="text-muted-foreground text-sm mt-1">
+            Paste in GHL workflow IDs from the GHL admin panel to connect each sequence to the correct automation.
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="text-sm text-muted-foreground">
+            <span className="font-semibold text-foreground">{configuredCount}</span> / {ALL_SEQUENCES.length} configured
+          </div>
+          <Button variant="outline" size="sm" onClick={() => queryClient.invalidateQueries({ queryKey: ["/api/ghl/workflow-mappings"] })} data-testid="button-refresh-mappings">
+            <RefreshCw className="w-4 h-4 mr-1" /> Refresh
+          </Button>
+        </div>
       </div>
 
-      <Alert className="border-amber-200 bg-amber-50 dark:bg-amber-900/10 dark:border-amber-800">
-        <AlertTriangle className="h-4 w-4 text-amber-600" />
-        <AlertDescription className="text-amber-800 dark:text-amber-300">
-          <strong>To find your GHL workflow IDs:</strong> In GoHighLevel, go to{" "}
-          <strong>Automation → Workflows</strong>, open each workflow, and copy the ID from the URL{" "}
-          (e.g. <code className="text-xs bg-amber-100 dark:bg-amber-900/30 px-1 rounded">...workflows/<strong>abc123xyz</strong>/...</code>).{" "}
-          <a href="https://app.gohighlevel.com/settings/automations/workflows" target="_blank" rel="noopener noreferrer" className="underline inline-flex items-center gap-1">
-            Open GHL Workflows <ExternalLink className="w-3 h-3" />
-          </a>
-        </AlertDescription>
-      </Alert>
-
-      <div className="grid grid-cols-3 gap-4">
-        <Card data-testid="card-stat-total">
-          <CardContent className="p-4 text-center">
-            <div className="text-2xl font-bold text-foreground">{total}</div>
-            <div className="text-xs text-muted-foreground">Total Sequences</div>
-          </CardContent>
-        </Card>
-        <Card data-testid="card-stat-configured">
-          <CardContent className="p-4 text-center">
-            <div className="text-2xl font-bold text-emerald-600">{configured}</div>
-            <div className="text-xs text-muted-foreground">Configured</div>
-          </CardContent>
-        </Card>
-        <Card data-testid="card-stat-missing">
-          <CardContent className="p-4 text-center">
-            <div className={`text-2xl font-bold ${missing > 0 ? "text-red-500" : "text-muted-foreground"}`}>{missing}</div>
-            <div className="text-xs text-muted-foreground">Missing IDs</div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-            <CardTitle className="text-base flex items-center gap-2">
-              <Zap className="w-4 h-4 text-primary" />
-              Sequence → GHL Workflow Mappings
-            </CardTitle>
-            <div className="flex gap-2 flex-wrap">
-              {(["all", "configured", "missing"] as const).map(f => (
-                <Button key={f} size="sm" variant={filter === f ? "default" : "outline"} onClick={() => setFilter(f)} data-testid={`button-filter-${f}`} className="capitalize">
-                  {f}
-                </Button>
-              ))}
+      <Card data-testid="card-ghl-workflow-summary">
+        <CardContent className="p-4">
+          <div className="flex items-center gap-6 flex-wrap">
+            <div className="flex items-center gap-2">
+              <CheckCircle className="w-4 h-4 text-green-500" />
+              <span className="text-sm"><span className="font-semibold">{configuredCount}</span> sequences connected to GHL</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <XCircle className="w-4 h-4 text-red-400" />
+              <span className="text-sm"><span className="font-semibold">{ALL_SEQUENCES.length - configuredCount}</span> sequences need a workflow ID</span>
             </div>
           </div>
-          <Input
-            placeholder="Search sequences..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="mt-2"
-            data-testid="input-search-sequences"
-          />
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {isLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : filtered.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">No sequences match your filter.</div>
-          ) : (
-            filtered.map(m => <MappingRow key={m.sequenceName} mapping={m} />)
+          {configuredCount < ALL_SEQUENCES.length && (
+            <p className="text-xs text-muted-foreground mt-2">
+              Sequences without a GHL workflow ID will not enroll contacts in GHL. Copy the workflow ID from GHL → Automation → Workflows → [workflow] → Settings.
+            </p>
           )}
         </CardContent>
       </Card>
+
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <Input
+          placeholder="Search sequences by name or category..."
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          className="pl-9"
+          data-testid="input-search-sequences"
+        />
+      </div>
+
+      <div className="space-y-3">
+        {isLoading ? (
+          <div className="text-center py-12 text-muted-foreground">Loading workflow mappings...</div>
+        ) : (
+          filteredSequences.map(seq => {
+            const currentId = getWorkflowId(seq.name);
+            const edited = isEdited(seq.name);
+            const configured = hasId(seq.name);
+            const isSaving = savingSequences.has(seq.name);
+            const categoryColor = CATEGORY_COLORS[seq.category] || "bg-gray-100 text-gray-700";
+
+            return (
+              <Card key={seq.name} className={`transition-all ${edited ? "ring-2 ring-primary/30" : ""}`} data-testid={`card-sequence-${seq.name.replace(/[^a-zA-Z0-9]/g, "-").toLowerCase()}`}>
+                <CardContent className="p-4">
+                  <div className="flex items-start gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <span className="font-medium text-sm text-foreground truncate">{seq.name}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${categoryColor}`}>{seq.category}</span>
+                        {configured && !edited && (
+                          <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+                            <CheckCircle className="w-3 h-3" /> Connected
+                          </span>
+                        )}
+                        {!configured && (
+                          <span className="flex items-center gap-1 text-xs text-red-500">
+                            <XCircle className="w-3 h-3" /> No ID set
+                          </span>
+                        )}
+                        {edited && (
+                          <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">Unsaved</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 mt-2">
+                        <Input
+                          placeholder="Paste GHL workflow ID here (e.g. abc123def456...)"
+                          value={currentId}
+                          onChange={e => setEditingIds(prev => ({ ...prev, [seq.name]: e.target.value }))}
+                          className="font-mono text-xs h-8 flex-1"
+                          data-testid={`input-workflow-id-${seq.name.replace(/[^a-zA-Z0-9]/g, "-").toLowerCase()}`}
+                        />
+                        <Button
+                          size="sm"
+                          variant={edited ? "default" : "outline"}
+                          disabled={isSaving || (!edited && configured)}
+                          onClick={() => handleSave(seq.name, seq.category)}
+                          className="shrink-0 h-8"
+                          data-testid={`button-save-${seq.name.replace(/[^a-zA-Z0-9]/g, "-").toLowerCase()}`}
+                        >
+                          {isSaving ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                          <span className="ml-1 text-xs">{isSaving ? "Saving..." : "Save"}</span>
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })
+        )}
+      </div>
     </div>
   );
 }

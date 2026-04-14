@@ -143,25 +143,43 @@ const DEMO_PROSPECTS = [
 
 export async function seedStageRules() {
   const existing = await storage.getStageAutomationRules();
-  if (existing.length >= 6) {
-    console.log(`[Seed] ${existing.length} stage rules already exist, skipping.`);
-    return;
-  }
+  let created = 0;
+  let updated = 0;
 
   for (const rule of STAGE_RULES) {
     const exists = existing.find(e => e.name === rule.name);
-    if (exists) continue;
-    await storage.createStageAutomationRule({
-      name: rule.name,
-      pipeline: rule.pipeline,
-      fromStage: rule.fromStage,
-      toStage: rule.toStage,
-      actions: rule.actions,
-      enabled: rule.enabled,
-      priority: rule.priority,
-    });
+    if (exists) {
+      const stagesChanged =
+        exists.fromStage !== rule.fromStage ||
+        exists.toStage !== rule.toStage ||
+        exists.pipeline !== rule.pipeline;
+      if (stagesChanged) {
+        await storage.updateStageAutomationRule(exists.id, {
+          fromStage: rule.fromStage,
+          toStage: rule.toStage,
+          pipeline: rule.pipeline,
+        });
+        updated++;
+      }
+    } else {
+      await storage.createStageAutomationRule({
+        name: rule.name,
+        pipeline: rule.pipeline,
+        fromStage: rule.fromStage,
+        toStage: rule.toStage,
+        actions: rule.actions,
+        enabled: rule.enabled,
+        priority: rule.priority,
+      });
+      created++;
+    }
   }
-  console.log(`[Seed] ${STAGE_RULES.length} stage automation rules seeded.`);
+
+  if (created > 0 || updated > 0) {
+    console.log(`[Seed] Stage rules: ${created} created, ${updated} updated to canonical stage names.`);
+  } else {
+    console.log(`[Seed] ${existing.length} stage rules already current, skipping.`);
+  }
 }
 
 export async function seedDemoProspects() {

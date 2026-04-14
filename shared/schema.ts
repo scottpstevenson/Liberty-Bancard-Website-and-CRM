@@ -2648,6 +2648,25 @@ export const ghlSyncStatus = pgTable("ghl_sync_status", {
 
 export type GhlSyncStatusRecord = typeof ghlSyncStatus.$inferSelect;
 
+export const ghlWorkflowMappings = pgTable("ghl_workflow_mappings", {
+  id: serial("id").primaryKey(),
+  sequenceName: text("sequence_name").notNull(),
+  ghlWorkflowId: text("ghl_workflow_id"),
+  category: text("category"),
+  description: text("description"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("ghl_workflow_mappings_sequence_name_idx").on(table.sequenceName),
+]);
+
+export const insertGhlWorkflowMappingSchema = createInsertSchema(ghlWorkflowMappings).omit({
+  id: true,
+  updatedAt: true,
+});
+
+export type GhlWorkflowMapping = typeof ghlWorkflowMappings.$inferSelect;
+export type InsertGhlWorkflowMapping = z.infer<typeof insertGhlWorkflowMappingSchema>;
+
 export const GHL_PIPELINE_STAGE_MAP: Record<string, string> = {
   "New Lead": "new_lead",
   "Statement Received": "statement_received",

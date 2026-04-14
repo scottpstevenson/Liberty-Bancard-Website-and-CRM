@@ -384,8 +384,9 @@ export function registerAnalyticsRoutes(app: Express) {
       const activeDeals = deals.filter(d => d.pipeline === "sales" && d.stage !== "Closed Lost");
 
       const stageWeights: Record<string, number> = {
-        "New Lead": 0.1, "Contacted": 0.2, "Statement Collected": 0.4,
-        "Proposal": 0.6, "Negotiation": 0.75, "Closed Won": 1.0, "Closed Lost": 0
+        "New Lead": 0.1, "Statement Received": 0.25, "Review In Progress": 0.4,
+        "Call Booked": 0.5, "Proposal Sent": 0.6, "Negotiation / Follow-Up": 0.75,
+        "Verbal Commit": 0.9, "Closed Won": 1.0, "Closed Lost": 0
       };
 
       let totalPipeline = 0;

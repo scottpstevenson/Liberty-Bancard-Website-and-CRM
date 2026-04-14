@@ -20,13 +20,12 @@ const INTERCHANGE_PLUS_MARGIN_BPS = 35;
 
 const STAGE_CONFIDENCE: Record<string, string> = {
   "New Lead": "low",
-  "Statement Collected": "medium",
   "Statement Received": "medium",
-  "Under Review": "medium",
-  "Proposal Sent": "high",
-  "Negotiation": "high",
-  "Verbal Commit": "high",
+  "Review In Progress": "medium",
   "Call Booked": "medium",
+  "Proposal Sent": "high",
+  "Negotiation / Follow-Up": "high",
+  "Verbal Commit": "high",
   "Closed Won": "actual",
   "Closed Lost": "low",
 };

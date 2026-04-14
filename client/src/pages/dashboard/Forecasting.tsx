@@ -8,10 +8,12 @@ import type { Deal, Contact } from "@shared/schema";
 
 const STAGE_WEIGHTS: Record<string, number> = {
   "New Lead": 0.1,
-  "Contacted": 0.2,
-  "Statement Collected": 0.4,
-  "Proposal": 0.6,
-  "Negotiation": 0.75,
+  "Statement Received": 0.25,
+  "Review In Progress": 0.4,
+  "Call Booked": 0.5,
+  "Proposal Sent": 0.6,
+  "Negotiation / Follow-Up": 0.75,
+  "Verbal Commit": 0.9,
   "Closed Won": 1.0,
   "Closed Lost": 0,
 };

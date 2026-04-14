@@ -222,7 +222,7 @@ export async function executeWorkflowActions(
             subject: `Your Processing Analysis is Ready - ${contact.companyName || contact.firstName}`,
             body: proposalBody,
           });
-          if (deal.stage === "Review In Progress" || deal.stage === "Under Review") {
+          if (deal.stage === "Review In Progress") {
             await storage.updateDeal(dealId, { stage: "Proposal Sent" });
           }
           logEntries.push({ step: i + 1, action: "generate_proposal", status: result.success ? "completed" : "failed", timestamp: new Date().toISOString() });

@@ -1,5 +1,5 @@
 import type { Express } from "express";
-import { isAuthenticated } from "../replit_integrations/auth";
+import { isAuthenticated, isAdmin } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { contacts } from "@shared/schema";
 import { and } from "drizzle-orm";
@@ -477,46 +477,22 @@ export function registerIntegrationsRoutes(app: Express) {
     }
   });
 
+  // GHL Workflow ID Manager
   app.get("/api/ghl/workflow-mappings", isAuthenticated, async (req, res) => {
     try {
-      const { getWorkflowMappings } = await import("../services/ghl-workflow-enrollment");
-      const sequenceMap = getWorkflowMappings();
-      const sequenceNames = Object.keys(sequenceMap);
-      const mappings = await Promise.all(
-        sequenceNames.map(async (name) => {
-          const envKey = `GHL_WORKFLOW_${name.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_|_$/g, "").toUpperCase()}`;
-          const envValue = process.env[envKey] || null;
-          const dbValue = await storage.getSystemSetting(`ghl_workflow_id:${name}`);
-          const entry = sequenceMap[name];
-          return {
-            sequenceName: name,
-            category: entry?.category || "unknown",
-            vertical: entry?.vertical || "all",
-            ghlWorkflowId: envValue || (dbValue ? String(dbValue) : null),
-            source: envValue ? "env" : dbValue ? "db" : null,
-            envKey,
-          };
-        })
-      );
+      const mappings = await storage.getGhlWorkflowMappings();
       res.json(mappings);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
   });
 
-  app.put("/api/ghl/workflow-mappings/:sequenceName", isAuthenticated, async (req, res) => {
+  app.put("/api/ghl/workflow-mappings/:sequenceName", isAuthenticated, isAdmin, async (req, res) => {
     try {
       const sequenceName = decodeURIComponent(req.params.sequenceName);
-      const { ghlWorkflowId } = req.body;
-      if (ghlWorkflowId === null || ghlWorkflowId === "") {
-        await storage.setSystemSetting(`ghl_workflow_id:${sequenceName}`, null);
-        return res.json({ success: true, cleared: true });
-      }
-      if (typeof ghlWorkflowId !== "string" || !ghlWorkflowId.trim()) {
-        return res.status(400).json({ message: "ghlWorkflowId must be a non-empty string" });
-      }
-      await storage.setSystemSetting(`ghl_workflow_id:${sequenceName}`, ghlWorkflowId.trim());
-      res.json({ success: true, sequenceName, ghlWorkflowId: ghlWorkflowId.trim() });
+      const { ghlWorkflowId, category, description } = req.body;
+      const mapping = await storage.upsertGhlWorkflowMapping(sequenceName, ghlWorkflowId || null, category, description);
+      res.json(mapping);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
