@@ -113,7 +113,7 @@ const INBOX_SMART_LIST_TAGS = {
   activePipeline: "LB-ACTIVE-PIPELINE",
 } as const;
 
-function resolveGhlWorkflowId(sequenceName: string): string | null {
+function resolveGhlWorkflowIdSync(sequenceName: string): string | null {
   const envKey = `GHL_WORKFLOW_${sequenceName
     .replace(/[^a-zA-Z0-9]+/g, "_")
     .replace(/^_|_$/g, "")
@@ -126,6 +126,17 @@ function resolveGhlWorkflowId(sequenceName: string): string | null {
   if (mapping?.ghlWorkflowId) return mapping.ghlWorkflowId;
 
   return process.env.GHL_DEFAULT_WORKFLOW_ID || null;
+}
+
+async function resolveGhlWorkflowId(sequenceName: string): Promise<string | null> {
+  const syncResult = resolveGhlWorkflowIdSync(sequenceName);
+  if (syncResult) return syncResult;
+  try {
+    const dbValue = await storage.getSystemSetting(`ghl_workflow_id:${sequenceName}`);
+    if (dbValue) return String(dbValue);
+  } catch {
+  }
+  return null;
 }
 
 function getVerticalTag(vertical: string | null | undefined): string {
@@ -215,7 +226,7 @@ export async function enrollContactInGhlWorkflow(params: {
     console.warn(`[GHL Enrollment] Failed to add note for contact ${ghlContactId}:`, noteErr);
   }
 
-  const ghlWorkflowId = resolveGhlWorkflowId(sequenceName);
+  const ghlWorkflowId = await resolveGhlWorkflowId(sequenceName);
 
   if (ghlWorkflowId) {
     try {
@@ -655,8 +666,8 @@ export function getEnrollmentStatus(): {
   workflowProvisioningNote: string;
 } {
   const mappings = Object.values(SEQUENCE_WORKFLOW_MAP);
-  const withIds = mappings.filter(m => resolveGhlWorkflowId(m.sequenceName) !== null);
-  const unmapped = mappings.filter(m => resolveGhlWorkflowId(m.sequenceName) === null).map(m => m.sequenceName);
+  const withIds = mappings.filter(m => resolveGhlWorkflowIdSync(m.sequenceName) !== null);
+  const unmapped = mappings.filter(m => resolveGhlWorkflowIdSync(m.sequenceName) === null).map(m => m.sequenceName);
 
   return {
     ghlConfigured: isGhlConfigured(),

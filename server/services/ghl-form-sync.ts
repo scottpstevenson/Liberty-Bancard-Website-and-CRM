@@ -22,6 +22,7 @@ export interface FormSyncParams {
   leadSource: LeadSourceType;
   formData?: Record<string, string | boolean | number | undefined>;
   skipWorkflowTrigger?: boolean;
+  sequenceName?: string;
 }
 
 function isGhlReady(): boolean {
@@ -138,7 +139,25 @@ export async function syncFormSubmissionToGhl(params: FormSyncParams): Promise<{
     }
 
     if (!params.skipWorkflowTrigger) {
-      const workflowId = getInboundWorkflowId(params.leadSource);
+      let workflowId: string | null = null;
+
+      if (params.sequenceName) {
+        const envKey = `GHL_WORKFLOW_${params.sequenceName
+          .replace(/[^a-zA-Z0-9]+/g, "_")
+          .replace(/^_|_$/g, "")
+          .toUpperCase()}`;
+        workflowId = process.env[envKey] || null;
+
+        if (!workflowId) {
+          const dbMapping = await storage.getSystemSetting(`ghl_workflow_id:${params.sequenceName}`);
+          if (dbMapping) workflowId = dbMapping;
+        }
+      }
+
+      if (!workflowId) {
+        workflowId = getInboundWorkflowId(params.leadSource);
+      }
+
       if (workflowId) {
         try {
           await triggerWorkflow({
@@ -146,6 +165,7 @@ export async function syncFormSubmissionToGhl(params: FormSyncParams): Promise<{
             contactId: ghlContactId,
             metadata: {
               leadSource: params.leadSource,
+              sequenceName: params.sequenceName,
               contactId: params.contactId,
               dealId: params.dealId,
             },

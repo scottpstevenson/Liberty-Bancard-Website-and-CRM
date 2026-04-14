@@ -253,7 +253,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       if (!isGhlInboundActive() && parseBool(consentSms)) sendConfirmationSms(contact.id, firstName, "statement_upload", deal.id).catch(err => console.error("Confirm SMS error:", err));
       generateDealBlueprint(deal.id).catch(err => console.error("Blueprint generation error:", err));
       autoGenerateProposal(deal.id, statementFileBuffer).catch(err => console.error("Auto-proposal error:", err));
-      syncFormSubmissionToGhl({ contactId: contact.id, dealId: deal.id, leadSource: "statement_upload", skipWorkflowTrigger: true }).catch(err => console.error("GHL form sync error:", err));
+      syncFormSubmissionToGhl({ contactId: contact.id, dealId: deal.id, leadSource: "statement_upload", sequenceName: "1. Switch & Save — Statement Audit" }).catch(err => console.error("GHL form sync error:", err));
       syncStatementUploadToGhl(contact.id, statementFileName).catch(err => console.error("GHL statement sync error:", err));
 
       res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id });

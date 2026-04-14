@@ -367,7 +367,7 @@ async function runScheduledAiOps() {
       }
     }
 
-    const stageOrder = ["New Lead", "Statement Collected", "Under Review", "Proposal Sent", "Negotiation", "Verbal Commit", "Closed Won"];
+    const stageOrder = ["New Lead", "Statement Received", "Review In Progress", "Call Booked", "Proposal Sent", "Negotiation / Follow-Up", "Verbal Commit", "Closed Won"];
     let dealsProgressed = 0;
     for (const deal of salesDeals) {
       const currentIndex = stageOrder.indexOf(deal.stage);
@@ -375,8 +375,8 @@ async function runScheduledAiOps() {
       let shouldAdvance = false;
       let reason = "";
       if (deal.stage === "New Lead" && deal.lastStatementReviewDate) { shouldAdvance = true; reason = "Statement received"; }
-      if (deal.stage === "Statement Collected" && deal.recommendedPath) { shouldAdvance = true; reason = "Review completed"; }
-      if (deal.stage === "Under Review" && deal.effectiveRate) { shouldAdvance = true; reason = "Analysis complete"; }
+      if (deal.stage === "Statement Received" && deal.recommendedPath) { shouldAdvance = true; reason = "Review completed"; }
+      if (deal.stage === "Review In Progress" && deal.effectiveRate) { shouldAdvance = true; reason = "Analysis complete"; }
 
       if (shouldAdvance && currentIndex + 1 < stageOrder.length) {
         const nextStage = stageOrder[currentIndex + 1];

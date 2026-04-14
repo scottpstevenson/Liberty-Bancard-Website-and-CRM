@@ -71,6 +71,7 @@ import Workflows from "@/pages/dashboard/Workflows";
 import RFIs from "@/pages/dashboard/RFIs";
 import CaseStudyIntake from "@/pages/dashboard/CaseStudyIntake";
 import GhlSettings from "@/pages/dashboard/GhlSettings";
+import GhlWorkflowManager from "@/pages/dashboard/GhlWorkflowManager";
 import Automation from "@/pages/dashboard/Automation";
 import Prospects from "@/pages/dashboard/Prospects";
 import ProspectImport from "@/pages/dashboard/ProspectImport";
@@ -285,6 +286,9 @@ function Router() {
       </Route>
       <Route path="/dashboard/ghl-settings">
         <ProtectedRoute component={GhlSettings} />
+      </Route>
+      <Route path="/dashboard/ghl-workflows">
+        <ProtectedRoute component={GhlWorkflowManager} />
       </Route>
       <Route path="/dashboard/automation">
         <ProtectedRoute component={Automation} />

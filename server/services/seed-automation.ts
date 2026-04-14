@@ -9,16 +9,16 @@ const STAGE_RULES = [
     actions: [
       { type: "create_task", title: "Welcome call - introduce Liberty Bancard", assignedTo: "Scott Stevenson", priority: "high", dueHours: 4 },
       { type: "send_notification", channel: "internal", title: "New Lead Entered Pipeline", message: "A new lead has entered the sales pipeline. Schedule initial contact within 4 hours." },
-      { type: "enroll_sequence", sequenceName: "Switch & Save Nurture" },
+      { type: "enroll_sequence", sequenceName: "1. Switch & Save — Statement Audit" },
     ],
     enabled: true,
     priority: 10,
   },
   {
-    name: "Statement Collected → Review Task",
+    name: "Statement Received → Review Task",
     pipeline: "sales",
     fromStage: "New Lead",
-    toStage: "Statement Collected",
+    toStage: "Statement Received",
     actions: [
       { type: "create_task", title: "Review merchant statement and prepare analysis", assignedTo: "Scott Stevenson", priority: "high", dueHours: 2 },
       { type: "send_notification", channel: "internal", title: "Statement Ready for Review", message: "Merchant statement received. Complete analysis within 2-hour SLA." },
@@ -27,10 +27,10 @@ const STAGE_RULES = [
     priority: 10,
   },
   {
-    name: "Under Review → Analysis In Progress",
+    name: "Review In Progress → Analysis Task",
     pipeline: "sales",
-    fromStage: "Statement Collected",
-    toStage: "Under Review",
+    fromStage: "Statement Received",
+    toStage: "Review In Progress",
     actions: [
       { type: "create_task", title: "Complete fee analysis and build proposal", assignedTo: "Scott Stevenson", priority: "medium", dueHours: 24 },
     ],
@@ -38,23 +38,35 @@ const STAGE_RULES = [
     priority: 10,
   },
   {
-    name: "Proposal Sent → Follow-up Sequence",
+    name: "Call Booked → Prep Task",
     pipeline: "sales",
-    fromStage: "Under Review",
-    toStage: "Proposal Sent",
+    fromStage: "Review In Progress",
+    toStage: "Call Booked",
     actions: [
-      { type: "create_task", title: "Follow up on proposal within 48 hours", assignedTo: "Scott Stevenson", priority: "high", dueHours: 48 },
-      { type: "send_notification", channel: "internal", title: "Proposal Sent", message: "Proposal delivered. Follow-up sequence activated." },
-      { type: "enroll_sequence", sequenceName: "Objection Crusher Drip" },
+      { type: "create_task", title: "Prepare statement analysis for review call", assignedTo: "Scott Stevenson", priority: "high", dueHours: 4 },
+      { type: "send_notification", channel: "internal", title: "Review Call Booked", message: "Merchant has booked a review call. Prepare analysis before the call." },
     ],
     enabled: true,
     priority: 10,
   },
   {
-    name: "Negotiation → Close Prep",
+    name: "Proposal Sent → Follow-up Sequence",
+    pipeline: "sales",
+    fromStage: "Call Booked",
+    toStage: "Proposal Sent",
+    actions: [
+      { type: "create_task", title: "Follow up on proposal within 48 hours", assignedTo: "Scott Stevenson", priority: "high", dueHours: 48 },
+      { type: "send_notification", channel: "internal", title: "Proposal Sent", message: "Proposal delivered. Follow-up sequence activated." },
+      { type: "enroll_sequence", sequenceName: "18. Objection Crusher — Overcome Hesitation" },
+    ],
+    enabled: true,
+    priority: 10,
+  },
+  {
+    name: "Negotiation / Follow-Up → Close Prep",
     pipeline: "sales",
     fromStage: "Proposal Sent",
-    toStage: "Negotiation",
+    toStage: "Negotiation / Follow-Up",
     actions: [
       { type: "create_task", title: "Prepare final terms and address objections", assignedTo: "Scott Stevenson", priority: "high", dueHours: 24 },
       { type: "send_notification", channel: "internal", title: "Deal In Negotiation", message: "Merchant is actively negotiating. Prioritize closing." },
@@ -65,7 +77,7 @@ const STAGE_RULES = [
   {
     name: "Verbal Commit → Collect Documents",
     pipeline: "sales",
-    fromStage: "Negotiation",
+    fromStage: "Negotiation / Follow-Up",
     toStage: "Verbal Commit",
     actions: [
       { type: "create_task", title: "Collect application, voided check, and owner ID", assignedTo: "Scott Stevenson", priority: "high", dueHours: 24 },
@@ -82,6 +94,7 @@ const STAGE_RULES = [
     actions: [
       { type: "create_task", title: "Initiate onboarding - submit application to processor", assignedTo: "Scott Stevenson", priority: "high", dueHours: 4 },
       { type: "send_notification", channel: "internal", title: "Deal Closed Won!", message: "New merchant signed! Begin onboarding process immediately." },
+      { type: "enroll_sequence", sequenceName: "3. Fast Approval — Application Completion" },
     ],
     enabled: true,
     priority: 10,
@@ -93,7 +106,7 @@ const STAGE_RULES = [
     toStage: "Closed Lost",
     actions: [
       { type: "create_task", title: "Log loss reason and schedule 90-day reactivation", assignedTo: "Scott Stevenson", priority: "low", dueHours: 72 },
-      { type: "enroll_sequence", sequenceName: "Reactivation Campaign" },
+      { type: "enroll_sequence", sequenceName: "19. Reactivation — Cold Lead Revival" },
     ],
     enabled: true,
     priority: 5,

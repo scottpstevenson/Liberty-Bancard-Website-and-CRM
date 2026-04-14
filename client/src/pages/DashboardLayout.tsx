@@ -113,6 +113,7 @@ const automationItems: MenuItem[] = [
   { icon: Megaphone, label: "Campaigns", href: "/dashboard/campaigns", roles: ["admin", "manager"] },
   { icon: Wand2, label: "Blaze.ai Marketing", href: "/dashboard/blaze", roles: ["admin", "manager"] },
   { icon: Settings, label: "GHL Settings", href: "/dashboard/ghl-settings", roles: ["admin"] },
+  { icon: GitBranch, label: "GHL Workflows", href: "/dashboard/ghl-workflows", roles: ["admin"] },
 ];
 
 const leadGenItems: MenuItem[] = [

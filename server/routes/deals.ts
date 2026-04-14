@@ -67,6 +67,36 @@ export function registerDealsRoutes(app: Express) {
           const closedContact = updated.contactId ? await storage.getContact(updated.contactId) : null;
           await createPreferenceAwareNotification({ channel: "internal", title: "Deal Closed Won!", message: `Deal #${updated.id}${closedContact ? ` — ${closedContact.firstName} ${closedContact.lastName}` : ""} has been closed won.`, type: "alert", metadata: { dealId: updated.id, eventType: "deal_closed_won" } }, "deal_closed_won");
           sendCriticalEmailNotification({ eventType: "deal_closed_won", subject: `Closed Won: Deal #${updated.id}${closedContact ? ` — ${closedContact.companyName || closedContact.firstName}` : ""}`, body: `<h3>Deal Closed Won</h3><p>Deal #${updated.id} has moved to <strong>Closed Won</strong>.</p>${closedContact ? `<p>Contact: ${closedContact.firstName} ${closedContact.lastName}${closedContact.companyName ? ` (${closedContact.companyName})` : ""}</p>` : ""}<p>Owner: ${updated.owner || "Unassigned"}</p>`, ownerName: updated.owner }).catch(err => console.error("Closed won email error:", err));
+
+          (async () => {
+            try {
+              const onboardingDeal = await storage.createDeal({
+                contactId: updated.contactId || undefined,
+                pipeline: "onboarding",
+                stage: "Application Submitted",
+                offerPath: updated.offerPath || undefined,
+                owner: updated.owner || undefined,
+                leadSource: updated.leadSource || "closed_won",
+                notes: `Onboarding started from Closed Won deal #${updated.id}${closedContact ? ` — ${closedContact.companyName || closedContact.firstName + " " + closedContact.lastName}` : ""}`,
+              });
+              await storage.createAuditLog({ action: "onboarding_deal_created", entityType: "deal", entityId: onboardingDeal.id, details: { sourceDealsId: updated.id, contactId: updated.contactId } });
+              await createPreferenceAwareNotification({ channel: "internal", title: "Onboarding Deal Created", message: `Onboarding pipeline deal #${onboardingDeal.id} created for ${closedContact ? closedContact.companyName || closedContact.firstName : "merchant"}.`, type: "info", metadata: { dealId: onboardingDeal.id, eventType: "onboarding_started" } }, "onboarding_started");
+
+              if (closedContact?.email) {
+                const { sendGhlEmail } = await import("../services/ghl");
+                const merchantName = closedContact.firstName || "there";
+                const bizName = closedContact.companyName || "your business";
+                await sendGhlEmail({
+                  contactId: closedContact.id,
+                  dealId: onboardingDeal.id,
+                  subject: `Welcome to Liberty Bancard — Here's What Happens Next`,
+                  body: `Hi ${merchantName},\n\nWelcome to Liberty Bancard! We're excited to have ${bizName} on board.\n\nHere's what to expect in the next 48 hours:\n\n1. Our team will reach out to collect your merchant application and supporting documents (voided check, government ID).\n2. Once submitted, underwriting typically takes 1–3 business days.\n3. After approval, your terminal and account setup will be completed and you'll process your first batch.\n\nYour dedicated rep is Scott Stevenson. You can reach him directly at:\n📞 954-266-8214\n✉️ scott@libertybancard.com\n\nIf you have any questions at all, just reply to this email or give us a call.\n\nWelcome aboard,\nLiberty Bancard Team\n\nEligibility, underwriting, card brand rules, and applicable laws apply.`,
+                }).catch(err => console.error("[Onboarding] Welcome email error:", err));
+              }
+            } catch (onboardErr) {
+              console.error("[Onboarding] Auto-kickoff error:", onboardErr);
+            }
+          })();
         }
 
         try {
@@ -382,7 +412,7 @@ export function registerDealsRoutes(app: Express) {
       const salesDeals = allDeals.filter(d => d.pipeline === "sales" && d.stage !== "Closed Won" && d.stage !== "Closed Lost");
       const progressions: Array<{ dealId: number; from: string; to: string; reason: string }> = [];
 
-      const stageOrder = ["New Lead", "Statement Collected", "Under Review", "Proposal Sent", "Negotiation", "Verbal Commit", "Closed Won"];
+      const stageOrder = ["New Lead", "Statement Received", "Review In Progress", "Call Booked", "Proposal Sent", "Negotiation / Follow-Up", "Verbal Commit", "Closed Won"];
 
       for (const deal of salesDeals) {
         const currentIndex = stageOrder.indexOf(deal.stage);
@@ -395,11 +425,11 @@ export function registerDealsRoutes(app: Express) {
           shouldAdvance = true;
           reason = "Statement document received - advancing to review";
         }
-        if (deal.stage === "Statement Collected" && deal.recommendedPath) {
+        if (deal.stage === "Statement Received" && deal.recommendedPath) {
           shouldAdvance = true;
-          reason = "Statement review completed with recommendation - advancing to proposal";
+          reason = "Statement review completed with recommendation - advancing to in-progress";
         }
-        if (deal.stage === "Under Review" && deal.effectiveRate) {
+        if (deal.stage === "Review In Progress" && deal.effectiveRate) {
           shouldAdvance = true;
           reason = "Review analysis complete - advancing to proposal sent";
         }
