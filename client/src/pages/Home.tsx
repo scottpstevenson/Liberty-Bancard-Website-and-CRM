@@ -285,6 +285,41 @@ export default function Home() {
           </div>
         </section>
 
+        {/* SECTION 2.5: Trust Badges Bar */}
+        <section className="bg-background border-b border-border py-6" data-testid="section-trust-badges">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex flex-wrap justify-center items-center gap-x-10 gap-y-4">
+              <div className="flex flex-col items-center gap-1 text-center" data-testid="trust-badge-google">
+                <div className="flex items-center gap-1">
+                  {[...Array(5)].map((_, i) => (
+                    <Star key={i} className="w-4 h-4 fill-amber-400 text-amber-400" />
+                  ))}
+                </div>
+                <span className="text-xs font-semibold text-foreground">Google Reviews</span>
+                <span className="text-[10px] text-muted-foreground">4.9 · 80+ reviews (placeholder)</span>
+              </div>
+              <div className="w-px h-10 bg-border hidden sm:block" />
+              <div className="flex flex-col items-center gap-1 text-center" data-testid="trust-badge-merchants">
+                <span className="text-xl font-display font-bold text-primary">2,400+</span>
+                <span className="text-xs font-semibold text-foreground">Active Merchants</span>
+                <span className="text-[10px] text-muted-foreground">Across every major industry</span>
+              </div>
+              <div className="w-px h-10 bg-border hidden sm:block" />
+              <div className="flex flex-col items-center gap-1 text-center" data-testid="trust-badge-years">
+                <span className="text-xl font-display font-bold text-primary">15+</span>
+                <span className="text-xs font-semibold text-foreground">Years in Business</span>
+                <span className="text-[10px] text-muted-foreground">South Florida to nationwide</span>
+              </div>
+              <div className="w-px h-10 bg-border hidden sm:block" />
+              <div className="flex flex-col items-center gap-1 text-center" data-testid="trust-badge-savings">
+                <span className="text-xl font-display font-bold text-primary">avg. $280/mo</span>
+                <span className="text-xs font-semibold text-foreground">Avg. Savings per Merchant</span>
+                <span className="text-[10px] text-muted-foreground">Based on statement reviews</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
         {/* SECTION 3: Pain Points */}
         <section className="bg-muted/30 bg-dots py-16" data-testid="section-pain">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -966,28 +1001,144 @@ export default function Home() {
         <section className="bg-muted/30 py-20" data-testid="section-reviews">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <h2 className="reveal text-3xl md:text-4xl font-display font-bold text-foreground text-center mb-4" data-testid="text-reviews-heading">
-              Merchants Don't Want a "Processor." They Want a Partner.
+              What Merchants Say After Their First Review
             </h2>
-            <p className="text-center text-muted-foreground mb-12 max-w-xl mx-auto">Here's what business owners say after their first statement review.</p>
-            <div className="reveal grid grid-cols-1 md:grid-cols-3 gap-6">
+            <p className="text-center text-muted-foreground mb-12 max-w-xl mx-auto">Real business owners. Specific outcomes. Florida-based merchants you can relate to.</p>
+            <div className="reveal grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
               {[
-                { quote: "We finally saw our real effective rate. The breakdown was clear, the switch was smooth, and we had a direct line for questions.", author: "Retail Owner, Boca Raton", stars: 5 },
-                { quote: "Support actually answered when we needed it. No ticket loop, no waiting 3 days for a callback. This is how it should work.", author: "Automotive Shop Manager", stars: 5 },
-                { quote: "They gave us options instead of pressure. We chose the lowest-friction route and saved real money on our monthly processing.", author: "Medical Office Manager, Fort Lauderdale", stars: 5 },
+                {
+                  quote: "We were paying Square over $1,100 a month. After switching to Liberty Bancard's cash discount program, our processing cost dropped to nearly zero — saving us $340 a month. That money went straight back into our kitchen.",
+                  name: "Maria R.",
+                  role: "Restaurant Owner",
+                  city: "South Miami, FL",
+                  stars: 5,
+                  highlight: "0% program",
+                },
+                {
+                  quote: "Liberty Bancard pulled our statement apart line by line and found $127 a month in fees we never agreed to — PCI non-compliance charges, a regulatory fee, and a statement fee that appeared out of nowhere. The switch cleaned it all up.",
+                  name: "Tony M.",
+                  role: "Auto Repair Shop Owner",
+                  city: "Broward County, FL",
+                  stars: 5,
+                  highlight: "Statement review",
+                },
+                {
+                  quote: "We thought Stripe was our only option. Liberty Bancard showed us the exact markup we were paying on top of interchange and switched us to interchange-plus. We're saving over $300 a month without touching our website.",
+                  name: "David K.",
+                  role: "Retail Store Owner",
+                  city: "Boca Raton, FL",
+                  stars: 5,
+                  highlight: "Switched from Stripe",
+                },
               ].map((review, i) => (
                 <Card key={i} data-testid={`card-review-${i}`}>
-                  <CardContent className="p-6">
-                    <div className="flex gap-0.5 mb-3">
-                      {Array.from({ length: review.stars }).map((_, j) => (
-                        <Star key={j} className="w-4 h-4 fill-amber-400 text-amber-400" />
-                      ))}
+                  <CardContent className="p-6 flex flex-col h-full">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex gap-0.5">
+                        {Array.from({ length: review.stars }).map((_, j) => (
+                          <Star key={j} className="w-4 h-4 fill-amber-400 text-amber-400" />
+                        ))}
+                      </div>
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-primary bg-primary/10 px-2 py-0.5 rounded-full" data-testid={`text-review-highlight-${i}`}>{review.highlight}</span>
                     </div>
                     <Quote className="w-6 h-6 text-primary/20 mb-2" />
-                    <p className="text-sm text-foreground mb-4 leading-relaxed">{review.quote}</p>
-                    <span className="text-xs font-medium text-muted-foreground">- {review.author}</span>
+                    <p className="text-sm text-foreground mb-5 leading-relaxed flex-grow" data-testid={`text-review-quote-${i}`}>{review.quote}</p>
+                    <div className="flex items-center gap-3 pt-4 border-t border-border">
+                      <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-bold shrink-0">
+                        {review.name.charAt(0)}
+                      </div>
+                      <div>
+                        <div className="text-sm font-semibold text-foreground" data-testid={`text-review-name-${i}`}>{review.name}</div>
+                        <div className="text-xs text-muted-foreground" data-testid={`text-review-role-${i}`}>{review.role} · {review.city}</div>
+                      </div>
+                    </div>
                   </CardContent>
                 </Card>
               ))}
+            </div>
+            <div className="text-center">
+              <Link href="/case-studies" data-testid="link-reviews-case-studies">
+                <Button variant="outline" className="gap-2">
+                  See the full breakdown in our case studies
+                  <ArrowRight className="w-4 h-4" />
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </section>
+
+        {/* SECTION 9.5: Real Merchant Outcomes */}
+        <section className="bg-background py-20" data-testid="section-merchant-outcomes">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="text-center mb-12">
+              <h2 className="reveal text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-outcomes-heading">
+                Real Merchant Outcomes
+              </h2>
+              <p className="text-muted-foreground max-w-xl mx-auto">Three of the strongest results from our case study library — specific dollar amounts, real business types.</p>
+            </div>
+            <div className="reveal grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+              {[
+                {
+                  icon: UtensilsCrossed,
+                  businessType: "Full-Service Restaurant",
+                  problem: "Processing $45k/month on Square at a flat 2.6% + $0.10 — no visibility into interchange costs.",
+                  result: "$4,200/year saved",
+                  resultMonthly: "$350/month",
+                  solution: "Cash Discount Program",
+                  href: "/case-studies#restaurant-square",
+                },
+                {
+                  icon: Store,
+                  businessType: "Multi-Location Retail Store",
+                  problem: "Flat Stripe rate at 2.9% + $0.30 was significantly overcharging on debit and regulated cards.",
+                  result: "$3,800/year saved",
+                  resultMonthly: "$317/month",
+                  solution: "Interchange Plus",
+                  href: "/case-studies#retail-stripe",
+                },
+                {
+                  icon: Stethoscope,
+                  businessType: "Multi-Provider Medical Practice",
+                  problem: "Tiered pricing buried $6,100/year in non-qualified downgrades on commercial insurance cards.",
+                  result: "$6,100/year saved",
+                  resultMonthly: "$508/month",
+                  solution: "Interchange Plus + Level 2",
+                  href: "/case-studies#healthcare-bank",
+                },
+              ].map((outcome, i) => (
+                <Card key={i} className="flex flex-col" data-testid={`card-outcome-${i}`}>
+                  <CardContent className="p-6 flex flex-col flex-grow">
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+                        <outcome.icon className="w-5 h-5 text-primary" />
+                      </div>
+                      <div>
+                        <div className="text-sm font-semibold text-foreground" data-testid={`text-outcome-type-${i}`}>{outcome.businessType}</div>
+                        <div className="text-[10px] text-muted-foreground uppercase tracking-wider">{outcome.solution}</div>
+                      </div>
+                    </div>
+                    <p className="text-sm text-muted-foreground mb-4 leading-relaxed flex-grow" data-testid={`text-outcome-problem-${i}`}>{outcome.problem}</p>
+                    <div className="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-md p-3 mb-4">
+                      <div className="text-lg font-display font-bold text-emerald-600 dark:text-emerald-400" data-testid={`text-outcome-result-${i}`}>{outcome.result}</div>
+                      <div className="text-xs text-emerald-600/70 dark:text-emerald-400/70">{outcome.resultMonthly} freed up</div>
+                    </div>
+                    <Link href={outcome.href} data-testid={`link-outcome-detail-${i}`}>
+                      <Button variant="ghost" size="sm" className="gap-1.5 w-full text-primary hover:text-primary">
+                        Read full breakdown
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </Button>
+                    </Link>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+            <div className="text-center">
+              <Link href="/case-studies" data-testid="link-outcomes-all-case-studies">
+                <Button variant="outline" className="gap-2">
+                  See all case studies
+                  <ArrowRight className="w-4 h-4" />
+                </Button>
+              </Link>
             </div>
           </div>
         </section>
