@@ -12,6 +12,7 @@ import { createPreferenceAwareNotification, sendCriticalEmailNotification } from
 import { sendGhlEmailForMerchant, isGhlConfigured } from "../services/ghl";
 import { syncDealToGhl } from "../services/ghl-sync";
 import { advanceDealStage } from "../services/deal-stage-service";
+import { sendMerchantWelcomeEmail } from "../services/merchant-welcome";
 import { updateContactGhlFirst } from "../services/contact-writer";
 import { parse } from "csv-parse/sync";
 import path from "path";
@@ -72,6 +73,11 @@ export function registerDealsRoutes(app: Express) {
           await createPreferenceAwareNotification({ channel: "internal", title: "Deal Closed Won!", message: `Deal #${updated.id}${closedContact ? ` — ${closedContact.firstName} ${closedContact.lastName}` : ""} has been closed won.`, type: "alert", metadata: { dealId: updated.id, eventType: "deal_closed_won" } }, "deal_closed_won");
           sendCriticalEmailNotification({ eventType: "deal_closed_won", subject: `Closed Won: Deal #${updated.id}${closedContact ? ` — ${closedContact.companyName || closedContact.firstName}` : ""}`, body: `<h3>Deal Closed Won</h3><p>Deal #${updated.id} has moved to <strong>Closed Won</strong>.</p>${closedContact ? `<p>Contact: ${closedContact.firstName} ${closedContact.lastName}${closedContact.companyName ? ` (${closedContact.companyName})` : ""}</p>` : ""}<p>Owner: ${updated.owner || "Unassigned"}</p>`, ownerName: updated.owner }).catch(err => console.error("Closed won email error:", err));
 
+          if (closedContact?.ghlContactId) {
+            sendMerchantWelcomeEmail(closedContact, updated)
+              .catch(err => console.error("[Closed Won] Merchant welcome email error:", err));
+          }
+
           // Auto-onboarding kickoff
           (async () => {
             try {
@@ -86,20 +92,6 @@ export function registerDealsRoutes(app: Express) {
               });
               await storage.createAuditLog({ action: "onboarding_deal_created", entityType: "deal", entityId: onboardingDeal.id, details: { sourceDealsId: updated.id, contactId: updated.contactId } });
               await createPreferenceAwareNotification({ channel: "internal", title: "Onboarding Deal Created", message: `Onboarding pipeline deal #${onboardingDeal.id} created for ${closedContact ? closedContact.companyName || closedContact.firstName : "merchant"}.`, type: "info", metadata: { dealId: onboardingDeal.id, eventType: "onboarding_started" } }, "onboarding_started");
-
-              if (closedContact?.email) {
-                const { sendGhlEmail } = await import("../services/ghl");
-                const repName = updated.owner || "Scott Stevenson";
-                const repPhone = "954-266-8214";
-                const merchantName = closedContact.firstName || "there";
-                const bizName = closedContact.companyName || "your business";
-                await sendGhlEmail({
-                  contactId: closedContact.id,
-                  dealId: onboardingDeal.id,
-                  subject: `Welcome to Liberty Bancard — Here's What Happens Next`,
-                  body: `<h2>Welcome to Liberty Bancard, ${merchantName}!</h2><p>We're excited to have ${bizName} on board.</p><h3>Your Next Steps</h3><ol><li><strong>Complete your merchant application</strong> — your rep will send you a link or you can call us directly.</li><li><strong>Submit your voided check and owner ID</strong> — required for underwriting.</li><li><strong>Terminal setup</strong> — once approved, we'll coordinate equipment delivery and setup.</li></ol><h3>Your Dedicated Rep</h3><p><strong>${repName}</strong><br/>Phone: <a href="tel:${repPhone}">${repPhone}</a><br/>Email: <a href="mailto:scott@libertybancard.com">scott@libertybancard.com</a></p><p>We typically complete onboarding within 3-5 business days. If you have any questions, don't hesitate to reach out.</p><p>Welcome aboard,<br/><strong>The Liberty Bancard Team</strong></p>`,
-                }).catch(err => console.error("[Onboarding] Welcome email error:", err));
-              }
             } catch (onboardErr) {
               console.error("[Onboarding] Auto-kickoff error:", onboardErr);
             }
