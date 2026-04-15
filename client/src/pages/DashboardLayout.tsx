@@ -54,6 +54,7 @@ import {
   Rocket as RocketIcon,
   Activity,
   Workflow,
+  GraduationCap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -141,11 +142,13 @@ const businessItems: MenuItem[] = [
 const merchantItems: MenuItem[] = [
   { icon: ShieldCheck, label: "My Portal", href: "/dashboard/merchant-portal" },
   { icon: HelpCircle, label: "Knowledge Base", href: "/dashboard/knowledge-base" },
+  { icon: GraduationCap, label: "Training", href: "/dashboard/training", roles: ["admin", "manager", "agent"] },
 ];
 
 const adminItems: MenuItem[] = [
   { icon: UserCog, label: "User Management", href: "/dashboard/user-management", roles: ["admin"] },
   { icon: Pencil, label: "Blog Generator", href: "/dashboard/blog-generator", roles: ["admin"] },
+  { icon: GraduationCap, label: "Training Hub Setup", href: "/dashboard/training", roles: ["admin", "manager"] },
 ];
 
 const formItems: MenuItem[] = [
@@ -170,6 +173,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const filteredAutomation = useMemo(() => filterByRole(automationItems, role), [role]);
   const filteredLeadGen = useMemo(() => filterByRole(leadGenItems, role), [role]);
   const filteredBusiness = useMemo(() => filterByRole(businessItems, role), [role]);
+  const filteredMerchant = useMemo(() => filterByRole(merchantItems, role), [role]);
   const filteredAdmin = useMemo(() => filterByRole(adminItems, role), [role]);
   const filteredForms = useMemo(() => filterByRole(formItems, role), [role]);
 
@@ -227,7 +231,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
             {renderGroup("Automation", filteredAutomation)}
             {renderGroup("Lead Generation", filteredLeadGen)}
             {renderGroup("Business Intelligence", filteredBusiness)}
-            {renderGroup("Merchant", merchantItems)}
+            {renderGroup("Merchant", filteredMerchant)}
             {renderGroup("Administration", filteredAdmin)}
             {renderGroup("Forms", filteredForms)}
           </SidebarContent>
