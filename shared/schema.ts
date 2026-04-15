@@ -1039,7 +1039,9 @@ export const SEQUENCE_STATUSES = [
 export const SEQUENCE_STEP_TYPES = [
   "email",
   "sms",
+  "call",
   "call_reminder",
+  "voicemail_drop",
   "task",
   "wait",
   "condition",

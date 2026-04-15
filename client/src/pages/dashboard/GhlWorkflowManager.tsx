@@ -273,6 +273,268 @@ function StepCard({ step, sequenceId }: { step: SequenceStep; sequenceId: string
   );
 }
 
+const PRIMARY_CADENCE_SEQUENCES = [
+  "1. Switch & Save — Statement Audit",
+  "20. Free Analysis Follow-Up",
+  "SDR: Reply Engaged",
+  "SDR: Statement Chase",
+  "SDR: Proposal Follow-Up",
+  "SDR: No-Show Recovery",
+];
+
+const COLD_OUTBOUND_CADENCE_SEQUENCES = [
+  "SDR: Cold Outbound — Auto Repair",
+  "SDR: Cold Outbound — Med Spa",
+  "SDR: Cold Outbound — Dental",
+];
+
+type CadenceGroup = "primary" | "cold_outbound";
+
+type StepConfig = {
+  callMode?: string;
+  scriptType?: string;
+  voicemailScript?: string;
+  opening?: string;
+  close?: string;
+  ghlNote?: string;
+  [key: string]: unknown;
+};
+
+type DbStep = {
+  id: number;
+  stepOrder: number;
+  actionType: string;
+  delayDays: number;
+  delayHours: number;
+  subject?: string | null;
+  config?: StepConfig | string | null;
+};
+
+type SequenceStepsResponse = {
+  sequence: { id: number; name: string; description: string };
+  steps: DbStep[];
+};
+
+function delayLabel(step: DbStep, prevStep: DbStep | null): string {
+  if (step.stepOrder === 1) return "Day 0";
+  const days = step.delayDays ?? 0;
+  const hours = step.delayHours ?? 0;
+  if (days === 0 && hours === 0) return "+immediate";
+  if (days === 0) return `+${hours}h`;
+  if (hours === 0) return `Day +${days}`;
+  return `Day +${days} +${hours}h`;
+}
+
+function CadenceTimeline() {
+  const [group, setGroup] = useState<CadenceGroup>("primary");
+  const [selected, setSelected] = useState(PRIMARY_CADENCE_SEQUENCES[0]);
+
+  const activeList = group === "primary" ? PRIMARY_CADENCE_SEQUENCES : COLD_OUTBOUND_CADENCE_SEQUENCES;
+
+  const handleGroupChange = (g: CadenceGroup) => {
+    setGroup(g);
+    setSelected(g === "primary" ? PRIMARY_CADENCE_SEQUENCES[0] : COLD_OUTBOUND_CADENCE_SEQUENCES[0]);
+  };
+
+  const { data, isLoading, error } = useQuery<SequenceStepsResponse>({
+    queryKey: ["/api/sequences", selected, "steps"],
+    queryFn: async () => {
+      const r = await fetch(`/api/sequences/${encodeURIComponent(selected)}/steps`, { credentials: "include" });
+      if (!r.ok) throw new Error(`Failed to load sequence steps: ${r.status}`);
+      return r.json() as Promise<SequenceStepsResponse>;
+    },
+    enabled: !!selected,
+  });
+
+  const steps = data?.steps ?? [];
+
+  const cumulativeDays = (stepList: DbStep[]) => {
+    let total = 0;
+    return stepList.map((s, i) => {
+      if (i > 0) {
+        total += (s.delayDays ?? 0) + (s.delayHours ?? 0) / 24;
+      }
+      return Math.round(total * 10) / 10;
+    });
+  };
+  const cumulative = cumulativeDays(steps);
+
+  return (
+    <div className="space-y-6" data-testid="cadence-timeline-panel">
+      <div>
+        <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
+          <Map className="w-5 h-5 text-primary" />
+          Cadence Timeline Visualizer
+        </h2>
+        <p className="text-sm text-muted-foreground mt-1">
+          Horizontal step-by-step timeline for each sales cadence sequence, pulled live from the database.
+        </p>
+      </div>
+
+      <div className="flex items-center gap-3" data-testid="cadence-group-toggle">
+        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">View:</span>
+        <Button
+          size="sm"
+          variant={group === "primary" ? "default" : "outline"}
+          onClick={() => handleGroupChange("primary")}
+          className="text-xs"
+          data-testid="button-group-primary"
+        >
+          Inbound / Primary Sequences
+        </Button>
+        <Button
+          size="sm"
+          variant={group === "cold_outbound" ? "default" : "outline"}
+          onClick={() => handleGroupChange("cold_outbound")}
+          className="text-xs"
+          data-testid="button-group-cold-outbound"
+        >
+          Cold Outbound SDR
+        </Button>
+      </div>
+
+      <div className="flex flex-wrap gap-2" data-testid="cadence-sequence-selector">
+        {activeList.map(name => (
+          <Button
+            key={name}
+            size="sm"
+            variant={selected === name ? "default" : "outline"}
+            onClick={() => setSelected(name)}
+            className="text-xs"
+            data-testid={`button-cadence-${name.replace(/[^a-zA-Z0-9]/g, "-").toLowerCase()}`}
+          >
+            {name}
+          </Button>
+        ))}
+      </div>
+
+      {isLoading && (
+        <div className="flex items-center gap-2 text-muted-foreground py-8 justify-center">
+          <Loader2 className="w-4 h-4 animate-spin" /> Loading sequence steps…
+        </div>
+      )}
+
+      {error && (
+        <div className="text-sm text-red-500 py-4" data-testid="cadence-error">
+          Failed to load sequence steps. Make sure the sequence name matches a seeded sequence.
+        </div>
+      )}
+
+      {!isLoading && data && (
+        <Card data-testid={`card-cadence-${selected.replace(/[^a-zA-Z0-9]/g, "-").toLowerCase()}`}>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">{data.sequence.name}</CardTitle>
+            {data.sequence.description && (
+              <p className="text-xs text-muted-foreground">{data.sequence.description}</p>
+            )}
+          </CardHeader>
+          <CardContent>
+            {steps.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-4 text-center">No steps seeded yet.</p>
+            ) : (
+              <div className="overflow-x-auto pb-3">
+                <div className="flex items-start gap-0 min-w-max">
+                  {steps.map((step, i) => {
+                    const style = CHANNEL_CHIP_STYLES[step.actionType] || CHANNEL_CHIP_STYLES.email;
+                    const isCall = step.actionType === "call";
+                    const isVm = step.actionType === "voicemail_drop";
+                    const rawConfig = step.config;
+                    const config: StepConfig | null = rawConfig == null
+                      ? null
+                      : typeof rawConfig === "string"
+                        ? (JSON.parse(rawConfig) as StepConfig)
+                        : rawConfig;
+                    const vmScript = typeof config?.voicemailScript === "string" ? config.voicemailScript : null;
+                    const label = CHANNEL_LABELS[step.actionType] || step.actionType;
+
+                    return (
+                      <div key={step.id} className="flex items-center" data-testid={`timeline-step-${i + 1}`}>
+                        <div className={`flex flex-col items-center gap-1 px-3 py-2.5 rounded-lg border text-center min-w-[88px] max-w-[96px] ${style.bg}`}>
+                          <span className="flex items-center gap-1 text-current">{style.icon}</span>
+                          <span className="text-[10px] font-semibold leading-tight">{label}</span>
+                          <span className="text-[9px] opacity-60 leading-tight font-mono">
+                            {i === 0 ? "Day 0" : delayLabel(step, steps[i - 1])}
+                          </span>
+                          {step.subject && (
+                            <span className="text-[9px] opacity-70 leading-tight truncate w-full text-center px-1">
+                              {step.subject.length > 22 ? step.subject.slice(0, 22) + "…" : step.subject}
+                            </span>
+                          )}
+                          {(isCall || isVm) && vmScript && (
+                            <span className="text-[9px] opacity-60 leading-tight italic truncate w-full text-center px-1" title={vmScript}>
+                              {vmScript.slice(0, 22)}…
+                            </span>
+                          )}
+                          <span className="text-[9px] font-bold opacity-50">#{i + 1}</span>
+                        </div>
+                        {i < steps.length - 1 && (
+                          <div className="w-5 h-px bg-border shrink-0" />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-2 text-[10px]">
+                  {Object.entries(CHANNEL_LABELS).map(([k, v]) => {
+                    const style = CHANNEL_CHIP_STYLES[k];
+                    if (!style) return null;
+                    return (
+                      <span key={k} className={`flex items-center gap-1 px-2 py-0.5 rounded-full border ${style.bg}`}>
+                        {style.icon} {v}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {steps.length > 0 && (
+              <div className="mt-4 border-t pt-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Sequence Summary</p>
+                <div className="flex flex-wrap gap-4 text-xs text-foreground/80">
+                  <span><span className="font-semibold">{steps.length}</span> steps total</span>
+                  <span><span className="font-semibold">{steps.filter(s => s.actionType === "email").length}</span> emails</span>
+                  <span><span className="font-semibold">{steps.filter(s => s.actionType === "sms").length}</span> SMS</span>
+                  <span><span className="font-semibold">{steps.filter(s => s.actionType === "call").length}</span> calls</span>
+                  <span><span className="font-semibold">{steps.filter(s => s.actionType === "voicemail_drop").length}</span> voicemail drops</span>
+                  <span>~<span className="font-semibold">{Math.round(cumulative[cumulative.length - 1])}</span> day span</span>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      <Card className="mt-2" data-testid="card-cadence-branch-logic">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">GHL Branch Logic for Call + Voicemail Steps</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-1.5 text-xs text-foreground/80">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
+              <span><span className="font-semibold">Call Answered</span> → Remove from sequence → enroll in "Inbound Nurture" workflow</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-purple-500 shrink-0" />
+              <span><span className="font-semibold">Voicemail Left</span> → Drop voicemail audio → send follow-up SMS (5 min delay via GHL if/then)</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-slate-400 shrink-0" />
+              <span><span className="font-semibold">No Answer</span> → Continue sequence to next step</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-red-500 shrink-0" />
+              <span><span className="font-semibold">DNC / STOP reply</span> → Remove from all sequences immediately</span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 const COLD_OUTBOUND_IDS = ["cold-outbound-auto-repair", "cold-outbound-dental", "cold-outbound-medspa"];
 
 const GROUP_BY_CATEGORY: Record<string, "inbound" | "cold_sdr" | "sales" | "ops"> = {
@@ -1228,6 +1490,10 @@ export default function GhlWorkflowManager() {
             <Map className="w-4 h-4 mr-1.5" />
             Cadence Blueprints
           </TabsTrigger>
+          <TabsTrigger value="cadence" data-testid="tab-cadence">
+            <Play className="w-4 h-4 mr-1.5" />
+            Cadence Timeline
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="id-manager" className="space-y-4 mt-4">
@@ -1336,6 +1602,10 @@ export default function GhlWorkflowManager() {
 
         <TabsContent value="blueprints" className="mt-4">
           <CadenceBlueprints />
+        </TabsContent>
+
+        <TabsContent value="cadence" className="mt-4">
+          <CadenceTimeline />
         </TabsContent>
       </Tabs>
     </div>

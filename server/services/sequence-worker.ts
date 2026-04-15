@@ -3,6 +3,7 @@ import { sendGhlEmail, sendGhlSms, isGhlConfigured } from "./ghl";
 import { getEmailSignatureHtml } from "./email-signatures";
 import { createPreferenceAwareNotification } from "./digest-service";
 import { enrollContactInGhlWorkflow, tagContactForInboxOrganization } from "./ghl-workflow-enrollment";
+import type { VoiceBotMode } from "./sdr/voice-orchestrator";
 
 const GHL_WORKFLOW_ONLY = process.env.GHL_WORKFLOW_ONLY_MODE === "true";
 
@@ -248,21 +249,165 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
             break;
           }
 
-          case "call":
           case "call_reminder": {
-            const callConfig = step.config ? (typeof step.config === "string" ? JSON.parse(step.config) : step.config) : null;
-            const callDescription = callConfig
-              ? `Sequence "${sequence.name}" - Step ${step.stepOrder}: Call\nScript: ${callConfig.scriptType || "general"}\nOpening: ${interpolate(callConfig.opening || "")}\nClose: ${interpolate(callConfig.close || "")}`
-              : `Sequence "${sequence.name}" - Step ${step.stepOrder}: Call reminder`;
             await storage.createTask({
-              title: interpolate(step.subject) || `Call ${firstName} ${lastName}`,
-              description: callDescription,
+              title: `Call Reminder — ${firstName} ${lastName}`,
+              description: `Sequence "${sequence.name}" Step ${step.stepOrder}: Manual call reminder.\n${step.body ?? ""}`,
               assignedTo: sequence.createdBy || "Unassigned",
-              priority: "high",
-              dueDate: new Date(Date.now() + 4 * 3600000),
+              priority: "medium",
+              dueDate: new Date(Date.now() + 24 * 3600000),
               contactId: enrollment.contactId || undefined,
               dealId: enrollment.dealId || undefined,
             });
+            stepExecuted = true;
+            break;
+          }
+
+          case "call": {
+            const rawCallConfig = step.config
+              ? (typeof step.config === "string" ? JSON.parse(step.config) : step.config)
+              : null;
+            const callConfig = rawCallConfig as {
+              callMode?: VoiceBotMode;
+              scriptType?: string;
+              voicemailScript?: string;
+              opening?: string;
+              close?: string;
+            } | null;
+            const orchestratorEnabled = process.env.ORCHESTRATOR_ENABLED !== "false";
+
+            if (!orchestratorEnabled) {
+              await storage.createAuditLog({
+                action: "call_step_skipped",
+                entityType: "contact",
+                entityId: enrollment.contactId || 0,
+                details: {
+                  reason: "ORCHESTRATOR_ENABLED=false — voice dispatch disabled",
+                  sequenceName: sequence.name,
+                  stepOrder: step.stepOrder,
+                  scriptType: callConfig?.scriptType ?? null,
+                },
+              });
+              stepExecuted = true;
+              break;
+            }
+
+            if (enrollment.contactId) {
+              try {
+                const { triggerAiCall, VOICE_BOT_MODES } = await import("./sdr/voice-orchestrator");
+                const rawCallMode = callConfig?.callMode;
+                const callMode: VoiceBotMode = rawCallMode && (VOICE_BOT_MODES as readonly string[]).includes(rawCallMode)
+                  ? (rawCallMode as VoiceBotMode)
+                  : "intro_qualification";
+                if (rawCallMode && rawCallMode !== callMode) {
+                  console.warn(`[Sequence Worker] Unsupported callMode "${rawCallMode}" — falling back to intro_qualification`);
+                }
+                const contact = await storage.getContact(enrollment.contactId);
+                if (contact?.ghlContactId) {
+                  const { db } = await import("../db");
+                  const { sdrMerchants } = await import("@shared/schema");
+                  const { eq } = await import("drizzle-orm");
+                  const [merchant] = await db
+                    .select()
+                    .from(sdrMerchants)
+                    .where(eq(sdrMerchants.ghlContactId, contact.ghlContactId));
+                  if (merchant) {
+                    const result = await triggerAiCall(merchant.id, callMode);
+                    if (result.success || result.scheduled) {
+                      stepExecuted = true;
+                    } else {
+                      console.warn(`[Sequence Worker] Voice call skipped for enrollment ${enrollment.id}: ${result.reason}`);
+                    }
+                  }
+                }
+              } catch (callErr) {
+                const msg = callErr instanceof Error ? callErr.message : String(callErr);
+                console.error(`[Sequence Worker] Voice call failed for enrollment ${enrollment.id}: ${msg}`);
+              }
+            }
+
+            if (!stepExecuted) {
+              await storage.createAuditLog({
+                action: "call_step_skipped",
+                entityType: "contact",
+                entityId: enrollment.contactId || 0,
+                details: {
+                  reason: "No linked merchant found for voice dispatch",
+                  sequenceName: sequence.name,
+                  stepOrder: step.stepOrder,
+                  scriptType: callConfig?.scriptType ?? null,
+                },
+              });
+              stepExecuted = true;
+            }
+            break;
+          }
+
+          case "voicemail_drop": {
+            const vmOrchestratorEnabled = process.env.ORCHESTRATOR_ENABLED !== "false";
+            if (!vmOrchestratorEnabled) {
+              await storage.createAuditLog({
+                action: "voicemail_drop_skipped",
+                entityType: "contact",
+                entityId: enrollment.contactId || 0,
+                details: {
+                  reason: "ORCHESTRATOR_ENABLED=false — voicemail drop skipped",
+                  sequenceName: sequence.name,
+                  stepOrder: step.stepOrder,
+                },
+              });
+              stepExecuted = true;
+              break;
+            }
+
+            type VmConfig = { voicemailScript?: string; ghlNote?: string };
+            const rawVmConfig = step.config;
+            const vmConfig: VmConfig | null = rawVmConfig == null
+              ? null
+              : typeof rawVmConfig === "string"
+                ? (JSON.parse(rawVmConfig) as VmConfig)
+                : (rawVmConfig as VmConfig);
+            const vmScript = interpolate(vmConfig?.voicemailScript ?? "");
+            const ghlNote = vmConfig?.ghlNote ?? "";
+
+            await storage.createAuditLog({
+              action: "voicemail_drop_logged",
+              entityType: "contact",
+              entityId: enrollment.contactId || 0,
+              details: {
+                sequenceId: sequence.id,
+                sequenceName: sequence.name,
+                stepOrder: step.stepOrder,
+                voicemailScript: vmScript,
+                ghlSetupNote: ghlNote,
+              },
+            });
+
+            if (enrollment.contactId && vmScript) {
+              try {
+                await storage.createTask({
+                  title: `Voicemail Drop — ${firstName} ${lastName}`,
+                  description: `GHL Voicemail Drop for sequence "${sequence.name}" Step ${step.stepOrder}.\n\nScript (record and upload to GHL Voicemail Drops library):\n${vmScript}\n\n${ghlNote}`,
+                  assignedTo: sequence.createdBy || "Unassigned",
+                  priority: "medium",
+                  dueDate: new Date(Date.now() + 60000),
+                  contactId: enrollment.contactId,
+                  dealId: enrollment.dealId || undefined,
+                });
+              } catch (noteErr) {
+                console.warn(`[Sequence Worker] Voicemail drop task creation failed:`, noteErr);
+              }
+              try {
+                await storage.createNote({
+                  entityType: "contact",
+                  entityId: enrollment.contactId,
+                  content: `Voicemail Drop: ${vmScript}`,
+                  authorName: "Liberty Bancard SDR",
+                });
+              } catch (noteErr) {
+                console.warn(`[Sequence Worker] Voicemail drop note creation failed:`, noteErr);
+              }
+            }
             stepExecuted = true;
             break;
           }

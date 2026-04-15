@@ -1,5 +1,5 @@
 import { db } from "../../db";
-import { sdrLeadState, sdrLeadEvents, sdrChannelAttempts, sdrMerchants, sdrComplianceState, type SdrLeadState } from "@shared/schema";
+import { sdrLeadState, sdrLeadEvents, sdrChannelAttempts, sdrMerchants, sdrComplianceState, contacts, type SdrLeadState } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { triggerWorkflow, isSdrGhlConfigured } from "./ghl-client";
 import { onStageChange } from "./ghl-sync-rules";
@@ -11,6 +11,7 @@ export const VOICE_BOT_MODES = [
   "proposal_reminder",
   "appointment_reminder",
   "callback_request",
+  "cold_outbound",
 ] as const;
 
 export type VoiceBotMode = typeof VOICE_BOT_MODES[number];
@@ -37,6 +38,7 @@ const BOT_MODE_WORKFLOW_MAP: Record<VoiceBotMode, string> = {
   proposal_reminder: process.env.GHL_WORKFLOW_PROPOSAL || "voice_proposal_reminder",
   appointment_reminder: process.env.GHL_WORKFLOW_APPT || "voice_appointment_reminder",
   callback_request: process.env.GHL_WORKFLOW_CALLBACK || "voice_callback_request",
+  cold_outbound: process.env.GHL_WORKFLOW_COLD_OUTBOUND || "voice_cold_outbound",
 };
 
 const BUSINESS_HOURS = { start: 9, end: 17 };
@@ -455,6 +457,61 @@ export async function handleCallDisposition(
       nextActionPayload: { disposition, followUpType: action.scheduleFollowUp },
       updatedAt: new Date(),
     }).where(eq(sdrLeadState.merchantId, merchantId));
+
+    if (disposition === "voicemail_left" && action.scheduleFollowUp === "sms_followup") {
+      try {
+        const { storage } = await import("../../storage");
+        const { sendGhlSms, isGhlConfigured } = await import("../ghl");
+        const [merchant] = await db.select().from(sdrMerchants).where(eq(sdrMerchants.id, merchantId));
+        if (merchant?.ghlContactId) {
+          const [contact] = await db.select().from(contacts).where(eq(contacts.ghlContactId, merchant.ghlContactId)).limit(1);
+          if (contact?.id) {
+            const sequences = await storage.getFollowUpSequences();
+            const vmSmsSeq = sequences.find(
+              (s: { name: string; id: number }) => s.name === "Voicemail Follow-Up SMS",
+            );
+            const calendarLink =
+              process.env.SALES_CALENDAR_URL ||
+              "https://api.leadconnectorhq.com/widget/bookings/libertybancard";
+            const firstName = merchant.ownerName?.split(" ")[0] || "there";
+            const smsBody = `Just left you a voicemail, ${firstName} — best way to reach me is here: ${calendarLink} — Scott, Liberty Bancard`;
+
+            if (vmSmsSeq) {
+              await storage.createSequenceEnrollment({
+                sequenceId: vmSmsSeq.id,
+                contactId: contact.id,
+                status: "active",
+                currentStep: 0,
+                nextActionAt: followUpAt,
+              });
+            } else if (isGhlConfigured()) {
+              await sendGhlSms({ contactId: contact.id, body: smsBody });
+              await storage.createAuditLog({
+                action: "voicemail_sms_sent",
+                entityType: "contact",
+                entityId: contact.id,
+                details: { merchantId, message: smsBody, sentAt: new Date().toISOString() },
+              });
+            } else {
+              await storage.createAuditLog({
+                action: "voicemail_sms_queued",
+                entityType: "contact",
+                entityId: contact.id,
+                details: {
+                  merchantId,
+                  message: smsBody,
+                  scheduledAt: followUpAt.toISOString(),
+                  note: "GHL not configured — seed 'Voicemail Follow-Up SMS' sequence or configure GHL SMS to enable automatic sending.",
+                },
+              });
+            }
+          }
+        }
+      } catch (smsErr) {
+        const msg = smsErr instanceof Error ? smsErr.message : String(smsErr);
+        console.error(`[Voice Orchestrator] Post-voicemail SMS trigger failed for merchant ${merchantId}: ${msg}`);
+      }
+    }
   }
 
   if (action.retryNextBusinessDay && state) {

@@ -514,6 +514,21 @@ export function registerIntegrationsRoutes(app: Express) {
     }
   });
 
+  // Sequence steps for cadence visualizer
+  app.get("/api/sequences/:name/steps", isAuthenticated, async (req, res) => {
+    try {
+      const name = decodeURIComponent(req.params.name);
+      const allSequences = await storage.getFollowUpSequences();
+      const sequence = allSequences.find(s => s.name === name);
+      if (!sequence) return res.status(404).json({ message: "Sequence not found" });
+      const steps = await storage.getSequenceSteps(sequence.id);
+      const sorted = [...steps].sort((a, b) => a.stepOrder - b.stepOrder);
+      res.json({ sequence: { id: sequence.id, name: sequence.name, description: sequence.description }, steps: sorted });
+    } catch (err: unknown) {
+      res.status(500).json({ message: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   // GHL Workflow ID Manager
   app.get("/api/ghl/workflow-mappings", isAuthenticated, async (req, res) => {
     try {

@@ -41,9 +41,39 @@ const SEQUENCES: SequenceSeed[] = [
     steps: [
       {
         stepOrder: 1,
-        actionType: "email",
+        actionType: "sms",
         delayDays: 0,
         delayHours: 0,
+        body: smsBody(`Hey {{firstName}}, Liberty Bancard here — we can usually find hidden processing fees in your statement in under 10 minutes. Calling you shortly! — Scott`),
+      },
+      {
+        stepOrder: 2,
+        actionType: "call",
+        delayDays: 0,
+        delayHours: 2,
+        config: {
+          callMode: "intro_qualification",
+          scriptType: "switch_save",
+          voicemailScript: "Hi {{firstName}}, this is Scott with Liberty Bancard. Just calling about a free merchant statement review — we typically find 10 to 30 percent in hidden fees. I'll send you an email with a link to upload your statement. Give me a call back at your convenience — talk soon!",
+          opening: "Hi {{firstName}}, this is Scott with Liberty Bancard. I'm calling to offer you a free merchant statement review. Most businesses we work with find significant hidden fees — can I take 5 minutes to explain how it works?",
+          close: "Great — I'll send over a link where you can upload your latest statement and we'll have a full savings breakdown for you within 24 hours.",
+        },
+      },
+      {
+        stepOrder: 3,
+        actionType: "voicemail_drop",
+        delayDays: 0,
+        delayHours: 0,
+        config: {
+          voicemailScript: "Hi {{firstName}}, this is Scott with Liberty Bancard. Just calling about a free merchant statement review — we typically find 10 to 30 percent in hidden fees. I'll send you an email with a link to upload your statement. Give me a call back at your convenience — talk soon!",
+          ghlNote: "Upload this voicemail audio to GHL Voicemail Drops library. In the workflow, add a Voicemail Drop action node immediately after the Manual Call node.",
+        },
+      },
+      {
+        stepOrder: 4,
+        actionType: "email",
+        delayDays: 0,
+        delayHours: 1,
         subject: "Most merchants are overpaying — here's how to check",
         body: emailBody([
           `<p>Hi {{firstName}},</p>`,
@@ -57,16 +87,9 @@ const SEQUENCES: SequenceSeed[] = [
         ]),
       },
       {
-        stepOrder: 2,
-        actionType: "sms",
-        delayDays: 0,
-        delayHours: 1,
-        body: smsBody(`Hey {{firstName}}, Liberty Bancard here. We can usually find hidden processing fees in under 10 minutes. Want us to review your statement?\n— Liberty Bancard`),
-      },
-      {
-        stepOrder: 3,
+        stepOrder: 5,
         actionType: "email",
-        delayDays: 3,
+        delayDays: 2,
         delayHours: 0,
         subject: "Where processors usually hide extra fees",
         body: emailBody([
@@ -80,16 +103,32 @@ const SEQUENCES: SequenceSeed[] = [
         ]),
       },
       {
-        stepOrder: 4,
-        actionType: "sms",
-        delayDays: 5,
+        stepOrder: 6,
+        actionType: "call",
+        delayDays: 2,
         delayHours: 0,
-        body: smsBody(`Quick check-in — still curious if you're overpaying on processing? Happy to take a look even if you don't switch.\n— Liberty Bancard`),
+        config: {
+          callMode: "follow_up_callback",
+          scriptType: "switch_save_followup",
+          voicemailScript: "Hi {{firstName}}, Scott again from Liberty Bancard. Just following up — I know you're busy, but I wanted to make sure you got my email about the free statement review. Give me a ring back or check your email for the upload link. Talk soon!",
+          opening: "Hi {{firstName}}, this is Scott with Liberty Bancard again. I wanted to follow up on the free statement review I mentioned — did you get a chance to look at my email?",
+          close: "Perfect — if you can grab your latest statement, I can have a full savings breakdown ready in 24 hours. Want me to send the upload link again?",
+        },
       },
       {
-        stepOrder: 5,
+        stepOrder: 7,
+        actionType: "voicemail_drop",
+        delayDays: 0,
+        delayHours: 0,
+        config: {
+          voicemailScript: "Hi {{firstName}}, Scott again from Liberty Bancard. Just following up — I know you're busy, but I wanted to make sure you got my email about the free statement review. Give me a ring back or check your email for the upload link. Talk soon!",
+          ghlNote: "Upload this voicemail audio to GHL Voicemail Drops library. In the workflow, add a Voicemail Drop action node immediately after the Manual Call node.",
+        },
+      },
+      {
+        stepOrder: 8,
         actionType: "email",
-        delayDays: 7,
+        delayDays: 2,
         delayHours: 0,
         subject: "No obligation — just clarity",
         body: emailBody([
@@ -1396,9 +1435,39 @@ const SEQUENCES: SequenceSeed[] = [
     steps: [
       {
         stepOrder: 1,
-        actionType: "email",
+        actionType: "sms",
         delayDays: 0,
         delayHours: 0,
+        body: smsBody(`Hey {{firstName}}, your free savings analysis from Liberty Bancard is ready — calling you shortly to walk through the results! — Scott`),
+      },
+      {
+        stepOrder: 2,
+        actionType: "call",
+        delayDays: 0,
+        delayHours: 2,
+        config: {
+          callMode: "intro_qualification",
+          scriptType: "free_analysis_intro",
+          voicemailScript: "Hi {{firstName}}, Scott here with Liberty Bancard. Your free savings analysis is ready — the numbers look good and I'd love to walk you through what we found. Check your email for details, or give me a ring back. I'll keep it to 10 minutes. Talk soon!",
+          opening: "Hi {{firstName}}, this is Scott with Liberty Bancard. You just completed our free savings analysis and I wanted to reach out to walk you through the results — do you have a few minutes?",
+          close: "Great — I'd love to send you the full breakdown and schedule a quick call to review your options. What's the best email for the details?",
+        },
+      },
+      {
+        stepOrder: 3,
+        actionType: "voicemail_drop",
+        delayDays: 0,
+        delayHours: 0,
+        config: {
+          voicemailScript: "Hi {{firstName}}, Scott here with Liberty Bancard. Your free savings analysis is ready — the numbers look good and I'd love to walk you through what we found. Check your email for details, or give me a ring back. I'll keep it to 10 minutes. Talk soon!",
+          ghlNote: "Upload this voicemail audio to GHL Voicemail Drops library. In the workflow, add a Voicemail Drop action node immediately after the Manual Call node.",
+        },
+      },
+      {
+        stepOrder: 4,
+        actionType: "email",
+        delayDays: 0,
+        delayHours: 1,
         subject: "Your personalized savings estimate is ready",
         body: emailBody([
           `<p>Hi {{firstName}},</p>`,
@@ -1411,16 +1480,9 @@ const SEQUENCES: SequenceSeed[] = [
         ]),
       },
       {
-        stepOrder: 2,
-        actionType: "sms",
-        delayDays: 1,
-        delayHours: 0,
-        body: smsBody(`Hey {{firstName}}, your savings estimate from Liberty Bancard is ready. Based on your info, you could save significantly on processing. Want us to do a detailed review?\n— Liberty Bancard`),
-      },
-      {
-        stepOrder: 3,
+        stepOrder: 5,
         actionType: "email",
-        delayDays: 3,
+        delayDays: 2,
         delayHours: 0,
         subject: "How businesses like yours are saving thousands",
         body: emailBody([
@@ -1434,9 +1496,32 @@ const SEQUENCES: SequenceSeed[] = [
         ]),
       },
       {
-        stepOrder: 4,
+        stepOrder: 6,
+        actionType: "call",
+        delayDays: 2,
+        delayHours: 0,
+        config: {
+          callMode: "follow_up_callback",
+          scriptType: "free_analysis_followup",
+          voicemailScript: "Hi {{firstName}}, Scott with Liberty Bancard again. Just wanted to follow up on your savings analysis — we found some solid options and I want to make sure you have everything you need to move forward. Give me a ring back or check your email. Talk soon!",
+          opening: "Hi {{firstName}}, Scott from Liberty Bancard. I'm following up on the free savings analysis you completed — did you get a chance to review the email we sent?",
+          close: "Great — I'd love to set up a quick 10-minute call to walk through your best options. Can I send you a calendar link?",
+        },
+      },
+      {
+        stepOrder: 7,
+        actionType: "voicemail_drop",
+        delayDays: 0,
+        delayHours: 0,
+        config: {
+          voicemailScript: "Hi {{firstName}}, Scott with Liberty Bancard again. Just wanted to follow up on your savings analysis — we found some solid options and I want to make sure you have everything you need to move forward. Give me a ring back or check your email. Talk soon!",
+          ghlNote: "Upload this voicemail audio to GHL Voicemail Drops library. In the workflow, add a Voicemail Drop action node immediately after the Manual Call node.",
+        },
+      },
+      {
+        stepOrder: 8,
         actionType: "email",
-        delayDays: 5,
+        delayDays: 2,
         delayHours: 0,
         subject: "The right terminal makes a difference — here's our pick for you",
         body: emailBody([
@@ -1450,9 +1535,9 @@ const SEQUENCES: SequenceSeed[] = [
         ]),
       },
       {
-        stepOrder: 5,
+        stepOrder: 9,
         actionType: "email",
-        delayDays: 7,
+        delayDays: 2,
         delayHours: 0,
         subject: "Your savings estimate expires soon — lock in your rate",
         body: emailBody([
@@ -2052,15 +2137,21 @@ const SEQUENCES: SequenceSeed[] = [
   // ═══════════════════════════════════════════════════════
   {
     name: "SDR: Cold Outbound — Auto Repair",
-    description: "AI SDR cold outbound sequence for Florida auto repair shops. Email → wait 2d → email → wait 2d → SMS → wait 2d → AI call → nurture.",
+    description: "AI SDR cold outbound for FL auto repair. Conversion-optimized: email D0 → call+VM D1+2h → email D3 → call+VM D5 → email D7 → call+VM D10 → breakup D14.",
     triggerType: "manual",
     triggerConfig: { category: "sdr_cold_outbound", vertical: "Auto Repair" },
     steps: [
-      { stepOrder: 1, actionType: "email", delayDays: 0, delayHours: 0, subject: "Quick question on card fees at {{firstName}}'s shop", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>We work with Florida auto repair shops on card processing costs, especially on larger repair tickets.</p>`, `<p>3 issues we commonly find:</p>`, `<ul><li>Overpriced processing on high-ticket repairs</li><li>No text-to-pay or financing options</li><li>Hidden fees in monthly statements</li></ul>`, `<p>We do a free 10-minute statement review that typically uncovers $200-500/month in savings.</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Get Your Free Review</a></p>`, `<p>— Liberty Bancard</p>`]) },
-      { stepOrder: 2, actionType: "email", delayDays: 2, delayHours: 0, subject: "How a shop like yours saved $400/month", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>A Florida auto repair shop similar to yours came to us overpaying on processing. After switching:</p>`, `<ul><li>Effective rate dropped significantly</li><li>Text-to-pay enabled for invoices over $500</li><li>Chargebacks cut in half</li></ul>`, `<p>Want to see what your numbers look like? Send us your latest statement.</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Upload Your Statement</a></p>`, `<p>— Liberty Bancard</p>`]) },
-      { stepOrder: 3, actionType: "sms", delayDays: 4, delayHours: 0, body: smsBody(`Hi {{firstName}}, Liberty Bancard here. We help FL auto shops cut card fees on big repair tickets. Free 10-min review? Reply YES. FL surcharging rules apply (credit only).`) },
-      { stepOrder: 4, actionType: "call", delayDays: 6, delayHours: 0, body: smsBody("AI call: cold outbound auto repair"), config: { voiceScript: "fl_auto", callType: "cold_outbound" } },
-      { stepOrder: 5, actionType: "email", delayDays: 14, delayHours: 0, subject: "Last note about processing at your shop", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>Last note — our free statement review covers your true effective rate, hidden fees, text-to-pay options, and chargeback exposure.</p>`, `<p>No pressure. If your setup is solid, we'll tell you.</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Get Your Free Review</a></p>`, `<p>— Liberty Bancard</p>`]) },
+      { stepOrder: 1, actionType: "email", delayDays: 0, delayHours: 0, subject: "Quick question on card fees at your shop", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>We work with Florida auto repair shops on card processing costs — especially on larger repair tickets.</p>`, `<p>3 things we typically find:</p>`, `<ul><li>Overpriced processing on high-ticket repairs</li><li>No text-to-pay or financing options</li><li>Hidden fees buried in monthly statements</li></ul>`, `<p>Free 10-minute statement review — usually uncovers $200-500/month.</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Get Your Free Review</a></p>`, `<p>— Scott, Liberty Bancard</p>`]) },
+      { stepOrder: 2, actionType: "call", delayDays: 0, delayHours: 2, config: { callMode: "cold_outbound", scriptType: "cold_auto_repair_d1", voicemailScript: "Hi {{firstName}}, Scott here with Liberty Bancard. We help Florida auto shops cut card processing fees on bigger repair tickets — usually $200-500 a month. I'll send you an email, or give me a ring back. Talk soon!", opening: "Hi {{firstName}}, this is Scott with Liberty Bancard. We work with Florida auto repair shops to reduce card processing costs — do you have a couple minutes?", close: "Great — I can send you a link to upload your latest statement and we'll have a full savings breakdown in 24 hours." } },
+      { stepOrder: 3, actionType: "voicemail_drop", delayDays: 0, delayHours: 0, config: { voicemailScript: "Hi {{firstName}}, Scott here with Liberty Bancard. We help Florida auto shops cut card processing fees on bigger repair tickets — usually $200-500 a month. I'll send you an email, or give me a ring back. Talk soon!", ghlNote: "Upload this voicemail audio to GHL Voicemail Drops library. Add a Voicemail Drop node immediately after the Manual Call node in GHL workflow." } },
+      { stepOrder: 4, actionType: "email", delayDays: 2, delayHours: 0, subject: "How a shop like yours saved $400/month", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>A Florida auto repair shop came to us overpaying on processing. After switching:</p>`, `<ul><li>Effective rate dropped significantly on high-ticket repairs</li><li>Text-to-pay enabled for invoices over $500</li><li>Chargebacks cut in half</li></ul>`, `<p>Want to see what your numbers look like?</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Upload Your Statement</a></p>`, `<p>— Scott, Liberty Bancard</p>`]) },
+      { stepOrder: 5, actionType: "call", delayDays: 2, delayHours: 0, config: { callMode: "cold_outbound", scriptType: "cold_auto_repair_d5", voicemailScript: "Hi {{firstName}}, Scott with Liberty Bancard again. Just following up — I sent you an email about reducing processing fees on your repair tickets. Give me a ring back when you have a minute. Thanks!", opening: "Hi {{firstName}}, Scott from Liberty Bancard. Following up on the free statement review — did you get my email?", close: "I'll send the upload link right now. 24 hours and you'll know exactly where to save." } },
+      { stepOrder: 6, actionType: "voicemail_drop", delayDays: 0, delayHours: 0, config: { voicemailScript: "Hi {{firstName}}, Scott with Liberty Bancard again. Just following up — I sent you an email about reducing processing fees on your repair tickets. Give me a ring back when you have a minute. Thanks!", ghlNote: "Upload this voicemail audio to GHL Voicemail Drops library. Add a Voicemail Drop node immediately after the Manual Call node in GHL workflow." } },
+      { stepOrder: 7, actionType: "email", delayDays: 2, delayHours: 0, subject: "FL surcharging for auto shops — what you need to know", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>Florida allows surcharging on credit cards (not debit). For auto shops running high-ticket repairs, this can eliminate processing costs entirely on credit transactions.</p>`, `<p>We set this up correctly — compliant signage, dual-pricing at the terminal, zero compliance risk.</p>`, `<p>Worth 10 minutes to find out what you could save?</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Book a Quick Call</a></p>`, `<p>— Scott, Liberty Bancard</p>`]) },
+      { stepOrder: 8, actionType: "call", delayDays: 3, delayHours: 0, config: { callMode: "cold_outbound", scriptType: "cold_auto_repair_d10", voicemailScript: "Hi {{firstName}}, this is Scott with Liberty Bancard — one more check-in about the free processing review. If the timing's not right, no worries. But if you want to see if you're overpaying, just give me a ring or check your email. Thanks!", opening: "Hi {{firstName}}, Scott from Liberty Bancard. Last follow-up on the free statement review — is now a better time?", close: "I'll make it easy — 10 minutes and you'll know if switching makes sense. Can I send you the upload link?" } },
+      { stepOrder: 9, actionType: "voicemail_drop", delayDays: 0, delayHours: 0, config: { voicemailScript: "Hi {{firstName}}, this is Scott with Liberty Bancard — one more check-in about the free processing review. If the timing's not right, no worries. But if you want to see if you're overpaying, just give me a ring or check your email. Thanks!", ghlNote: "Upload this voicemail audio to GHL Voicemail Drops library. Add a Voicemail Drop node immediately after the Manual Call node in GHL workflow." } },
+      { stepOrder: 10, actionType: "email", delayDays: 4, delayHours: 0, subject: "Closing the loop on your processing review", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>I'll keep this short — this is my last outreach.</p>`, `<p>If you ever want a free review of your processing costs, we're here. Most auto shops we work with save $200-500/month.</p>`, `<p>No pressure. If your setup is solid, we'll tell you that too.</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Book Anytime</a></p>`, `<p>— Scott, Liberty Bancard</p>`]) },
+      { stepOrder: 11, actionType: "sms", delayDays: 0, delayHours: 0, body: smsBody(`{{firstName}}, last message from Liberty Bancard — no pressure at all. If you ever want that free review, I'm here: ${SALES_CALENDAR} — Scott`) },
     ],
   },
 
@@ -2069,15 +2160,21 @@ const SEQUENCES: SequenceSeed[] = [
   // ═══════════════════════════════════════════════════════
   {
     name: "SDR: Cold Outbound — Med Spa",
-    description: "AI SDR cold outbound sequence for Florida med spas. Multi-channel: email, SMS, AI call.",
+    description: "AI SDR cold outbound for FL med spas. Conversion-optimized: email D0 → call+VM D1+2h → email D3 → call+VM D5 → email D7 → call+VM D10 → breakup D14.",
     triggerType: "manual",
     triggerConfig: { category: "sdr_cold_outbound", vertical: "Med Spa" },
     steps: [
-      { stepOrder: 1, actionType: "email", delayDays: 0, delayHours: 0, subject: "Question about payments at your med spa", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>We work with Florida med spas on memberships, deposits, and payment flow.</p>`, `<p>4 issues we commonly find:</p>`, `<ul><li>No-show leakage without deposit protection</li><li>Weak card-on-file process</li><li>Clunky membership billing</li><li>Overpaying on processing</li></ul>`, `<p>Complimentary payment workflow review — usually uncovers $300-800/month in savings.</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Get Your Free Review</a></p>`, `<p>— Liberty Bancard</p>`]) },
-      { stepOrder: 2, actionType: "email", delayDays: 2, delayHours: 0, subject: "How a practice like yours improved membership revenue", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>A Florida med spa similar to yours saw significant improvements after implementing our payment workflow:</p>`, `<ul><li>Membership churn dropped with automated card updater</li><li>No-show rate cut with required card-on-file</li><li>Average ticket increased with patient financing</li></ul>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Book Your Review</a></p>`, `<p>— Liberty Bancard</p>`]) },
-      { stepOrder: 3, actionType: "sms", delayDays: 4, delayHours: 0, body: smsBody(`Hi {{firstName}}, Liberty Bancard here. We help FL med spas streamline memberships, deposits & payment flow. Quick review? Reply YES.`) },
-      { stepOrder: 4, actionType: "call", delayDays: 6, delayHours: 0, body: smsBody("AI call: cold outbound med spa"), config: { voiceScript: "fl_medspa", callType: "cold_outbound" } },
-      { stepOrder: 5, actionType: "email", delayDays: 14, delayHours: 0, subject: "Quick follow-up on payment flow", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>Our complimentary review covers membership billing, card-on-file policies, patient financing, and processing cost optimization.</p>`, `<p>No commodity pitch — just a workflow review focused on growth.</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Get Your Free Review</a></p>`, `<p>— Liberty Bancard</p>`]) },
+      { stepOrder: 1, actionType: "email", delayDays: 0, delayHours: 0, subject: "Question about payment flow at your med spa", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>We work with Florida med spas on memberships, deposits, and payment optimization.</p>`, `<p>4 things we commonly find:</p>`, `<ul><li>No-show leakage without deposit protection</li><li>Weak card-on-file process</li><li>Clunky membership billing</li><li>Overpaying on processing</li></ul>`, `<p>Complimentary payment workflow review — usually uncovers $300-800/month in savings.</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Get Your Free Review</a></p>`, `<p>— Scott, Liberty Bancard</p>`]) },
+      { stepOrder: 2, actionType: "call", delayDays: 0, delayHours: 2, config: { callMode: "cold_outbound", scriptType: "cold_medspa_d1", voicemailScript: "Hi {{firstName}}, Scott here with Liberty Bancard. We help Florida med spas streamline memberships, deposits, and card-on-file — and usually cut processing costs significantly. I'll send you an email, or give me a ring back. Thanks!", opening: "Hi {{firstName}}, this is Scott with Liberty Bancard. We work with Florida med spas on payment workflow and processing costs — do you have a couple minutes?", close: "I'd love to send you a quick breakdown of what we typically find for spas your size. What's the best email?" } },
+      { stepOrder: 3, actionType: "voicemail_drop", delayDays: 0, delayHours: 0, config: { voicemailScript: "Hi {{firstName}}, Scott here with Liberty Bancard. We help Florida med spas streamline memberships, deposits, and card-on-file — and usually cut processing costs significantly. I'll send you an email, or give me a ring back. Thanks!", ghlNote: "Upload this voicemail audio to GHL Voicemail Drops library. Add a Voicemail Drop node immediately after the Manual Call node in GHL workflow." } },
+      { stepOrder: 4, actionType: "email", delayDays: 2, delayHours: 0, subject: "How a med spa like yours improved membership revenue", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>A Florida med spa similar to yours saw significant improvements after we rebuilt their payment workflow:</p>`, `<ul><li>Membership churn dropped with automated card updater</li><li>No-show rate cut with required card-on-file deposits</li><li>Average ticket increased with patient financing</li></ul>`, `<p>Want to see what's possible for your practice?</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Book Your Review</a></p>`, `<p>— Scott, Liberty Bancard</p>`]) },
+      { stepOrder: 5, actionType: "call", delayDays: 2, delayHours: 0, config: { callMode: "cold_outbound", scriptType: "cold_medspa_d5", voicemailScript: "Hi {{firstName}}, Scott from Liberty Bancard again. Just following up on the payment workflow review for your med spa. Give me a ring back when you have a minute — or check my email. Thanks!", opening: "Hi {{firstName}}, Scott from Liberty Bancard. Following up on the free payment review — did you get a chance to see my email?", close: "I'd love to set up a 10-minute call to walk through the membership and card-on-file options. Want me to send a calendar link?" } },
+      { stepOrder: 6, actionType: "voicemail_drop", delayDays: 0, delayHours: 0, config: { voicemailScript: "Hi {{firstName}}, Scott from Liberty Bancard again. Just following up on the payment workflow review for your med spa. Give me a ring back when you have a minute — or check my email. Thanks!", ghlNote: "Upload this voicemail audio to GHL Voicemail Drops library. Add a Voicemail Drop node immediately after the Manual Call node in GHL workflow." } },
+      { stepOrder: 7, actionType: "email", delayDays: 2, delayHours: 0, subject: "Deposit protection for no-shows — a quick look", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>No-shows are one of the biggest hidden costs for med spas. A simple card-on-file deposit policy — properly configured at the payment layer — eliminates most of it.</p>`, `<p>We set this up for practices across Florida. Takes about a day to implement.</p>`, `<p>Want to see how it works for your booking flow?</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Book a Quick Call</a></p>`, `<p>— Scott, Liberty Bancard</p>`]) },
+      { stepOrder: 8, actionType: "call", delayDays: 3, delayHours: 0, config: { callMode: "cold_outbound", scriptType: "cold_medspa_d10", voicemailScript: "Hi {{firstName}}, this is Scott from Liberty Bancard — one more follow-up on the payment workflow review. No pressure at all. If the timing's off, totally understand. Just give me a ring or check your email whenever works. Thanks!", opening: "Hi {{firstName}}, Scott from Liberty Bancard. Last follow-up — is now a better time to talk about your payment workflow?", close: "Happy to keep it to 10 minutes. We can cover card-on-file, membership billing, and processing costs all in one call." } },
+      { stepOrder: 9, actionType: "voicemail_drop", delayDays: 0, delayHours: 0, config: { voicemailScript: "Hi {{firstName}}, this is Scott from Liberty Bancard — one more follow-up on the payment workflow review. No pressure at all. If the timing's off, totally understand. Just give me a ring or check your email whenever works. Thanks!", ghlNote: "Upload this voicemail audio to GHL Voicemail Drops library. Add a Voicemail Drop node immediately after the Manual Call node in GHL workflow." } },
+      { stepOrder: 10, actionType: "email", delayDays: 4, delayHours: 0, subject: "Closing the loop — free payment review", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>This is my last note — I don't want to flood your inbox.</p>`, `<p>If you ever want a complimentary review of your med spa's payment workflow (membership billing, card-on-file, processing costs), we're here.</p>`, `<p>No pressure. If your setup is optimized, we'll tell you that too.</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Book Anytime</a></p>`, `<p>— Scott, Liberty Bancard</p>`]) },
+      { stepOrder: 11, actionType: "sms", delayDays: 0, delayHours: 0, body: smsBody(`{{firstName}}, last message from Liberty Bancard — no pressure. If you ever want that free review, I'm here: ${SALES_CALENDAR} — Scott`) },
     ],
   },
 
@@ -2086,15 +2183,21 @@ const SEQUENCES: SequenceSeed[] = [
   // ═══════════════════════════════════════════════════════
   {
     name: "SDR: Cold Outbound — Dental",
-    description: "AI SDR cold outbound sequence for Florida dental practices. Multi-channel approach.",
+    description: "AI SDR cold outbound for FL dental practices. Conversion-optimized: email D0 → call+VM D1+2h → email D3 → call+VM D5 → email D7 → call+VM D10 → breakup D14.",
     triggerType: "manual",
     triggerConfig: { category: "sdr_cold_outbound", vertical: "Dental" },
     steps: [
-      { stepOrder: 1, actionType: "email", delayDays: 0, delayHours: 0, subject: "Patient payment question for your dental practice", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>We help Florida dental practices improve patient payment flow.</p>`, `<p>4 common issues:</p>`, `<ul><li>Manual collection consuming front-desk time</li><li>No text-to-pay for patient balances</li><li>Lack of payment plans for larger balances</li><li>Processing fees unreviewed</li></ul>`, `<p>Free patient collections review — 10 minutes.</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Get Your Free Review</a></p>`, `<p>— Liberty Bancard</p>`]) },
-      { stepOrder: 2, actionType: "email", delayDays: 2, delayHours: 0, subject: "How a dental practice improved patient collections", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>A Florida dental practice similar to yours saw:</p>`, `<ul><li>Faster balance collection with text-to-pay</li><li>Hours saved at front desk each week</li><li>Reduced write-offs with structured payment plans</li></ul>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Book Your Review</a></p>`, `<p>— Liberty Bancard</p>`]) },
-      { stepOrder: 3, actionType: "sms", delayDays: 4, delayHours: 0, body: smsBody(`Hi {{firstName}}, Liberty Bancard here. We help FL dental practices improve patient payment flow & collections. Quick review? Reply YES.`) },
-      { stepOrder: 4, actionType: "call", delayDays: 6, delayHours: 0, body: smsBody("AI call: cold outbound dental"), config: { voiceScript: "fl_medical", callType: "cold_outbound" } },
-      { stepOrder: 5, actionType: "email", delayDays: 14, delayHours: 0, subject: "Last check-in about payments at your practice", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>Free patient collections review covers text-to-pay, payment plans, card-on-file, and fee benchmarking. Takes 10 minutes.</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Get Your Free Review</a></p>`, `<p>— Liberty Bancard</p>`]) },
+      { stepOrder: 1, actionType: "email", delayDays: 0, delayHours: 0, subject: "Patient payment question for your dental practice", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>We help Florida dental practices improve patient payment flow and reduce processing costs.</p>`, `<p>4 common issues:</p>`, `<ul><li>Manual collection consuming front-desk time</li><li>No text-to-pay for patient balances</li><li>Lack of payment plans for larger balances</li><li>Processing fees that haven't been reviewed</li></ul>`, `<p>Free 10-minute patient collections review.</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Get Your Free Review</a></p>`, `<p>— Scott, Liberty Bancard</p>`]) },
+      { stepOrder: 2, actionType: "call", delayDays: 0, delayHours: 2, config: { callMode: "cold_outbound", scriptType: "cold_dental_d1", voicemailScript: "Hi {{firstName}}, Scott here with Liberty Bancard. We help Florida dental practices collect patient balances faster with text-to-pay and cut processing costs. I'll send you an email with details, or give me a ring back. Thanks!", opening: "Hi {{firstName}}, this is Scott with Liberty Bancard. We work with Florida dental practices on patient payment flow and processing costs — do you have a couple minutes?", close: "Great — I'll send over details on our text-to-pay setup and free statement review. What's the best email?" } },
+      { stepOrder: 3, actionType: "voicemail_drop", delayDays: 0, delayHours: 0, config: { voicemailScript: "Hi {{firstName}}, Scott here with Liberty Bancard. We help Florida dental practices collect patient balances faster with text-to-pay and cut processing costs. I'll send you an email with details, or give me a ring back. Thanks!", ghlNote: "Upload this voicemail audio to GHL Voicemail Drops library. Add a Voicemail Drop node immediately after the Manual Call node in GHL workflow." } },
+      { stepOrder: 4, actionType: "email", delayDays: 2, delayHours: 0, subject: "How a dental practice improved patient collections", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>A Florida dental practice similar to yours saw:</p>`, `<ul><li>Faster balance collection with text-to-pay</li><li>Front-desk hours saved each week</li><li>Reduced write-offs with structured payment plans</li></ul>`, `<p>Want to see what your practice's numbers look like?</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Book Your Review</a></p>`, `<p>— Scott, Liberty Bancard</p>`]) },
+      { stepOrder: 5, actionType: "call", delayDays: 2, delayHours: 0, config: { callMode: "cold_outbound", scriptType: "cold_dental_d5", voicemailScript: "Hi {{firstName}}, Scott from Liberty Bancard again. Following up on the patient collections review — give me a ring back or check your email. Happy to show you the text-to-pay setup and what it typically means for practices your size. Thanks!", opening: "Hi {{firstName}}, Scott from Liberty Bancard. Following up on the free patient collections review — did you get my email?", close: "I'd love to show you the text-to-pay demo — 10 minutes and you'll see exactly how it works." } },
+      { stepOrder: 6, actionType: "voicemail_drop", delayDays: 0, delayHours: 0, config: { voicemailScript: "Hi {{firstName}}, Scott from Liberty Bancard again. Following up on the patient collections review — give me a ring back or check your email. Happy to show you the text-to-pay setup and what it typically means for practices your size. Thanks!", ghlNote: "Upload this voicemail audio to GHL Voicemail Drops library. Add a Voicemail Drop node immediately after the Manual Call node in GHL workflow." } },
+      { stepOrder: 7, actionType: "email", delayDays: 2, delayHours: 0, subject: "Text-to-pay for dental balances — how it works", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>Text-to-pay is one of the fastest ways to collect patient balances — patients pay directly from a text link, no portal login needed.</p>`, `<p>For dental practices in Florida, we typically see collection rates jump 15-25% within the first 90 days.</p>`, `<p>Setup takes about a day and integrates with most practice management systems.</p>`, `<p>Want to see how it would work for your practice?</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Book a Quick Call</a></p>`, `<p>— Scott, Liberty Bancard</p>`]) },
+      { stepOrder: 8, actionType: "call", delayDays: 3, delayHours: 0, config: { callMode: "cold_outbound", scriptType: "cold_dental_d10", voicemailScript: "Hi {{firstName}}, this is Scott from Liberty Bancard — last follow-up on the patient collections review. No pressure at all. If the timing's off, totally fine. Give me a ring or check your email whenever works. Thanks!", opening: "Hi {{firstName}}, Scott from Liberty Bancard. This is my last follow-up — is now a better time to talk about your patient payment flow?", close: "Happy to keep it to 10 minutes. We can cover text-to-pay, payment plans, and processing costs all in one call." } },
+      { stepOrder: 9, actionType: "voicemail_drop", delayDays: 0, delayHours: 0, config: { voicemailScript: "Hi {{firstName}}, this is Scott from Liberty Bancard — last follow-up on the patient collections review. No pressure at all. If the timing's off, totally fine. Give me a ring or check your email whenever works. Thanks!", ghlNote: "Upload this voicemail audio to GHL Voicemail Drops library. Add a Voicemail Drop node immediately after the Manual Call node in GHL workflow." } },
+      { stepOrder: 10, actionType: "email", delayDays: 4, delayHours: 0, subject: "Closing the loop — free collections review", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>This is my last note — I don't want to flood your inbox.</p>`, `<p>If you ever want a free review of your practice's patient payment flow (text-to-pay, payment plans, processing costs), we're here.</p>`, `<p>No pressure. If your current setup is working great, we'll tell you that too.</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Book Anytime</a></p>`, `<p>— Scott, Liberty Bancard</p>`]) },
+      { stepOrder: 11, actionType: "sms", delayDays: 0, delayHours: 0, body: smsBody(`{{firstName}}, last message from Liberty Bancard — no pressure. If you ever want that free review, I'm here: ${SALES_CALENDAR} — Scott`) },
     ],
   },
 
@@ -2109,7 +2212,11 @@ const SEQUENCES: SequenceSeed[] = [
     steps: [
       { stepOrder: 1, actionType: "email", delayDays: 0, delayHours: 0, subject: "Thanks for your interest — next steps", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>Thanks for getting back to us! Based on what you mentioned, here are two quick options:</p>`, `<p><strong>Option 1: Free Statement Review</strong><br/>Upload your latest processing statement and we'll have a savings analysis ready in 24 hours.</p>`, `<p><strong>Option 2: Quick Call</strong><br/>Book a 10-minute call and we'll walk through everything live.</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Book a Call</a></p>`, `<p>— Liberty Bancard</p>`]) },
       { stepOrder: 2, actionType: "sms", delayDays: 1, delayHours: 0, body: smsBody(`Hi {{firstName}}, glad you're interested! Quickest way to see your savings: upload your latest statement or book a 10-min call. Reply CALL or STATEMENT. — Liberty Bancard`) },
-      { stepOrder: 3, actionType: "email", delayDays: 3, delayHours: 0, subject: "Following up on your interest", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>Just following up — would you prefer to:</p>`, `<ul><li>Upload a statement for a free analysis</li><li>Schedule a quick 10-minute call</li></ul>`, `<p>Either way works great. Most merchants are surprised by what we find.</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Book a Call</a></p>`, `<p>— Liberty Bancard</p>`]) },
+      { stepOrder: 3, actionType: "call", delayDays: 0, delayHours: 2, config: { callMode: "intro_qualification", scriptType: "reply_engaged_call", voicemailScript: "Hi {{firstName}}, this is Scott with Liberty Bancard. You'd reached out about our free savings review and I wanted to connect. Just reply to my email or give me a call back — I'll keep it short. Thanks!", opening: "Hi {{firstName}}, this is Scott with Liberty Bancard. You had reached out expressing interest in our free savings review — I wanted to connect and make sure you have everything you need. Do you have a few minutes?", close: "Great — I can send you a secure upload link for your statement and have a full savings breakdown ready in 24 hours." } },
+      { stepOrder: 4, actionType: "voicemail_drop", delayDays: 0, delayHours: 0, config: { voicemailScript: "Hi {{firstName}}, this is Scott with Liberty Bancard. You'd reached out about our free savings review and I wanted to connect. Just reply to my email or give me a call back — I'll keep it short. Thanks!", ghlNote: "Upload this voicemail audio to GHL Voicemail Drops library. Add a Voicemail Drop node immediately after the Manual Call node in GHL workflow." } },
+      { stepOrder: 5, actionType: "email", delayDays: 2, delayHours: 0, subject: "Following up on your interest", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>Just following up — would you prefer to:</p>`, `<ul><li>Upload a statement for a free analysis</li><li>Schedule a quick 10-minute call</li></ul>`, `<p>Either way works great. Most merchants are surprised by what we find.</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Book a Call</a></p>`, `<p>— Liberty Bancard</p>`]) },
+      { stepOrder: 6, actionType: "call", delayDays: 2, delayHours: 0, config: { callMode: "follow_up_callback", scriptType: "reply_engaged_followup", voicemailScript: "Hi {{firstName}}, Scott from Liberty Bancard again. I wanted to follow up one more time — we have everything ready to do your free savings review whenever you're ready. Give me a ring back or check your email. Thanks!", opening: "Hi {{firstName}}, Scott here from Liberty Bancard. Following up on your interest in the free savings review — have you had a chance to pull your latest statement?", close: "No problem — I can send over the upload link again and we'll have results within 24 hours." } },
+      { stepOrder: 7, actionType: "voicemail_drop", delayDays: 0, delayHours: 0, config: { voicemailScript: "Hi {{firstName}}, Scott from Liberty Bancard again. I wanted to follow up one more time — we have everything ready to do your free savings review whenever you're ready. Give me a ring back or check your email. Thanks!", ghlNote: "Upload this voicemail audio to GHL Voicemail Drops library. Add a Voicemail Drop node immediately after the Manual Call node in GHL workflow." } },
     ],
   },
 
@@ -2123,9 +2230,13 @@ const SEQUENCES: SequenceSeed[] = [
     triggerConfig: { category: "sdr_statement_chase", vertical: "all" },
     steps: [
       { stepOrder: 1, actionType: "email", delayDays: 0, delayHours: 0, subject: "Upload your statement for a free savings analysis", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>Ready to find out what you're really paying in processing fees? Upload your latest statement and we'll have your personalized savings analysis within 24 hours.</p>`, `<p>We typically find 3 different options to reduce costs — and we'll show you all of them.</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Upload Your Statement</a></p>`, `<p>— Liberty Bancard</p>`]) },
-      { stepOrder: 2, actionType: "sms", delayDays: 2, delayHours: 0, body: smsBody(`Hi {{firstName}}, still waiting on your processing statement for the free savings analysis. Upload anytime — takes 30 seconds. — Liberty Bancard`) },
-      { stepOrder: 3, actionType: "email", delayDays: 5, delayHours: 0, subject: "Your free savings analysis is waiting", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>Just a reminder — we're ready to analyze your statement and show you where to save.</p>`, `<p>Most businesses find 15-30% in unnecessary fees. The review is free and takes us about 24 hours.</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Upload Your Statement</a></p>`, `<p>— Liberty Bancard</p>`]) },
-      { stepOrder: 4, actionType: "call", delayDays: 7, delayHours: 0, body: smsBody("AI call: statement chase"), config: { callType: "statement_chase" } },
+      { stepOrder: 2, actionType: "call", delayDays: 1, delayHours: 2, config: { callMode: "statement_chase", scriptType: "statement_chase_call", voicemailScript: "Hi {{firstName}}, Scott here from Liberty Bancard. Calling about the free statement analysis — we just need your latest statement to finalize the numbers. Check your email for the upload link, or give me a quick call back. Thank you!", opening: "Hi {{firstName}}, this is Scott with Liberty Bancard. I'm reaching out about the free statement savings analysis — do you have your latest processing statement handy?", close: "Great — I'll send you a secure upload link right now and we'll have a full breakdown within 24 hours." } },
+      { stepOrder: 3, actionType: "voicemail_drop", delayDays: 0, delayHours: 0, config: { voicemailScript: "Hi {{firstName}}, Scott here from Liberty Bancard. Calling about the free statement analysis — we just need your latest statement to finalize the numbers. Check your email for the upload link, or give me a quick call back. Thank you!", ghlNote: "Upload this voicemail audio to GHL Voicemail Drops library. Add a Voicemail Drop node immediately after the Manual Call node in GHL workflow." } },
+      { stepOrder: 4, actionType: "sms", delayDays: 1, delayHours: 0, body: smsBody(`Hi {{firstName}}, still waiting on your processing statement for the free savings analysis. Upload anytime — takes 30 seconds. — Liberty Bancard`) },
+      { stepOrder: 5, actionType: "email", delayDays: 1, delayHours: 0, subject: "Your free savings analysis is waiting", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>Just a reminder — we're ready to analyze your statement and show you where to save.</p>`, `<p>Most businesses find 15-30% in unnecessary fees. The review is free and takes us about 24 hours.</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Upload Your Statement</a></p>`, `<p>— Liberty Bancard</p>`]) },
+      { stepOrder: 6, actionType: "call", delayDays: 2, delayHours: 0, config: { callMode: "statement_chase", scriptType: "statement_chase_followup", voicemailScript: "Hi {{firstName}}, Scott from Liberty Bancard again. Still hoping to get your statement so we can finalize your savings analysis — the numbers usually look pretty good. Give me a ring back or upload via the link in your email. Thanks!", opening: "Hi {{firstName}}, Scott from Liberty Bancard. I'm following up on the statement upload — did you get a chance to pull your latest processing statement?", close: "No worries — I'll resend the upload link now. It takes about 30 seconds and we'll have your analysis ready within 24 hours." } },
+      { stepOrder: 7, actionType: "voicemail_drop", delayDays: 0, delayHours: 0, config: { voicemailScript: "Hi {{firstName}}, Scott from Liberty Bancard again. Still hoping to get your statement so we can finalize your savings analysis — the numbers usually look pretty good. Give me a ring back or upload via the link in your email. Thanks!", ghlNote: "Upload this voicemail audio to GHL Voicemail Drops library. Add a Voicemail Drop node immediately after the Manual Call node in GHL workflow." } },
+      { stepOrder: 8, actionType: "call", delayDays: 5, delayHours: 0, config: { callMode: "statement_chase", scriptType: "statement_chase_final", voicemailScript: "Hi {{firstName}}, last call — Scott with Liberty Bancard. We're ready to complete your free savings analysis and have your results ready within 24 hours of receiving your statement. Upload via the link in your email or give me a call back. Thank you!", opening: "Hi {{firstName}}, Scott here from Liberty Bancard. This is my last follow-up about the free savings analysis — I wanted to make sure you had everything you needed to upload your statement.", close: "I'll be honest — most merchants find $200-500 a month in savings. It's worth 30 seconds to find out. Want me to resend the upload link?" } },
     ],
   },
 
@@ -2139,9 +2250,12 @@ const SEQUENCES: SequenceSeed[] = [
     triggerConfig: { category: "sdr_proposal_followup", vertical: "all" },
     steps: [
       { stepOrder: 1, actionType: "email", delayDays: 0, delayHours: 0, subject: "Your savings proposal is ready", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>Great news — your personalized savings analysis is complete!</p>`, `<p>We found 3 options to reduce your processing costs. Take a look and let us know which one interests you most.</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">View Your Proposal</a></p>`, `<p>— Liberty Bancard</p>`]) },
-      { stepOrder: 2, actionType: "sms", delayDays: 2, delayHours: 0, body: smsBody(`Hi {{firstName}}, we finished your savings analysis and found some good options. Want to go over it? Reply YES for a quick 10-min call. — Liberty Bancard`) },
-      { stepOrder: 3, actionType: "email", delayDays: 3, delayHours: 0, subject: "Did you see your processing analysis?", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>Just checking — did you get a chance to review the savings analysis we put together?</p>`, `<p>We found some real opportunities to lower your costs. Happy to walk through it on a quick call if that's easier.</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Book a Quick Call</a></p>`, `<p>— Liberty Bancard</p>`]) },
-      { stepOrder: 4, actionType: "call", delayDays: 5, delayHours: 0, body: smsBody("AI call: proposal follow-up"), config: { callType: "proposal_followup" } },
+      { stepOrder: 2, actionType: "call", delayDays: 1, delayHours: 2, config: { callMode: "proposal_reminder", scriptType: "proposal_followup_call", voicemailScript: "Hi {{firstName}}, this is Scott with Liberty Bancard. Your personalized savings proposal is ready and I wanted to make sure you got it — three solid options in there. Give me a ring back or book a quick 10-minute call through the link in your email. Thanks!", opening: "Hi {{firstName}}, this is Scott with Liberty Bancard. I'm calling because your personalized savings analysis just came through — did you get a chance to check your email?", close: "I'd love to schedule a quick 10-minute call to walk you through all three options. What time works best for you?" } },
+      { stepOrder: 3, actionType: "voicemail_drop", delayDays: 0, delayHours: 0, config: { voicemailScript: "Hi {{firstName}}, this is Scott with Liberty Bancard. Your personalized savings proposal is ready and I wanted to make sure you got it — three solid options in there. Give me a ring back or book a quick 10-minute call through the link in your email. Thanks!", ghlNote: "Upload this voicemail audio to GHL Voicemail Drops library. Add a Voicemail Drop node immediately after the Manual Call node in GHL workflow." } },
+      { stepOrder: 4, actionType: "sms", delayDays: 2, delayHours: 0, body: smsBody(`Hi {{firstName}}, we finished your savings analysis and found some good options. Want to go over it? Reply YES for a quick 10-min call. — Liberty Bancard`) },
+      { stepOrder: 5, actionType: "email", delayDays: 0, delayHours: 0, subject: "Did you see your processing analysis?", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>Just checking — did you get a chance to review the savings analysis we put together?</p>`, `<p>We found some real opportunities to lower your costs. Happy to walk through it on a quick call if that's easier.</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Book a Quick Call</a></p>`, `<p>— Liberty Bancard</p>`]) },
+      { stepOrder: 6, actionType: "call", delayDays: 2, delayHours: 0, config: { callMode: "proposal_reminder", scriptType: "proposal_followup_final", voicemailScript: "Hi {{firstName}}, Scott from Liberty Bancard — last follow-up on your savings proposal. We found some real opportunities to lower your costs and I'd hate for you to miss them. Give me a ring back or book a quick call through the link in your email. Talk soon!", opening: "Hi {{firstName}}, Scott here from Liberty Bancard. Last follow-up on the savings proposal — did the email come through?", close: "I'll keep it to 10 minutes. We found three real options and I want to make sure you have a chance to consider them before they're off the table." } },
+      { stepOrder: 7, actionType: "voicemail_drop", delayDays: 0, delayHours: 0, config: { voicemailScript: "Hi {{firstName}}, Scott from Liberty Bancard — last follow-up on your savings proposal. We found some real opportunities to lower your costs and I'd hate for you to miss them. Give me a ring back or book a quick call through the link in your email. Talk soon!", ghlNote: "Upload this voicemail audio to GHL Voicemail Drops library. Add a Voicemail Drop node immediately after the Manual Call node in GHL workflow." } },
     ],
   },
 
@@ -2156,7 +2270,31 @@ const SEQUENCES: SequenceSeed[] = [
     steps: [
       { stepOrder: 1, actionType: "sms", delayDays: 0, delayHours: 0, body: smsBody(`Hi {{firstName}}, looks like we missed each other for our call. No worries — want to reschedule? Reply with a good time or book here: ${SALES_CALENDAR} — Liberty Bancard`) },
       { stepOrder: 2, actionType: "email", delayDays: 1, delayHours: 0, subject: "Let's reschedule — no worries", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>Looks like we missed each other for our scheduled call. Totally understand — things come up.</p>`, `<p>Would you like to reschedule? Pick a time that works:</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Reschedule Your Call</a></p>`, `<p>— Liberty Bancard</p>`]) },
-      { stepOrder: 3, actionType: "email", delayDays: 3, delayHours: 0, subject: "One more try — your free savings review", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>Just wanted to reach out one more time about the free savings review we discussed.</p>`, `<p>If you'd still like to see how much you could save on processing, here's a link to rebook at your convenience:</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Rebook Your Call</a></p>`, `<p>If the timing isn't right, no worries at all.</p>`, `<p>— Liberty Bancard</p>`]) },
+      { stepOrder: 3, actionType: "call", delayDays: 0, delayHours: 2, config: { callMode: "appointment_reminder", scriptType: "noshow_recovery_call", voicemailScript: "Hi {{firstName}}, Scott here from Liberty Bancard. We had a call scheduled and I think we missed each other — no worries at all. I'd love to reschedule at a better time. Check your email for a booking link or give me a ring back. Talk soon!", opening: "Hi {{firstName}}, this is Scott with Liberty Bancard. We had a call scheduled and I think we missed each other — is now a better time, or would you like to reschedule?", close: "I can send you a link to pick a new time that works for you — it only takes a minute to reschedule." } },
+      { stepOrder: 4, actionType: "voicemail_drop", delayDays: 0, delayHours: 0, config: { voicemailScript: "Hi {{firstName}}, Scott here from Liberty Bancard. We had a call scheduled and I think we missed each other — no worries at all. I'd love to reschedule at a better time. Check your email for a booking link or give me a ring back. Talk soon!", ghlNote: "Upload this voicemail audio to GHL Voicemail Drops library. Add a Voicemail Drop node immediately after the Manual Call node in GHL workflow." } },
+      { stepOrder: 5, actionType: "email", delayDays: 2, delayHours: 0, subject: "One more try — your free savings review", body: emailBody([`<p>Hi {{firstName}},</p>`, `<p>Just wanted to reach out one more time about the free savings review we discussed.</p>`, `<p>If you'd still like to see how much you could save on processing, here's a link to rebook at your convenience:</p>`, `<p><a href="${SALES_CALENDAR}" style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Rebook Your Call</a></p>`, `<p>If the timing isn't right, no worries at all.</p>`, `<p>— Liberty Bancard</p>`]) },
+      { stepOrder: 6, actionType: "call", delayDays: 2, delayHours: 0, config: { callMode: "follow_up_callback", scriptType: "noshow_recovery_followup", voicemailScript: "Hi {{firstName}}, Scott from Liberty Bancard — just one more try to connect and reschedule our call. No pressure at all. Give me a ring back or grab a time in your email. Talk soon!", opening: "Hi {{firstName}}, Scott from Liberty Bancard. I'm reaching out one more time about rescheduling — would you like to find a time that works better for you?", close: "I'll send you the booking link one more time. It only takes 30 seconds to grab a time." } },
+      { stepOrder: 7, actionType: "voicemail_drop", delayDays: 0, delayHours: 0, config: { voicemailScript: "Hi {{firstName}}, Scott from Liberty Bancard — just one more try to connect and reschedule our call. No pressure at all. Give me a ring back or grab a time in your email. Talk soon!", ghlNote: "Upload this voicemail audio to GHL Voicemail Drops library. Add a Voicemail Drop node immediately after the Manual Call node in GHL workflow." } },
+    ],
+  },
+
+  // ═══════════════════════════════════════════════════════
+  // VOICEMAIL FOLLOW-UP SMS MINI-SEQUENCE
+  // Single-step SMS dispatched +5 min after voicemail via enrollment nextActionAt
+  // ═══════════════════════════════════════════════════════
+  {
+    name: "Voicemail Follow-Up SMS",
+    description: "One-step SMS sent 5 minutes after a voicemail drop. Enrollment is created by the voice orchestrator with nextActionAt = now + 5 min.",
+    triggerType: "manual",
+    triggerConfig: { category: "voicemail_followup_sms", vertical: "all" },
+    steps: [
+      {
+        stepOrder: 1,
+        actionType: "sms",
+        delayDays: 0,
+        delayHours: 0,
+        body: smsBody(`Just left you a voicemail, {{firstName}} — best way to reach me is here: ${SALES_CALENDAR} — Scott, Liberty Bancard`),
+      },
     ],
   },
 ];
@@ -2168,11 +2306,10 @@ export async function seedSequences() {
 
     const toSeed = SEQUENCES.filter(seq => !existingNames.has(seq.name));
     if (toSeed.length === 0) {
-      console.log(`[Seed] All ${existingSequences.length} sequences already exist, skipping seed.`);
-      return;
+      console.log(`[Seed] All ${existingSequences.length} sequences already exist, skipping new seed.`);
+    } else {
+      console.log(`[Seed] Seeding ${toSeed.length} drip campaign sequences (${existingSequences.length} already exist)...`);
     }
-
-    console.log(`[Seed] Seeding ${toSeed.length} drip campaign sequences (${existingSequences.length} already exist)...`);
 
     for (const seq of toSeed) {
 
@@ -2203,6 +2340,45 @@ export async function seedSequences() {
     }
 
     console.log("[Seed] All sequences seeded successfully.");
+
+    const forceUpdateNames = new Set([
+      "SDR: Cold Outbound — Auto Repair",
+      "SDR: Cold Outbound — Med Spa",
+      "SDR: Cold Outbound — Dental",
+      "1. Switch & Save — Statement Audit",
+      "20. Free Analysis Follow-Up",
+      "SDR: Reply Engaged",
+      "SDR: Statement Chase",
+      "SDR: Proposal Follow-Up",
+      "SDR: No-Show Recovery",
+    ]);
+    const toForceUpdate = SEQUENCES.filter(seq => forceUpdateNames.has(seq.name) && existingNames.has(seq.name));
+    for (const seq of toForceUpdate) {
+      const existing = existingSequences.find((s: { name: string; id: number }) => s.name === seq.name);
+      if (!existing) continue;
+      const oldSteps = await storage.getSequenceSteps(existing.id);
+      for (const step of oldSteps) {
+        await storage.deleteSequenceStep(step.id);
+      }
+      for (const step of seq.steps) {
+        await storage.createSequenceStep({
+          sequenceId: existing.id,
+          stepOrder: step.stepOrder,
+          actionType: step.actionType,
+          delayDays: step.delayDays,
+          delayHours: step.delayHours,
+          subject: step.subject || null,
+          body: step.body || null,
+          templateId: null,
+          config: step.config || null,
+        });
+      }
+      await storage.updateFollowUpSequence(existing.id, {
+        description: seq.description,
+        totalSteps: seq.steps.length,
+      });
+      console.log(`[Seed] Force-updated sequence: "${seq.name}" (${seq.steps.length} steps)`);
+    }
   } catch (error) {
     console.error("[Seed] Error seeding sequences:", error);
   }
