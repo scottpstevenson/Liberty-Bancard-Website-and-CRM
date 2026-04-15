@@ -3,6 +3,7 @@
 // Integrations: google-drive, google-docs
 
 import { ReplitConnectors } from "@replit/connectors-sdk";
+import { buildSequenceList } from "./sequence-blueprints";
 
 function getConnectors() {
   return new ReplitConnectors();
@@ -744,4 +745,123 @@ export async function createTrainingHub(): Promise<TrainingHubStatus> {
   }
 
   return { exists: true, folderId: parentId, folders };
+}
+
+// The specific Liberty Bancard Google Doc that stores GHL AI Workflow Prompts & Blueprints
+export const LIBERTY_BANCARD_GHL_DOC_ID = "1qFNQoJboXVx6kGam2i1PG-ia-jWyPJZp7NEpMynOaoQ";
+
+// Sync GHL Workflow Node Blueprints to the Liberty Bancard main doc
+// This is the auditable, single-purpose function tied to the known doc ID
+export async function syncGhlBlueprintsToMainDoc(): Promise<{ success: boolean; message: string }> {
+  return appendGhlBlueprintsToDoc(LIBERTY_BANCARD_GHL_DOC_ID);
+}
+
+// GHL Workflow Node Blueprints document append
+// Generates one concise subsection per sequence: trigger, cadence, node order, branches, exit conditions
+export async function appendGhlBlueprintsToDoc(docId: string): Promise<{ success: boolean; message: string }> {
+  const connectors = getConnectors();
+
+  // Get current doc to find end index
+  const getResp = await connectors.proxy("google-docs", `/v1/documents/${docId}`, {
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+  });
+  const doc = await parseJsonOrThrow<{
+    title: string;
+    body: { content: Array<{ endIndex?: number }> };
+  }>(getResp, "appendGhlBlueprints:getDoc");
+
+  const bodyContent = doc.body.content;
+  const endIndex = (bodyContent[bodyContent.length - 1].endIndex ?? 2) - 1;
+
+  // Build per-sequence blueprint content from canonical sequence data
+  const sequences = buildSequenceList();
+
+  // Group sequences for the header summary
+  const groups: Record<string, typeof sequences> = {};
+  for (const seq of sequences) {
+    const g = seq.groupLabel;
+    if (!groups[g]) groups[g] = [];
+    groups[g].push(seq);
+  }
+
+  const groupSummary = Object.entries(groups)
+    .map(([g, seqs]) => `  ${g} (${seqs.length}): ${seqs.map(s => s.id).join(", ")}`)
+    .join("\n");
+
+  // Build one subsection per sequence
+  const sequenceSections = sequences.map((seq, i) => {
+    const idx = String(i + 1).padStart(2, "0");
+    const nodeOrderLine = seq.nodeOrder.join(" -> ");
+    const branchLines = seq.branches.map(b => `    IF ${b.type}: ${b.action}`).join("\n");
+    const exitLines = seq.exitConditions.map(e => `    - ${e}`).join("\n");
+    const vmNote = seq.hasVoicemail
+      ? "Voicemail Drop: YES — record 15-20 sec script, upload to GHL Phone Settings"
+      : "Voicemail Drop: NO — call only (ops/education/nurture categories)";
+
+    return `
+[${idx}] ${seq.name}
+  ID:         ${seq.id}
+  Group:      ${seq.groupLabel}
+  Category:   ${seq.category}
+  Trigger:    ${seq.trigger}
+  Cadence:    ${seq.cadenceModel}
+  ${vmNote}
+  Node Order: ${nodeOrderLine}
+  Branches:
+${branchLines}
+  Exit Conditions:
+${exitLines}`;
+  }).join("\n\n");
+
+  const blueprintSection = `
+
+================================================================================
+GHL WORKFLOW NODE BLUEPRINTS — PER-SEQUENCE BLUEPRINT TABLE (v3)
+Generated: ${new Date().toLocaleDateString()} | Total sequences: ${sequences.length}
+Source: GET /api/sequences/list | buildSequenceList() in server/services/sequence-blueprints.ts
+================================================================================
+
+SEQUENCE GROUPS
+${groupSummary}
+
+VOICEMAIL DROP RULE
+  YES (call + voicemail): Inbound, Cold SDR, Sales, Onboarding, Reactivation categories
+  NO (call only):         Ops, Education, Nurture categories
+
+GHL NODE QUICK-REFERENCE
+  Call Step: Phone action node -> If/Then branch (Answered / Voicemail / No Answer)
+    - Answered:  Update deal stage -> remove from sequence -> enroll in Inbound Nurture
+    - Voicemail: Drop voicemail audio (5-min delay) -> send follow-up SMS
+    - No Answer: Continue sequence to next step
+  Voicemail Drop: Upload 15-20 sec MP3 to GHL Settings -> Voicemail Drops -> select in node
+    Post-VM SMS (5-min delay): "Hi [first_name], just left you a voicemail. Reply YES for numbers. — Liberty Bancard"
+
+================================================================================
+PER-SEQUENCE BLUEPRINTS (${sequences.length} total)
+================================================================================
+${sequenceSections}
+
+================================================================================
+END GHL WORKFLOW NODE BLUEPRINTS
+================================================================================
+`;
+
+  const updateResp = await connectors.proxy("google-docs", `/v1/documents/${docId}:batchUpdate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      requests: [
+        {
+          insertText: {
+            location: { index: endIndex },
+            text: blueprintSection,
+          },
+        },
+      ],
+    }),
+  });
+
+  await parseJsonOrThrow(updateResp, "appendGhlBlueprints:batchUpdate");
+  return { success: true, message: `GHL Workflow Node Blueprints (${sequences.length} sequences) appended to doc ${docId}` };
 }

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useAuth } from "@/hooks/use-auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -274,6 +275,39 @@ function StepCard({ step, sequenceId }: { step: SequenceStep; sequenceId: string
 
 const COLD_OUTBOUND_IDS = ["cold-outbound-auto-repair", "cold-outbound-dental", "cold-outbound-medspa"];
 
+const GROUP_BY_CATEGORY: Record<string, "inbound" | "cold_sdr" | "sales" | "ops"> = {
+  inbound: "inbound",
+  sales: "sales",
+  onboarding: "sales",
+  reactivation: "sales",
+  nurture: "sales",
+  sdr: "cold_sdr",
+  sdr_cold_outbound: "cold_sdr",
+  sdr_reply_engaged: "cold_sdr",
+  sdr_statement_chase: "cold_sdr",
+  sdr_proposal_followup: "cold_sdr",
+  sdr_noshow_recovery: "cold_sdr",
+  operations: "ops",
+  education: "ops",
+};
+
+const GROUP_LABELS: Record<string, string> = {
+  all: "All",
+  inbound: "Inbound",
+  cold_sdr: "Cold SDR",
+  sales: "Sales",
+  ops: "Ops",
+};
+
+const GROUP_CADENCE_MODELS: Record<string, string> = {
+  inbound: "Immediate response cadence: SMS + Call + Voicemail within 15 minutes of form submission. Designed for urgent lead capture before competitors engage.",
+  cold_sdr: "Multi-touch cold outbound: Email/SMS days 1–7, Call + Voicemail on days 8–10. SDR-specific variants (Reply Engaged, Statement Chase, Proposal Follow-Up, No-Show Recovery) run 2–7 days.",
+  sales: "Consultative follow-up: Email/SMS touchpoints days 1–5, Call + Voicemail on days 6–10. Reactivation sequences run to day 14. Nurture sequences run monthly (no voicemail).",
+  ops: "Relationship management: Call check-ins on day 14 and quarterly thereafter. No voicemail drop — these are operational, not sales, calls.",
+};
+
+const NO_VOICEMAIL_CATEGORIES = new Set(["operations", "education", "nurture"]);
+
 const CHANNEL_CHIP_STYLES: Record<string, { bg: string; icon: React.ReactNode }> = {
   email: { bg: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300", icon: <Mail className="w-3 h-3" /> },
   sms: { bg: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300", icon: <MessageSquare className="w-3 h-3" /> },
@@ -287,6 +321,19 @@ type DbSequence = {
   id: number;
   name: string;
   status: string;
+};
+
+type SequenceListEntry = {
+  id: string;
+  name: string;
+  category: string;
+  groupLabel: string;
+  cadenceModel: string;
+  nodeOrder: string[];
+  branches: Array<{ type: string; action: string }>;
+  exitConditions: string[];
+  hasVoicemail: boolean;
+  trigger: string;
 };
 
 const DB_NAME_BY_PROMPT_ID: Record<string, string> = {
@@ -303,11 +350,21 @@ const GHL_TAG_BY_PROMPT_ID: Record<string, string> = {
 
 function CadenceBlueprints() {
   const { toast } = useToast();
-  const sequences = SEQUENCE_PROMPTS.filter(s => COLD_OUTBOUND_IDS.includes(s.id));
+  const { user } = useAuth();
+  const isAdminOrManager = user?.role === "admin" || user?.role === "manager";
+  const [groupFilter, setGroupFilter] = useState<"all" | "inbound" | "cold_sdr" | "sales" | "ops">("all");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const { data: dbSequences = [], isLoading: dbLoading } = useQuery<DbSequence[]>({
     queryKey: ["/api/sequences"],
   });
+
+  const { data: blueprintApiData } = useQuery<{ sequences: SequenceListEntry[] }>({
+    queryKey: ["/api/sequences/list"],
+  });
+
+  const getBlueprintEntry = (seqId: string): SequenceListEntry | undefined =>
+    blueprintApiData?.sequences.find(s => s.id === seqId);
 
   const toggleMutation = useMutation({
     mutationFn: async ({ id, newStatus }: { id: number; newStatus: string }) => {
@@ -327,29 +384,212 @@ function CadenceBlueprints() {
     },
   });
 
+  const syncDocMutation = useMutation({
+    mutationFn: async () => apiRequest("POST", "/api/training/sync-main-ghl-doc", {}),
+    onSuccess: () => {
+      toast({
+        title: "Google Doc Synced",
+        description: "GHL Workflow Node Blueprints have been appended to the Liberty Bancard GHL doc.",
+      });
+    },
+    onError: () => {
+      toast({ title: "Sync Failed", description: "Could not sync blueprints to Google Doc.", variant: "destructive" });
+    },
+  });
+
   const getDbSeq = (promptId: string): DbSequence | undefined =>
     dbSequences.find(s => s.name === DB_NAME_BY_PROMPT_ID[promptId]);
 
   const isTogglingId = (id: number) =>
     toggleMutation.isPending && (toggleMutation.variables as { id: number })?.id === id;
 
+  const filteredSequences = SEQUENCE_PROMPTS.filter(seq => {
+    const group = GROUP_BY_CATEGORY[seq.category] || "sales";
+    const matchGroup = groupFilter === "all" || group === groupFilter;
+    const q = searchQuery.toLowerCase();
+    const matchSearch = !q || seq.name.toLowerCase().includes(q) || seq.category.toLowerCase().includes(q);
+    return matchGroup && matchSearch;
+  });
+
+  const getBranchLogic = (seq: SequencePrompt) => {
+    const hasVoicemail = seq.steps.some(s => s.channel === "voicemail_drop");
+    const isOps = NO_VOICEMAIL_CATEGORIES.has(seq.category);
+    const isSdrReply = seq.category === "sdr_reply_engaged";
+    const isSdrStatement = seq.category === "sdr_statement_chase";
+    const isSdrProposal = seq.category === "sdr_proposal_followup";
+    const isSdrNoShow = seq.category === "sdr_noshow_recovery";
+
+    if (isOps) return [
+      { color: "bg-green-500", label: "Call Answered", desc: "Log account health check → update CRM notes" },
+      { color: "bg-slate-400", label: "No Answer", desc: "Continue ops cadence — no voicemail (account context)" },
+    ];
+    if (isSdrReply) return [
+      { color: "bg-green-500", label: "Appointment Booked", desc: "Stop sequence → move to appointment confirmation workflow" },
+      { color: "bg-blue-500", label: "Statement Sent", desc: "Stop sequence → enroll in Statement Chase" },
+      { color: "bg-slate-400", label: "No Response", desc: "Continue sequence" },
+    ];
+    if (isSdrStatement) return [
+      { color: "bg-green-500", label: "Statement Received", desc: "Stop sequence → trigger statement review workflow" },
+      { color: "bg-purple-500", label: "Voicemail", desc: "Drop voicemail audio → follow-up SMS in 5 min" },
+      { color: "bg-slate-400", label: "No Response", desc: "Escalate with call + voicemail on day 5" },
+    ];
+    if (isSdrProposal) return [
+      { color: "bg-green-500", label: "Deal Closed", desc: "Stop sequence → move to Onboarding workflow" },
+      { color: "bg-amber-500", label: "Objection Raised", desc: "Enroll in Objection Crusher sequence" },
+      { color: "bg-purple-500", label: "Voicemail", desc: "Drop voicemail audio → follow-up SMS in 5 min" },
+      { color: "bg-slate-400", label: "No Response", desc: "Continue sequence" },
+    ];
+    if (isSdrNoShow) return [
+      { color: "bg-green-500", label: "Appointment Rescheduled", desc: "Stop sequence → update calendar" },
+      { color: "bg-purple-500", label: "Voicemail", desc: "Drop voicemail audio → reschedule link SMS in 5 min" },
+      { color: "bg-slate-400", label: "No Response", desc: "Exit after day 5 with final DNC check" },
+    ];
+
+    const branches = [
+      { color: "bg-green-500", label: "Call Answered", desc: "Remove from sequence → update deal stage → enroll in Inbound Nurture workflow" },
+      ...(hasVoicemail ? [{ color: "bg-purple-500", label: "Voicemail", desc: "Drop voicemail audio → send follow-up SMS in 5 min" }] : []),
+      { color: "bg-slate-400", label: "No Answer", desc: "Continue sequence to next step" },
+    ];
+    return branches;
+  };
+
+  const getExitConditions = (seq: SequencePrompt) => {
+    if (NO_VOICEMAIL_CATEGORIES.has(seq.category)) return [
+      "Contact opts out or DNC tag added → stop immediately",
+      "Churn detected → move to Reactivation sequence",
+    ];
+    if (seq.category === "sdr_cold_outbound") return [
+      "Reply received → enroll in SDR Reply Engaged sequence",
+      "Appointment booked → stop",
+      "Statement received → enroll in Statement Chase sequence",
+      "DNC / STOP reply → stop immediately",
+      "No engagement after day 12 → exit sequence",
+    ];
+    if (seq.category === "onboarding") return [
+      "Application submitted → stop sequence",
+      "Merchant goes live (LB-LIVE tag) → stop",
+      "DNC / STOP → stop immediately",
+    ];
+    if (seq.category === "reactivation" || seq.category === "nurture") return [
+      "Contact re-engages (replies or books) → move to Inbound Nurture or Sales sequence",
+      "DNC / STOP → stop immediately",
+    ];
+    return [
+      "Contact replies to any email or SMS → stop sequence",
+      "Appointment booked (LB-BOOKING-READY tag added) → stop",
+      "DNC / STOP reply received → stop immediately",
+    ];
+  };
+
+  const getChecklist = (seq: SequencePrompt) => {
+    const hasVoicemail = seq.steps.some(s => s.channel === "voicemail_drop");
+    const isColdOutbound = COLD_OUTBOUND_IDS.includes(seq.id);
+    const tag = GHL_TAG_BY_PROMPT_ID[seq.id];
+    const triggerLine = tag
+      ? `Create workflow in GHL with trigger: Contact Tag Added = ${tag}`
+      : `Create workflow in GHL — trigger: ${seq.triggerConditions.split(/[.,]/)[0].trim()}`;
+    return [
+      triggerLine,
+      "Add each step as a GHL action in order (see AI Workflow Prompts tab for scripts)",
+      "Configure If/Then branches on all Call steps",
+      "Add exit conditions for reply detection and booking/DNC tags",
+      ...(hasVoicemail ? ["Upload voicemail audio files to GHL Voicemail Drops library"] : []),
+      "Test with a dummy contact in GHL before going live",
+      ...(isColdOutbound ? ["Click Activate on the card above to enable contact enrollment"] : []),
+    ];
+  };
+
+  const groupCounts = {
+    all: SEQUENCE_PROMPTS.length,
+    inbound: SEQUENCE_PROMPTS.filter(s => GROUP_BY_CATEGORY[s.category] === "inbound").length,
+    cold_sdr: SEQUENCE_PROMPTS.filter(s => GROUP_BY_CATEGORY[s.category] === "cold_sdr").length,
+    sales: SEQUENCE_PROMPTS.filter(s => GROUP_BY_CATEGORY[s.category] === "sales").length,
+    ops: SEQUENCE_PROMPTS.filter(s => GROUP_BY_CATEGORY[s.category] === "ops").length,
+  };
+
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <div>
         <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
           <Map className="w-5 h-5 text-primary" />
-          Cold Outbound Cadence Blueprints
+          GHL Cadence Blueprints
         </h2>
         <p className="text-sm text-muted-foreground mt-1">
-          Build each workflow in GHL using the scripts in the "AI Workflow Prompts" tab, then activate it here when ready.
+          Build-ready workflow blueprint for every sequence — trigger, node order, if/then branches, and exit conditions. Use the AI Workflow Prompts tab for copy-paste scripts.
         </p>
+        {isAdminOrManager && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-2 gap-2 text-xs"
+            onClick={() => syncDocMutation.mutate()}
+            disabled={syncDocMutation.isPending}
+            data-testid="button-sync-ghl-doc"
+          >
+            {syncDocMutation.isPending ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />}
+            Sync Blueprints to Google Doc
+          </Button>
+        )}
       </div>
 
-      {sequences.map(seq => {
+      <div className="flex gap-2 flex-wrap" data-testid="blueprint-group-filters">
+        {(["all", "inbound", "cold_sdr", "sales", "ops"] as const).map(g => (
+          <Button
+            key={g}
+            variant={groupFilter === g ? "default" : "outline"}
+            size="sm"
+            onClick={() => setGroupFilter(g)}
+            data-testid={`button-filter-group-${g}`}
+          >
+            {GROUP_LABELS[g]} ({groupCounts[g]})
+          </Button>
+        ))}
+      </div>
+
+      {groupFilter !== "all" && GROUP_CADENCE_MODELS[groupFilter] && (
+        <Card className="border-blue-200 bg-blue-50/40 dark:bg-blue-900/10 dark:border-blue-800">
+          <CardContent className="p-4">
+            <p className="text-xs font-semibold text-blue-800 dark:text-blue-300 uppercase tracking-wide mb-1">
+              {GROUP_LABELS[groupFilter]} Cadence Model
+            </p>
+            <p className="text-sm text-foreground/80">{GROUP_CADENCE_MODELS[groupFilter]}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <Input
+          placeholder="Search blueprints..."
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          className="pl-9"
+          data-testid="input-search-blueprints"
+        />
+      </div>
+
+      {filteredSequences.length === 0 && (
+        <div className="text-center py-12 text-muted-foreground text-sm">No sequences match your filter.</div>
+      )}
+
+      {filteredSequences.map(seq => {
         const dbSeq = getDbSeq(seq.id);
         const isActive = dbSeq?.status === "active";
-        const isPaused = !isActive;
+        const isPaused = COLD_OUTBOUND_IDS.includes(seq.id) && !isActive;
         const isToggling = dbSeq ? isTogglingId(dbSeq.id) : false;
+        const apiBp = getBlueprintEntry(seq.id);
+        const apiBranches = apiBp?.branches.map(b => ({
+          color: b.type === "Call Answered" || b.type === "Appointment Booked" || b.type === "Statement Received" || b.type === "Deal Closed" ? "bg-green-500"
+            : b.type === "Voicemail" ? "bg-purple-500"
+            : b.type === "No Answer" || b.type === "No Response" ? "bg-slate-400"
+            : "bg-blue-500",
+          label: b.type,
+          desc: b.action,
+        }));
+        const branches = apiBranches || getBranchLogic(seq);
+        const exitConditions = apiBp?.exitConditions || getExitConditions(seq);
+        const checklist = getChecklist(seq);
+        const hasVoicemail = seq.steps.some(s => s.channel === "voicemail_drop");
 
         return (
           <Card key={seq.id} className="overflow-hidden" data-testid={`card-blueprint-${seq.id}`}>
@@ -360,6 +600,14 @@ function CadenceBlueprints() {
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${CATEGORY_COLORS[seq.category] || "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"}`}>
                       {CATEGORY_LABELS[seq.category] || seq.category}
                     </span>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 font-medium">
+                      {GROUP_LABELS[GROUP_BY_CATEGORY[seq.category] || "sales"]}
+                    </span>
+                    {!hasVoicemail && (
+                      <span className="text-xs text-amber-600 dark:text-amber-400 font-medium flex items-center gap-1">
+                        <Mic className="w-3 h-3" /> No voicemail
+                      </span>
+                    )}
                     {!dbLoading && dbSeq && (
                       <span className={`text-xs px-2 py-0.5 rounded-full font-semibold flex items-center gap-1 ${isActive ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"}`}
                         data-testid={`badge-status-${seq.id}`}>
@@ -401,8 +649,15 @@ function CadenceBlueprints() {
                 </div>
               )}
 
+              {apiBp?.cadenceModel && (
+                <div className="rounded-lg bg-muted/40 border border-border px-3 py-2 text-xs text-foreground/80">
+                  <span className="font-semibold text-muted-foreground uppercase tracking-wide text-[10px]">Cadence Model: </span>
+                  {apiBp.cadenceModel}
+                </div>
+              )}
+
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Cadence Timeline</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Node Order — Cadence Timeline</p>
                 <div className="overflow-x-auto pb-2">
                   <div className="flex gap-2 min-w-max">
                     {seq.steps.map(step => {
@@ -426,47 +681,35 @@ function CadenceBlueprints() {
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">If/Then Branch Logic</p>
                 <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-1.5 text-xs text-foreground/80">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
-                    <span><span className="font-semibold">Call Answered</span> → Remove from sequence, enroll in Inbound Nurture workflow</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-purple-500 shrink-0" />
-                    <span><span className="font-semibold">Voicemail</span> → Drop voicemail audio + send follow-up SMS (5 min delay)</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-slate-400 shrink-0" />
-                    <span><span className="font-semibold">No Answer</span> → Continue sequence to next step</span>
-                  </div>
+                  {branches.map((b, i) => (
+                    <div key={i} className="flex items-start gap-2" data-testid={`branch-${seq.id}-${i}`}>
+                      <span className={`w-2 h-2 rounded-full shrink-0 mt-1 ${b.color}`} />
+                      <span><span className="font-semibold">{b.label}</span> → {b.desc}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
 
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Exit Conditions</p>
                 <ul className="text-xs text-foreground/80 space-y-1 list-none">
-                  <li className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5 text-green-500 shrink-0" /> Contact replies to any email or SMS → stop sequence</li>
-                  <li className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5 text-green-500 shrink-0" /> Appointment booked (tag LB-BOOKING-READY added) → stop sequence</li>
-                  <li className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5 text-green-500 shrink-0" /> DNC / STOP reply received → stop sequence immediately</li>
+                  {exitConditions.map((cond, i) => (
+                    <li key={i} className="flex items-start gap-2" data-testid={`exit-${seq.id}-${i}`}>
+                      <CheckCircle className="w-3.5 h-3.5 text-green-500 shrink-0 mt-0.5" />
+                      <span>{cond}</span>
+                    </li>
+                  ))}
                 </ul>
               </div>
 
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">GHL Build Checklist</p>
                 <ul className="text-xs text-foreground/80 space-y-1.5">
-                  {[
-                    `Create workflow in GHL with trigger: Contact Tag Added = ${GHL_TAG_BY_PROMPT_ID[seq.id]}`,
-                    "Add each step as a GHL action in order (use AI Workflow Prompts tab for scripts)",
-                    "Configure If/Then branches on all Call steps",
-                    "Add exit conditions for reply detection and booking tag",
-                    "Upload voicemail audio files to GHL Voicemail Drops library",
-                    "Test with a dummy contact in GHL",
-                    "Click Activate above to enable enrollment in this app",
-                  ].map((item, i) => (
+                  {checklist.map((item, i) => (
                     <li key={i} className="flex items-start gap-2" data-testid={`checklist-${seq.id}-${i}`}>
-                      <span className={`w-4 h-4 rounded shrink-0 mt-0.5 flex items-center justify-center ${i === 6 && isActive ? "bg-green-500" : "border border-border"}`}>
-                        {i === 6 && isActive && <CheckCircle className="w-3 h-3 text-white" />}
+                      <span className="w-4 h-4 rounded shrink-0 mt-0.5 flex items-center justify-center border border-border">
                       </span>
-                      <span className={i === 6 ? "font-medium" : ""}>{item}</span>
+                      <span>{item}</span>
                     </li>
                   ))}
                 </ul>
@@ -482,8 +725,14 @@ function CadenceBlueprints() {
 function SequenceCard({ sequence }: { sequence: SequencePrompt }) {
   const [expanded, setExpanded] = useState(false);
   const [aiPromptExpanded, setAiPromptExpanded] = useState(false);
+  const [builderSetupExpanded, setBuilderSetupExpanded] = useState(false);
   const categoryLabel = CATEGORY_LABELS[sequence.category] || sequence.category;
   const categoryColor = CATEGORY_COLORS[sequence.category] || "bg-gray-100 text-gray-700";
+
+  const { data: blueprintApiData } = useQuery<{ sequences: SequenceListEntry[] }>({
+    queryKey: ["/api/sequences/list"],
+  });
+  const blueprint = blueprintApiData?.sequences.find(s => s.id === sequence.id);
 
   const aiPromptBlock = sequence.usesConversationAI
     ? `\n\nCONVERSATION AI SYSTEM PROMPT (paste into GHL AI Agent Settings):\n${"─".repeat(60)}\n${CONVERSATION_AI_SYSTEM_PROMPT}\n${"─".repeat(60)}\n`
@@ -602,6 +851,69 @@ function SequenceCard({ sequence }: { sequence: SequencePrompt }) {
               <StepCard key={step.stepNumber} step={step} sequenceId={sequence.id} />
             ))}
           </div>
+
+          {blueprint && (
+            <div className="rounded-lg border border-blue-200 dark:border-blue-800 overflow-hidden" data-testid={`card-builder-setup-${sequence.id}`}>
+              <div
+                className="flex items-center justify-between gap-2 p-3 bg-blue-50 dark:bg-blue-900/20 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
+                onClick={() => setBuilderSetupExpanded(v => !v)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={e => { if (e.key === "Enter" || e.key === " ") setBuilderSetupExpanded(v => !v); }}
+                data-testid={`button-expand-builder-setup-${sequence.id}`}
+                aria-expanded={builderSetupExpanded}
+              >
+                <div className="flex items-center gap-2 text-blue-800 dark:text-blue-300 text-sm font-medium">
+                  <Settings2 className="w-4 h-4 shrink-0" />
+                  <span>GHL Workflow Builder Setup</span>
+                  {builderSetupExpanded ? <ChevronDown className="w-4 h-4 ml-1" /> : <ChevronRight className="w-4 h-4 ml-1" />}
+                </div>
+              </div>
+              {builderSetupExpanded && (
+                <div className="p-3 bg-background border-t border-blue-200 dark:border-blue-800 space-y-3">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Trigger</p>
+                    <p className="text-xs text-foreground/80">{blueprint.trigger}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Cadence Model</p>
+                    <p className="text-xs text-foreground/80">{blueprint.cadenceModel}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Node Order</p>
+                    <div className="flex flex-wrap gap-1">
+                      {blueprint.nodeOrder.map((node, i) => (
+                        <span key={i} className="text-[10px] bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-700 px-1.5 py-0.5 rounded">
+                          {i + 1}. {node}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">If/Then Branches</p>
+                    <div className="space-y-1">
+                      {blueprint.branches.map((b, i) => (
+                        <div key={i} className="text-xs text-foreground/80">
+                          <span className="font-semibold text-foreground/90">{b.type}</span> → {b.action}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Exit Conditions</p>
+                    <ul className="space-y-0.5">
+                      {blueprint.exitConditions.map((cond, i) => (
+                        <li key={i} className="text-xs text-foreground/80 flex items-start gap-1.5">
+                          <CheckCircle className="w-3 h-3 text-green-500 shrink-0 mt-0.5" />
+                          {cond}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </Card>

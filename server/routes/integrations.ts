@@ -7,6 +7,7 @@ import { checkGhlHealth, getCalendarBookingUrl, getGhlStatus, handleGhlWebhook, 
 import { routeContact } from "../services/smart-router";
 import { fullSyncFromGhl, fullSyncToGhl, getGhlSyncStatus, getFullSyncDashboard, syncContactToGhl, syncDealToGhl, syncCompanyToGhl, syncTaskToGhl, syncTicketToGhl, syncNoteToGhl, syncTagsToGhl } from "../services/ghl-sync";
 import { getWorkflowStatus, GHL_WORKFLOW_REGISTRY, getPlatformEmailConfig } from "../services/ghl-workflows";
+import { buildSequenceList } from "../services/sequence-blueprints";
 
 export function registerIntegrationsRoutes(app: Express) {
   // === GHL INTEGRATION ===
@@ -498,6 +499,16 @@ export function registerIntegrationsRoutes(app: Express) {
   app.get("/api/ghl/email-config", isAuthenticated, async (req, res) => {
     try {
       res.json(getPlatformEmailConfig());
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GHL Sequences List
+  app.get("/api/sequences/list", isAuthenticated, async (req, res) => {
+    try {
+      const sequences = buildSequenceList();
+      res.json({ sequences, total: sequences.length });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
