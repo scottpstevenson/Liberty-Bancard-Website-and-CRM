@@ -22,6 +22,13 @@
       "when": 1773686429334,
       "tag": "0002_old_sentry",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1776210419954,
+      "tag": "0003_tough_mandarin",
+      "breakpoints": true
     }
   ]
 }

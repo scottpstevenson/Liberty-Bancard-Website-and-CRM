@@ -5,7 +5,7 @@ import {
   prospects, prospectLists, enrichmentJobs, campaigns, campaignSteps, outboundMessages, notes,
   emailLogs, callLogs, stageAutomationRules, followUpSequences, sequenceSteps, sequenceEnrollments,
   sunbizEntities, consentAuditLogs, calendarEvents,
-  merchantApplications, merchantProfiles, equipmentOrders, agents, agentQuotas, residualReports, merchantResiduals,
+  merchantApplications, merchantProfiles, equipmentOrders, agents, agentQuotas, agentMerchants, residualReports, merchantResiduals,
   healthAlerts, dealCompetitors, partners, referrals, commissionTiers, knowledgeBase, reviewRequests, onboardingSteps,
   sdrMerchants, sdrMerchantContacts, sdrLeadState, sdrLeadEvents, sdrChannelAttempts, sdrComplianceState,
   sendingIdentities,
@@ -53,6 +53,7 @@ import {
   type InsertMerchantProfile, type MerchantProfile,
   type InsertEquipmentOrder, type EquipmentOrder,
   type InsertAgent, type Agent,
+  type InsertAgentMerchant, type AgentMerchant,
   type InsertAgentQuota, type AgentQuota,
   type InsertResidualReport, type ResidualReport,
   type InsertMerchantResidual, type MerchantResidual,
@@ -286,6 +287,12 @@ export interface IStorage {
   getAgent(id: number): Promise<Agent | undefined>;
   createAgent(agent: InsertAgent): Promise<Agent>;
   updateAgent(id: number, updates: Partial<InsertAgent>): Promise<Agent | undefined>;
+
+  getAgentMerchants(agentId?: number): Promise<AgentMerchant[]>;
+  getAgentMerchant(id: number): Promise<AgentMerchant | undefined>;
+  assignMerchantToAgent(data: InsertAgentMerchant): Promise<AgentMerchant>;
+  unassignMerchantFromAgent(id: number): Promise<void>;
+  getAgentMerchantsByDeal(dealId: number): Promise<AgentMerchant[]>;
 
   getResidualReports(): Promise<ResidualReport[]>;
   getResidualReport(id: number): Promise<ResidualReport | undefined>;
@@ -1620,6 +1627,31 @@ export class DatabaseStorage implements IStorage {
   async updateAgent(id: number, updates: Partial<InsertAgent>) {
     const [updated] = await db.update(agents).set({ ...updates, updatedAt: new Date() }).where(eq(agents.id, id)).returning();
     return updated;
+  }
+
+  async getAgentMerchants(agentId?: number): Promise<AgentMerchant[]> {
+    if (agentId) {
+      return await db.select().from(agentMerchants).where(eq(agentMerchants.agentId, agentId)).orderBy(desc(agentMerchants.assignedAt));
+    }
+    return await db.select().from(agentMerchants).orderBy(desc(agentMerchants.assignedAt));
+  }
+
+  async getAgentMerchant(id: number): Promise<AgentMerchant | undefined> {
+    const [row] = await db.select().from(agentMerchants).where(eq(agentMerchants.id, id));
+    return row;
+  }
+
+  async assignMerchantToAgent(data: InsertAgentMerchant): Promise<AgentMerchant> {
+    const [created] = await db.insert(agentMerchants).values(data).returning();
+    return created;
+  }
+
+  async unassignMerchantFromAgent(id: number): Promise<void> {
+    await db.delete(agentMerchants).where(eq(agentMerchants.id, id));
+  }
+
+  async getAgentMerchantsByDeal(dealId: number): Promise<AgentMerchant[]> {
+    return await db.select().from(agentMerchants).where(eq(agentMerchants.dealId, dealId));
   }
 
   async getResidualReports() {

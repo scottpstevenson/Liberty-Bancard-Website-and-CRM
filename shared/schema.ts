@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb, varchar, real, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, jsonb, varchar, real, index, uniqueIndex, unique } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { users } from "./models/auth";
@@ -1342,6 +1342,7 @@ export const agents = pgTable("agents", {
   status: text("status").default("active"),
   territory: text("territory"),
   hireDate: timestamp("hire_date"),
+  vestingMonths: integer("vesting_months").default(3),
   totalDeals: integer("total_deals").default(0),
   totalRevenue: text("total_revenue").default("0"),
   notes: text("notes"),
@@ -1357,6 +1358,25 @@ export const insertAgentSchema = createInsertSchema(agents).omit({
 
 export type Agent = typeof agents.$inferSelect;
 export type InsertAgent = z.infer<typeof insertAgentSchema>;
+
+export const agentMerchants = pgTable("agent_merchants", {
+  id: serial("id").primaryKey(),
+  agentId: integer("agent_id").notNull().references(() => agents.id),
+  dealId: integer("deal_id").notNull().references(() => deals.id),
+  merchantName: text("merchant_name"),
+  assignedAt: timestamp("assigned_at").defaultNow(),
+}, (table) => [
+  index("agent_merchants_agent_id_idx").on(table.agentId),
+  unique("agent_merchants_deal_id_unique").on(table.dealId),
+]);
+
+export const insertAgentMerchantSchema = createInsertSchema(agentMerchants).omit({
+  id: true,
+  assignedAt: true,
+});
+
+export type AgentMerchant = typeof agentMerchants.$inferSelect;
+export type InsertAgentMerchant = z.infer<typeof insertAgentMerchantSchema>;
 
 export const residualReports = pgTable("residual_reports", {
   id: serial("id").primaryKey(),
