@@ -824,6 +824,7 @@ export const outboundMessages = pgTable("outbound_messages", {
   index("outbound_messages_campaign_id_idx").on(table.campaignId),
   index("outbound_messages_status_idx").on(table.status),
   index("outbound_messages_campaign_status_idx").on(table.campaignId, table.status),
+  index("outbound_messages_scheduled_for_idx").on(table.scheduledFor),
 ]);
 
 export const insertOutboundMessageSchema = createInsertSchema(outboundMessages).omit({
@@ -2321,6 +2322,7 @@ export const sdrLeadState = pgTable("sdr_lead_state", {
   index("sdr_lead_state_priority_bucket_idx").on(table.priorityBucket),
   index("sdr_lead_state_merchant_id_idx").on(table.merchantId),
   index("sdr_lead_state_contact_id_idx").on(table.contactId),
+  index("sdr_lead_state_next_action_at_idx").on(table.nextActionAt),
 ]);
 
 export const insertSdrLeadStateSchema = createInsertSchema(sdrLeadState).omit({
@@ -2384,7 +2386,9 @@ export const sdrChannelAttempts = pgTable("sdr_channel_attempts", {
   outcome: text("outcome"),
   cost: real("cost"),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => [
+  index("sdr_channel_attempts_merchant_id_channel_idx").on(table.merchantId, table.channel),
+]);
 
 export const insertSdrChannelAttemptSchema = createInsertSchema(sdrChannelAttempts).omit({
   id: true,
