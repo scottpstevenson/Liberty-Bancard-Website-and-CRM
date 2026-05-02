@@ -81,12 +81,12 @@ export default function AboutContact() {
                     Upload Statement
                   </Button>
                 </Link>
-                <a href="#" data-testid="link-hero-book-call">
+                <Link href="/get-started" data-testid="link-hero-book-call">
                   <Button variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
                     <Calendar className="w-4 h-4" />
                     Book a 10-Minute Call
                   </Button>
-                </a>
+                </Link>
               </div>
             </div>
           </div>
@@ -208,24 +208,24 @@ export default function AboutContact() {
                       <Calendar className="w-6 h-6 text-sky-400" />
                     </div>
                     <h3 className="font-display font-bold text-foreground mb-2">Book</h3>
-                    <a
-                      href="#"
+                    <Link
+                      href="/get-started"
                       className="text-sm text-muted-foreground hover:text-foreground transition-colors"
                       data-testid="link-contact-book"
                     >
-                      Calendar link placeholder
-                    </a>
+                      Schedule a 10-minute call →
+                    </Link>
                   </CardContent>
                 </Card>
               </div>
 
               <div className="text-center reveal reveal-delay-4">
-                <a href="#" data-testid="link-contact-book-call">
+                <Link href="/get-started" data-testid="link-contact-book-call">
                   <Button className="gap-2">
                     <Calendar className="w-4 h-4" />
                     Book a 10-Minute Call
                   </Button>
-                </a>
+                </Link>
               </div>
             </div>
           </div>

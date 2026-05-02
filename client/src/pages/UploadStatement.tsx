@@ -671,12 +671,12 @@ export default function UploadStatement() {
               Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.
             </p>
             <div className="text-center mt-6 reveal reveal-delay-4">
-              <Link href="#">
-                <Button variant="outline" className="gap-2" data-testid="button-book-call-next">
+              <a href="tel:9542668214" data-testid="button-book-call-next">
+                <Button variant="outline" className="gap-2">
                   <Calendar className="w-4 h-4" />
                   Book a 10-Minute Call
                 </Button>
-              </Link>
+              </a>
             </div>
           </div>
         </section>
@@ -719,12 +719,12 @@ export default function UploadStatement() {
             >
               Book a quick 10-minute call. We'll tell you exactly what to upload and what to look for.
             </p>
-            <Link href="#">
-              <Button className="gap-2" data-testid="button-book-call-secondary">
+            <a href="tel:9542668214" data-testid="button-book-call-secondary">
+              <Button className="gap-2">
                 <Calendar className="w-4 h-4" />
                 Book a 10-Minute Call
               </Button>
-            </Link>
+            </a>
           </div>
         </section>
       </main>

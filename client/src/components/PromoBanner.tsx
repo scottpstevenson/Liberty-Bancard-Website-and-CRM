@@ -3,28 +3,19 @@ import { Link } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CountdownTimer, getDefaultTarget } from "@/components/CountdownTimer";
-import { Gift, X, Tag, Zap, Monitor } from "lucide-react";
+import { type LucideIcon, X, Tag, Zap } from "lucide-react";
 
 interface Promo {
   id: string;
   title: string;
   description: string;
   code?: string;
-  icon: typeof Gift;
+  icon: LucideIcon;
   ctaLabel?: string;
   ctaHref?: string;
 }
 
 const activePromos: Promo[] = [
-  {
-    id: "free-terminal",
-    title: "Free Terminal with Signup",
-    description: "Get a free payment terminal when you sign up for a processing agreement. No lease, no catch.",
-    code: "FREETM",
-    icon: Monitor,
-    ctaLabel: "Browse Terminals",
-    ctaHref: "/shop?promo=FREETM",
-  },
   {
     id: "free-processing",
     title: "See If You Qualify for Free Processing",
@@ -33,15 +24,6 @@ const activePromos: Promo[] = [
     icon: Zap,
     ctaLabel: "Check Eligibility",
     ctaHref: "/free-analysis?promo=FREE30",
-  },
-  {
-    id: "waived-setup",
-    title: "Waived Setup Fee",
-    description: "We'll waive the $149 setup & programming fee when you apply this week.",
-    code: "NOSETUP",
-    icon: Tag,
-    ctaLabel: "Apply Now",
-    ctaHref: "/get-started",
   },
 ];
 

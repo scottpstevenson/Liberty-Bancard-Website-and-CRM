@@ -224,12 +224,12 @@ export default function WhyLiberty() {
                     Free Statement Review
                   </Button>
                 </Link>
-                <a href="#" data-testid="link-why-book-call">
+                <Link href="/get-started" data-testid="link-why-book-call">
                   <Button variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
                     <Calendar className="w-4 h-4" />
                     Book a 10-Minute Call
                   </Button>
-                </a>
+                </Link>
               </div>
             </div>
           </div>

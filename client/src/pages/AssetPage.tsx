@@ -701,7 +701,7 @@ function CtaSection() {
             Upload Statement
           </Button>
         </Link>
-        <a href="#" data-testid="link-cta-book-call">
+        <a href="tel:9542668214" data-testid="link-cta-book-call">
           <Button variant="outline" className="gap-2">
             <Calendar className="w-4 h-4" />
             Book 10-Min Call

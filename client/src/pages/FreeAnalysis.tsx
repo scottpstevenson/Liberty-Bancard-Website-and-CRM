@@ -96,7 +96,7 @@ const faqItems = [
   },
   {
     q: "What types of businesses do you work with?",
-    a: "We serve restaurants, retail, healthcare, salons, auto repair, professional services, e-commerce, construction, and more. If you accept card payments in Florida, we can help.",
+    a: "We serve restaurants, retail, healthcare, salons, auto repair, professional services, e-commerce, construction, and more — nationwide. If you accept card payments, we can help.",
   },
 ];
 
@@ -563,7 +563,7 @@ export default function FreeAnalysis() {
                     className="pt-1"
                   />
                 </div>
-                <PromoBanner variant="inline" promoId="free-terminal" dismissible={false} className="mt-4" />
+                <PromoBanner variant="inline" promoId="free-processing" dismissible={false} className="mt-4" />
               </CardContent>
             </Card>
 
@@ -612,12 +612,6 @@ export default function FreeAnalysis() {
                       Schedule a Call
                     </Button>
                   </a>
-                  <Link href="/shop" data-testid="link-results-shop">
-                    <Button size="lg" variant="outline" className="gap-2 w-full">
-                      <Monitor className="w-4 h-4" />
-                      Shop Terminals
-                    </Button>
-                  </Link>
                 </div>
               </CardContent>
             </Card>
@@ -719,7 +713,7 @@ export default function FreeAnalysis() {
     <div className="min-h-screen flex flex-col font-body bg-background">
       <SEO
         title="Free Savings Analysis - See How Much You Could Save"
-        description="Take our 60-second quiz to get a personalized processing savings estimate. Free analysis, no obligation. Join 500+ Florida businesses saving with Liberty Bancard."
+        description="Take our 60-second quiz to get a personalized processing savings estimate. Free analysis, no obligation. Trusted by 5,000+ merchants nationwide."
         path="/free-analysis"
         keywords="free statement analysis, payment processing savings, credit card processing, merchant services, rate comparison"
       />
@@ -766,7 +760,7 @@ export default function FreeAnalysis() {
           <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-white/50">
             <span className="flex items-center gap-1" data-testid="text-social-proof-1">
               <Users className="w-3 h-3" />
-              Join 500+ FL businesses
+              5,000+ merchants served
             </span>
             <span className="flex items-center gap-1" data-testid="text-social-proof-2">
               <ShieldCheck className="w-3 h-3" />
@@ -1058,8 +1052,8 @@ export default function FreeAnalysis() {
 
           <div className="mt-10 grid grid-cols-2 sm:grid-cols-4 gap-4" data-testid="section-stats-bar">
             <div className="text-center">
-              <p className="text-2xl font-display font-bold text-foreground" data-testid="text-stat-merchants">500+</p>
-              <p className="text-xs text-muted-foreground">FL Merchants Served</p>
+              <p className="text-2xl font-display font-bold text-foreground" data-testid="text-stat-merchants">5,000+</p>
+              <p className="text-xs text-muted-foreground">Merchants Served Nationwide</p>
             </div>
             <div className="text-center">
               <p className="text-2xl font-display font-bold text-emerald-600" data-testid="text-stat-avg-savings">$4,200</p>

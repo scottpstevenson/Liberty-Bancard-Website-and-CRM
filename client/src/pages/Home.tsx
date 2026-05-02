@@ -56,7 +56,7 @@ import imgCloverStationDuo from "@assets/images/terminal-clover-station-duo.png"
 import imgPaxA920 from "@assets/images/terminal-pax-a920.png";
 import dashboardPreview from "@assets/images/dashboard-preview.png";
 
-function useCountUp(end: number, duration: number = 2000, suffix: string = "") {
+function useCountUp(end: number, duration: number = 2000, suffix: string = "", divisor: number = 1, decimals: number = 0) {
   const [count, setCount] = useState(0);
   const [started, setStarted] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -91,7 +91,12 @@ function useCountUp(end: number, duration: number = 2000, suffix: string = "") {
     return () => clearInterval(interval);
   }, [started, end, duration]);
 
-  return { ref, display: `${count.toLocaleString()}${suffix}` };
+  const formatted = divisor !== 1
+    ? (count / divisor).toFixed(decimals)
+    : decimals > 0
+      ? count.toFixed(decimals)
+      : count.toLocaleString();
+  return { ref, display: `${formatted}${suffix}` };
 }
 
 const INDUSTRY_BENCHMARKS: Record<string, { low: number; mid: number; high: number; label: string }> = {
@@ -133,9 +138,9 @@ export default function Home() {
   };
 
   const containerRef = useScrollReveal();
-  const stat1 = useCountUp(15, 2000, "+");
-  const stat2 = useCountUp(500, 2000, "+");
-  const stat3 = useCountUp(98, 2000, "%");
+  const stat1 = useCountUp(10, 2000, "+");
+  const stat2 = useCountUp(5000, 2000, "+");
+  const stat3 = useCountUp(999, 2000, "%", 10, 1);
 
   const handleCallbackSubmit = async () => {
     if (!cbName.trim() || !cbPhone.trim()) return;
@@ -182,8 +187,8 @@ export default function Home() {
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2.5 flex items-center justify-between gap-4">
               <div className="flex items-center gap-2 text-sm text-amber-800 dark:text-amber-300 flex-1 justify-center">
                 <AlertTriangle className="w-4 h-4 shrink-0" />
-                <span><strong>Interchange rates updated April 2026</strong> — now is a good time to review your processing costs.</span>
-                <Link href="/upload-statement" className="underline font-medium whitespace-nowrap" data-testid="link-urgency-cta">Get a free review →</Link>
+                <span><strong>Code FREE30 active</strong> — get your zero-cost processing review before it expires.</span>
+                <Link href="/get-started" className="underline font-medium whitespace-nowrap" data-testid="link-urgency-cta">Claim now →</Link>
               </div>
               <button onClick={dismissUrgency} className="text-amber-600 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-200 shrink-0" aria-label="Dismiss" data-testid="button-urgency-dismiss">
                 <X className="w-4 h-4" />
@@ -249,13 +254,6 @@ export default function Home() {
                 <p className="text-xs text-white/55 mt-4 max-w-md" data-testid="text-hero-microcopy">
                   PDF or photo. 30 seconds. Redact account numbers if you want - we only need totals + fee lines.
                 </p>
-                <Link href="/0-percent-processing" data-testid="link-hero-liberty-zero">
-                  <div className="inline-flex items-center gap-2 mt-4 bg-emerald-500/15 hover:bg-emerald-500/25 transition-colors border border-emerald-500/30 text-emerald-300 text-sm font-medium px-3 py-2 rounded-md">
-                    <Zap className="w-3.5 h-3.5 shrink-0" />
-                    Want to pay $0 to accept cards? Learn about <span className="font-bold ml-1">Liberty Zero™</span>
-                    <ArrowRight className="w-3.5 h-3.5 shrink-0" />
-                  </div>
-                </Link>
               </div>
 
               <div className="relative flex items-center justify-center" data-testid="hero-visual">
@@ -289,32 +287,28 @@ export default function Home() {
         <section className="bg-background border-b border-border py-6" data-testid="section-trust-badges">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex flex-wrap justify-center items-center gap-x-10 gap-y-4">
-              <div className="flex flex-col items-center gap-1 text-center" data-testid="trust-badge-google">
-                <div className="flex items-center gap-1">
-                  {[...Array(5)].map((_, i) => (
-                    <Star key={i} className="w-4 h-4 fill-amber-400 text-amber-400" />
-                  ))}
-                </div>
-                <span className="text-xs font-semibold text-foreground">Google Reviews</span>
-                <span className="text-[10px] text-muted-foreground">4.9 · 80+ reviews (placeholder)</span>
-              </div>
-              <div className="w-px h-10 bg-border hidden sm:block" />
-              <div className="flex flex-col items-center gap-1 text-center" data-testid="trust-badge-merchants">
-                <span className="text-xl font-display font-bold text-primary">2,400+</span>
-                <span className="text-xs font-semibold text-foreground">Active Merchants</span>
-                <span className="text-[10px] text-muted-foreground">Across every major industry</span>
-              </div>
-              <div className="w-px h-10 bg-border hidden sm:block" />
               <div className="flex flex-col items-center gap-1 text-center" data-testid="trust-badge-years">
-                <span className="text-xl font-display font-bold text-primary">15+</span>
+                <span className="text-xl font-display font-bold text-primary">10+</span>
                 <span className="text-xs font-semibold text-foreground">Years in Business</span>
                 <span className="text-[10px] text-muted-foreground">South Florida to nationwide</span>
               </div>
               <div className="w-px h-10 bg-border hidden sm:block" />
-              <div className="flex flex-col items-center gap-1 text-center" data-testid="trust-badge-savings">
-                <span className="text-xl font-display font-bold text-primary">avg. $280/mo</span>
-                <span className="text-xs font-semibold text-foreground">Avg. Savings per Merchant</span>
-                <span className="text-[10px] text-muted-foreground">Based on statement reviews</span>
+              <div className="flex flex-col items-center gap-1 text-center" data-testid="trust-badge-merchants">
+                <span className="text-xl font-display font-bold text-primary">5,000+</span>
+                <span className="text-xs font-semibold text-foreground">Merchants Served</span>
+                <span className="text-[10px] text-muted-foreground">Across every major industry</span>
+              </div>
+              <div className="w-px h-10 bg-border hidden sm:block" />
+              <div className="flex flex-col items-center gap-1 text-center" data-testid="trust-badge-volume">
+                <span className="text-xl font-display font-bold text-primary">$2B+</span>
+                <span className="text-xs font-semibold text-foreground">Annual Processing Volume</span>
+                <span className="text-[10px] text-muted-foreground">Trusted at scale</span>
+              </div>
+              <div className="w-px h-10 bg-border hidden sm:block" />
+              <div className="flex flex-col items-center gap-1 text-center" data-testid="trust-badge-uptime">
+                <span className="text-xl font-display font-bold text-primary">99.9%</span>
+                <span className="text-xs font-semibold text-foreground">Platform Uptime</span>
+                <span className="text-[10px] text-muted-foreground">Reliable processing, every transaction</span>
               </div>
             </div>
           </div>
@@ -370,8 +364,8 @@ export default function Home() {
               </div>
               <div ref={stat3.ref} className="p-6" data-testid="stat-retention">
                 <div className="text-5xl md:text-6xl font-display font-bold text-sky-400 mb-2">{stat3.display}</div>
-                <div className="text-sm font-medium text-white">Retention Rate</div>
-                <div className="text-xs text-white/50 mt-1">Merchants stay because the math works</div>
+                <div className="text-sm font-medium text-white">Platform Uptime</div>
+                <div className="text-xs text-white/50 mt-1">Reliable processing, every transaction</div>
               </div>
             </div>
           </div>

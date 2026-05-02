@@ -41,7 +41,7 @@ const variants: Record<PopupVariant, VariantConfig> = {
       { icon: DollarSign, text: "Businesses save $2,000 - $15,000+ per year" },
       { icon: Clock, text: "Takes 60 seconds — get your estimate instantly" },
       { icon: ShieldCheck, text: "No obligation — keep your results either way" },
-      { icon: TrendingDown, text: "500+ FL businesses already switched" },
+      { icon: TrendingDown, text: "5,000+ merchants nationwide already served" },
     ],
     ctaText: "Check My Eligibility",
     ctaHref: "/free-analysis?promo=FREE30",
@@ -66,7 +66,7 @@ const variants: Record<PopupVariant, VariantConfig> = {
 function getVariant(): PopupVariant {
   const stored = localStorage.getItem(AB_VARIANT_KEY);
   if (stored === "quiz" || stored === "upload") return stored;
-  const variant: PopupVariant = Math.random() < 0.5 ? "quiz" : "upload";
+  const variant: PopupVariant = "quiz";
   localStorage.setItem(AB_VARIANT_KEY, variant);
   return variant;
 }

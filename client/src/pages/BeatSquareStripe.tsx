@@ -111,11 +111,11 @@ export default function BeatSquareStripe() {
                       <ArrowRight className="w-4 h-4" />
                     </Button>
                   </Link>
-                  <a href="#" data-testid="link-beat-secondary-cta">
+                  <Link href="/get-started" data-testid="link-beat-secondary-cta">
                     <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
                       Book a 10-Minute Call
                     </Button>
-                  </a>
+                  </Link>
                 </div>
                 <p
                   className="text-sm text-white/50"
@@ -358,7 +358,7 @@ export default function BeatSquareStripe() {
               <Link href="/upload-statement" data-testid="link-beat-get-upload">
                 <Button className="gap-2">
                   <Upload className="w-4 h-4" />
-                  Start The Liberty Analysis
+                  Upload My Statement — Free
                   <ArrowRight className="w-4 h-4" />
                 </Button>
               </Link>
@@ -409,7 +409,8 @@ export default function BeatSquareStripe() {
                       </p>
                       <Link href="/upload-statement" data-testid="link-terminal-cta">
                         <Button className="gap-2">
-                          Check Terminal Eligibility
+                          <Upload className="w-4 h-4" />
+                          Upload My Statement — Free
                           <ArrowRight className="w-4 h-4" />
                         </Button>
                       </Link>
@@ -460,13 +461,13 @@ export default function BeatSquareStripe() {
                 <Link href="/upload-statement" data-testid="link-faq-compare">
                   <Button className="gap-2">
                     <Upload className="w-4 h-4" />
-                    Compare My Statement
+                    Upload My Statement — Free
                     <ArrowRight className="w-4 h-4" />
                   </Button>
                 </Link>
-                <Link href="/estimate" data-testid="link-faq-estimate">
+                <Link href="/get-started" data-testid="link-faq-get-started">
                   <Button variant="outline" className="gap-2">
-                    Get an Estimate
+                    Not Sure Where to Start?
                     <ArrowRight className="w-4 h-4" />
                   </Button>
                 </Link>
@@ -495,15 +496,15 @@ export default function BeatSquareStripe() {
               <Link href="/upload-statement" data-testid="link-beat-final-compare">
                 <Button size="lg" className="gap-2 bg-sky-500 border-sky-500 text-white">
                   <Upload className="w-4 h-4" />
-                  Compare My Statement
+                  Upload My Statement — Free
                   <ArrowRight className="w-4 h-4" />
                 </Button>
               </Link>
-              <a href="#" data-testid="link-beat-final-call">
+              <Link href="/get-started" data-testid="link-beat-final-call">
                 <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
                   Book a 10-Minute Call
                 </Button>
-              </a>
+              </Link>
             </div>
           </div>
         </section>

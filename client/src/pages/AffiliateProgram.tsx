@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useLocation } from "wouter";
+import { useLocation, Link } from "wouter";
 import { SEO } from "@/components/SEO";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
@@ -41,6 +41,7 @@ import {
   Download,
   Lock,
   LogIn,
+  Briefcase,
 } from "lucide-react";
 
 type ViewMode = "info" | "signup" | "login" | "dashboard";
@@ -961,6 +962,72 @@ export default function AffiliateProgram() {
             </div>
           </section>
         )}
+
+        <section className="bg-muted/30 py-16" data-testid="section-two-paths">
+          <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="text-center mb-10">
+              <h2 className="text-2xl md:text-3xl font-display font-bold text-foreground mb-3" data-testid="text-two-paths-heading">
+                Two Ways to Partner With Liberty Bancard
+              </h2>
+              <p className="text-muted-foreground max-w-2xl mx-auto">
+                Not sure which path fits? Here's the difference.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <Card className="border-2 border-primary/20" data-testid="card-refer-merchant">
+                <CardContent className="p-6">
+                  <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mb-4">
+                    <Users className="w-6 h-6 text-primary" />
+                  </div>
+                  <div className="inline-flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 text-xs font-semibold px-2.5 py-1 rounded-md mb-3">
+                    Passive — Refer &amp; Earn
+                  </div>
+                  <h3 className="text-xl font-display font-bold text-foreground mb-2">Refer a Merchant</h3>
+                  <p className="text-sm text-muted-foreground mb-4 leading-relaxed">
+                    Know a business owner who accepts credit cards? Share your unique link. If they sign up, you earn a commission — no selling, no follow-up required.
+                  </p>
+                  <ul className="space-y-2 text-sm text-muted-foreground mb-6">
+                    <li className="flex items-start gap-2"><CheckCircle className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> 10% commission on first-year fees</li>
+                    <li className="flex items-start gap-2"><CheckCircle className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Monthly residual income</li>
+                    <li className="flex items-start gap-2"><CheckCircle className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> No sales experience needed</li>
+                    <li className="flex items-start gap-2"><CheckCircle className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> We handle the sales process &amp; onboarding</li>
+                    <li className="flex items-start gap-2"><CheckCircle className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Free to join — no quotas</li>
+                  </ul>
+                  <Button className="w-full gap-2" onClick={() => { setView("signup"); window.scrollTo({ top: 0, behavior: "smooth" }); }} data-testid="button-path-affiliate">
+                    <UserPlus className="w-4 h-4" /> Join as an Affiliate
+                  </Button>
+                </CardContent>
+              </Card>
+
+              <Card className="border-2 border-border" data-testid="card-become-agent">
+                <CardContent className="p-6">
+                  <div className="w-12 h-12 rounded-full bg-amber-100 dark:bg-amber-950/30 flex items-center justify-center mb-4">
+                    <Briefcase className="w-6 h-6 text-amber-600 dark:text-amber-400" />
+                  </div>
+                  <div className="inline-flex items-center gap-1.5 bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 text-xs font-semibold px-2.5 py-1 rounded-md mb-3">
+                    Active — Full-Time Opportunity
+                  </div>
+                  <h3 className="text-xl font-display font-bold text-foreground mb-2">Become a Sales Agent</h3>
+                  <p className="text-sm text-muted-foreground mb-4 leading-relaxed">
+                    Want to build a real book of business in payment processing? Become an ISO sales agent and earn higher commissions with dedicated back-office support.
+                  </p>
+                  <ul className="space-y-2 text-sm text-muted-foreground mb-6">
+                    <li className="flex items-start gap-2"><CheckCircle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" /> Higher commission splits</li>
+                    <li className="flex items-start gap-2"><CheckCircle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" /> Lifetime residuals on your portfolio</li>
+                    <li className="flex items-start gap-2"><CheckCircle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" /> Training, scripts, and marketing support</li>
+                    <li className="flex items-start gap-2"><CheckCircle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" /> No territory restrictions</li>
+                    <li className="flex items-start gap-2"><CheckCircle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" /> Full back-office ops handled by Liberty</li>
+                  </ul>
+                  <Link href="/get-started" data-testid="link-path-agent">
+                    <Button variant="outline" className="w-full gap-2">
+                      <ArrowRight className="w-4 h-4" /> Apply to Become an Agent
+                    </Button>
+                  </Link>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </section>
 
         <section className="py-16">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">

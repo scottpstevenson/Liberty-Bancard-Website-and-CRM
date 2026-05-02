@@ -421,7 +421,7 @@ export default function TerminalShop() {
       <Navbar />
 
       <main className="flex-grow pt-28">
-        <PromoBanner variant="bar" promoId="free-terminal" showCountdown />
+        <PromoBanner variant="bar" promoId="free-processing" showCountdown />
 
         {step === "browse" && !detail && (
           <>
