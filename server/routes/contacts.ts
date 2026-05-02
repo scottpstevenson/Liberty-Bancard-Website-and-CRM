@@ -18,6 +18,7 @@ import { createContactGhlFirst, updateContactGhlFirst } from "../services/contac
 import { assignNextRep } from "./toolkit";
 import { parse } from "csv-parse/sync";
 import path from "path";
+import { sendPushToAllReps } from "../services/push-service";
 
 function isUniqueEmailViolation(err: any): boolean {
   return err?.code === "23505" && (err?.constraint?.includes("email") || err?.message?.includes("contacts_email_unique_idx"));
@@ -44,6 +45,7 @@ export function registerContactsRoutes(app: Express) {
 
       await storage.createAuditLog({ action: "contact_created", entityType: "contact", entityId: contact.id, details: { name: `${contact.firstName} ${contact.lastName}` } });
       await createPreferenceAwareNotification({ channel: "internal", title: "New Contact Created", message: `${contact.firstName} ${contact.lastName}${contact.companyName ? ` — ${contact.companyName}` : ""} has been added as a new contact.`, type: "info", metadata: { contactId: contact.id, eventType: "contact_created" } }, "contact_created");
+      sendPushToAllReps({ title: "New Lead Assigned", body: `${contact.firstName} ${contact.lastName}${contact.companyName ? ` — ${contact.companyName}` : ""} added to CRM`, url: "/mobile/contacts" }).catch(() => {});
       triggerWorkflowsByEvent("contact_created", { entityType: "contact", entityId: contact.id, contactId: contact.id }).catch(err => console.error("Workflow trigger error:", err));
       ingestBusinessFromContact(contact.id, "manual_upload", "crm_contact_create").catch(err => console.warn("[CRM] Business ingest failed:", err));
       scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));

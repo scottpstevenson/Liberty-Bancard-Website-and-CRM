@@ -48,6 +48,19 @@ The frontend uses React with Vite, TypeScript, Tailwind CSS, and shadcn/ui. `wou
 - **AI Advisors**: Seven specialized AI advisors (Sales, Support, Onboarding, Marketing, Finance, Compliance, Executive).
 - **Compliance Rules**: Adherence to regulatory guidelines, including explicit disclaimers and PCI compliance.
 
+## Mobile App (PWA) for Field Sales Reps
+A mobile-optimized Progressive Web App is available at `/mobile`. It is a standalone app shell with bottom tab navigation designed for field sales reps using phones. Features:
+- **Home**: Today's tasks count, upcoming appointments, overdue task alerts, quick action grid, quick log FAB
+- **Contacts**: Searchable contact list with call (`tel:`) and SMS (`sms:`) deep links; per-contact detail view with activity timeline and call logging
+- **Pipeline**: Deals grouped by SALES_STAGES; tap to open detail sheet, move stage, or add note
+- **Tasks**: Today/All/Completed filter tabs; create tasks with priority and due date; mark complete via PUT /api/tasks/:id
+- **Profile**: User info, link to full CRM, install-to-home-screen instructions, logout
+- **Quick Log** (bottom sheet): Log a call (outcome + notes), send templated SMS (opens native SMS app), create task, upload photo to Document Vault
+- **PWA**: `client/public/manifest.json` + `client/public/sw.js` service worker for offline cache (API responses cached for contacts/deals/tasks), push notification support. Register SW via `client/src/main.tsx`.
+- **Offline**: Contacts and deals cached in localStorage; offline banner shown when no network; service worker returns cached API responses when offline
+- Auth uses existing session cookies (same `/api/auth/login` endpoint); redirects to `/mobile/login` when unauthenticated
+- Not suitable for merchants; internal rep-only tool
+
 ## External Dependencies
 - **PostgreSQL**: Primary relational database.
 - **OpenAI API**: For AI functionalities.

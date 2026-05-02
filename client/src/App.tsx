@@ -152,6 +152,7 @@ import AffiliateProgram from "@/pages/AffiliateProgram";
 import ISOPartnerProgram from "@/pages/ISOPartnerProgram";
 import PartnerPortal from "@/pages/PartnerPortal";
 import SalesToolsHub from "@/pages/SalesToolsHub";
+import MobileApp from "@/pages/mobile/MobileApp";
 
 function AgentRoute({ component: Component }: { component: React.ComponentType }) {
   const { user, isLoading } = useAuth();
@@ -284,6 +285,15 @@ function Router() {
       <Route path="/help/:category/:slug" component={HelpArticle} />
       <Route path="/help/:category" component={HelpArticle} />
       <Route path="/help" component={HelpCenter} />
+
+      {/* Mobile PWA for Field Sales Reps */}
+      <Route path="/mobile/login" component={MobileApp} />
+      <Route path="/mobile/contacts/:id" component={MobileApp} />
+      <Route path="/mobile/contacts" component={MobileApp} />
+      <Route path="/mobile/pipeline" component={MobileApp} />
+      <Route path="/mobile/tasks" component={MobileApp} />
+      <Route path="/mobile/profile" component={MobileApp} />
+      <Route path="/mobile" component={MobileApp} />
 
       {/* Sales Tools Hub */}
       <Route path="/sales-tools" component={SalesToolsHub} />
@@ -547,15 +557,16 @@ function PublicLayout() {
   const isDashboard = location.startsWith("/dashboard");
   const isThanksPage = location.startsWith("/thanks");
   const isAuthPage = location === "/login" || location === "/signup" || location === "/forgot-password" || location === "/reset-password" || location === "/verify-email";
+  const isMobile = location.startsWith("/mobile");
 
   return (
     <>
       <Router />
-      {!isDashboard && !isThanksPage && !isAuthPage && <StickyMobileCTA />}
-      {!isDashboard && !isAuthPage && <ExitIntentPopup />}
-      {!isDashboard && !isThanksPage && !isAuthPage && <ContactBubble />}
-      {!isDashboard && !isAuthPage && <CookieConsent />}
-      {!isDashboard && !isThanksPage && !isAuthPage && <ChatWidget />}
+      {!isDashboard && !isThanksPage && !isAuthPage && !isMobile && <StickyMobileCTA />}
+      {!isDashboard && !isAuthPage && !isMobile && <ExitIntentPopup />}
+      {!isDashboard && !isThanksPage && !isAuthPage && !isMobile && <ContactBubble />}
+      {!isDashboard && !isAuthPage && !isMobile && <CookieConsent />}
+      {!isDashboard && !isThanksPage && !isAuthPage && !isMobile && <ChatWidget />}
     </>
   );
 }

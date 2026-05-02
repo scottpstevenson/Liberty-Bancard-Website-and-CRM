@@ -35,6 +35,7 @@ import { registerLifecycleRoutes } from "./routes/lifecycle";
 import { registerResidualsRoutes } from "./routes/residuals";
 import { registerVirtualTerminalRoutes } from "./routes/virtual-terminal";
 import { registerBoardingRoutes } from "./routes/boarding";
+import { registerPushRoutes } from "./routes/push";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -94,6 +95,7 @@ export async function registerRoutes(
   registerResidualsRoutes(app);
   registerVirtualTerminalRoutes(app);
   registerBoardingRoutes(app);
+  registerPushRoutes(app);
 
   return httpServer;
 }

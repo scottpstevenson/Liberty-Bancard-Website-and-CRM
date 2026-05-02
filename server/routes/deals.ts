@@ -16,6 +16,7 @@ import { sendMerchantWelcomeEmail } from "../services/merchant-welcome";
 import { updateContactGhlFirst } from "../services/contact-writer";
 import { parse } from "csv-parse/sync";
 import path from "path";
+import { sendPushToAllReps } from "../services/push-service";
 
 export function registerDealsRoutes(app: Express) {
   // === DEALS ===
@@ -67,6 +68,7 @@ export function registerDealsRoutes(app: Express) {
       if (old && old.stage !== updated.stage) {
         await storage.createAuditLog({ action: "deal_stage_changed", entityType: "deal", entityId: updated.id, details: { from: old.stage, to: updated.stage } });
         await createPreferenceAwareNotification({ channel: "internal", title: "Deal Stage Changed", message: `Deal #${updated.id} moved from "${old.stage}" to "${updated.stage}"`, type: "info", metadata: { dealId: updated.id, eventType: "deal_stage_changed" } }, "deal_stage_changed");
+        sendPushToAllReps({ title: "Deal Stage Changed", body: `Deal #${updated.id} moved from "${old.stage}" → "${updated.stage}"`, url: "/mobile/pipeline" }).catch(() => {});
 
         if (updated.stage === "Closed Won") {
           const closedContact = updated.contactId ? await storage.getContact(updated.contactId) : null;
