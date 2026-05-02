@@ -536,6 +536,17 @@ export interface IStorage {
   deleteChargeback(id: number): Promise<void>;
   getOverdueChargebacks(): Promise<import("@shared/schema").Chargeback[]>;
   getChargebackStats(): Promise<{ total: number; open: number; overdue: number; won: number; lost: number; thisMonthWinRate: number; totalAtRiskAmount: number }>;
+
+  // Residual Imports
+  getResidualImports(): Promise<import("@shared/schema").ResidualImport[]>;
+  getResidualImport(id: number): Promise<import("@shared/schema").ResidualImport | undefined>;
+  createResidualImport(data: import("@shared/schema").InsertResidualImport): Promise<import("@shared/schema").ResidualImport>;
+  updateResidualImport(id: number, updates: Partial<import("@shared/schema").InsertResidualImport>): Promise<import("@shared/schema").ResidualImport | undefined>;
+  deleteResidualImport(id: number): Promise<void>;
+  getResidualImportRows(importId: number): Promise<import("@shared/schema").ResidualImportRow[]>;
+  createResidualImportRow(data: import("@shared/schema").InsertResidualImportRow): Promise<import("@shared/schema").ResidualImportRow>;
+  createResidualImportRowsBulk(data: import("@shared/schema").InsertResidualImportRow[]): Promise<import("@shared/schema").ResidualImportRow[]>;
+  deleteResidualImportRows(importId: number): Promise<void>;
 }
 
 const DEFAULT_LIMIT = 100;
@@ -3184,6 +3195,57 @@ export class DatabaseStorage implements IStorage {
   async deleteRetentionCampaignConfig(id: number) {
     const result = await db.delete(retentionCampaignConfigs).where(eq(retentionCampaignConfigs.id, id));
     return (result.rowCount ?? 0) > 0;
+  }
+
+  // ── Residual Imports ──────────────────────────────────────────────────────
+  async getResidualImports() {
+    const { residualImports } = await import("@shared/schema");
+    return await db.select().from(residualImports).orderBy(desc(residualImports.createdAt));
+  }
+
+  async getResidualImport(id: number) {
+    const { residualImports } = await import("@shared/schema");
+    const [row] = await db.select().from(residualImports).where(eq(residualImports.id, id));
+    return row;
+  }
+
+  async createResidualImport(data: import("@shared/schema").InsertResidualImport) {
+    const { residualImports } = await import("@shared/schema");
+    const [row] = await db.insert(residualImports).values(data).returning();
+    return row;
+  }
+
+  async updateResidualImport(id: number, updates: Partial<import("@shared/schema").InsertResidualImport>) {
+    const { residualImports } = await import("@shared/schema");
+    const [row] = await db.update(residualImports).set(updates).where(eq(residualImports.id, id)).returning();
+    return row;
+  }
+
+  async deleteResidualImport(id: number) {
+    const { residualImports } = await import("@shared/schema");
+    await db.delete(residualImports).where(eq(residualImports.id, id));
+  }
+
+  async getResidualImportRows(importId: number) {
+    const { residualImportRows } = await import("@shared/schema");
+    return await db.select().from(residualImportRows).where(eq(residualImportRows.importId, importId)).orderBy(desc(residualImportRows.createdAt));
+  }
+
+  async createResidualImportRow(data: import("@shared/schema").InsertResidualImportRow) {
+    const { residualImportRows } = await import("@shared/schema");
+    const [row] = await db.insert(residualImportRows).values(data).returning();
+    return row;
+  }
+
+  async createResidualImportRowsBulk(data: import("@shared/schema").InsertResidualImportRow[]) {
+    const { residualImportRows } = await import("@shared/schema");
+    if (data.length === 0) return [];
+    return await db.insert(residualImportRows).values(data).returning();
+  }
+
+  async deleteResidualImportRows(importId: number) {
+    const { residualImportRows } = await import("@shared/schema");
+    await db.delete(residualImportRows).where(eq(residualImportRows.importId, importId));
   }
 }
 

@@ -1466,6 +1466,67 @@ export const insertMerchantResidualSchema = createInsertSchema(merchantResiduals
 export type MerchantResidual = typeof merchantResiduals.$inferSelect;
 export type InsertMerchantResidual = z.infer<typeof insertMerchantResidualSchema>;
 
+// ── Residual Import Reconciliation ────────────────────────────────────────────
+export const residualImports = pgTable("residual_imports", {
+  id: serial("id").primaryKey(),
+  month: text("month").notNull(),
+  fileName: text("file_name").notNull(),
+  status: text("status").notNull().default("pending"),
+  importedBy: text("imported_by"),
+  totalRows: integer("total_rows").default(0),
+  matchedRows: integer("matched_rows").default(0),
+  unmatchedRows: integer("unmatched_rows").default(0),
+  flaggedRows: integer("flagged_rows").default(0),
+  totalGrossResidual: text("total_gross_residual").default("0"),
+  totalNetResidual: text("total_net_residual").default("0"),
+  totalVariance: text("total_variance").default("0"),
+  varianceThresholdPct: real("variance_threshold_pct").default(5),
+  varianceThresholdAmt: real("variance_threshold_amt").default(50),
+  confirmedAt: timestamp("confirmed_at"),
+  confirmedBy: text("confirmed_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertResidualImportSchema = createInsertSchema(residualImports).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type ResidualImport = typeof residualImports.$inferSelect;
+export type InsertResidualImport = z.infer<typeof insertResidualImportSchema>;
+
+export const residualImportRows = pgTable("residual_import_rows", {
+  id: serial("id").primaryKey(),
+  importId: integer("import_id").notNull().references(() => residualImports.id, { onDelete: "cascade" }),
+  mid: text("mid").notNull(),
+  merchantName: text("merchant_name"),
+  volume: text("volume").default("0"),
+  grossResidual: text("gross_residual").default("0"),
+  netResidual: text("net_residual").default("0"),
+  expectedResidual: text("expected_residual").default("0"),
+  variance: text("variance").default("0"),
+  variancePct: text("variance_pct").default("0"),
+  varianceStatus: text("variance_status").default("in_range"),
+  isMatched: boolean("is_matched").default(false),
+  matchedDealId: integer("matched_deal_id").references(() => deals.id),
+  matchedProfileId: integer("matched_profile_id"),
+  agentId: integer("agent_id").references(() => agents.id),
+  agentName: text("agent_name"),
+  rawData: jsonb("raw_data"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("residual_import_rows_import_id_idx").on(table.importId),
+  index("residual_import_rows_mid_idx").on(table.mid),
+]);
+
+export const insertResidualImportRowSchema = createInsertSchema(residualImportRows).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type ResidualImportRow = typeof residualImportRows.$inferSelect;
+export type InsertResidualImportRow = z.infer<typeof insertResidualImportRowSchema>;
+
 export const healthAlerts = pgTable("health_alerts", {
   id: serial("id").primaryKey(),
   dealId: integer("deal_id").references(() => deals.id),

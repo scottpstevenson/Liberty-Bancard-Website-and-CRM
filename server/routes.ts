@@ -32,6 +32,7 @@ import { registerLiveChatRoutes } from "./routes/live-chat";
 import { registerChargebacksRoutes } from "./routes/chargebacks";
 import { registerToolkitRoutes } from "./routes/toolkit";
 import { registerLifecycleRoutes } from "./routes/lifecycle";
+import { registerResidualsRoutes } from "./routes/residuals";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -88,6 +89,7 @@ export async function registerRoutes(
   registerChargebacksRoutes(app);
   registerToolkitRoutes(app);
   registerLifecycleRoutes(app);
+  registerResidualsRoutes(app);
 
   return httpServer;
 }

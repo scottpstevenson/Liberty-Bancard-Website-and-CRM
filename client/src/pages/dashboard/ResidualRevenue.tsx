@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -11,9 +11,13 @@ import {
   TableRow,
   TableCell,
 } from "@/components/ui/table";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { exportToCSV } from "@/lib/export-csv";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Label } from "@/components/ui/label";
+import { useToast } from "@/hooks/use-toast";
 import {
   DollarSign,
   TrendingUp,
@@ -24,6 +28,14 @@ import {
   BarChart3,
   Percent,
   Download,
+  Upload,
+  CheckCircle,
+  XCircle,
+  Clock,
+  FileText,
+  Trash2,
+  ChevronRight,
+  AlertCircle,
 } from "lucide-react";
 
 interface ResidualReport {
@@ -61,22 +73,63 @@ interface Agent {
   commissionEarned: number;
 }
 
-function formatCurrency(value: number): string {
+interface ResidualImport {
+  id: number;
+  month: string;
+  fileName: string;
+  status: string;
+  importedBy: string;
+  totalRows: number;
+  matchedRows: number;
+  unmatchedRows: number;
+  flaggedRows: number;
+  totalGrossResidual: string;
+  totalNetResidual: string;
+  totalVariance: string;
+  varianceThresholdPct: number;
+  varianceThresholdAmt: number;
+  confirmedAt: string | null;
+  confirmedBy: string | null;
+  createdAt: string;
+  rows?: ResidualImportRow[];
+}
+
+interface ResidualImportRow {
+  id: number;
+  importId: number;
+  mid: string;
+  merchantName: string | null;
+  volume: string;
+  grossResidual: string;
+  netResidual: string;
+  expectedResidual: string;
+  variance: string;
+  variancePct: string;
+  varianceStatus: string;
+  isMatched: boolean;
+  matchedDealId: number | null;
+  agentId: number | null;
+  agentName: string | null;
+}
+
+function formatCurrency(value: number | string): string {
+  const num = typeof value === "string" ? parseFloat(value) : value;
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
-  }).format(value);
+  }).format(isNaN(num) ? 0 : num);
 }
 
-function formatCurrencyDetailed(value: number): string {
+function formatCurrencyDetailed(value: number | string): string {
+  const num = typeof value === "string" ? parseFloat(value) : value;
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  }).format(value);
+  }).format(isNaN(num) ? 0 : num);
 }
 
 function ChangeIndicator({ value }: { value: number }) {
@@ -88,6 +141,20 @@ function ChangeIndicator({ value }: { value: number }) {
       {Math.abs(value).toFixed(1)}%
     </span>
   );
+}
+
+function VarianceBadge({ status }: { status: string }) {
+  if (status === "in_range") return <Badge variant="secondary" className="text-xs bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">In Range</Badge>;
+  if (status === "under") return <Badge variant="destructive" className="text-xs">Under</Badge>;
+  if (status === "over") return <Badge className="text-xs bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400 border-0">Over</Badge>;
+  return <Badge variant="secondary" className="text-xs">{status}</Badge>;
+}
+
+function ImportStatusBadge({ status }: { status: string }) {
+  if (status === "confirmed") return <Badge className="text-xs bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 border-0"><CheckCircle className="w-3 h-3 mr-1" />Confirmed</Badge>;
+  if (status === "pending") return <Badge variant="secondary" className="text-xs"><Clock className="w-3 h-3 mr-1" />Pending Review</Badge>;
+  if (status === "rejected") return <Badge variant="destructive" className="text-xs"><XCircle className="w-3 h-3 mr-1" />Rejected</Badge>;
+  return <Badge variant="secondary" className="text-xs">{status}</Badge>;
 }
 
 function KPISkeleton() {
@@ -105,12 +172,12 @@ function KPISkeleton() {
   );
 }
 
-function TableSkeleton({ rows = 5 }: { rows?: number }) {
+function TableSkeleton({ rows = 5, cols = 9 }: { rows?: number; cols?: number }) {
   return (
     <>
       {Array.from({ length: rows }).map((_, i) => (
         <TableRow key={i}>
-          {Array.from({ length: 9 }).map((_, j) => (
+          {Array.from({ length: cols }).map((_, j) => (
             <TableCell key={j}>
               <Skeleton className="h-4 w-full" />
             </TableCell>
@@ -123,6 +190,16 @@ function TableSkeleton({ rows = 5 }: { rows?: number }) {
 
 export default function ResidualRevenue() {
   const [searchQuery, setSearchQuery] = useState("");
+  const [uploadMonth, setUploadMonth] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  });
+  const [thresholdPct, setThresholdPct] = useState("5");
+  const [thresholdAmt, setThresholdAmt] = useState("50");
+  const [selectedImportId, setSelectedImportId] = useState<number | null>(null);
+  const [reviewTab, setReviewTab] = useState<"matched" | "unmatched">("matched");
+  const fileRef = useRef<HTMLInputElement>(null);
+  const { toast } = useToast();
 
   const { data: reports, isLoading: reportsLoading } = useQuery<ResidualReport[]>({
     queryKey: ["/api/residual-reports"],
@@ -136,6 +213,81 @@ export default function ResidualRevenue() {
     queryKey: ["/api/agents"],
   });
 
+  const { data: imports, isLoading: importsLoading } = useQuery<ResidualImport[]>({
+    queryKey: ["/api/residuals/imports"],
+  });
+
+  const { data: selectedImport, isLoading: selectedImportLoading } = useQuery<ResidualImport | null>({
+    queryKey: ["/api/residuals/imports", selectedImportId],
+    queryFn: async (): Promise<ResidualImport | null> => {
+      if (!selectedImportId) return null;
+      const res = await fetch(`/api/residuals/imports/${selectedImportId}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load import");
+      return res.json() as Promise<ResidualImport>;
+    },
+    enabled: !!selectedImportId,
+  });
+
+  const uploadMutation = useMutation({
+    mutationFn: async (formData: FormData) => {
+      const res = await fetch("/api/residuals/import", {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || "Upload failed");
+      }
+      return res.json() as Promise<ResidualImport>;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/residuals/imports"] });
+      setSelectedImportId(data.id);
+      toast({ title: "File imported successfully", description: `${data.totalRows} rows parsed. ${data.matchedRows} matched, ${data.unmatchedRows} unmatched.` });
+      if (fileRef.current) fileRef.current.value = "";
+    },
+    onError: (err: Error) => toast({ title: "Import failed", description: err.message, variant: "destructive" }),
+  });
+
+  const confirmMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("POST", `/api/residuals/imports/${id}/confirm`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/residuals/imports"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/residuals/imports", selectedImportId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/merchant-residuals"] });
+      toast({ title: "Reconciliation confirmed", description: "Residuals have been posted to agent ledgers." });
+    },
+    onError: (err: Error) => toast({ title: "Confirmation failed", description: err.message, variant: "destructive" }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/residuals/imports/${id}`);
+    },
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/residuals/imports"] });
+      if (selectedImportId === id) setSelectedImportId(null);
+      toast({ title: "Import deleted" });
+    },
+    onError: (err: Error) => toast({ title: "Delete failed", description: err.message, variant: "destructive" }),
+  });
+
+  const handleUpload = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const file = fileRef.current?.files?.[0];
+    if (!file) return toast({ title: "Please select a file", variant: "destructive" });
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("month", uploadMonth);
+    fd.append("varianceThresholdPct", thresholdPct);
+    fd.append("varianceThresholdAmt", thresholdAmt);
+    uploadMutation.mutate(fd);
+  };
+
   const currentMonth = reports && reports.length > 0 ? reports[0] : null;
   const last6Months = reports?.slice(0, 6).reverse() || [];
   const maxRevenue = last6Months.length > 0 ? Math.max(...last6Months.map((r) => r.totalRevenue)) : 0;
@@ -144,7 +296,6 @@ export default function ResidualRevenue() {
   const activeMerchants = currentMonth?.activeMerchants || 0;
   const avgRevenuePerMerchant = activeMerchants > 0 ? totalRevenue / activeMerchants : 0;
   const attritionRate = currentMonth?.attritionRate || 0;
-
   const hasData = reports && reports.length > 0;
 
   const filteredMerchants = useMemo(() => {
@@ -178,310 +329,645 @@ export default function ResidualRevenue() {
     }));
   }, [agents, merchantResiduals]);
 
+  const matchedRows = selectedImport?.rows?.filter(r => r.isMatched) || [];
+  const unmatchedRows = selectedImport?.rows?.filter(r => !r.isMatched) || [];
+  const flaggedMatchedRows = matchedRows.filter(r => r.varianceStatus !== "in_range");
+
+  const agentReconciliation = useMemo(() => {
+    if (!matchedRows.length) return [];
+    const map = new Map<string, { agentName: string; agentId: number | null; expectedTotal: number; actualTotal: number; variance: number; count: number }>();
+    for (const row of matchedRows) {
+      const key = row.agentName || "Unassigned";
+      const existing = map.get(key) || { agentName: key, agentId: row.agentId, expectedTotal: 0, actualTotal: 0, variance: 0, count: 0 };
+      existing.expectedTotal += parseFloat(row.expectedResidual || "0");
+      existing.actualTotal += parseFloat(row.netResidual || "0");
+      existing.variance += parseFloat(row.variance || "0");
+      existing.count++;
+      map.set(key, existing);
+    }
+    return Array.from(map.values()).sort((a, b) => Math.abs(b.variance) - Math.abs(a.variance));
+  }, [matchedRows]);
+
   return (
-    <div className="space-y-8" data-testid="page-residual-revenue">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4" data-testid="section-header">
-        <div>
-          <h1 className="text-2xl font-bold" data-testid="text-page-title">Revenue Dashboard</h1>
-          <p className="text-muted-foreground mt-1" data-testid="text-page-subtitle">
-            Track monthly revenue, portfolio performance, and agent commissions
-          </p>
-        </div>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => exportToCSV(filteredMerchants, "residual_revenue", [
-            { key: "merchantName", label: "Merchant" },
-            { key: "mid", label: "MID" },
-            { key: "volume", label: "Volume" },
-            { key: "revenue", label: "Revenue" },
-            { key: "revenueChange", label: "Change %" },
-          ])}
-          data-testid="button-export-revenue"
-        >
-          <Download className="w-4 h-4 mr-1" /> Export Revenue Data
-        </Button>
-      </div>
-
-      {!hasData && !reportsLoading && (
-        <Card className="bg-primary/5 dark:bg-primary/10" data-testid="card-no-data">
-          <CardContent className="py-8 text-center">
-            <AlertTriangle className="w-8 h-8 text-muted-foreground mx-auto mb-3" />
-            <p className="text-muted-foreground" data-testid="text-no-data">
-              Import residual data to see revenue metrics
+    <div className="space-y-6" data-testid="page-residual-revenue">
+      <Tabs defaultValue="dashboard" className="w-full">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4">
+          <div>
+            <h1 className="text-2xl font-bold" data-testid="text-page-title">Residual Revenue</h1>
+            <p className="text-muted-foreground mt-1 text-sm">
+              Portfolio performance, reconciliation, and agent commissions
             </p>
-          </CardContent>
-        </Card>
-      )}
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6" data-testid="section-kpi-cards">
-        {reportsLoading ? (
-          <>
-            <KPISkeleton />
-            <KPISkeleton />
-            <KPISkeleton />
-            <KPISkeleton />
-          </>
-        ) : (
-          <>
-            <Card data-testid="card-kpi-total-revenue">
-              <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Total Portfolio Revenue</CardTitle>
-                <DollarSign className="w-4 h-4 text-green-600" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold" data-testid="text-total-revenue">
-                  {formatCurrency(totalRevenue)}
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">This month</p>
-              </CardContent>
-            </Card>
-
-            <Card data-testid="card-kpi-active-merchants">
-              <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Active Merchants</CardTitle>
-                <Users className="w-4 h-4 text-primary" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold" data-testid="text-active-merchants">
-                  {activeMerchants.toLocaleString()}
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">Processing merchants</p>
-              </CardContent>
-            </Card>
-
-            <Card data-testid="card-kpi-avg-revenue">
-              <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Avg Revenue Per Merchant</CardTitle>
-                <TrendingUp className="w-4 h-4 text-green-600" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold" data-testid="text-avg-revenue">
-                  {formatCurrencyDetailed(avgRevenuePerMerchant)}
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">Per merchant average</p>
-              </CardContent>
-            </Card>
-
-            <Card data-testid="card-kpi-attrition">
-              <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Attrition Rate</CardTitle>
-                <Percent className="w-4 h-4 text-orange-500" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold" data-testid="text-attrition-rate">
-                  {attritionRate.toFixed(1)}%
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">Monthly merchant churn</p>
-              </CardContent>
-            </Card>
-          </>
-        )}
-      </div>
-
-      <Card data-testid="card-revenue-chart">
-        <CardHeader className="flex flex-row items-center justify-between gap-2 flex-wrap">
-          <div className="flex items-center gap-2">
-            <BarChart3 className="w-5 h-5 text-primary" />
-            <CardTitle className="text-base">Revenue Trend (Last 6 Months)</CardTitle>
           </div>
-        </CardHeader>
-        <CardContent>
-          {reportsLoading ? (
-            <div className="flex items-end gap-3 h-48">
-              {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="flex-1 flex flex-col items-center gap-2">
-                  <Skeleton className="w-full" style={{ height: `${40 + Math.random() * 60}%` }} />
-                  <Skeleton className="h-3 w-10" />
-                </div>
-              ))}
-            </div>
-          ) : last6Months.length > 0 ? (
-            <div className="flex items-end gap-3 h-48" data-testid="chart-revenue-bars">
-              {last6Months.map((report) => {
-                const height = maxRevenue > 0 ? (report.totalRevenue / maxRevenue) * 100 : 0;
-                return (
-                  <div key={`${report.month}-${report.year}`} className="flex-1 flex flex-col items-center gap-2">
-                    <span className="text-xs font-medium text-muted-foreground" data-testid={`text-chart-amount-${report.month}`}>
-                      {formatCurrency(report.totalRevenue)}
-                    </span>
-                    <div
-                      className="w-full bg-primary/80 dark:bg-primary/60 rounded-md transition-all"
-                      style={{ height: `${Math.max(height, 4)}%` }}
-                      data-testid={`bar-revenue-${report.month}`}
-                    />
-                    <span className="text-xs text-muted-foreground" data-testid={`text-chart-month-${report.month}`}>
-                      {report.month}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="flex items-center justify-center h-48 text-muted-foreground" data-testid="text-no-chart-data">
-              No revenue data available
-            </div>
+          <TabsList data-testid="tabs-residual">
+            <TabsTrigger value="dashboard" data-testid="tab-dashboard"><BarChart3 className="w-4 h-4 mr-1" />Dashboard</TabsTrigger>
+            <TabsTrigger value="reconcile" data-testid="tab-reconcile"><Upload className="w-4 h-4 mr-1" />Import & Reconcile</TabsTrigger>
+            <TabsTrigger value="history" data-testid="tab-history"><FileText className="w-4 h-4 mr-1" />History</TabsTrigger>
+          </TabsList>
+        </div>
+
+        {/* ── DASHBOARD TAB ─────────────────────────────────────────────── */}
+        <TabsContent value="dashboard" className="space-y-8">
+          <div className="flex justify-end">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => exportToCSV(filteredMerchants, "residual_revenue", [
+                { key: "merchantName", label: "Merchant" },
+                { key: "mid", label: "MID" },
+                { key: "volume", label: "Volume" },
+                { key: "revenue", label: "Revenue" },
+                { key: "revenueChange", label: "Change %" },
+              ])}
+              data-testid="button-export-revenue"
+            >
+              <Download className="w-4 h-4 mr-1" /> Export Revenue Data
+            </Button>
+          </div>
+
+          {!hasData && !reportsLoading && (
+            <Card className="bg-primary/5 dark:bg-primary/10" data-testid="card-no-data">
+              <CardContent className="py-8 text-center">
+                <AlertTriangle className="w-8 h-8 text-muted-foreground mx-auto mb-3" />
+                <p className="text-muted-foreground" data-testid="text-no-data">
+                  Import residual data to see revenue metrics
+                </p>
+              </CardContent>
+            </Card>
           )}
-        </CardContent>
-      </Card>
 
-      <Card data-testid="card-merchant-residuals">
-        <CardHeader className="flex flex-row items-center justify-between gap-2 flex-wrap">
-          <CardTitle className="text-base">Merchant Residuals</CardTitle>
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input
-              placeholder="Search merchants..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 w-64"
-              data-testid="input-search-merchants"
-            />
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6" data-testid="section-kpi-cards">
+            {reportsLoading ? (
+              <><KPISkeleton /><KPISkeleton /><KPISkeleton /><KPISkeleton /></>
+            ) : (
+              <>
+                <Card data-testid="card-kpi-total-revenue">
+                  <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+                    <CardTitle className="text-sm font-medium text-muted-foreground">Total Portfolio Revenue</CardTitle>
+                    <DollarSign className="w-4 h-4 text-green-600" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold" data-testid="text-total-revenue">{formatCurrency(totalRevenue)}</div>
+                    <p className="text-xs text-muted-foreground mt-1">This month</p>
+                  </CardContent>
+                </Card>
+                <Card data-testid="card-kpi-active-merchants">
+                  <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+                    <CardTitle className="text-sm font-medium text-muted-foreground">Active Merchants</CardTitle>
+                    <Users className="w-4 h-4 text-primary" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold" data-testid="text-active-merchants">{activeMerchants.toLocaleString()}</div>
+                    <p className="text-xs text-muted-foreground mt-1">Processing merchants</p>
+                  </CardContent>
+                </Card>
+                <Card data-testid="card-kpi-avg-revenue">
+                  <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+                    <CardTitle className="text-sm font-medium text-muted-foreground">Avg Revenue Per Merchant</CardTitle>
+                    <TrendingUp className="w-4 h-4 text-green-600" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold" data-testid="text-avg-revenue">{formatCurrencyDetailed(avgRevenuePerMerchant)}</div>
+                    <p className="text-xs text-muted-foreground mt-1">Per merchant average</p>
+                  </CardContent>
+                </Card>
+                <Card data-testid="card-kpi-attrition">
+                  <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+                    <CardTitle className="text-sm font-medium text-muted-foreground">Attrition Rate</CardTitle>
+                    <Percent className="w-4 h-4 text-orange-500" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold" data-testid="text-attrition-rate">{attritionRate.toFixed(1)}%</div>
+                    <p className="text-xs text-muted-foreground mt-1">Monthly merchant churn</p>
+                  </CardContent>
+                </Card>
+              </>
+            )}
           </div>
-        </CardHeader>
-        <CardContent>
-          <Table data-testid="table-merchant-residuals">
-            <TableHeader>
-              <TableRow>
-                <TableHead>Merchant Name</TableHead>
-                <TableHead>MID</TableHead>
-                <TableHead className="text-right">Volume</TableHead>
-                <TableHead className="text-right">Revenue</TableHead>
-                <TableHead className="text-right">Cost</TableHead>
-                <TableHead className="text-right">Net Revenue</TableHead>
-                <TableHead>Agent</TableHead>
-                <TableHead className="text-right">Commission</TableHead>
-                <TableHead>Flags</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {residualsLoading ? (
-                <TableSkeleton rows={5} />
-              ) : filteredMerchants.length > 0 ? (
-                filteredMerchants.map((merchant) => (
-                  <TableRow key={merchant.id} data-testid={`row-merchant-${merchant.id}`}>
-                    <TableCell className="font-medium" data-testid={`text-merchant-name-${merchant.id}`}>
-                      {merchant.merchantName}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground" data-testid={`text-merchant-mid-${merchant.id}`}>
-                      {merchant.mid}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex flex-col items-end gap-0.5">
-                        <span data-testid={`text-merchant-volume-${merchant.id}`}>
-                          {formatCurrency(merchant.volume)}
-                        </span>
-                        <ChangeIndicator value={merchant.volumeChange} />
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex flex-col items-end gap-0.5">
-                        <span data-testid={`text-merchant-revenue-${merchant.id}`}>
-                          {formatCurrencyDetailed(merchant.revenue)}
-                        </span>
-                        <ChangeIndicator value={merchant.revenueChange} />
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right" data-testid={`text-merchant-cost-${merchant.id}`}>
-                      {formatCurrencyDetailed(merchant.cost)}
-                    </TableCell>
-                    <TableCell className="text-right font-medium" data-testid={`text-merchant-net-${merchant.id}`}>
-                      {formatCurrencyDetailed(merchant.netRevenue)}
-                    </TableCell>
-                    <TableCell data-testid={`text-merchant-agent-${merchant.id}`}>
-                      {merchant.agent}
-                    </TableCell>
-                    <TableCell className="text-right" data-testid={`text-merchant-commission-${merchant.id}`}>
-                      {formatCurrencyDetailed(merchant.commission)}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap gap-1">
-                        {merchant.flags.length > 0 ? (
-                          merchant.flags.map((flag) => (
-                            <Badge
-                              key={flag}
-                              variant={flag === "critical" ? "destructive" : "secondary"}
-                              className="text-xs"
-                              data-testid={`badge-flag-${merchant.id}-${flag}`}
-                            >
-                              {flag === "critical" && <AlertTriangle className="w-3 h-3 mr-1" />}
-                              {flag}
-                            </Badge>
-                          ))
-                        ) : (
-                          <span className="text-xs text-muted-foreground">--</span>
-                        )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))
-              ) : (
-                <TableRow>
-                  <TableCell colSpan={9} className="text-center py-8 text-muted-foreground" data-testid="text-no-merchants">
-                    {searchQuery ? "No merchants match your search" : "No merchant residual data available"}
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
 
-      <Card data-testid="card-agent-commissions">
-        <CardHeader>
-          <CardTitle className="text-base">Agent Commission Summary</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Table data-testid="table-agent-commissions">
-            <TableHeader>
-              <TableRow>
-                <TableHead>Agent Name</TableHead>
-                <TableHead className="text-right">Total Deals</TableHead>
-                <TableHead className="text-right">Revenue Managed</TableHead>
-                <TableHead className="text-right">Commission Earned</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {agentsLoading || residualsLoading ? (
-                <>
-                  {Array.from({ length: 3 }).map((_, i) => (
-                    <TableRow key={i}>
-                      {Array.from({ length: 4 }).map((_, j) => (
-                        <TableCell key={j}>
-                          <Skeleton className="h-4 w-full" />
-                        </TableCell>
-                      ))}
-                    </TableRow>
+          <Card data-testid="card-revenue-chart">
+            <CardHeader className="flex flex-row items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-2">
+                <BarChart3 className="w-5 h-5 text-primary" />
+                <CardTitle className="text-base">Revenue Trend (Last 6 Months)</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {reportsLoading ? (
+                <div className="flex items-end gap-3 h-48">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <div key={i} className="flex-1 flex flex-col items-center gap-2">
+                      <Skeleton className="w-full" style={{ height: `${40 + Math.random() * 60}%` }} />
+                      <Skeleton className="h-3 w-10" />
+                    </div>
                   ))}
-                </>
-              ) : agentSummary.length > 0 ? (
-                agentSummary.map((agent) => (
-                  <TableRow key={agent.id} data-testid={`row-agent-${agent.id}`}>
-                    <TableCell className="font-medium" data-testid={`text-agent-name-${agent.id}`}>
-                      {agent.name}
-                    </TableCell>
-                    <TableCell className="text-right" data-testid={`text-agent-deals-${agent.id}`}>
-                      {agent.totalDeals}
-                    </TableCell>
-                    <TableCell className="text-right" data-testid={`text-agent-revenue-${agent.id}`}>
-                      {formatCurrency(agent.revenueManaged)}
-                    </TableCell>
-                    <TableCell className="text-right font-medium" data-testid={`text-agent-commission-${agent.id}`}>
-                      {formatCurrencyDetailed(agent.commissionEarned)}
-                    </TableCell>
-                  </TableRow>
-                ))
+                </div>
+              ) : last6Months.length > 0 ? (
+                <div className="flex items-end gap-3 h-48" data-testid="chart-revenue-bars">
+                  {last6Months.map((report) => {
+                    const height = maxRevenue > 0 ? (report.totalRevenue / maxRevenue) * 100 : 0;
+                    return (
+                      <div key={`${report.month}-${report.year}`} className="flex-1 flex flex-col items-center gap-2">
+                        <span className="text-xs font-medium text-muted-foreground">{formatCurrency(report.totalRevenue)}</span>
+                        <div className="w-full bg-primary/80 dark:bg-primary/60 rounded-md transition-all" style={{ height: `${Math.max(height, 4)}%` }} />
+                        <span className="text-xs text-muted-foreground">{report.month}</span>
+                      </div>
+                    );
+                  })}
+                </div>
               ) : (
-                <TableRow>
-                  <TableCell colSpan={4} className="text-center py-8 text-muted-foreground" data-testid="text-no-agents">
-                    No agent commission data available
-                  </TableCell>
-                </TableRow>
+                <div className="flex items-center justify-center h-48 text-muted-foreground">No revenue data available</div>
               )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+            </CardContent>
+          </Card>
+
+          <Card data-testid="card-merchant-residuals">
+            <CardHeader className="flex flex-row items-center justify-between gap-2 flex-wrap">
+              <CardTitle className="text-base">Merchant Residuals</CardTitle>
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search merchants..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-9 w-64"
+                  data-testid="input-search-merchants"
+                />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <Table data-testid="table-merchant-residuals">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Merchant Name</TableHead>
+                    <TableHead>MID</TableHead>
+                    <TableHead className="text-right">Volume</TableHead>
+                    <TableHead className="text-right">Revenue</TableHead>
+                    <TableHead className="text-right">Cost</TableHead>
+                    <TableHead className="text-right">Net Revenue</TableHead>
+                    <TableHead>Agent</TableHead>
+                    <TableHead className="text-right">Commission</TableHead>
+                    <TableHead>Flags</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {residualsLoading ? (
+                    <TableSkeleton rows={5} cols={9} />
+                  ) : filteredMerchants.length > 0 ? (
+                    filteredMerchants.map((merchant) => (
+                      <TableRow key={merchant.id} data-testid={`row-merchant-${merchant.id}`}>
+                        <TableCell className="font-medium">{merchant.merchantName}</TableCell>
+                        <TableCell className="text-muted-foreground">{merchant.mid}</TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex flex-col items-end gap-0.5">
+                            <span>{formatCurrency(merchant.volume)}</span>
+                            <ChangeIndicator value={merchant.volumeChange} />
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex flex-col items-end gap-0.5">
+                            <span>{formatCurrencyDetailed(merchant.revenue)}</span>
+                            <ChangeIndicator value={merchant.revenueChange} />
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right">{formatCurrencyDetailed(merchant.cost)}</TableCell>
+                        <TableCell className="text-right font-medium">{formatCurrencyDetailed(merchant.netRevenue)}</TableCell>
+                        <TableCell>{merchant.agent}</TableCell>
+                        <TableCell className="text-right">{formatCurrencyDetailed(merchant.commission)}</TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-1">
+                            {merchant.flags.length > 0 ? (
+                              merchant.flags.map((flag) => (
+                                <Badge key={flag} variant={flag === "critical" ? "destructive" : "secondary"} className="text-xs">
+                                  {flag === "critical" && <AlertTriangle className="w-3 h-3 mr-1" />}{flag}
+                                </Badge>
+                              ))
+                            ) : (
+                              <span className="text-xs text-muted-foreground">--</span>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  ) : (
+                    <TableRow>
+                      <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                        {searchQuery ? "No merchants match your search" : "No merchant residual data available"}
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+
+          <Card data-testid="card-agent-commissions">
+            <CardHeader>
+              <CardTitle className="text-base">Agent Commission Summary</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Table data-testid="table-agent-commissions">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Agent Name</TableHead>
+                    <TableHead className="text-right">Total Deals</TableHead>
+                    <TableHead className="text-right">Revenue Managed</TableHead>
+                    <TableHead className="text-right">Commission Earned</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {agentsLoading || residualsLoading ? (
+                    <TableSkeleton rows={3} cols={4} />
+                  ) : agentSummary.length > 0 ? (
+                    agentSummary.map((agent) => (
+                      <TableRow key={agent.id} data-testid={`row-agent-${agent.id}`}>
+                        <TableCell className="font-medium">{agent.name}</TableCell>
+                        <TableCell className="text-right">{agent.totalDeals}</TableCell>
+                        <TableCell className="text-right">{formatCurrency(agent.revenueManaged)}</TableCell>
+                        <TableCell className="text-right font-medium">{formatCurrencyDetailed(agent.commissionEarned)}</TableCell>
+                      </TableRow>
+                    ))
+                  ) : (
+                    <TableRow>
+                      <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">No agent commission data available</TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── IMPORT & RECONCILE TAB ─────────────────────────────────────── */}
+        <TabsContent value="reconcile" className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Upload Panel */}
+            <Card className="lg:col-span-1" data-testid="card-upload">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Upload className="w-4 h-4 text-primary" />
+                  Upload Processor Report
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <form onSubmit={handleUpload} className="space-y-4">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="upload-month">Report Month</Label>
+                    <Input
+                      id="upload-month"
+                      type="month"
+                      value={uploadMonth}
+                      onChange={e => setUploadMonth(e.target.value)}
+                      data-testid="input-upload-month"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="upload-file">File (CSV or XLSX)</Label>
+                    <Input
+                      id="upload-file"
+                      type="file"
+                      ref={fileRef}
+                      accept=".csv,.xlsx,.xls"
+                      data-testid="input-upload-file"
+                    />
+                    <p className="text-xs text-muted-foreground">Supported columns: MID, DBA/Merchant Name, Volume, Gross Residual, Net Residual</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="threshold-pct">Variance % Threshold</Label>
+                      <Input
+                        id="threshold-pct"
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.5"
+                        value={thresholdPct}
+                        onChange={e => setThresholdPct(e.target.value)}
+                        data-testid="input-threshold-pct"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="threshold-amt">Variance $ Threshold</Label>
+                      <Input
+                        id="threshold-amt"
+                        type="number"
+                        min="0"
+                        step="5"
+                        value={thresholdAmt}
+                        onChange={e => setThresholdAmt(e.target.value)}
+                        data-testid="input-threshold-amt"
+                      />
+                    </div>
+                  </div>
+                  <Button
+                    type="submit"
+                    className="w-full"
+                    disabled={uploadMutation.isPending}
+                    data-testid="button-upload-submit"
+                  >
+                    {uploadMutation.isPending ? "Parsing & Matching…" : "Upload & Parse File"}
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
+
+            {/* Pending Imports List */}
+            <Card className="lg:col-span-2" data-testid="card-pending-imports">
+              <CardHeader>
+                <CardTitle className="text-base">Pending Reconciliations</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {importsLoading ? (
+                  <div className="space-y-2">
+                    {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}
+                  </div>
+                ) : imports && imports.filter(i => i.status === "pending").length > 0 ? (
+                  <div className="space-y-2" data-testid="list-pending-imports">
+                    {imports.filter(i => i.status === "pending").map(imp => (
+                      <div
+                        key={imp.id}
+                        className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-colors ${selectedImportId === imp.id ? "border-primary bg-primary/5" : "hover:bg-muted/50"}`}
+                        onClick={() => setSelectedImportId(imp.id)}
+                        data-testid={`card-import-${imp.id}`}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <FileText className="w-5 h-5 text-muted-foreground shrink-0" />
+                          <div className="min-w-0">
+                            <div className="font-medium text-sm truncate">{imp.fileName}</div>
+                            <div className="text-xs text-muted-foreground">{imp.month} · {imp.totalRows} rows · {imp.matchedRows} matched · {imp.flaggedRows} flagged</div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0 ml-2">
+                          <ImportStatusBadge status={imp.status} />
+                          <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground" data-testid="text-no-pending">
+                    <Upload className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                    <p className="text-sm">No pending reconciliations. Upload a file to get started.</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Review Panel */}
+          {selectedImportId && (
+            <Card data-testid="card-review-panel">
+              <CardHeader className="flex flex-row items-start justify-between gap-4 flex-wrap">
+                <div>
+                  <CardTitle className="text-base">
+                    {selectedImportLoading ? <Skeleton className="h-5 w-48" /> : `Review: ${selectedImport?.fileName}`}
+                  </CardTitle>
+                  {selectedImport && (
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {selectedImport.month} · {selectedImport.matchedRows} matched · {selectedImport.unmatchedRows} unmatched · {selectedImport.flaggedRows} flagged
+                    </p>
+                  )}
+                </div>
+                {selectedImport && selectedImport.status === "pending" && (
+                  <div className="flex gap-2 flex-wrap">
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => deleteMutation.mutate(selectedImport.id)}
+                      disabled={deleteMutation.isPending}
+                      data-testid="button-reject-import"
+                    >
+                      <Trash2 className="w-4 h-4 mr-1" /> Reject
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => confirmMutation.mutate(selectedImport.id)}
+                      disabled={confirmMutation.isPending}
+                      data-testid="button-confirm-import"
+                    >
+                      <CheckCircle className="w-4 h-4 mr-1" />
+                      {confirmMutation.isPending ? "Confirming…" : "Confirm & Post Residuals"}
+                    </Button>
+                  </div>
+                )}
+                {selectedImport?.status === "confirmed" && (
+                  <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 border-0">
+                    <CheckCircle className="w-3 h-3 mr-1" /> Confirmed {selectedImport.confirmedAt ? new Date(selectedImport.confirmedAt).toLocaleDateString() : ""}
+                  </Badge>
+                )}
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Summary KPIs */}
+                {selectedImport && (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="p-3 rounded-lg bg-muted/50">
+                      <div className="text-xs text-muted-foreground mb-1">Total Net Residual</div>
+                      <div className="font-bold text-lg">{formatCurrencyDetailed(selectedImport.totalNetResidual)}</div>
+                    </div>
+                    <div className="p-3 rounded-lg bg-muted/50">
+                      <div className="text-xs text-muted-foreground mb-1">Total Variance</div>
+                      <div className={`font-bold text-lg ${parseFloat(selectedImport.totalVariance) < 0 ? "text-red-600" : parseFloat(selectedImport.totalVariance) > 0 ? "text-orange-500" : ""}`}>
+                        {formatCurrencyDetailed(selectedImport.totalVariance)}
+                      </div>
+                    </div>
+                    <div className="p-3 rounded-lg bg-muted/50">
+                      <div className="text-xs text-muted-foreground mb-1">Matched MIDs</div>
+                      <div className="font-bold text-lg text-green-600">{selectedImport.matchedRows}</div>
+                    </div>
+                    <div className="p-3 rounded-lg bg-muted/50">
+                      <div className="text-xs text-muted-foreground mb-1">Flagged Variances</div>
+                      <div className={`font-bold text-lg ${selectedImport.flaggedRows > 0 ? "text-orange-500" : "text-green-600"}`}>{selectedImport.flaggedRows}</div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Agent reconciliation summary */}
+                {agentReconciliation.length > 0 && (
+                  <div>
+                    <h3 className="text-sm font-semibold mb-2 flex items-center gap-1.5"><Users className="w-4 h-4 text-primary" />Per-Agent Reconciliation</h3>
+                    <Table data-testid="table-agent-reconciliation">
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Agent</TableHead>
+                          <TableHead className="text-right">MIDs</TableHead>
+                          <TableHead className="text-right">Expected Total</TableHead>
+                          <TableHead className="text-right">Actual Total</TableHead>
+                          <TableHead className="text-right">Variance</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {agentReconciliation.map(a => (
+                          <TableRow key={a.agentName} data-testid={`row-agent-recon-${a.agentName}`}>
+                            <TableCell className="font-medium">{a.agentName}</TableCell>
+                            <TableCell className="text-right">{a.count}</TableCell>
+                            <TableCell className="text-right">{formatCurrencyDetailed(a.expectedTotal)}</TableCell>
+                            <TableCell className="text-right">{formatCurrencyDetailed(a.actualTotal)}</TableCell>
+                            <TableCell className={`text-right font-medium ${a.variance < 0 ? "text-red-600" : a.variance > 0 ? "text-orange-500" : ""}`}>
+                              {a.variance >= 0 ? "+" : ""}{formatCurrencyDetailed(a.variance)}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+
+                {/* Row tabs */}
+                <Tabs value={reviewTab} onValueChange={v => setReviewTab(v as any)}>
+                  <TabsList>
+                    <TabsTrigger value="matched" data-testid="tab-matched">
+                      Matched MIDs <Badge variant="secondary" className="ml-1.5 text-xs">{matchedRows.length}</Badge>
+                    </TabsTrigger>
+                    <TabsTrigger value="unmatched" data-testid="tab-unmatched">
+                      Unmatched MIDs <Badge variant="secondary" className="ml-1.5 text-xs">{unmatchedRows.length}</Badge>
+                    </TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value="matched">
+                    {selectedImportLoading ? (
+                      <Table><TableBody><TableSkeleton rows={4} cols={7} /></TableBody></Table>
+                    ) : matchedRows.length > 0 ? (
+                      <div className="overflow-x-auto">
+                        <Table data-testid="table-matched-rows">
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>MID</TableHead>
+                              <TableHead>Merchant</TableHead>
+                              <TableHead className="text-right">Volume</TableHead>
+                              <TableHead className="text-right">Expected</TableHead>
+                              <TableHead className="text-right">Actual</TableHead>
+                              <TableHead className="text-right">Variance</TableHead>
+                              <TableHead>Status</TableHead>
+                              <TableHead>Agent</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {matchedRows.map(row => (
+                              <TableRow
+                                key={row.id}
+                                className={row.varianceStatus !== "in_range" ? "bg-orange-50/50 dark:bg-orange-900/10" : ""}
+                                data-testid={`row-matched-${row.id}`}
+                              >
+                                <TableCell className="font-mono text-xs">{row.mid}</TableCell>
+                                <TableCell className="font-medium text-sm">{row.merchantName || "—"}</TableCell>
+                                <TableCell className="text-right text-sm">{formatCurrencyDetailed(row.volume)}</TableCell>
+                                <TableCell className="text-right text-sm">{formatCurrencyDetailed(row.expectedResidual)}</TableCell>
+                                <TableCell className="text-right text-sm font-medium">{formatCurrencyDetailed(row.netResidual)}</TableCell>
+                                <TableCell className={`text-right text-sm font-medium ${parseFloat(row.variance) < 0 ? "text-red-600" : parseFloat(row.variance) > 0 ? "text-orange-500" : ""}`}>
+                                  {parseFloat(row.variance) >= 0 ? "+" : ""}{formatCurrencyDetailed(row.variance)}
+                                  {row.variancePct !== "0.00" && <span className="text-xs text-muted-foreground ml-1">({parseFloat(row.variancePct).toFixed(1)}%)</span>}
+                                </TableCell>
+                                <TableCell><VarianceBadge status={row.varianceStatus} /></TableCell>
+                                <TableCell className="text-sm">{row.agentName || "—"}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 text-muted-foreground text-sm">No matched MIDs</div>
+                    )}
+                  </TabsContent>
+
+                  <TabsContent value="unmatched">
+                    {selectedImportLoading ? (
+                      <Table><TableBody><TableSkeleton rows={4} cols={4} /></TableBody></Table>
+                    ) : unmatchedRows.length > 0 ? (
+                      <div className="overflow-x-auto">
+                        <Table data-testid="table-unmatched-rows">
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>MID</TableHead>
+                              <TableHead>Merchant Name</TableHead>
+                              <TableHead className="text-right">Volume</TableHead>
+                              <TableHead className="text-right">Net Residual</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {unmatchedRows.map(row => (
+                              <TableRow key={row.id} data-testid={`row-unmatched-${row.id}`}>
+                                <TableCell className="font-mono text-xs">{row.mid}</TableCell>
+                                <TableCell className="text-sm">{row.merchantName || "—"}</TableCell>
+                                <TableCell className="text-right text-sm">{formatCurrencyDetailed(row.volume)}</TableCell>
+                                <TableCell className="text-right text-sm font-medium">{formatCurrencyDetailed(row.netResidual)}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 text-sm text-muted-foreground flex items-center justify-center gap-2">
+                        <CheckCircle className="w-4 h-4 text-green-600" /> All MIDs matched successfully
+                      </div>
+                    )}
+                  </TabsContent>
+                </Tabs>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        {/* ── HISTORY TAB ───────────────────────────────────────────────── */}
+        <TabsContent value="history" className="space-y-4">
+          <Card data-testid="card-history">
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <FileText className="w-4 h-4 text-primary" /> Past Reconciliations
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {importsLoading ? (
+                <Table><TableBody><TableSkeleton rows={5} cols={8} /></TableBody></Table>
+              ) : imports && imports.length > 0 ? (
+                <Table data-testid="table-history">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Month</TableHead>
+                      <TableHead>File</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Total Rows</TableHead>
+                      <TableHead className="text-right">Matched</TableHead>
+                      <TableHead className="text-right">Flagged</TableHead>
+                      <TableHead className="text-right">Net Residual</TableHead>
+                      <TableHead className="text-right">Total Variance</TableHead>
+                      <TableHead>Confirmed By</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {imports.map(imp => (
+                      <TableRow key={imp.id} data-testid={`row-history-${imp.id}`}>
+                        <TableCell className="font-medium">{imp.month}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground max-w-[180px] truncate">{imp.fileName}</TableCell>
+                        <TableCell><ImportStatusBadge status={imp.status} /></TableCell>
+                        <TableCell className="text-right">{imp.totalRows}</TableCell>
+                        <TableCell className="text-right text-green-600 font-medium">{imp.matchedRows}</TableCell>
+                        <TableCell className="text-right">
+                          {imp.flaggedRows > 0 ? (
+                            <span className="text-orange-500 font-medium flex items-center justify-end gap-1">
+                              <AlertCircle className="w-3 h-3" />{imp.flaggedRows}
+                            </span>
+                          ) : (
+                            <span className="text-green-600">0</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right font-medium">{formatCurrencyDetailed(imp.totalNetResidual)}</TableCell>
+                        <TableCell className={`text-right font-medium ${parseFloat(imp.totalVariance) < 0 ? "text-red-600" : parseFloat(imp.totalVariance) > 0 ? "text-orange-500" : ""}`}>
+                          {parseFloat(imp.totalVariance) >= 0 ? "+" : ""}{formatCurrencyDetailed(imp.totalVariance)}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{imp.confirmedBy || "—"}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              ) : (
+                <div className="text-center py-12 text-muted-foreground" data-testid="text-no-history">
+                  <FileText className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                  <p className="text-sm">No reconciliation history yet. Import your first processor report to get started.</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

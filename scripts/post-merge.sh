@@ -5,3 +5,4 @@ npm run db:push 2>/dev/null || npx drizzle-kit push --force 2>/dev/null || true
 if [ -f "server/add-indexes.sql" ]; then
   psql "$DATABASE_URL" -f server/add-indexes.sql 2>/dev/null || true
 fi
+psql "$DATABASE_URL" -f migrations/0009_residual_reconciliation.sql 2>/dev/null || true
