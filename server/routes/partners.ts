@@ -11,6 +11,7 @@ import type { InsertPartner } from "@shared/schema";
 import bcrypt from "bcryptjs";
 import { createContactGhlFirst } from "../services/contact-writer";
 import { syncFormSubmissionToGhl, syncAffiliateSignupToGhl } from "../services/ghl-form-sync";
+import { sendPartnerWelcomeEmail } from "../services/partner-welcome";
 
 export function registerPartnersRoutes(app: Express) {
   // === PARTNERS (admin) ===
@@ -53,8 +54,20 @@ export function registerPartnersRoutes(app: Express) {
       if (status && ["active", "pending", "suspended", "inactive"].includes(status)) updates.status = status;
       if (commissionPercent !== undefined) updates.commissionPercent = Math.min(Math.max(0, Number(commissionPercent) || 0), 100);
       if (notes !== undefined) updates.notes = String(notes).slice(0, 2000);
-      const updated = await storage.updatePartner(Number(req.params.id), updates);
+
+      const partnerId = Number(req.params.id);
+      const existing = await storage.getPartner(partnerId);
+      if (!existing) return res.status(404).json({ message: "Not found" });
+
+      const updated = await storage.updatePartner(partnerId, updates);
       if (!updated) return res.status(404).json({ message: "Not found" });
+
+      if (updates.status === "active" && existing.status !== "active") {
+        sendPartnerWelcomeEmail(updated).catch(err =>
+          console.error(`[Partners] Welcome email error for partner #${partnerId}:`, err)
+        );
+      }
+
       res.json(updated);
     } catch (err: any) {
       res.status(400).json({ message: err.message });
