@@ -66,6 +66,8 @@ import {
   ThumbsUp,
   RefreshCw,
   FolderOpen,
+  X,
+  ShieldOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -199,6 +201,60 @@ const formItems: MenuItem[] = [
 
 function filterByRole(items: MenuItem[], role: UserRole): MenuItem[] {
   return items.filter((item) => !item.roles || item.roles.includes(role));
+}
+
+const TWO_FA_BANNER_KEY = "2fa_banner_dismissed";
+
+function TwoFaBanner({ role }: { role: UserRole }) {
+  const [dismissed, setDismissed] = useState(() =>
+    typeof window !== "undefined" && localStorage.getItem(TWO_FA_BANNER_KEY) === "true"
+  );
+
+  const handleDismiss = () => {
+    localStorage.setItem(TWO_FA_BANNER_KEY, "true");
+    setDismissed(true);
+  };
+
+  if (dismissed) return null;
+
+  const isAdmin = role === "admin";
+
+  return (
+    <div
+      data-testid="banner-2fa-enrollment"
+      className={
+        isAdmin
+          ? "flex items-center gap-3 px-4 py-3 text-sm font-medium bg-destructive text-destructive-foreground"
+          : "flex items-center gap-3 px-4 py-2.5 text-sm bg-amber-50 dark:bg-amber-950 text-amber-900 dark:text-amber-100 border-b border-amber-200 dark:border-amber-800"
+      }
+    >
+      <ShieldOff className="w-4 h-4 shrink-0" />
+      <span className="flex-1">
+        {isAdmin
+          ? "Security warning: Your admin account does not have two-factor authentication enabled. Enable 2FA immediately to protect your account."
+          : "Protect your account by enabling two-factor authentication (2FA)."}
+      </span>
+      <Link
+        href="/dashboard/security"
+        data-testid="link-2fa-banner-setup"
+        className={
+          isAdmin
+            ? "underline underline-offset-2 font-semibold hover:opacity-80 whitespace-nowrap"
+            : "underline underline-offset-2 font-semibold text-amber-800 dark:text-amber-200 hover:opacity-80 whitespace-nowrap"
+        }
+      >
+        Set up 2FA
+      </Link>
+      <button
+        onClick={handleDismiss}
+        data-testid="button-2fa-banner-dismiss"
+        aria-label="Dismiss 2FA banner"
+        className="ml-1 p-0.5 rounded hover:opacity-70 shrink-0"
+      >
+        <X className="w-4 h-4" />
+      </button>
+    </div>
+  );
 }
 
 export function DashboardLayout({ children }: DashboardLayoutProps) {
@@ -350,6 +406,9 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
             </div>
           </header>
           <EmailComposer open={emailOpen} onClose={() => setEmailOpen(false)} />
+          {user && !user.totpEnabled && (
+            <TwoFaBanner role={role} />
+          )}
           <main className="flex-1 overflow-auto p-3 sm:p-6 max-w-7xl mx-auto w-full">
             {children}
           </main>
