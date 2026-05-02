@@ -172,6 +172,7 @@ const businessItems: MenuItem[] = [
 
 const merchantItems: MenuItem[] = [
   { icon: ShieldCheck, label: "My Portal", href: "/dashboard/merchant-portal" },
+  { icon: ClipboardList, label: "Applications", href: "/dashboard/merchant-applications", roles: ["admin", "manager"] },
   { icon: HelpCircle, label: "Knowledge Base", href: "/dashboard/knowledge-base" },
   { icon: GraduationCap, label: "Training", href: "/dashboard/training", roles: ["admin", "manager", "agent"] },
 ];

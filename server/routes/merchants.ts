@@ -1,5 +1,5 @@
-import type { Express } from "express";
-import { isAuthenticated } from "../replit_integrations/auth";
+import type { Express, RequestHandler } from "express";
+import { isAuthenticated, isDashboardUser } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
 import { and } from "drizzle-orm";
@@ -7,8 +7,17 @@ import { insertEquipmentOrderSchema, insertMerchantApplicationSchema, insertMerc
 import { getDocumentStatus, sendDocumentForEsign } from "../services/ghl";
 import { syncMerchantApplicationToGhl } from "../services/ghl-form-sync";
 import { createContactGhlFirst } from "../services/contact-writer";
+import { sendMerchantWelcomeEmail } from "../services/merchant-welcome";
 import { parse } from "csv-parse/sync";
 import path from "path";
+
+const isAdminOrManager: RequestHandler = (req, res, next) => {
+  const role = (req.user as any)?.role;
+  if (req.isAuthenticated() && (role === "admin" || role === "manager")) {
+    return next();
+  }
+  return res.status(403).json({ message: "Admin or manager access required" });
+};
 
 export function registerMerchantsRoutes(app: Express) {
   // === MERCHANT APPLICATIONS ===
@@ -44,6 +53,37 @@ export function registerMerchantsRoutes(app: Express) {
     }
   });
 
+  app.get("/api/merchant-applications", isAdminOrManager, async (req, res) => {
+    try {
+      const { status, search, limit = "50", offset = "0" } = req.query as Record<string, string>;
+      let applications = await storage.getMerchantApplications();
+
+      if (status && status !== "all") {
+        applications = applications.filter((a) => a.status === status);
+      }
+
+      if (search) {
+        const q = search.toLowerCase();
+        applications = applications.filter(
+          (a) =>
+            (a.legalBusinessName || "").toLowerCase().includes(q) ||
+            (a.dba || "").toLowerCase().includes(q) ||
+            (a.businessEmail || "").toLowerCase().includes(q) ||
+            (a.ownerEmail || "").toLowerCase().includes(q) ||
+            (a.ownerFirstName || "").toLowerCase().includes(q) ||
+            (a.ownerLastName || "").toLowerCase().includes(q)
+        );
+      }
+
+      const total = applications.length;
+      const paginated = applications.slice(Number(offset), Number(offset) + Number(limit));
+
+      res.json({ applications: paginated, total, limit: Number(limit), offset: Number(offset) });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/merchant-applications/user/:userId", isAuthenticated, async (req, res) => {
     try {
       const application = await storage.getMerchantApplicationByUser(req.params.userId);
@@ -64,10 +104,37 @@ export function registerMerchantsRoutes(app: Express) {
     }
   });
 
-  app.patch("/api/merchant-applications/:id", isAuthenticated, async (req, res) => {
+  app.patch("/api/merchant-applications/:id", isAdminOrManager, async (req, res) => {
     try {
-      const updated = await storage.updateMerchantApplication(Number(req.params.id), req.body);
+      const appId = Number(req.params.id);
+      const existing = await storage.getMerchantApplication(appId);
+      if (!existing) return res.status(404).json({ message: "Not found" });
+
+      const updated = await storage.updateMerchantApplication(appId, req.body);
       if (!updated) return res.status(404).json({ message: "Not found" });
+
+      const wasApproved = existing.status !== "approved" && updated.status === "approved";
+      if (wasApproved && updated.dealId) {
+        (async () => {
+          try {
+            const deal = await storage.getDeal(updated.dealId!);
+            if (deal && deal.stage !== "Closed Won") {
+              const closedDeal = await storage.updateDeal(updated.dealId!, { stage: "Closed Won" });
+              if (closedDeal && closedDeal.contactId) {
+                const contact = await storage.getContact(closedDeal.contactId);
+                if (contact?.ghlContactId) {
+                  sendMerchantWelcomeEmail(contact, closedDeal).catch((err) =>
+                    console.error("[Application Approval] Merchant welcome email error:", err)
+                  );
+                }
+              }
+            }
+          } catch (err) {
+            console.error("[Application Approval] Deal advancement error:", err);
+          }
+        })();
+      }
+
       res.json(updated);
     } catch (err: any) {
       res.status(400).json({ message: err.message });

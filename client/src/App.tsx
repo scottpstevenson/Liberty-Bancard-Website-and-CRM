@@ -92,6 +92,7 @@ import LeadCommandCenter from "@/pages/dashboard/LeadCommandCenter";
 import LeadImports from "@/pages/dashboard/LeadImports";
 import BlazeIntegration from "@/pages/dashboard/BlazeIntegration";
 import MerchantPortal from "@/pages/dashboard/MerchantPortal";
+import MerchantApplicationsList from "@/pages/dashboard/MerchantApplicationsList";
 import AgentManagement from "@/pages/dashboard/AgentManagement";
 import MerchantHealth from "@/pages/dashboard/MerchantHealth";
 import Chargebacks from "@/pages/dashboard/Chargebacks";
@@ -434,6 +435,9 @@ function Router() {
       </Route>
       <Route path="/dashboard/blaze">
         <ProtectedRoute component={BlazeIntegration} />
+      </Route>
+      <Route path="/dashboard/merchant-applications">
+        <ProtectedRoute component={MerchantApplicationsList} />
       </Route>
       <Route path="/dashboard/merchant-portal">
         <ProtectedRoute component={MerchantPortal} />

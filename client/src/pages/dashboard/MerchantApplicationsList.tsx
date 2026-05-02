@@ -1,0 +1,532 @@
+import { useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Search, FileText, Building2, Mail, Calendar,
+  CheckCircle2, XCircle, SendHorizonal, MessageSquarePlus,
+  ChevronLeft, Loader2, User, CreditCard,
+  MapPin, Landmark, ClipboardCheck, Paperclip, ExternalLink,
+} from "lucide-react";
+import type { MerchantApplication, Document as DocType } from "@shared/schema";
+
+const STATUS_TABS = [
+  { value: "all", label: "All" },
+  { value: "submitted", label: "Submitted" },
+  { value: "under_review", label: "Under Review" },
+  { value: "approved", label: "Approved" },
+  { value: "declined", label: "Declined" },
+  { value: "draft", label: "Draft" },
+];
+
+function getStatusVariant(status: string | null | undefined): "default" | "secondary" | "destructive" | "outline" {
+  switch (status) {
+    case "approved": return "default";
+    case "declined": return "destructive";
+    case "under_review": return "outline";
+    case "submitted": return "secondary";
+    default: return "secondary";
+  }
+}
+
+function getStatusLabel(status: string | null | undefined): string {
+  switch (status) {
+    case "draft": return "Draft";
+    case "in_progress": return "In Progress";
+    case "submitted": return "Submitted";
+    case "under_review": return "Under Review";
+    case "approved": return "Approved";
+    case "declined": return "Declined";
+    case "withdrawn": return "Withdrawn";
+    default: return status || "Unknown";
+  }
+}
+
+function formatDate(date: string | Date | null | undefined): string {
+  if (!date) return "—";
+  return new Date(date).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+}
+
+function DetailField({ label, value }: { label: string; value: React.ReactNode }) {
+  if (!value) return null;
+  return (
+    <div className="space-y-0.5">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="text-sm font-medium text-foreground">{value}</p>
+    </div>
+  );
+}
+
+function DetailSection({ title, icon: Icon, children }: { title: string; icon: any; children: React.ReactNode }) {
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 text-sm font-semibold text-foreground border-b pb-1">
+        <Icon className="w-4 h-4 text-primary" />
+        {title}
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function ApplicationDetailView({
+  application,
+  onClose,
+}: {
+  application: MerchantApplication;
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const [requestInfoNote, setRequestInfoNote] = useState("");
+  const [showRequestInfo, setShowRequestInfo] = useState(false);
+
+  const { data: allDocuments } = useQuery<DocType[]>({
+    queryKey: ["/api/documents"],
+    enabled: !!application.contactId,
+  });
+
+  const documents = allDocuments?.filter(
+    (d) => application.contactId && d.contactId === application.contactId
+  ) ?? [];
+
+  const updateMutation = useMutation({
+    mutationFn: (updates: Partial<MerchantApplication>) =>
+      apiRequest("PATCH", `/api/merchant-applications/${application.id}`, updates),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/merchant-applications"] });
+    },
+  });
+
+  const esignMutation = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/merchant-applications/${application.id}/send-esign`, {}),
+    onSuccess: () => {
+      toast({ title: "E-sign sent", description: "E-signature request sent to the merchant." });
+      queryClient.invalidateQueries({ queryKey: ["/api/merchant-applications"] });
+    },
+    onError: (err: any) => {
+      toast({ title: "E-sign failed", description: err.message || "Could not send e-signature request.", variant: "destructive" });
+    },
+  });
+
+  const handleApprove = async () => {
+    try {
+      await updateMutation.mutateAsync({ status: "approved", approvedAt: new Date() });
+      toast({ title: "Application approved", description: "The merchant application has been approved." });
+      onClose();
+    } catch {
+      toast({ title: "Error", description: "Could not approve application.", variant: "destructive" });
+    }
+  };
+
+  const handleDecline = async () => {
+    try {
+      await updateMutation.mutateAsync({ status: "declined", declinedAt: new Date() });
+      toast({ title: "Application declined", description: "The merchant application has been declined." });
+      onClose();
+    } catch {
+      toast({ title: "Error", description: "Could not decline application.", variant: "destructive" });
+    }
+  };
+
+  const handleRequestInfo = async () => {
+    try {
+      await updateMutation.mutateAsync({
+        status: "under_review",
+        underwritingStatus: "documents_needed",
+        underwritingNotes: requestInfoNote || null,
+      });
+      toast({ title: "Info requested", description: "Application status updated to Under Review — Documents Needed." });
+      setShowRequestInfo(false);
+      onClose();
+    } catch {
+      toast({ title: "Error", description: "Could not update application.", variant: "destructive" });
+    }
+  };
+
+  const businessName = application.legalBusinessName || application.dba || "Unnamed Business";
+  const contactName = [application.ownerFirstName, application.ownerLastName].filter(Boolean).join(" ") || "—";
+  const contactEmail = application.ownerEmail || application.businessEmail || "—";
+
+  return (
+    <div className="space-y-6" data-testid="application-detail-view">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <Button variant="ghost" size="sm" onClick={onClose} className="mb-2 -ml-2" data-testid="button-back-to-list">
+            <ChevronLeft className="w-4 h-4 mr-1" />
+            Back to Applications
+          </Button>
+          <h2 className="text-xl font-bold text-foreground" data-testid="text-app-business-name">{businessName}</h2>
+          <div className="flex items-center gap-3 mt-1 flex-wrap">
+            <Badge variant={getStatusVariant(application.status)} data-testid="badge-app-status">
+              {getStatusLabel(application.status)}
+            </Badge>
+            <span className="text-xs text-muted-foreground">
+              Submitted {formatDate(application.submittedAt || application.createdAt)}
+            </span>
+            {application.id && (
+              <span className="text-xs text-muted-foreground font-mono" data-testid="text-app-id">
+                #{application.id}
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          {application.status !== "approved" && application.status !== "declined" && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowRequestInfo(!showRequestInfo)}
+                data-testid="button-request-info"
+              >
+                <MessageSquarePlus className="w-4 h-4 mr-2" />
+                Request Info
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => esignMutation.mutate()}
+                disabled={esignMutation.isPending}
+                data-testid="button-send-esign"
+              >
+                {esignMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <SendHorizonal className="w-4 h-4 mr-2" />
+                )}
+                Send E-Sign
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={handleDecline}
+                disabled={updateMutation.isPending}
+                data-testid="button-decline-application"
+              >
+                <XCircle className="w-4 h-4 mr-2" />
+                Decline
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleApprove}
+                disabled={updateMutation.isPending}
+                data-testid="button-approve-application"
+              >
+                {updateMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="w-4 h-4 mr-2" />
+                )}
+                Approve
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {showRequestInfo && (
+        <Card data-testid="card-request-info">
+          <CardContent className="p-4 space-y-3">
+            <Label htmlFor="request-info-note">Note for merchant (optional)</Label>
+            <Textarea
+              id="request-info-note"
+              placeholder="Describe what additional information or documents are needed..."
+              value={requestInfoNote}
+              onChange={(e) => setRequestInfoNote(e.target.value)}
+              data-testid="input-request-info-note"
+              rows={3}
+            />
+            <div className="flex gap-2">
+              <Button size="sm" onClick={handleRequestInfo} disabled={updateMutation.isPending} data-testid="button-submit-request-info">
+                {updateMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                Send Request
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setShowRequestInfo(false)} data-testid="button-cancel-request-info">
+                Cancel
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="space-y-6">
+        <DetailSection title="Business Information" icon={Building2}>
+          <DetailField label="Legal Business Name" value={application.legalBusinessName} />
+          <DetailField label="DBA" value={application.dba} />
+          <DetailField label="EIN" value={application.ein} />
+          <DetailField label="Business Type" value={application.businessType} />
+          <DetailField label="Started" value={application.businessStartDate} />
+          <DetailField label="Vertical" value={application.vertical} />
+        </DetailSection>
+
+        <DetailSection title="Contact" icon={User}>
+          <DetailField label="Owner Name" value={contactName} />
+          <DetailField label="Owner Email" value={contactEmail} />
+          <DetailField label="Owner Phone" value={application.ownerPhone} />
+          <DetailField label="Business Phone" value={application.businessPhone} />
+          <DetailField label="Business Email" value={application.businessEmail} />
+          <DetailField label="Website" value={application.website} />
+        </DetailSection>
+
+        <DetailSection title="Address" icon={MapPin}>
+          <DetailField label="Business Address" value={application.businessAddress} />
+          <DetailField label="City" value={application.businessCity} />
+          <DetailField label="State" value={application.businessState} />
+          <DetailField label="ZIP" value={application.businessZip} />
+        </DetailSection>
+
+        <DetailSection title="Processing" icon={CreditCard}>
+          <DetailField label="Estimated Monthly Volume" value={application.estimatedMonthlyVolume} />
+          <DetailField label="Avg Ticket" value={application.estimatedAvgTicket} />
+          <DetailField label="Highest Ticket" value={application.highestTicket} />
+          <DetailField label="Current Processor" value={application.currentProcessor} />
+          <DetailField label="Current Rate" value={application.currentRate} />
+          <DetailField label="Preferred Program" value={application.preferredProgram} />
+        </DetailSection>
+
+        <DetailSection title="Banking" icon={Landmark}>
+          <DetailField label="Bank Name" value={application.bankName} />
+          <DetailField label="Account Type" value={application.bankAccountType} />
+        </DetailSection>
+
+        <DetailSection title="E-Signature & Underwriting" icon={ClipboardCheck}>
+          <DetailField label="E-Sign Status" value={application.esignStatus} />
+          <DetailField label="E-Signed At" value={formatDate(application.esignedAt)} />
+          <DetailField label="Underwriting Status" value={application.underwritingStatus} />
+          <DetailField label="UW Notes" value={application.underwritingNotes} />
+          <DetailField label="Approved At" value={formatDate(application.approvedAt)} />
+          <DetailField label="Declined At" value={formatDate(application.declinedAt)} />
+          {application.declineReason && (
+            <DetailField label="Decline Reason" value={application.declineReason} />
+          )}
+        </DetailSection>
+
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 text-sm font-semibold text-foreground border-b pb-1">
+            <Paperclip className="w-4 h-4 text-primary" />
+            Uploaded Documents
+          </div>
+          {documents.length === 0 ? (
+            <p className="text-sm text-muted-foreground" data-testid="text-no-documents">
+              No documents uploaded for this merchant.
+            </p>
+          ) : (
+            <div className="space-y-2" data-testid="list-documents">
+              {documents.map((doc) => (
+                <div
+                  key={doc.id}
+                  className="flex items-center justify-between gap-3 rounded-md border px-3 py-2"
+                  data-testid={`row-document-${doc.id}`}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate" data-testid={`text-doc-name-${doc.id}`}>{doc.fileName}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {doc.type} · {doc.category} · {formatDate(doc.createdAt)}
+                      </p>
+                    </div>
+                  </div>
+                  {doc.storageKey && (
+                    <a
+                      href={`/api/documents/${doc.id}/download`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="shrink-0"
+                      data-testid={`link-doc-download-${doc.id}`}
+                    >
+                      <Button variant="ghost" size="sm">
+                        <ExternalLink className="w-4 h-4" />
+                      </Button>
+                    </a>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function MerchantApplicationsList() {
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [search, setSearch] = useState("");
+  const [selectedApp, setSelectedApp] = useState<MerchantApplication | null>(null);
+
+  const params = new URLSearchParams();
+  if (statusFilter !== "all") params.set("status", statusFilter);
+  if (search) params.set("search", search);
+  params.set("limit", "100");
+
+  const { data, isLoading } = useQuery<{ applications: MerchantApplication[]; total: number }>({
+    queryKey: ["/api/merchant-applications", statusFilter, search],
+    queryFn: async () => {
+      const res = await fetch(`/api/merchant-applications?${params.toString()}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch applications");
+      return res.json();
+    },
+  });
+
+  const applications = data?.applications || [];
+  const total = data?.total || 0;
+
+  if (selectedApp) {
+    return (
+      <ApplicationDetailView
+        application={selectedApp}
+        onClose={() => setSelectedApp(null)}
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-4" data-testid="merchant-applications-list">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Merchant Applications</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Review and manage submitted merchant applications
+          </p>
+        </div>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="text-total-count">
+          <FileText className="w-4 h-4" />
+          {total} total
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="relative flex-1 min-w-48">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+          <Input
+            placeholder="Search by business name or email..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9"
+            data-testid="input-search-applications"
+          />
+        </div>
+      </div>
+
+      <Tabs value={statusFilter} onValueChange={setStatusFilter} data-testid="tabs-status-filter">
+        <TabsList className="flex-wrap h-auto gap-1">
+          {STATUS_TABS.map((tab) => (
+            <TabsTrigger
+              key={tab.value}
+              value={tab.value}
+              data-testid={`tab-status-${tab.value}`}
+            >
+              {tab.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
+
+      <Card data-testid="card-applications-table">
+        <CardContent className="p-0">
+          {isLoading ? (
+            <div className="p-6 space-y-3" data-testid="applications-loading">
+              {[1, 2, 3, 4, 5].map((i) => (
+                <div key={i} className="flex gap-4 items-center">
+                  <Skeleton className="h-4 w-40" />
+                  <Skeleton className="h-4 w-32" />
+                  <Skeleton className="h-4 w-20" />
+                  <Skeleton className="h-4 w-24" />
+                </div>
+              ))}
+            </div>
+          ) : applications.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground" data-testid="empty-applications">
+              <FileText className="w-10 h-10" />
+              <p className="text-sm font-medium">No applications found</p>
+              <p className="text-xs">
+                {search || statusFilter !== "all"
+                  ? "Try adjusting your filters."
+                  : "Merchant applications will appear here once submitted."}
+              </p>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Business</TableHead>
+                  <TableHead>Contact</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Submitted</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {applications.map((app) => {
+                  const businessName = app.legalBusinessName || app.dba || "—";
+                  const contactName = [app.ownerFirstName, app.ownerLastName].filter(Boolean).join(" ") || "—";
+                  const contactEmail = app.ownerEmail || app.businessEmail || "—";
+                  return (
+                    <TableRow
+                      key={app.id}
+                      className="cursor-pointer hover:bg-muted/50 transition-colors"
+                      onClick={() => setSelectedApp(app)}
+                      data-testid={`row-application-${app.id}`}
+                    >
+                      <TableCell>
+                        <div className="space-y-0.5">
+                          <p className="font-medium text-foreground" data-testid={`text-biz-name-${app.id}`}>{businessName}</p>
+                          {app.vertical && (
+                            <p className="text-xs text-muted-foreground">{app.vertical}</p>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="space-y-0.5">
+                          <p className="text-sm" data-testid={`text-contact-name-${app.id}`}>{contactName}</p>
+                          <p className="text-xs text-muted-foreground flex items-center gap-1">
+                            <Mail className="w-3 h-3" />
+                            {contactEmail}
+                          </p>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={getStatusVariant(app.status)} data-testid={`badge-status-${app.id}`}>
+                          {getStatusLabel(app.status)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <span className="text-sm text-muted-foreground flex items-center gap-1" data-testid={`text-submitted-${app.id}`}>
+                          <Calendar className="w-3 h-3" />
+                          {formatDate(app.submittedAt || app.createdAt)}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={(e) => { e.stopPropagation(); setSelectedApp(app); }}
+                          data-testid={`button-review-${app.id}`}
+                        >
+                          Review
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
