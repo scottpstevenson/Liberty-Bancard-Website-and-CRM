@@ -1017,7 +1017,9 @@ export const sequenceEnrollments = pgTable("sequence_enrollments", {
   metadata: jsonb("metadata"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => [
+  index("sequence_enrollments_contact_id_status_idx").on(table.contactId, table.status),
+]);
 
 export const insertSequenceEnrollmentSchema = createInsertSchema(sequenceEnrollments).omit({
   id: true,
@@ -2189,7 +2191,9 @@ export const sdrMerchants = pgTable("sdr_merchants", {
   doNotContactFlag: boolean("do_not_contact_flag").default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => [
+  index("sdr_merchants_ghl_contact_id_idx").on(table.ghlContactId),
+]);
 
 export const insertSdrMerchantSchema = createInsertSchema(sdrMerchants).omit({
   id: true,
@@ -2316,6 +2320,7 @@ export const sdrLeadState = pgTable("sdr_lead_state", {
   index("sdr_lead_state_stage_idx").on(table.stage),
   index("sdr_lead_state_priority_bucket_idx").on(table.priorityBucket),
   index("sdr_lead_state_merchant_id_idx").on(table.merchantId),
+  index("sdr_lead_state_contact_id_idx").on(table.contactId),
 ]);
 
 export const insertSdrLeadStateSchema = createInsertSchema(sdrLeadState).omit({
