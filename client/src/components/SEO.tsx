@@ -83,8 +83,8 @@ interface SEOProps {
 const BASE_URL = "https://libertybancard.com";
 const DEFAULT_OG_IMAGE = `${BASE_URL}/favicon.png`;
 
-const GSC_VERIFICATION = (import.meta as any).env?.VITE_GSC_VERIFICATION as string | undefined;
-const BING_VERIFICATION = (import.meta as any).env?.VITE_BING_VERIFICATION as string | undefined;
+const GSC_VERIFICATION = import.meta.env.VITE_GSC_VERIFICATION;
+const BING_VERIFICATION = import.meta.env.VITE_BING_VERIFICATION;
 
 function slugify(input: string): string {
   return (input || "page")

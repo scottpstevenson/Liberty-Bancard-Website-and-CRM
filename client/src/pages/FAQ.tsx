@@ -288,6 +288,9 @@ export default function FAQ() {
       <Navbar />
 
       <main className="flex-grow pt-28" ref={containerRef}>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
+          <Breadcrumbs items={[{ name: "FAQ", path: "/faq" }]} />
+        </div>
         <section
           className="bg-primary text-primary-foreground py-16"
           data-testid="section-faq-hero"

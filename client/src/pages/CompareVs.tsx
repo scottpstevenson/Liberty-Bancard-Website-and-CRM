@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useParams } from "wouter";
 import { SEO, getFAQSchema, getBreadcrumbSchema } from "@/components/SEO";
+import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { useToast } from "@/hooks/use-toast";
@@ -473,6 +474,14 @@ export default function CompareVs() {
       <Navbar />
 
       <main className="flex-grow pt-28" ref={containerRef}>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
+          <Breadcrumbs
+            items={[
+              { name: "Compare", path: "/compare-rates" },
+              { name: `vs ${data.name}`, path: `/compare/${data.slug}` },
+            ]}
+          />
+        </div>
         <section className="relative overflow-hidden" data-testid="section-vs-hero">
           <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 lg:py-20">

@@ -1,5 +1,6 @@
 import { useParams, Link } from "wouter";
 import { SEO, getBreadcrumbSchema } from "@/components/SEO";
+import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { Card, CardContent } from "@/components/ui/card";

@@ -1,5 +1,6 @@
 import { useParams, Link } from "wouter";
 import { SEO } from "@/components/SEO";
+import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { Button } from "@/components/ui/button";
@@ -233,6 +234,14 @@ export default function BlogPost() {
       <Navbar />
 
       <main className="flex-grow pt-28">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 pt-4">
+          <Breadcrumbs
+            items={[
+              { name: "Blog", path: "/blog" },
+              { name: post.title, path: `/blog/${post.slug}` },
+            ]}
+          />
+        </div>
         <article className="max-w-3xl mx-auto px-4 sm:px-6 py-12">
           <Link href="/blog" data-testid="link-breadcrumb-blog">
             <Button variant="ghost" className="gap-2 mb-6 -ml-2">

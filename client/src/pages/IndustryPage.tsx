@@ -1,4 +1,5 @@
 import { SEO } from "@/components/SEO";
+import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { Button } from "@/components/ui/button";
@@ -640,6 +641,15 @@ export default function IndustryPage() {
       <Navbar />
 
       <main className="flex-grow pt-28">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
+          <Breadcrumbs
+            items={[
+              { name: "Industries", path: "/industries" },
+              { name: industry.name, path: `/industries/${industry.slug}` },
+            ]}
+            variant="dark"
+          />
+        </div>
         <section className="relative overflow-hidden" data-testid="section-industry-hero">
           <div className="absolute inset-0">
             {industry.image ? (

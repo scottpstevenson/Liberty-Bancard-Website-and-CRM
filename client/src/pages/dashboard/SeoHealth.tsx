@@ -18,6 +18,7 @@ interface SeoCoverageRow {
   inSitemap: boolean;
   noindex: boolean;
   ogTemplate: string;
+  internalLinks: number;
   warnings: string[];
 }
 
@@ -157,6 +158,7 @@ export default function SeoHealth() {
                     <th className="py-2 pr-3">Desc (chars)</th>
                     <th className="py-2 pr-3">OG</th>
                     <th className="py-2 pr-3">JSON-LD</th>
+                    <th className="py-2 pr-3">Links</th>
                     <th className="py-2 pr-3">Sitemap</th>
                     <th className="py-2 pr-3">Index</th>
                     <th className="py-2 pr-3">Warnings</th>
@@ -179,6 +181,7 @@ export default function SeoHealth() {
                       </td>
                       <td className="py-2 pr-3">{row.hasOgImage ? "✓" : "—"}</td>
                       <td className="py-2 pr-3">{row.hasJsonLd ? "✓" : "—"}</td>
+                      <td className="py-2 pr-3 font-mono text-xs" data-testid={`text-internal-links-${row.path.replace(/[^a-z0-9]+/gi, "-")}`}>{row.internalLinks}</td>
                       <td className="py-2 pr-3">{row.inSitemap ? "✓" : "—"}</td>
                       <td className="py-2 pr-3">
                         {row.noindex ? (

@@ -13,6 +13,7 @@ interface SeoCoverageRow {
   inSitemap: boolean;
   noindex: boolean;
   ogTemplate: string;
+  internalLinks: number; // count of <a href="/..."> internal links in rendered HTML
   warnings: string[];
 }
 
@@ -104,11 +105,12 @@ function evaluateRow(
     titleLength,
     description: def.description,
     descriptionLength,
-    hasOgImage: true,
-    hasJsonLd: true,
+    hasOgImage: false,
+    hasJsonLd: false,
     inSitemap: !!def.inSitemap,
     noindex: !!def.noindex,
     ogTemplate: def.ogTemplate || "default",
+    internalLinks: 0,
     warnings,
   };
 }
@@ -128,6 +130,7 @@ async function probeRouteHead(baseUrl: string, path: string): Promise<{
   hasOgImage: boolean;
   hasJsonLd: boolean;
   noindex: boolean;
+  internalLinks: number;
 } | null> {
   try {
     const res = await fetch(`${baseUrl}${path}`, {
@@ -136,6 +139,11 @@ async function probeRouteHead(baseUrl: string, path: string): Promise<{
     });
     const html = await res.text();
     const robotsHeader = res.headers.get("x-robots-tag") || "";
+
+    // Count internal links: <a href="/path"> or <a href="https://libertybancard.com/path">
+    const linkMatches = html.match(/<a\s+[^>]*href=["'](?:\/[^"'#?][^"']*|https?:\/\/(?:www\.)?libertybancard\.com[^"']*)["']/gi);
+    const internalLinks = linkMatches ? linkMatches.length : 0;
+
     return {
       statusCode: res.status,
       hasOgImage: /<meta\s+property=["']og:image["']/i.test(html),
@@ -143,6 +151,7 @@ async function probeRouteHead(baseUrl: string, path: string): Promise<{
       noindex:
         /<meta\s+name=["']robots["']\s+content=["'][^"']*noindex/i.test(html) ||
         /noindex/i.test(robotsHeader),
+      internalLinks,
     };
   } catch {
     return null;
@@ -190,12 +199,18 @@ export function registerSeoAdminRoutes(app: Express) {
         // Trust real signals over declared defaults.
         r.hasOgImage = probe.hasOgImage;
         r.hasJsonLd = probe.hasJsonLd;
+        r.internalLinks = probe.internalLinks;
         // For declared-noindex routes, escalate if server response doesn't honor it.
         if (r.noindex && !probe.noindex) {
           r.warnings.push("declared noindex but server response lacks noindex signal");
         }
         if (probe.statusCode >= 400) {
           r.warnings.push(`HTTP ${probe.statusCode}`);
+        }
+        // Internal-link health: indexable pages should have >= 5 internal links
+        // for crawl reachability and page-rank flow. SPA shells may report 0.
+        if (!r.noindex && probe.internalLinks > 0 && probe.internalLinks < 5) {
+          r.warnings.push(`only ${probe.internalLinks} internal link(s) — consider adding more`);
         }
       });
 
