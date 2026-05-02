@@ -1126,6 +1126,11 @@ export default function AffiliateProgram() {
               <Button size="lg" variant="outline" className="gap-2" onClick={() => { setView("login"); window.scrollTo({ top: 0, behavior: "smooth" }); }} data-testid="button-cta-login">
                 <LogIn className="w-5 h-5" /> Affiliate Login
               </Button>
+              <Link href="/partner-login" data-testid="link-partner-portal-login">
+                <Button size="lg" variant="ghost" className="gap-2">
+                  <Handshake className="w-5 h-5" /> Partner Portal Login
+                </Button>
+              </Link>
             </div>
           </div>
         </section>

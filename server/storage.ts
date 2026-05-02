@@ -348,6 +348,9 @@ export interface IStorage {
   setPartnerResetToken(id: number, tokenHash: string, expiresAt: Date): Promise<void>;
   getPartnerByResetToken(tokenHash: string): Promise<Partner | undefined>;
   updatePartnerPassword(id: number, passwordHash: string): Promise<void>;
+  setPartnerInviteToken(id: number, tokenHash: string, expiresAt: Date): Promise<void>;
+  getPartnerByInviteToken(tokenHash: string): Promise<Partner | undefined>;
+  clearPartnerInviteToken(id: number): Promise<void>;
 
   getReferrals(partnerId?: number): Promise<Referral[]>;
   getReferral(id: number): Promise<Referral | undefined>;
@@ -1978,6 +1981,24 @@ export class DatabaseStorage implements IStorage {
   async updatePartnerPassword(id: number, passwordHash: string) {
     await db.update(partners)
       .set({ passwordHash, passwordResetToken: null, passwordResetExpiresAt: null, updatedAt: new Date() })
+      .where(eq(partners.id, id));
+  }
+
+  async setPartnerInviteToken(id: number, tokenHash: string, expiresAt: Date) {
+    await db.update(partners)
+      .set({ inviteToken: tokenHash, inviteTokenExpiresAt: expiresAt, updatedAt: new Date() })
+      .where(eq(partners.id, id));
+  }
+
+  async getPartnerByInviteToken(tokenHash: string) {
+    const [partner] = await db.select().from(partners)
+      .where(and(eq(partners.inviteToken, tokenHash), gte(partners.inviteTokenExpiresAt, new Date())));
+    return partner;
+  }
+
+  async clearPartnerInviteToken(id: number) {
+    await db.update(partners)
+      .set({ inviteToken: null, inviteTokenExpiresAt: null, updatedAt: new Date() })
       .where(eq(partners.id, id));
   }
 

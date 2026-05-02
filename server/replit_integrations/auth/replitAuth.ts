@@ -553,6 +553,13 @@ export const isAffiliate: RequestHandler = (req, res, next) => {
   return res.status(403).json({ message: "Affiliate access required" });
 };
 
+export const isPartnerAuthenticated: RequestHandler = (req, res, next) => {
+  if (req.isAuthenticated() && (req.user as any)?.role === 'partner') {
+    return next();
+  }
+  return res.status(401).json({ message: "Partner authentication required. Please log in to your partner portal." });
+};
+
 export const isDashboardUser: RequestHandler = (req, res, next) => {
   if (req.isAuthenticated()) {
     const role = (req.user as any)?.role;

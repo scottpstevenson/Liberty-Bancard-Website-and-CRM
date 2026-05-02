@@ -1,5 +1,6 @@
 import type { Express } from "express";
-import { isAuthenticated, isAffiliate } from "../replit_integrations/auth";
+import { isAuthenticated, isAffiliate, isPartnerAuthenticated } from "../replit_integrations/auth";
+import rateLimit from "express-rate-limit";
 import { storage } from "../storage";
 import { authStorage } from "../replit_integrations/auth/storage";
 import { db } from "../db";
@@ -14,6 +15,22 @@ import { createContactGhlFirst } from "../services/contact-writer";
 import { syncFormSubmissionToGhl, syncAffiliateSignupToGhl } from "../services/ghl-form-sync";
 import { sendPartnerWelcomeEmail } from "../services/partner-welcome";
 import { isGhlConfigured, sendGhlEmailForMerchant } from "../services/ghl";
+
+const partnerForgotPasswordRateLimit = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 3,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many password reset requests, please try again later." },
+});
+
+const partnerLoginRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many login attempts, please try again later." },
+});
 
 export function registerPartnersRoutes(app: Express) {
   // === PARTNERS (admin) ===
@@ -65,9 +82,54 @@ export function registerPartnersRoutes(app: Express) {
       if (!updated) return res.status(404).json({ message: "Not found" });
 
       if (updates.status === "active" && existing.status !== "active") {
-        sendPartnerWelcomeEmail(updated).catch(err =>
-          console.error(`[Partners] Welcome email error for partner #${partnerId}:`, err)
-        );
+        if (!existing.passwordHash) {
+          (async () => {
+            try {
+              const rawToken = crypto.randomBytes(32).toString("hex");
+              const hashedToken = crypto.createHash("sha256").update(rawToken).digest("hex");
+              const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000);
+              await storage.setPartnerInviteToken(partnerId, hashedToken, expiresAt);
+
+              const replitDomain = process.env.REPLIT_DOMAINS?.split(",")[0]?.trim();
+              const baseUrl = process.env.APP_URL ||
+                (replitDomain ? `https://${replitDomain}` : "https://libertybancard.com");
+              const inviteUrl = `${baseUrl}/partner-login?invite=${rawToken}`;
+
+              console.log(`[Partners] Invite URL for partner #${partnerId}: ${inviteUrl}`);
+
+              if (updated.email && isGhlConfigured()) {
+                const firstName = (updated.contactName || "").split(" ")[0] || "there";
+                const html = `
+<div style="font-family:Arial,sans-serif;font-size:14px;color:#333;max-width:600px;">
+  <p>Hi ${firstName},</p>
+  <p>Congratulations — your Liberty Bancard partner application has been <strong>approved</strong>!</p>
+  <p>To activate your partner account, please set your password by clicking the button below:</p>
+  <p><a href="${inviteUrl}" style="display:inline-block;background-color:#1e3a5f;color:#ffffff;padding:10px 20px;border-radius:4px;text-decoration:none;font-size:13px;font-weight:bold;">Set Your Password &amp; Access Your Portal &rarr;</a></p>
+  <p>Or copy and paste this link:<br/><span style="font-family:monospace;font-size:12px;color:#555;">${inviteUrl}</span></p>
+  <p>This link expires in 72 hours. Once you set your password, you'll have full access to your partner dashboard with referral tracking, commission reports, and marketing materials.</p>
+  <p>Questions? Reply to this email or call 954-266-8214.</p>
+  <p>Welcome aboard!</p>
+  <p>— The Liberty Bancard Partner Team</p>
+</div>`;
+                await sendGhlEmailForMerchant({
+                  email: updated.email,
+                  subject: "You're approved — set your partner portal password",
+                  body: html,
+                });
+                console.log(`[Partners] Invite email sent to partner #${partnerId}`);
+              }
+            } catch (err) {
+              console.error(`[Partners] Invite token/email error for partner #${partnerId}:`, err);
+              sendPartnerWelcomeEmail(updated).catch(e =>
+                console.error(`[Partners] Fallback welcome email error for partner #${partnerId}:`, e)
+              );
+            }
+          })();
+        } else {
+          sendPartnerWelcomeEmail(updated).catch(err =>
+            console.error(`[Partners] Welcome email error for partner #${partnerId}:`, err)
+          );
+        }
       }
 
       res.json(updated);
@@ -246,13 +308,9 @@ export function registerPartnersRoutes(app: Express) {
     }
   });
 
-  app.get("/api/partner/session", async (req, res) => {
+  app.get("/api/partner/session", isPartnerAuthenticated, async (req, res) => {
     try {
-      if (!req.user) return res.status(401).json({ message: "Not authenticated" });
       const user = req.user as any;
-      if (user.role !== "partner" && user.role !== "iso_agent" && user.role !== "admin") {
-        return res.status(403).json({ message: "Not a partner account." });
-      }
       const partner = await storage.getPartnerByEmail(user.email);
       if (!partner) return res.status(404).json({ message: "Partner account not found." });
       return res.json({
@@ -267,8 +325,8 @@ export function registerPartnersRoutes(app: Express) {
     }
   });
 
-  // === PASSWORD RESET ===
-  app.post("/api/partner/reset-password-request", async (req, res) => {
+  // === PASSWORD RESET (legacy routes kept for backward compat, now rate-limited) ===
+  app.post("/api/partner/reset-password-request", partnerForgotPasswordRateLimit, async (req, res) => {
     try {
       const { email } = req.body;
       if (!email || typeof email !== "string") {
@@ -344,6 +402,199 @@ export function registerPartnersRoutes(app: Express) {
     }
   });
 
+  // === /api/partners/* CANONICAL AUTH ROUTES ===
+
+  app.post("/api/partners/login", partnerLoginRateLimit, async (req, res) => {
+    try {
+      const { email, password } = req.body;
+      if (!email || !password) {
+        return res.status(400).json({ message: "Email and password are required." });
+      }
+      const partner = await storage.getPartnerByEmail(email.toLowerCase());
+      if (!partner || !partner.passwordHash) {
+        return res.status(401).json({ message: "Invalid email or password." });
+      }
+      const valid = await bcrypt.compare(password, partner.passwordHash);
+      if (!valid) {
+        return res.status(401).json({ message: "Invalid email or password." });
+      }
+
+      let user = await authStorage.getUserByEmail(email.toLowerCase());
+      if (!user) {
+        const nameParts = (partner.contactName || "").split(" ");
+        user = await authStorage.upsertUser({
+          email: email.toLowerCase(),
+          firstName: nameParts[0] || "Partner",
+          lastName: nameParts.slice(1).join(" ") || "",
+          passwordHash: partner.passwordHash,
+          role: "partner",
+          authProvider: "local",
+        });
+      } else if (user.role !== "partner") {
+        return res.status(403).json({ message: "This email belongs to an existing account. Please contact support." });
+      }
+      req.logIn(user, (loginErr) => {
+        if (loginErr) return res.status(500).json({ message: "Login failed." });
+        return res.json({
+          affiliateCode: partner.affiliateCode,
+          name: partner.contactName,
+          email: partner.email,
+          status: partner.status,
+          partnerType: partner.partnerType,
+        });
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/partners/me", isPartnerAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as any;
+      const partner = await storage.getPartnerByEmail(user.email);
+      if (!partner) return res.status(404).json({ message: "Partner account not found." });
+      return res.json({
+        id: partner.id,
+        affiliateCode: partner.affiliateCode,
+        name: partner.contactName,
+        email: partner.email,
+        status: partner.status,
+        partnerType: partner.partnerType,
+        commissionPercent: partner.commissionPercent,
+        companyName: partner.companyName,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/partners/forgot-password", partnerForgotPasswordRateLimit, async (req, res) => {
+    try {
+      const { email } = req.body;
+      if (!email || typeof email !== "string") {
+        return res.status(400).json({ message: "Email is required." });
+      }
+      const partner = await storage.getPartnerByEmail(email.toLowerCase());
+      if (partner) {
+        const rawToken = crypto.randomBytes(32).toString("hex");
+        const hashedToken = crypto.createHash("sha256").update(rawToken).digest("hex");
+        const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+        await storage.setPartnerResetToken(partner.id, hashedToken, expiresAt);
+
+        const replitDomain = process.env.REPLIT_DOMAINS?.split(",")[0]?.trim();
+        const baseUrl = process.env.APP_URL ||
+          (replitDomain ? `https://${replitDomain}` : "https://libertybancard.com");
+        const resetUrl = `${baseUrl}/partner-login?reset=${rawToken}`;
+
+        console.log(`[Partner Auth] Password reset URL (canonical): ${resetUrl}`);
+
+        if (partner.email && isGhlConfigured()) {
+          const displayName = partner.contactName || "there";
+          const html = `
+<div style="font-family:Arial,sans-serif;font-size:14px;color:#333;max-width:600px;">
+  <p>Hi ${displayName},</p>
+  <p>We received a request to reset the password for your Liberty Bancard partner account.</p>
+  <p><a href="${resetUrl}" style="display:inline-block;background-color:#1e3a5f;color:#ffffff;padding:10px 20px;border-radius:4px;text-decoration:none;font-size:13px;font-weight:bold;">Reset Your Password</a></p>
+  <p>Or copy and paste this link into your browser:<br/><span style="font-family:monospace;font-size:12px;color:#555;">${resetUrl}</span></p>
+  <p>This link will expire in 1 hour. If you didn't request a password reset, you can safely ignore this email.</p>
+  <p>— The Liberty Bancard Partner Team</p>
+</div>`;
+          sendGhlEmailForMerchant({
+            email: partner.email,
+            subject: "Reset your Liberty Bancard partner password",
+            body: html,
+          }).catch(err => console.error("[Partner Auth] Reset email error:", err));
+        }
+      }
+      return res.json({ message: "If an account with that email exists, a reset link has been sent." });
+    } catch (err: any) {
+      console.error("[Partner Auth] forgot-password error:", err);
+      return res.status(500).json({ message: "Something went wrong" });
+    }
+  });
+
+  app.post("/api/partners/reset-password", async (req, res) => {
+    try {
+      const { token, password } = req.body;
+      if (!token || !password || typeof token !== "string" || typeof password !== "string") {
+        return res.status(400).json({ message: "Token and password are required." });
+      }
+      if (password.length < 6) {
+        return res.status(400).json({ message: "Password must be at least 6 characters." });
+      }
+      const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
+      const partner = await storage.getPartnerByResetToken(hashedToken);
+      if (!partner) {
+        return res.status(400).json({ message: "Invalid or expired reset link." });
+      }
+      const passwordHash = await bcrypt.hash(password, 12);
+      await storage.updatePartnerPassword(partner.id, passwordHash);
+
+      if (partner.email) {
+        const existingUser = await authStorage.getUserByEmail(partner.email.toLowerCase());
+        if (existingUser && existingUser.role === "partner") {
+          await authStorage.updateUserPassword(existingUser.id, passwordHash);
+        }
+      }
+
+      return res.json({ message: "Your password has been reset. You can now log in." });
+    } catch (err: any) {
+      console.error("[Partner Auth] reset-password error:", err);
+      return res.status(500).json({ message: "Something went wrong" });
+    }
+  });
+
+  app.post("/api/partners/set-password", async (req, res) => {
+    try {
+      const { token, password } = req.body;
+      if (!token || !password || typeof token !== "string" || typeof password !== "string") {
+        return res.status(400).json({ message: "Token and password are required." });
+      }
+      if (password.length < 8) {
+        return res.status(400).json({ message: "Password must be at least 8 characters." });
+      }
+      const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
+      const partner = await storage.getPartnerByInviteToken(hashedToken);
+      if (!partner) {
+        return res.status(400).json({ message: "Invalid or expired invite link. Please contact support." });
+      }
+      const passwordHash = await bcrypt.hash(password, 12);
+      await storage.updatePartner(partner.id, { passwordHash, status: partner.status === "pending" ? partner.status : partner.status });
+      await storage.clearPartnerInviteToken(partner.id);
+
+      if (partner.email) {
+        let user = await authStorage.getUserByEmail(partner.email.toLowerCase());
+        if (user && user.role === "partner") {
+          await authStorage.updateUserPassword(user.id, passwordHash);
+        } else if (!user) {
+          const nameParts = (partner.contactName || "").split(" ");
+          await authStorage.upsertUser({
+            email: partner.email.toLowerCase(),
+            firstName: nameParts[0] || "Partner",
+            lastName: nameParts.slice(1).join(" ") || "",
+            passwordHash,
+            role: "partner",
+            authProvider: "local",
+          });
+        }
+      }
+
+      return res.json({ message: "Password set successfully. You can now log in to your partner portal." });
+    } catch (err: any) {
+      console.error("[Partner Auth] set-password error:", err);
+      return res.status(500).json({ message: "Something went wrong" });
+    }
+  });
+
+  app.post("/api/partners/logout", (req, res) => {
+    req.logout(() => {
+      req.session.destroy(() => {
+        res.clearCookie("connect.sid");
+        res.json({ message: "Logged out" });
+      });
+    });
+  });
+
   app.post("/api/partner/logout", (req, res) => {
     req.logout(() => {
       req.session.destroy(() => {
@@ -366,15 +617,14 @@ export function registerPartnersRoutes(app: Express) {
   });
 
   // === PARTNER DASHBOARD DATA ===
-  app.get("/api/partner/dashboard/:code", async (req, res) => {
+  app.get("/api/partner/dashboard/:code", isPartnerAuthenticated, async (req, res) => {
     try {
-      if (!req.user) return res.status(401).json({ message: "Please log in." });
       const user = req.user as any;
 
       const partner = await storage.getPartnerByCode(req.params.code as string);
       if (!partner) return res.status(404).json({ message: "Partner not found." });
 
-      if (user.role !== "admin" && partner.email !== user.email) {
+      if (partner.email !== user.email) {
         return res.status(403).json({ message: "Access denied." });
       }
 

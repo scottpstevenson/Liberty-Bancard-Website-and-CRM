@@ -155,6 +155,7 @@ import PartnerPortal from "@/pages/PartnerPortal";
 import PartnerBrandedPage from "@/pages/PartnerBrandedPage";
 import PartnerOrgDashboard from "@/pages/PartnerOrgDashboard";
 import PartnerOrgs from "@/pages/dashboard/PartnerOrgs";
+import PartnerLogin from "@/pages/PartnerLogin";
 import SalesToolsHub from "@/pages/SalesToolsHub";
 import MobileApp from "@/pages/mobile/MobileApp";
 
@@ -283,6 +284,7 @@ function Router() {
       <Route path="/affiliate" component={AffiliateProgram} />
       <Route path="/partners" component={ISOPartnerProgram} />
       <Route path="/partner-portal" component={PartnerPortal} />
+      <Route path="/partner-login" component={PartnerLogin} />
       <Route path="/dashboard/partner" component={PartnerPortal} />
       <Route path="/partner/:slug" component={PartnerBrandedPage} />
       <Route path="/partner-org/:slug" component={PartnerOrgDashboard} />

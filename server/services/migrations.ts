@@ -6,6 +6,9 @@ export async function runStartupMigrations(): Promise<void> {
     await client.query(`
       ALTER TABLE users ADD COLUMN IF NOT EXISTS permissions jsonb DEFAULT '[]'::jsonb;
 
+      ALTER TABLE partners ADD COLUMN IF NOT EXISTS invite_token TEXT;
+      ALTER TABLE partners ADD COLUMN IF NOT EXISTS invite_token_expires_at TIMESTAMP;
+
       CREATE TABLE IF NOT EXISTS virtual_terminal_transactions (
         id serial PRIMARY KEY,
         gateway_transaction_id text,
