@@ -2,6 +2,7 @@ import { Link } from "wouter";
 import { SEO } from "@/components/SEO";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -367,7 +368,7 @@ export default function Equipment() {
                           ))}
                         </div>
 
-                        <div className="flex flex-wrap gap-6">
+                        <div className="flex flex-wrap gap-6 mb-6">
                           <div>
                             <p className="text-xs text-muted-foreground mb-1.5">Best For</p>
                             <div className="flex flex-wrap gap-1.5">
@@ -387,6 +388,24 @@ export default function Equipment() {
                               ))}
                             </div>
                           </div>
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-border">
+                          <Link
+                            href={`/estimate?terminal=${encodeURIComponent(terminal.name)}&utm_source=equipment&utm_content=${terminal.id}`}
+                            data-testid={`link-request-terminal-${terminal.id}`}
+                          >
+                            <Button className="gap-2 w-full sm:w-auto">
+                              Request This Terminal
+                              <ArrowRight className="w-4 h-4" />
+                            </Button>
+                          </Link>
+                          <Link href="/upload-statement" data-testid={`link-statement-for-terminal-${terminal.id}`}>
+                            <Button variant="outline" className="gap-2 w-full sm:w-auto">
+                              <DollarSign className="w-4 h-4" />
+                              See My Savings First
+                            </Button>
+                          </Link>
                         </div>
                       </div>
                     </div>

@@ -1,9 +1,11 @@
+import { useState } from "react";
 import { useLocation } from "wouter";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Link } from "wouter";
+import { Input } from "@/components/ui/input";
 import {
   Upload,
   Calendar,
@@ -23,6 +25,7 @@ import {
   BarChart3,
   BookOpen,
   FolderOpen,
+  Search,
 } from "lucide-react";
 import imgCloverFlex3 from "@assets/images/terminal-clover-flex-3.png";
 import imgCloverMini3 from "@assets/images/terminal-clover-mini-3.png";
@@ -910,6 +913,18 @@ function PacketPage({ content }: { content: ContentPage }) {
 }
 
 function IndexPage({ content }: { content: ContentPage }) {
+  const [query, setQuery] = useState("");
+
+  const filteredCategories = content.categories!.map((category) => ({
+    ...category,
+    items: category.items.filter((item) =>
+      item.label.toLowerCase().includes(query.toLowerCase()) ||
+      category.name.toLowerCase().includes(query.toLowerCase())
+    ),
+  })).filter((category) => category.items.length > 0);
+
+  const totalItems = content.categories!.reduce((sum, c) => sum + c.items.length, 0);
+
   return (
     <>
       <h1 className="text-3xl sm:text-4xl font-bold text-foreground tracking-tight" data-testid="text-asset-title">
@@ -921,28 +936,48 @@ function IndexPage({ content }: { content: ContentPage }) {
       <p className="mt-6 text-foreground/80 leading-relaxed max-w-3xl" data-testid="text-asset-description">
         {content.description}
       </p>
-      <div className="mt-10 space-y-8">
-        {content.categories!.map((category) => (
-          <div key={category.name}>
-            <div className="flex items-center gap-2 mb-3">
-              {getIconForCategory(category.name)}
-              <h2 className="text-xl font-semibold text-foreground">{category.name}</h2>
+
+      <div className="mt-8 relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+        <Input
+          type="text"
+          placeholder={`Search ${totalItems} resources…`}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          className="pl-9 max-w-md"
+          data-testid="input-asset-search"
+        />
+      </div>
+
+      <div className="mt-8 space-y-8">
+        {filteredCategories.length === 0 ? (
+          <p className="text-muted-foreground py-8 text-center" data-testid="text-no-results">
+            No resources matched "<span className="font-medium">{query}</span>". Try a different search term.
+          </p>
+        ) : (
+          filteredCategories.map((category) => (
+            <div key={category.name}>
+              <div className="flex items-center gap-2 mb-3">
+                {getIconForCategory(category.name)}
+                <h2 className="text-xl font-semibold text-foreground">{category.name}</h2>
+                <span className="text-xs text-muted-foreground ml-1">({category.items.length})</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {category.items.map((item) => (
+                  <Link key={item.href} href={item.href} data-testid={`link-index-${item.href.split("/").pop()}`}>
+                    <Card className="hover-elevate cursor-pointer">
+                      <CardContent className="flex items-center gap-3 py-3">
+                        <FileText className="w-4 h-4 text-primary shrink-0" />
+                        <span className="text-sm font-medium text-foreground">{item.label}</span>
+                        <ArrowRight className="w-3.5 h-3.5 text-muted-foreground shrink-0 ml-auto" />
+                      </CardContent>
+                    </Card>
+                  </Link>
+                ))}
+              </div>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {category.items.map((item) => (
-                <Link key={item.href} href={item.href} data-testid={`link-index-${item.href.split("/").pop()}`}>
-                  <Card className="hover-elevate cursor-pointer">
-                    <CardContent className="flex items-center gap-3 py-3">
-                      <FileText className="w-4 h-4 text-primary shrink-0" />
-                      <span className="text-sm font-medium text-foreground">{item.label}</span>
-                      <ArrowRight className="w-3.5 h-3.5 text-muted-foreground shrink-0 ml-auto" />
-                    </CardContent>
-                  </Card>
-                </Link>
-              ))}
-            </div>
-          </div>
-        ))}
+          ))
+        )}
       </div>
       <CtaSection />
       <ComplianceMicroline />

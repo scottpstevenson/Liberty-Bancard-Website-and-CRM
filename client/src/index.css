@@ -194,3 +194,42 @@
     padding-bottom: 4.5rem;
   }
 }
+
+@media (max-width: 767px) {
+  main {
+    padding-bottom: 3.5rem;
+  }
+}
+
+@media print {
+  nav,
+  footer,
+  [data-testid="sticky-mobile-cta"],
+  [data-testid="contact-bubble"],
+  [data-testid="exit-intent-popup"],
+  [data-testid="cookie-consent"],
+  [data-testid="badge-sales-internal"] {
+    display: none !important;
+  }
+
+  main {
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+  }
+
+  body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .card,
+  [class*="card"] {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  section {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+}

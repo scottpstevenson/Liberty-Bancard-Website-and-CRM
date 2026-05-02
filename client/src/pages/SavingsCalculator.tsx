@@ -92,6 +92,7 @@ export default function SavingsCalculator() {
   const [currentRate, setCurrentRate] = useState(() => parseParam(params.get("rate")));
   const [industry, setIndustry] = useState(() => params.get("industry") || "restaurant");
   const [copied, setCopied] = useState(false);
+  const [heroCopied, setHeroCopied] = useState(false);
 
   const volume = parseFloat(monthlyVolume) || 0;
   const ticket = parseFloat(avgTicket) || 0;
@@ -137,6 +138,21 @@ export default function SavingsCalculator() {
       toast({ title: "Link copied", description: "Share this link to show your savings estimate." });
       setTimeout(() => setCopied(false), 2000);
     });
+  };
+
+  const handleHeroCopy = () => {
+    const url = "https://libertybancard.com/savings-calculator?utm_source=agent&utm_medium=share&utm_content=savings-calculator";
+    navigator.clipboard.writeText(url).catch(() => {
+      const el = document.createElement("textarea");
+      el.value = url;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand("copy");
+      document.body.removeChild(el);
+    });
+    setHeroCopied(true);
+    toast({ title: "Link copied!", description: "Ready to paste in email, text, or chat." });
+    setTimeout(() => setHeroCopied(false), 2200);
   };
 
   const structuredData = {
@@ -187,9 +203,26 @@ export default function SavingsCalculator() {
               <p className="text-lg text-white/80 mb-2" data-testid="text-calc-subheading">
                 See how much you could save with transparent, interchange-plus pricing. Enter your numbers below for an instant estimate.
               </p>
-              <p className="text-xs text-white/50" data-testid="text-calc-disclaimer">
+              <p className="text-xs text-white/50 mb-5" data-testid="text-calc-disclaimer">
                 *Estimates are illustrative. Actual savings depend on card mix, transaction types, and statement review. No savings claims without review.
               </p>
+              <button
+                onClick={handleHeroCopy}
+                className="inline-flex items-center gap-2 text-white/80 hover:text-white text-sm border border-white/20 hover:border-white/40 rounded-md px-4 py-2.5 transition-colors"
+                data-testid="button-share-calculator"
+              >
+                {heroCopied ? (
+                  <>
+                    <Check className="w-4 h-4 text-emerald-400" />
+                    Link copied!
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-4 h-4" />
+                    Share This Tool
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </section>
@@ -222,10 +255,11 @@ export default function SavingsCalculator() {
                       <Input
                         id="monthly-volume"
                         type="number"
+                        inputMode="decimal"
                         placeholder="e.g. 25000"
                         value={monthlyVolume}
                         onChange={(e) => setMonthlyVolume(e.target.value)}
-                        className="pl-9"
+                        className="pl-9 h-11 text-base"
                         data-testid="input-monthly-volume"
                       />
                     </div>
@@ -239,10 +273,11 @@ export default function SavingsCalculator() {
                       <Input
                         id="avg-ticket"
                         type="number"
+                        inputMode="decimal"
                         placeholder="e.g. 45"
                         value={avgTicket}
                         onChange={(e) => setAvgTicket(e.target.value)}
-                        className="pl-9"
+                        className="pl-9 h-11 text-base"
                         data-testid="input-avg-ticket"
                       />
                     </div>
@@ -254,10 +289,12 @@ export default function SavingsCalculator() {
                     <Input
                       id="current-rate"
                       type="number"
+                      inputMode="decimal"
                       step="0.01"
                       placeholder="e.g. 3.2"
                       value={currentRate}
                       onChange={(e) => setCurrentRate(e.target.value)}
+                      className="h-11 text-base"
                       data-testid="input-current-rate"
                     />
                     <p className="text-xs text-muted-foreground">

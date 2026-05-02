@@ -136,6 +136,7 @@ import FAQ from "@/pages/FAQ";
 import AffiliateProgram from "@/pages/AffiliateProgram";
 import ISOPartnerProgram from "@/pages/ISOPartnerProgram";
 import PartnerPortal from "@/pages/PartnerPortal";
+import SalesToolsHub from "@/pages/SalesToolsHub";
 
 function AgentRoute({ component: Component }: { component: React.ComponentType }) {
   const { user, isLoading } = useAuth();
@@ -265,6 +266,9 @@ function Router() {
       <Route path="/help/:category/:slug" component={HelpArticle} />
       <Route path="/help/:category" component={HelpArticle} />
       <Route path="/help" component={HelpCenter} />
+
+      {/* Sales Tools Hub */}
+      <Route path="/sales-tools" component={SalesToolsHub} />
 
       {/* Free Analysis Landing Page */}
       <Route path="/free-analysis" component={FreeAnalysis} />

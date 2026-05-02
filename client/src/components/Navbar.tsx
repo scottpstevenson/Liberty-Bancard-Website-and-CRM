@@ -33,6 +33,7 @@ const resourceLinks = [
   { name: "Why Liberty Bancard", href: "/why-liberty-bancard" },
   { name: "Savings Calculator", href: "/savings-calculator" },
   { name: "Compare Rates", href: "/compare-rates" },
+  { name: "Sales Tools", href: "/sales-tools" },
   { name: "About & Contact", href: "/about-contact" },
   { name: "Support", href: "/support" },
 ];

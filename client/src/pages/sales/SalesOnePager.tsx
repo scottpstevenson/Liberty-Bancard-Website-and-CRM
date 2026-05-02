@@ -3,6 +3,7 @@ import { Link } from "wouter";
 import { SEO } from "@/components/SEO";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
+
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -614,9 +615,66 @@ export const salesOnePagerData: Record<string, OnePagerData> = {
   },
 };
 
+const industryIndex = [
+  { slug: "restaurant", label: "Restaurant & Food Service", description: "Tip handling, next-day funding, and POS-agnostic integration." },
+  { slug: "retail", label: "Retail & Brick & Mortar", description: "Inventory tools, dual-screen POS, and loyalty integration." },
+  { slug: "healthcare", label: "Healthcare & Medical", description: "HIPAA-conscious co-pay processing and secure card-on-file." },
+  { slug: "home-services", label: "Home Services & Contractors", description: "Mobile acceptance, field invoicing, and instant deposits." },
+  { slug: "ecommerce", label: "E-Commerce & Online", description: "Fraud prevention, chargeback protection, and gateway integrations." },
+  { slug: "cash-discount", label: "Cash Discount Programs", description: "Eliminate processing fees with compliant dual-pricing programs." },
+  { slug: "switch", label: "Switching Processors", description: "Low-friction switch process with rate guarantee and free analysis." },
+];
+
 export default function SalesOnePager() {
   const { slug } = useParams<{ slug: string }>();
   const data = slug ? salesOnePagerData[slug] : undefined;
+
+  if (!data && slug === "one-pager") {
+    return (
+      <div className="min-h-screen flex flex-col font-body">
+        <SEO
+          title="Industry One-Pagers — Liberty Bancard"
+          description="Sales resources tailored by vertical. Choose your merchant's industry for a customized payment processing one-pager."
+          noindex={true}
+        />
+        <Navbar />
+        <main className="flex-grow pt-28">
+          <section className="relative overflow-hidden" data-testid="section-onepager-index-hero">
+            <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />
+            <div className="relative max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-14 lg:py-18">
+              <Badge className="mb-4 bg-white/10 text-white border-white/20" data-testid="badge-sales-internal">Agent Resource — Not Public</Badge>
+              <h1 className="text-3xl md:text-4xl font-display font-bold text-white mb-3" data-testid="text-onepager-index-heading">
+                Industry One-Pagers
+              </h1>
+              <p className="text-white/70 max-w-xl">
+                Choose an industry below to open a tailored one-pager for that merchant segment. Designed to share during discovery calls or leave behind after meetings.
+              </p>
+            </div>
+          </section>
+          <section className="bg-background py-12" data-testid="section-onepager-index-grid">
+            <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {industryIndex.map((item) => (
+                  <Link key={item.slug} href={`/sales/${item.slug}`} data-testid={`link-onepager-${item.slug}`}>
+                    <Card className="h-full cursor-pointer hover-elevate transition-all duration-200">
+                      <CardContent className="p-5 flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-semibold text-foreground mb-1">{item.label}</p>
+                          <p className="text-sm text-muted-foreground leading-snug">{item.description}</p>
+                        </div>
+                        <ArrowRight className="w-4 h-4 text-primary shrink-0 mt-1" />
+                      </CardContent>
+                    </Card>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          </section>
+        </main>
+        <Footer />
+      </div>
+    );
+  }
 
   if (!data) {
     return (
@@ -635,8 +693,8 @@ export default function SalesOnePager() {
             <p className="text-muted-foreground mb-6" data-testid="text-not-found-message">
               The industry one-pager you're looking for doesn't exist.
             </p>
-            <Link href="/">
-              <Button data-testid="button-go-home">Back to Home</Button>
+            <Link href="/sales/one-pager">
+              <Button data-testid="button-go-home">View All One-Pagers</Button>
             </Link>
           </div>
         </main>

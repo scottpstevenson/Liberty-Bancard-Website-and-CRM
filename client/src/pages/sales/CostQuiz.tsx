@@ -3,6 +3,7 @@ import { Link, useLocation } from "wouter";
 import { SEO } from "@/components/SEO";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
+import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -34,6 +35,45 @@ import {
   Clock,
   FileText,
 } from "lucide-react";
+
+const QUIZ_SHARE_URL = "https://libertybancard.com/quiz/processing-cost?utm_source=agent&utm_medium=share&utm_content=cost-quiz";
+
+function QuizShareButton() {
+  const [quizCopied, setQuizCopied] = useState(false);
+  const { toast } = useToast();
+  const handleCopy = () => {
+    navigator.clipboard.writeText(QUIZ_SHARE_URL).catch(() => {
+      const el = document.createElement("textarea");
+      el.value = QUIZ_SHARE_URL;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand("copy");
+      document.body.removeChild(el);
+    });
+    setQuizCopied(true);
+    toast({ title: "Link copied!", description: "Ready to paste in email, text, or chat." });
+    setTimeout(() => setQuizCopied(false), 2200);
+  };
+  return (
+    <button
+      onClick={handleCopy}
+      className="inline-flex items-center gap-2 text-white/80 hover:text-white text-sm border border-white/20 hover:border-white/40 rounded-md px-4 py-2.5 transition-colors"
+      data-testid="button-share-quiz"
+    >
+      {quizCopied ? (
+        <>
+          <Check className="w-4 h-4 text-emerald-400" />
+          Link copied!
+        </>
+      ) : (
+        <>
+          <Copy className="w-4 h-4" />
+          Share This Quiz
+        </>
+      )}
+    </button>
+  );
+}
 
 const TOTAL_STEPS = 6;
 
@@ -544,9 +584,10 @@ export default function CostQuiz() {
             >
               Are You <span className="text-sky-400">Overpaying</span> on Processing?
             </h1>
-            <p className="text-white/70" data-testid="text-quiz-subheadline">
+            <p className="text-white/70 mb-5" data-testid="text-quiz-subheadline">
               Answer 6 quick questions. We'll show you exactly where your money goes.
             </p>
+            <QuizShareButton />
           </div>
         </section>
 

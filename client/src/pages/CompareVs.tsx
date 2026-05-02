@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { useParams } from "wouter";
 import { SEO, getFAQSchema, getBreadcrumbSchema } from "@/components/SEO";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
+import { useToast } from "@/hooks/use-toast";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -28,6 +30,8 @@ import {
   Globe,
   CreditCard,
   BadgeCheck,
+  Link2,
+  Check,
 } from "lucide-react";
 
 const BASE_URL = "https://libertybancard.com";
@@ -438,6 +442,21 @@ export default function CompareVs() {
   const competitorWins = data.comparison.filter(c => c.advantage === "competitor").length;
   const ties = data.comparison.filter(c => c.advantage === "tie").length;
 
+  const { toast } = useToast();
+  const [copied, setCopied] = useState(false);
+
+  const handleShareCopy = async () => {
+    const shareUrl = `${BASE_URL}/compare/${data.slug}?utm_source=agent&utm_medium=share&utm_content=compare-vs-${data.slug}`;
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopied(true);
+      toast({ title: "Link copied!", description: "Ready to paste in email, text, or chat." });
+      setTimeout(() => setCopied(false), 2200);
+    } catch (err) {
+      console.error("Failed to copy:", err);
+    }
+  };
+
   return (
     <div className="min-h-screen flex flex-col font-body">
       <SEO
@@ -484,6 +503,15 @@ export default function CompareVs() {
                     Try Savings Calculator
                   </Button>
                 </Link>
+                <Button
+                  size="lg"
+                  variant="ghost"
+                  className="gap-2 text-white/70 hover:text-white hover:bg-white/10 border border-white/20"
+                  onClick={handleShareCopy}
+                  data-testid="button-share-compare-vs"
+                >
+                  {copied ? <><Check className="w-4 h-4 text-green-400" /> Copied!</> : <><Link2 className="w-4 h-4" /> Share This Page</>}
+                </Button>
               </div>
             </div>
           </div>

@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { SEO, getServiceSchema } from "@/components/SEO";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
+import { useToast } from "@/hooks/use-toast";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -21,9 +23,14 @@ import {
   X,
   Minus,
   ShieldCheck,
+  Link2,
 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+
 import imgCloverFlex3 from "@assets/images/terminal-clover-flex-3.png";
 import imgPaxA920 from "@assets/images/terminal-pax-a920.png";
+
+const BASE_URL = "https://libertybancard.com";
 
 const comparisonTable = [
   { feature: "Interchange passthrough pricing", square: false, stripe: false, liberty: true },
@@ -77,6 +84,35 @@ const faqItems = [
 
 export default function BeatSquareStripe() {
   const containerRef = useScrollReveal();
+  const { toast } = useToast();
+  const [copied, setCopied] = useState(false);
+  const { toast } = useToast();
+
+  const handleShareCopy = async () => {
+    const shareUrl = `${BASE_URL}/beat-square-stripe?utm_source=agent&utm_medium=share&utm_content=beat-square-stripe`;
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      toast({
+        title: "Link Copied",
+        description: "The share link has been copied to your clipboard.",
+      });
+    } catch {
+      const el = document.createElement("textarea");
+      el.value = shareUrl;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand("copy");
+      document.body.removeChild(el);
+      toast({
+        title: "Link Copied",
+        description: "The share link has been copied to your clipboard.",
+      });
+    }
+    setCopied(true);
+    toast({ title: "Link copied!", description: "Ready to paste in email, text, or chat." });
+    setTimeout(() => setCopied(false), 2200);
+  };
+
   return (
     <div className="min-h-screen flex flex-col font-body">
       <SEO title="Beat Square & Stripe Pricing" description="Compare Liberty Bancard's statement-based pricing against Square and Stripe flat-rate processing. Real numbers, no guesswork." path="/beat-square-stripe" keywords="beat square pricing, beat stripe pricing, interchange plus vs flat rate, payment processing comparison" breadcrumbs={[{ name: "Beat Square & Stripe", path: "/beat-square-stripe" }]} structuredData={[getServiceSchema("Interchange-Plus Payment Processing", "Transparent interchange-plus pricing that beats Square and Stripe flat-rate processing for most businesses.", "/beat-square-stripe")]} />
@@ -116,6 +152,15 @@ export default function BeatSquareStripe() {
                       Book a 10-Minute Call
                     </Button>
                   </Link>
+                  <Button
+                    size="lg"
+                    variant="ghost"
+                    className="gap-2 text-white/70 hover:text-white hover:bg-white/10 border border-white/20"
+                    onClick={handleShareCopy}
+                    data-testid="button-share-beat"
+                  >
+                    {copied ? <><Check className="w-4 h-4 text-green-400" /> Copied!</> : <><Link2 className="w-4 h-4" /> Share This Page</>}
+                  </Button>
                 </div>
                 <p
                   className="text-sm text-white/50"

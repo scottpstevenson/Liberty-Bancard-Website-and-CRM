@@ -1,8 +1,11 @@
+import { useState } from "react";
 import { SEO, getServiceSchema } from "@/components/SEO";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
+import { useToast } from "@/hooks/use-toast";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Link } from "wouter";
 import {
@@ -25,6 +28,8 @@ import {
   BadgeCheck,
   Users,
   Zap,
+  Link2,
+  Check,
 } from "lucide-react";
 
 const processors = [
@@ -190,6 +195,25 @@ const structuredData = {
 
 export default function RateComparison() {
   const containerRef = useScrollReveal();
+  const { toast } = useToast();
+  const [copied, setCopied] = useState(false);
+
+  const handleShareCopy = async () => {
+    const shareUrl = "https://libertybancard.com/compare-rates?utm_source=agent&utm_medium=share&utm_content=rate-comparison";
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+    } catch {
+      const el = document.createElement("textarea");
+      el.value = shareUrl;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand("copy");
+      document.body.removeChild(el);
+    }
+    setCopied(true);
+    toast({ title: "Link copied!", description: "Ready to paste in email, text, or chat." });
+    setTimeout(() => setCopied(false), 2200);
+  };
 
   return (
     <div className="min-h-screen flex flex-col font-body">
@@ -220,9 +244,18 @@ export default function RateComparison() {
               <p className="text-lg text-white/80 mb-2" data-testid="text-compare-subheading">
                 Compare Liberty Bancard vs Square vs Stripe vs Clover vs Toast. See fees, features, and contract terms side by side.
               </p>
-              <p className="text-xs text-white/50" data-testid="text-compare-disclaimer">
+              <p className="text-xs text-white/50 mb-6" data-testid="text-compare-disclaimer">
                 *Rate estimates based on publicly available pricing and common merchant scenarios. Actual rates vary. No savings claims without statement review.
               </p>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="gap-2 text-white/70 hover:text-white hover:bg-white/10 border border-white/20"
+                onClick={handleShareCopy}
+                data-testid="button-share-compare-rates"
+              >
+                {copied ? <><Check className="w-4 h-4 text-green-400" /> Copied!</> : <><Link2 className="w-4 h-4" /> Share This Comparison</>}
+              </Button>
             </div>
           </div>
         </section>
@@ -244,7 +277,7 @@ export default function RateComparison() {
             <h2 className="reveal text-2xl md:text-3xl font-display font-bold text-foreground text-center mb-8" data-testid="text-features-heading">
               Features & Pricing Comparison
             </h2>
-            <div className="reveal overflow-x-auto -mx-4 px-4">
+            <div className="reveal hidden sm:block overflow-x-auto -mx-4 px-4">
               <table className="w-full min-w-[700px] border-collapse" data-testid="table-comparison">
                 <thead>
                   <tr>
@@ -297,6 +330,28 @@ export default function RateComparison() {
                 </tbody>
               </table>
             </div>
+            {/* Mobile Card View for Features */}
+            <div className="reveal sm:hidden space-y-3" data-testid="table-comparison-mobile">
+              {processors.map((p) => (
+                <Card key={p.name} className={p.highlight ? "border-primary/40 shadow-sm" : ""} data-testid={`card-processor-${p.name.toLowerCase().replace(/\s/g, "-")}`}>
+                  <CardContent className="p-4">
+                    <p className={`font-semibold text-sm mb-3 ${p.highlight ? "text-primary" : "text-foreground"}`}>{p.name}</p>
+                    <div className="space-y-2">
+                      {featureRows.map((row) => (
+                        <div key={row.key} className="flex items-center justify-between gap-2">
+                          <span className="text-xs text-muted-foreground">{row.label}</span>
+                          <FeatureCell value={p[row.key] as string | boolean} />
+                        </div>
+                      ))}
+                      <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/50">
+                        <span className="text-xs text-muted-foreground">Best For</span>
+                        <span className="text-xs text-muted-foreground text-right max-w-[60%]">{p.bestFor}</span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
           </div>
         </section>
 
@@ -308,7 +363,7 @@ export default function RateComparison() {
             <p className="text-center text-muted-foreground mb-8 max-w-2xl mx-auto text-sm">
               Estimated monthly processing fees based on typical card mix. Actual costs vary.
             </p>
-            <div className="reveal overflow-x-auto -mx-4 px-4">
+            <div className="reveal hidden sm:block overflow-x-auto -mx-4 px-4">
               <table className="w-full min-w-[600px] border-collapse" data-testid="table-volume">
                 <thead>
                   <tr>
@@ -333,6 +388,33 @@ export default function RateComparison() {
                   ))}
                 </tbody>
               </table>
+            </div>
+            {/* Mobile Card View for Volume Cost */}
+            <div className="reveal sm:hidden space-y-3" data-testid="table-volume-mobile">
+              {volumeExamples.map((row, i) => (
+                <Card key={i} data-testid={`card-volume-${i}`}>
+                  <CardContent className="p-4">
+                    <p className="font-semibold text-sm text-foreground mb-3">{row.volume}</p>
+                    <div className="space-y-2">
+                      {[
+                        { label: "Square", value: row.square },
+                        { label: "Stripe", value: row.stripe },
+                        { label: "Clover", value: row.clover },
+                        { label: "Toast", value: row.toast },
+                      ].map((item) => (
+                        <div key={item.label} className="flex justify-between items-center">
+                          <span className="text-xs text-muted-foreground">{item.label}</span>
+                          <span className="text-sm text-foreground">{item.value}</span>
+                        </div>
+                      ))}
+                      <div className="flex justify-between items-center pt-2 border-t border-border/50">
+                        <span className="text-xs font-semibold text-primary">Liberty Bancard</span>
+                        <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{row.liberty}</span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
             <p className="text-[10px] text-muted-foreground text-center mt-4">
               *Illustrative estimates. Liberty Bancard rates based on interchange-plus pricing for qualifying merchants. Actual costs depend on card mix, transaction types, and underwriting. Eligibility, card brand rules, and applicable laws apply.

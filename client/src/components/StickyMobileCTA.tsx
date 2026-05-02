@@ -1,25 +1,29 @@
 import { Link } from "wouter";
-import { Button } from "@/components/ui/button";
-import { Upload, Phone } from "lucide-react";
+import { Phone } from "lucide-react";
 
 export function StickyMobileCTA() {
   return (
     <div
-      className="fixed bottom-0 left-0 right-0 z-40 lg:hidden bg-background/95 backdrop-blur-md border-t border-border px-4 py-3 safe-area-pb"
+      className="fixed bottom-0 left-0 right-0 z-40 md:hidden bg-primary safe-area-pb"
+      style={{ minHeight: "52px" }}
       data-testid="sticky-mobile-cta"
     >
-      <div className="flex gap-3 max-w-lg mx-auto">
-        <Link href="/upload-statement" className="flex-1" data-testid="link-sticky-upload">
-          <Button className="w-full gap-2">
-            <Upload className="w-4 h-4" />
-            Upload Statement
-          </Button>
-        </Link>
-        <a href="tel:9542668214" data-testid="link-sticky-call">
-          <Button variant="outline" size="icon">
-            <Phone className="w-4 h-4" />
-          </Button>
+      <div className="flex h-full" style={{ minHeight: "52px" }}>
+        <a
+          href="tel:9542668214"
+          className="flex-1 flex items-center justify-center gap-2 text-white font-semibold text-sm border-r border-white/20 py-3 px-2 active:bg-white/10"
+          data-testid="link-sticky-call"
+        >
+          <Phone className="w-4 h-4 shrink-0" />
+          <span>954-266-8214</span>
         </a>
+        <Link
+          href="/upload-statement"
+          className="flex-1 flex items-center justify-center text-white font-medium text-sm py-3 px-2 active:bg-white/10 text-center leading-snug"
+          data-testid="link-sticky-analysis"
+        >
+          Get a free savings analysis
+        </Link>
       </div>
     </div>
   );
