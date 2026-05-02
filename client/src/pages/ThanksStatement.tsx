@@ -1,4 +1,5 @@
 import { Navbar } from "@/components/Navbar";
+import { SEO } from "@/components/SEO";
 import { Footer } from "@/components/Footer";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -12,6 +13,7 @@ export default function ThanksStatement() {
 
   return (
     <div className="min-h-screen flex flex-col font-body">
+      <SEO title="Statement Received" description="We received your processing statement. Liberty Bancard will deliver your free line-by-line analysis during business hours." path="/thanks-statement" noindex />
       <Navbar />
       <main className="flex-grow pt-28">
         <section className="bg-primary text-primary-foreground py-16" data-testid="section-thanks-statement-hero">

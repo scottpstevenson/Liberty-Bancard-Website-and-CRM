@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { SEO } from "@/components/SEO";
 import { useParams } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -149,6 +150,7 @@ export default function ProposalViewer() {
 
   return (
     <div className="min-h-screen bg-slate-50" data-testid="page-proposal-viewer">
+      <SEO title="Your Liberty Bancard Proposal" description="Review your custom Liberty Bancard processing proposal — pricing, projected savings, equipment, and next steps." path={`/proposal/${token || ""}`} noindex />
       <header className="bg-slate-900 text-white" data-testid="proposal-header">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
           <div className="flex items-center gap-2 mb-4">

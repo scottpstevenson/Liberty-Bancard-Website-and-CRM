@@ -25,6 +25,8 @@ import { registerCrmOperationsRoutes } from "./routes/crm-operations";
 import { registerImportsRoutes } from "./routes/imports";
 import { registerSdrRoutes } from "./routes/sdr";
 import { registerSsrRoutes } from "./routes/ssr-routes";
+import { registerOgRoutes } from "./routes/og";
+import { registerSeoAdminRoutes } from "./routes/seo-admin";
 import { registerGlossaryRoutes } from "./routes/glossary";
 import { registerTrainingRoutes } from "./routes/training";
 import { registerMyDayRoutes } from "./routes/my-day";
@@ -84,6 +86,51 @@ export async function registerRoutes(
   registerCrmOperationsRoutes(app);
   registerImportsRoutes(app);
   registerSdrRoutes(app);
+
+  // SEO #178 — programmatic OG image route + admin coverage endpoint.
+  // Registered BEFORE registerSsrRoutes so the 301 redirect for the
+  // duplicate /thanks-application path wins over the SPA fallback.
+  registerOgRoutes(app);
+  registerSeoAdminRoutes(app);
+
+  // Server-side noindex enforcement for auth and thank-you routes. Sets
+  // X-Robots-Tag header so crawlers see the directive immediately, without
+  // depending on client-side react-helmet-async to mount. Belt-and-suspenders
+  // alongside the in-page <meta name="robots"> tags rendered by <SEO noindex>.
+  const NOINDEX_PATH_PREFIXES = [
+    "/login",
+    "/signup",
+    "/forgot-password",
+    "/reset-password",
+    "/verify-email",
+    "/thanks-statement",
+    "/thanks-estimate",
+    "/thanks-call",
+    "/thanks-support",
+    "/thanks/application",
+    "/nps/",
+    "/proposal/",
+    "/assets/",
+    "/dashboard",
+    "/mobile",
+    "/partner-portal",
+  ];
+  app.use((req, res, next) => {
+    const p = req.path;
+    if (
+      NOINDEX_PATH_PREFIXES.some(
+        (prefix) => p === prefix || p.startsWith(prefix + (prefix.endsWith("/") ? "" : "/")) || p === prefix
+      )
+    ) {
+      res.setHeader("X-Robots-Tag", "noindex, nofollow");
+    }
+    next();
+  });
+
+  app.get("/thanks-application", (_req, res) => {
+    res.redirect(301, "/thanks/application");
+  });
+
   registerSsrRoutes(app);
   registerGlossaryRoutes(app);
   registerTrainingRoutes(app);

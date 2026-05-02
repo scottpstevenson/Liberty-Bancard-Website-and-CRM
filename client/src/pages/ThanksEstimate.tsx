@@ -1,4 +1,5 @@
 import { Navbar } from "@/components/Navbar";
+import { SEO } from "@/components/SEO";
 import { Footer } from "@/components/Footer";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -12,6 +13,7 @@ export default function ThanksEstimate() {
 
   return (
     <div className="min-h-screen flex flex-col font-body">
+      <SEO title="Estimate Received" description="We received your processing estimate request. Liberty Bancard will follow up shortly with your custom rate breakdown." path="/thanks-estimate" noindex />
       <Navbar />
       <main className="flex-grow pt-28">
         <section className="bg-background py-16" data-testid="section-thanks-estimate-hero">

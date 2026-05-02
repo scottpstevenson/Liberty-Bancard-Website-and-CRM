@@ -1,4 +1,5 @@
 import { Navbar } from "@/components/Navbar";
+import { SEO } from "@/components/SEO";
 import { Footer } from "@/components/Footer";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -12,6 +13,7 @@ export default function ThanksCall() {
 
   return (
     <div className="min-h-screen flex flex-col font-body">
+      <SEO title="Callback Request Received" description="We received your callback request. A Liberty Bancard payments specialist will reach out shortly during business hours." path="/thanks-call" noindex />
       <Navbar />
       <main className="flex-grow pt-16">
         <section className="bg-primary text-primary-foreground py-20" data-testid="section-thanks-call-hero">

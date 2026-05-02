@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { SEO } from "@/components/SEO";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -49,6 +50,7 @@ export default function ResetPassword() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
+      <SEO title="Set a New Password" description="Choose a new password for your Liberty Bancard account using your secure reset link." path="/reset-password" noindex />
       <div className="w-full max-w-md space-y-6">
         <div className="flex flex-col items-center gap-3">
           <Link href="/">

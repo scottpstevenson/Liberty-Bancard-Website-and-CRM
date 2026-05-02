@@ -95,6 +95,15 @@ export function ssrHtmlShell({
     .map((s) => `<script type="application/ld+json">${JSON.stringify(s)}</script>`)
     .join("\n    ");
 
+  const gscVerify = process.env.GSC_VERIFICATION || "";
+  const bingVerify = process.env.BING_VERIFICATION || "";
+  const verificationMeta = [
+    gscVerify ? `<meta name="google-site-verification" content="${escapeHtml(gscVerify)}" />` : "",
+    bingVerify ? `<meta name="msvalidate.01" content="${escapeHtml(bingVerify)}" />` : "",
+  ]
+    .filter(Boolean)
+    .join("\n  ");
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -105,13 +114,18 @@ export function ssrHtmlShell({
   <meta name="description" content="${safeDescription}" />
   ${keywords ? `<meta name="keywords" content="${escapeHtml(keywords)}" />` : ""}
   <link rel="canonical" href="${fullCanonical}" />
+  <link rel="alternate" hreflang="en-US" href="${fullCanonical}" />
+  <link rel="alternate" hreflang="x-default" href="${fullCanonical}" />
   <link rel="icon" type="image/png" href="/favicon.png" />
+  ${verificationMeta}
 
   <meta property="og:title" content="${safeTitle}" />
   <meta property="og:description" content="${safeDescription}" />
   <meta property="og:type" content="${ogType}" />
   <meta property="og:url" content="${fullCanonical}" />
   <meta property="og:image" content="${ogImageUrl}" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
   <meta property="og:site_name" content="Liberty Bancard" />
 
   <meta name="twitter:card" content="summary_large_image" />

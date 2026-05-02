@@ -238,6 +238,11 @@ export function renderBlogHubHtml(posts: BlogPost[]): string {
 <meta property="og:description" content="Expert guides on credit card processing fees, interchange rates, chargebacks, and how to reduce your merchant processing costs.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://libertybancard.com/blog">
+<meta property="og:image" content="https://libertybancard.com/og/blog/index.svg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://libertybancard.com/og/blog/index.svg">
 <link rel="canonical" href="https://libertybancard.com/blog">
 <script type="application/ld+json">${itemListSchema}</script>
 <script type="application/ld+json">${webPageSchema}</script>

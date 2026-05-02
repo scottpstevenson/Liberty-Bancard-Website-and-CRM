@@ -1,4 +1,5 @@
 import { Navbar } from "@/components/Navbar";
+import { SEO } from "@/components/SEO";
 import { Footer } from "@/components/Footer";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -8,6 +9,7 @@ import { Phone, FileText, CreditCard, Shield, CheckCircle, Clock, ArrowRight, Me
 export default function ThanksSupport() {
   return (
     <div className="min-h-screen flex flex-col font-body">
+      <SEO title="Support Request Received" description="We received your Liberty Bancard support request. A real human will respond shortly during business hours." path="/thanks-support" noindex />
       <Navbar />
       <main className="flex-grow pt-28">
         <section className="bg-primary text-primary-foreground py-16" data-testid="section-thanks-support-hero">

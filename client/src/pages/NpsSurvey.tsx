@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { SEO } from "@/components/SEO";
 import { useParams } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -167,6 +168,7 @@ export default function NpsSurvey() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-muted/20 px-4 py-10">
+      <SEO title="Customer Satisfaction Survey" description="Share your Liberty Bancard experience in 30 seconds. Your feedback helps us improve service for every merchant." path={`/nps/${token || ""}`} noindex />
       <Card className="max-w-2xl w-full" data-testid="nps-survey-card">
         <CardHeader className="text-center pb-2">
           <div className="flex justify-center mb-3">

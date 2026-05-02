@@ -9,6 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Loader2, Shield, Mail, Lock, Smartphone, KeyRound } from "lucide-react";
 import { SiGoogle } from "react-icons/si";
 import logoBlue from "@assets/logo-blue.png";
+import { SEO } from "@/components/SEO";
 
 export default function Login() {
   const [, setLocation] = useLocation();
@@ -152,6 +153,7 @@ export default function Login() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
+      <SEO title="Sign In" description="Sign in to your Liberty Bancard merchant or partner dashboard to manage your payment processing account." path="/login" noindex />
       <div className="w-full max-w-md space-y-6">
         <div className="flex flex-col items-center gap-3">
           <Link href="/">

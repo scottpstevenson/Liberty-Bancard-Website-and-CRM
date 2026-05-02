@@ -118,6 +118,7 @@ import RoundRobinAdmin from "@/pages/dashboard/RoundRobinAdmin";
 import InboxHealth from "@/pages/dashboard/InboxHealth";
 import ActivationPanel from "@/pages/dashboard/ActivationPanel";
 import OperatorDashboard from "@/pages/dashboard/OperatorDashboard";
+import SeoHealth from "@/pages/dashboard/SeoHealth";
 import Training from "@/pages/dashboard/Training";
 import Leaderboard from "@/pages/dashboard/Leaderboard";
 import SalesRepHome from "@/pages/dashboard/SalesRepHome";
@@ -263,7 +264,7 @@ function Router() {
       <Route path="/thanks-call" component={ThanksCall} />
       <Route path="/thanks-support" component={ThanksSupport} />
       <Route path="/thanks/application" component={ThanksApplication} />
-      <Route path="/thanks-application" component={ThanksApplication} />
+      {/* /thanks-application is 301-redirected server-side to /thanks/application (Task #178) */}
       <Route path="/merchant-application" component={MerchantApplication} />
       <Route path="/equipment" component={Equipment} />
       <Route path="/shop" component={TerminalShop} />
@@ -500,6 +501,9 @@ function Router() {
       </Route>
       <Route path="/dashboard/operator">
         <ProtectedRoute component={OperatorDashboard} />
+      </Route>
+      <Route path="/dashboard/seo-health">
+        <ProtectedRoute component={SeoHealth} />
       </Route>
       <Route path="/dashboard/training">
         <ProtectedRoute component={Training} />

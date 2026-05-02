@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { SEO } from "@/components/SEO";
 import { Link } from "wouter";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -38,6 +39,7 @@ export default function VerifyEmail() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4" data-testid="verify-email-page">
+      <SEO title="Verify Your Email" description="Verify your Liberty Bancard email address to activate your account." path="/verify-email" noindex />
       <Card className="w-full max-w-md" data-testid="verify-email-card">
         <CardHeader className="text-center">
           <CardTitle data-testid="verify-email-title">Email Verification</CardTitle>

@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Loader2, UserPlus, Mail, Lock, User } from "lucide-react";
 import { SiGoogle } from "react-icons/si";
 import logoBlue from "@assets/logo-blue.png";
+import { SEO } from "@/components/SEO";
 
 export default function Signup() {
   const [, setLocation] = useLocation();
@@ -45,6 +46,7 @@ export default function Signup() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
+      <SEO title="Create Account" description="Create a Liberty Bancard account to access your merchant dashboard, statement reviews, and processing tools." path="/signup" noindex />
       <div className="w-full max-w-md space-y-6">
         <div className="flex flex-col items-center gap-3">
           <Link href="/">

@@ -55,6 +55,7 @@ import {
   Mailbox,
   Rocket as RocketIcon,
   Activity,
+  Search as SearchIcon,
   Workflow,
   GraduationCap,
   Link2,
@@ -185,6 +186,7 @@ const adminItems: MenuItem[] = [
   { icon: ShieldCheck, label: "Security Settings", href: "/dashboard/security", roles: ["admin", "manager", "agent", "merchant"] },
   { icon: Pencil, label: "Blog Generator", href: "/dashboard/blog-generator", roles: ["admin"] },
   { icon: GraduationCap, label: "Training Hub Setup", href: "/dashboard/training", roles: ["admin", "manager"] },
+  { icon: SearchIcon, label: "SEO Health", href: "/dashboard/seo-health", roles: ["admin", "manager"] },
 ];
 
 const formItems: MenuItem[] = [

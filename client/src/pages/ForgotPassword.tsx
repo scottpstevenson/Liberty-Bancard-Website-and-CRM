@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Loader2, Mail, ArrowLeft, CheckCircle } from "lucide-react";
 import logoBlue from "@assets/logo-blue.png";
 import { apiRequest } from "@/lib/queryClient";
+import { SEO } from "@/components/SEO";
 
 export default function ForgotPassword() {
   const [email, setEmail] = useState("");
@@ -30,6 +31,7 @@ export default function ForgotPassword() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
+      <SEO title="Reset Your Password" description="Reset your Liberty Bancard password. We'll send a secure link to your registered email address." path="/forgot-password" noindex />
       <div className="w-full max-w-md space-y-6">
         <div className="flex flex-col items-center gap-3">
           <Link href="/">
