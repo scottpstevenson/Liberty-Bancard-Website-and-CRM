@@ -16,8 +16,8 @@ interface SequenceSeed {
   }>;
 }
 
-const SALES_CALENDAR = "https://api.leadconnectorhq.com/widget/bookings/libertybancard";
-const AM_CALENDAR = "https://api.leadconnectorhq.com/widget/booking/kBRoNz5XoTpddupMQg0c";
+const SALES_CALENDAR = process.env.SALES_CALENDAR_URL || "https://api.leadconnectorhq.com/widget/bookings/libertybancard";
+const AM_CALENDAR = process.env.AM_CALENDAR_URL || "https://api.leadconnectorhq.com/widget/booking/kBRoNz5XoTpddupMQg0c";
 
 const COMPLIANCE_FOOTER = `<p style="font-size:11px;color:#888;margin-top:24px;">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>`;
 

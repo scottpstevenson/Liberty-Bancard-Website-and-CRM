@@ -24,6 +24,32 @@ if (!process.env.SESSION_SECRET) {
   }
 }
 
+function validateCriticalEnvVars() {
+  const criticalVars = [
+    "SESSION_SECRET",
+    "GHL_LOCATION_ID",
+    "GHL_PRIVATE_INTEGRATION_TOKEN",
+    "APP_URL",
+    "GHL_WEBHOOK_SECRET",
+    "ADMIN_DIGEST_EMAIL",
+  ];
+  for (const name of criticalVars) {
+    if (!process.env[name]) {
+      console.warn(`[Config] WARNING: Missing critical env var: ${name}`);
+    }
+  }
+}
+validateCriticalEnvVars();
+
+process.on("unhandledRejection", (reason: any) => {
+  console.error("[Process] Unhandled promise rejection:", reason);
+});
+
+process.on("uncaughtException", (err: Error) => {
+  console.error("[Process] Uncaught exception:", err);
+  process.exit(1);
+});
+
 const app = express();
 const httpServer = createServer(app);
 
@@ -151,7 +177,6 @@ app.use((req, res, next) => {
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
 
     console.error("Internal Server Error:", err);
 
@@ -159,7 +184,11 @@ app.use((req, res, next) => {
       return next(err);
     }
 
-    return res.status(status).json({ message });
+    if (status >= 500) {
+      return res.status(status).json({ message: "Internal server error" });
+    }
+
+    return res.status(status).json({ message: err.message || "Error" });
   });
 
   // importantly only setup vite in development and after

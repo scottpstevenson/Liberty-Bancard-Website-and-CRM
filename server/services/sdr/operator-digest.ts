@@ -113,17 +113,18 @@ export async function buildSdrDailyDigest(): Promise<{ html: string; summary: Re
 }
 
 export async function sendSdrDailyDigest(digest: { html: string; summary: Record<string, any> }): Promise<void> {
+  const adminEmail = process.env.ADMIN_DIGEST_EMAIL;
+  if (!adminEmail) {
+    console.warn("[Digest] ADMIN_DIGEST_EMAIL not set — daily digest skipped");
+    return;
+  }
+
   if (!isGhlConfigured()) {
     console.log("[SDR Digest] GHL not configured, skipping email send");
     return;
   }
 
-  const adminEmail = process.env.ADMIN_DIGEST_EMAIL;
-  const recipients: string[] = [];
-
-  if (adminEmail) {
-    recipients.push(adminEmail);
-  }
+  const recipients: string[] = [adminEmail];
 
   const adminUsers = await storage.getUsersByRole(["admin", "manager"]);
   for (const user of adminUsers) {

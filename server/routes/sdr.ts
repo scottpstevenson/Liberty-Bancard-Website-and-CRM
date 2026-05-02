@@ -19,8 +19,23 @@ import { parse } from "csv-parse/sync";
 
 export function registerSdrRoutes(app: Express) {
   // === HEALTH ENDPOINTS ===
-  app.get("/health", (_req, res) => {
-    res.json({ ok: true });
+  app.get("/health", async (_req, res) => {
+    let dbOk = false;
+    try {
+      await pool.query("SELECT 1");
+      dbOk = true;
+    } catch (err) {
+      console.error("[Health] DB check failed:", err);
+    }
+    const { isGhlConfigured } = await import("../services/ghl");
+    if (!dbOk) {
+      return res.status(503).json({ status: "degraded", db: "error" });
+    }
+    return res.status(200).json({
+      status: "ok",
+      db: "ok",
+      ghl: isGhlConfigured() ? "configured" : "missing",
+    });
   });
 
   app.get("/api/health", async (_req, res) => {
