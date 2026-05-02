@@ -4,6 +4,7 @@ import { isAuthenticated } from "../replit_integrations/auth";
 import { z } from "zod";
 import { randomUUID } from "crypto";
 import { createContactGhlFirst } from "../services/contact-writer";
+import { sendCriticalEmailNotification } from "../services/digest-service";
 import type { LiveChat } from "../../shared/schema";
 
 interface AuthUser {
@@ -48,6 +49,40 @@ export function registerLiveChatRoutes(app: Express) {
         message: `Visitor started a chat${visitorName ? ` — ${visitorName}` : ""}${pageUrl ? ` on ${pageUrl}` : ""}`,
         type: "info",
         metadata: { chatId: chat.id, sessionId },
+      });
+
+      const escapeHtml = (s: string) =>
+        s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+      const safeVisitorName = visitorName ? escapeHtml(visitorName) : "(not provided)";
+      const safeVisitorEmail = visitorEmail ? escapeHtml(visitorEmail) : "(not provided)";
+      const safePageUrl = pageUrl ? escapeHtml(pageUrl) : "(not provided)";
+
+      const dashboardUrl = `${process.env.APP_URL || "https://app.libertybancard.com"}/dashboard/live-chat`;
+      const emailBody = `
+<h2>New Live Chat Started</h2>
+<p>A visitor has started a live chat session on your website.</p>
+<table cellpadding="6" cellspacing="0" style="border-collapse:collapse;">
+  <tr><td style="font-weight:bold;padding-right:12px;">Visitor Name:</td><td>${safeVisitorName}</td></tr>
+  <tr><td style="font-weight:bold;padding-right:12px;">Visitor Email:</td><td>${safeVisitorEmail}</td></tr>
+  <tr><td style="font-weight:bold;padding-right:12px;">Page URL:</td><td>${safePageUrl}</td></tr>
+  <tr><td style="font-weight:bold;padding-right:12px;">Chat ID:</td><td>${chat.id}</td></tr>
+  <tr><td style="font-weight:bold;padding-right:12px;">Started At:</td><td>${new Date().toLocaleString("en-US", { timeZone: "America/New_York" })} EST</td></tr>
+</table>
+<p style="margin-top:20px;">
+  <a href="${dashboardUrl}" style="background:#1a56db;color:#fff;padding:10px 20px;text-decoration:none;border-radius:4px;font-weight:bold;">
+    Open Live Chat Dashboard
+  </a>
+</p>
+<p style="color:#888;font-size:12px;margin-top:24px;">Liberty Bancard CRM — automated alert</p>`;
+
+      sendCriticalEmailNotification({
+        eventType: "live_chat_started",
+        subject: `New Live Chat — ${visitorName || "Visitor"}${pageUrl ? ` on ${pageUrl}` : ""}`,
+        body: emailBody,
+        recipientEmail: process.env.SUPPORT_INBOX_EMAIL || process.env.ADMIN_DIGEST_EMAIL || undefined,
+      }).catch((err) => {
+        console.error("[LiveChat] Failed to send new-chat email notification:", err);
       });
 
       res.status(201).json({ sessionId, chatId: chat.id, isBusinessHours: isBusinessHours() });
