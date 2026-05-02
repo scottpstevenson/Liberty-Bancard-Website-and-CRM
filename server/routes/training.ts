@@ -5,6 +5,7 @@ import { storage } from "../storage";
 import { db } from "../db";
 import { roleplaySessions, roleplayExchanges } from "@shared/schema";
 import { eq, desc } from "drizzle-orm";
+import { createMasterVault, getVaultStatus } from "../services/business-vault";
 
 // Admin or manager role required for write operations
 const isAdminOrManager: RequestHandler = (req, res, next) => {
@@ -65,7 +66,6 @@ export function registerTrainingRoutes(app: Express) {
       res.status(500).json({ message: error.message || "Failed to sync GHL blueprints to main doc" });
     }
   });
-
 
   // === AI ROLEPLAY COACH ===
 
@@ -304,6 +304,32 @@ Return valid JSON with:
       res.json(exchanges);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === MASTER BUSINESS VAULT ===
+
+  // Master Business Vault — check status
+  app.get("/api/vault/status", isDashboardUser, async (req, res) => {
+    try {
+      const status = await getVaultStatus();
+      res.json(status);
+    } catch (error: any) {
+      console.error("Vault status error:", error);
+      res.status(500).json({ message: error.message || "Failed to get vault status" });
+    }
+  });
+
+  // Master Business Vault — create/build all folders and documents
+  app.post("/api/vault/setup", isAdminOrManager, async (req, res) => {
+    try {
+      console.log("[Vault] Starting Master Business Vault creation...");
+      const result = await createMasterVault();
+      console.log(`[Vault] Completed: ${result.documentsCreated}/${result.totalDocuments} docs created`);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Vault setup error:", error);
+      res.status(500).json({ message: error.message || "Failed to create Master Business Vault" });
     }
   });
 }
