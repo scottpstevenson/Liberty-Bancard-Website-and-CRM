@@ -30,6 +30,7 @@ import { registerTrainingRoutes } from "./routes/training";
 import { registerMyDayRoutes } from "./routes/my-day";
 import { registerLiveChatRoutes } from "./routes/live-chat";
 import { registerChargebacksRoutes } from "./routes/chargebacks";
+import { registerToolkitRoutes } from "./routes/toolkit";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -84,6 +85,7 @@ export async function registerRoutes(
   registerMyDayRoutes(app);
   registerLiveChatRoutes(app);
   registerChargebacksRoutes(app);
+  registerToolkitRoutes(app);
 
   return httpServer;
 }

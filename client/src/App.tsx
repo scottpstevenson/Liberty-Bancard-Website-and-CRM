@@ -109,6 +109,9 @@ import PciAssessment from "@/pages/dashboard/PciAssessment";
 import DataRequests from "@/pages/dashboard/DataRequests";
 import BlogGenerator from "@/pages/dashboard/BlogGenerator";
 import SdrDashboard from "@/pages/dashboard/SdrDashboard";
+import SmsInbox from "@/pages/dashboard/SmsInbox";
+import BinLookup from "@/pages/dashboard/BinLookup";
+import RoundRobinAdmin from "@/pages/dashboard/RoundRobinAdmin";
 import InboxHealth from "@/pages/dashboard/InboxHealth";
 import ActivationPanel from "@/pages/dashboard/ActivationPanel";
 import OperatorDashboard from "@/pages/dashboard/OperatorDashboard";
@@ -450,6 +453,15 @@ function Router() {
       </Route>
       <Route path="/dashboard/sdr">
         <ProtectedRoute component={SdrDashboard} />
+      </Route>
+      <Route path="/dashboard/sms-inbox">
+        <ProtectedRoute component={SmsInbox} />
+      </Route>
+      <Route path="/dashboard/bin-lookup">
+        <ProtectedRoute component={BinLookup} />
+      </Route>
+      <Route path="/dashboard/round-robin">
+        <ProtectedRoute component={RoundRobinAdmin} />
       </Route>
       <Route path="/dashboard/inbox-health">
         <ProtectedRoute component={InboxHealth} />

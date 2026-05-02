@@ -24,6 +24,7 @@ import {
   ShieldCheck,
   Link2,
 } from "lucide-react";
+
 import imgCloverFlex3 from "@assets/images/terminal-clover-flex-3.png";
 import imgPaxA920 from "@assets/images/terminal-pax-a920.png";
 

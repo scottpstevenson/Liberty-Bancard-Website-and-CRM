@@ -17,8 +17,107 @@ import {
   Phone, Mail, User, Clock, TrendingUp, Target, CheckCircle2, AlertTriangle,
   Loader2, CalendarDays, PhoneCall, Link2, Copy, ChevronRight, Star,
   BookOpen, LayoutDashboard, Users, ClipboardList, Calendar, FileText,
+  ExternalLink, XCircle,
 } from "lucide-react";
 import { SALES_STAGES } from "@shared/schema";
+
+interface Appointment {
+  id: string;
+  title: string;
+  contactName: string;
+  contactId: string | null;
+  startTime: string | null;
+  endTime: string | null;
+  status: string;
+  calendarType: string;
+  ghlLink: string | null;
+  noShow: boolean;
+  locationName: string | null;
+}
+
+function UpcomingMeetingsWidget() {
+  const { data, isLoading } = useQuery<{ appointments: Appointment[]; configured: boolean }>({
+    queryKey: ["/api/appointments"],
+    refetchInterval: 5 * 60 * 1000,
+  });
+
+  const appointments = data?.appointments || [];
+
+  function formatApptTime(ts: string | null): string {
+    if (!ts) return "—";
+    const d = new Date(typeof ts === "number" ? ts : parseInt(ts) || ts);
+    if (isNaN(d.getTime())) return ts;
+    return d.toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  }
+
+  return (
+    <Card data-testid="card-upcoming-meetings">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Calendar className="w-4 h-4 text-primary" />
+          Upcoming Meetings
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="space-y-2">
+            {[1, 2, 3].map((i) => (
+              <Skeleton key={i} className="h-12 w-full" />
+            ))}
+          </div>
+        ) : !data?.configured ? (
+          <p className="text-xs text-muted-foreground text-center py-4">
+            Configure GHL calendar to see upcoming meetings
+          </p>
+        ) : appointments.length === 0 ? (
+          <p className="text-xs text-muted-foreground text-center py-4">
+            No upcoming appointments scheduled
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {appointments.slice(0, 5).map((appt) => (
+              <div
+                key={appt.id}
+                className={`flex items-start gap-3 p-2.5 rounded-lg border ${appt.noShow ? "bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800" : "bg-muted/40 border-transparent"}`}
+                data-testid={`appt-row-${appt.id}`}
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-sm font-medium truncate">{appt.contactName}</span>
+                    {appt.noShow && (
+                      <Badge variant="destructive" className="text-[10px] h-4">No-Show</Badge>
+                    )}
+                    {appt.status && appt.status !== "booked" && !appt.noShow && (
+                      <Badge variant="secondary" className="text-[10px] h-4 capitalize">{appt.status}</Badge>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
+                    <Clock className="w-3 h-3 shrink-0" />
+                    <span className="truncate">{formatApptTime(appt.startTime)}</span>
+                  </div>
+                  {appt.locationName && (
+                    <p className="text-[10px] text-muted-foreground mt-0.5">{appt.locationName}</p>
+                  )}
+                </div>
+                {appt.ghlLink && (
+                  <a
+                    href={appt.ghlLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="shrink-0 text-primary hover:underline text-xs flex items-center gap-0.5"
+                    data-testid={`appt-join-${appt.id}`}
+                  >
+                    Join <ExternalLink className="w-3 h-3" />
+                  </a>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 interface MyDayData {
   agent: {
@@ -661,6 +760,9 @@ export default function SalesRepHome() {
 
         {/* Right Column */}
         <div className="space-y-4">
+          {/* Upcoming Meetings */}
+          <UpcomingMeetingsWidget />
+
           {/* Quota Progress */}
           <Card data-testid="card-quota">
             <CardHeader className="pb-3">

@@ -14,6 +14,7 @@ import { ingestBusinessFromContact } from "../services/sdr/dedupe";
 import { isGhlConfigured } from "../services/ghl";
 import { syncContactToGhl } from "../services/ghl-sync";
 import { createContactGhlFirst, updateContactGhlFirst } from "../services/contact-writer";
+import { assignNextRep } from "./toolkit";
 import { parse } from "csv-parse/sync";
 import path from "path";
 
@@ -47,6 +48,7 @@ export function registerContactsRoutes(app: Express) {
       scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
       autoEnrollFromTrigger("contact_created", { contactId: contact.id }).catch(err => console.error("Auto-enroll error:", err));
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
+      assignNextRep(contact.id, `${contact.firstName} ${contact.lastName}`.trim()).catch(err => console.error("Round-robin assignment error:", err));
       if (contact.leadScore && contact.leadScore >= 80) {
         sendCriticalEmailNotification({ eventType: "hot_lead", subject: `Hot Lead Alert: ${contact.firstName} ${contact.lastName}`, body: `<h3>Hot Lead Alert</h3><p><strong>${contact.firstName} ${contact.lastName}</strong>${contact.companyName ? ` (${contact.companyName})` : ""} has a lead score of ${contact.leadScore}.</p><p>Email: ${contact.email || "N/A"}<br/>Phone: ${contact.phone || "N/A"}</p><p>Take action immediately.</p>` }).catch(err => console.error("Hot lead email error:", err));
       }

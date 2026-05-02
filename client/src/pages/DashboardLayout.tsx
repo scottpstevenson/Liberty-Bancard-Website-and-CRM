@@ -1,5 +1,6 @@
 import { ReactNode, useState, useMemo } from "react";
 import { Link, useLocation } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import logoBlue from "@assets/logo-blue.png";
 import UniversalSearch from "@/components/UniversalSearch";
@@ -58,6 +59,9 @@ import {
   GraduationCap,
   Link2,
   ShieldAlert,
+  CreditCard,
+  ArrowRightLeft,
+  Inbox,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -86,6 +90,7 @@ interface MenuItem {
   label: string;
   href: string;
   roles?: UserRole[];
+  badgeKey?: string;
 }
 
 const menuItems: MenuItem[] = [
@@ -100,6 +105,7 @@ const menuItems: MenuItem[] = [
   { icon: ClipboardList, label: "My Tasks", href: "/dashboard/tasks", roles: ["agent"] },
   { icon: ClipboardList, label: "Tasks", href: "/dashboard/tasks", roles: ["admin", "manager"] },
   { icon: Bell, label: "Notifications", href: "/dashboard/notifications", roles: ["admin", "manager", "agent"] },
+  { icon: Inbox, label: "Messages", href: "/dashboard/sms-inbox", roles: ["admin", "manager", "agent"], badgeKey: "smsUnread" },
   { icon: MessageSquare, label: "AI Advisor", href: "/dashboard/chat", roles: ["admin", "manager", "agent"] },
   { icon: MessageCircle, label: "Live Chat", href: "/dashboard/live-chat", roles: ["admin", "manager", "agent"] },
   { icon: FileQuestion, label: "RFIs", href: "/dashboard/rfis", roles: ["admin", "manager"] },
@@ -136,6 +142,7 @@ const leadGenItems: MenuItem[] = [
   { icon: Sparkles, label: "Lead Intelligence", href: "/dashboard/lead-intelligence", roles: ["admin", "manager"] },
   { icon: FileBarChart, label: "Statement Review", href: "/dashboard/statement-review", roles: ["admin", "manager"] },
   { icon: BarChart2, label: "Outreach Analytics", href: "/dashboard/outreach-analytics", roles: ["admin", "manager"] },
+  { icon: CreditCard, label: "BIN Lookup", href: "/dashboard/bin-lookup", roles: ["admin", "manager", "agent"] },
 ];
 
 const businessItems: MenuItem[] = [
@@ -163,6 +170,7 @@ const agentResourceItems: MenuItem[] = [
 
 const adminItems: MenuItem[] = [
   { icon: UserCog, label: "User Management", href: "/dashboard/user-management", roles: ["admin"] },
+  { icon: ArrowRightLeft, label: "Round-Robin", href: "/dashboard/round-robin", roles: ["admin", "manager"] },
   { icon: ShieldCheck, label: "Security Settings", href: "/dashboard/security", roles: ["admin", "manager", "agent", "merchant"] },
   { icon: Pencil, label: "Blog Generator", href: "/dashboard/blog-generator", roles: ["admin"] },
   { icon: GraduationCap, label: "Training Hub Setup", href: "/dashboard/training", roles: ["admin", "manager"] },
@@ -184,6 +192,14 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const { logout, user } = useAuth();
   const [emailOpen, setEmailOpen] = useState(false);
   const role = (user?.role as UserRole) || "merchant";
+
+  const { data: smsUnreadData } = useQuery<{ count: number }>({
+    queryKey: ["/api/sms-inbox/unread-count"],
+    refetchInterval: 60000,
+    enabled: ["admin", "manager", "agent"].includes(role),
+  });
+  const smsUnreadCount = smsUnreadData?.count || 0;
+  const badges: Record<string, number> = { smsUnread: smsUnreadCount };
 
   const filteredMenu = useMemo(() => filterByRole(menuItems, role), [role]);
   const filteredSdr = useMemo(() => filterByRole(sdrItems, role), [role]);
@@ -216,12 +232,18 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
             {items.map((item) => {
               const Icon = item.icon;
               const isActive = location === item.href;
+              const badgeCount = item.badgeKey ? (badges[item.badgeKey] || 0) : 0;
               return (
                 <SidebarMenuItem key={item.href}>
                   <SidebarMenuButton asChild isActive={isActive} data-testid={`link-sidebar-${item.label.toLowerCase().replace(/\s+/g, "-")}`}>
                     <Link href={item.href}>
                       <Icon className="w-4 h-4" />
-                      <span>{item.label}</span>
+                      <span className="flex-1">{item.label}</span>
+                      {badgeCount > 0 && (
+                        <span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-medium text-destructive-foreground" data-testid={`badge-sidebar-${item.badgeKey}`}>
+                          {badgeCount > 99 ? "99+" : badgeCount}
+                        </span>
+                      )}
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
