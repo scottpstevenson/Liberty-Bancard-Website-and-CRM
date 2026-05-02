@@ -274,6 +274,18 @@ export function registerPartnersRoutes(app: Express) {
     });
   });
 
+  // === REFERRAL CLICK TRACKING ===
+  app.get("/api/partner/track/:code", async (req, res) => {
+    try {
+      const code = req.params.code as string;
+      if (!code || code.length > 50) return res.status(400).json({ message: "Invalid code." });
+      await storage.incrementPartnerClicks(code);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // === PARTNER DASHBOARD DATA ===
   app.get("/api/partner/dashboard/:code", async (req, res) => {
     try {
@@ -331,6 +343,7 @@ export function registerPartnersRoutes(app: Express) {
           totalCommissionLifetime,
           nextPaymentDate: nextPaymentDate.toISOString(),
           pendingReferrals: referralsList.filter(r => r.status === "pending" || r.status === "contacted").length,
+          totalClicks: partner.totalClicks ?? 0,
         },
         merchants: merchantList,
         referralLink,

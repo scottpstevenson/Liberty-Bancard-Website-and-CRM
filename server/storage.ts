@@ -329,6 +329,7 @@ export interface IStorage {
   getPartnerByEmail(email: string): Promise<Partner | undefined>;
   createPartner(partner: InsertPartner): Promise<Partner>;
   updatePartner(id: number, updates: Partial<InsertPartner>): Promise<Partner | undefined>;
+  incrementPartnerClicks(code: string): Promise<void>;
 
   getReferrals(partnerId?: number): Promise<Referral[]>;
   getReferral(id: number): Promise<Referral | undefined>;
@@ -1797,6 +1798,12 @@ export class DatabaseStorage implements IStorage {
   async updatePartner(id: number, updates: Partial<InsertPartner>) {
     const [updated] = await db.update(partners).set({ ...updates, updatedAt: new Date() }).where(eq(partners.id, id)).returning();
     return updated;
+  }
+
+  async incrementPartnerClicks(code: string) {
+    await db.update(partners)
+      .set({ totalClicks: sql`${partners.totalClicks} + 1`, updatedAt: new Date() })
+      .where(eq(partners.affiliateCode, code.toLowerCase()));
   }
 
   async getReferrals(partnerId?: number) {

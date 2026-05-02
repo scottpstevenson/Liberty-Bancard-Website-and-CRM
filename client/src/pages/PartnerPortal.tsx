@@ -12,7 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Users, DollarSign, TrendingUp, Copy, LogIn, LogOut, Link2,
   BarChart3, FileText, Download, ExternalLink, Shield, CheckCircle,
-  Clock, ArrowRight, Handshake, CalendarDays,
+  Clock, ArrowRight, Handshake, CalendarDays, MousePointerClick,
 } from "lucide-react";
 
 type PortalView = "login" | "dashboard";
@@ -33,6 +33,7 @@ interface PartnerData {
     totalCommissionLifetime: number;
     nextPaymentDate: string;
     pendingReferrals: number;
+    totalClicks: number;
   };
   merchants: Array<{
     id: number;
@@ -253,7 +254,7 @@ export default function PartnerPortal() {
             </div>
 
             {/* KPI Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
               <Card data-testid="kpi-total-merchants">
                 <CardContent className="p-4 text-center">
                   <Users className="w-5 h-5 text-primary mx-auto mb-2" />
@@ -284,6 +285,32 @@ export default function PartnerPortal() {
                     ${kpis.totalCommissionLifetime.toLocaleString("en-US", { maximumFractionDigits: 0 })}
                   </p>
                   <p className="text-xs text-muted-foreground">Lifetime Earned</p>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Clicks KPI row */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+              <Card data-testid="kpi-total-clicks">
+                <CardContent className="p-4 flex items-center gap-4">
+                  <MousePointerClick className="w-8 h-8 text-violet-500 shrink-0" />
+                  <div>
+                    <p className="text-2xl font-bold text-foreground" data-testid="text-total-clicks">{kpis.totalClicks.toLocaleString()}</p>
+                    <p className="text-xs text-muted-foreground">Referral Link Clicks</p>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card data-testid="kpi-click-to-lead">
+                <CardContent className="p-4 flex items-center gap-4">
+                  <TrendingUp className="w-8 h-8 text-amber-500 shrink-0" />
+                  <div>
+                    <p className="text-2xl font-bold text-foreground" data-testid="text-click-to-lead">
+                      {kpis.totalClicks > 0
+                        ? `${((kpis.totalReferrals / kpis.totalClicks) * 100).toFixed(1)}%`
+                        : "—"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">Click-to-Lead Rate</p>
+                  </div>
                 </CardContent>
               </Card>
             </div>
@@ -401,6 +428,21 @@ export default function PartnerPortal() {
                         <Button size="sm" variant="outline" onClick={() => copyLink(referralLink)} className="gap-1.5 shrink-0" data-testid="button-copy-collateral-link">
                           <Copy className="w-3 h-3" /> Copy
                         </Button>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-2 gap-3" data-testid="collateral-link-stats">
+                      <div className="p-3 bg-muted/30 rounded-lg border border-border/40 text-center">
+                        <p className="text-lg font-bold text-foreground" data-testid="collateral-text-clicks">{kpis.totalClicks.toLocaleString()}</p>
+                        <p className="text-xs text-muted-foreground">Total Link Clicks</p>
+                      </div>
+                      <div className="p-3 bg-muted/30 rounded-lg border border-border/40 text-center">
+                        <p className="text-lg font-bold text-foreground" data-testid="collateral-text-ctr">
+                          {kpis.totalClicks > 0
+                            ? `${((kpis.totalReferrals / kpis.totalClicks) * 100).toFixed(1)}%`
+                            : "—"}
+                        </p>
+                        <p className="text-xs text-muted-foreground">Click-to-Lead Rate</p>
                       </div>
                     </div>
                   </CardContent>

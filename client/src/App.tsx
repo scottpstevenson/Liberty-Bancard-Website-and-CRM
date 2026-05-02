@@ -487,6 +487,7 @@ function useReferralTracking() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code: ref }),
       }).catch(() => {});
+      fetch(`/api/partner/track/${encodeURIComponent(ref)}`).catch(() => {});
     }
   }, [location]);
 }
