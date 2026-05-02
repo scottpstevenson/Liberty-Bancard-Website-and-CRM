@@ -86,6 +86,9 @@ import {
   type GeneratedBlogPost, type InsertGeneratedBlogPost,
   type UpdateSdrLeadState,
   ghlWorkflowMappings, type GhlWorkflowMapping,
+  npsResponses, type NpsResponse, type InsertNpsResponse,
+  merchantReferrals, type MerchantReferral, type InsertMerchantReferral,
+  retentionCampaignConfigs, type RetentionCampaignConfig, type InsertRetentionCampaignConfig,
 } from "@shared/schema";
 import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, count } from "drizzle-orm";
 
@@ -355,6 +358,27 @@ export interface IStorage {
   getReviewRequestsByDeal(dealId: number): Promise<ReviewRequest[]>;
   createReviewRequest(request: InsertReviewRequest): Promise<ReviewRequest>;
   updateReviewRequest(id: number, updates: Partial<InsertReviewRequest>): Promise<ReviewRequest | undefined>;
+
+  getNpsResponses(): Promise<NpsResponse[]>;
+  getNpsResponse(id: number): Promise<NpsResponse | undefined>;
+  getNpsResponseByToken(token: string): Promise<NpsResponse | undefined>;
+  getNpsResponsesByContact(contactId: number): Promise<NpsResponse[]>;
+  createNpsResponse(response: InsertNpsResponse): Promise<NpsResponse>;
+  updateNpsResponse(id: number, updates: Partial<InsertNpsResponse>): Promise<NpsResponse | undefined>;
+  getNpsStats(): Promise<{ total: number; submitted: number; avgScore: number; promoters: number; detractors: number; passives: number; npsScore: number }>;
+
+  getMerchantReferrals(referrerProfileId?: number): Promise<MerchantReferral[]>;
+  getMerchantReferral(id: number): Promise<MerchantReferral | undefined>;
+  getMerchantReferralsByCode(code: string): Promise<MerchantReferral[]>;
+  createMerchantReferral(referral: InsertMerchantReferral): Promise<MerchantReferral>;
+  updateMerchantReferral(id: number, updates: Partial<InsertMerchantReferral>): Promise<MerchantReferral | undefined>;
+
+  getRetentionCampaignConfigs(): Promise<RetentionCampaignConfig[]>;
+  getRetentionCampaignConfig(id: number): Promise<RetentionCampaignConfig | undefined>;
+  getRetentionCampaignConfigByAlertType(alertType: string): Promise<RetentionCampaignConfig | undefined>;
+  createRetentionCampaignConfig(config: InsertRetentionCampaignConfig): Promise<RetentionCampaignConfig>;
+  updateRetentionCampaignConfig(id: number, updates: Partial<InsertRetentionCampaignConfig>): Promise<RetentionCampaignConfig | undefined>;
+  deleteRetentionCampaignConfig(id: number): Promise<boolean>;
 
   getOnboardingSteps(dealId?: number): Promise<OnboardingStep[]>;
   getOnboardingStep(id: number): Promise<OnboardingStep | undefined>;
@@ -3053,6 +3077,89 @@ export class DatabaseStorage implements IStorage {
     const thisMonthWinRate = thisMonthResolved.length > 0 ? Math.round((thisMonthWon.length / thisMonthResolved.length) * 100) : 0;
     const totalAtRiskAmount = open.reduce((sum, c) => sum + (c.amount || 0), 0);
     return { total: all.length, open: open.length, overdue: overdue.length, won: won.length, lost: lost.length, thisMonthWinRate, totalAtRiskAmount };
+  }
+
+  // ── NPS Responses ─────────────────────────────────────────────────────────
+  async getNpsResponses() {
+    return db.select().from(npsResponses).orderBy(desc(npsResponses.createdAt));
+  }
+  async getNpsResponse(id: number) {
+    const [row] = await db.select().from(npsResponses).where(eq(npsResponses.id, id));
+    return row;
+  }
+  async getNpsResponseByToken(token: string) {
+    const [row] = await db.select().from(npsResponses).where(eq(npsResponses.token, token));
+    return row;
+  }
+  async getNpsResponsesByContact(contactId: number) {
+    return db.select().from(npsResponses).where(eq(npsResponses.contactId, contactId)).orderBy(desc(npsResponses.createdAt));
+  }
+  async createNpsResponse(response: InsertNpsResponse) {
+    const [row] = await db.insert(npsResponses).values(response).returning();
+    return row;
+  }
+  async updateNpsResponse(id: number, updates: Partial<InsertNpsResponse>) {
+    const [row] = await db.update(npsResponses).set(updates).where(eq(npsResponses.id, id)).returning();
+    return row;
+  }
+  async getNpsStats() {
+    const all = await db.select().from(npsResponses).where(sql`submitted_at IS NOT NULL`);
+    const total = await db.select({ count: count() }).from(npsResponses);
+    const submitted = all.length;
+    const avgScore = submitted > 0 ? all.reduce((s, r) => s + (r.score ?? 0), 0) / submitted : 0;
+    const promoters = all.filter(r => (r.score ?? 0) >= 9).length;
+    const detractors = all.filter(r => (r.score ?? 0) <= 6).length;
+    const passives = submitted - promoters - detractors;
+    const npsScore = submitted > 0 ? Math.round(((promoters - detractors) / submitted) * 100) : 0;
+    return { total: total[0]?.count ?? 0, submitted, avgScore: Math.round(avgScore * 10) / 10, promoters, detractors, passives, npsScore };
+  }
+
+  // ── Merchant Referrals ─────────────────────────────────────────────────────
+  async getMerchantReferrals(referrerProfileId?: number) {
+    if (referrerProfileId !== undefined) {
+      return db.select().from(merchantReferrals).where(eq(merchantReferrals.referrerProfileId, referrerProfileId)).orderBy(desc(merchantReferrals.createdAt));
+    }
+    return db.select().from(merchantReferrals).orderBy(desc(merchantReferrals.createdAt));
+  }
+  async getMerchantReferral(id: number) {
+    const [row] = await db.select().from(merchantReferrals).where(eq(merchantReferrals.id, id));
+    return row;
+  }
+  async getMerchantReferralsByCode(code: string) {
+    return db.select().from(merchantReferrals).where(eq(merchantReferrals.referralCode, code)).orderBy(desc(merchantReferrals.createdAt));
+  }
+  async createMerchantReferral(referral: InsertMerchantReferral) {
+    const [row] = await db.insert(merchantReferrals).values(referral).returning();
+    return row;
+  }
+  async updateMerchantReferral(id: number, updates: Partial<InsertMerchantReferral>) {
+    const [row] = await db.update(merchantReferrals).set({ ...updates, updatedAt: new Date() }).where(eq(merchantReferrals.id, id)).returning();
+    return row;
+  }
+
+  // ── Retention Campaign Configs ─────────────────────────────────────────────
+  async getRetentionCampaignConfigs() {
+    return db.select().from(retentionCampaignConfigs).orderBy(asc(retentionCampaignConfigs.alertType));
+  }
+  async getRetentionCampaignConfig(id: number) {
+    const [row] = await db.select().from(retentionCampaignConfigs).where(eq(retentionCampaignConfigs.id, id));
+    return row;
+  }
+  async getRetentionCampaignConfigByAlertType(alertType: string) {
+    const [row] = await db.select().from(retentionCampaignConfigs).where(and(eq(retentionCampaignConfigs.alertType, alertType), eq(retentionCampaignConfigs.enabled, true)));
+    return row;
+  }
+  async createRetentionCampaignConfig(config: InsertRetentionCampaignConfig) {
+    const [row] = await db.insert(retentionCampaignConfigs).values(config).returning();
+    return row;
+  }
+  async updateRetentionCampaignConfig(id: number, updates: Partial<InsertRetentionCampaignConfig>) {
+    const [row] = await db.update(retentionCampaignConfigs).set({ ...updates, updatedAt: new Date() }).where(eq(retentionCampaignConfigs.id, id)).returning();
+    return row;
+  }
+  async deleteRetentionCampaignConfig(id: number) {
+    const result = await db.delete(retentionCampaignConfigs).where(eq(retentionCampaignConfigs.id, id));
+    return (result.rowCount ?? 0) > 0;
   }
 }
 

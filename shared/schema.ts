@@ -1283,6 +1283,9 @@ export const merchantProfiles = pgTable("merchant_profiles", {
   nextStatementDate: timestamp("next_statement_date"),
   programType: text("program_type"),
   terminalInfo: jsonb("terminal_info"),
+  referralCode: text("referral_code").unique(),
+  referralCredits: text("referral_credits").default("0"),
+  referralCount: integer("referral_count").default(0),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -1662,6 +1665,9 @@ export const reviewRequests = pgTable("review_requests", {
   reviewText: text("review_text"),
   platform: text("platform"),
   reviewUrl: text("review_url"),
+  googleClickedAt: timestamp("google_clicked_at"),
+  trustpilotClickedAt: timestamp("trustpilot_clicked_at"),
+  npsResponseId: integer("nps_response_id"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -2845,3 +2851,91 @@ export type LiveChat = typeof liveChats.$inferSelect;
 export type InsertLiveChat = z.infer<typeof insertLiveChatSchema>;
 export type LiveChatMessage = typeof liveChatMessages.$inferSelect;
 export type InsertLiveChatMessage = z.infer<typeof insertLiveChatMessageSchema>;
+
+// ── NPS Responses ─────────────────────────────────────────────────────────────
+export const npsResponses = pgTable("nps_responses", {
+  id: serial("id").primaryKey(),
+  token: text("token").notNull().unique(),
+  contactId: integer("contact_id").references(() => contacts.id),
+  dealId: integer("deal_id").references(() => deals.id),
+  merchantProfileId: integer("merchant_profile_id").references(() => merchantProfiles.id),
+  dayTrigger: integer("day_trigger").notNull(),
+  score: integer("score"),
+  comment: text("comment"),
+  submittedAt: timestamp("submitted_at"),
+  emailSentAt: timestamp("email_sent_at"),
+  reviewRequestQueued: boolean("review_request_queued").default(false),
+  healthAlertCreated: boolean("health_alert_created").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("nps_responses_token_idx").on(table.token),
+  index("nps_responses_contact_id_idx").on(table.contactId),
+]);
+
+export const insertNpsResponseSchema = createInsertSchema(npsResponses).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type NpsResponse = typeof npsResponses.$inferSelect;
+export type InsertNpsResponse = z.infer<typeof insertNpsResponseSchema>;
+
+// ── Merchant Referrals ────────────────────────────────────────────────────────
+export const merchantReferrals = pgTable("merchant_referrals", {
+  id: serial("id").primaryKey(),
+  referrerProfileId: integer("referrer_profile_id").references(() => merchantProfiles.id),
+  referredEmail: text("referred_email").notNull(),
+  referredName: text("referred_name"),
+  referredCompany: text("referred_company"),
+  referralCode: text("referral_code").notNull(),
+  status: text("status").default("pending"),
+  creditAmount: text("credit_amount").default("0"),
+  creditPaidAt: timestamp("credit_paid_at"),
+  referredContactId: integer("referred_contact_id").references(() => contacts.id),
+  referredDealId: integer("referred_deal_id").references(() => deals.id),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("merchant_referrals_referrer_idx").on(table.referrerProfileId),
+  index("merchant_referrals_code_idx").on(table.referralCode),
+]);
+
+export const insertMerchantReferralSchema = createInsertSchema(merchantReferrals).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type MerchantReferral = typeof merchantReferrals.$inferSelect;
+export type InsertMerchantReferral = z.infer<typeof insertMerchantReferralSchema>;
+
+export const MERCHANT_REFERRAL_STATUSES = [
+  "pending",
+  "signed_up",
+  "activated",
+  "credited",
+  "expired",
+] as const;
+
+// ── Retention Campaign Configs ────────────────────────────────────────────────
+export const retentionCampaignConfigs = pgTable("retention_campaign_configs", {
+  id: serial("id").primaryKey(),
+  alertType: text("alert_type").notNull(),
+  campaignName: text("campaign_name").notNull(),
+  enabled: boolean("enabled").default(true),
+  suggestedMessage: text("suggested_message"),
+  taskPriority: text("task_priority").default("high"),
+  taskDueDays: integer("task_due_days").default(1),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertRetentionCampaignConfigSchema = createInsertSchema(retentionCampaignConfigs).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type RetentionCampaignConfig = typeof retentionCampaignConfigs.$inferSelect;
+export type InsertRetentionCampaignConfig = z.infer<typeof insertRetentionCampaignConfigSchema>;

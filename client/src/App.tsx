@@ -95,6 +95,9 @@ import MerchantPortal from "@/pages/dashboard/MerchantPortal";
 import AgentManagement from "@/pages/dashboard/AgentManagement";
 import MerchantHealth from "@/pages/dashboard/MerchantHealth";
 import Chargebacks from "@/pages/dashboard/Chargebacks";
+import NpsDashboard from "@/pages/dashboard/NpsDashboard";
+import RetentionCampaigns from "@/pages/dashboard/RetentionCampaigns";
+import NpsSurvey from "@/pages/NpsSurvey";
 import WinLoss from "@/pages/dashboard/WinLoss";
 import ReferralProgram from "@/pages/dashboard/ReferralProgram";
 import KnowledgeBase from "@/pages/dashboard/KnowledgeBase";
@@ -414,6 +417,13 @@ function Router() {
       <Route path="/dashboard/chargebacks">
         <ProtectedRoute component={Chargebacks} />
       </Route>
+      <Route path="/dashboard/nps">
+        <ProtectedRoute component={NpsDashboard} />
+      </Route>
+      <Route path="/dashboard/retention-campaigns">
+        <ProtectedRoute component={RetentionCampaigns} />
+      </Route>
+      <Route path="/nps/:token" component={NpsSurvey} />
       <Route path="/dashboard/agent-management">
         <ProtectedRoute component={AgentManagement} />
       </Route>

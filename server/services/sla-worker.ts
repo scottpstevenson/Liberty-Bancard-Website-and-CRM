@@ -519,6 +519,80 @@ async function checkApplicationReminders() {
   }
 }
 
+async function checkNpsTriggers() {
+  try {
+    const deals = await storage.getDeals();
+    const now = Date.now();
+    for (const deal of deals) {
+      if (!deal.contactId) continue;
+      const goLiveDate = (deal as any).goLiveDate;
+      if (!goLiveDate) continue;
+      const daysSinceLive = Math.floor((now - new Date(goLiveDate).getTime()) / 86400000);
+
+      const triggerDays = [30, 90];
+      for (const dayTrigger of triggerDays) {
+        if (daysSinceLive < dayTrigger || daysSinceLive > dayTrigger + 3) continue;
+
+        const existingNps = await storage.getNpsResponsesByContact(deal.contactId);
+        const alreadySent = existingNps.some(n => n.dayTrigger === dayTrigger);
+        if (alreadySent) continue;
+
+        const { randomBytes } = await import("crypto");
+        const token = randomBytes(16).toString("hex");
+        await storage.createNpsResponse({
+          token,
+          contactId: deal.contactId,
+          dealId: deal.id,
+          dayTrigger,
+          emailSentAt: new Date(),
+        });
+        console.log(`[NPS] Day-${dayTrigger} survey created for deal #${deal.id} (contact ${deal.contactId})`);
+      }
+    }
+  } catch (err) {
+    console.error("NPS trigger check error:", err);
+  }
+}
+
+async function checkRetentionCampaigns() {
+  try {
+    const alerts = await storage.getActiveHealthAlerts();
+    for (const alert of alerts) {
+      if ((alert as any).retentionTaskCreated) continue;
+      const config = await storage.getRetentionCampaignConfigByAlertType(alert.alertType);
+      if (!config) continue;
+
+      const dueDays = config.taskDueDays || 1;
+      const dueDate = new Date(Date.now() + dueDays * 86400000);
+
+      let message = config.suggestedMessage || "";
+      if (alert.contactId) {
+        const contact = await storage.getContact(alert.contactId);
+        if (contact) {
+          const name = [contact.firstName, contact.lastName].filter(Boolean).join(" ") || contact.company || "Merchant";
+          message = message.replace(/\{\{merchant_name\}\}/g, name);
+        }
+      }
+
+      await storage.createTask({
+        contactId: alert.contactId || undefined,
+        dealId: alert.dealId || undefined,
+        title: `[Retention] ${config.campaignName} — ${alert.title}`,
+        description: message || `Follow up with merchant regarding: ${alert.title}`,
+        assignedTo: "Scott Stevenson",
+        priority: config.taskPriority || "high",
+        dueDate,
+        status: "pending",
+      });
+
+      await storage.updateHealthAlert(alert.id, { retentionTaskCreated: true } as any);
+      console.log(`[Retention] Task created for alert #${alert.id} (${alert.alertType}) using campaign "${config.campaignName}"`);
+    }
+  } catch (err) {
+    console.error("Retention campaign check error:", err);
+  }
+}
+
 export function startSlaWorker() {
   if (slaInterval) return;
   console.log("SLA Worker started - checking every 5 minutes");
@@ -537,6 +611,8 @@ export function startSlaWorker() {
     await checkAndSendDigests().catch(err => console.error("Digest check error:", err));
     await checkApplicationReminders().catch(err => console.error("Application reminder error:", err));
     await checkChargebackDeadlines().catch(err => console.error("Chargeback deadline check error:", err));
+    await checkNpsTriggers().catch(err => console.error("NPS trigger check error:", err));
+    await checkRetentionCampaigns().catch(err => console.error("Retention campaign check error:", err));
     cycleCount++;
     if (cycleCount % AI_OPS_EVERY_N_CYCLES === 0) {
       await runScheduledAiOps();

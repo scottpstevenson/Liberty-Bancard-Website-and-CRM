@@ -19,14 +19,14 @@ import {
   CheckCircle, Circle, Loader2, Plus, Upload,
   Calendar, Hash, CreditCard, Activity, ArrowRight,
   PlayCircle, BookOpen, ChevronDown, ChevronUp, Shield, Clock, Zap, Star,
-  Phone, Mail, AlertCircle, FileCheck, CheckCircle2,
+  Phone, Mail, AlertCircle, FileCheck, CheckCircle2, Gift, Copy, ExternalLink,
 } from "lucide-react";
 import { Link } from "wouter";
-import type { MerchantProfile, OnboardingStep, Ticket } from "@shared/schema";
+import type { MerchantProfile, OnboardingStep, Ticket, MerchantReferral } from "@shared/schema";
 import type { Document as DocType } from "@shared/schema";
 import { HelpCenter } from "@/components/HelpCenter";
 
-type TabKey = "guide" | "account" | "onboarding" | "documents" | "support";
+type TabKey = "guide" | "account" | "onboarding" | "documents" | "support" | "referrals";
 
 const TABS: { key: TabKey; label: string; icon: typeof User }[] = [
   { key: "guide", label: "Getting Started", icon: BookOpen },
@@ -34,6 +34,7 @@ const TABS: { key: TabKey; label: string; icon: typeof User }[] = [
   { key: "onboarding", label: "Onboarding Progress", icon: ClipboardList },
   { key: "documents", label: "My Documents", icon: FileText },
   { key: "support", label: "Support", icon: Headphones },
+  { key: "referrals", label: "Refer & Earn", icon: Gift },
 ];
 
 function getStatusBadgeVariant(status: string | null | undefined): "default" | "secondary" | "destructive" | "outline" {
@@ -861,6 +862,245 @@ function GettingStartedTab({ dealId, profile, onTabChange }: { dealId: number | 
   );
 }
 
+function ReferralTab({ profile }: { profile: MerchantProfile | null | undefined }) {
+  const { toast } = useToast();
+  const [referredEmail, setReferredEmail] = useState("");
+  const [referredName, setReferredName] = useState("");
+  const [referredCompany, setReferredCompany] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+
+  const { data: referralData, isLoading, refetch } = useQuery<{
+    profile: { referralCode: string | null; referralCredits: string | null; referralCount: number | null };
+    referrals: MerchantReferral[];
+  }>({
+    queryKey: ["/api/merchant-portal/referrals"],
+  });
+
+  const generateCodeMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/merchant-portal/referral-code", {});
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/merchant-portal/referrals"] });
+      refetch();
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const referralCode = referralData?.profile?.referralCode || null;
+  const credits = parseFloat(referralData?.profile?.referralCredits || "0");
+  const referralCount = referralData?.profile?.referralCount || 0;
+  const referrals = referralData?.referrals || [];
+
+  const referralLink = referralCode ? `${window.location.origin}/refer/${referralCode}` : null;
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      toast({ title: "Copied!", description: "Referral link copied to clipboard." });
+    });
+  };
+
+  const handleSubmitReferral = async () => {
+    if (!referralCode || !referredEmail) return;
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/merchant-referrals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ referralCode, referredEmail, referredName, referredCompany }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        toast({ title: "Error", description: err.message, variant: "destructive" });
+      } else {
+        setSubmitted(true);
+        setReferredEmail("");
+        setReferredName("");
+        setReferredCompany("");
+        queryClient.invalidateQueries({ queryKey: ["/api/merchant-portal/referrals"] });
+        toast({ title: "Referral sent!", description: "We'll notify you when they sign up." });
+      }
+    } catch {
+      toast({ title: "Error", description: "Failed to submit referral.", variant: "destructive" });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const statusVariant = (s: string): "default" | "secondary" | "destructive" | "outline" => {
+    if (s === "activated" || s === "credited") return "default";
+    if (s === "pending") return "secondary";
+    return "outline";
+  };
+
+  if (isLoading) {
+    return (
+      <div className="space-y-3">
+        <Skeleton className="h-24 w-full" />
+        <Skeleton className="h-16 w-full" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6" data-testid="referral-tab">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <Card data-testid="card-referral-credits">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-muted-foreground">Credits Earned</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-bold text-green-600 dark:text-green-400" data-testid="text-credits-amount">
+              ${credits.toFixed(2)}
+            </p>
+          </CardContent>
+        </Card>
+        <Card data-testid="card-total-referrals">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-muted-foreground">Total Referrals</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-bold" data-testid="text-referral-count">{referralCount}</p>
+          </CardContent>
+        </Card>
+        <Card data-testid="card-reward-per-referral">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-muted-foreground">Reward Per Referral</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-bold text-primary">$50</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card data-testid="card-your-code">
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Gift className="w-4 h-4 text-primary" />
+            Your Referral Code
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {referralCode ? (
+            <>
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="flex-1 min-w-0">
+                  <code className="block text-2xl font-mono font-bold tracking-widest text-primary" data-testid="text-referral-code">
+                    {referralCode}
+                  </code>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => copyToClipboard(referralCode)} data-testid="button-copy-code">
+                  <Copy className="w-4 h-4 mr-1" /> Copy Code
+                </Button>
+              </div>
+              {referralLink && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="text-xs text-muted-foreground truncate flex-1 min-w-0">{referralLink}</p>
+                  <Button variant="outline" size="sm" onClick={() => copyToClipboard(referralLink)} data-testid="button-copy-link">
+                    <ExternalLink className="w-4 h-4 mr-1" /> Copy Link
+                  </Button>
+                </div>
+              )}
+              <p className="text-sm text-muted-foreground">
+                Share this code with other business owners. You earn <strong>$50 in credits</strong> for every merchant who activates their account using your code.
+              </p>
+            </>
+          ) : (
+            <div className="text-center space-y-3 py-4">
+              <p className="text-sm text-muted-foreground">Generate your unique referral code to start earning.</p>
+              <Button onClick={() => generateCodeMutation.mutate()} disabled={generateCodeMutation.isPending} data-testid="button-generate-code">
+                {generateCodeMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                Generate My Referral Code
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {referralCode && (
+        <Card data-testid="card-send-referral">
+          <CardHeader>
+            <CardTitle className="text-base">Invite a Business Owner</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {submitted ? (
+              <div className="text-center py-4 space-y-2">
+                <CheckCircle className="w-8 h-8 text-green-500 mx-auto" />
+                <p className="text-sm font-medium">Referral submitted!</p>
+                <Button variant="outline" size="sm" onClick={() => setSubmitted(false)}>Send Another</Button>
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Their Email *</Label>
+                    <Input value={referredEmail} onChange={(e) => setReferredEmail(e.target.value)} placeholder="friend@business.com" data-testid="input-referred-email" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Their Name (optional)</Label>
+                    <Input value={referredName} onChange={(e) => setReferredName(e.target.value)} placeholder="Jane Smith" data-testid="input-referred-name" />
+                  </div>
+                  <div className="space-y-1 sm:col-span-2">
+                    <Label className="text-xs">Business Name (optional)</Label>
+                    <Input value={referredCompany} onChange={(e) => setReferredCompany(e.target.value)} placeholder="Smith's Bakery" data-testid="input-referred-company" />
+                  </div>
+                </div>
+                <Button onClick={handleSubmitReferral} disabled={!referredEmail || submitting} className="w-full" data-testid="button-submit-referral">
+                  {submitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                  Send Referral
+                </Button>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {referrals.length > 0 && (
+        <Card data-testid="card-referral-history">
+          <CardHeader>
+            <CardTitle className="text-base">Referral History</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0 overflow-x-auto">
+            <Table className="min-w-[400px]">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Contact</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Reward</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {referrals.map((r) => (
+                  <TableRow key={r.id} data-testid={`row-referral-${r.id}`}>
+                    <TableCell>
+                      <div>
+                        <p className="text-sm font-medium">{r.referredName || "—"}</p>
+                        <p className="text-xs text-muted-foreground">{r.referredEmail}</p>
+                      </div>
+                    </TableCell>
+                    <TableCell><Badge variant={statusVariant(r.status || "pending")} className="capitalize">{r.status}</Badge></TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{new Date(r.createdAt!).toLocaleDateString()}</TableCell>
+                    <TableCell className="text-sm">
+                      {r.status === "credited" ? (
+                        <span className="text-green-600 font-medium">+${r.creditAmount}</span>
+                      ) : "Pending"}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 function SupportTab({ contactId }: { contactId: number | null | undefined }) {
   const { toast } = useToast();
   const [createOpen, setCreateOpen] = useState(false);
@@ -1075,6 +1315,9 @@ export default function MerchantPortal() {
         )}
         {activeTab === "support" && (
           <SupportTab contactId={profile?.contactId} />
+        )}
+        {activeTab === "referrals" && (
+          <ReferralTab profile={profile} />
         )}
       </div>
     </div>
