@@ -55,6 +55,7 @@ import {
   Activity,
   Workflow,
   GraduationCap,
+  Link2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -86,17 +87,22 @@ interface MenuItem {
 }
 
 const menuItems: MenuItem[] = [
-  { icon: LayoutDashboard, label: "Overview", href: "/dashboard", roles: ["admin", "manager", "agent"] },
-  { icon: Users, label: "Contacts", href: "/dashboard/contacts", roles: ["admin", "manager", "agent"] },
-  { icon: TrendingUp, label: "Pipeline", href: "/dashboard/pipeline", roles: ["admin", "manager", "agent"] },
+  { icon: Star, label: "My Day", href: "/dashboard/my-day", roles: ["agent"] },
+  { icon: LayoutDashboard, label: "Overview", href: "/dashboard", roles: ["admin", "manager"] },
+  { icon: Users, label: "My Contacts", href: "/dashboard/contacts", roles: ["agent"] },
+  { icon: Users, label: "Contacts", href: "/dashboard/contacts", roles: ["admin", "manager"] },
+  { icon: TrendingUp, label: "My Pipeline", href: "/dashboard/pipeline", roles: ["agent"] },
+  { icon: TrendingUp, label: "Pipeline", href: "/dashboard/pipeline", roles: ["admin", "manager"] },
   { icon: Package, label: "Onboarding", href: "/dashboard/onboarding", roles: ["admin", "manager"] },
   { icon: Ticket, label: "Tickets", href: "/dashboard/tickets", roles: ["admin", "manager"] },
-  { icon: ClipboardList, label: "Tasks", href: "/dashboard/tasks", roles: ["admin", "manager", "agent"] },
+  { icon: ClipboardList, label: "My Tasks", href: "/dashboard/tasks", roles: ["agent"] },
+  { icon: ClipboardList, label: "Tasks", href: "/dashboard/tasks", roles: ["admin", "manager"] },
   { icon: Bell, label: "Notifications", href: "/dashboard/notifications", roles: ["admin", "manager", "agent"] },
   { icon: MessageSquare, label: "AI Advisor", href: "/dashboard/chat", roles: ["admin", "manager", "agent"] },
   { icon: FileQuestion, label: "RFIs", href: "/dashboard/rfis", roles: ["admin", "manager"] },
   { icon: PieChart, label: "Reporting", href: "/dashboard/reporting", roles: ["admin", "manager"] },
-  { icon: Calendar, label: "Calendar", href: "/dashboard/calendar", roles: ["admin", "manager", "agent"] },
+  { icon: Calendar, label: "My Calendar", href: "/dashboard/calendar", roles: ["agent"] },
+  { icon: Calendar, label: "Calendar", href: "/dashboard/calendar", roles: ["admin", "manager"] },
 ];
 
 const sdrItems: MenuItem[] = [
@@ -145,6 +151,12 @@ const merchantItems: MenuItem[] = [
   { icon: GraduationCap, label: "Training", href: "/dashboard/training", roles: ["admin", "manager", "agent"] },
 ];
 
+const agentResourceItems: MenuItem[] = [
+  { icon: BookOpen, label: "Collateral", href: "/assets", roles: ["agent"] },
+  { icon: GraduationCap, label: "Training", href: "/dashboard/training", roles: ["agent"] },
+  { icon: HelpCircle, label: "Support", href: "/dashboard/knowledge-base", roles: ["agent"] },
+];
+
 const adminItems: MenuItem[] = [
   { icon: UserCog, label: "User Management", href: "/dashboard/user-management", roles: ["admin"] },
   { icon: Pencil, label: "Blog Generator", href: "/dashboard/blog-generator", roles: ["admin"] },
@@ -176,8 +188,9 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const filteredMerchant = useMemo(() => filterByRole(merchantItems, role), [role]);
   const filteredAdmin = useMemo(() => filterByRole(adminItems, role), [role]);
   const filteredForms = useMemo(() => filterByRole(formItems, role), [role]);
+  const filteredAgentResources = useMemo(() => filterByRole(agentResourceItems, role), [role]);
 
-  const allItems = [...menuItems, ...sdrItems, ...automationItems, ...leadGenItems, ...businessItems, ...merchantItems, ...adminItems, ...formItems];
+  const allItems = [...menuItems, ...sdrItems, ...automationItems, ...leadGenItems, ...businessItems, ...merchantItems, ...agentResourceItems, ...adminItems, ...formItems];
 
   const style = {
     "--sidebar-width": "16rem",
@@ -232,6 +245,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
             {renderGroup("Lead Generation", filteredLeadGen)}
             {renderGroup("Business Intelligence", filteredBusiness)}
             {renderGroup("Merchant", filteredMerchant)}
+            {renderGroup("Resources", filteredAgentResources)}
             {renderGroup("Administration", filteredAdmin)}
             {renderGroup("Forms", filteredForms)}
           </SidebarContent>

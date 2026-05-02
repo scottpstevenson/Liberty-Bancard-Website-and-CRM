@@ -110,6 +110,7 @@ import InboxHealth from "@/pages/dashboard/InboxHealth";
 import ActivationPanel from "@/pages/dashboard/ActivationPanel";
 import OperatorDashboard from "@/pages/dashboard/OperatorDashboard";
 import Training from "@/pages/dashboard/Training";
+import SalesRepHome from "@/pages/dashboard/SalesRepHome";
 import DataRetention from "@/pages/DataRetention";
 import TCPAConsent from "@/pages/TCPAConsent";
 import RefundPolicy from "@/pages/RefundPolicy";
@@ -135,8 +136,45 @@ import AffiliateProgram from "@/pages/AffiliateProgram";
 import ISOPartnerProgram from "@/pages/ISOPartnerProgram";
 import PartnerPortal from "@/pages/PartnerPortal";
 
+function AgentRoute({ component: Component }: { component: React.ComponentType }) {
+  const { user, isLoading } = useAuth();
+  const [, setLocation] = useLocation();
+
+  useEffect(() => {
+    if (!isLoading && !user) {
+      setLocation("/login");
+    }
+    if (!isLoading && user && user.role !== "agent") {
+      setLocation("/dashboard");
+    }
+  }, [isLoading, user, setLocation]);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (!user || user.role !== "agent") return null;
+
+  return (
+    <DashboardLayout>
+      <Component />
+    </DashboardLayout>
+  );
+}
+
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { user, isLoading } = useAuth();
+  const [location, setLocation] = useLocation();
+
+  useEffect(() => {
+    if (!isLoading && user?.role === "agent" && location === "/dashboard") {
+      setLocation("/dashboard/my-day");
+    }
+  }, [isLoading, user, location, setLocation]);
 
   if (isLoading) {
     return (
@@ -153,6 +191,8 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
   if ((user as any).role === "partner") {
     return <Redirect to="/partner-portal" />;
   }
+
+  if (user.role === "agent" && location === "/dashboard") return null;
 
   return (
     <DashboardLayout>
@@ -406,6 +446,9 @@ function Router() {
       </Route>
       <Route path="/dashboard/training">
         <ProtectedRoute component={Training} />
+      </Route>
+      <Route path="/dashboard/my-day">
+        <AgentRoute component={SalesRepHome} />
       </Route>
 
       <Route component={NotFound} />
