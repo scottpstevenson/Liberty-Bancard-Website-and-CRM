@@ -593,6 +593,21 @@ async function checkRetentionCampaigns() {
   }
 }
 
+const MID_INGESTION_INTERVAL_MS = 24 * 60 * 60 * 1000;
+let midIngestionInterval: NodeJS.Timeout | null = null;
+
+async function runMidIngestion() {
+  try {
+    const { ingestMidDataForActiveMids } = await import("./processor-api");
+    const result = await ingestMidDataForActiveMids();
+    if (result.processed > 0 || result.errors > 0) {
+      console.log(`[MID Ingestion] Nightly run complete: ${result.processed} processed, ${result.errors} errors`);
+    }
+  } catch (err) {
+    console.error("[MID Ingestion] Nightly run error:", err);
+  }
+}
+
 export function startSlaWorker() {
   if (slaInterval) return;
   console.log("SLA Worker started - checking every 5 minutes");
@@ -619,6 +634,11 @@ export function startSlaWorker() {
     }
   }, SLA_CHECK_INTERVAL_MS);
 
+  if (!midIngestionInterval) {
+    midIngestionInterval = setInterval(runMidIngestion, MID_INGESTION_INTERVAL_MS);
+    setTimeout(runMidIngestion, 60 * 1000);
+  }
+
   setTimeout(async () => {
     await runSlaCheck();
     await checkWaitingWorkflows();
@@ -632,5 +652,9 @@ export function stopSlaWorker() {
   if (slaInterval) {
     clearInterval(slaInterval);
     slaInterval = null;
+  }
+  if (midIngestionInterval) {
+    clearInterval(midIngestionInterval);
+    midIngestionInterval = null;
   }
 }

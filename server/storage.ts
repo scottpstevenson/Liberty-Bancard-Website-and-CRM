@@ -10,7 +10,7 @@ import {
   emailLogs, callLogs, stageAutomationRules, followUpSequences, sequenceSteps, sequenceEnrollments,
   sunbizEntities, consentAuditLogs, calendarEvents,
   merchantApplications, merchantProfiles, equipmentOrders, agents, agentQuotas, agentMerchants, residualReports, merchantResiduals,
-  healthAlerts, dealCompetitors, partners, referrals, commissionTiers, knowledgeBase, reviewRequests, onboardingSteps,
+  healthAlerts, dealCompetitors, partners, referrals, commissionTiers, knowledgeBase, reviewRequests, onboardingSteps, midDailyStats,
   sdrMerchants, sdrMerchantContacts, sdrLeadState, sdrLeadEvents, sdrChannelAttempts, sdrComplianceState,
   sendingIdentities,
   leadDiscoveryJobs, leadDiscoveryResults,
@@ -89,6 +89,7 @@ import {
   npsResponses, type NpsResponse, type InsertNpsResponse,
   merchantReferrals, type MerchantReferral, type InsertMerchantReferral,
   retentionCampaignConfigs, type RetentionCampaignConfig, type InsertRetentionCampaignConfig,
+  type MidDailyStat, type InsertMidDailyStat,
 } from "@shared/schema";
 import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, count } from "drizzle-orm";
 
@@ -386,6 +387,13 @@ export interface IStorage {
   createRetentionCampaignConfig(config: InsertRetentionCampaignConfig): Promise<RetentionCampaignConfig>;
   updateRetentionCampaignConfig(id: number, updates: Partial<InsertRetentionCampaignConfig>): Promise<RetentionCampaignConfig | undefined>;
   deleteRetentionCampaignConfig(id: number): Promise<boolean>;
+
+  getMidDailyStats(mid?: string): Promise<MidDailyStat[]>;
+  getMidDailyStatsByDeal(dealId: number, days?: number): Promise<MidDailyStat[]>;
+  getMidDailyStatByMidAndDate(mid: string, date: string): Promise<MidDailyStat | undefined>;
+  createMidDailyStat(stat: InsertMidDailyStat): Promise<MidDailyStat>;
+  updateMidDailyStat(id: number, updates: Partial<InsertMidDailyStat>): Promise<MidDailyStat | undefined>;
+  upsertMidDailyStat(stat: InsertMidDailyStat): Promise<MidDailyStat>;
 
   getOnboardingSteps(dealId?: number): Promise<OnboardingStep[]>;
   getOnboardingStep(id: number): Promise<OnboardingStep | undefined>;
@@ -3267,6 +3275,50 @@ export class DatabaseStorage implements IStorage {
   async deleteResidualImportRows(importId: number) {
     const { residualImportRows } = await import("@shared/schema");
     await db.delete(residualImportRows).where(eq(residualImportRows.importId, importId));
+  }
+
+  async getMidDailyStats(mid?: string) {
+    if (mid) {
+      return await db.select().from(midDailyStats).where(eq(midDailyStats.mid, mid)).orderBy(desc(midDailyStats.date));
+    }
+    return await db.select().from(midDailyStats).orderBy(desc(midDailyStats.date));
+  }
+
+  async getMidDailyStatsByDeal(dealId: number, days?: number) {
+    const query = db.select().from(midDailyStats).where(eq(midDailyStats.dealId, dealId)).orderBy(desc(midDailyStats.date));
+    if (days) {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - days);
+      const cutoffStr = cutoff.toISOString().split("T")[0];
+      return await db.select().from(midDailyStats)
+        .where(and(eq(midDailyStats.dealId, dealId), gte(midDailyStats.date, cutoffStr)))
+        .orderBy(desc(midDailyStats.date));
+    }
+    return await query;
+  }
+
+  async getMidDailyStatByMidAndDate(mid: string, date: string) {
+    const [stat] = await db.select().from(midDailyStats)
+      .where(and(eq(midDailyStats.mid, mid), eq(midDailyStats.date, date)));
+    return stat;
+  }
+
+  async createMidDailyStat(stat: InsertMidDailyStat) {
+    const [created] = await db.insert(midDailyStats).values(stat).returning();
+    return created;
+  }
+
+  async updateMidDailyStat(id: number, updates: Partial<InsertMidDailyStat>) {
+    const [updated] = await db.update(midDailyStats).set(updates).where(eq(midDailyStats.id, id)).returning();
+    return updated;
+  }
+
+  async upsertMidDailyStat(stat: InsertMidDailyStat) {
+    const existing = await this.getMidDailyStatByMidAndDate(stat.mid, stat.date);
+    if (existing) {
+      return await this.updateMidDailyStat(existing.id, stat);
+    }
+    return await this.createMidDailyStat(stat);
   }
 }
 

@@ -36,6 +36,8 @@ import {
   Trash2,
   ChevronRight,
   AlertCircle,
+  Activity,
+  RefreshCw,
 } from "lucide-react";
 
 interface ResidualReport {
@@ -207,6 +209,31 @@ export default function ResidualRevenue() {
 
   const { data: merchantResiduals, isLoading: residualsLoading } = useQuery<MerchantResidual[]>({
     queryKey: ["/api/merchant-residuals"],
+  });
+
+  const { data: midStats, isLoading: midStatsLoading } = useQuery<{
+    stats: Array<{
+      mid: string;
+      dealId: number | null;
+      merchantName: string | null;
+      latestDate: string | null;
+      latestVolume: string | null;
+      latestTxCount: number | null;
+      latestAvgTicket: string | null;
+      latestEffectiveRate: string | null;
+      latestChargebackCount: number | null;
+      fetchedAt: string | null;
+    }>;
+    latestFetch: string | null;
+    totalMids: number;
+    activeMids: number;
+  }>({
+    queryKey: ["/api/mid-stats/summary"],
+    queryFn: async () => {
+      const res = await fetch("/api/mid-stats/summary", { credentials: "include" });
+      if (!res.ok) return { stats: [], latestFetch: null, totalMids: 0, activeMids: 0 };
+      return res.json();
+    },
   });
 
   const { data: agents, isLoading: agentsLoading } = useQuery<Agent[]>({
@@ -557,6 +584,127 @@ export default function ResidualRevenue() {
                   )}
                 </TableBody>
               </Table>
+            </CardContent>
+          </Card>
+
+          {/* ── MID DATA FRESHNESS PANEL ──────────────────────────────── */}
+          <Card data-testid="card-mid-stats-freshness">
+            <CardHeader className="flex flex-row items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-2">
+                <Activity className="w-5 h-5 text-primary" />
+                <CardTitle className="text-base">Live MID Processing Data</CardTitle>
+              </div>
+              {midStats && midStats.latestFetch && (() => {
+                const fetchDate = new Date(midStats.latestFetch);
+                const hoursAgo = Math.round((Date.now() - fetchDate.getTime()) / 3600000);
+                const isStale = hoursAgo > 26;
+                return (
+                  <Badge
+                    variant={isStale ? "destructive" : "secondary"}
+                    className="flex items-center gap-1 text-xs"
+                    data-testid="badge-mid-data-freshness"
+                  >
+                    {isStale ? <AlertCircle className="w-3 h-3" /> : <CheckCircle className="w-3 h-3" />}
+                    {isStale
+                      ? `Data stale — last sync ${hoursAgo}h ago`
+                      : `Synced ${hoursAgo < 1 ? "< 1h" : `${hoursAgo}h`} ago`}
+                  </Badge>
+                );
+              })()}
+              {midStats && !midStats.latestFetch && !midStatsLoading && (
+                <Badge variant="outline" className="flex items-center gap-1 text-xs text-muted-foreground" data-testid="badge-mid-data-never-synced">
+                  <Clock className="w-3 h-3" /> Never synced
+                </Badge>
+              )}
+            </CardHeader>
+            <CardContent>
+              {midStatsLoading ? (
+                <div className="flex gap-6">
+                  <Skeleton className="h-12 w-32 rounded" />
+                  <Skeleton className="h-12 w-32 rounded" />
+                  <Skeleton className="h-12 w-32 rounded" />
+                </div>
+              ) : midStats && midStats.totalMids > 0 ? (
+                <div className="space-y-4">
+                  <div className="flex flex-wrap gap-6 text-sm">
+                    <div data-testid="stat-total-mids">
+                      <p className="text-muted-foreground text-xs">Total MIDs</p>
+                      <p className="text-2xl font-bold">{midStats.totalMids}</p>
+                    </div>
+                    <div data-testid="stat-active-mids">
+                      <p className="text-muted-foreground text-xs">With Recent Data</p>
+                      <p className="text-2xl font-bold text-green-600">{midStats.activeMids}</p>
+                    </div>
+                    <div data-testid="stat-pending-mids">
+                      <p className="text-muted-foreground text-xs">Pending First Sync</p>
+                      <p className="text-2xl font-bold text-orange-500">{midStats.totalMids - midStats.activeMids}</p>
+                    </div>
+                  </div>
+                  <Table data-testid="table-mid-stats">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>MID</TableHead>
+                        <TableHead>Merchant</TableHead>
+                        <TableHead className="text-right">Latest Volume</TableHead>
+                        <TableHead className="text-right">Txn Count</TableHead>
+                        <TableHead className="text-right">Avg Ticket</TableHead>
+                        <TableHead className="text-right">Eff. Rate</TableHead>
+                        <TableHead className="text-right">Chargebacks</TableHead>
+                        <TableHead>Data Date</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {midStats.stats.map((s) => (
+                        <TableRow key={s.mid} data-testid={`row-mid-stat-${s.mid}`}>
+                          <TableCell className="font-mono text-xs">{s.mid}</TableCell>
+                          <TableCell className="text-muted-foreground">{s.merchantName ?? "—"}</TableCell>
+                          <TableCell className="text-right">
+                            {s.latestVolume != null
+                              ? `$${parseFloat(s.latestVolume).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                              : <span className="text-muted-foreground text-xs">—</span>}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {s.latestTxCount != null ? s.latestTxCount.toLocaleString() : <span className="text-muted-foreground text-xs">—</span>}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {s.latestAvgTicket != null
+                              ? `$${parseFloat(s.latestAvgTicket).toFixed(2)}`
+                              : <span className="text-muted-foreground text-xs">—</span>}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {s.latestEffectiveRate != null
+                              ? `${parseFloat(s.latestEffectiveRate).toFixed(2)}%`
+                              : <span className="text-muted-foreground text-xs">—</span>}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {s.latestChargebackCount != null ? (
+                              <span className={s.latestChargebackCount > 0 ? "text-red-600 font-medium" : ""}>
+                                {s.latestChargebackCount}
+                              </span>
+                            ) : <span className="text-muted-foreground text-xs">—</span>}
+                          </TableCell>
+                          <TableCell>
+                            {s.latestDate ? (
+                              <Badge variant="outline" className="text-xs font-mono">
+                                {s.latestDate}
+                              </Badge>
+                            ) : (
+                              <Badge variant="secondary" className="text-xs">
+                                <Clock className="w-3 h-3 mr-1" /> No data
+                              </Badge>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              ) : (
+                <div className="py-8 text-center text-muted-foreground" data-testid="text-no-mid-data">
+                  <RefreshCw className="w-6 h-6 mx-auto mb-2 opacity-40" />
+                  <p className="text-sm">No MIDs assigned yet. Approve deals with a MID to see live processing data here.</p>
+                </div>
+              )}
             </CardContent>
           </Card>
 

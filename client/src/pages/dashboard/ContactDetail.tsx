@@ -6,6 +6,8 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Contact, Deal, Ticket as TicketType, Task as TaskType, Note, Company, ContactCompany, Chargeback, Document } from "@shared/schema";
 import { DOCUMENT_CATEGORIES } from "@shared/schema";
+import BoardingPanel from "@/components/BoardingPanel";
+import LiveProcessingTab from "@/components/LiveProcessingTab";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -833,6 +835,10 @@ export default function ContactDetail() {
             <FolderOpen className="h-3.5 w-3.5 mr-1" />
             Documents {contactDocuments.length > 0 && `(${contactDocuments.length})`}
           </TabsTrigger>
+          <TabsTrigger value="live-processing" data-testid="tab-live-processing">
+            <Activity className="h-3.5 w-3.5 mr-1" />
+            Live Processing
+          </TabsTrigger>
           <TabsTrigger value="chargebacks" data-testid="tab-chargebacks">Chargebacks</TabsTrigger>
           <TabsTrigger value="activity" data-testid="tab-activity">Activity</TabsTrigger>
           <TabsTrigger value="comments" data-testid="tab-comments">Comments</TabsTrigger>
@@ -906,12 +912,14 @@ export default function ContactDetail() {
               {deals.map(deal => (
                 <Card
                   key={deal.id}
-                  className="hover-elevate cursor-pointer"
-                  onClick={() => setLocation("/dashboard/pipeline")}
+                  className="hover-elevate"
                   data-testid={`card-deal-${deal.id}`}
                 >
-                  <CardContent className="py-4">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
+                  <CardContent className="py-4 space-y-3">
+                    <div
+                      className="flex flex-wrap items-center justify-between gap-2 cursor-pointer"
+                      onClick={() => setLocation("/dashboard/pipeline")}
+                    >
                       <div className="space-y-1">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="font-medium" data-testid={`text-deal-pipeline-${deal.id}`}>
@@ -920,6 +928,11 @@ export default function ContactDetail() {
                           <Badge variant="outline" data-testid={`badge-deal-stage-${deal.id}`}>
                             {deal.stage}
                           </Badge>
+                          {deal.mid && (
+                            <Badge variant="outline" className="font-mono text-xs text-green-700 dark:text-green-400 border-green-300" data-testid={`badge-deal-mid-${deal.id}`}>
+                              MID: {deal.mid}
+                            </Badge>
+                          )}
                         </div>
                         {deal.offerPath && (
                           <p className="text-sm text-muted-foreground" data-testid={`text-deal-offer-${deal.id}`}>
@@ -931,9 +944,48 @@ export default function ContactDetail() {
                         Created {formatDate(deal.createdAt)}
                       </div>
                     </div>
+                    <BoardingPanel
+                      dealId={deal.id}
+                      dealStage={deal.stage || ""}
+                      dealPipeline={deal.pipeline || ""}
+                      onStatusChange={() => queryClient.invalidateQueries({ queryKey: ["/api/contacts", contactId, "detail"] })}
+                    />
                   </CardContent>
                 </Card>
               ))}
+            </div>
+          )}
+        </TabsContent>
+
+        {/* Live Processing Tab */}
+        <TabsContent value="live-processing" data-testid="tab-content-live-processing">
+          {deals.length === 0 ? (
+            <Card><CardContent className="py-8 text-center text-muted-foreground">No deals yet</CardContent></Card>
+          ) : (
+            <div className="space-y-6">
+              {deals.filter(d => d.mid || d.pipeline === "onboarding" || d.stage?.toLowerCase().includes("approved")).map(deal => (
+                <div key={deal.id}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <Badge variant="outline" data-testid={`badge-live-deal-pipeline-${deal.id}`}>{deal.pipeline}</Badge>
+                    <Badge variant="secondary" data-testid={`badge-live-deal-stage-${deal.id}`}>{deal.stage}</Badge>
+                    {deal.mid && (
+                      <span className="text-xs text-muted-foreground font-mono">#{deal.id}</span>
+                    )}
+                  </div>
+                  <LiveProcessingTab dealId={deal.id} mid={deal.mid || null} />
+                </div>
+              ))}
+              {deals.filter(d => d.mid || d.pipeline === "onboarding" || d.stage?.toLowerCase().includes("approved")).length === 0 && (
+                <Card>
+                  <CardContent className="py-12 text-center">
+                    <Activity className="h-8 w-8 mx-auto mb-3 text-muted-foreground" />
+                    <p className="font-medium text-muted-foreground">No approved deals yet</p>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Processing data appears once a deal is approved and a MID is assigned.
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
             </div>
           )}
         </TabsContent>

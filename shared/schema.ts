@@ -169,6 +169,12 @@ export const deals = pgTable("deals", {
   nextNudgeAt: timestamp("next_nudge_at"),
   blueprintGeneratedAt: timestamp("blueprint_generated_at"),
   closedAt: timestamp("closed_at"),
+  processorApplicationId: text("processor_application_id"),
+  mid: text("mid"),
+  boardingStatus: text("boarding_status").default("not_submitted"),
+  boardingLog: jsonb("boarding_log"),
+  boardingSubmittedAt: timestamp("boarding_submitted_at"),
+  boardingApprovedAt: timestamp("boarding_approved_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
   archivedAt: timestamp("archived_at"),
@@ -1570,6 +1576,45 @@ export const ALERT_SEVERITIES = [
   "critical",
   "urgent",
 ] as const;
+
+export const BOARDING_STATUSES = [
+  "not_submitted",
+  "submitted",
+  "under_review",
+  "approved",
+  "declined",
+  "more_info_needed",
+] as const;
+
+export const midDailyStats = pgTable("mid_daily_stats", {
+  id: serial("id").primaryKey(),
+  mid: text("mid").notNull(),
+  dealId: integer("deal_id").references(() => deals.id),
+  contactId: integer("contact_id").references(() => contacts.id),
+  date: text("date").notNull(),
+  volume: real("volume").default(0),
+  txCount: integer("tx_count").default(0),
+  avgTicket: real("avg_ticket").default(0),
+  effectiveRate: real("effective_rate").default(0),
+  chargebackCount: integer("chargeback_count").default(0),
+  chargebackAmount: real("chargeback_amount").default(0),
+  refundCount: integer("refund_count").default(0),
+  fetchedAt: timestamp("fetched_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("mid_daily_stats_mid_idx").on(table.mid),
+  index("mid_daily_stats_date_idx").on(table.date),
+  index("mid_daily_stats_deal_id_idx").on(table.dealId),
+  uniqueIndex("mid_daily_stats_mid_date_unique").on(table.mid, table.date),
+]);
+
+export const insertMidDailyStatSchema = createInsertSchema(midDailyStats).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type MidDailyStat = typeof midDailyStats.$inferSelect;
+export type InsertMidDailyStat = z.infer<typeof insertMidDailyStatSchema>;
 
 export const dealCompetitors = pgTable("deal_competitors", {
   id: serial("id").primaryKey(),
