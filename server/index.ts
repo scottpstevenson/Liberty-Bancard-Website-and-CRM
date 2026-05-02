@@ -13,6 +13,7 @@ import { seedStageRules, seedDemoProspects } from "./services/seed-automation";
 import { startDailyOutreachWorker } from "./services/daily-outreach";
 import { startDailyMaintenanceScheduler } from "./services/sdr/inbox-rotation";
 import { featureFlags } from "./services/feature-flags";
+import { runStartupMigrations } from "./services/migrations";
 
 if (!process.env.SESSION_SECRET) {
   if (process.env.NODE_ENV === "production") {
@@ -145,6 +146,7 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  await runStartupMigrations();
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {

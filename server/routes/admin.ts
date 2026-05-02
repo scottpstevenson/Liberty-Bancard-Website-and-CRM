@@ -22,6 +22,7 @@ export function registerAdminRoutes(app: Express) {
         authProvider: users.authProvider,
         emailVerified: users.emailVerified,
         totpEnabled: users.totpEnabled,
+        permissions: users.permissions,
         createdAt: users.createdAt,
       }).from(users).orderBy(desc(users.createdAt));
       res.json(allUsers);

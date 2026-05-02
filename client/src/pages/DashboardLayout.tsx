@@ -148,6 +148,10 @@ const leadGenItems: MenuItem[] = [
   { icon: CreditCard, label: "BIN Lookup", href: "/dashboard/bin-lookup", roles: ["admin", "manager", "agent"] },
 ];
 
+const toolsItems: MenuItem[] = [
+  { icon: CreditCard, label: "Virtual Terminal", href: "/dashboard/virtual-terminal", roles: ["admin", "manager", "agent"] },
+];
+
 const businessItems: MenuItem[] = [
   { icon: DollarSign, label: "Revenue Dashboard", href: "/dashboard/residual-revenue", roles: ["admin", "manager"] },
   { icon: TrendingUp, label: "Forecasting", href: "/dashboard/forecasting", roles: ["admin", "manager"] },
@@ -216,8 +220,13 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const filteredAdmin = useMemo(() => filterByRole(adminItems, role), [role]);
   const filteredForms = useMemo(() => filterByRole(formItems, role), [role]);
   const filteredAgentResources = useMemo(() => filterByRole(agentResourceItems, role), [role]);
+  const filteredTools = useMemo(() => {
+    if (role === "admin" || role === "manager") return toolsItems;
+    const perms: string[] = user?.permissions ?? [];
+    return perms.includes("virtual_terminal") ? toolsItems : [];
+  }, [role, user]);
 
-  const allItems = [...menuItems, ...sdrItems, ...automationItems, ...leadGenItems, ...businessItems, ...merchantItems, ...agentResourceItems, ...adminItems, ...formItems];
+  const allItems = [...menuItems, ...sdrItems, ...automationItems, ...leadGenItems, ...businessItems, ...merchantItems, ...agentResourceItems, ...adminItems, ...formItems, ...filteredTools];
 
   const style = {
     "--sidebar-width": "16rem",
@@ -277,6 +286,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
             {renderGroup("Automation", filteredAutomation)}
             {renderGroup("Lead Generation", filteredLeadGen)}
             {renderGroup("Business Intelligence", filteredBusiness)}
+            {renderGroup("Tools", filteredTools)}
             {renderGroup("Merchant", filteredMerchant)}
             {renderGroup("Resources", filteredAgentResources)}
             {renderGroup("Administration", filteredAdmin)}

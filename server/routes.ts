@@ -33,6 +33,7 @@ import { registerChargebacksRoutes } from "./routes/chargebacks";
 import { registerToolkitRoutes } from "./routes/toolkit";
 import { registerLifecycleRoutes } from "./routes/lifecycle";
 import { registerResidualsRoutes } from "./routes/residuals";
+import { registerVirtualTerminalRoutes } from "./routes/virtual-terminal";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -90,6 +91,7 @@ export async function registerRoutes(
   registerToolkitRoutes(app);
   registerLifecycleRoutes(app);
   registerResidualsRoutes(app);
+  registerVirtualTerminalRoutes(app);
 
   return httpServer;
 }

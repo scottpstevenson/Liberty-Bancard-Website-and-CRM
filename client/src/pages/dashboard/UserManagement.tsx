@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
-import { Loader2, ShieldCheck, ShieldOff, RotateCcw } from "lucide-react";
+import { Loader2, ShieldCheck, ShieldOff, RotateCcw, Terminal } from "lucide-react";
 import { useState } from "react";
 
 interface AdminUser {
@@ -22,6 +22,7 @@ interface AdminUser {
   authProvider: string | null;
   emailVerified: string | null;
   totpEnabled: boolean | null;
+  permissions: string[] | null;
   createdAt: string | null;
 }
 
@@ -34,6 +35,7 @@ export default function UserManagement() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const [resettingId, setResettingId] = useState<string | null>(null);
+  const [togglingVtId, setTogglingVtId] = useState<string | null>(null);
 
   const { data: users, isLoading } = useQuery<AdminUser[]>({
     queryKey: ["/api/admin/users"],
@@ -72,6 +74,22 @@ export default function UserManagement() {
       });
     },
     onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const toggleVtPermissionMutation = useMutation({
+    mutationFn: async ({ id, permissions }: { id: string; permissions: string[] }) => {
+      const res = await apiRequest("PUT", `/api/admin/users/${id}/permissions`, { permissions });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      setTogglingVtId(null);
+      toast({ title: "Permission Updated", description: "Virtual Terminal access has been updated." });
+    },
+    onError: (error: Error) => {
+      setTogglingVtId(null);
       toast({ title: "Error", description: error.message, variant: "destructive" });
     },
   });
@@ -164,6 +182,7 @@ export default function UserManagement() {
                   <TableHead data-testid="th-auth-provider">Auth Provider</TableHead>
                   <TableHead data-testid="th-email-verified">Email Verified</TableHead>
                   <TableHead data-testid="th-2fa">2FA</TableHead>
+                  <TableHead data-testid="th-vt">Virtual Terminal</TableHead>
                   <TableHead data-testid="th-joined">Joined</TableHead>
                   <TableHead data-testid="th-actions">Actions</TableHead>
                 </TableRow>
@@ -217,6 +236,25 @@ export default function UserManagement() {
                         </div>
                       )}
                     </TableCell>
+                    <TableCell data-testid={`cell-vt-${u.id}`}>
+                      {u.role === "admin" || u.role === "manager" ? (
+                        <Badge variant="outline" className="text-xs text-muted-foreground">Always On</Badge>
+                      ) : (
+                        <Switch
+                          checked={(u.permissions || []).includes("virtual_terminal")}
+                          disabled={togglingVtId === u.id || toggleVtPermissionMutation.isPending}
+                          onCheckedChange={(checked) => {
+                            setTogglingVtId(u.id);
+                            const current = u.permissions || [];
+                            const updated = checked
+                              ? [...current.filter((p) => p !== "virtual_terminal"), "virtual_terminal"]
+                              : current.filter((p) => p !== "virtual_terminal");
+                            toggleVtPermissionMutation.mutate({ id: u.id, permissions: updated });
+                          }}
+                          data-testid={`switch-vt-${u.id}`}
+                        />
+                      )}
+                    </TableCell>
                     <TableCell data-testid={`text-joined-${u.id}`}>
                       {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : "-"}
                     </TableCell>
@@ -246,7 +284,7 @@ export default function UserManagement() {
                 ))}
                 {(!users || users.length === 0) && (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center text-muted-foreground" data-testid="text-no-users">
+                    <TableCell colSpan={9} className="text-center text-muted-foreground" data-testid="text-no-users">
                       No users found
                     </TableCell>
                   </TableRow>

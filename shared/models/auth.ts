@@ -32,6 +32,7 @@ export const users = pgTable("users", {
   totpEnabled: boolean("totp_enabled").default(false),
   totpBackupCodes: jsonb("totp_backup_codes"),
   trustedDevices: jsonb("trusted_devices"),
+  permissions: jsonb("permissions").$type<string[]>().default([]),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

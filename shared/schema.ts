@@ -3026,3 +3026,37 @@ export const insertRetentionCampaignConfigSchema = createInsertSchema(retentionC
 
 export type RetentionCampaignConfig = typeof retentionCampaignConfigs.$inferSelect;
 export type InsertRetentionCampaignConfig = z.infer<typeof insertRetentionCampaignConfigSchema>;
+
+// ── Virtual Terminal Transactions ─────────────────────────────────────────────
+export const virtualTerminalTransactions = pgTable("virtual_terminal_transactions", {
+  id: serial("id").primaryKey(),
+  gatewayTransactionId: text("gateway_transaction_id"),
+  authCode: text("auth_code"),
+  status: text("status").notNull().default("pending"),
+  amount: text("amount").notNull(),
+  refundedAmount: text("refunded_amount").default("0"),
+  cardType: text("card_type"),
+  lastFour: text("last_four"),
+  cardholderName: text("cardholder_name"),
+  billingZip: text("billing_zip"),
+  memo: text("memo"),
+  responseCode: text("response_code"),
+  responseText: text("response_text"),
+  processedBy: text("processed_by"),
+  refundedBy: text("refunded_by"),
+  refundedAt: timestamp("refunded_at"),
+  rawResponse: jsonb("raw_response"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("vt_transactions_status_idx").on(table.status),
+  index("vt_transactions_created_at_idx").on(table.createdAt),
+  index("vt_transactions_processed_by_idx").on(table.processedBy),
+]);
+
+export const insertVirtualTerminalTransactionSchema = createInsertSchema(virtualTerminalTransactions).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type VirtualTerminalTransaction = typeof virtualTerminalTransactions.$inferSelect;
+export type InsertVirtualTerminalTransaction = z.infer<typeof insertVirtualTerminalTransactionSchema>;

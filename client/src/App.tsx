@@ -122,6 +122,7 @@ import Training from "@/pages/dashboard/Training";
 import SalesRepHome from "@/pages/dashboard/SalesRepHome";
 import LiveChatDashboard from "@/pages/dashboard/LiveChat";
 import DocumentVault from "@/pages/dashboard/DocumentVault";
+import VirtualTerminal from "@/pages/dashboard/VirtualTerminal";
 import DataRetention from "@/pages/DataRetention";
 import TCPAConsent from "@/pages/TCPAConsent";
 import RefundPolicy from "@/pages/RefundPolicy";
@@ -500,6 +501,9 @@ function Router() {
       </Route>
       <Route path="/dashboard/document-vault">
         <ProtectedRoute component={DocumentVault} />
+      </Route>
+      <Route path="/dashboard/virtual-terminal">
+        <ProtectedRoute component={VirtualTerminal} />
       </Route>
 
       <Route component={NotFound} />
