@@ -9,9 +9,11 @@ import { z } from "zod";
 import { insertPartnerSchema, insertReferralSchema } from "@shared/schema";
 import type { InsertPartner } from "@shared/schema";
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import { createContactGhlFirst } from "../services/contact-writer";
 import { syncFormSubmissionToGhl, syncAffiliateSignupToGhl } from "../services/ghl-form-sync";
 import { sendPartnerWelcomeEmail } from "../services/partner-welcome";
+import { isGhlConfigured, sendGhlEmailForMerchant } from "../services/ghl";
 
 export function registerPartnersRoutes(app: Express) {
   // === PARTNERS (admin) ===
@@ -262,6 +264,83 @@ export function registerPartnersRoutes(app: Express) {
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === PASSWORD RESET ===
+  app.post("/api/partner/reset-password-request", async (req, res) => {
+    try {
+      const { email } = req.body;
+      if (!email || typeof email !== "string") {
+        return res.status(400).json({ message: "Email is required." });
+      }
+      const partner = await storage.getPartnerByEmail(email.toLowerCase());
+      if (partner) {
+        const rawToken = crypto.randomBytes(32).toString("hex");
+        const hashedToken = crypto.createHash("sha256").update(rawToken).digest("hex");
+        const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+        await storage.setPartnerResetToken(partner.id, hashedToken, expiresAt);
+
+        const replitDomain = process.env.REPLIT_DOMAINS?.split(",")[0]?.trim();
+        const baseUrl = process.env.APP_URL ||
+          (replitDomain ? `https://${replitDomain}` : "https://libertybancard.com");
+        const resetUrl = `${baseUrl}/partner-portal?reset=${rawToken}`;
+
+        console.log(`[Partner Auth] Password reset URL: ${resetUrl}`);
+
+        if (partner.email && isGhlConfigured()) {
+          const displayName = partner.contactName || "there";
+          const html = `
+<div style="font-family:Arial,sans-serif;font-size:14px;color:#333;max-width:600px;">
+  <p>Hi ${displayName},</p>
+  <p>We received a request to reset the password for your Liberty Bancard partner account.</p>
+  <p><a href="${resetUrl}" style="display:inline-block;background-color:#1e3a5f;color:#ffffff;padding:10px 20px;border-radius:4px;text-decoration:none;font-size:13px;font-weight:bold;">Reset Your Password</a></p>
+  <p>Or copy and paste this link into your browser:<br/><span style="font-family:monospace;font-size:12px;color:#555;">${resetUrl}</span></p>
+  <p>This link will expire in 1 hour. If you didn't request a password reset, you can safely ignore this email.</p>
+  <p>— The Liberty Bancard Partner Team</p>
+</div>`;
+          sendGhlEmailForMerchant({
+            email: partner.email,
+            subject: "Reset your Liberty Bancard partner password",
+            body: html,
+          }).catch(err => console.error("[Partner Auth] Reset email error:", err));
+        }
+      }
+      return res.json({ message: "If an account with that email exists, a reset link has been sent." });
+    } catch (err: any) {
+      console.error("[Partner Auth] reset-password-request error:", err);
+      return res.status(500).json({ message: "Something went wrong" });
+    }
+  });
+
+  app.post("/api/partner/reset-password", async (req, res) => {
+    try {
+      const { token, password } = req.body;
+      if (!token || !password || typeof token !== "string" || typeof password !== "string") {
+        return res.status(400).json({ message: "Token and password are required." });
+      }
+      if (password.length < 6) {
+        return res.status(400).json({ message: "Password must be at least 6 characters." });
+      }
+      const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
+      const partner = await storage.getPartnerByResetToken(hashedToken);
+      if (!partner) {
+        return res.status(400).json({ message: "Invalid or expired reset link." });
+      }
+      const passwordHash = await bcrypt.hash(password, 12);
+      await storage.updatePartnerPassword(partner.id, passwordHash);
+
+      if (partner.email) {
+        const existingUser = await authStorage.getUserByEmail(partner.email.toLowerCase());
+        if (existingUser && existingUser.role === "partner") {
+          await authStorage.updateUserPassword(existingUser.id, passwordHash);
+        }
+      }
+
+      return res.json({ message: "Your password has been reset. You can now log in." });
+    } catch (err: any) {
+      console.error("[Partner Auth] reset-password error:", err);
+      return res.status(500).json({ message: "Something went wrong" });
     }
   });
 

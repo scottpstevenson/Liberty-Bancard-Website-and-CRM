@@ -1614,6 +1614,8 @@ export const partners = pgTable("partners", {
   email: text("email"),
   phone: text("phone"),
   passwordHash: text("password_hash"),
+  passwordResetToken: text("password_reset_token"),
+  passwordResetExpiresAt: timestamp("password_reset_expires_at"),
   partnerType: text("partner_type").default("referral"),
   affiliateCode: text("affiliate_code").unique(),
   commissionPercent: integer("commission_percent").default(10),

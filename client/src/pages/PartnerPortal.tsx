@@ -15,7 +15,7 @@ import {
   Clock, ArrowRight, Handshake, CalendarDays, MousePointerClick,
 } from "lucide-react";
 
-type PortalView = "login" | "dashboard";
+type PortalView = "login" | "dashboard" | "forgot" | "reset";
 
 interface PartnerData {
   partner: {
@@ -127,8 +127,20 @@ export default function PartnerPortal() {
   const [submitting, setSubmitting] = useState(false);
   const [loginForm, setLoginForm] = useState({ email: "", password: "" });
   const [partnerCode, setPartnerCode] = useState("");
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotSubmitted, setForgotSubmitted] = useState(false);
+  const [resetToken, setResetToken] = useState<string | null>(null);
+  const [resetForm, setResetForm] = useState({ password: "", confirmPassword: "" });
+  const [resetSuccess, setResetSuccess] = useState(false);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get("reset");
+    if (token) {
+      setResetToken(token);
+      setView("reset");
+      return;
+    }
     fetch("/api/partner/session", { credentials: "include" })
       .then(res => { if (res.ok) return res.json(); throw new Error("no session"); })
       .then(data => {
@@ -139,6 +151,56 @@ export default function PartnerPortal() {
       })
       .catch(() => {});
   }, []);
+
+  const handleForgotPassword = async () => {
+    if (!forgotEmail) {
+      toast({ title: "Please enter your email", variant: "destructive" });
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await fetch("/api/partner/reset-password-request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: forgotEmail }),
+      });
+      setForgotSubmitted(true);
+    } catch {
+      toast({ title: "Network error — please try again", variant: "destructive" });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleResetPassword = async () => {
+    if (resetForm.password.length < 6) {
+      toast({ title: "Password must be at least 6 characters", variant: "destructive" });
+      return;
+    }
+    if (resetForm.password !== resetForm.confirmPassword) {
+      toast({ title: "Passwords do not match", variant: "destructive" });
+      return;
+    }
+    if (!resetToken) return;
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/partner/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: resetToken, password: resetForm.password }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast({ title: data.message || "Reset failed", variant: "destructive" });
+        return;
+      }
+      setResetSuccess(true);
+    } catch {
+      toast({ title: "Network error — please try again", variant: "destructive" });
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const loadDashboard = async (code: string) => {
     try {
@@ -501,6 +563,162 @@ export default function PartnerPortal() {
     );
   }
 
+  if (view === "forgot") {
+    return (
+      <div className="min-h-screen flex flex-col font-body">
+        <SEO title="Forgot Password | Partner Portal" description="Reset your Liberty Bancard partner password" path="/partner-portal" noindex={true} />
+        <Navbar />
+        <main className="flex-grow pt-28 pb-16">
+          <div className="max-w-md mx-auto px-4">
+            <div className="text-center mb-8">
+              <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
+                <Handshake className="w-7 h-7 text-primary" />
+              </div>
+              <h1 className="text-2xl font-display font-bold text-foreground mb-2" data-testid="text-forgot-title">
+                Forgot Password
+              </h1>
+              <p className="text-muted-foreground text-sm">
+                Enter the email associated with your partner account and we'll send you a reset link.
+              </p>
+            </div>
+            <Card>
+              <CardContent className="p-6 space-y-4">
+                {forgotSubmitted ? (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2 p-3 text-sm text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-950/30 rounded-md" data-testid="text-forgot-success">
+                      <CheckCircle className="w-4 h-4 flex-shrink-0" />
+                      <span>If an account with that email exists, a reset link has been sent.</span>
+                    </div>
+                    <Button variant="outline" className="w-full" onClick={() => { setView("login"); setForgotSubmitted(false); }} data-testid="button-back-to-login">
+                      Back to Sign In
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-foreground mb-1.5">Email</label>
+                      <Input
+                        type="email"
+                        value={forgotEmail}
+                        onChange={e => setForgotEmail(e.target.value)}
+                        placeholder="your@email.com"
+                        onKeyDown={e => e.key === "Enter" && handleForgotPassword()}
+                        data-testid="input-forgot-email"
+                      />
+                    </div>
+                    <Button
+                      className="w-full"
+                      size="lg"
+                      onClick={handleForgotPassword}
+                      disabled={submitting}
+                      data-testid="button-send-reset-link"
+                    >
+                      {submitting ? "Sending..." : "Send Reset Link"}
+                    </Button>
+                    <div className="text-center">
+                      <button
+                        type="button"
+                        onClick={() => setView("login")}
+                        className="text-sm text-primary hover:underline"
+                        data-testid="link-back-to-login"
+                      >
+                        Back to sign in
+                      </button>
+                    </div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </main>
+        <Footer />
+      </div>
+    );
+  }
+
+  if (view === "reset") {
+    return (
+      <div className="min-h-screen flex flex-col font-body">
+        <SEO title="Reset Password | Partner Portal" description="Set a new password for your Liberty Bancard partner account" path="/partner-portal" noindex={true} />
+        <Navbar />
+        <main className="flex-grow pt-28 pb-16">
+          <div className="max-w-md mx-auto px-4">
+            <div className="text-center mb-8">
+              <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
+                <Shield className="w-7 h-7 text-primary" />
+              </div>
+              <h1 className="text-2xl font-display font-bold text-foreground mb-2" data-testid="text-reset-title">
+                Reset Your Password
+              </h1>
+              <p className="text-muted-foreground text-sm">
+                Enter a new password for your partner account.
+              </p>
+            </div>
+            <Card>
+              <CardContent className="p-6 space-y-4">
+                {resetSuccess ? (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2 p-3 text-sm text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-950/30 rounded-md" data-testid="text-reset-success">
+                      <CheckCircle className="w-4 h-4 flex-shrink-0" />
+                      <span>Your password has been reset. You can now sign in.</span>
+                    </div>
+                    <Button
+                      className="w-full"
+                      onClick={() => {
+                        window.history.replaceState({}, "", "/partner-portal");
+                        setResetToken(null);
+                        setResetSuccess(false);
+                        setResetForm({ password: "", confirmPassword: "" });
+                        setView("login");
+                      }}
+                      data-testid="button-go-to-login"
+                    >
+                      Go to Sign In
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-foreground mb-1.5">New Password</label>
+                      <Input
+                        type="password"
+                        value={resetForm.password}
+                        onChange={e => setResetForm(f => ({ ...f, password: e.target.value }))}
+                        placeholder="At least 6 characters"
+                        data-testid="input-reset-password"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-foreground mb-1.5">Confirm Password</label>
+                      <Input
+                        type="password"
+                        value={resetForm.confirmPassword}
+                        onChange={e => setResetForm(f => ({ ...f, confirmPassword: e.target.value }))}
+                        placeholder="Re-enter new password"
+                        onKeyDown={e => e.key === "Enter" && handleResetPassword()}
+                        data-testid="input-reset-confirm-password"
+                      />
+                    </div>
+                    <Button
+                      className="w-full"
+                      size="lg"
+                      onClick={handleResetPassword}
+                      disabled={submitting}
+                      data-testid="button-reset-password"
+                    >
+                      {submitting ? "Resetting..." : "Reset Password"}
+                    </Button>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </main>
+        <Footer />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex flex-col font-body">
       <SEO title="Partner Portal Login | Liberty Bancard" description="Log in to your Liberty Bancard partner dashboard" path="/partner-portal" noindex={true} />
@@ -553,6 +771,16 @@ export default function PartnerPortal() {
                 {submitting ? "Logging in..." : "Log In to Partner Portal"}
                 {!submitting && <LogIn className="w-4 h-4" />}
               </Button>
+              <div className="text-center">
+                <button
+                  type="button"
+                  onClick={() => { setView("forgot"); setForgotSubmitted(false); setForgotEmail(loginForm.email); }}
+                  className="text-sm text-primary hover:underline"
+                  data-testid="link-forgot-password"
+                >
+                  Forgot password?
+                </button>
+              </div>
             </CardContent>
           </Card>
 

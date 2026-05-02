@@ -337,6 +337,9 @@ export interface IStorage {
   createPartner(partner: InsertPartner): Promise<Partner>;
   updatePartner(id: number, updates: Partial<InsertPartner>): Promise<Partner | undefined>;
   incrementPartnerClicks(code: string): Promise<void>;
+  setPartnerResetToken(id: number, tokenHash: string, expiresAt: Date): Promise<void>;
+  getPartnerByResetToken(tokenHash: string): Promise<Partner | undefined>;
+  updatePartnerPassword(id: number, passwordHash: string): Promise<void>;
 
   getReferrals(partnerId?: number): Promise<Referral[]>;
   getReferral(id: number): Promise<Referral | undefined>;
@@ -1863,6 +1866,24 @@ export class DatabaseStorage implements IStorage {
     await db.update(partners)
       .set({ totalClicks: sql`${partners.totalClicks} + 1`, updatedAt: new Date() })
       .where(eq(partners.affiliateCode, code.toLowerCase()));
+  }
+
+  async setPartnerResetToken(id: number, tokenHash: string, expiresAt: Date) {
+    await db.update(partners)
+      .set({ passwordResetToken: tokenHash, passwordResetExpiresAt: expiresAt, updatedAt: new Date() })
+      .where(eq(partners.id, id));
+  }
+
+  async getPartnerByResetToken(tokenHash: string) {
+    const [partner] = await db.select().from(partners)
+      .where(and(eq(partners.passwordResetToken, tokenHash), gte(partners.passwordResetExpiresAt, new Date())));
+    return partner;
+  }
+
+  async updatePartnerPassword(id: number, passwordHash: string) {
+    await db.update(partners)
+      .set({ passwordHash, passwordResetToken: null, passwordResetExpiresAt: null, updatedAt: new Date() })
+      .where(eq(partners.id, id));
   }
 
   async getReferrals(partnerId?: number) {
