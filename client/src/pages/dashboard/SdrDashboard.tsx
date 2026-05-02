@@ -520,6 +520,7 @@ interface SourceStatusData {
   serper: { configured: boolean; usage: any };
   outscraper: { configured: boolean; usage: any };
   apify: { configured: boolean; usage: any };
+  apollo: { configured: boolean; usage: any };
 }
 
 interface DiscoveryJob {
@@ -796,13 +797,31 @@ function DiscoveryDashboard() {
               </div>
               <div>
                 <h4 className="text-sm font-medium mb-2">Data Sources</h4>
-                <div className="flex flex-wrap gap-1.5">
-                  {config.dataSources.map((s) => (
-                    <Badge key={s} variant="outline" className="text-xs" data-testid={`badge-source-${s}`}>
-                      {s}
-                    </Badge>
-                  ))}
+                <div className="flex flex-wrap gap-2">
+                  {["serper", "outscraper", "apify", "apollo"].map((s) => {
+                    const active = config.dataSources.includes(s);
+                    const srcStatus = sourceStatus?.[s as keyof SourceStatusData];
+                    return (
+                      <button
+                        key={s}
+                        type="button"
+                        data-testid={`btn-toggle-source-${s}`}
+                        onClick={() => {
+                          const next = active
+                            ? config.dataSources.filter(x => x !== s)
+                            : [...config.dataSources, s];
+                          updateConfigMutation.mutate({ dataSources: next });
+                        }}
+                        className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs border transition-colors ${active ? "bg-primary/10 border-primary text-primary font-medium" : "bg-muted/50 border-muted text-muted-foreground"}`}
+                      >
+                        {active ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
+                        <span className="capitalize">{s}</span>
+                        {!srcStatus?.configured && <span className="text-[10px] opacity-60">(no key)</span>}
+                      </button>
+                    );
+                  })}
                 </div>
+                <p className="text-xs text-muted-foreground mt-1.5">Click to enable/disable a source. Greyed sources require an API key.</p>
               </div>
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
@@ -888,22 +907,36 @@ function DiscoveryDashboard() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-3">
-              {["serper", "outscraper", "apify"].map((src) => {
+            <div className="space-y-4">
+              {(["serper", "outscraper", "apify", "apollo"] as const).map((src) => {
                 const srcData = sourceStatus?.[src as keyof SourceStatusData] as { configured: boolean; usage: any } | undefined;
+                const usage = srcData?.usage;
+                const calls = src === "apify" ? usage?.totalRuns : usage?.totalCalls;
+                const records = src === "apify" ? usage?.businessesFound : src === "apollo" ? usage?.contactsFound : usage?.businessesFound;
+                const cost = usage?.estimatedCost;
                 return (
-                  <div key={src} className="flex items-center justify-between text-sm" data-testid={`row-source-${src}`}>
-                    <div className="flex items-center gap-2">
-                      {srcData?.configured ? (
-                        <CheckCircle2 className="w-4 h-4 text-green-600" />
-                      ) : (
-                        <XCircle className="w-4 h-4 text-muted-foreground" />
-                      )}
-                      <span className="capitalize">{src}</span>
+                  <div key={src} className="space-y-1" data-testid={`row-source-${src}`}>
+                    <div className="flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-2">
+                        {srcData?.configured ? (
+                          <CheckCircle2 className="w-4 h-4 text-green-600" />
+                        ) : (
+                          <XCircle className="w-4 h-4 text-muted-foreground" />
+                        )}
+                        <span className="capitalize font-medium">{src}</span>
+                        {src === "apollo" && <span className="text-[10px] text-muted-foreground">(B2B contacts)</span>}
+                      </div>
+                      <Badge variant={srcData?.configured ? "secondary" : "outline"} className="text-xs">
+                        {srcData?.configured ? "Active" : "No key"}
+                      </Badge>
                     </div>
-                    <Badge variant={srcData?.configured ? "secondary" : "outline"} className="text-xs">
-                      {srcData?.configured ? "Active" : "Not configured"}
-                    </Badge>
+                    {usage && (
+                      <div className="flex gap-3 text-xs text-muted-foreground pl-6">
+                        <span data-testid={`stat-${src}-calls`}>{calls ?? 0} calls</span>
+                        <span data-testid={`stat-${src}-records`}>{records ?? 0} records</span>
+                        <span data-testid={`stat-${src}-cost`}>${(cost ?? 0).toFixed(2)} est.</span>
+                      </div>
+                    )}
                   </div>
                 );
               })}

@@ -706,17 +706,21 @@ export function registerSdrRoutes(app: Express) {
     try {
       const { isOutscraperConfigured, getOutscraperUsage } = await import("../services/sdr/outscraper");
       const { isApifyConfigured, getApifyUsage } = await import("../services/sdr/apify");
+      const { isApolloConfigured, getApolloUsage } = await import("../services/sdr/apollo");
       const serperConfigured = isSerperConfigured();
       const serperUsage = await getSerperUsage();
       const outscrConfigured = isOutscraperConfigured();
       const outscrUsage = outscrConfigured ? await getOutscraperUsage() : null;
       const apifyConfigured = isApifyConfigured();
       const apifyUsage = apifyConfigured ? await getApifyUsage() : null;
+      const apolloConfigured = isApolloConfigured();
+      const apolloUsage = await getApolloUsage();
 
       res.json({
         serper: { configured: serperConfigured, usage: serperUsage },
         outscraper: { configured: outscrConfigured, usage: outscrUsage },
         apify: { configured: apifyConfigured, usage: apifyUsage },
+        apollo: { configured: apolloConfigured, usage: apolloUsage },
       });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);

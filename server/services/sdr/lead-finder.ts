@@ -1,7 +1,8 @@
 import { storage } from "../../storage";
-import type { InsertLeadDiscoveryResult, InsertSdrMerchant, InsertSdrLeadState } from "@shared/schema";
+import type { InsertLeadDiscoveryResult, InsertSdrMerchant, InsertSdrLeadState, InsertSdrMerchantContact } from "@shared/schema";
 import { searchOutscraperByVerticalMetro, isOutscraperConfigured } from "./outscraper";
 import { searchApifyByVerticalMetro, isApifyConfigured } from "./apify";
+import { searchApolloForDiscovery, isApolloConfigured } from "./apollo";
 import { isSerperConfigured } from "../serper";
 
 const DEFAULT_VERTICALS = [
@@ -50,6 +51,11 @@ interface NormalizedBusiness {
   metro: string;
   source: string;
   rawData: Record<string, any>;
+  ownerFirstName?: string | null;
+  ownerLastName?: string | null;
+  ownerEmail?: string | null;
+  ownerPhone?: string | null;
+  ownerTitle?: string | null;
 }
 
 function normalizePhone(phone: string | null | undefined): string | null {
@@ -247,6 +253,46 @@ async function searchApifyForDiscovery(
   }
 }
 
+async function searchApolloForDiscoveryLocal(
+  vertical: string,
+  metro: string,
+  state: string,
+  limit: number
+): Promise<NormalizedBusiness[]> {
+  if (!isApolloConfigured()) return [];
+
+  try {
+    const apolloResults = await searchApolloForDiscovery(vertical, metro, state, Math.min(limit, 100));
+    return apolloResults
+      .filter(r => r.name)
+      .map(r => ({
+        businessName: r.name,
+        phone: r.phone,
+        email: r.email,
+        website: r.website,
+        address: r.address,
+        city: r.city || metro,
+        state: r.state || state,
+        zip: r.zip,
+        rating: null,
+        reviewCount: null,
+        placeId: null,
+        vertical: classifyVertical(r.category, r.name),
+        metro,
+        source: "apollo",
+        rawData: r.rawData,
+        ownerFirstName: r.ownerFirstName,
+        ownerLastName: r.ownerLastName,
+        ownerEmail: r.ownerEmail,
+        ownerPhone: r.ownerPhone,
+        ownerTitle: r.ownerTitle,
+      }));
+  } catch (err) {
+    console.error(`[LeadFinder/Apollo] Error searching ${vertical} in ${metro}:`, err);
+    return [];
+  }
+}
+
 async function dedupeAndInsert(
   businesses: NormalizedBusiness[],
   jobId: number
@@ -336,13 +382,31 @@ async function dedupeAndInsert(
 
       const merchant = await storage.createSdrMerchant(merchantData);
 
+      if (biz.source === "apollo" && (biz.ownerFirstName || biz.ownerLastName)) {
+        try {
+          const contactName = [biz.ownerFirstName, biz.ownerLastName].filter(Boolean).join(" ");
+          const contactData: InsertSdrMerchantContact = {
+            merchantId: merchant.id,
+            contactName: contactName || undefined,
+            title: biz.ownerTitle || undefined,
+            email: biz.ownerEmail || undefined,
+            mobile: biz.ownerPhone || undefined,
+            roleGuess: "owner",
+            primaryContactFlag: true,
+          };
+          await storage.createSdrMerchantContact(contactData);
+        } catch (contactErr) {
+          console.error(`[LeadFinder/Apollo] Failed to create contact for merchant ${merchant.id}:`, contactErr);
+        }
+      }
+
       const leadStateData: InsertSdrLeadState = {
         merchantId: merchant.id,
         currentStage: "DISCOVERED",
         stage: "DISCOVERED",
         companyName: biz.businessName,
-        email: biz.email || undefined,
-        phone: biz.phone || undefined,
+        email: biz.ownerEmail || biz.email || undefined,
+        phone: biz.ownerPhone || biz.phone || undefined,
         website: biz.website || undefined,
         vertical: biz.vertical,
         city: biz.city || undefined,
@@ -459,6 +523,8 @@ export async function runLeadDiscovery(
               results = await searchApifyForDiscovery(vertical, metro, state, limitPerSearch);
             } else if (source === "serper") {
               results = await searchSerperForDiscovery(vertical, metro, state, limitPerSearch);
+            } else if (source === "apollo") {
+              results = await searchApolloForDiscoveryLocal(vertical, metro, state, limitPerSearch);
             }
 
             allBusinesses.push(...results);

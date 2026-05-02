@@ -50,4 +50,5 @@ The frontend uses React with Vite, TypeScript, Tailwind CSS, and shadcn/ui. `wou
 - **GoHighLevel (GHL) API**: For communication, scheduling, e-signatures, and data synchronization.
 - **Serper.dev API**: For Google search and business information discovery.
 - **Outscraper API**: For Google Maps bulk business data pulls.
-- **Apify API**: For Yelp and Facebook business page scraping.
+- **Apify API**: For Yelp and Facebook business scraping (env: `APIFY_API_TOKEN`).
+- **Apollo.io API**: For B2B contact and company discovery (env: `APOLLO_API_KEY`; Professional plan or higher required for API access). Targets owner/decision-maker contacts by title; cost ~$0.10/contact credit tracked in `apollo_usage` system setting.
