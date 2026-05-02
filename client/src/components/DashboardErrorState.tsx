@@ -1,6 +1,6 @@
 import { AlertTriangle, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 interface DashboardErrorStateProps {
   title?: string;
@@ -14,18 +14,24 @@ export default function DashboardErrorState({
   onRetry,
 }: DashboardErrorStateProps) {
   return (
-    <Card data-testid="dashboard-error-state">
-      <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-        <AlertTriangle className="h-10 w-10 text-destructive mb-4" />
-        <h3 className="text-lg font-semibold mb-1" data-testid="text-error-title">{title}</h3>
-        <p className="text-sm text-muted-foreground mb-4 max-w-md" data-testid="text-error-message">{message}</p>
+    <Alert variant="destructive" data-testid="dashboard-error-state" className="my-4">
+      <AlertTriangle className="h-4 w-4" />
+      <AlertTitle data-testid="text-error-title">{title}</AlertTitle>
+      <AlertDescription className="flex flex-col gap-3">
+        <span data-testid="text-error-message">{message}</span>
         {onRetry && (
-          <Button onClick={onRetry} variant="outline" className="gap-2" data-testid="button-retry">
+          <Button
+            onClick={onRetry}
+            variant="outline"
+            size="sm"
+            className="gap-2 w-fit"
+            data-testid="button-retry"
+          >
             <RefreshCw className="h-4 w-4" />
             Try Again
           </Button>
         )}
-      </CardContent>
-    </Card>
+      </AlertDescription>
+    </Alert>
   );
 }

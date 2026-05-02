@@ -30,7 +30,8 @@ import {
 } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { Loader2, Upload, ArrowRight, Calculator, TrendingDown } from "lucide-react";
+import { useState } from "react";
+import { Loader2, Upload, ArrowRight, Calculator, TrendingDown, AlertCircle } from "lucide-react";
 import heroAnalytics from "@assets/images/hero-analytics.jpg";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 
@@ -82,6 +83,15 @@ export default function Estimate() {
     },
   });
 
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  function getFormErrorMessage(error: Error): string {
+    const msg = error?.message || "";
+    if (msg.startsWith("429:")) return "Too many submissions — please wait a few minutes and try again.";
+    if (/^5\d{2}:/.test(msg)) return "Something went wrong on our end — please try again shortly.";
+    return msg || "Please try again or call us at 954-266-8214.";
+  }
+
   const submitMutation = useMutation({
     mutationFn: async (data: EstimateFormData) => {
       const refCode = localStorage.getItem("lb_ref_code") || undefined;
@@ -105,15 +115,12 @@ export default function Estimate() {
       setLocation("/thanks-estimate");
     },
     onError: (error: Error) => {
-      toast({
-        title: "Submission Error",
-        description: error.message,
-        variant: "destructive",
-      });
+      setSubmitError(getFormErrorMessage(error));
     },
   });
 
   const onSubmit = (data: EstimateFormData) => {
+    setSubmitError(null);
     submitMutation.mutate(data);
   };
 
@@ -370,6 +377,13 @@ export default function Estimate() {
                         </FormItem>
                       )}
                     />
+
+                    {submitError && (
+                      <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-4 py-3" data-testid="alert-submit-error" role="alert">
+                        <AlertCircle className="w-4 h-4 text-destructive mt-0.5 shrink-0" />
+                        <p className="text-sm text-destructive">{submitError}</p>
+                      </div>
+                    )}
 
                     <Button
                       type="submit"

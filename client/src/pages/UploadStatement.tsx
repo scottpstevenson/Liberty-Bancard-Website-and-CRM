@@ -43,6 +43,7 @@ import {
   CheckCircle2,
   ArrowRight,
   Sparkles,
+  AlertCircle,
 } from "lucide-react";
 import imgCloverFlex3 from "@assets/images/terminal-clover-flex-3.png";
 import heroSecure from "@assets/images/hero-secure.jpg";
@@ -81,6 +82,7 @@ export default function UploadStatement() {
   const [analysisRate, setAnalysisRate] = useState("");
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const params = new URLSearchParams(window.location.search);
   const preTerminal = params.get("terminal") === "yes";
@@ -138,7 +140,7 @@ export default function UploadStatement() {
       });
       if (!res.ok) {
         const errBody = await res.json().catch(() => ({ message: "Upload failed" }));
-        throw new Error(errBody.message || "Upload failed");
+        throw new Error(`${res.status}: ${errBody.message || "Upload failed"}`);
       }
       return res.json();
     },
@@ -152,15 +154,19 @@ export default function UploadStatement() {
       setLocation("/thanks-statement");
     },
     onError: (error: Error) => {
-      toast({
-        title: "Submission Error",
-        description: error.message,
-        variant: "destructive",
-      });
+      const msg = error?.message || "";
+      if (msg.startsWith("429:")) {
+        setSubmitError("Too many submissions — please wait a few minutes and try again.");
+      } else if (/^5\d{2}:/.test(msg)) {
+        setSubmitError("Something went wrong on our end — please try again shortly.");
+      } else {
+        setSubmitError(msg.replace(/^\d{3}:\s*/, "") || "Please try again or call us at 954-266-8214.");
+      }
     },
   });
 
   const onSubmit = (data: UploadFormData) => {
+    setSubmitError(null);
     submitMutation.mutate(data);
   };
 
@@ -515,6 +521,13 @@ export default function UploadStatement() {
                         </FormItem>
                       )}
                     />
+
+                    {submitError && (
+                      <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-4 py-3" data-testid="alert-submit-error" role="alert">
+                        <AlertCircle className="w-4 h-4 text-destructive mt-0.5 shrink-0" />
+                        <p className="text-sm text-destructive">{submitError}</p>
+                      </div>
+                    )}
 
                     <Button
                       type="submit"

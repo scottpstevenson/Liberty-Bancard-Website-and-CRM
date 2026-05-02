@@ -162,6 +162,7 @@ export default function GetStarted() {
   const [promoCode, setPromoCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const { toast } = useToast();
   const resultsRef = useScrollReveal();
   const stepHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -195,9 +196,17 @@ export default function GetStarted() {
     }
   };
 
+  function getFormErrorMessage(error: any): string {
+    const msg = typeof error?.message === "string" ? error.message : "";
+    if (msg.startsWith("429:")) return "Too many submissions — please wait a few minutes and try again.";
+    if (/^5\d{2}:/.test(msg)) return "Something went wrong on our end — please try again shortly.";
+    return msg || "Please try again or call us at 954-266-8214.";
+  }
+
   const handleSubmit = async () => {
     if (!canProceed()) return;
     setSubmitting(true);
+    setSubmitError(null);
     try {
       const refCode = localStorage.getItem("lb_ref_code") || undefined;
       const utmParams = getStoredUTMParams();
@@ -221,11 +230,7 @@ export default function GetStarted() {
       trackConversion("get_started_submission");
       setSubmitted(true);
     } catch (error: any) {
-      toast({
-        title: "Something went wrong",
-        description: error.message || "Please try again or call us at 954-266-8214.",
-        variant: "destructive",
-      });
+      setSubmitError(getFormErrorMessage(error));
     } finally {
       setSubmitting(false);
     }
@@ -667,6 +672,13 @@ export default function GetStarted() {
                   <div className="mt-4 mb-2 flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 rounded-md px-3 py-2" data-testid="text-guarantee-oneliner">
                     <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                     If we can't beat your current rate, we'll tell you upfront — no obligation, no pressure. The breakdown is yours to keep.
+                  </div>
+                )}
+
+                {submitError && (
+                  <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-4 py-3 mt-4" data-testid="alert-submit-error" role="alert">
+                    <HelpCircle className="w-4 h-4 text-destructive mt-0.5 shrink-0" />
+                    <p className="text-sm text-destructive">{submitError}</p>
                   </div>
                 )}
 

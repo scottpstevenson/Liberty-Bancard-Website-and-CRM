@@ -720,12 +720,31 @@ export default function Contacts() {
             </TableHeader>
             <TableBody>
               {isLoading ? (
-                <TableRow>
-                  <TableCell colSpan={7} className="text-center h-24">Loading...</TableCell>
-                </TableRow>
+                Array.from({ length: 5 }).map((_, i) => (
+                  <TableRow key={i}>
+                    <TableCell><Skeleton className="h-4 w-4 rounded" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-36" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-28" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-40" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-16" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-16 ml-auto" /></TableCell>
+                  </TableRow>
+                ))
               ) : filteredContacts?.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center h-24 text-muted-foreground">No contacts found</TableCell>
+                  <TableCell colSpan={7}>
+                    <div className="flex flex-col items-center justify-center py-14 text-center gap-3" data-testid="empty-contacts">
+                      <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
+                        <Users className="w-6 h-6 text-muted-foreground" />
+                      </div>
+                      <p className="text-sm font-medium text-foreground" data-testid="text-empty-contacts">No contacts yet</p>
+                      <p className="text-xs text-muted-foreground max-w-xs">Add your first contact to start tracking leads and customers.</p>
+                      <Button size="sm" className="gap-1 mt-1" onClick={() => setIsDialogOpen(true)} data-testid="button-empty-add-contact">
+                        <Plus className="w-3.5 h-3.5" /> Add Contact
+                      </Button>
+                    </div>
+                  </TableCell>
                 </TableRow>
               ) : (
                 filteredContacts?.map((contact: any) => {

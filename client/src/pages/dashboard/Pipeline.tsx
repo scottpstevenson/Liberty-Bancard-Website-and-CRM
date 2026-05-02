@@ -17,6 +17,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Plus, Calendar, Sparkles, Loader2, Download, ChevronDown, Archive, Settings, ArrowUp, ArrowDown, Pencil, Trash2, RotateCcw, MoreVertical, TrendingUp } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { exportToCSV } from "@/lib/export-csv";
@@ -626,8 +627,28 @@ export default function Pipeline() {
 
   if (dealsLoading) {
     return (
-      <div className="flex items-center justify-center h-64" data-testid="pipeline-loading">
-        <div className="text-muted-foreground">Loading pipeline...</div>
+      <div className="space-y-6" data-testid="pipeline-loading">
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-8 w-40" />
+          <div className="flex gap-2">
+            <Skeleton className="h-9 w-28" />
+            <Skeleton className="h-9 w-28" />
+          </div>
+        </div>
+        <div className="flex gap-4 overflow-x-auto pb-4">
+          {Array.from({ length: 5 }).map((_, colIdx) => (
+            <div key={colIdx} className="flex-shrink-0 w-72 space-y-3">
+              <Skeleton className="h-6 w-32" />
+              {Array.from({ length: 3 }).map((_, cardIdx) => (
+                <div key={cardIdx} className="border rounded-md p-3 space-y-2 bg-muted/20">
+                  <Skeleton className="h-4 w-40" />
+                  <Skeleton className="h-3 w-24" />
+                  <Skeleton className="h-3 w-16" />
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
       </div>
     );
   }

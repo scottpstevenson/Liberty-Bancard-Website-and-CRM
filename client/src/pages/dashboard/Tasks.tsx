@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Plus, ArrowRight, Sparkles, Loader2, ChevronDown, UserPlus, CheckCircle, Trash2, MessageSquare } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import Comments from "@/components/Comments";
 import SavedFilterBar from "@/components/SavedFilterBar";
@@ -248,8 +249,29 @@ export default function Tasks() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-64" data-testid="tasks-loading">
-        <div className="text-muted-foreground">Loading tasks...</div>
+      <div className="space-y-6" data-testid="tasks-loading">
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-8 w-24" />
+          <Skeleton className="h-9 w-32" />
+        </div>
+        <div className="border rounded-md overflow-x-auto">
+          <table className="w-full">
+            <tbody>
+              {Array.from({ length: 5 }).map((_, i) => (
+                <tr key={i} className="border-b last:border-0">
+                  <td className="p-3"><Skeleton className="h-4 w-4" /></td>
+                  <td className="p-3"><Skeleton className="h-4 w-48" /></td>
+                  <td className="p-3"><Skeleton className="h-4 w-24" /></td>
+                  <td className="p-3"><Skeleton className="h-4 w-28" /></td>
+                  <td className="p-3"><Skeleton className="h-4 w-16" /></td>
+                  <td className="p-3"><Skeleton className="h-4 w-20" /></td>
+                  <td className="p-3"><Skeleton className="h-4 w-16" /></td>
+                  <td className="p-3"><Skeleton className="h-4 w-20" /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     );
   }
@@ -500,8 +522,17 @@ export default function Tasks() {
           <TableBody>
             {filteredTasks.length === 0 && (
               <TableRow>
-                <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
-                  No tasks found
+                <TableCell colSpan={8}>
+                  <div className="flex flex-col items-center justify-center py-14 text-center gap-3" data-testid="empty-tasks">
+                    <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
+                      <CheckCircle className="w-6 h-6 text-muted-foreground" />
+                    </div>
+                    <p className="text-sm font-medium text-foreground" data-testid="text-empty-tasks">No tasks yet</p>
+                    <p className="text-xs text-muted-foreground max-w-xs">Create your first task to start tracking work items and deadlines.</p>
+                    <Button size="sm" className="gap-1 mt-1" onClick={() => setCreateOpen(true)} data-testid="button-empty-create-task">
+                      <Plus className="w-3.5 h-3.5" /> Create Task
+                    </Button>
+                  </div>
                 </TableCell>
               </TableRow>
             )}

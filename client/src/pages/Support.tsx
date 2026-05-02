@@ -28,11 +28,13 @@ import {
 } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { useState } from "react";
 import {
   Loader2,
   Clock,
   Mail,
   UserCheck,
+  AlertCircle,
 } from "lucide-react";
 import heroSupport from "@assets/images/hero-support.jpg";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
@@ -73,6 +75,15 @@ export default function Support() {
     },
   });
 
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  function getFormErrorMessage(error: Error): string {
+    const msg = error?.message || "";
+    if (msg.startsWith("429:")) return "Too many submissions — please wait a few minutes and try again.";
+    if (/^5\d{2}:/.test(msg)) return "Something went wrong on our end — please try again shortly.";
+    return msg || "Please try again or call us at 954-266-8214.";
+  }
+
   const submitMutation = useMutation({
     mutationFn: async (data: SupportFormData) => {
       const res = await apiRequest("POST", "/api/public/support", {
@@ -95,15 +106,12 @@ export default function Support() {
       setLocation("/thanks-support");
     },
     onError: (error: Error) => {
-      toast({
-        title: "Submission Error",
-        description: error.message,
-        variant: "destructive",
-      });
+      setSubmitError(getFormErrorMessage(error));
     },
   });
 
   const onSubmit = (data: SupportFormData) => {
+    setSubmitError(null);
     submitMutation.mutate(data);
   };
 
@@ -387,6 +395,13 @@ export default function Support() {
                           </FormItem>
                         )}
                       />
+
+                      {submitError && (
+                        <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-4 py-3" data-testid="alert-submit-error" role="alert">
+                          <AlertCircle className="w-4 h-4 text-destructive mt-0.5 shrink-0" />
+                          <p className="text-sm text-destructive">{submitError}</p>
+                        </div>
+                      )}
 
                       <Button
                         type="submit"

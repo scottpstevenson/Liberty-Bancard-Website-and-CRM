@@ -14,6 +14,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { Plus, AlertTriangle, Sparkles, Loader2, Download, Send, Lock, Globe, MessageSquareText } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { exportToCSV } from "@/lib/export-csv";
 import SavedFilterBar from "@/components/SavedFilterBar";
@@ -539,12 +540,31 @@ export default function Tickets() {
             </TableHeader>
             <TableBody>
               {isLoading ? (
-                <TableRow>
-                  <TableCell colSpan={7} className="text-center h-24">Loading tickets...</TableCell>
-                </TableRow>
+                Array.from({ length: 4 }).map((_, i) => (
+                  <TableRow key={i}>
+                    <TableCell><Skeleton className="h-4 w-8" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-48" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-16" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-32" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                  </TableRow>
+                ))
               ) : !tickets || tickets.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center h-24 text-muted-foreground">No tickets found</TableCell>
+                  <TableCell colSpan={7}>
+                    <div className="flex flex-col items-center justify-center py-14 text-center gap-3" data-testid="empty-tickets">
+                      <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
+                        <MessageSquareText className="w-6 h-6 text-muted-foreground" />
+                      </div>
+                      <p className="text-sm font-medium text-foreground" data-testid="text-empty-tickets">No tickets yet</p>
+                      <p className="text-xs text-muted-foreground max-w-xs">Support tickets will appear here once submitted.</p>
+                      <Button size="sm" className="gap-1 mt-1" onClick={() => setCreateOpen(true)} data-testid="button-empty-create-ticket">
+                        <Plus className="w-3.5 h-3.5" /> Create Ticket
+                      </Button>
+                    </div>
+                  </TableCell>
                 </TableRow>
               ) : (
                 tickets.map((ticket) => (
