@@ -10,6 +10,16 @@ function generateReferralCode(): string {
 
 export function registerLifecycleRoutes(app: Express) {
 
+  // ── NPS Admin: stats endpoint MUST be registered BEFORE /:token to avoid token match ──
+  app.get("/api/nps/stats", isAuthenticated, async (req, res) => {
+    try {
+      const stats = await storage.getNpsStats();
+      res.json(stats);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // ── NPS Survey (public — accessed via token) ────────────────────────────────
   app.get("/api/nps/:token", async (req, res) => {
     try {
@@ -87,15 +97,6 @@ export function registerLifecycleRoutes(app: Express) {
     try {
       const responses = await storage.getNpsResponses();
       res.json(responses);
-    } catch (err: any) {
-      res.status(500).json({ message: err.message });
-    }
-  });
-
-  app.get("/api/nps/stats", isAuthenticated, async (req, res) => {
-    try {
-      const stats = await storage.getNpsStats();
-      res.json(stats);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

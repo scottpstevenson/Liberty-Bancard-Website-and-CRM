@@ -185,51 +185,43 @@ export async function upsertGhlContact(contact: GhlContactInput): Promise<string
   const config = getConfig();
   if (!config) throw new Error("GHL not configured");
 
-  const payload = {
-    locationId: config.locationId,
-    firstName: contact.firstName,
-    lastName: contact.lastName,
-    email: contact.email,
-    phone: contact.phone,
-    companyName: contact.companyName || undefined,
-    tags: contact.tags || [],
-    customField: {} as Record<string, string>,
-  };
+  const customFields: Array<{ key: string; field_value: string }> = [];
+  const addCF = (key: string, value: string) => customFields.push({ key, field_value: value });
 
   if (contact.vertical) {
-    payload.customField["vertical"] = contact.vertical;
-    payload.customField["lb_vertical"] = contact.vertical;
+    addCF("vertical", contact.vertical);
+    addCF("lb_vertical", contact.vertical);
   }
   if (contact.monthlyVolume) {
-    payload.customField["monthly_volume"] = contact.monthlyVolume;
-    payload.customField["lb_monthly_volume"] = contact.monthlyVolume;
+    addCF("monthly_volume", contact.monthlyVolume);
+    addCF("lb_monthly_volume", contact.monthlyVolume);
   }
   if (contact.primaryOfferPath) {
-    payload.customField["offer_path"] = contact.primaryOfferPath;
-    payload.customField["lb_preferred_program"] = contact.primaryOfferPath;
+    addCF("offer_path", contact.primaryOfferPath);
+    addCF("lb_preferred_program", contact.primaryOfferPath);
   }
   if (contact.currentProvider) {
-    payload.customField["current_provider"] = contact.currentProvider;
-    payload.customField["lb_current_processor"] = contact.currentProvider;
+    addCF("current_provider", contact.currentProvider);
+    addCF("lb_current_processor", contact.currentProvider);
   }
   if (contact.painPoints && Array.isArray(contact.painPoints) && contact.painPoints.length > 0) {
-    payload.customField["lb_pain_points"] = contact.painPoints.join(", ");
+    addCF("lb_pain_points", contact.painPoints.join(", "));
   }
   if (contact.interestedIn0Percent !== undefined && contact.interestedIn0Percent !== null) {
-    payload.customField["lb_interested_0_percent"] = contact.interestedIn0Percent ? "Yes" : "No";
+    addCF("lb_interested_0_percent", contact.interestedIn0Percent ? "Yes" : "No");
   }
   if (contact.needTerminal !== undefined && contact.needTerminal !== null) {
-    payload.customField["lb_terminal_need"] = contact.needTerminal ? "Yes" : "No";
+    addCF("lb_terminal_need", contact.needTerminal ? "Yes" : "No");
   }
-  if (contact.utmSource) payload.customField["lb_utm_source"] = contact.utmSource;
-  if (contact.utmMedium) payload.customField["lb_utm_medium"] = contact.utmMedium;
-  if (contact.utmCampaign) payload.customField["lb_utm_campaign"] = contact.utmCampaign;
-  if (contact.promoCode) payload.customField["lb_promo_code"] = contact.promoCode;
+  if (contact.utmSource) addCF("lb_utm_source", contact.utmSource);
+  if (contact.utmMedium) addCF("lb_utm_medium", contact.utmMedium);
+  if (contact.utmCampaign) addCF("lb_utm_campaign", contact.utmCampaign);
+  if (contact.promoCode) addCF("lb_promo_code", contact.promoCode);
   if (contact.consentSms !== undefined && contact.consentSms !== null) {
-    payload.customField["lb_consent_sms"] = contact.consentSms ? "Yes" : "No";
+    addCF("lb_consent_sms", contact.consentSms ? "Yes" : "No");
   }
   if (contact.consentEmail !== undefined && contact.consentEmail !== null) {
-    payload.customField["lb_consent_email"] = contact.consentEmail ? "Yes" : "No";
+    addCF("lb_consent_email", contact.consentEmail ? "Yes" : "No");
   }
   if (contact.landingPage) {
     const sourceMap: Record<string, string> = {
@@ -241,27 +233,68 @@ export async function upsertGhlContact(contact: GhlContactInput): Promise<string
       "/affiliate": "affiliate",
       "/estimate": "estimate",
     };
-    payload.customField["lb_lead_source"] = sourceMap[contact.landingPage] || contact.landingPage;
+    addCF("lb_lead_source", sourceMap[contact.landingPage] || contact.landingPage);
+  }
+
+  const payload: Record<string, unknown> = {
+    locationId: config.locationId,
+    firstName: contact.firstName,
+    lastName: contact.lastName,
+    email: contact.email,
+    phone: contact.phone,
+    companyName: contact.companyName || undefined,
+    tags: contact.tags || [],
+  };
+  if (customFields.length > 0) {
+    payload.customFields = customFields;
   }
 
   if (contact.ghlContactId) {
-    const result = await ghlFetch(`/contacts/${contact.ghlContactId}`, {
+    await ghlFetch(`/contacts/${contact.ghlContactId}`, {
       method: "PUT",
       body: JSON.stringify(payload),
     });
     return contact.ghlContactId;
   }
 
-  const result = await ghlFetch("/contacts/", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-
-  const ghlId = result.contact?.id;
-  if (ghlId && contact.id) {
-    await storage.updateContact(contact.id, { ghlContactId: ghlId });
+  try {
+    const result = await ghlFetch("/contacts/", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    const ghlId = result.contact?.id;
+    if (ghlId && contact.id) {
+      await storage.updateContact(contact.id, { ghlContactId: ghlId });
+    }
+    return ghlId;
+  } catch (err: any) {
+    // GHL returns 400 with the existing contact ID when a duplicate is detected.
+    // Parse it out, link, and update — this turns a hard error into a successful upsert.
+    const msg = String(err?.message || "");
+    if (msg.includes("400") && /duplicat|already exist/i.test(msg)) {
+      const idMatch = msg.match(/"(?:id|contactId)"\s*:\s*"([a-zA-Z0-9]+)"/);
+      const existingId = idMatch?.[1];
+      if (existingId) {
+        try {
+          await ghlFetch(`/contacts/${existingId}`, {
+            method: "PUT",
+            body: JSON.stringify(payload),
+          });
+          if (contact.id) {
+            await storage.updateContact(contact.id, { ghlContactId: existingId });
+          }
+          return existingId;
+        } catch (putErr: any) {
+          console.warn(`[GHL] Linked existing contact ${existingId} but PUT update failed:`, putErr?.message);
+          if (contact.id) {
+            await storage.updateContact(contact.id, { ghlContactId: existingId });
+          }
+          return existingId;
+        }
+      }
+    }
+    throw err;
   }
-  return ghlId;
 }
 
 export async function sendGhlEmail(params: {

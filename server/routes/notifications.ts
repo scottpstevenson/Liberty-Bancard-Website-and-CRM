@@ -41,6 +41,35 @@ export function registerNotificationsRoutes(app: Express) {
     }
   });
 
+  // Lightweight unread count (used by sidebar badge — avoids loading 1000+ rows)
+  app.get("/api/notifications/count", isAuthenticated, async (_req, res) => {
+    try {
+      const all = await storage.getNotifications();
+      const unread = all.filter((n: any) => n.read === false).length;
+      res.json({ unread, total: all.length });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Bulk mark-all-as-read for the current user
+  app.post("/api/notifications/mark-all-read", isAuthenticated, async (_req, res) => {
+    try {
+      const all = await storage.getNotifications();
+      const unread = all.filter((n: any) => n.read === false);
+      let updated = 0;
+      for (const n of unread) {
+        try {
+          await storage.markNotificationRead(n.id);
+          updated++;
+        } catch {}
+      }
+      res.json({ success: true, updated });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
 
   // === AUDIT LOGS ===
   app.get("/api/audit-logs", isAuthenticated, async (req, res) => {
