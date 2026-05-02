@@ -258,9 +258,10 @@ export async function setupAuth(app: Express) {
           const rawToken = crypto.randomBytes(32).toString("hex");
           const hashedToken = hashToken(rawToken);
           const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+          const trustedDeviceName = deviceName || req.headers["user-agent"]?.slice(0, 100) || "Unknown device";
           await authStorage.addTrustedDevice(user.id, {
             token: hashedToken,
-            name: deviceName || req.headers["user-agent"]?.slice(0, 100) || "Unknown device",
+            name: trustedDeviceName,
             expiresAt: expiresAt.toISOString(),
           });
           res.cookie("trusted_device_token", rawToken, {
@@ -269,6 +270,15 @@ export async function setupAuth(app: Express) {
             maxAge: 30 * 24 * 60 * 60 * 1000,
             sameSite: "lax",
           });
+
+          if (isGhlConfigured()) {
+            const timestamp = new Date().toLocaleString("en-US", { timeZone: "America/New_York", dateStyle: "full", timeStyle: "short" });
+            sendGhlEmail({
+              email: user.email!,
+              subject: "New Trusted Device Added – Liberty Bancard",
+              body: `<p>Hi ${user.firstName},</p><p>A new device has been added to your list of trusted devices on your Liberty Bancard account.</p><p><strong>Device:</strong> ${trustedDeviceName}<br/><strong>When:</strong> ${timestamp} ET</p><p>If this wasn't you, please contact us immediately at <a href="mailto:security@libertybancard.com">security@libertybancard.com</a> so we can secure your account.</p><p>Best regards,<br/>Liberty Bancard Security Team</p><p style="font-size:11px;color:#888;">This is an automated security notification from Liberty Bancard.</p>`,
+            }).catch(err => console.error("[Auth] Trusted device email error:", err));
+          }
         }
 
         const { passwordHash, totpSecret, ...safeUser } = user;
@@ -316,6 +326,16 @@ export async function setupAuth(app: Express) {
       const { plain, hashed } = generateBackupCodes();
       await authStorage.enableTotp(user.id, hashed);
 
+      if (isGhlConfigured()) {
+        const timestamp = new Date().toLocaleString("en-US", { timeZone: "America/New_York", dateStyle: "full", timeStyle: "short" });
+        const deviceInfo = req.headers["user-agent"]?.slice(0, 150) || "Unknown device";
+        sendGhlEmail({
+          email: user.email!,
+          subject: "Two-Factor Authentication Enabled – Liberty Bancard",
+          body: `<p>Hi ${user.firstName},</p><p>Two-factor authentication (2FA) has been <strong>enabled</strong> on your Liberty Bancard account.</p><p><strong>When:</strong> ${timestamp} ET<br/><strong>Device:</strong> ${deviceInfo}</p><p>If this wasn't you, please contact us immediately at <a href="mailto:security@libertybancard.com">security@libertybancard.com</a> so we can secure your account.</p><p>Best regards,<br/>Liberty Bancard Security Team</p><p style="font-size:11px;color:#888;">This is an automated security notification from Liberty Bancard.</p>`,
+        }).catch(err => console.error("[Auth] 2FA-enabled email error:", err));
+      }
+
       res.json({ success: true, backupCodes: plain });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -336,6 +356,17 @@ export async function setupAuth(app: Express) {
 
       await authStorage.disableTotp(user.id);
       res.clearCookie("trusted_device_token");
+
+      if (isGhlConfigured()) {
+        const timestamp = new Date().toLocaleString("en-US", { timeZone: "America/New_York", dateStyle: "full", timeStyle: "short" });
+        const deviceInfo = req.headers["user-agent"]?.slice(0, 150) || "Unknown device";
+        sendGhlEmail({
+          email: user.email!,
+          subject: "Two-Factor Authentication Disabled – Liberty Bancard",
+          body: `<p>Hi ${fullUser.firstName || user.firstName},</p><p>Two-factor authentication (2FA) has been <strong>disabled</strong> on your Liberty Bancard account.</p><p><strong>When:</strong> ${timestamp} ET<br/><strong>Device:</strong> ${deviceInfo}</p><p>If this wasn't you, please contact us immediately at <a href="mailto:security@libertybancard.com">security@libertybancard.com</a> so we can secure your account.</p><p>Best regards,<br/>Liberty Bancard Security Team</p><p style="font-size:11px;color:#888;">This is an automated security notification from Liberty Bancard.</p>`,
+        }).catch(err => console.error("[Auth] 2FA-disabled email error:", err));
+      }
+
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
