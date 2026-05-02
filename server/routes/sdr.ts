@@ -743,6 +743,22 @@ export function registerSdrRoutes(app: Express) {
     }
   });
 
+  app.post("/api/sdr/discovery/test-source", isAuthenticated, async (req, res) => {
+    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin only" });
+    const { source } = req.body;
+    try {
+      if (source === "apollo") {
+        const { testApolloConnection } = await import("../services/sdr/apollo");
+        const result = await testApolloConnection();
+        return res.json(result);
+      }
+      return res.status(400).json({ success: false, message: `Test not supported for source: ${source}` });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      return res.status(500).json({ success: false, message: errMsg });
+    }
+  });
+
   app.get("/api/sdr/bot-contexts", isAuthenticated, async (_req, res) => {
     const { getAllBotContexts } = await import("../services/sdr/conversation-ai");
     const contexts = getAllBotContexts().map(c => ({

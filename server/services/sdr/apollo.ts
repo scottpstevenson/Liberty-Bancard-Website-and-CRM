@@ -160,6 +160,68 @@ function parseApolloOrg(raw: Record<string, any>): ApolloBusiness {
   };
 }
 
+export async function testApolloConnection(): Promise<{ success: true; count: number; message: string }> {
+  if (!process.env.APOLLO_API_KEY) {
+    throw new Error("Apollo API key not configured. Set APOLLO_API_KEY environment variable.");
+  }
+
+  await acquireToken();
+
+  const body = {
+    q_organization_keyword_tags: ["restaurant"],
+    person_titles: ["owner", "ceo"],
+    organization_locations: ["Miami, FL"],
+    page: 1,
+    per_page: 1,
+  };
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+
+  let response: Response;
+  try {
+    response = await fetch(`${APOLLO_API_URL}/mixed_people/search`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-cache",
+        "X-Api-Key": process.env.APOLLO_API_KEY,
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } catch (err: any) {
+    clearTimeout(timeout);
+    if (err?.name === "AbortError") {
+      throw new Error("Apollo API request timed out.");
+    }
+    throw new Error(`Apollo API network error: ${err.message}`);
+  }
+  clearTimeout(timeout);
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "Unknown error");
+    if (response.status === 401 || response.status === 403) {
+      throw new Error(`Apollo authentication failed (HTTP ${response.status}). Check your APOLLO_API_KEY and ensure your plan supports API access (Professional or higher required).`);
+    }
+    if (response.status === 422) {
+      throw new Error(`Apollo rejected the request (HTTP 422): ${errorText}`);
+    }
+    throw new Error(`Apollo API error (HTTP ${response.status}): ${errorText}`);
+  }
+
+  const data = await response.json() as any;
+  const people: any[] = data.people || [];
+  const organizations: any[] = data.organizations || [];
+  const count = people.length + organizations.length;
+
+  return {
+    success: true,
+    count,
+    message: `Apollo connection successful. Found ${count} result(s) in test search.`,
+  };
+}
+
 export async function searchApolloForDiscovery(
   vertical: string,
   metro: string,

@@ -750,6 +750,29 @@ function DiscoveryDashboard() {
     },
   });
 
+  const [apolloTestResult, setApolloTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  const testApolloMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/sdr/discovery/test-source", { source: "apollo" });
+      return res.json() as Promise<{ success: boolean; message: string; count?: number }>;
+    },
+    onSuccess: (data) => {
+      setApolloTestResult({ success: data.success, message: data.message });
+      queryClient.invalidateQueries({ queryKey: ["/api/sdr/discovery/source-status"] });
+    },
+    onError: (err: any) => {
+      let msg = "Test failed";
+      try {
+        const parsed = JSON.parse(err.message?.replace(/^\d+: /, "") || "{}");
+        msg = parsed.message || err.message || msg;
+      } catch {
+        msg = err.message || msg;
+      }
+      setApolloTestResult({ success: false, message: msg });
+    },
+  });
+
   if (statsLoading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -945,6 +968,34 @@ function DiscoveryDashboard() {
                   })}
                 </div>
                 <p className="text-xs text-muted-foreground mt-1.5">Click to enable/disable a source. Greyed sources require an API key.</p>
+                <div className="mt-3 flex flex-col gap-1.5">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-fit text-xs h-7 px-2"
+                    data-testid="btn-test-apollo"
+                    disabled={testApolloMutation.isPending}
+                    onClick={() => {
+                      setApolloTestResult(null);
+                      testApolloMutation.mutate();
+                    }}
+                  >
+                    {testApolloMutation.isPending ? (
+                      <><Loader2 className="w-3 h-3 mr-1 animate-spin" />Testing Apollo...</>
+                    ) : (
+                      <><Zap className="w-3 h-3 mr-1" />Test Apollo Connection</>
+                    )}
+                  </Button>
+                  {apolloTestResult && (
+                    <p
+                      data-testid="text-apollo-test-result"
+                      className={`text-xs flex items-center gap-1 ${apolloTestResult.success ? "text-green-600" : "text-destructive"}`}
+                    >
+                      {apolloTestResult.success ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
+                      {apolloTestResult.message}
+                    </p>
+                  )}
+                </div>
               </div>
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
@@ -1058,6 +1109,36 @@ function DiscoveryDashboard() {
                         <span data-testid={`stat-${src}-calls`}>{calls ?? 0} calls</span>
                         <span data-testid={`stat-${src}-records`}>{records ?? 0} records</span>
                         <span data-testid={`stat-${src}-cost`}>${(cost ?? 0).toFixed(2)} est.</span>
+                      </div>
+                    )}
+                    {src === "apollo" && (
+                      <div className="pl-6 flex flex-col gap-1">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-fit text-xs h-6 px-2"
+                          data-testid="btn-test-apollo-card"
+                          disabled={testApolloMutation.isPending}
+                          onClick={() => {
+                            setApolloTestResult(null);
+                            testApolloMutation.mutate();
+                          }}
+                        >
+                          {testApolloMutation.isPending ? (
+                            <><Loader2 className="w-3 h-3 mr-1 animate-spin" />Testing...</>
+                          ) : (
+                            <><Zap className="w-3 h-3 mr-1" />Test Apollo Connection</>
+                          )}
+                        </Button>
+                        {apolloTestResult && (
+                          <p
+                            data-testid="text-apollo-test-result-card"
+                            className={`text-xs flex items-center gap-1 ${apolloTestResult.success ? "text-green-600" : "text-destructive"}`}
+                          >
+                            {apolloTestResult.success ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
+                            {apolloTestResult.message}
+                          </p>
+                        )}
                       </div>
                     )}
                   </div>
