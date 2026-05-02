@@ -16,12 +16,13 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Calendar, Sparkles, Loader2, Download, ChevronDown, Archive, Settings, ArrowUp, ArrowDown, Pencil, Trash2, RotateCcw, MoreVertical, TrendingUp } from "lucide-react";
+import { Plus, Calendar, Sparkles, Loader2, Download, ChevronDown, Archive, Settings, ArrowUp, ArrowDown, Pencil, Trash2, RotateCcw, MoreVertical, TrendingUp, UserRound } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { exportToCSV } from "@/lib/export-csv";
-import type { Deal, Contact, PipelineStage } from "@shared/schema";
+import type { Deal, Contact, PipelineStage, Agent, AgentMerchant } from "@shared/schema";
 import { SALES_STAGES, OFFER_PATHS } from "@shared/schema";
 import Comments from "@/components/Comments";
 import SavedFilterBar from "@/components/SavedFilterBar";
@@ -234,6 +235,8 @@ function DroppableColumn({
 
 export default function Pipeline() {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const isManagerOrAdmin = user?.role === "admin" || user?.role === "manager";
   const [activeDeal, setActiveDeal] = useState<Deal | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -264,6 +267,7 @@ export default function Pipeline() {
   const [editStage, setEditStage] = useState("");
   const [editNotes, setEditNotes] = useState("");
   const [editFollowUp, setEditFollowUp] = useState("");
+  const [editAgentId, setEditAgentId] = useState<string>("none");
 
   const { data: dealsResult, isLoading: dealsLoading, isError: dealsError, refetch: refetchDeals } = useQuery<{ data: Deal[]; total: number }>({
     queryKey: ["/api/deals", { pipeline: "sales" }],
@@ -291,6 +295,42 @@ export default function Pipeline() {
       const res = await fetch(`/api/pipeline-stages?pipeline=${configPipeline}`, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch pipeline stages");
       return res.json();
+    },
+  });
+
+  const { data: agentsList } = useQuery<Agent[]>({
+    queryKey: ["/api/agents"],
+    queryFn: async () => {
+      const res = await fetch("/api/agents", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: isManagerOrAdmin,
+  });
+
+  const { data: dealAssignment, refetch: refetchDealAssignment } = useQuery<AgentMerchant | null>({
+    queryKey: ["/api/agent-merchants/deal", selectedDeal?.id],
+    queryFn: async () => {
+      if (!selectedDeal) return null;
+      const res = await fetch(`/api/agent-merchants/deal/${selectedDeal.id}`, { credentials: "include" });
+      if (!res.ok) return null;
+      return res.json();
+    },
+    enabled: isManagerOrAdmin && !!selectedDeal,
+  });
+
+  const assignAgentMutation = useMutation({
+    mutationFn: async ({ dealId, agentId }: { dealId: number; agentId: number | null }) => {
+      const res = await apiRequest("PUT", `/api/agent-merchants/deal/${dealId}/assign`, { agentId });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/agent-merchants/deal"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/my-day"] });
+      toast({ title: "Agent assignment updated" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to update agent assignment", description: err.message, variant: "destructive" });
     },
   });
 
@@ -613,6 +653,7 @@ export default function Pipeline() {
     setEditStage(deal.stage);
     setEditNotes(deal.notes || "");
     setEditFollowUp(deal.nextFollowUp ? new Date(deal.nextFollowUp).toISOString().slice(0, 16) : "");
+    setEditAgentId("none");
     setDetailOpen(true);
   };
 
@@ -975,6 +1016,41 @@ export default function Pipeline() {
                   data-testid="input-edit-followup"
                 />
               </div>
+
+              {isManagerOrAdmin && (
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-1.5">
+                    <UserRound className="w-3.5 h-3.5" />
+                    Assigned Agent
+                  </Label>
+                  <div className="flex items-center gap-2">
+                    <Select
+                      value={editAgentId !== "none" ? editAgentId : (dealAssignment ? String(dealAssignment.agentId) : "none")}
+                      onValueChange={(val) => {
+                        setEditAgentId(val);
+                        if (!selectedDeal) return;
+                        assignAgentMutation.mutate({
+                          dealId: selectedDeal.id,
+                          agentId: val === "none" ? null : Number(val),
+                        });
+                      }}
+                    >
+                      <SelectTrigger data-testid="select-assign-agent" className="flex-1">
+                        <SelectValue placeholder="Unassigned" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Unassigned</SelectItem>
+                        {(agentsList || []).filter(a => a.status === "active").map((agent) => (
+                          <SelectItem key={agent.id} value={String(agent.id)}>
+                            {agent.firstName} {agent.lastName}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {assignAgentMutation.isPending && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
+                  </div>
+                </div>
+              )}
 
               {(selectedDeal as any).archivedAt && (
                 <div className="flex items-center gap-2 p-2 rounded-md bg-muted">

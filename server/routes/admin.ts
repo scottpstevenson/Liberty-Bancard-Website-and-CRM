@@ -209,6 +209,58 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  app.get("/api/agent-merchants/deal/:dealId", isAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as any;
+      if (user?.role !== 'admin' && user?.role !== 'manager') return res.status(403).json({ message: "Admin or manager role required" });
+      const rows = await storage.getAgentMerchantsByDeal(Number(req.params.dealId));
+      res.json(rows[0] ?? null);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/agent-merchants/deal/:dealId/assign", isAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as any;
+      if (user?.role !== 'admin' && user?.role !== 'manager') return res.status(403).json({ message: "Admin or manager role required" });
+      const dealId = Number(req.params.dealId);
+      const { agentId } = req.body;
+
+      const existing = await storage.getAgentMerchantsByDeal(dealId);
+      for (const row of existing) {
+        await storage.unassignMerchantFromAgent(row.id);
+      }
+
+      if (!agentId) {
+        return res.json({ success: true, assignment: null });
+      }
+
+      const agent = await storage.getAgent(Number(agentId));
+      if (!agent) return res.status(404).json({ message: "Agent not found" });
+
+      const deal = await storage.getDeal(dealId);
+      if (!deal) return res.status(404).json({ message: "Deal not found" });
+
+      let merchantName: string | undefined;
+      if (deal.contactId) {
+        const contact = await storage.getContact(deal.contactId);
+        if (contact) {
+          merchantName = contact.companyName || `${contact.firstName} ${contact.lastName}`.trim() || undefined;
+        }
+      }
+
+      const row = await storage.assignMerchantToAgent({
+        agentId: Number(agentId),
+        dealId,
+        merchantName,
+      });
+      res.json({ success: true, assignment: row });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/agent-merchants", isAuthenticated, async (req, res) => {
     try {
       const user = req.user as any;
