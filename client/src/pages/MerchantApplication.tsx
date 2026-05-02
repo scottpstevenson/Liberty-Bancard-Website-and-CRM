@@ -30,8 +30,10 @@ import {
   FileCheck,
   ClipboardList,
   ShieldCheck,
+  Save,
+  Info,
 } from "lucide-react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 
 const DRAFT_KEY = "merchant_app_draft";
 
@@ -90,8 +92,12 @@ export default function MerchantApplication() {
   const [hasDraft, setHasDraft] = useState(false);
   const [draftTime, setDraftTime] = useState<string | null>(null);
   const [draftDismissed, setDraftDismissed] = useState(false);
+  const [draftSavedAt, setDraftSavedAt] = useState<Date | null>(null);
+  const [showDraftSaved, setShowDraftSaved] = useState(false);
   const stepHeadingRef = useRef<HTMLHeadingElement>(null);
+  const draftSavedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
 
   const [legalBusinessName, setLegalBusinessName] = useState("");
   const [dba, setDba] = useState("");
@@ -174,8 +180,15 @@ export default function MerchantApplication() {
       terminalNeeded, terminalType, terminalQuantity, ecommerceNeeded, preferredProgram,
       reviewConfirmed,
     };
-    const draft = { currentStep, formData, lastSaved: new Date().toISOString() };
+    const now = new Date().toISOString();
+    const draft = { currentStep, formData, lastSaved: now };
     localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+    if (currentStep >= 1 && (legalBusinessName.trim() !== "" || ownerFirstName.trim() !== "")) {
+      setDraftSavedAt(new Date());
+      setShowDraftSaved(true);
+      if (draftSavedTimerRef.current) clearTimeout(draftSavedTimerRef.current);
+      draftSavedTimerRef.current = setTimeout(() => setShowDraftSaved(false), 2500);
+    }
   }, [currentStep, legalBusinessName, dba, businessType, ein, businessStartDate,
     businessAddress, businessCity, businessState, businessZip, businessPhone,
     businessEmail, website, vertical, ownerFirstName, ownerLastName, ownerEmail,
@@ -391,13 +404,15 @@ export default function MerchantApplication() {
       setApplicationId(data.id);
 
       setEsignSending(true);
+      let resolvedEsignStatus = "email_pending";
       try {
         const esignRes = await apiRequest("POST", "/api/merchant-applications/request-esign", {
           applicationId: data.id,
           email: ownerEmail || businessEmail,
         });
         const esignData = await esignRes.json();
-        setEsignStatus(esignData.status || "sent");
+        resolvedEsignStatus = esignData.status || "sent";
+        setEsignStatus(resolvedEsignStatus);
       } catch (esignErr: any) {
         console.log("[E-Sign] GHL e-sign dispatch note:", esignErr.message);
         setEsignStatus("email_pending");
@@ -407,6 +422,16 @@ export default function MerchantApplication() {
 
       localStorage.removeItem(DRAFT_KEY);
       setSubmitted(true);
+      try {
+        sessionStorage.setItem("lb_app_confirmation", JSON.stringify({
+          applicationId: data.id,
+          esignStatus: resolvedEsignStatus,
+          email: ownerEmail || businessEmail,
+          businessName: legalBusinessName,
+          ownerName: `${ownerFirstName} ${ownerLastName}`.trim(),
+        }));
+      } catch {}
+      setLocation("/thanks/application");
     } catch (error: any) {
       toast({
         title: "Something went wrong",
@@ -598,9 +623,42 @@ export default function MerchantApplication() {
             </div>
             <div className="flex items-center justify-between gap-2 mb-6">
               <p className="text-xs text-muted-foreground">
-                Step {currentStep} of {TOTAL_STEPS}: {stepInfo[currentStep - 1].label}
+                Step {currentStep} of {TOTAL_STEPS}: <span className="font-medium text-foreground">{stepInfo[currentStep - 1].label}</span>
               </p>
-              <p className="text-xs text-muted-foreground">{progressPercent}% complete</p>
+              <div className="flex items-center gap-3">
+                <span
+                  className={`text-xs flex items-center gap-1 transition-opacity duration-500 ${showDraftSaved ? "opacity-100 text-emerald-600 dark:text-emerald-400" : "opacity-0"}`}
+                  data-testid="text-draft-saved"
+                  aria-live="polite"
+                >
+                  <Save className="w-3 h-3" />
+                  Draft saved
+                </span>
+                <p className="text-xs text-muted-foreground">{progressPercent}% complete</p>
+              </div>
+            </div>
+
+            <div className="hidden sm:flex justify-between mb-6 gap-1" data-testid="step-indicators">
+              {stepInfo.map((step, i) => {
+                const StepIcon = step.icon;
+                const stepNum = i + 1;
+                const isDone = stepNum < currentStep;
+                const isCurrent = stepNum === currentStep;
+                return (
+                  <div
+                    key={step.label}
+                    className={`flex flex-col items-center gap-1 flex-1 ${isCurrent ? "opacity-100" : isDone ? "opacity-80" : "opacity-40"}`}
+                    data-testid={`step-indicator-${stepNum}`}
+                  >
+                    <div className={`w-7 h-7 rounded-full flex items-center justify-center border-2 transition-colors ${
+                      isDone ? "bg-emerald-500 border-emerald-500 text-white" : isCurrent ? "border-primary bg-primary/10 text-primary" : "border-muted-foreground/30 bg-muted"
+                    }`}>
+                      {isDone ? <CheckCircle className="w-3.5 h-3.5" /> : <StepIcon className="w-3.5 h-3.5" />}
+                    </div>
+                    <span className="text-[10px] text-center leading-tight max-w-[60px]">{step.label}</span>
+                  </div>
+                );
+              })}
             </div>
 
             <Card data-testid="card-application-form">
@@ -670,6 +728,10 @@ export default function MerchantApplication() {
                           placeholder="XX-XXXXXXX"
                           data-testid="input-ein"
                         />
+                        <p className="text-xs text-muted-foreground mt-1 flex items-start gap-1">
+                          <Info className="w-3 h-3 shrink-0 mt-0.5" />
+                          Your 9-digit Employer Identification Number (format: XX-XXXXXXX). Required for underwriting. Found on tax filings or IRS correspondence.
+                        </p>
                       </div>
                     </div>
                     <div>
@@ -885,9 +947,12 @@ export default function MerchantApplication() {
 
                 {currentStep === 3 && (
                   <div className="space-y-4" data-testid="step-bank-info">
-                    <p className="text-sm text-muted-foreground mb-2">
-                      We need your bank details for deposit settlement. This information is encrypted and secure.
-                    </p>
+                    <div className="flex items-start gap-2 p-3 rounded-md bg-muted/50 border" data-testid="bank-info-notice">
+                      <ShieldCheck className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                      <p className="text-sm text-muted-foreground">
+                        Your bank details are encrypted and used only for deposit settlement. We recommend having a voided check handy to verify your routing and account numbers.
+                      </p>
+                    </div>
                     <div>
                       <label className="text-sm font-medium text-foreground mb-1 block">Bank Name *</label>
                       <Input
@@ -934,6 +999,9 @@ export default function MerchantApplication() {
 
                 {currentStep === 4 && (
                   <div className="space-y-4" data-testid="step-processing-details">
+                    <p className="text-sm text-muted-foreground -mt-2 mb-2">
+                      These figures help us match you to the right program and determine your rate. Use your most recent month's statement as a reference.
+                    </p>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                       <div>
                         <label className="text-sm font-medium text-foreground mb-1 block">Est. Monthly Volume *</label>
@@ -943,6 +1011,10 @@ export default function MerchantApplication() {
                           placeholder="$25,000"
                           data-testid="input-monthly-volume"
                         />
+                        <p className="text-xs text-muted-foreground mt-1 flex items-start gap-1">
+                          <Info className="w-3 h-3 shrink-0 mt-0.5" />
+                          Total credit card sales per month (from your statement's "Total Sales" line)
+                        </p>
                       </div>
                       <div>
                         <label className="text-sm font-medium text-foreground mb-1 block">Average Ticket *</label>
@@ -952,6 +1024,10 @@ export default function MerchantApplication() {
                           placeholder="$75"
                           data-testid="input-avg-ticket"
                         />
+                        <p className="text-xs text-muted-foreground mt-1 flex items-start gap-1">
+                          <Info className="w-3 h-3 shrink-0 mt-0.5" />
+                          Typical transaction amount per customer visit
+                        </p>
                       </div>
                       <div>
                         <label className="text-sm font-medium text-foreground mb-1 block">Highest Ticket *</label>
@@ -961,6 +1037,10 @@ export default function MerchantApplication() {
                           placeholder="$500"
                           data-testid="input-highest-ticket"
                         />
+                        <p className="text-xs text-muted-foreground mt-1 flex items-start gap-1">
+                          <Info className="w-3 h-3 shrink-0 mt-0.5" />
+                          Largest single transaction you process (used for risk assessment)
+                        </p>
                       </div>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

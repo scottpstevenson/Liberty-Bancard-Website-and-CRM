@@ -235,7 +235,15 @@ export function registerMerchantsRoutes(app: Express) {
       if (!userId) return res.status(401).json({ message: "Not authenticated" });
       const profile = await storage.getMerchantProfileByUser(userId);
       if (!profile) return res.status(404).json({ message: "Not found" });
-      res.json(profile);
+      // Enrich response with business name from associated contact
+      let businessName: string | null = null;
+      if (profile.contactId) {
+        try {
+          const contact = await storage.getContact(profile.contactId);
+          businessName = contact?.companyName || null;
+        } catch {}
+      }
+      res.json({ ...profile, businessName });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

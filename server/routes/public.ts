@@ -165,35 +165,63 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       const lastName = nameParts.slice(1).join(" ") || "";
 
       const parseBool = (v: unknown) => v === true || v === "true";
+
+      // Check if the user is already authenticated — bind upload to their existing merchant record
+      const authUserId = (req.user as any)?.id;
+      let existingContactId: number | null = null;
+      let existingDealId: number | null = null;
+
+      if (authUserId) {
+        try {
+          const merchantProfile = await storage.getMerchantProfileByUser(authUserId);
+          if (merchantProfile?.contactId) {
+            existingContactId = merchantProfile.contactId;
+          }
+          if (merchantProfile?.dealId) {
+            existingDealId = merchantProfile.dealId;
+          }
+        } catch (profileErr) {
+          console.warn("[StatementUpload] Could not fetch merchant profile for user", authUserId, profileErr);
+        }
+      }
+
       const tags = ["src_website", "lead_statement_upload", `vertical_${(vertical || "unknown").toLowerCase().replace(/[^a-z]/g, "_")}`];
       if (utmSource) tags.push(`utm_src_${utmSource}`);
 
-      const contact = await createContactGhlFirst({
-        firstName, lastName, email, phone: mobile,
-        companyName: businessName, vertical, currentProvider,
-        interestedIn0Percent: parseBool(interestedIn0Percent),
-        needTerminal: parseBool(needTerminal),
-        notes, consentSms: parseBool(consentSms),
-        utmSource: utmSource || undefined,
-        utmMedium: utmMedium || undefined,
-        utmCampaign: utmCampaign || undefined,
-        utmContent: utmContent || undefined,
-        utmTerm: utmTerm || undefined,
-        landingPage: landingPage || "/upload-statement",
-        status: "New",
-        tags,
-      });
+      const contact = existingContactId
+        ? await storage.getContact(existingContactId).then(c => c!)
+        : await createContactGhlFirst({
+            firstName, lastName, email, phone: mobile,
+            companyName: businessName, vertical, currentProvider,
+            interestedIn0Percent: parseBool(interestedIn0Percent),
+            needTerminal: parseBool(needTerminal),
+            notes, consentSms: parseBool(consentSms),
+            utmSource: utmSource || undefined,
+            utmMedium: utmMedium || undefined,
+            utmCampaign: utmCampaign || undefined,
+            utmContent: utmContent || undefined,
+            utmTerm: utmTerm || undefined,
+            landingPage: landingPage || "/upload-statement",
+            status: "New",
+            tags,
+          });
+
+      if (!contact) throw new Error("Could not resolve contact record");
 
       let offerPath = "Not Sure";
       if (parseBool(interestedIn0Percent)) offerPath = "0% Program";
       else if (parseBool(needTerminal)) offerPath = "Terminal Needed";
 
-      const deal = await storage.createDeal({
-        contactId: contact.id, pipeline: "sales", stage: "Statement Received",
-        offerPath, notes: `Statement uploaded. ${notes || ""}`.trim(),
-        leadSource: utmSource ? `utm:${utmSource}` : "website",
-        campaignName: utmCampaign || undefined,
-      });
+      const deal = existingDealId
+        ? await storage.getDeal(existingDealId).then(d => d!)
+        : await storage.createDeal({
+            contactId: contact.id, pipeline: "sales", stage: "Statement Received",
+            offerPath, notes: `Statement uploaded. ${notes || ""}`.trim(),
+            leadSource: utmSource ? `utm:${utmSource}` : "website",
+            campaignName: utmCampaign || undefined,
+          });
+
+      if (!deal) throw new Error("Could not resolve deal record");
 
       await storage.createTask({
         dealId: deal.id, contactId: contact.id,

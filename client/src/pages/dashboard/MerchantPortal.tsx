@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -17,13 +18,13 @@ import {
   User, ClipboardList, FileText, Headphones,
   CheckCircle, Circle, Loader2, Plus, Upload,
   Calendar, Hash, CreditCard, Activity, ArrowRight,
-  PlayCircle, BookOpen, ChevronDown, ChevronUp, Shield, Clock, Zap, Star
+  PlayCircle, BookOpen, ChevronDown, ChevronUp, Shield, Clock, Zap, Star,
+  Phone, Mail, AlertCircle, FileCheck, CheckCircle2,
 } from "lucide-react";
 import { Link } from "wouter";
 import type { MerchantProfile, OnboardingStep, Ticket } from "@shared/schema";
 import type { Document as DocType } from "@shared/schema";
 import { HelpCenter } from "@/components/HelpCenter";
-import merchantVideo from "@assets/videos/merchant-explainer.mp4";
 
 type TabKey = "guide" | "account" | "onboarding" | "documents" | "support";
 
@@ -40,13 +41,90 @@ function getStatusBadgeVariant(status: string | null | undefined): "default" | "
     case "active": return "default";
     case "pending": return "secondary";
     case "under_review": return "outline";
+    case "suspended": return "destructive";
     default: return "secondary";
+  }
+}
+
+function getStatusLabel(status: string | null | undefined): string {
+  switch (status) {
+    case "active": return "Active";
+    case "pending": return "Pending Review";
+    case "under_review": return "Under Review";
+    case "suspended": return "Suspended";
+    default: return "Pending";
+  }
+}
+
+function getStatusColor(status: string | null | undefined): string {
+  switch (status) {
+    case "active": return "bg-emerald-50 border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-800";
+    case "under_review": return "bg-blue-50 border-blue-200 dark:bg-blue-950/30 dark:border-blue-800";
+    case "suspended": return "bg-red-50 border-red-200 dark:bg-red-950/30 dark:border-red-800";
+    default: return "bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-800";
+  }
+}
+
+function getStatusTextColor(status: string | null | undefined): string {
+  switch (status) {
+    case "active": return "text-emerald-700 dark:text-emerald-300";
+    case "under_review": return "text-blue-700 dark:text-blue-300";
+    case "suspended": return "text-red-700 dark:text-red-300";
+    default: return "text-amber-700 dark:text-amber-300";
   }
 }
 
 function formatDate(date: string | Date | null | undefined): string {
   if (!date) return "N/A";
   return new Date(date).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+}
+
+function AccountStatusBanner({ profile, isLoading }: { profile: MerchantProfile | null | undefined; isLoading: boolean }) {
+  if (isLoading) {
+    return (
+      <div className="sticky top-14 z-20 rounded-lg border p-3 mb-2">
+        <Skeleton className="h-5 w-48" />
+      </div>
+    );
+  }
+
+  const status = profile?.accountStatus || "pending";
+  const colorClass = getStatusColor(status);
+  const textColorClass = getStatusTextColor(status);
+
+  return (
+    <div
+      className={`sticky top-14 z-20 rounded-lg border px-4 py-3 flex flex-wrap items-center gap-3 ${colorClass}`}
+      data-testid="account-status-banner"
+    >
+      <div className="flex items-center gap-2 flex-1 min-w-0">
+        <Badge variant={getStatusBadgeVariant(status)} className="shrink-0" data-testid="banner-status-badge">
+          {getStatusLabel(status)}
+        </Badge>
+        {profile?.merchantMid && (
+          <span className="text-sm font-mono text-muted-foreground flex items-center gap-1 shrink-0" data-testid="banner-mid">
+            <Hash className="w-3 h-3" />
+            MID: {profile.merchantMid}
+          </span>
+        )}
+        {!profile?.merchantMid && (
+          <span className={`text-xs ${textColorClass}`} data-testid="banner-mid-pending">
+            {status === "pending" ? "MID will be assigned after approval" : status === "under_review" ? "Application under review" : ""}
+          </span>
+        )}
+      </div>
+      <div className="flex items-center gap-4 text-xs text-muted-foreground shrink-0">
+        <a href="tel:9542668214" className="flex items-center gap-1 hover:text-foreground transition-colors" data-testid="banner-rep-phone">
+          <Phone className="w-3 h-3" />
+          954-266-8214
+        </a>
+        <a href="mailto:support@libertybancard.com" className="flex items-center gap-1 hover:text-foreground transition-colors hidden sm:flex" data-testid="banner-rep-email">
+          <Mail className="w-3 h-3" />
+          support@libertybancard.com
+        </a>
+      </div>
+    </div>
+  );
 }
 
 function AccountTab({ profile, isLoading }: { profile: MerchantProfile | null | undefined; isLoading: boolean }) {
@@ -87,9 +165,9 @@ function AccountTab({ profile, isLoading }: { profile: MerchantProfile | null | 
     <div className="space-y-6">
       <Card data-testid="card-account-status">
         <CardHeader className="flex flex-row items-center justify-between gap-2 flex-wrap">
-          <CardTitle className="text-base">Account Status</CardTitle>
+          <CardTitle className="text-base">Account Overview</CardTitle>
           <Badge variant={getStatusBadgeVariant(profile.accountStatus)} data-testid="badge-account-status">
-            {profile.accountStatus || "Pending"}
+            {getStatusLabel(profile.accountStatus)}
           </Badge>
         </CardHeader>
         <CardContent>
@@ -98,7 +176,7 @@ function AccountTab({ profile, isLoading }: { profile: MerchantProfile | null | 
               <p className="text-xs text-muted-foreground">MID Number</p>
               <p className="text-sm font-medium flex items-center gap-2" data-testid="text-mid-number">
                 <Hash className="w-4 h-4 text-muted-foreground" />
-                {profile.merchantMid || "Not assigned"}
+                {profile.merchantMid || "Not assigned yet"}
               </p>
             </div>
             <div className="space-y-1">
@@ -125,11 +203,71 @@ function AccountTab({ profile, isLoading }: { profile: MerchantProfile | null | 
           </div>
         </CardContent>
       </Card>
+
+      <Card data-testid="card-account-rep">
+        <CardHeader>
+          <CardTitle className="text-base">Your Account Representative</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+              <User className="w-6 h-6 text-primary" />
+            </div>
+            <div className="flex-1 space-y-3">
+              <div>
+                <p className="font-semibold text-foreground" data-testid="text-rep-name">Liberty Bancard Support Team</p>
+                <p className="text-sm text-muted-foreground">Dedicated merchant success team</p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <a href="tel:9542668214" className="flex items-center gap-2 text-sm hover:text-primary transition-colors" data-testid="link-rep-phone">
+                  <Phone className="w-4 h-4 text-muted-foreground shrink-0" />
+                  954-266-8214
+                </a>
+                <a href="mailto:support@libertybancard.com" className="flex items-center gap-2 text-sm hover:text-primary transition-colors" data-testid="link-rep-email">
+                  <Mail className="w-4 h-4 text-muted-foreground shrink-0" />
+                  support@libertybancard.com
+                </a>
+              </div>
+              <p className="text-xs text-muted-foreground">Response within 4 business hours · Available Mon–Fri 9am–6pm ET</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {profile.accountStatus === "active" && (
+        <Card data-testid="card-processing-history">
+          <CardHeader>
+            <CardTitle className="text-base">Processing Summary</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">Monthly Volume</p>
+                <p className="text-lg font-bold text-foreground" data-testid="text-summary-volume">
+                  {profile.currentMonthlyVolume ? `$${Number(profile.currentMonthlyVolume).toLocaleString()}` : "—"}
+                </p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">Last Statement</p>
+                <p className="text-sm font-medium text-foreground" data-testid="text-last-statement">
+                  {formatDate(profile.lastStatementDate)}
+                </p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">Next Statement</p>
+                <p className="text-sm font-medium text-foreground" data-testid="text-next-statement">
+                  {formatDate(profile.nextStatementDate)}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
 
-function OnboardingTab({ dealId }: { dealId: number | null | undefined }) {
+function OnboardingTab({ dealId, profile }: { dealId: number | null | undefined; profile: MerchantProfile | null | undefined }) {
   const { data: steps, isLoading } = useQuery<OnboardingStep[]>({
     queryKey: ["/api/onboarding-steps/deal", dealId],
     queryFn: async () => {
@@ -171,7 +309,19 @@ function OnboardingTab({ dealId }: { dealId: number | null | undefined }) {
   }
 
   const sortedSteps = steps?.sort((a, b) => a.stepOrder - b.stepOrder) || [];
+  const completedCount = sortedSteps.filter(s => s.status === "completed").length;
   const currentIndex = sortedSteps.findIndex((s) => s.status !== "completed");
+  const progressPct = sortedSteps.length > 0 ? Math.round((completedCount / sortedSteps.length) * 100) : 0;
+
+  const getActionForStep = (step: OnboardingStep): string | null => {
+    const name = step.stepName?.toLowerCase() || "";
+    if (name.includes("voided check") || name.includes("bank")) return "Upload to Documents tab";
+    if (name.includes("statement")) return "Upload to Documents tab";
+    if (name.includes("id") || name.includes("identification")) return "Upload to Documents tab";
+    if (name.includes("sign") || name.includes("agreement")) return "Check your email";
+    if (name.includes("terminal") || name.includes("equipment")) return "Our team will contact you";
+    return null;
+  };
 
   if (sortedSteps.length === 0) {
     return (
@@ -185,65 +335,101 @@ function OnboardingTab({ dealId }: { dealId: number | null | undefined }) {
   }
 
   return (
-    <Card data-testid="card-onboarding-steps">
-      <CardHeader>
-        <CardTitle className="text-base">Onboarding Steps</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-0">
-          {sortedSteps.map((step, index) => {
-            const isCompleted = step.status === "completed";
-            const isCurrent = index === currentIndex;
-            const isLast = index === sortedSteps.length - 1;
+    <div className="space-y-4">
+      <Card data-testid="card-onboarding-progress-summary">
+        <CardContent className="p-4 sm:p-6">
+          <div className="flex items-center justify-between gap-4 mb-3 flex-wrap">
+            <div>
+              <p className="text-sm font-semibold text-foreground">{completedCount} of {sortedSteps.length} steps complete</p>
+              <p className="text-xs text-muted-foreground">Account status: {getStatusLabel(profile?.accountStatus)}</p>
+            </div>
+            <span className="text-lg font-bold text-primary">{progressPct}%</span>
+          </div>
+          <Progress value={progressPct} className="h-2.5" data-testid="onboarding-progress-bar" />
+        </CardContent>
+      </Card>
 
-            return (
-              <div key={step.id} className="relative flex gap-3 pb-6" data-testid={`onboarding-step-${step.id}`}>
-                <div className="flex flex-col items-center">
-                  <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 ${
-                    isCompleted
-                      ? "bg-green-100 border-green-500 dark:bg-green-900 dark:border-green-400"
-                      : isCurrent
-                        ? "bg-blue-100 border-blue-500 dark:bg-blue-900 dark:border-blue-400"
-                        : "bg-muted border-muted-foreground/30"
-                  }`}>
-                    {isCompleted ? (
-                      <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400" />
-                    ) : isCurrent ? (
-                      <Loader2 className="h-4 w-4 text-blue-600 dark:text-blue-400 animate-spin" />
-                    ) : (
-                      <Circle className="h-4 w-4 text-muted-foreground/50" />
+      <Card data-testid="card-onboarding-steps">
+        <CardHeader>
+          <CardTitle className="text-base">Your Onboarding Checklist</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-0">
+            {sortedSteps.map((step, index) => {
+              const isCompleted = step.status === "completed";
+              const isCurrent = index === currentIndex;
+              const isLast = index === sortedSteps.length - 1;
+              const actionText = getActionForStep(step);
+
+              return (
+                <div key={step.id} className="relative flex gap-3 pb-5" data-testid={`onboarding-step-${step.id}`}>
+                  <div className="flex flex-col items-center">
+                    <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 ${
+                      isCompleted
+                        ? "bg-green-100 border-green-500 dark:bg-green-900 dark:border-green-400"
+                        : isCurrent
+                          ? "bg-blue-100 border-blue-500 dark:bg-blue-900 dark:border-blue-400"
+                          : "bg-muted border-muted-foreground/30"
+                    }`}>
+                      {isCompleted ? (
+                        <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400" />
+                      ) : isCurrent ? (
+                        <Loader2 className="h-4 w-4 text-blue-600 dark:text-blue-400 animate-spin" />
+                      ) : (
+                        <Circle className="h-4 w-4 text-muted-foreground/50" />
+                      )}
+                    </div>
+                    {!isLast && (
+                      <div className={`w-0.5 flex-1 mt-1 ${isCompleted ? "bg-green-400" : "bg-border"}`} />
                     )}
                   </div>
-                  {!isLast && (
-                    <div className={`w-0.5 flex-1 mt-1 ${isCompleted ? "bg-green-500" : "bg-border"}`} />
-                  )}
+                  <div className="flex-1 min-w-0 pt-0.5 pb-1">
+                    <div className="flex items-start justify-between gap-2 flex-wrap">
+                      <p className={`text-sm font-medium ${isCompleted ? "text-muted-foreground line-through" : isCurrent ? "text-blue-600 dark:text-blue-400" : "text-foreground"}`} data-testid={`text-step-name-${step.id}`}>
+                        {step.stepName}
+                      </p>
+                      <Badge
+                        variant={isCompleted ? "secondary" : isCurrent ? "default" : "outline"}
+                        className="text-xs shrink-0"
+                        data-testid={`badge-step-status-${step.id}`}
+                      >
+                        {isCompleted ? "Complete" : isCurrent ? "In Progress" : "Pending"}
+                      </Badge>
+                    </div>
+                    {isCompleted && step.completedAt && (
+                      <p className="text-xs text-muted-foreground mt-0.5" data-testid={`text-step-date-${step.id}`}>
+                        Completed {formatDate(step.completedAt)}
+                      </p>
+                    )}
+                    {isCurrent && actionText && (
+                      <p className="text-xs text-blue-600 dark:text-blue-400 mt-1 flex items-center gap-1" data-testid={`text-step-action-${step.id}`}>
+                        <ArrowRight className="w-3 h-3 shrink-0" />
+                        {actionText}
+                      </p>
+                    )}
+                    {!isCompleted && !isCurrent && (
+                      <p className="text-xs text-muted-foreground mt-0.5">Waiting for previous steps</p>
+                    )}
+                  </div>
                 </div>
-                <div className="flex-1 min-w-0 pt-0.5">
-                  <p className={`text-sm font-medium ${isCompleted ? "text-foreground" : isCurrent ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground"}`} data-testid={`text-step-name-${step.id}`}>
-                    {step.stepName}
-                  </p>
-                  {isCompleted && step.completedAt && (
-                    <p className="text-xs text-muted-foreground mt-0.5" data-testid={`text-step-date-${step.id}`}>
-                      Completed {formatDate(step.completedAt)}
-                    </p>
-                  )}
-                  {isCurrent && (
-                    <p className="text-xs text-blue-600 dark:text-blue-400 mt-0.5">In progress</p>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </CardContent>
-    </Card>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
+
+const MAX_FILE_SIZE_MB = 20;
+const ACCEPTED_TYPES = ".pdf, .png, .jpg, .jpeg, .csv";
 
 function DocumentsTab({ contactId }: { contactId: number | null | undefined }) {
   const { toast } = useToast();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [fileError, setFileError] = useState<string | null>(null);
 
   const { data: allDocuments, isLoading } = useQuery<DocType[]>({
     queryKey: ["/api/documents"],
@@ -253,27 +439,55 @@ function DocumentsTab({ contactId }: { contactId: number | null | undefined }) {
     (d) => d.accessScope === "merchant" || d.type === "merchant_statement" || (contactId && d.contactId === contactId)
   ) || [];
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] || null;
+    setFileError(null);
+    if (file) {
+      if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+        setFileError(`File is too large. Maximum size is ${MAX_FILE_SIZE_MB} MB.`);
+        setSelectedFile(null);
+        e.target.value = "";
+        return;
+      }
+      const ext = file.name.split(".").pop()?.toLowerCase();
+      if (!["pdf", "png", "jpg", "jpeg", "csv"].includes(ext || "")) {
+        setFileError("Invalid file type. Please upload a PDF, PNG, JPG, JPEG, or CSV.");
+        setSelectedFile(null);
+        e.target.value = "";
+        return;
+      }
+    }
+    setSelectedFile(file);
+  };
+
   const handleUpload = async () => {
     if (!selectedFile) return;
     setUploading(true);
+    setUploadProgress(10);
     try {
       const formData = new FormData();
       formData.append("file", selectedFile);
+      setUploadProgress(30);
       const res = await fetch("/api/merchant-portal/upload-statement", {
         method: "POST",
         credentials: "include",
         body: formData,
       });
+      setUploadProgress(80);
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.message || "Upload failed");
       }
+      setUploadProgress(100);
+      const newDoc = await res.json().catch(() => null);
       toast({ title: "Statement uploaded", description: `${selectedFile.name} has been uploaded successfully.` });
       setSelectedFile(null);
+      setUploadProgress(0);
       const fileInput = document.querySelector('[data-testid="input-upload-file"]') as HTMLInputElement;
       if (fileInput) fileInput.value = "";
       queryClient.invalidateQueries({ queryKey: ["/api/documents"] });
     } catch (err: any) {
+      setUploadProgress(0);
       toast({ title: "Upload failed", description: err.message || "Something went wrong.", variant: "destructive" });
     } finally {
       setUploading(false);
@@ -294,24 +508,56 @@ function DocumentsTab({ contactId }: { contactId: number | null | undefined }) {
     <div className="space-y-4">
       <Card data-testid="card-upload-section">
         <CardHeader>
-          <CardTitle className="text-base">Upload Processing Statement</CardTitle>
+          <CardTitle className="text-base">Upload Document</CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="flex items-center gap-4 flex-wrap">
-            <Input
-              type="file"
-              accept=".pdf,.png,.jpg,.jpeg,.csv"
-              onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
-              data-testid="input-upload-file"
-            />
+        <CardContent className="space-y-3">
+          <div className="flex flex-wrap items-start gap-3">
+            <div className="flex-1 min-w-0 space-y-2">
+              <Input
+                type="file"
+                accept=".pdf,.png,.jpg,.jpeg,.csv"
+                onChange={handleFileChange}
+                disabled={uploading}
+                data-testid="input-upload-file"
+                className="cursor-pointer"
+              />
+              <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+                <span data-testid="text-accepted-types">
+                  Accepted: PDF, PNG, JPG, JPEG, CSV
+                </span>
+                <span data-testid="text-max-size">
+                  Max size: {MAX_FILE_SIZE_MB} MB
+                </span>
+              </div>
+              {fileError && (
+                <p className="text-xs text-destructive flex items-center gap-1" data-testid="text-file-error">
+                  <AlertCircle className="w-3 h-3 shrink-0" />
+                  {fileError}
+                </p>
+              )}
+            </div>
             <Button
               onClick={handleUpload}
-              disabled={!selectedFile || uploading}
+              disabled={!selectedFile || uploading || !!fileError}
               data-testid="button-upload-statement"
+              className="shrink-0"
             >
-              {uploading ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Uploading...</> : <><Upload className="w-4 h-4 mr-2" />Upload Statement</>}
+              {uploading ? (
+                <><Loader2 className="w-4 h-4 animate-spin mr-2" />Uploading...</>
+              ) : (
+                <><Upload className="w-4 h-4 mr-2" />Upload</>
+              )}
             </Button>
           </div>
+          {uploading && (
+            <div className="space-y-1" data-testid="upload-progress-container">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>Uploading {selectedFile?.name}...</span>
+                <span>{uploadProgress}%</span>
+              </div>
+              <Progress value={uploadProgress} className="h-1.5" data-testid="upload-progress-bar" />
+            </div>
+          )}
         </CardContent>
       </Card>
       <Card data-testid="card-documents-list">
@@ -319,12 +565,12 @@ function DocumentsTab({ contactId }: { contactId: number | null | undefined }) {
           <CardTitle className="text-base">Uploaded Documents</CardTitle>
         </CardHeader>
         <CardContent className="p-0 overflow-x-auto">
-          <Table className="min-w-[500px]">
+          <Table className="min-w-[480px]">
             <TableHeader>
               <TableRow>
                 <TableHead>File Name</TableHead>
                 <TableHead>Type</TableHead>
-                <TableHead>Upload Date</TableHead>
+                <TableHead>Date</TableHead>
                 <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -339,15 +585,15 @@ function DocumentsTab({ contactId }: { contactId: number | null | undefined }) {
                 documents.map((doc) => (
                   <TableRow key={doc.id} data-testid={`row-document-${doc.id}`}>
                     <TableCell className="font-medium" data-testid={`text-doc-name-${doc.id}`}>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 max-w-[200px]">
                         <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
-                        {doc.fileName}
+                        <span className="truncate">{doc.fileName}</span>
                       </div>
                     </TableCell>
                     <TableCell data-testid={`text-doc-type-${doc.id}`}>
-                      <Badge variant="secondary">{doc.type}</Badge>
+                      <Badge variant="secondary" className="text-xs">{doc.type}</Badge>
                     </TableCell>
-                    <TableCell data-testid={`text-doc-date-${doc.id}`}>{formatDate(doc.createdAt)}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground" data-testid={`text-doc-date-${doc.id}`}>{formatDate(doc.createdAt)}</TableCell>
                     <TableCell>
                       <Button
                         variant="ghost"
@@ -370,10 +616,52 @@ function DocumentsTab({ contactId }: { contactId: number | null | undefined }) {
   );
 }
 
-function GettingStartedTab() {
+type StepMeta = { action: string; href?: string; hrefLabel?: string; eta: string; tabTarget?: string };
+
+function getStepMeta(step: OnboardingStep): StepMeta {
+  const name = step.stepName?.toLowerCase() || "";
+  if (name.includes("voided check") || name.includes("bank")) {
+    return { action: "Upload a voided check or bank letter to verify your deposit account.", hrefLabel: "Go to Documents", href: "#documents", eta: "Today", tabTarget: "documents" };
+  }
+  if (name.includes("statement")) {
+    return { action: "Upload your most recent processing statement so we can complete your analysis.", hrefLabel: "Go to Documents", href: "#documents", eta: "Today", tabTarget: "documents" };
+  }
+  if (name.includes("id") || name.includes("identification")) {
+    return { action: "Upload a government-issued photo ID for the primary business owner.", hrefLabel: "Go to Documents", href: "#documents", eta: "Today", tabTarget: "documents" };
+  }
+  if (name.includes("sign") || name.includes("agreement") || name.includes("mpa")) {
+    return { action: "Check your email for the Merchant Processing Agreement and complete the e-signature.", eta: "Today — check your inbox" };
+  }
+  if (name.includes("terminal") || name.includes("equipment")) {
+    return { action: "Our team will contact you to confirm your terminal or gateway setup.", eta: "3–5 business days" };
+  }
+  if (name.includes("review") || name.includes("underwriting") || name.includes("approval")) {
+    return { action: "Our underwriting team will review your application. No action needed from you.", eta: "1–2 business days" };
+  }
+  if (name.includes("go-live") || name.includes("go live") || name.includes("activate")) {
+    return { action: "You're almost live! Our team will confirm your go-live date.", eta: "5–7 business days" };
+  }
+  return { action: "Our team is working on this step and will update you shortly.", eta: "1–3 business days" };
+}
+
+function GettingStartedTab({ dealId, profile, onTabChange }: { dealId: number | null | undefined; profile: MerchantProfile | null | undefined; onTabChange?: (tab: string) => void }) {
   const [expandedSection, setExpandedSection] = useState<number | null>(null);
 
-  const sections = [
+  const { data: steps, isLoading: stepsLoading } = useQuery<OnboardingStep[]>({
+    queryKey: ["/api/onboarding-steps/deal", dealId],
+    queryFn: async () => {
+      const res = await fetch(`/api/onboarding-steps/deal/${dealId}`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!dealId,
+  });
+
+  const sortedSteps = steps?.sort((a, b) => a.stepOrder - b.stepOrder) || [];
+  const completedCount = sortedSteps.filter(s => s.status === "completed").length;
+  const currentStep = sortedSteps.find(s => s.status !== "completed");
+
+  const staticSections = [
     {
       icon: PlayCircle,
       title: "Welcome to Liberty Bancard",
@@ -420,6 +708,116 @@ function GettingStartedTab() {
 
   return (
     <div className="space-y-4" data-testid="getting-started-tab">
+      {stepsLoading && dealId && (
+        <div className="space-y-2">
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-full" />
+        </div>
+      )}
+
+      {sortedSteps.length > 0 && (
+        <Card data-testid="card-dynamic-checklist">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <CheckCircle2 className="w-5 h-5 text-primary" />
+              Your Getting Started Checklist
+              <Badge variant="secondary" className="ml-auto" data-testid="checklist-progress-badge">
+                {completedCount}/{sortedSteps.length} done
+              </Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 pt-0">
+            {currentStep && (
+              <div className="flex items-start gap-2 rounded-md bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 p-3 mb-3" data-testid="current-step-action">
+                <AlertCircle className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium text-blue-700 dark:text-blue-300">Action needed: {currentStep.stepName}</p>
+                  <p className="text-xs text-blue-600/80 dark:text-blue-400/80 mt-0.5">
+                    Complete this step to keep your onboarding on track.
+                  </p>
+                </div>
+              </div>
+            )}
+            <div className="space-y-2">
+              {sortedSteps.map((step, i) => {
+                const isComplete = step.status === "completed";
+                const isCurrent = step.id === currentStep?.id;
+                const meta = getStepMeta(step);
+                return (
+                  <div
+                    key={step.id}
+                    className={`rounded-md border p-3 ${
+                      isComplete
+                        ? "bg-green-50/50 dark:bg-green-950/20 border-green-200 dark:border-green-800"
+                        : isCurrent
+                        ? "bg-blue-50/50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800"
+                        : "bg-muted/30 border-muted"
+                    }`}
+                    data-testid={`checklist-step-${step.id}`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
+                        isComplete ? "bg-green-500" : isCurrent ? "bg-blue-500" : "bg-muted-foreground/20"
+                      }`}>
+                        {isComplete ? (
+                          <CheckCircle className="w-3 h-3 text-white" />
+                        ) : isCurrent ? (
+                          <Loader2 className="w-3 h-3 text-white animate-spin" />
+                        ) : (
+                          <Circle className="w-3 h-3 text-muted-foreground/50" />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <p className={`text-sm font-medium ${isComplete ? "line-through text-muted-foreground" : "text-foreground"}`}>
+                            {step.stepName}
+                          </p>
+                          <Badge
+                            variant={isComplete ? "secondary" : isCurrent ? "default" : "outline"}
+                            className="text-xs shrink-0"
+                            data-testid={`checklist-badge-${step.id}`}
+                          >
+                            {isComplete ? "Done" : isCurrent ? "Now" : "Pending"}
+                          </Badge>
+                        </div>
+                        {isComplete && step.completedAt && (
+                          <p className="text-xs text-muted-foreground mt-0.5">Completed {formatDate(step.completedAt)}</p>
+                        )}
+                        {!isComplete && (
+                          <div className="mt-1.5 space-y-1.5">
+                            <p className="text-xs text-muted-foreground leading-snug" data-testid={`checklist-action-${step.id}`}>
+                              {meta.action}
+                            </p>
+                            <div className="flex items-center gap-3 flex-wrap">
+                              <span className="text-[11px] text-muted-foreground flex items-center gap-1" data-testid={`checklist-eta-${step.id}`}>
+                                <Clock className="w-3 h-3 shrink-0" />
+                                ETA: {meta.eta}
+                              </span>
+                              {isCurrent && meta.tabTarget && onTabChange && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-6 text-xs px-2 py-0"
+                                  onClick={() => onTabChange(meta.tabTarget!)}
+                                  data-testid={`checklist-action-btn-${step.id}`}
+                                >
+                                  <ArrowRight className="w-3 h-3 mr-1" />
+                                  {meta.hrefLabel || "Take action"}
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-lg flex items-center gap-2">
@@ -431,38 +829,21 @@ function GettingStartedTab() {
           </p>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="rounded-lg overflow-hidden border bg-black" data-testid="merchant-video">
-            <video
-              src={merchantVideo}
-              controls
-              className="w-full aspect-video"
-              poster=""
-              preload="metadata"
-              data-testid="video-merchant-explainer"
-            >
-              Your browser does not support video playback.
-            </video>
-            <div className="bg-muted/50 px-4 py-2">
-              <p className="text-xs font-medium">Welcome to Liberty Bancard</p>
-              <p className="text-[11px] text-muted-foreground">Watch this short video to learn what to expect as a new merchant and how to get the most from your account.</p>
-            </div>
-          </div>
-
-          {sections.map((section, i) => {
+          {staticSections.map((section, i) => {
             const Icon = section.icon;
             const isExpanded = expandedSection === i;
             return (
               <div key={i} className="border rounded-lg overflow-hidden" data-testid={`guide-section-${i}`}>
                 <button
-                  className="w-full flex items-center gap-3 p-4 hover:bg-muted/50 transition-colors"
+                  className="w-full flex items-center gap-3 p-4 hover:bg-muted/50 transition-colors text-left"
                   onClick={() => setExpandedSection(isExpanded ? null : i)}
                   data-testid={`guide-toggle-${i}`}
                 >
                   <div className={`w-9 h-9 rounded-lg ${section.bg} flex items-center justify-center shrink-0`}>
                     <Icon className={`w-4.5 h-4.5 ${section.color}`} />
                   </div>
-                  <span className="text-sm font-semibold text-left flex-1">{section.title}</span>
-                  {isExpanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+                  <span className="text-sm font-semibold flex-1">{section.title}</span>
+                  {isExpanded ? <ChevronUp className="w-4 h-4 text-muted-foreground shrink-0" /> : <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />}
                 </button>
                 {isExpanded && (
                   <div className="px-4 pb-4 pl-16">
@@ -590,7 +971,7 @@ function SupportTab({ contactId }: { contactId: number | null | undefined }) {
       </div>
       <Card data-testid="card-tickets-list">
         <CardContent className="p-0 overflow-x-auto">
-          <Table className="min-w-[500px]">
+          <Table className="min-w-[480px]">
             <TableHeader>
               <TableRow>
                 <TableHead>Subject</TableHead>
@@ -649,15 +1030,17 @@ export default function MerchantPortal() {
   });
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-bold" data-testid="text-portal-title">Merchant Portal</h1>
         <p className="text-sm text-muted-foreground mt-1" data-testid="text-portal-subtitle">
-          {user?.email ? `Welcome, ${user.firstName || user.email}` : "Manage your merchant account"}
+          {user ? `Welcome, ${user.firstName || user.email}` : "Manage your merchant account"}
         </p>
       </div>
 
-      <div className="flex gap-1 flex-wrap border-b pb-0" data-testid="tab-navigation">
+      <AccountStatusBanner profile={profile} isLoading={profileLoading} />
+
+      <div className="flex gap-0.5 flex-wrap border-b pb-0 overflow-x-auto" data-testid="tab-navigation">
         {TABS.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.key;
@@ -665,12 +1048,13 @@ export default function MerchantPortal() {
             <Button
               key={tab.key}
               variant="ghost"
-              className={`rounded-b-none gap-2 ${isActive ? "border-b-2 border-primary" : ""}`}
+              size="sm"
+              className={`rounded-b-none gap-1.5 shrink-0 ${isActive ? "border-b-2 border-primary font-semibold" : ""}`}
               onClick={() => setActiveTab(tab.key)}
               data-testid={`tab-${tab.key}`}
             >
               <Icon className="w-4 h-4" />
-              <span className="hidden sm:inline">{tab.label}</span>
+              <span className="hidden sm:inline text-xs">{tab.label}</span>
             </Button>
           );
         })}
@@ -678,13 +1062,13 @@ export default function MerchantPortal() {
 
       <div data-testid={`tab-content-${activeTab}`}>
         {activeTab === "guide" && (
-          <GettingStartedTab />
+          <GettingStartedTab dealId={profile?.dealId} profile={profile} onTabChange={(tab) => setActiveTab(tab as TabKey)} />
         )}
         {activeTab === "account" && (
           <AccountTab profile={profile} isLoading={profileLoading} />
         )}
         {activeTab === "onboarding" && (
-          <OnboardingTab dealId={profile?.dealId} />
+          <OnboardingTab dealId={profile?.dealId} profile={profile} />
         )}
         {activeTab === "documents" && (
           <DocumentsTab contactId={profile?.contactId} />

@@ -4,7 +4,7 @@ import { useLocation, Link } from "wouter";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { Button } from "@/components/ui/button";
@@ -88,6 +88,28 @@ export default function UploadStatement() {
   const preTerminal = params.get("terminal") === "yes";
   const preInterest0 = params.get("interest0") === "yes";
 
+  const { data: authUser } = useQuery<{ email?: string; firstName?: string; lastName?: string; id?: string } | null>({
+    queryKey: ["/api/auth/user"],
+    queryFn: async () => {
+      const res = await fetch("/api/auth/user", { credentials: "include" });
+      if (res.status === 401) return null;
+      if (!res.ok) return null;
+      return res.json();
+    },
+    staleTime: 1000 * 60 * 5,
+  });
+
+  const { data: merchantProfile } = useQuery<{ businessName?: string | null; contactId?: number } | null>({
+    queryKey: ["/api/merchant-profile"],
+    queryFn: async () => {
+      const res = await fetch("/api/merchant-profile", { credentials: "include" });
+      if (!res.ok) return null;
+      return res.json();
+    },
+    enabled: !!authUser,
+    staleTime: 1000 * 60 * 5,
+  });
+
   const form = useForm<UploadFormData>({
     resolver: zodResolver(uploadSchema),
     defaultValues: {
@@ -109,6 +131,24 @@ export default function UploadStatement() {
     if (preTerminal) form.setValue("needTerminal", true);
     if (preInterest0) form.setValue("interestedIn0Percent", true);
   }, [preTerminal, preInterest0, form]);
+
+  useEffect(() => {
+    if (authUser) {
+      const fullName = [authUser.firstName, authUser.lastName].filter(Boolean).join(" ");
+      if (fullName && !form.getValues("contactName")) {
+        form.setValue("contactName", fullName);
+      }
+      if (authUser.email && !form.getValues("email")) {
+        form.setValue("email", authUser.email);
+      }
+    }
+  }, [authUser, form]);
+
+  useEffect(() => {
+    if (merchantProfile?.businessName && !form.getValues("businessName")) {
+      form.setValue("businessName", merchantProfile.businessName);
+    }
+  }, [merchantProfile, form]);
 
   const submitMutation = useMutation({
     mutationFn: async (data: UploadFormData) => {

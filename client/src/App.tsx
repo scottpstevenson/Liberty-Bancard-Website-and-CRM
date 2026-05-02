@@ -51,6 +51,7 @@ import ProposalViewer from "@/pages/ProposalViewer";
 import ThanksEstimate from "@/pages/ThanksEstimate";
 import ThanksCall from "@/pages/ThanksCall";
 import ThanksSupport from "@/pages/ThanksSupport";
+import ThanksApplication from "@/pages/ThanksApplication";
 import MerchantApplication from "@/pages/MerchantApplication";
 import AssetPage from "@/pages/AssetPage";
 import CompareVs from "@/pages/CompareVs";
@@ -244,6 +245,8 @@ function Router() {
       <Route path="/thanks-estimate" component={ThanksEstimate} />
       <Route path="/thanks-call" component={ThanksCall} />
       <Route path="/thanks-support" component={ThanksSupport} />
+      <Route path="/thanks/application" component={ThanksApplication} />
+      <Route path="/thanks-application" component={ThanksApplication} />
       <Route path="/merchant-application" component={MerchantApplication} />
       <Route path="/equipment" component={Equipment} />
       <Route path="/shop" component={TerminalShop} />
