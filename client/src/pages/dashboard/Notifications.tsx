@@ -1,17 +1,44 @@
-import { useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useState, useCallback } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { CheckCheck, AlertTriangle, Info, AlertCircle, Settings, Trash2, Mail, Bell, Calendar } from "lucide-react";
+import { CheckCheck, AlertTriangle, Info, AlertCircle, Settings, Trash2, Mail, Bell, Calendar, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import type { Notification, NotificationPreference } from "@shared/schema";
+import type { NotificationPreference } from "@shared/schema";
 import { NOTIFICATION_EVENT_TYPES } from "@shared/schema";
+
+type NotificationRecord = {
+  id: number;
+  title: string;
+  message: string;
+  type: string | null;
+  read: boolean | null;
+  createdAt: string | null;
+  metadata: Record<string, unknown> | null;
+};
+
+type PaginatedNotifications = {
+  data: NotificationRecord[];
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+};
+
+const CATEGORY_TABS = [
+  { value: "all", label: "All" },
+  { value: "leads", label: "Leads" },
+  { value: "deals", label: "Deals" },
+  { value: "sla", label: "SLA" },
+  { value: "system", label: "System" },
+];
+
+const PAGE_SIZE = 25;
 
 function getTypeIcon(type: string | null) {
   switch (type) {
@@ -67,40 +94,96 @@ function getEventDescription(eventType: string): string {
 
 export default function Notifications() {
   const { toast } = useToast();
-  const [filterType, setFilterType] = useState<string>("all");
+  const qc = useQueryClient();
+  const [category, setCategory] = useState("all");
+  const [offset, setOffset] = useState(0);
+  const [allLoaded, setAllLoaded] = useState<NotificationRecord[]>([]);
   const [prefsOpen, setPrefsOpen] = useState(false);
 
-  const { data: notifications, isLoading } = useQuery<Notification[]>({
-    queryKey: ["/api/notifications"],
+  const queryKey = ["/api/notifications", category, offset];
+
+  const { data: page, isLoading } = useQuery<PaginatedNotifications>({
+    queryKey,
     queryFn: async () => {
-      const res = await fetch("/api/notifications", { credentials: "include" });
+      const res = await fetch(
+        `/api/notifications?limit=${PAGE_SIZE}&offset=${offset}&category=${category}`,
+        { credentials: "include" }
+      );
       if (!res.ok) throw new Error("Failed to fetch notifications");
       return res.json();
     },
+    placeholderData: (prev) => prev,
   });
+
+  // Accumulate pages when "Load more" is clicked
+  const notifications: NotificationRecord[] = (() => {
+    if (!page) return allLoaded;
+    const pageIds = new Set(page.data.map((n) => n.id));
+    const combined = [...allLoaded.filter((n) => !pageIds.has(n.id)), ...page.data];
+    return combined.sort((a, b) =>
+      new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime()
+    );
+  })();
+
+  const total = page?.total ?? 0;
+  // Use server-provided hasMore which is based on DB total (before preference filtering),
+  // so we don't stop prematurely when preferences reduce the visible count of a page.
+  const hasMore = page?.hasMore === true;
+
+  const { data: countData } = useQuery<{ unread: number }>({
+    queryKey: ["/api/notifications/count"],
+  });
+  const unreadCount = countData?.unread ?? 0;
 
   const { data: preferences, isLoading: prefsLoading } = useQuery<NotificationPreference[]>({
     queryKey: ["/api/notification-preferences"],
   });
 
+  const invalidateAll = useCallback(() => {
+    qc.invalidateQueries({ queryKey: ["/api/notifications"] });
+    qc.invalidateQueries({ queryKey: ["/api/notifications/count"] });
+  }, [qc]);
+
   const markReadMutation = useMutation({
     mutationFn: async (id: number) => {
       await apiRequest("PUT", `/api/notifications/${id}/read`);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
+    onSuccess: (_data, id) => {
+      // Update accumulated pages state
+      setAllLoaded((prev) => prev.map((n) => n.id === id ? { ...n, read: true } : n));
+      // Update the current page in the query cache so UI reflects change immediately
+      qc.setQueryData(queryKey, (old: PaginatedNotifications | undefined) => {
+        if (!old) return old;
+        return { ...old, data: old.data.map((n) => n.id === id ? { ...n, read: true } : n) };
+      });
+      // Refresh the unread badge count
+      qc.invalidateQueries({ queryKey: ["/api/notifications/count"] });
     },
     onError: (err: Error) => {
       toast({ title: "Failed to mark as read", description: err.message, variant: "destructive" });
     },
   });
 
+  const dismissMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/notifications/${id}`);
+    },
+    onSuccess: (_, id) => {
+      setAllLoaded((prev) => prev.filter((n) => n.id !== id));
+      invalidateAll();
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to dismiss notification", description: err.message, variant: "destructive" });
+    },
+  });
+
   const markAllReadMutation = useMutation({
     mutationFn: async () => {
-      await apiRequest("PUT", "/api/notifications/mark-all-read");
+      await apiRequest("POST", "/api/notifications/mark-all-read");
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
+      setAllLoaded((prev) => prev.map((n) => ({ ...n, read: true })));
+      invalidateAll();
       toast({ title: "All notifications marked as read" });
     },
     onError: (err: Error) => {
@@ -108,16 +191,19 @@ export default function Notifications() {
     },
   });
 
-  const clearAllMutation = useMutation({
+  const clearOldReadMutation = useMutation({
     mutationFn: async () => {
-      await apiRequest("DELETE", "/api/notifications/clear-all");
+      await apiRequest("DELETE", "/api/notifications/read");
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
-      toast({ title: "All notifications cleared" });
+    onSuccess: (data: any) => {
+      const deleted = data?.deleted ?? 0;
+      setAllLoaded([]);
+      setOffset(0);
+      invalidateAll();
+      toast({ title: deleted > 0 ? `Removed ${deleted} old read notification${deleted !== 1 ? "s" : ""}` : "No old read notifications to clear" });
     },
     onError: (err: Error) => {
-      toast({ title: "Failed to clear notifications", description: err.message, variant: "destructive" });
+      toast({ title: "Failed to clear old notifications", description: err.message, variant: "destructive" });
     },
   });
 
@@ -126,22 +212,25 @@ export default function Notifications() {
       await apiRequest("PUT", "/api/notification-preferences", params);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/notification-preferences"] });
+      qc.invalidateQueries({ queryKey: ["/api/notification-preferences"] });
     },
     onError: (err: Error) => {
       toast({ title: "Failed to update preference", description: err.message, variant: "destructive" });
     },
   });
 
-  const unreadCount = notifications?.filter((n) => !n.read).length || 0;
-  const totalCount = notifications?.length || 0;
+  function handleCategoryChange(val: string) {
+    setCategory(val);
+    setOffset(0);
+    setAllLoaded([]);
+  }
 
-  const filteredNotifications = notifications?.filter((n) => {
-    if (filterType === "all") return true;
-    return n.type === filterType;
-  }) || [];
+  function handleLoadMore() {
+    setAllLoaded(notifications);
+    setOffset((prev) => prev + PAGE_SIZE);
+  }
 
-  function getPref(eventType: string): { enabled: boolean; emailEnabled: boolean; digestDaily: boolean; digestWeekly: boolean } {
+  function getPref(eventType: string) {
     const pref = preferences?.find((p) => p.eventType === eventType);
     return {
       enabled: pref ? !!pref.enabled : true,
@@ -158,7 +247,7 @@ export default function Notifications() {
     (t) => t === "daily_digest" || t === "weekly_digest"
   );
 
-  if (isLoading) {
+  if (isLoading && notifications.length === 0) {
     return (
       <div className="flex items-center justify-center h-64" data-testid="notifications-loading">
         <div className="text-muted-foreground">Loading notifications...</div>
@@ -177,18 +266,7 @@ export default function Notifications() {
             </Badge>
           )}
         </div>
-        <div className="flex items-center gap-3 flex-wrap">
-          <Select value={filterType} onValueChange={setFilterType}>
-            <SelectTrigger className="w-[140px]" data-testid="select-filter-type">
-              <SelectValue placeholder="Filter" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All</SelectItem>
-              <SelectItem value="info">Info</SelectItem>
-              <SelectItem value="alert">Alerts</SelectItem>
-              <SelectItem value="urgent">Urgent</SelectItem>
-            </SelectContent>
-          </Select>
+        <div className="flex items-center gap-2 flex-wrap">
           {unreadCount > 0 && (
             <Button
               variant="outline"
@@ -201,18 +279,16 @@ export default function Notifications() {
               Mark All Read
             </Button>
           )}
-          {totalCount > 0 && (
-            <Button
-              variant="outline"
-              onClick={() => clearAllMutation.mutate()}
-              disabled={clearAllMutation.isPending}
-              className="gap-2"
-              data-testid="button-clear-all"
-            >
-              <Trash2 className="w-4 h-4" />
-              Clear All
-            </Button>
-          )}
+          <Button
+            variant="outline"
+            onClick={() => clearOldReadMutation.mutate()}
+            disabled={clearOldReadMutation.isPending}
+            className="gap-2"
+            data-testid="button-clear-old-read"
+          >
+            <Trash2 className="w-4 h-4" />
+            Clear Old Read
+          </Button>
           <Dialog open={prefsOpen} onOpenChange={setPrefsOpen}>
             <DialogTrigger asChild>
               <Button
@@ -338,56 +414,107 @@ export default function Notifications() {
         </div>
       </div>
 
-      <div className="space-y-3" data-testid="notifications-list">
-        {filteredNotifications.length === 0 && (
-          <div className="text-center text-muted-foreground py-12" data-testid="text-no-notifications">
-            No notifications
-          </div>
-        )}
-        {filteredNotifications.map((notification) => (
-          <Card
-            key={notification.id}
-            className={`cursor-pointer hover-elevate ${!notification.read ? "" : "opacity-60"}`}
-            onClick={() => {
-              if (!notification.read) markReadMutation.mutate(notification.id);
-            }}
-            data-testid={`card-notification-${notification.id}`}
-          >
-            <CardContent className="p-4">
-              <div className="flex items-start gap-3">
-                <div className="mt-0.5 flex-shrink-0">
-                  {getTypeIcon(notification.type)}
+      {/* Category filter tabs */}
+      <Tabs value={category} onValueChange={handleCategoryChange} data-testid="tabs-category-filter">
+        <TabsList data-testid="tabs-list-category">
+          {CATEGORY_TABS.map((tab) => (
+            <TabsTrigger key={tab.value} value={tab.value} data-testid={`tab-category-${tab.value}`}>
+              {tab.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+
+        {CATEGORY_TABS.map((tab) => (
+          <TabsContent key={tab.value} value={tab.value} className="mt-4">
+            <div className="space-y-3" data-testid="notifications-list">
+              {notifications.length === 0 && !isLoading && (
+                <div className="text-center text-muted-foreground py-12" data-testid="text-no-notifications">
+                  No notifications
                 </div>
-                <div className="flex-1 min-w-0 space-y-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-medium text-sm" data-testid={`text-notification-title-${notification.id}`}>
-                      {notification.title}
-                    </span>
-                    <Badge
-                      variant={getTypeVariant(notification.type)}
-                      className="text-xs no-default-hover-elevate no-default-active-elevate"
-                      data-testid={`badge-notification-type-${notification.id}`}
-                    >
-                      {getTypeLabel(notification.type)}
-                    </Badge>
-                    {!notification.read && (
-                      <Badge variant="outline" className="text-xs no-default-hover-elevate no-default-active-elevate" data-testid={`badge-notification-unread-${notification.id}`}>
-                        Unread
-                      </Badge>
-                    )}
-                  </div>
-                  <p className="text-sm text-muted-foreground" data-testid={`text-notification-message-${notification.id}`}>
-                    {notification.message}
-                  </p>
-                  <div className="text-xs text-muted-foreground" data-testid={`text-notification-time-${notification.id}`}>
-                    {notification.createdAt ? new Date(notification.createdAt).toLocaleString() : ""}
-                  </div>
+              )}
+              {notifications.map((notification) => (
+                <Card
+                  key={notification.id}
+                  className={`hover-elevate ${!notification.read ? "" : "opacity-60"}`}
+                  data-testid={`card-notification-${notification.id}`}
+                >
+                  <CardContent className="p-4">
+                    <div className="flex items-start gap-3">
+                      <div
+                        className="mt-0.5 flex-shrink-0 cursor-pointer"
+                        onClick={() => {
+                          if (!notification.read) markReadMutation.mutate(notification.id);
+                        }}
+                      >
+                        {getTypeIcon(notification.type)}
+                      </div>
+                      <div
+                        className="flex-1 min-w-0 space-y-1 cursor-pointer"
+                        onClick={() => {
+                          if (!notification.read) markReadMutation.mutate(notification.id);
+                        }}
+                      >
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-medium text-sm" data-testid={`text-notification-title-${notification.id}`}>
+                            {notification.title}
+                          </span>
+                          <Badge
+                            variant={getTypeVariant(notification.type)}
+                            className="text-xs no-default-hover-elevate no-default-active-elevate"
+                            data-testid={`badge-notification-type-${notification.id}`}
+                          >
+                            {getTypeLabel(notification.type)}
+                          </Badge>
+                          {!notification.read && (
+                            <Badge variant="outline" className="text-xs no-default-hover-elevate no-default-active-elevate" data-testid={`badge-notification-unread-${notification.id}`}>
+                              Unread
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-sm text-muted-foreground" data-testid={`text-notification-message-${notification.id}`}>
+                          {notification.message}
+                        </p>
+                        <div className="text-xs text-muted-foreground" data-testid={`text-notification-time-${notification.id}`}>
+                          {notification.createdAt ? new Date(notification.createdAt).toLocaleString() : ""}
+                        </div>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="flex-shrink-0 h-6 w-6 text-muted-foreground hover:text-foreground"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          dismissMutation.mutate(notification.id);
+                        }}
+                        disabled={dismissMutation.isPending}
+                        data-testid={`button-dismiss-${notification.id}`}
+                      >
+                        <X className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+              {isLoading && (
+                <div className="text-center text-muted-foreground py-4" data-testid="notifications-loading-more">
+                  Loading...
                 </div>
-              </div>
-            </CardContent>
-          </Card>
+              )}
+              {hasMore && !isLoading && (
+                <div className="flex justify-center pt-2">
+                  <Button
+                    variant="outline"
+                    onClick={handleLoadMore}
+                    data-testid="button-load-more"
+                  >
+                    Load more ({notifications.length} of {total})
+                  </Button>
+                </div>
+              )}
+            </div>
+          </TabsContent>
         ))}
-      </div>
+      </Tabs>
     </div>
   );
 }

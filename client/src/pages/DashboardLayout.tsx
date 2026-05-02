@@ -108,7 +108,7 @@ const menuItems: MenuItem[] = [
   { icon: Ticket, label: "Tickets", href: "/dashboard/tickets", roles: ["admin", "manager"] },
   { icon: ClipboardList, label: "My Tasks", href: "/dashboard/tasks", roles: ["agent"] },
   { icon: ClipboardList, label: "Tasks", href: "/dashboard/tasks", roles: ["admin", "manager"] },
-  { icon: Bell, label: "Notifications", href: "/dashboard/notifications", roles: ["admin", "manager", "agent"] },
+  { icon: Bell, label: "Notifications", href: "/dashboard/notifications", roles: ["admin", "manager", "agent"], badgeKey: "notificationsUnread" },
   { icon: Inbox, label: "Messages", href: "/dashboard/sms-inbox", roles: ["admin", "manager", "agent"], badgeKey: "smsUnread" },
   { icon: MessageSquare, label: "AI Advisor", href: "/dashboard/chat", roles: ["admin", "manager", "agent"] },
   { icon: MessageCircle, label: "Live Chat", href: "/dashboard/live-chat", roles: ["admin", "manager", "agent"] },
@@ -213,7 +213,18 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     enabled: ["admin", "manager", "agent"].includes(role),
   });
   const smsUnreadCount = smsUnreadData?.count || 0;
-  const badges: Record<string, number> = { smsUnread: smsUnreadCount };
+
+  const { data: notifCountData } = useQuery<{ unread: number }>({
+    queryKey: ["/api/notifications/count"],
+    refetchInterval: 60000,
+    enabled: ["admin", "manager", "agent"].includes(role),
+  });
+  const notificationsUnreadCount = notifCountData?.unread || 0;
+
+  const badges: Record<string, number> = {
+    smsUnread: smsUnreadCount,
+    notificationsUnread: notificationsUnreadCount,
+  };
 
   const filteredMenu = useMemo(() => filterByRole(menuItems, role), [role]);
   const filteredSdr = useMemo(() => filterByRole(sdrItems, role), [role]);

@@ -144,8 +144,12 @@ export interface IStorage {
   createAuditLog(log: InsertAuditLog): Promise<typeof auditLogs.$inferSelect>;
 
   getNotifications(): Promise<typeof notifications.$inferSelect[]>;
+  getNotificationsPaginated(params: { limit: number; offset: number; category?: string; userId?: string }): Promise<{ data: typeof notifications.$inferSelect[]; total: number }>;
+  getNotificationsUnreadCount(userId?: string): Promise<number>;
   createNotification(notification: InsertNotification): Promise<typeof notifications.$inferSelect>;
   markNotificationRead(id: number): Promise<void>;
+  deleteNotification(id: number, userId?: string): Promise<boolean>;
+  clearOldReadNotifications(userId?: string): Promise<number>;
 
   getWorkflows(): Promise<typeof workflows.$inferSelect[]>;
   getWorkflow(id: number): Promise<typeof workflows.$inferSelect | undefined>;
@@ -723,6 +727,54 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(notifications).orderBy(desc(notifications.createdAt));
   }
 
+  async getNotificationsPaginated(params: { limit: number; offset: number; category?: string; userId?: string }) {
+    const { limit, offset, category, userId } = params;
+    const categoryEventTypes: Record<string, string[]> = {
+      leads: ["contact_created", "hot_lead", "sequence_completed"],
+      deals: ["deal_created", "deal_stage_changed", "deal_closed_won"],
+      sla: ["sla_breach", "task_due_soon", "ticket_created", "ticket_updated"],
+      system: ["daily_digest", "weekly_digest", "mention", "comment_reply", "task_assigned"],
+    };
+
+    // Scope: show notifications addressed to this user OR system-wide (recipientId IS NULL)
+    const userScope = userId
+      ? or(eq(notifications.recipientId, userId), isNull(notifications.recipientId))
+      : undefined;
+
+    const categoryCondition =
+      category && category !== "all" && categoryEventTypes[category]
+        ? inArray(
+            sql`(${notifications.metadata}->>'eventType')::text`,
+            categoryEventTypes[category]
+          )
+        : undefined;
+
+    const where = userScope && categoryCondition
+      ? and(userScope, categoryCondition)
+      : userScope ?? categoryCondition;
+
+    const [data, totalRows] = await Promise.all([
+      where
+        ? db.select().from(notifications).where(where).orderBy(desc(notifications.createdAt)).limit(limit).offset(offset)
+        : db.select().from(notifications).orderBy(desc(notifications.createdAt)).limit(limit).offset(offset),
+      where
+        ? db.select({ count: count() }).from(notifications).where(where)
+        : db.select({ count: count() }).from(notifications),
+    ]);
+
+    return { data, total: totalRows[0]?.count ?? 0 };
+  }
+
+  async getNotificationsUnreadCount(userId?: string): Promise<number> {
+    const unreadCond = eq(notifications.read, false);
+    const userScope = userId
+      ? or(eq(notifications.recipientId, userId), isNull(notifications.recipientId))
+      : undefined;
+    const where = userScope ? and(userScope, unreadCond) : unreadCond;
+    const [row] = await db.select({ count: count() }).from(notifications).where(where);
+    return row?.count ?? 0;
+  }
+
   async createNotification(insertNotification: InsertNotification) {
     const [notification] = await db.insert(notifications).values(insertNotification).returning();
     return notification;
@@ -730,6 +782,33 @@ export class DatabaseStorage implements IStorage {
 
   async markNotificationRead(id: number) {
     await db.update(notifications).set({ read: true }).where(eq(notifications.id, id));
+  }
+
+  async deleteNotification(id: number, userId?: string): Promise<boolean> {
+    // If userId provided, verify ownership (recipientId matches user OR is NULL for system notifications)
+    if (userId) {
+      const [notif] = await db.select({ id: notifications.id, recipientId: notifications.recipientId })
+        .from(notifications)
+        .where(eq(notifications.id, id));
+      if (!notif) return false;
+      if (notif.recipientId !== null && notif.recipientId !== userId) return false;
+    }
+    await db.delete(notifications).where(eq(notifications.id, id));
+    return true;
+  }
+
+  async clearOldReadNotifications(userId?: string): Promise<number> {
+    const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const userScope = userId
+      ? or(eq(notifications.recipientId, userId), isNull(notifications.recipientId))
+      : undefined;
+    const where = and(
+      eq(notifications.read, true),
+      lt(notifications.createdAt, cutoff),
+      ...(userScope ? [userScope] : [])
+    );
+    const result = await db.delete(notifications).where(where).returning({ id: notifications.id });
+    return result.length;
   }
 
   async getWorkflows() {
@@ -2245,7 +2324,13 @@ export class DatabaseStorage implements IStorage {
 
   async markAllNotificationsRead(userId?: string): Promise<void> {
     if (userId) {
-      await db.update(notifications).set({ read: true }).where(and(eq(notifications.recipientId, userId), eq(notifications.read, false)));
+      // Mark notifications scoped to this user: those addressed to them OR system-wide (recipientId IS NULL)
+      await db.update(notifications).set({ read: true }).where(
+        and(
+          or(eq(notifications.recipientId, userId), isNull(notifications.recipientId)),
+          eq(notifications.read, false)
+        )
+      );
     } else {
       await db.update(notifications).set({ read: true }).where(eq(notifications.read, false));
     }

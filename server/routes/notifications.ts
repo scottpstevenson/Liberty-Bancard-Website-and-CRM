@@ -6,31 +6,103 @@ import { buildDailyDigest } from "../services/digest-service";
 import type { InsertNotificationPreference } from "@shared/schema";
 
 export function registerNotificationsRoutes(app: Express) {
+  // Lightweight unread count — uses SQL COUNT, scoped to current user
+  app.get("/api/notifications/count", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any)?.id;
+      const unread = await storage.getNotificationsUnreadCount(userId);
+      res.json({ unread });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Paginated list with optional category filter, scoped to current user
   app.get("/api/notifications", isAuthenticated, async (req, res) => {
     try {
-      const allNotifications = await storage.getNotifications();
+      const limit = Math.min(Number(req.query.limit) || 25, 100);
+      const offset = Number(req.query.offset) || 0;
+      const category = ((req.query.category || req.query.type) as string) || "all";
+
       const userId = (req.user as any)?.id;
+      const { data, total } = await storage.getNotificationsPaginated({ limit, offset, category, userId });
+
+      // Filter out notifications for disabled event types (in-memory post-fetch filter)
+      let filtered = data;
       if (userId) {
         const prefs = await storage.getNotificationPreferences(userId);
         const disabledEvents = prefs
           .filter((p) => p.enabled === false)
           .map((p) => p.eventType);
         if (disabledEvents.length > 0) {
-          const filtered = allNotifications.filter((n) => {
+          filtered = data.filter((n) => {
             const meta = n.metadata as Record<string, unknown> | null;
             const eventType = meta?.eventType as string | undefined;
             return !eventType || !disabledEvents.includes(eventType);
           });
-          return res.json(filtered);
         }
       }
-      res.json(allNotifications);
+
+      // `hasMore` is based on the DB total (before preference filtering) so the client
+      // continues fetching even when preference-filtering reduces a page's visible count.
+      const hasMore = total > offset + limit;
+      res.json({ data: filtered, total, limit, offset, hasMore });
     } catch (err: any) {
       console.error("Get notifications error:", err.message);
       res.status(500).json({ message: err.message });
     }
   });
 
+  // Specific named routes BEFORE parameterized /:id routes to prevent conflicts
+
+  // Bulk mark-all-as-read for the current user
+  app.post("/api/notifications/mark-all-read", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any)?.id;
+      await storage.markAllNotificationsRead(userId);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Legacy PUT mark-all-read (keep for backwards compat) — must be before /:id
+  app.put("/api/notifications/mark-all-read", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any)?.id;
+      await storage.markAllNotificationsRead(userId);
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error("Mark all read error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Bulk delete read notifications older than 7 days — must be before /:id
+  app.delete("/api/notifications/read", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any)?.id;
+      const deleted = await storage.clearOldReadNotifications(userId);
+      res.json({ success: true, deleted });
+    } catch (err: any) {
+      console.error("Clear old read notifications error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Legacy clear-all — must be before /:id
+  app.delete("/api/notifications/clear-all", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any)?.id;
+      await storage.clearAllNotifications(userId);
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error("Clear all notifications error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Mark individual notification read — must be before generic /:id delete
   app.put("/api/notifications/:id/read", isAuthenticated, async (req, res) => {
     try {
       await storage.markNotificationRead(Number(req.params.id));
@@ -41,31 +113,17 @@ export function registerNotificationsRoutes(app: Express) {
     }
   });
 
-  // Lightweight unread count (used by sidebar badge — avoids loading 1000+ rows)
-  app.get("/api/notifications/count", isAuthenticated, async (_req, res) => {
+  // Individual dismiss (delete) with ownership check — parameterized, must be last
+  app.delete("/api/notifications/:id", isAuthenticated, async (req, res) => {
     try {
-      const all = await storage.getNotifications();
-      const unread = all.filter((n: any) => n.read === false).length;
-      res.json({ unread, total: all.length });
-    } catch (err: any) {
-      res.status(500).json({ message: err.message });
-    }
-  });
-
-  // Bulk mark-all-as-read for the current user
-  app.post("/api/notifications/mark-all-read", isAuthenticated, async (_req, res) => {
-    try {
-      const all = await storage.getNotifications();
-      const unread = all.filter((n: any) => n.read === false);
-      let updated = 0;
-      for (const n of unread) {
-        try {
-          await storage.markNotificationRead(n.id);
-          updated++;
-        } catch {}
+      const userId = (req.user as any)?.id;
+      const deleted = await storage.deleteNotification(Number(req.params.id), userId);
+      if (!deleted) {
+        return res.status(403).json({ message: "Not authorized to delete this notification" });
       }
-      res.json({ success: true, updated });
+      res.json({ success: true });
     } catch (err: any) {
+      console.error("Delete notification error:", err.message);
       res.status(500).json({ message: err.message });
     }
   });
@@ -135,29 +193,4 @@ export function registerNotificationsRoutes(app: Express) {
       res.status(500).json({ message: err.message });
     }
   });
-
-
-  // === MARK ALL NOTIFICATIONS READ ===
-  app.put("/api/notifications/mark-all-read", isAuthenticated, async (req, res) => {
-    try {
-      const userId = (req.user as any)?.id;
-      await storage.markAllNotificationsRead(userId);
-      res.json({ success: true });
-    } catch (err: any) {
-      console.error("Mark all read error:", err.message);
-      res.status(500).json({ message: err.message });
-    }
-  });
-
-  app.delete("/api/notifications/clear-all", isAuthenticated, async (req, res) => {
-    try {
-      const userId = (req.user as any)?.id;
-      await storage.clearAllNotifications(userId);
-      res.json({ success: true });
-    } catch (err: any) {
-      console.error("Clear all notifications error:", err.message);
-      res.status(500).json({ message: err.message });
-    }
-  });
-
 }
