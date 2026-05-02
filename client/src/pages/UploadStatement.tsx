@@ -83,6 +83,8 @@ export default function UploadStatement() {
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number>(0);
+  const [isUploading, setIsUploading] = useState(false);
 
   const params = new URLSearchParams(window.location.search);
   const preTerminal = params.get("terminal") === "yes";
@@ -151,7 +153,7 @@ export default function UploadStatement() {
   }, [merchantProfile, form]);
 
   const submitMutation = useMutation({
-    mutationFn: async (data: UploadFormData) => {
+    mutationFn: (data: UploadFormData) => {
       const refCode = localStorage.getItem("lb_ref_code") || undefined;
       const utmParams = getStoredUTMParams();
       const formData = new FormData();
@@ -173,16 +175,51 @@ export default function UploadStatement() {
         formData.append("statementFile", selectedFile);
       }
 
-      const res = await fetch("/api/public/statement-upload", {
-        method: "POST",
-        body: formData,
-        credentials: "include",
+      return new Promise<unknown>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.withCredentials = true;
+        xhr.open("POST", "/api/public/statement-upload");
+
+        setIsUploading(true);
+        setUploadProgress(0);
+
+        xhr.upload.addEventListener("progress", (event) => {
+          if (event.lengthComputable) {
+            setUploadProgress(Math.round((event.loaded / event.total) * 100));
+          }
+        });
+
+        xhr.addEventListener("load", () => {
+          setIsUploading(false);
+          if (xhr.status >= 200 && xhr.status < 300) {
+            setUploadProgress(100);
+            try {
+              resolve(JSON.parse(xhr.responseText));
+            } catch {
+              resolve({});
+            }
+          } else {
+            let message = "Upload failed";
+            try {
+              const body = JSON.parse(xhr.responseText);
+              message = body.message || message;
+            } catch { /* ignore */ }
+            reject(new Error(`${xhr.status}: ${message}`));
+          }
+        });
+
+        xhr.addEventListener("error", () => {
+          setIsUploading(false);
+          reject(new Error("Network error — please check your connection and try again."));
+        });
+
+        xhr.addEventListener("abort", () => {
+          setIsUploading(false);
+          reject(new Error("Upload was cancelled."));
+        });
+
+        xhr.send(formData);
       });
-      if (!res.ok) {
-        const errBody = await res.json().catch(() => ({ message: "Upload failed" }));
-        throw new Error(`${res.status}: ${errBody.message || "Upload failed"}`);
-      }
-      return res.json();
     },
     onSuccess: () => {
       trackStatementUpload();
@@ -194,6 +231,7 @@ export default function UploadStatement() {
       setLocation("/thanks-statement");
     },
     onError: (error: Error) => {
+      setUploadProgress(0);
       const msg = error?.message || "";
       if (msg.startsWith("429:")) {
         setSubmitError("Too many submissions — please wait a few minutes and try again.");
@@ -569,16 +607,35 @@ export default function UploadStatement() {
                       </div>
                     )}
 
+                    {isUploading && (
+                      <div className="space-y-2" data-testid="upload-progress-container" role="status" aria-label="Upload in progress">
+                        <div className="flex items-center justify-between text-xs text-muted-foreground">
+                          <span className="flex items-center gap-1.5">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                            Uploading your statement…
+                          </span>
+                          <span data-testid="text-upload-progress-percent">{uploadProgress}%</span>
+                        </div>
+                        <div className="h-2 w-full rounded-full bg-muted overflow-hidden" data-testid="upload-progress-bar-track">
+                          <div
+                            className="h-full rounded-full bg-primary transition-all duration-200"
+                            style={{ width: `${uploadProgress}%` }}
+                            data-testid="upload-progress-bar-fill"
+                          />
+                        </div>
+                      </div>
+                    )}
+
                     <Button
                       type="submit"
                       className="w-full"
-                      disabled={submitMutation.isPending}
+                      disabled={submitMutation.isPending || isUploading}
                       data-testid="button-upload-submit"
                     >
-                      {submitMutation.isPending ? (
+                      {submitMutation.isPending || isUploading ? (
                         <>
                           <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                          Submitting...
+                          {isUploading ? "Uploading…" : "Submitting…"}
                         </>
                       ) : (
                         "Upload My Statement"

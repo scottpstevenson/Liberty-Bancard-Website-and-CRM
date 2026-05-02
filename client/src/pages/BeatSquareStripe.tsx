@@ -25,8 +25,6 @@ import {
   ShieldCheck,
   Link2,
 } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
-
 import imgCloverFlex3 from "@assets/images/terminal-clover-flex-3.png";
 import imgPaxA920 from "@assets/images/terminal-pax-a920.png";
 
@@ -86,7 +84,6 @@ export default function BeatSquareStripe() {
   const containerRef = useScrollReveal();
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
-  const { toast } = useToast();
 
   const handleShareCopy = async () => {
     const shareUrl = `${BASE_URL}/beat-square-stripe?utm_source=agent&utm_medium=share&utm_content=beat-square-stripe`;
