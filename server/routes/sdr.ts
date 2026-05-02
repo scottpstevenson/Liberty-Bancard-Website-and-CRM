@@ -1850,4 +1850,65 @@ export function registerSdrRoutes(app: Express) {
     }
   });
 
+  app.get("/api/sdr/merchants/:id/contacts", isAuthenticated, async (req, res) => {
+    try {
+      const merchantId = parseInt(req.params.id, 10);
+      if (isNaN(merchantId)) {
+        return res.status(400).json({ message: "Invalid merchant ID" });
+      }
+      const { sdrMerchants: merchants, sdrMerchantContacts: contactsTable } = await import("@shared/schema");
+      const rows = await db
+        .select({
+          id: contactsTable.id,
+          merchantId: contactsTable.merchantId,
+          merchantSource: merchants.source,
+          contactName: contactsTable.contactName,
+          title: contactsTable.title,
+          email: contactsTable.email,
+          mobile: contactsTable.mobile,
+          directPhone: contactsTable.directPhone,
+          primaryContactFlag: contactsTable.primaryContactFlag,
+          roleGuess: contactsTable.roleGuess,
+          bestContactChannel: contactsTable.bestContactChannel,
+          createdAt: contactsTable.createdAt,
+        })
+        .from(contactsTable)
+        .leftJoin(merchants, eq(contactsTable.merchantId, merchants.id))
+        .where(eq(contactsTable.merchantId, merchantId));
+      res.json(rows);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.get("/api/sdr/merchant-contacts", isAuthenticated, async (_req, res) => {
+    try {
+      const { sdrMerchants: merchants, sdrMerchantContacts: contactsTable } = await import("@shared/schema");
+      const rows = await db
+        .select({
+          contactId: contactsTable.id,
+          merchantId: contactsTable.merchantId,
+          businessName: merchants.businessName,
+          source: merchants.source,
+          contactName: contactsTable.contactName,
+          title: contactsTable.title,
+          email: contactsTable.email,
+          mobile: contactsTable.mobile,
+          directPhone: contactsTable.directPhone,
+          primaryContactFlag: contactsTable.primaryContactFlag,
+          roleGuess: contactsTable.roleGuess,
+          bestContactChannel: contactsTable.bestContactChannel,
+          createdAt: contactsTable.createdAt,
+        })
+        .from(contactsTable)
+        .innerJoin(merchants, eq(contactsTable.merchantId, merchants.id))
+        .orderBy(desc(contactsTable.createdAt));
+      res.json(rows);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
 }

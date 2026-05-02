@@ -3,7 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Loader2, Users, Target, MessageSquare, Calendar, FileText, Send, AlertTriangle, BarChart3, Mail, Phone, MessageCircle, Bot, ArrowRightLeft, Clock, ShieldCheck, UserCheck, ArrowRight, TrendingUp, Search, MapPin, Building2, Zap, Settings, Play, Square, CheckCircle2, XCircle, RefreshCw, Cpu, Megaphone, PieChart, Mic, Bell, Globe, Smartphone } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Loader2, Users, Target, MessageSquare, Calendar, FileText, Send, AlertTriangle, BarChart3, Mail, Phone, MessageCircle, Bot, ArrowRightLeft, Clock, ShieldCheck, UserCheck, ArrowRight, TrendingUp, Search, MapPin, Building2, Zap, Settings, Play, Square, CheckCircle2, XCircle, RefreshCw, Cpu, Megaphone, PieChart, Mic, Bell, Globe, Smartphone, Contact, ChevronRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useState } from "react";
@@ -201,8 +202,111 @@ function FunnelVisualization() {
   );
 }
 
+interface SdrContact {
+  id: number;
+  merchantId: number | null;
+  merchantSource: string | null;
+  contactName: string | null;
+  title: string | null;
+  email: string | null;
+  mobile: string | null;
+  directPhone: string | null;
+  primaryContactFlag: boolean | null;
+  roleGuess: string | null;
+  bestContactChannel: string | null;
+}
+
+function MerchantContactsSection({ merchantId }: { merchantId: number }) {
+  const { data, isLoading } = useQuery<SdrContact[]>({
+    queryKey: ["/api/sdr/merchants", merchantId, "contacts"],
+    queryFn: async () => {
+      const res = await fetch(`/api/sdr/merchants/${merchantId}/contacts`, { credentials: "include" });
+      if (!res.ok) throw new Error(`${res.status}`);
+      return res.json();
+    },
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground" data-testid={`contacts-loading-${merchantId}`}>
+        <Loader2 className="w-3 h-3 animate-spin" /> Loading contacts...
+      </div>
+    );
+  }
+
+  const contacts = data || [];
+
+  if (contacts.length === 0) {
+    return (
+      <div className="py-2 text-xs text-muted-foreground italic" data-testid={`contacts-empty-${merchantId}`}>
+        No contacts on file for this lead.
+      </div>
+    );
+  }
+
+  const isApolloSource = contacts.some((c) => c.merchantSource?.toLowerCase().includes("apollo"));
+
+  return (
+    <div className="mt-3 space-y-2" data-testid={`contacts-section-${merchantId}`}>
+      <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+        <Users className="w-3 h-3" /> Decision Maker Contacts
+        {isApolloSource && (
+          <Badge className="text-[10px] bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200 ml-1" data-testid={`badge-apollo-source-${merchantId}`}>
+            Apollo
+          </Badge>
+        )}
+      </div>
+      {contacts.map((contact) => {
+        const contactIsApollo = contact.merchantSource?.toLowerCase().includes("apollo");
+        return (
+          <div
+            key={contact.id}
+            className="flex flex-wrap items-center gap-x-4 gap-y-1 pl-2 border-l-2 border-orange-300 dark:border-orange-700 text-xs"
+            data-testid={`contact-detail-${contact.id}`}
+          >
+            <span className="font-medium text-foreground" data-testid={`contact-name-${contact.id}`}>
+              {contact.contactName || "Unknown"}
+            </span>
+            {contact.title && (
+              <span className="text-muted-foreground" data-testid={`contact-title-${contact.id}`}>{contact.title}</span>
+            )}
+            {contact.email && (
+              <a
+                href={`mailto:${contact.email}`}
+                className="flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:underline"
+                data-testid={`contact-email-${contact.id}`}
+              >
+                <Mail className="w-3 h-3" />{contact.email}
+              </a>
+            )}
+            {(contact.directPhone || contact.mobile) && (
+              <span className="flex items-center gap-1 text-muted-foreground" data-testid={`contact-phone-${contact.id}`}>
+                <Phone className="w-3 h-3" />{contact.directPhone || contact.mobile}
+              </span>
+            )}
+            <div className="flex items-center gap-1 ml-auto">
+              {contact.primaryContactFlag && (
+                <Badge className="text-[10px] bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" data-testid={`badge-primary-contact-${contact.id}`}>
+                  Primary
+                </Badge>
+              )}
+              {contactIsApollo && (
+                <Badge className="text-[10px] bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200" data-testid={`badge-apollo-contact-${contact.id}`}>
+                  Apollo
+                </Badge>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function StuckLeads() {
   const { toast } = useToast();
+  const [expandedMerchant, setExpandedMerchant] = useState<number | null>(null);
+
   const { data, isLoading, isError, refetch } = useQuery<StuckLeadData[]>({
     queryKey: ["/api/sdr/dashboard/stuck-leads"],
   });
@@ -273,41 +377,60 @@ function StuckLeads() {
           </div>
         ) : (
           <div className="space-y-2">
-            {leads.map((lead, idx) => (
-              <div key={`${lead.merchantId}-${idx}`} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg" data-testid={`stuck-lead-${lead.merchantId}`}>
-                <div className="flex-1 min-w-0">
-                  <div className="font-medium text-sm truncate">{lead.businessName}</div>
-                  <div className="text-xs text-muted-foreground">{lead.reason}</div>
-                  {lead.stageAgeDays !== undefined && lead.stageAgeDays > 0 && (
-                    <div className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-                      <Clock className="w-3 h-3" />
-                      {lead.stageAgeDays}d in stage
+            {leads.map((lead, idx) => {
+              const isExpanded = expandedMerchant === lead.merchantId;
+              return (
+                <div key={`${lead.merchantId}-${idx}`} className="rounded-lg bg-muted/50 overflow-hidden" data-testid={`stuck-lead-${lead.merchantId}`}>
+                  <div className="flex items-center justify-between p-3">
+                    <div className="flex-1 min-w-0">
+                      <button
+                        className="text-left w-full group"
+                        onClick={() => setExpandedMerchant(isExpanded ? null : lead.merchantId)}
+                        data-testid={`btn-expand-lead-${lead.merchantId}`}
+                      >
+                        <div className="font-medium text-sm truncate group-hover:text-primary transition-colors flex items-center gap-1">
+                          {lead.businessName}
+                          <ChevronRight className={`w-3.5 h-3.5 text-muted-foreground transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+                        </div>
+                      </button>
+                      <div className="text-xs text-muted-foreground">{lead.reason}</div>
+                      {lead.stageAgeDays !== undefined && lead.stageAgeDays > 0 && (
+                        <div className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                          <Clock className="w-3 h-3" />
+                          {lead.stageAgeDays}d in stage
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 ml-2">
+                      {lead.currentStage && (
+                        <Badge variant="outline" className="text-xs">{lead.currentStage}</Badge>
+                      )}
+                      <Badge variant={typeVariants[lead.type] || "secondary"} className="text-xs">
+                        {typeLabels[lead.type] || lead.type}
+                      </Badge>
+                      {lead.assignedOwnerType !== "human" && lead.type !== "compliance_blocked" && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs"
+                          onClick={() => lead.leadId && handoffMutation.mutate(lead.leadId)}
+                          disabled={handoffMutation.isPending}
+                          data-testid={`btn-handoff-${lead.merchantId}`}
+                        >
+                          <UserCheck className="w-3 h-3 mr-1" />
+                          Claim
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                  {isExpanded && (
+                    <div className="px-3 pb-3 border-t border-border/50">
+                      <MerchantContactsSection merchantId={lead.merchantId} />
                     </div>
                   )}
                 </div>
-                <div className="flex items-center gap-2 ml-2">
-                  {lead.currentStage && (
-                    <Badge variant="outline" className="text-xs">{lead.currentStage}</Badge>
-                  )}
-                  <Badge variant={typeVariants[lead.type] || "secondary"} className="text-xs">
-                    {typeLabels[lead.type] || lead.type}
-                  </Badge>
-                  {lead.assignedOwnerType !== "human" && lead.type !== "compliance_blocked" && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 text-xs"
-                      onClick={() => lead.leadId && handoffMutation.mutate(lead.leadId)}
-                      disabled={handoffMutation.isPending}
-                      data-testid={`btn-handoff-${lead.merchantId}`}
-                    >
-                      <UserCheck className="w-3 h-3 mr-1" />
-                      Claim
-                    </Button>
-                  )}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </CardContent>
@@ -2042,6 +2165,177 @@ function DiscoveryControlsPanel() {
   );
 }
 
+interface MerchantContactRow {
+  contactId: number;
+  merchantId: number | null;
+  businessName: string;
+  source: string | null;
+  contactName: string | null;
+  title: string | null;
+  email: string | null;
+  mobile: string | null;
+  directPhone: string | null;
+  primaryContactFlag: boolean | null;
+  roleGuess: string | null;
+  bestContactChannel: string | null;
+  createdAt: string | null;
+}
+
+function LeadContactsPanel() {
+  const [search, setSearch] = useState("");
+
+  const { data, isLoading } = useQuery<MerchantContactRow[]>({
+    queryKey: ["/api/sdr/merchant-contacts"],
+  });
+
+  const contacts = data || [];
+
+  const filtered = contacts.filter((c) => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return (
+      c.businessName?.toLowerCase().includes(q) ||
+      c.contactName?.toLowerCase().includes(q) ||
+      c.email?.toLowerCase().includes(q) ||
+      c.title?.toLowerCase().includes(q)
+    );
+  });
+
+  const grouped: Record<string, MerchantContactRow[]> = {};
+  for (const c of filtered) {
+    const key = `${c.merchantId}-${c.businessName}`;
+    if (!grouped[key]) grouped[key] = [];
+    grouped[key].push(c);
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4" data-testid="panel-lead-contacts">
+      <div className="flex items-center gap-3">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            className="pl-9"
+            placeholder="Search by business, contact, email..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            data-testid="input-contacts-search"
+          />
+        </div>
+        <span className="text-sm text-muted-foreground" data-testid="text-contacts-count">
+          {contacts.length} contact{contacts.length !== 1 ? "s" : ""} across {Object.keys(grouped).length} lead{Object.keys(grouped).length !== 1 ? "s" : ""}
+        </span>
+      </div>
+
+      {Object.keys(grouped).length === 0 ? (
+        <Card>
+          <CardContent className="p-8 text-center text-muted-foreground" data-testid="text-no-contacts">
+            <Contact className="w-8 h-8 mx-auto mb-2 opacity-50" />
+            <div className="font-medium">No contacts found</div>
+            <div className="text-xs mt-1">Apollo contacts will appear here once leads are enriched</div>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-4">
+          {Object.entries(grouped).map(([key, rows]) => {
+            const first = rows[0];
+            const isApollo = first.source?.toLowerCase().includes("apollo");
+            return (
+              <Card key={key} data-testid={`card-merchant-contacts-${first.merchantId}`}>
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Building2 className="w-4 h-4 text-muted-foreground" />
+                      <span data-testid={`text-business-name-${first.merchantId}`}>{first.businessName}</span>
+                    </CardTitle>
+                    <div className="flex items-center gap-2">
+                      {isApollo && (
+                        <Badge className="bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200 text-xs font-medium" data-testid={`badge-apollo-${first.merchantId}`}>
+                          Apollo
+                        </Badge>
+                      )}
+                      <Badge variant="outline" className="text-xs">
+                        {rows.length} contact{rows.length !== 1 ? "s" : ""}
+                      </Badge>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <div className="space-y-3">
+                    {rows.map((contact) => (
+                      <div
+                        key={contact.contactId}
+                        className="flex flex-wrap items-start gap-x-6 gap-y-2 p-3 rounded-lg bg-muted/40 border border-border/50"
+                        data-testid={`contact-row-${contact.contactId}`}
+                      >
+                        <div className="flex items-center gap-2 min-w-[140px]">
+                          <Users className="w-3.5 h-3.5 text-muted-foreground shrink-0 mt-0.5" />
+                          <div>
+                            <div className="text-sm font-medium leading-tight" data-testid={`text-contact-name-${contact.contactId}`}>
+                              {contact.contactName || "—"}
+                            </div>
+                            {contact.title && (
+                              <div className="text-xs text-muted-foreground" data-testid={`text-contact-title-${contact.contactId}`}>
+                                {contact.title}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {contact.email && (
+                          <div className="flex items-center gap-1.5 text-sm min-w-[180px]">
+                            <Mail className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                            <a
+                              href={`mailto:${contact.email}`}
+                              className="text-blue-600 dark:text-blue-400 hover:underline truncate"
+                              data-testid={`link-contact-email-${contact.contactId}`}
+                            >
+                              {contact.email}
+                            </a>
+                          </div>
+                        )}
+
+                        {(contact.directPhone || contact.mobile) && (
+                          <div className="flex items-center gap-1.5 text-sm">
+                            <Phone className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                            <span data-testid={`text-contact-phone-${contact.contactId}`}>
+                              {contact.directPhone || contact.mobile}
+                            </span>
+                          </div>
+                        )}
+
+                        <div className="flex items-center gap-1.5 ml-auto">
+                          {contact.primaryContactFlag && (
+                            <Badge className="text-xs bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" data-testid={`badge-primary-${contact.contactId}`}>
+                              Primary
+                            </Badge>
+                          )}
+                          {isApollo && (
+                            <Badge className="text-xs bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200" data-testid={`badge-contact-apollo-${contact.contactId}`}>
+                              Apollo
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function SdrDashboard() {
   return (
     <div className="space-y-6" data-testid="page-sdr-dashboard">
@@ -2068,6 +2362,7 @@ export default function SdrDashboard() {
           <TabsTrigger value="identity" data-testid="tab-sdr-identity">Inbox Health</TabsTrigger>
           <TabsTrigger value="market" data-testid="tab-sdr-market">Market Expansion</TabsTrigger>
           <TabsTrigger value="kpi" data-testid="tab-sdr-kpi">Weekly KPI</TabsTrigger>
+          <TabsTrigger value="contacts" data-testid="tab-sdr-contacts">Lead Contacts</TabsTrigger>
         </TabsList>
 
         <TabsContent value="summary" className="mt-4">
@@ -2132,6 +2427,10 @@ export default function SdrDashboard() {
 
         <TabsContent value="kpi" className="mt-4">
           <WeeklyKpiReport />
+        </TabsContent>
+
+        <TabsContent value="contacts" className="mt-4">
+          <LeadContactsPanel />
         </TabsContent>
       </Tabs>
     </div>
