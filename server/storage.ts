@@ -100,6 +100,7 @@ export interface PaginatedResult<T> {
 export interface IStorage {
   getContacts(params?: PaginationParams): Promise<PaginatedResult<typeof contacts.$inferSelect>>;
   getContact(id: number): Promise<typeof contacts.$inferSelect | undefined>;
+  getContactByEmail(email: string): Promise<typeof contacts.$inferSelect | undefined>;
   createContact(contact: InsertContact): Promise<typeof contacts.$inferSelect>;
   updateContact(id: number, contact: UpdateContactRequest): Promise<typeof contacts.$inferSelect | undefined>;
 
@@ -513,6 +514,11 @@ export class DatabaseStorage implements IStorage {
 
   async getContact(id: number) {
     const [contact] = await db.select().from(contacts).where(eq(contacts.id, id));
+    return contact;
+  }
+
+  async getContactByEmail(email: string) {
+    const [contact] = await db.select().from(contacts).where(and(eq(contacts.email, email.toLowerCase()), isNull(contacts.archivedAt)));
     return contact;
   }
 

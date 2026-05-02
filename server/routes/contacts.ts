@@ -17,6 +17,10 @@ import { createContactGhlFirst, updateContactGhlFirst } from "../services/contac
 import { parse } from "csv-parse/sync";
 import path from "path";
 
+function isUniqueEmailViolation(err: any): boolean {
+  return err?.code === "23505" && (err?.constraint?.includes("email") || err?.message?.includes("contacts_email_unique_idx"));
+}
+
 export function registerContactsRoutes(app: Express) {
   // === CONTACTS ===
   app.get("/api/contacts", isAuthenticated, async (req, res) => {
@@ -51,6 +55,13 @@ export function registerContactsRoutes(app: Express) {
       res.status(statusCode).json(contact);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      if (isUniqueEmailViolation(err)) {
+        const existing = await storage.getContactByEmail(req.body?.email || "").catch(() => undefined);
+        return res.status(409).json({
+          message: "A contact with this email address already exists.",
+          existingContactId: existing?.id ?? null,
+        });
+      }
       res.status(500).json({ message: err.message });
     }
   });
@@ -82,6 +93,13 @@ export function registerContactsRoutes(app: Express) {
       const statusCode = updated._ghlSyncFailed ? 202 : 200;
       res.status(statusCode).json(updated);
     } catch (err: any) {
+      if (isUniqueEmailViolation(err)) {
+        const existing = await storage.getContactByEmail(req.body?.email || "").catch(() => undefined);
+        return res.status(409).json({
+          message: "A contact with this email address already exists.",
+          existingContactId: existing?.id ?? null,
+        });
+      }
       res.status(500).json({ message: err.message });
     }
   });

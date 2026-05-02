@@ -766,30 +766,41 @@ Guidelines:
       if (utmMedium) tags.push(`utm_med_${utmMedium}`);
       if (utmCampaign) tags.push(`utm_camp_${utmCampaign}`);
 
-      const contact = await createContactGhlFirst({
-        firstName,
-        lastName: lastName || "",
-        email,
-        phone: phone || "",
-        companyName: companyName || undefined,
-        vertical: normalizedIndustry || undefined,
-        monthlyVolume: monthlyVolume || undefined,
-        currentProvider: currentProcessor || undefined,
-        primaryOfferPath: recommendedProgram,
-        consentSms: consentSms === true,
-        consentEmail: consentEmail === true,
-        utmSource: utmSource || undefined,
-        utmMedium: utmMedium || undefined,
-        utmCampaign: utmCampaign || undefined,
-        utmContent: utmContent || undefined,
-        utmTerm: utmTerm || undefined,
-        landingPage: "/free-analysis",
-        promoCode: sanitizedPromo,
-        painPoints: resolvedPainPoints.length > 0 ? resolvedPainPoints : undefined,
-        estimatedResidual: estimatedSavings ? String(estimatedSavings) : undefined,
-        status: "New",
-        tags,
-      });
+      let contact: Awaited<ReturnType<typeof createContactGhlFirst>> | Awaited<ReturnType<typeof storage.getContactByEmail>> & { _ghlSyncPending?: boolean };
+      try {
+        contact = await createContactGhlFirst({
+          firstName,
+          lastName: lastName || "",
+          email,
+          phone: phone || "",
+          companyName: companyName || undefined,
+          vertical: normalizedIndustry || undefined,
+          monthlyVolume: monthlyVolume || undefined,
+          currentProvider: currentProcessor || undefined,
+          primaryOfferPath: recommendedProgram,
+          consentSms: consentSms === true,
+          consentEmail: consentEmail === true,
+          utmSource: utmSource || undefined,
+          utmMedium: utmMedium || undefined,
+          utmCampaign: utmCampaign || undefined,
+          utmContent: utmContent || undefined,
+          utmTerm: utmTerm || undefined,
+          landingPage: "/free-analysis",
+          promoCode: sanitizedPromo,
+          painPoints: resolvedPainPoints.length > 0 ? resolvedPainPoints : undefined,
+          estimatedResidual: estimatedSavings ? String(estimatedSavings) : undefined,
+          status: "New",
+          tags,
+        });
+      } catch (createErr: any) {
+        if (createErr?.code === "23505" && (createErr?.constraint?.includes("email") || createErr?.message?.includes("contacts_email_unique_idx"))) {
+          const existing = await storage.getContactByEmail(email);
+          if (!existing) throw createErr;
+          contact = existing;
+        } else {
+          throw createErr;
+        }
+      }
 
       if (consentSms) {
         await storage.createConsentAuditLog({

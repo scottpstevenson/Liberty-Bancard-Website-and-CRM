@@ -1,4 +1,5 @@
 import { pgTable, text, serial, integer, boolean, timestamp, jsonb, varchar, real, index, uniqueIndex, unique } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { users } from "./models/auth";
@@ -74,7 +75,7 @@ export const contacts = pgTable("contacts", {
   updatedAt: timestamp("updated_at").defaultNow(),
   archivedAt: timestamp("archived_at"),
 }, (table) => [
-  index("contacts_email_idx").on(table.email),
+  uniqueIndex("contacts_email_unique_idx").on(table.email).where(sql`archived_at IS NULL`),
   index("contacts_phone_idx").on(table.phone),
   index("contacts_ghl_contact_id_idx").on(table.ghlContactId),
   index("contacts_created_at_idx").on(table.createdAt),
