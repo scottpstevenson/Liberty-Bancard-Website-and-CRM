@@ -28,6 +28,7 @@ import { registerSsrRoutes } from "./routes/ssr-routes";
 import { registerGlossaryRoutes } from "./routes/glossary";
 import { registerTrainingRoutes } from "./routes/training";
 import { registerMyDayRoutes } from "./routes/my-day";
+import { registerLiveChatRoutes } from "./routes/live-chat";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -80,6 +81,7 @@ export async function registerRoutes(
   registerGlossaryRoutes(app);
   registerTrainingRoutes(app);
   registerMyDayRoutes(app);
+  registerLiveChatRoutes(app);
 
   return httpServer;
 }

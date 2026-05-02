@@ -2754,3 +2754,48 @@ export const CLOSED_DEAL_STAGES = [
   "Active (7 Days)",
   "Active (30 Days)",
 ] as const;
+
+// ── Live Chat ─────────────────────────────────────────────────────────────────
+export const liveChats = pgTable("live_chats", {
+  id: serial("id").primaryKey(),
+  sessionId: text("session_id").notNull().unique(),
+  visitorName: text("visitor_name"),
+  visitorEmail: text("visitor_email"),
+  pageUrl: text("page_url"),
+  status: text("status").notNull().default("active"), // active | closed | offline_captured
+  contactId: integer("contact_id").references(() => contacts.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  lastMessageAt: timestamp("last_message_at").defaultNow().notNull(),
+  closedAt: timestamp("closed_at"),
+}, (table) => [
+  index("live_chats_session_id_idx").on(table.sessionId),
+  index("live_chats_status_idx").on(table.status),
+]);
+
+export const liveChatMessages = pgTable("live_chat_messages", {
+  id: serial("id").primaryKey(),
+  chatId: integer("chat_id").notNull().references(() => liveChats.id, { onDelete: "cascade" }),
+  senderType: text("sender_type").notNull(), // visitor | agent
+  senderName: text("sender_name"),
+  content: text("content").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("live_chat_messages_chat_id_idx").on(table.chatId),
+]);
+
+export const insertLiveChatSchema = createInsertSchema(liveChats).omit({
+  id: true,
+  createdAt: true,
+  lastMessageAt: true,
+  closedAt: true,
+});
+
+export const insertLiveChatMessageSchema = createInsertSchema(liveChatMessages).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type LiveChat = typeof liveChats.$inferSelect;
+export type InsertLiveChat = z.infer<typeof insertLiveChatSchema>;
+export type LiveChatMessage = typeof liveChatMessages.$inferSelect;
+export type InsertLiveChatMessage = z.infer<typeof insertLiveChatMessageSchema>;

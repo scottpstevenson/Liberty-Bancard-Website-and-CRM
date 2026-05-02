@@ -1,5 +1,7 @@
 import { db, pool } from "./db";
 import {
+  liveChats, liveChatMessages,
+  type LiveChat, type InsertLiveChat, type LiveChatMessage, type InsertLiveChatMessage,
   contacts, companies, deals, tickets, tasks, documents, auditLogs, notifications, workflowRuns, workflows, rfis, users,
   messageTemplates, collateralPackets, ghlActivityLog, slaConfigs,
   prospects, prospectLists, enrichmentJobs, campaigns, campaignSteps, outboundMessages, notes,
@@ -2913,6 +2915,56 @@ export class DatabaseStorage implements IStorage {
       .from(ghlWorkflowMappings)
       .where(eq(ghlWorkflowMappings.sequenceName, sequenceName));
     return row?.ghlWorkflowId || null;
+  }
+
+  // ── Live Chat ────────────────────────────────────────────────────────────────
+  async createLiveChat(data: InsertLiveChat): Promise<LiveChat> {
+    const [row] = await db.insert(liveChats).values(data).returning();
+    return row;
+  }
+
+  async getLiveChat(id: number): Promise<LiveChat | undefined> {
+    const [row] = await db.select().from(liveChats).where(eq(liveChats.id, id));
+    return row;
+  }
+
+  async getLiveChatBySession(sessionId: string): Promise<LiveChat | undefined> {
+    const [row] = await db.select().from(liveChats).where(eq(liveChats.sessionId, sessionId));
+    return row;
+  }
+
+  async getActiveLiveChats(): Promise<LiveChat[]> {
+    return db.select().from(liveChats)
+      .where(eq(liveChats.status, "active"))
+      .orderBy(desc(liveChats.lastMessageAt));
+  }
+
+  async getAllLiveChats(params?: { limit?: number; offset?: number }): Promise<LiveChat[]> {
+    return db.select().from(liveChats)
+      .orderBy(desc(liveChats.lastMessageAt))
+      .limit(params?.limit ?? 1000)
+      .offset(params?.offset ?? 0);
+  }
+
+  async updateLiveChat(id: number, data: Partial<InsertLiveChat> & { closedAt?: Date; lastMessageAt?: Date; contactId?: number | null }): Promise<LiveChat | undefined> {
+    const [row] = await db.update(liveChats).set(data).where(eq(liveChats.id, id)).returning();
+    return row;
+  }
+
+  async createLiveChatMessage(data: InsertLiveChatMessage): Promise<LiveChatMessage> {
+    const [row] = await db.insert(liveChatMessages).values(data).returning();
+    return row;
+  }
+
+  async getLiveChatMessages(chatId: number, afterId?: number): Promise<LiveChatMessage[]> {
+    if (afterId) {
+      return db.select().from(liveChatMessages)
+        .where(and(eq(liveChatMessages.chatId, chatId), sql`${liveChatMessages.id} > ${afterId}`))
+        .orderBy(asc(liveChatMessages.createdAt));
+    }
+    return db.select().from(liveChatMessages)
+      .where(eq(liveChatMessages.chatId, chatId))
+      .orderBy(asc(liveChatMessages.createdAt));
   }
 }
 

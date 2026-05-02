@@ -113,6 +113,7 @@ import ActivationPanel from "@/pages/dashboard/ActivationPanel";
 import OperatorDashboard from "@/pages/dashboard/OperatorDashboard";
 import Training from "@/pages/dashboard/Training";
 import SalesRepHome from "@/pages/dashboard/SalesRepHome";
+import LiveChatDashboard from "@/pages/dashboard/LiveChat";
 import DataRetention from "@/pages/DataRetention";
 import TCPAConsent from "@/pages/TCPAConsent";
 import RefundPolicy from "@/pages/RefundPolicy";
@@ -460,6 +461,9 @@ function Router() {
       </Route>
       <Route path="/dashboard/my-day">
         <AgentRoute component={SalesRepHome} />
+      </Route>
+      <Route path="/dashboard/live-chat">
+        <ProtectedRoute component={LiveChatDashboard} />
       </Route>
 
       <Route component={NotFound} />
