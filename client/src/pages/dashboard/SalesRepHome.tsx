@@ -17,7 +17,7 @@ import {
   Phone, Mail, User, Clock, TrendingUp, Target, CheckCircle2, AlertTriangle,
   Loader2, CalendarDays, PhoneCall, Link2, Copy, ChevronRight, Star,
   BookOpen, LayoutDashboard, Users, ClipboardList, Calendar, FileText,
-  ExternalLink, XCircle,
+  ExternalLink, XCircle, Activity, MessageSquare, Voicemail, Video,
 } from "lucide-react";
 import { SALES_STAGES } from "@shared/schema";
 
@@ -165,6 +165,16 @@ interface MyDayData {
     dueDate: string | null;
     status: string | null;
     priority: string | null;
+  }>;
+  recentActivity: Array<{
+    id: number;
+    contactId: number | null;
+    outcome: string | null;
+    summary: string | null;
+    createdAt: string | null;
+    contactFirstName: string | null;
+    contactLastName: string | null;
+    contactCompanyName: string | null;
   }>;
 }
 
@@ -463,7 +473,7 @@ export default function SalesRepHome() {
     );
   }
 
-  const { contacts = [], dealsByStage = {}, quota, closedWonThisMonth = 0, tasksToday = [] } = data ?? {};
+  const { contacts = [], dealsByStage = {}, quota, closedWonThisMonth = 0, tasksToday = [], recentActivity = [] } = data ?? {};
 
   const stagesWithDeals = SALES_STAGES.filter(
     (s) => s !== "Closed Won" && s !== "Closed Lost" && (dealsByStage[s]?.length ?? 0) > 0
@@ -867,6 +877,70 @@ export default function SalesRepHome() {
                         {task.status === "completed" && (
                           <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0" />
                         )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Recent Activity */}
+          <Card data-testid="card-recent-activity">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Activity className="w-4 h-4 text-primary" />
+                Recent Activity
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              {recentActivity.length === 0 ? (
+                <div className="px-4 py-6 text-center text-sm text-muted-foreground" data-testid="text-no-recent-activity">
+                  No activity logged yet. Use "Log" on a contact to get started.
+                </div>
+              ) : (
+                <div className="divide-y" data-testid="recent-activity-list">
+                  {recentActivity.map((entry) => {
+                    const contactName = entry.contactFirstName
+                      ? `${entry.contactFirstName} ${entry.contactLastName ?? ""}`.trim()
+                      : entry.contactCompanyName ?? "Unknown";
+                    const activityType = entry.outcome ?? "activity";
+                    const typeLabel = activityType.charAt(0).toUpperCase() + activityType.slice(1);
+                    const icon = activityType === "call" ? Phone
+                      : activityType === "email" ? Mail
+                      : activityType === "sms" ? MessageSquare
+                      : activityType === "voicemail" ? Voicemail
+                      : activityType === "meeting" ? Video
+                      : Activity;
+                    const IconComponent = icon;
+                    return (
+                      <div
+                        key={entry.id}
+                        className="px-4 py-2.5 flex items-start gap-2.5"
+                        data-testid={`activity-row-${entry.id}`}
+                      >
+                        <div className="mt-0.5 w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                          <IconComponent className="w-3 h-3 text-primary" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-sm font-medium truncate" data-testid={`text-activity-contact-${entry.id}`}>
+                              {contactName}
+                            </span>
+                            <Badge variant="secondary" className="text-[10px] h-4 px-1" data-testid={`badge-activity-type-${entry.id}`}>
+                              {typeLabel}
+                            </Badge>
+                          </div>
+                          {entry.summary && (
+                            <p className="text-xs text-muted-foreground mt-0.5 truncate" data-testid={`text-activity-notes-${entry.id}`}>
+                              {entry.summary}
+                            </p>
+                          )}
+                          <div className="text-[10px] text-muted-foreground mt-0.5 flex items-center gap-1" data-testid={`text-activity-time-${entry.id}`}>
+                            <Clock className="w-2.5 h-2.5" />
+                            {formatRelative(entry.createdAt)}
+                          </div>
+                        </div>
                       </div>
                     );
                   })}

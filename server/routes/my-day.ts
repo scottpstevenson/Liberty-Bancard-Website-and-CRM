@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { isAuthenticated } from "../replit_integrations/auth";
 import { db } from "../db";
-import { agents, agentMerchants, agentQuotas, deals, contacts, tasks, SALES_STAGES } from "@shared/schema";
+import { agents, agentMerchants, agentQuotas, deals, contacts, tasks, callLogs, SALES_STAGES } from "@shared/schema";
 import { eq, and, lte, gte, isNull, or, desc, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
@@ -172,6 +172,36 @@ export function registerMyDayRoutes(app: Express) {
         quotaWithActuals = { ...quota, actualDeals: liveActualDeals };
       }
 
+      let recentActivity: Array<{
+        id: number;
+        contactId: number | null;
+        outcome: string | null;
+        summary: string | null;
+        createdAt: Date | null;
+        contactFirstName: string | null;
+        contactLastName: string | null;
+        contactCompanyName: string | null;
+      }> = [];
+
+      if (dealContactIds.length > 0) {
+        recentActivity = await db
+          .select({
+            id: callLogs.id,
+            contactId: callLogs.contactId,
+            outcome: callLogs.outcome,
+            summary: callLogs.summary,
+            createdAt: callLogs.createdAt,
+            contactFirstName: contacts.firstName,
+            contactLastName: contacts.lastName,
+            contactCompanyName: contacts.companyName,
+          })
+          .from(callLogs)
+          .leftJoin(contacts, eq(callLogs.contactId, contacts.id))
+          .where(inArray(callLogs.contactId, dealContactIds))
+          .orderBy(desc(callLogs.createdAt))
+          .limit(10);
+      }
+
       return res.json({
         agent,
         contacts: contactsForDeals,
@@ -180,6 +210,7 @@ export function registerMyDayRoutes(app: Express) {
         quota: quotaWithActuals,
         closedWonThisMonth: closedWonThisMonth.length,
         tasksToday: myTasks,
+        recentActivity,
       });
     } catch (err) {
       console.error("my-day GET error:", err);
@@ -237,6 +268,20 @@ export function registerMyDayRoutes(app: Express) {
           contactAttempts: sql`${contacts.contactAttempts} + 1`,
         })
         .where(eq(contacts.id, contactId));
+
+      const relatedDeal = await db
+        .select({ id: deals.id })
+        .from(deals)
+        .where(and(eq(deals.contactId, contactId), inArray(deals.id, agentDealIds)))
+        .limit(1);
+
+      await db.insert(callLogs).values({
+        contactId,
+        dealId: relatedDeal[0]?.id ?? null,
+        direction: "outbound",
+        outcome: type,
+        summary: parsed.data.notes || null,
+      });
 
       res.json({ success: true });
     } catch (err) {
