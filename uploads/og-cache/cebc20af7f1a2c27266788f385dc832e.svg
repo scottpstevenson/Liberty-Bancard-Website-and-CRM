@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f1f3d"/>
+      <stop offset="100%" stop-color="#1e3a8a"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.85" cy="0.15" r="0.6">
+      <stop offset="0%" stop-color="rgba(255,255,255,0.18)"/>
+      <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect width="1200" height="630" fill="url(#glow)"/>
+  <rect x="0" y="0" width="1200" height="6" fill="#0ea5e9"/>
+  <g font-family="Outfit, system-ui, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" fill="#ffffff">
+    <text x="80" y="100" font-size="22" font-weight="600" letter-spacing="6" opacity="0.65" text-transform="uppercase">LIBERTY BANCARD</text>
+    <text font-size="74" font-weight="800" letter-spacing="-1.5"><tspan x="80" y="240">Home</tspan></text>
+    <text x="80" y="540" font-size="22" font-weight="500" opacity="0.85">libertybancard.com</text>
+    <text x="80" y="572" font-size="18" font-weight="400" opacity="0.6">Transparent payment processing • Statement-based pricing</text>
+  </g>
+  <g transform="translate(960,460)" font-family="Outfit, system-ui, sans-serif" fill="#ffffff">
+    <rect x="0" y="0" width="160" height="48" rx="24" fill="rgba(14,165,233,0.95)"/>
+    <text x="80" y="31" font-size="18" font-weight="700" text-anchor="middle">LIBERTY</text>
+  </g>
+</svg>

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useParams } from "wouter";
-import { SEO, getFAQSchema, getBreadcrumbSchema } from "@/components/SEO";
+import { SEO, getFAQSchema, getBreadcrumbSchema, getServiceSchema } from "@/components/SEO";
 import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
@@ -469,7 +469,15 @@ export default function CompareVs() {
           { name: "Compare", path: "/compare-rates" },
           { name: `vs ${data.name}`, path: `/compare/${data.slug}` },
         ]}
-        structuredData={[faqSchema, breadcrumbSchema]}
+        structuredData={[
+          faqSchema,
+          breadcrumbSchema,
+          getServiceSchema(
+            `Liberty Bancard vs ${data.name}`,
+            data.metaDescription,
+            `/compare/${data.slug}`,
+          ),
+        ]}
       />
       <Navbar />
 

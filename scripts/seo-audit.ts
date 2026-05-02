@@ -17,6 +17,8 @@
  *        BASE_URL=https://libertybancard.com tsx scripts/seo-audit.ts
  */
 
+import { SEO_ROUTE_DEFAULTS } from "../shared/seo-routes";
+
 const BASE = process.env.SEO_AUDIT_BASE_URL || process.env.BASE_URL || "http://localhost:5000";
 
 interface RouteSpec {
@@ -24,53 +26,13 @@ interface RouteSpec {
   noindex?: boolean;
 }
 
-const ROUTES: RouteSpec[] = [
-  { path: "/" },
-  { path: "/get-started" },
-  { path: "/upload-statement" },
-  { path: "/free-analysis" },
-  { path: "/0-percent-processing" },
-  { path: "/beat-square-stripe" },
-  { path: "/about-contact" },
-  { path: "/estimate" },
-  { path: "/support" },
-  { path: "/savings-calculator" },
-  { path: "/compare-rates" },
-  { path: "/blog" },
-  { path: "/faq" },
-  { path: "/affiliate" },
-  { path: "/why-liberty-bancard" },
-  { path: "/equipment" },
-  { path: "/case-studies" },
-  { path: "/testimonials" },
-  { path: "/integrations" },
-  { path: "/compare/square" },
-  { path: "/compare/stripe" },
-  { path: "/compare/clover" },
-  { path: "/compare/toast" },
-  { path: "/compare/paypal" },
-  { path: "/merchant-application" },
-  { path: "/partners" },
-  { path: "/privacy-policy" },
-  { path: "/terms" },
-  { path: "/cookie-policy" },
-  { path: "/ada-compliance" },
-  { path: "/california-privacy" },
-  { path: "/refund-policy" },
-  { path: "/tcpa-consent" },
-  // Auth — must be noindex
-  { path: "/login", noindex: true },
-  { path: "/signup", noindex: true },
-  { path: "/forgot-password", noindex: true },
-  { path: "/reset-password", noindex: true },
-  { path: "/verify-email", noindex: true },
-  // Thank-you — must be noindex
-  { path: "/thanks-statement", noindex: true },
-  { path: "/thanks-estimate", noindex: true },
-  { path: "/thanks-call", noindex: true },
-  { path: "/thanks-support", noindex: true },
-  { path: "/thanks/application", noindex: true },
-];
+// Single source of truth: derive the audited route list from the shared
+// SEO_ROUTE_DEFAULTS map so the audit script, /api/admin/seo-coverage,
+// and the SPA stay in lockstep.
+const ROUTES: RouteSpec[] = Object.entries(SEO_ROUTE_DEFAULTS).map(([path, def]) => ({
+  path,
+  noindex: !!def.noindex,
+}));
 
 interface AuditResult {
   path: string;

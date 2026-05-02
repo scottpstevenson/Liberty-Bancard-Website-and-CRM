@@ -1,4 +1,45 @@
 import type { Express } from "express";
+import * as fs from "fs";
+import * as path from "path";
+import * as crypto from "crypto";
+
+// Content-addressed disk cache: SVG payload is deterministic from
+// (template, slug, customTitle), so we hash those into the filename.
+// First request renders + writes the SVG; subsequent requests stream
+// from disk. Cache is safe to nuke at any time — it self-rebuilds.
+const OG_CACHE_DIR = path.resolve(process.cwd(), "uploads", "og-cache");
+try {
+  fs.mkdirSync(OG_CACHE_DIR, { recursive: true });
+} catch {
+  // best-effort; fall back to in-memory render on cache failure
+}
+
+function ogCacheKey(template: string, slug: string, customTitle?: string): string {
+  return crypto
+    .createHash("sha1")
+    .update(`${template}|${slug}|${customTitle || ""}`)
+    .digest("hex")
+    .slice(0, 32);
+}
+
+function readCachedSvg(key: string): string | null {
+  try {
+    const file = path.join(OG_CACHE_DIR, `${key}.svg`);
+    if (fs.existsSync(file)) return fs.readFileSync(file, "utf8");
+  } catch {
+    // fall through to render
+  }
+  return null;
+}
+
+function writeCachedSvg(key: string, svg: string): void {
+  try {
+    const file = path.join(OG_CACHE_DIR, `${key}.svg`);
+    fs.writeFileSync(file, svg, "utf8");
+  } catch {
+    // ignore — cache is best-effort
+  }
+}
 
 const TEMPLATES = ["default", "article", "industry", "compare", "location", "service"] as const;
 type Template = (typeof TEMPLATES)[number];
@@ -112,12 +153,20 @@ export function registerOgRoutes(app: Express) {
     const slugParam = String(req.params.slug || "").replace(/\.(svg|png)$/i, "");
     const customTitle = typeof req.query.title === "string" ? req.query.title : undefined;
 
-    const svg = renderOgSvg(template, slugParam, customTitle);
+    const cacheKey = ogCacheKey(template, slugParam, customTitle);
+    let svg = readCachedSvg(cacheKey);
+    let cacheHit = !!svg;
+    if (!svg) {
+      svg = renderOgSvg(template, slugParam, customTitle);
+      writeCachedSvg(cacheKey, svg);
+    }
 
     // Browsers + most social crawlers (X, LinkedIn, Slack, Discord) accept SVG
     // og:image. We serve as image/svg+xml so requests to .png and .svg both work.
     res.setHeader("Content-Type", "image/svg+xml; charset=utf-8");
     res.setHeader("Cache-Control", "public, max-age=86400, s-maxage=604800, immutable");
+    res.setHeader("X-Og-Cache", cacheHit ? "HIT" : "MISS");
+    res.setHeader("ETag", `"${cacheKey}"`);
     res.send(svg);
   });
 }
