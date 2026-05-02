@@ -566,7 +566,7 @@ function DocumentsTab({ contactId }: { contactId: number | null | undefined }) {
           <CardTitle className="text-base">Uploaded Documents</CardTitle>
         </CardHeader>
         <CardContent className="p-0 overflow-x-auto">
-          <Table className="min-w-[480px]">
+          <Table className="sm:min-w-[480px]">
             <TableHeader>
               <TableRow>
                 <TableHead>File Name</TableHead>
@@ -1211,7 +1211,7 @@ function SupportTab({ contactId }: { contactId: number | null | undefined }) {
       </div>
       <Card data-testid="card-tickets-list">
         <CardContent className="p-0 overflow-x-auto">
-          <Table className="min-w-[480px]">
+          <Table className="sm:min-w-[480px]">
             <TableHeader>
               <TableRow>
                 <TableHead>Subject</TableHead>
