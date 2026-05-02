@@ -209,16 +209,34 @@ export const insertTicketSchema = createInsertSchema(tickets).omit({
   updatedAt: true,
 });
 
+export const DOCUMENT_CATEGORIES = [
+  "Application",
+  "Voided Check",
+  "Photo ID",
+  "Bank Statement",
+  "EIN Letter",
+  "Signed Proposal",
+  "Processing Statement",
+  "Other",
+] as const;
+
 export const documents = pgTable("documents", {
   id: serial("id").primaryKey(),
   contactId: integer("contact_id").references(() => contacts.id),
   dealId: integer("deal_id").references(() => deals.id),
   type: text("type").notNull(),
+  category: text("category").default("Other"),
   fileName: text("file_name").notNull(),
+  fileSize: integer("file_size"),
+  mimeType: text("mime_type"),
+  uploadedBy: text("uploaded_by"),
   storageKey: text("storage_key"),
   accessScope: text("access_scope").default("internal"),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => [
+  index("documents_contact_id_idx").on(table.contactId),
+  index("documents_created_at_idx").on(table.createdAt),
+]);
 
 export const insertDocumentSchema = createInsertSchema(documents).omit({
   id: true,

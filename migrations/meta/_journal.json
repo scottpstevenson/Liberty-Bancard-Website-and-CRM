@@ -57,6 +57,13 @@
       "when": 1746489600000,
       "tag": "0007_ab_testing_linkedin_enrichment",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1746576000000,
+      "tag": "0008_document_vault_columns",
+      "breakpoints": true
     }
   ]
 }

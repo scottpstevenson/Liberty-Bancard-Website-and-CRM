@@ -41,6 +41,7 @@ The frontend uses React with Vite, TypeScript, Tailwind CSS, and shadcn/ui. `wou
 
 ### Feature Specifications
 - **Public Website**: Marketing pages, conversion forms, legal pages, and hidden sales enablement content, all SEO-optimized. Includes an e-commerce terminal shop.
+- **Merchant Document Vault**: Per-merchant KYC & file management system. Each contact/merchant detail page has a "Documents" tab with drag-and-drop upload, category selector (Application, Voided Check, Photo ID, Bank Statement, EIN Letter, Signed Proposal, Processing Statement, Other), file list with size/date/uploader metadata, download, and delete with confirmation. Admin/manager global document index at `/dashboard/document-vault` with category summary cards, search, and filter. Routes: `GET/POST /api/merchant-documents`, `GET /api/merchant-documents/contact/:contactId`, `POST /api/merchant-documents/upload`, `GET /api/merchant-documents/:id/download`, `DELETE /api/merchant-documents/:id`. Files stored server-side in `uploads/merchant_docs/`. Schema: `documents` table with `category`, `fileSize`, `mimeType`, `uploadedBy` fields added.
 - **CRM Dashboard**: Modules for contact, sales pipeline (Kanban), support tickets, task management, notifications, and KPI digests.
 - **AI Advisors**: Seven specialized AI advisors (Sales, Support, Onboarding, Marketing, Finance, Compliance, Executive).
 - **Compliance Rules**: Adherence to regulatory guidelines, including explicit disclaimers and PCI compliance.

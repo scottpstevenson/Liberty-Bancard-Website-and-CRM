@@ -131,7 +131,10 @@ export interface IStorage {
   updateTask(id: number, task: UpdateTaskRequest): Promise<typeof tasks.$inferSelect | undefined>;
 
   getDocuments(): Promise<typeof documents.$inferSelect[]>;
+  getDocumentsByContact(contactId: number): Promise<typeof documents.$inferSelect[]>;
+  getDocumentById(id: number): Promise<typeof documents.$inferSelect | undefined>;
   createDocument(doc: InsertDocument): Promise<typeof documents.$inferSelect>;
+  deleteDocument(id: number): Promise<void>;
 
   getAuditLogs(): Promise<typeof auditLogs.$inferSelect[]>;
   createAuditLog(log: InsertAuditLog): Promise<typeof auditLogs.$inferSelect>;
@@ -659,9 +662,22 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(documents).orderBy(desc(documents.createdAt));
   }
 
+  async getDocumentsByContact(contactId: number) {
+    return await db.select().from(documents).where(eq(documents.contactId, contactId)).orderBy(desc(documents.createdAt));
+  }
+
+  async getDocumentById(id: number) {
+    const [doc] = await db.select().from(documents).where(eq(documents.id, id));
+    return doc;
+  }
+
   async createDocument(insertDoc: InsertDocument) {
     const [doc] = await db.insert(documents).values(insertDoc).returning();
     return doc;
+  }
+
+  async deleteDocument(id: number) {
+    await db.delete(documents).where(eq(documents.id, id));
   }
 
   async getAuditLogs() {

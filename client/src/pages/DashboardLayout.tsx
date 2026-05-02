@@ -64,6 +64,7 @@ import {
   Inbox,
   ThumbsUp,
   RefreshCw,
+  FolderOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -173,6 +174,7 @@ const agentResourceItems: MenuItem[] = [
 ];
 
 const adminItems: MenuItem[] = [
+  { icon: FolderOpen, label: "Document Vault", href: "/dashboard/document-vault", roles: ["admin", "manager"] },
   { icon: UserCog, label: "User Management", href: "/dashboard/user-management", roles: ["admin"] },
   { icon: ArrowRightLeft, label: "Round-Robin", href: "/dashboard/round-robin", roles: ["admin", "manager"] },
   { icon: ShieldCheck, label: "Security Settings", href: "/dashboard/security", roles: ["admin", "manager", "agent", "merchant"] },

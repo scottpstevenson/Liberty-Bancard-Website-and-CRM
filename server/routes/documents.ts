@@ -2,18 +2,193 @@ import type { Express } from "express";
 import { isAuthenticated } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
-import { and } from "drizzle-orm";
 import { insertCollateralPacketSchema, insertDocumentSchema, insertKnowledgeBaseSchema } from "@shared/schema";
 import { generateDealBlueprint } from "../services/deal-blueprint";
 import { advanceDealStage } from "../services/deal-stage-service";
 import { autoGenerateProposal } from "../services/proposal-engine";
-import { parse } from "csv-parse/sync";
 import path from "path";
 import fs from "fs";
 import { upload } from "./helpers";
 
 export function registerDocumentsRoutes(app: Express) {
-  // === DOCUMENTS ===
+  // === MERCHANT DOCUMENT VAULT ===
+
+  // Helper: check if a user can access a contact's documents
+  // Admin and manager roles always have access; reps only if they own the contact.
+  async function canAccessContactDocs(user: any, contactId: number | null): Promise<boolean> {
+    const role = user?.role;
+    if (!role) return false;
+    if (['admin', 'manager'].includes(role)) return true;
+    if (!contactId) return false;
+    const contact = await storage.getContact(contactId);
+    if (!contact) return false;
+    const userDisplay = `${user.firstName || ''} ${user.lastName || ''}`.trim();
+    return (
+      contact.assignedTo === user.email ||
+      (!!userDisplay && contact.assignedTo === userDisplay)
+    );
+  }
+
+  // GET /api/merchant-documents - admin/manager index of all documents
+  app.get("/api/merchant-documents", isAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as any;
+      if (!['admin', 'manager'].includes(user?.role)) {
+        return res.status(403).json({ message: "Admin/Manager only" });
+      }
+      const allDocs = await storage.getDocuments();
+      const category = req.query.category as string | undefined;
+      const contactId = req.query.contactId ? Number(req.query.contactId) : undefined;
+
+      let docs = allDocs;
+      if (category && category !== "all") {
+        docs = docs.filter(d => d.category === category);
+      }
+      if (contactId) {
+        docs = docs.filter(d => d.contactId === contactId);
+      }
+      res.json(docs);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/merchant-documents/contact/:contactId - get docs for a specific merchant
+  app.get("/api/merchant-documents/contact/:contactId", isAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as any;
+      const cid = Number(req.params.contactId);
+      if (!await canAccessContactDocs(user, cid)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      const docs = await storage.getDocumentsByContact(cid);
+      res.json(docs);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/merchant-documents/upload - upload a document to a merchant record
+  app.post("/api/merchant-documents/upload", isAuthenticated, upload.single("file"), async (req, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+
+      const user = req.user as any;
+      const { category, contactId, dealId } = req.body;
+
+      // Verify the user can access this contact before uploading
+      if (contactId && !await canAccessContactDocs(user, Number(contactId))) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const fileName = req.file.originalname;
+      const fileSize = req.file.size;
+      const mimeType = req.file.mimetype;
+      const timestamp = Date.now();
+      const safeFileName = `${timestamp}_${fileName.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+      const storageKey = `merchant_docs/${safeFileName}`;
+
+      const uploadsDir = path.join(process.cwd(), "uploads", "merchant_docs");
+      if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+      fs.writeFileSync(path.join(uploadsDir, safeFileName), req.file.buffer);
+
+      const uploadedBy = user ? `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.email || "Unknown" : "Unknown";
+
+      const doc = await storage.createDocument({
+        contactId: contactId ? Number(contactId) : null,
+        dealId: dealId ? Number(dealId) : null,
+        type: category || "Other",
+        category: category || "Other",
+        fileName,
+        fileSize,
+        mimeType,
+        uploadedBy,
+        storageKey,
+        accessScope: "internal",
+      });
+
+      res.status(201).json(doc);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/merchant-documents/:id/download - download a document
+  app.get("/api/merchant-documents/:id/download", isAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as any;
+      const doc = await storage.getDocumentById(Number(req.params.id));
+      if (!doc) return res.status(404).json({ message: "Document not found" });
+      if (!await canAccessContactDocs(user, doc.contactId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      if (doc.storageKey) {
+        // Try to find the file by storageKey
+        const uploadsDir = path.join(process.cwd(), "uploads");
+        const relativePath = doc.storageKey.replace(/^uploads\//, "");
+        const filePath = path.join(uploadsDir, relativePath);
+
+        if (fs.existsSync(filePath)) {
+          return res.download(filePath, doc.fileName);
+        }
+
+        // Fallback: search in merchant_docs subdir
+        const merchantDocPath = path.join(uploadsDir, "merchant_docs", path.basename(doc.storageKey));
+        if (fs.existsSync(merchantDocPath)) {
+          return res.download(merchantDocPath, doc.fileName);
+        }
+
+        // Search entire uploads dir for matching file
+        const allFiles = fs.readdirSync(uploadsDir);
+        const match = allFiles.find(f => doc.storageKey?.includes(f) || f.includes(path.basename(doc.storageKey || "")));
+        if (match) {
+          return res.download(path.join(uploadsDir, match), doc.fileName);
+        }
+      }
+
+      return res.status(404).json({ message: "File not found on disk" });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // DELETE /api/merchant-documents/:id - delete a document
+  app.delete("/api/merchant-documents/:id", isAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as any;
+      const doc = await storage.getDocumentById(Number(req.params.id));
+      if (!doc) return res.status(404).json({ message: "Document not found" });
+      if (!await canAccessContactDocs(user, doc.contactId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Try to delete file from disk
+      if (doc.storageKey) {
+        const uploadsDir = path.join(process.cwd(), "uploads");
+
+        const tryPaths = [
+          path.join(uploadsDir, doc.storageKey.replace(/^uploads\//, "")),
+          path.join(uploadsDir, "merchant_docs", path.basename(doc.storageKey)),
+          path.join(uploadsDir, path.basename(doc.storageKey)),
+        ];
+
+        for (const p of tryPaths) {
+          if (fs.existsSync(p)) {
+            fs.unlinkSync(p);
+            break;
+          }
+        }
+      }
+
+      await storage.deleteDocument(Number(req.params.id));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === LEGACY DOCUMENTS (kept for backward compatibility) ===
   app.get("/api/documents", isAuthenticated, async (req, res) => {
     const documents = await storage.getDocuments();
     res.json(documents);
@@ -113,6 +288,13 @@ export function registerDocumentsRoutes(app: Express) {
         }
       }
 
+      const categoryMap: Record<string, string> = {
+        merchant_statement: "Processing Statement",
+        voided_check: "Voided Check",
+        government_id: "Photo ID",
+        application: "Application",
+      };
+
       const { data: allContacts } = await storage.getContacts({ limit: 500 });
       const uploaderContact = allContacts.find((c: any) => c.userId === user.id || c.email === user.email);
       const uploaderContactId = uploaderContact?.id || null;
@@ -143,7 +325,11 @@ export function registerDocumentsRoutes(app: Express) {
 
       const doc = await storage.createDocument({
         type: docType,
+        category: categoryMap[docType] || "Other",
         fileName,
+        fileSize: req.file.size,
+        mimeType: req.file.mimetype,
+        uploadedBy: user ? `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.email : undefined,
         storageKey,
         accessScope: "merchant",
         contactId: uploaderContactId,
