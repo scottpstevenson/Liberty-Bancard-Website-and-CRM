@@ -6,7 +6,7 @@ import { and } from "drizzle-orm";
 import { checkGhlHealth, getCalendarBookingUrl, getGhlStatus, handleGhlWebhook, isGhlConfigured, sendGhlEmail, sendGhlSms, sendTemplatedMessage, upsertGhlContact, validateGhlWebhookSignature } from "../services/ghl";
 import { routeContact } from "../services/smart-router";
 import { fullSyncFromGhl, fullSyncToGhl, getGhlSyncStatus, getFullSyncDashboard, syncContactToGhl, syncDealToGhl, syncCompanyToGhl, syncTaskToGhl, syncTicketToGhl, syncNoteToGhl, syncTagsToGhl } from "../services/ghl-sync";
-import { getWorkflowStatus, GHL_WORKFLOW_REGISTRY, getPlatformEmailConfig } from "../services/ghl-workflows";
+import { getWorkflowStatus, GHL_WORKFLOW_REGISTRY, getPlatformEmailConfig, getWorkflowRegistryWithStatus, setWorkflowEnvValue } from "../services/ghl-workflows";
 import { buildSequenceList } from "../services/sequence-blueprints";
 
 export function registerIntegrationsRoutes(app: Express) {
@@ -545,6 +545,62 @@ export function registerIntegrationsRoutes(app: Express) {
       const { ghlWorkflowId, category, description } = req.body;
       const mapping = await storage.upsertGhlWorkflowMapping(sequenceName, ghlWorkflowId || null, category, description);
       res.json(mapping);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === GHL Workflow Env-Key Registry ===
+  app.get("/api/ghl/workflow-env-ids", isAuthenticated, async (_req, res) => {
+    try {
+      const registry = await getWorkflowRegistryWithStatus();
+      res.json(registry);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/ghl/workflow-env-ids/:envKey", isAdmin, async (req, res) => {
+    try {
+      const { envKey } = req.params;
+      const entry = GHL_WORKFLOW_REGISTRY.find(w => w.envKey === envKey);
+      if (!entry) return res.status(404).json({ message: "Unknown envKey" });
+      const value: string | null = req.body.value || null;
+      await setWorkflowEnvValue(envKey, value);
+      res.json({ envKey, value, isSet: !!value });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === Seed Scott Sending Identity ===
+  app.post("/api/admin/seed-scott-identity", isAdmin, async (_req, res) => {
+    try {
+      const identities = await storage.getSendingIdentities();
+      const existing = identities.find((i: any) => i.emailAddress === "Scott@mail.libertybancard.com");
+      if (existing) {
+        return res.json({ created: false, identity: existing, message: "Scott's sending identity already exists" });
+      }
+      const identity = await storage.createSendingIdentity({
+        label: "Scott - Liberty Bancard",
+        domain: "mail.libertybancard.com",
+        emailAddress: "Scott@mail.libertybancard.com",
+        mailboxType: "google_workspace",
+        isActive: true,
+        warmupStatus: "warm",
+        warmupStartedAt: new Date(),
+        dailyLimit: 30,
+        sentToday: 0,
+        bouncesToday: 0,
+        complaintsToday: 0,
+        healthScore: 100,
+        verticalAssignment: null,
+        lastUsedAt: null,
+        provider: null,
+        ghlLocationId: null,
+      });
+      console.log("[Seed] Scott sending identity created:", identity.id);
+      res.status(201).json({ created: true, identity, message: "Scott's sending identity seeded successfully" });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

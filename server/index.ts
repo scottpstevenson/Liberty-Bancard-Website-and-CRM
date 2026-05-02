@@ -11,9 +11,10 @@ import { seedSequences } from "./services/seed-sequences";
 import { seedVerticalCampaigns } from "./services/seed-vertical-campaigns";
 import { seedStageRules, seedDemoProspects } from "./services/seed-automation";
 import { startDailyOutreachWorker } from "./services/daily-outreach";
-import { startDailyMaintenanceScheduler } from "./services/sdr/inbox-rotation";
+import { startDailyMaintenanceScheduler, seedScottSendingIdentity } from "./services/sdr/inbox-rotation";
 import { featureFlags } from "./services/feature-flags";
 import { runStartupMigrations } from "./services/migrations";
+import { hydrateWorkflowEnvFromDb } from "./services/ghl-workflows";
 
 if (!process.env.SESSION_SECRET) {
   if (process.env.NODE_ENV === "production") {
@@ -212,7 +213,7 @@ app.use((req, res, next) => {
       host: "0.0.0.0",
       reusePort: true,
     },
-    () => {
+    async () => {
       log(`serving on port ${port}`);
       seedDefaultData();
       seedSequences();
@@ -221,6 +222,16 @@ app.use((req, res, next) => {
       seedDemoProspects();
       startSlaWorker();
       startAutoSyncLoop();
+
+      // Hydrate GHL workflow IDs from DB into process.env so they behave as env vars
+      hydrateWorkflowEnvFromDb().then(n => {
+        if (n > 0) log(`[GHL Workflows] Hydrated ${n} workflow IDs from DB into process.env`);
+      }).catch(() => {});
+
+      // Seed Scott's sending identity as the primary SDR inbox if not already present
+      seedScottSendingIdentity().catch(err => {
+        console.error("[Seed] Failed to seed Scott sending identity:", err);
+      });
 
       if (featureFlags.LEGACY_OUTREACH_ENABLED) {
         log("LEGACY_OUTREACH_ENABLED=true — starting legacy outreach workers");

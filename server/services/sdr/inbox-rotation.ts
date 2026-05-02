@@ -21,6 +21,50 @@ function daysSince(date: Date | null): number {
   return Math.floor((Date.now() - date.getTime()) / (1000 * 60 * 60 * 24));
 }
 
+const SCOTT_EMAIL = "Scott@mail.libertybancard.com";
+
+/**
+ * Seeds Scott@mail.libertybancard.com as the primary sending identity if it does not
+ * already exist. Called automatically on server startup.
+ * Values: warmupStatus=warm, isActive=true, dailyLimit=30, healthScore=100.
+ */
+export async function seedScottSendingIdentity(): Promise<void> {
+  const [existing] = await db
+    .select()
+    .from(sendingIdentities)
+    .where(eq(sendingIdentities.emailAddress, SCOTT_EMAIL))
+    .limit(1);
+
+  if (existing) {
+    console.log(`[Seed] Scott sending identity already exists (id=${existing.id}), skipping.`);
+    return;
+  }
+
+  const [identity] = await db
+    .insert(sendingIdentities)
+    .values({
+      label: "Scott - Liberty Bancard",
+      domain: "mail.libertybancard.com",
+      emailAddress: SCOTT_EMAIL,
+      mailboxType: "google_workspace",
+      isActive: true,
+      warmupStatus: "warm",
+      warmupStartedAt: new Date(),
+      dailyLimit: 30,
+      sentToday: 0,
+      bouncesToday: 0,
+      complaintsToday: 0,
+      healthScore: 100,
+      verticalAssignment: null,
+      lastUsedAt: null,
+      provider: null,
+      ghlLocationId: null,
+    })
+    .returning();
+
+  console.log(`[Seed] Scott sending identity created (id=${identity.id}): ${SCOTT_EMAIL}, warmupStatus=warm, dailyLimit=30, healthScore=100`);
+}
+
 export async function selectBestInbox(
   businessId: number,
   vertical?: string
@@ -52,10 +96,18 @@ export async function selectBestInbox(
   let filtered = available.filter((id) => !usedDomainSet.has(id.domain));
 
   if (filtered.length === 0) {
+    // Explicit fallback: if all other domains have been used for this business,
+    // check if Scott's identity is still within its daily limit before giving up.
+    const scottIdentity = available.find(id => id.emailAddress === SCOTT_EMAIL);
+    if (scottIdentity && (scottIdentity.sentToday || 0) < getEffectiveDailyLimit(scottIdentity)) {
+      console.log(`[Inbox Rotation] Falling back to Scott's identity for business ${businessId} (all other domains exhausted)`);
+      return scottIdentity;
+    }
     console.log(`[Inbox Rotation] All domains already used for business ${businessId}, no inbox available`);
     return null;
   }
 
+  // Sort: fewest sent today → highest health score → warm before warming → vertical match
   filtered.sort((a, b) => {
     const sentDiff = (a.sentToday || 0) - (b.sentToday || 0);
     if (sentDiff !== 0) return sentDiff;

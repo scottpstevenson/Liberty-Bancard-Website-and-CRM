@@ -117,6 +117,7 @@ import SmsInbox from "@/pages/dashboard/SmsInbox";
 import BinLookup from "@/pages/dashboard/BinLookup";
 import RoundRobinAdmin from "@/pages/dashboard/RoundRobinAdmin";
 import InboxHealth from "@/pages/dashboard/InboxHealth";
+import SettingsIntegrations from "@/pages/dashboard/SettingsIntegrations";
 import ActivationPanel from "@/pages/dashboard/ActivationPanel";
 import OperatorDashboard from "@/pages/dashboard/OperatorDashboard";
 import SeoHealth from "@/pages/dashboard/SeoHealth";
@@ -482,6 +483,9 @@ function Router() {
       </Route>
       <Route path="/dashboard/security">
         <ProtectedRoute component={SecuritySettings} />
+      </Route>
+      <Route path="/dashboard/settings/integrations">
+        <ProtectedRoute component={SettingsIntegrations} />
       </Route>
       <Route path="/dashboard/forecasting">
         <ProtectedRoute component={Forecasting} />

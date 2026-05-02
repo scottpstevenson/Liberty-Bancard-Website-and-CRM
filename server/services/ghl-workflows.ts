@@ -38,7 +38,62 @@ export const GHL_WORKFLOW_REGISTRY: GhlWorkflowConfig[] = [
 export async function getWorkflowId(workflowKey: string): Promise<string | null> {
   const workflow = GHL_WORKFLOW_REGISTRY.find(w => w.id === workflowKey);
   if (!workflow) return null;
-  return process.env[workflow.envKey] || null;
+  if (process.env[workflow.envKey]) return process.env[workflow.envKey]!;
+  try {
+    const { storage } = await import("../storage");
+    const saved = await storage.getSystemSetting(`ghl_workflow_env_${workflow.envKey}`);
+    if (saved) return saved as string;
+  } catch {}
+  return null;
+}
+
+export async function getWorkflowEnvValue(envKey: string): Promise<string | null> {
+  if (process.env[envKey]) return process.env[envKey]!;
+  try {
+    const { storage } = await import("../storage");
+    const saved = await storage.getSystemSetting(`ghl_workflow_env_${envKey}`);
+    if (saved) return saved as string;
+  } catch {}
+  return null;
+}
+
+export async function setWorkflowEnvValue(envKey: string, value: string | null): Promise<void> {
+  const { storage } = await import("../storage");
+  if (value) {
+    process.env[envKey] = value;
+    await storage.setSystemSetting(`ghl_workflow_env_${envKey}`, value);
+  } else {
+    delete process.env[envKey];
+    await storage.setSystemSetting(`ghl_workflow_env_${envKey}`, null);
+  }
+}
+
+export async function hydrateWorkflowEnvFromDb(): Promise<number> {
+  let hydrated = 0;
+  try {
+    const { storage } = await import("../storage");
+    for (const w of GHL_WORKFLOW_REGISTRY) {
+      if (!process.env[w.envKey]) {
+        const saved = await storage.getSystemSetting(`ghl_workflow_env_${w.envKey}`);
+        if (saved && typeof saved === "string") {
+          process.env[w.envKey] = saved;
+          hydrated++;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[GHL Workflows] Failed to hydrate workflow env IDs from DB:", err);
+  }
+  return hydrated;
+}
+
+export async function getWorkflowRegistryWithStatus(): Promise<Array<GhlWorkflowConfig & { value: string | null; isSet: boolean }>> {
+  return Promise.all(
+    GHL_WORKFLOW_REGISTRY.map(async (w) => {
+      const value = await getWorkflowEnvValue(w.envKey);
+      return { ...w, value, isSet: !!value };
+    })
+  );
 }
 
 export async function enrollInGhlWorkflow(params: {
