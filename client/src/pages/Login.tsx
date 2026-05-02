@@ -5,15 +5,20 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Shield, Mail, Lock } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Loader2, Shield, Mail, Lock, Smartphone, KeyRound } from "lucide-react";
+import { SiGoogle } from "react-icons/si";
 import logoBlue from "@assets/logo-blue.png";
 
 export default function Login() {
   const [, setLocation] = useLocation();
-  const { login, isLoggingIn, loginError, user } = useAuth();
+  const { login, isLoggingIn, loginError, user, verifyMfa, isVerifyingMfa } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [mfaRequired, setMfaRequired] = useState(false);
+  const [mfaCode, setMfaCode] = useState("");
+  const [rememberDevice, setRememberDevice] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -30,12 +35,120 @@ export default function Login() {
     e.preventDefault();
     setError("");
     try {
-      await login({ email, password });
-      setLocation("/dashboard");
+      const result = await login({ email, password });
+      if ((result as any)?.mfa_required) {
+        setMfaRequired(true);
+      } else {
+        setLocation("/dashboard");
+      }
     } catch (err: any) {
       setError(err.message || "Login failed");
     }
   };
+
+  const handleMfaSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    try {
+      await verifyMfa({ code: mfaCode, rememberDevice });
+      setLocation("/dashboard");
+    } catch (err: any) {
+      setError(err.message || "Invalid code");
+    }
+  };
+
+  if (mfaRequired) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+        <div className="w-full max-w-md space-y-6">
+          <div className="flex flex-col items-center gap-3">
+            <Link href="/">
+              <img src={logoBlue} alt="Liberty Bancard" className="h-12 object-contain cursor-pointer" data-testid="logo-login" />
+            </Link>
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Smartphone className="w-4 h-4" />
+              <span className="text-sm">Two-Factor Authentication</span>
+            </div>
+          </div>
+
+          <Card>
+            <CardHeader className="space-y-1">
+              <CardTitle className="text-2xl text-center" data-testid="text-mfa-title">Verify Your Identity</CardTitle>
+              <CardDescription className="text-center">
+                Enter the 6-digit code from your authenticator app, or use a backup code.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <form onSubmit={handleMfaSubmit} className="space-y-4">
+                {(error || loginError) && (
+                  <div className="p-3 text-sm text-destructive bg-destructive/10 rounded-md" data-testid="text-mfa-error">
+                    {error || loginError?.message}
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <Label htmlFor="mfa-code">Authentication Code</Label>
+                  <div className="relative">
+                    <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      id="mfa-code"
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="000000 or XXXXX-XXXXX (backup)"
+                      value={mfaCode}
+                      onChange={(e) => setMfaCode(e.target.value)}
+                      className="pl-10 font-mono tracking-widest text-center text-lg"
+                      autoComplete="one-time-code"
+                      autoFocus
+                      required
+                      data-testid="input-mfa-code"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2" data-testid="checkbox-remember-device">
+                  <Checkbox
+                    id="remember-device"
+                    checked={rememberDevice}
+                    onCheckedChange={(checked) => setRememberDevice(checked === true)}
+                    data-testid="input-remember-device"
+                  />
+                  <Label htmlFor="remember-device" className="text-sm font-normal cursor-pointer">
+                    Remember this device for 30 days
+                  </Label>
+                </div>
+
+                <Button type="submit" className="w-full" disabled={!mfaCode || isVerifyingMfa} data-testid="button-verify-mfa">
+                  {isVerifyingMfa ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                      Verifying...
+                    </>
+                  ) : (
+                    "Verify"
+                  )}
+                </Button>
+              </form>
+
+              <p className="text-center text-sm text-muted-foreground">
+                Lost access to your app?{" "}
+                <span className="text-primary">Use a backup code above</span>
+              </p>
+
+              <Button
+                variant="ghost"
+                className="w-full text-sm"
+                onClick={() => { setMfaRequired(false); setError(""); setMfaCode(""); }}
+                data-testid="button-back-to-login"
+              >
+                Back to Sign In
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">

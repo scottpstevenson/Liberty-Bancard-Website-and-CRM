@@ -6,9 +6,14 @@ import connectPg from "connect-pg-simple";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import rateLimit from "express-rate-limit";
+import { TOTP, generateSecret as totpGenerateSecret } from "otplib";
+import QRCode from "qrcode";
 import { authStorage } from "./storage";
 import { storage } from "../../storage";
 import { isGhlConfigured, sendGhlEmailForMerchant as sendGhlEmail } from "../../services/ghl";
+import { db } from "../../db";
+import { systemSettings } from "@shared/schema";
+import { eq } from "drizzle-orm";
 
 export function getSession() {
   const sessionTtl = 7 * 24 * 60 * 60 * 1000;
@@ -37,11 +42,14 @@ export function getSession() {
   });
 }
 
-// Role system:
-// - admin: full access to all dashboard features
-// - manager: can view all dashboard features + manage agents
-// - agent: can view their own pipeline, contacts, and tasks
-// - merchant: can only access the merchant portal
+async function isMfaRequiredGlobally(): Promise<boolean> {
+  try {
+    const [setting] = await db.select().from(systemSettings).where(eq(systemSettings.key, "mfa_required"));
+    return setting?.value === true;
+  } catch {
+    return false;
+  }
+}
 
 async function seedAdminUser() {
   const adminEmail = process.env.ADMIN_SEED_EMAIL || "scott@libertybancard.com";
@@ -84,6 +92,30 @@ const forgotPasswordRateLimit = rateLimit({
   legacyHeaders: false,
   message: { message: "Too many password reset requests, please try again later." },
 });
+
+const totpRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many verification attempts, please try again later." },
+});
+
+function hashToken(token: string): string {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+function generateBackupCodes(): { plain: string[]; hashed: Array<{ code: string; used: boolean }> } {
+  const plain: string[] = [];
+  const hashed: Array<{ code: string; used: boolean }> = [];
+  for (let i = 0; i < 8; i++) {
+    const code = crypto.randomBytes(5).toString("hex").toUpperCase();
+    const formatted = code.slice(0, 5) + "-" + code.slice(5);
+    plain.push(formatted);
+    hashed.push({ code: hashToken(formatted), used: false });
+  }
+  return { plain, hashed };
+}
 
 export async function setupAuth(app: Express) {
   app.set("trust proxy", 1);
@@ -129,15 +161,219 @@ export async function setupAuth(app: Express) {
   });
 
   app.post("/api/auth/login", loginRateLimit, (req, res, next) => {
-    passport.authenticate("local", (err: any, user: any, info: any) => {
+    passport.authenticate("local", async (err: any, user: any, info: any) => {
       if (err) return res.status(500).json({ message: "Server error" });
       if (!user) return res.status(401).json({ message: info?.message || "Invalid credentials" });
-      req.logIn(user, (loginErr) => {
+
+      try {
+        const globalMfaRequired = await isMfaRequiredGlobally();
+
+        if (user.totpEnabled) {
+          const trustedDeviceCookie = req.cookies?.trusted_device_token;
+          if (trustedDeviceCookie) {
+            const hashedCookieToken = hashToken(trustedDeviceCookie);
+            const devices = await authStorage.getTrustedDevices(user.id);
+            const now = new Date();
+            const trustedDevice = devices.find(d => d.token === hashedCookieToken && new Date(d.expiresAt) > now);
+            if (trustedDevice) {
+              return req.logIn(user, (loginErr) => {
+                if (loginErr) return res.status(500).json({ message: "Login failed" });
+                const { passwordHash, totpSecret, ...safeUser } = user;
+                return res.json(safeUser);
+              });
+            }
+          }
+          (req.session as any).pendingMfaUserId = user.id;
+          return res.status(200).json({ mfa_required: true });
+        }
+
+        if (globalMfaRequired && !user.totpEnabled) {
+          req.logIn(user, (loginErr) => {
+            if (loginErr) return res.status(500).json({ message: "Login failed" });
+            const { passwordHash, totpSecret, ...safeUser } = user;
+            return res.json({ ...safeUser, mfa_enrollment_required: true });
+          });
+          return;
+        }
+
+        req.logIn(user, (loginErr) => {
+          if (loginErr) return res.status(500).json({ message: "Login failed" });
+          const { passwordHash, totpSecret, ...safeUser } = user;
+          return res.json(safeUser);
+        });
+      } catch (err) {
+        return res.status(500).json({ message: "Server error" });
+      }
+    })(req, res, next);
+  });
+
+  app.post("/api/auth/totp/verify-login", totpRateLimit, async (req, res) => {
+    const pendingUserId = (req.session as any).pendingMfaUserId;
+    if (!pendingUserId) {
+      return res.status(400).json({ message: "No pending MFA verification" });
+    }
+
+    const { code, rememberDevice, deviceName } = req.body;
+    if (!code) return res.status(400).json({ message: "Verification code is required" });
+
+    try {
+      const user = await authStorage.getUser(pendingUserId);
+      if (!user) return res.status(400).json({ message: "Invalid session" });
+
+      const totpData = await authStorage.getTotpData(user.id);
+      if (!totpData.enabled || !totpData.secret) {
+        return res.status(400).json({ message: "2FA not configured" });
+      }
+
+      const cleanCode = String(code).replace(/\s/g, "");
+      let verified = false;
+
+      if (cleanCode.length === 11 && cleanCode.includes("-")) {
+        const backupCodes = totpData.backupCodes || [];
+        const codeHash = hashToken(cleanCode.toUpperCase());
+        const idx = backupCodes.findIndex(bc => bc.code === codeHash && !bc.used);
+        if (idx !== -1) {
+          await authStorage.markBackupCodeUsed(user.id, idx);
+          verified = true;
+        }
+      } else {
+        try {
+          const totp = new TOTP();
+          verified = totp.verify({ token: cleanCode, secret: totpData.secret });
+        } catch {
+          verified = false;
+        }
+      }
+
+      if (!verified) {
+        return res.status(401).json({ message: "Invalid or expired verification code" });
+      }
+
+      delete (req.session as any).pendingMfaUserId;
+
+      req.logIn(user, async (loginErr) => {
         if (loginErr) return res.status(500).json({ message: "Login failed" });
-        const { passwordHash, ...safeUser } = user;
+
+        if (rememberDevice) {
+          const rawToken = crypto.randomBytes(32).toString("hex");
+          const hashedToken = hashToken(rawToken);
+          const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+          await authStorage.addTrustedDevice(user.id, {
+            token: hashedToken,
+            name: deviceName || req.headers["user-agent"]?.slice(0, 100) || "Unknown device",
+            expiresAt: expiresAt.toISOString(),
+          });
+          res.cookie("trusted_device_token", rawToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production",
+            maxAge: 30 * 24 * 60 * 60 * 1000,
+            sameSite: "lax",
+          });
+        }
+
+        const { passwordHash, totpSecret, ...safeUser } = user;
         return res.json(safeUser);
       });
-    })(req, res, next);
+    } catch (err: any) {
+      return res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/auth/totp/enroll", isAuthenticated, async (req, res) => {
+    const user = req.user as any;
+    try {
+      const secret = totpGenerateSecret();
+      await authStorage.saveTotpSecret(user.id, secret);
+      const issuer = "Liberty Bancard";
+      const label = encodeURIComponent(`${issuer}:${user.email}`);
+      const otpauthUrl = `otpauth://totp/${label}?secret=${secret}&issuer=${encodeURIComponent(issuer)}&algorithm=SHA1&digits=6&period=30`;
+      const qrDataUrl = await QRCode.toDataURL(otpauthUrl);
+      res.json({ secret, qrDataUrl });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/auth/totp/confirm", isAuthenticated, async (req, res) => {
+    const user = req.user as any;
+    const { code } = req.body;
+    if (!code) return res.status(400).json({ message: "Verification code is required" });
+
+    try {
+      const totpData = await authStorage.getTotpData(user.id);
+      if (!totpData.secret) return res.status(400).json({ message: "No TOTP secret found. Start enrollment again." });
+
+      const cleanCode = String(code).replace(/\s/g, "");
+      let verified = false;
+      try {
+        const totp = new TOTP();
+        verified = totp.verify({ token: cleanCode, secret: totpData.secret });
+      } catch {
+        verified = false;
+      }
+      if (!verified) return res.status(401).json({ message: "Invalid code. Please try again." });
+
+      const { plain, hashed } = generateBackupCodes();
+      await authStorage.enableTotp(user.id, hashed);
+
+      res.json({ success: true, backupCodes: plain });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/auth/totp/disable", isAuthenticated, async (req, res) => {
+    const user = req.user as any;
+    const { password } = req.body;
+    if (!password) return res.status(400).json({ message: "Password is required to disable 2FA" });
+
+    try {
+      const fullUser = await authStorage.getUser(user.id);
+      if (!fullUser?.passwordHash) return res.status(400).json({ message: "Cannot disable 2FA for this account" });
+
+      const isValid = await bcrypt.compare(password, fullUser.passwordHash);
+      if (!isValid) return res.status(401).json({ message: "Incorrect password" });
+
+      await authStorage.disableTotp(user.id);
+      res.clearCookie("trusted_device_token");
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/auth/totp/status", isAuthenticated, async (req, res) => {
+    const user = req.user as any;
+    try {
+      const totpData = await authStorage.getTotpData(user.id);
+      const devices = await authStorage.getTrustedDevices(user.id);
+      const now = new Date();
+      const validDevices = devices.filter(d => new Date(d.expiresAt) > now).map(d => ({
+        name: d.name,
+        expiresAt: d.expiresAt,
+      }));
+      res.json({
+        enabled: totpData.enabled,
+        trustedDeviceCount: validDevices.length,
+        trustedDevices: validDevices,
+        backupCodesRemaining: totpData.backupCodes ? totpData.backupCodes.filter(bc => !bc.used).length : 0,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/auth/totp/trusted-devices", isAuthenticated, async (req, res) => {
+    const user = req.user as any;
+    try {
+      const { users: usersTable } = await import("@shared/schema");
+      const { eq: eqOp } = await import("drizzle-orm");
+      await db.update(usersTable).set({ trustedDevices: null, updatedAt: new Date() }).where(eqOp(usersTable.id, user.id));
+      res.clearCookie("trusted_device_token");
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.post("/api/auth/signup", signupRateLimit, async (req, res) => {
@@ -194,7 +430,7 @@ export async function setupAuth(app: Express) {
           }).catch(err => console.error("Welcome email error:", err));
         }
 
-        const { passwordHash: _, ...safeUser } = user;
+        const { passwordHash: _, totpSecret: __, ...safeUser } = user;
         return res.status(201).json(safeUser);
       });
     } catch (error: any) {
@@ -274,6 +510,7 @@ export async function setupAuth(app: Express) {
     req.logout(() => {
       req.session.destroy(() => {
         res.clearCookie("connect.sid");
+        res.clearCookie("trusted_device_token");
         res.redirect("/login");
       });
     });
@@ -283,6 +520,7 @@ export async function setupAuth(app: Express) {
     req.logout(() => {
       req.session.destroy(() => {
         res.clearCookie("connect.sid");
+        res.clearCookie("trusted_device_token");
         res.json({ message: "Logged out" });
       });
     });

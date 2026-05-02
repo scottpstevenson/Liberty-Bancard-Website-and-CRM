@@ -21,9 +21,53 @@ export function registerAdminRoutes(app: Express) {
         role: users.role,
         authProvider: users.authProvider,
         emailVerified: users.emailVerified,
+        totpEnabled: users.totpEnabled,
         createdAt: users.createdAt,
       }).from(users).orderBy(desc(users.createdAt));
       res.json(allUsers);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/admin/mfa-settings", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+    try {
+      const { systemSettings } = await import("@shared/schema");
+      const { eq: eqOp } = await import("drizzle-orm");
+      const [setting] = await db.select().from(systemSettings).where(eqOp(systemSettings.key, "mfa_required"));
+      res.json({ mfaRequired: setting?.value === true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/admin/mfa-settings", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+    try {
+      const { mfaRequired } = req.body;
+      if (typeof mfaRequired !== 'boolean') return res.status(400).json({ message: "mfaRequired must be a boolean" });
+      const { systemSettings } = await import("@shared/schema");
+      const { eq: eqOp } = await import("drizzle-orm");
+      await db.insert(systemSettings).values({ key: "mfa_required", value: mfaRequired }).onConflictDoUpdate({
+        target: systemSettings.key,
+        set: { value: mfaRequired, updatedAt: new Date() },
+      });
+      res.json({ mfaRequired });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/admin/users/:id/reset-2fa", isAuthenticated, async (req, res) => {
+    if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+    try {
+      const { authStorage } = await import("../replit_integrations/auth/storage");
+      await authStorage.adminResetTotp(String(req.params.id));
+      const [updated] = await db.update(users).set({ updatedAt: new Date() }).where(eq(users.id, String(req.params.id))).returning();
+      if (!updated) return res.status(404).json({ message: "User not found" });
+      const { passwordHash, ...safeUser } = updated;
+      res.json(safeUser);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

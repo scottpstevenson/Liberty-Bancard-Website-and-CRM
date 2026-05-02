@@ -1,4 +1,5 @@
 import express, { type Request, Response, NextFunction } from "express";
+import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
@@ -99,6 +100,7 @@ app.use(
   }),
 );
 
+app.use(cookieParser());
 app.use(express.urlencoded({ extended: false }));
 
 export function log(message: string, source = "express") {

@@ -101,6 +101,7 @@ import ReviewRequests from "@/pages/dashboard/ReviewRequests";
 import ResidualRevenue from "@/pages/dashboard/ResidualRevenue";
 import ConsentAudit from "@/pages/dashboard/ConsentAudit";
 import UserManagement from "@/pages/dashboard/UserManagement";
+import SecuritySettings from "@/pages/dashboard/SecuritySettings";
 import Calendar from "@/pages/dashboard/Calendar";
 import Forecasting from "@/pages/dashboard/Forecasting";
 import PciAssessment from "@/pages/dashboard/PciAssessment";
@@ -426,6 +427,9 @@ function Router() {
       </Route>
       <Route path="/dashboard/user-management">
         <ProtectedRoute component={UserManagement} />
+      </Route>
+      <Route path="/dashboard/security">
+        <ProtectedRoute component={SecuritySettings} />
       </Route>
       <Route path="/dashboard/forecasting">
         <ProtectedRoute component={Forecasting} />

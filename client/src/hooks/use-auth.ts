@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import type { User } from "@shared/models/auth";
 
-type SafeUser = Omit<User, "passwordHash">;
+type SafeUser = Omit<User, "passwordHash" | "totpSecret">;
 
 async function fetchUser(): Promise<SafeUser | null> {
   const response = await fetch("/api/auth/user", {
@@ -42,13 +42,37 @@ export function useAuth() {
         const data = await res.json();
         throw new Error(data.message || "Login failed");
       }
+      const data = await res.json();
+      if (data.mfa_required) {
+        return data;
+      }
+      queryClient.setQueryData(["/api/auth/user"], data);
+      return data;
+    },
+    onError: (err: Error) => {
+      toast({ title: "Login failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const verifyMfaMutation = useMutation({
+    mutationFn: async (data: { code: string; rememberDevice?: boolean }) => {
+      const res = await fetch("/api/auth/totp/verify-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) {
+        const d = await res.json();
+        throw new Error(d.message || "Verification failed");
+      }
       return res.json();
     },
     onSuccess: (user) => {
       queryClient.setQueryData(["/api/auth/user"], user);
     },
     onError: (err: Error) => {
-      toast({ title: "Login failed", description: err.message, variant: "destructive" });
+      toast({ title: "Verification failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -94,6 +118,8 @@ export function useAuth() {
     login: loginMutation.mutateAsync,
     loginError: loginMutation.error,
     isLoggingIn: loginMutation.isPending,
+    verifyMfa: verifyMfaMutation.mutateAsync,
+    isVerifyingMfa: verifyMfaMutation.isPending,
     signup: signupMutation.mutateAsync,
     signupError: signupMutation.error,
     isSigningUp: signupMutation.isPending,
