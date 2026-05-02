@@ -543,6 +543,7 @@ export interface IStorage {
   createLeadDiscoveryResultsBulk(data: InsertLeadDiscoveryResult[]): Promise<LeadDiscoveryResult[]>;
   getLeadDiscoveryStats(): Promise<any>;
   findSdrMerchantByNameCity(businessName: string, city: string | null): Promise<SdrMerchant | undefined>;
+  getSdrMerchantsByCity(city: string): Promise<SdrMerchant[]>;
 
   getGhlWorkflowMappings(): Promise<import("@shared/schema").GhlWorkflowMapping[]>;
   upsertGhlWorkflowMapping(sequenceName: string, ghlWorkflowId: string | null, category?: string, description?: string): Promise<import("@shared/schema").GhlWorkflowMapping>;
@@ -3109,6 +3110,10 @@ export class DatabaseStorage implements IStorage {
     }
     const [match] = await db.select().from(sdrMerchants).where(and(...conditions)).limit(1);
     return match;
+  }
+
+  async getSdrMerchantsByCity(city: string): Promise<SdrMerchant[]> {
+    return db.select().from(sdrMerchants).where(sql`LOWER(${sdrMerchants.city}) = ${city.toLowerCase()}`);
   }
 
   async getGhlWorkflowMappings(): Promise<GhlWorkflowMapping[]> {

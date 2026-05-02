@@ -74,6 +74,53 @@ function normalizeBusinessName(name: string): string {
     .trim();
 }
 
+const FUZZY_THRESHOLD = 0.85;
+
+function jaroWinkler(s1: string, s2: string): number {
+  if (s1 === s2) return 1;
+  if (!s1.length || !s2.length) return 0;
+
+  const matchWindow = Math.floor(Math.max(s1.length, s2.length) / 2) - 1;
+  const s1Matches = new Array(s1.length).fill(false);
+  const s2Matches = new Array(s2.length).fill(false);
+
+  let matches = 0;
+  let transpositions = 0;
+
+  for (let i = 0; i < s1.length; i++) {
+    const start = Math.max(0, i - matchWindow);
+    const end = Math.min(i + matchWindow + 1, s2.length);
+    for (let j = start; j < end; j++) {
+      if (s2Matches[j] || s1[i] !== s2[j]) continue;
+      s1Matches[i] = true;
+      s2Matches[j] = true;
+      matches++;
+      break;
+    }
+  }
+
+  if (matches === 0) return 0;
+
+  let k = 0;
+  for (let i = 0; i < s1.length; i++) {
+    if (!s1Matches[i]) continue;
+    while (!s2Matches[k]) k++;
+    if (s1[i] !== s2[k]) transpositions++;
+    k++;
+  }
+
+  const jaro =
+    (matches / s1.length + matches / s2.length + (matches - transpositions / 2) / matches) / 3;
+
+  const prefixLen = Math.min(
+    4,
+    [...s1].findIndex((c, i) => c !== s2[i]) === -1 ? Math.min(s1.length, s2.length) : [...s1].findIndex((c, i) => c !== s2[i])
+  );
+
+  return jaro + prefixLen * 0.1 * (1 - jaro);
+}
+
+
 function classifyVertical(category: string | null, name: string): string {
   const text = `${category || ""} ${name}`.toLowerCase();
   if (/auto|car |vehicle|mechanic|tire|collision|body shop|transmission|brake|oil change|automotive/.test(text)) return "Auto";
@@ -293,6 +340,25 @@ async function searchApolloForDiscoveryLocal(
   }
 }
 
+async function mergeApolloContact(merchantId: number, biz: NormalizedBusiness): Promise<void> {
+  if (biz.source !== "apollo" || (!biz.ownerFirstName && !biz.ownerLastName)) return;
+  try {
+    const contactName = [biz.ownerFirstName, biz.ownerLastName].filter(Boolean).join(" ");
+    const contactData: InsertSdrMerchantContact = {
+      merchantId,
+      contactName: contactName || undefined,
+      title: biz.ownerTitle || undefined,
+      email: biz.ownerEmail || undefined,
+      mobile: biz.ownerPhone || undefined,
+      roleGuess: "owner",
+      primaryContactFlag: true,
+    };
+    await storage.createSdrMerchantContact(contactData);
+  } catch (contactErr) {
+    console.error(`[LeadFinder/Apollo] Failed to merge contact for merchant ${merchantId}:`, contactErr);
+  }
+}
+
 async function dedupeAndInsert(
   businesses: NormalizedBusiness[],
   jobId: number
@@ -302,15 +368,28 @@ async function dedupeAndInsert(
   let enrichmentQueued = 0;
   const resultRecords: InsertLeadDiscoveryResult[] = [];
 
-  const seen = new Set<string>();
+  const seenExact = new Set<string>();
+  const seenByCity = new Map<string, string[]>();
+
+  const cityMerchantsCache = new Map<string, Array<{ id: number; businessName: string }>>();
+
+  async function getCityMerchants(city: string): Promise<Array<{ id: number; businessName: string }>> {
+    const key = city.toLowerCase();
+    if (!cityMerchantsCache.has(key)) {
+      const rows = await storage.getSdrMerchantsByCity(city);
+      cityMerchantsCache.set(key, rows.map(r => ({ id: r.id, businessName: r.businessName })));
+    }
+    return cityMerchantsCache.get(key)!;
+  }
 
   for (const biz of businesses) {
     if (!biz.businessName || biz.businessName.length < 2) continue;
 
     const normalizedName = normalizeBusinessName(biz.businessName);
-    const dedupeKey = `${normalizedName}|${(biz.city || "").toLowerCase()}`;
+    const cityKey = (biz.city || "").toLowerCase();
+    const dedupeKey = `${normalizedName}|${cityKey}`;
 
-    if (seen.has(dedupeKey)) {
+    if (seenExact.has(dedupeKey)) {
       resultRecords.push({
         jobId,
         source: biz.source,
@@ -329,16 +408,47 @@ async function dedupeAndInsert(
         placeId: biz.placeId,
         rawData: biz.rawData,
         status: "duplicate_batch",
-        dedupReason: "Duplicate within same batch",
+        dedupReason: "Exact duplicate within same batch",
       });
       duplicatesSkipped++;
       continue;
     }
-    seen.add(dedupeKey);
+
+    const citySeenNames = seenByCity.get(cityKey) || [];
+    const fuzzyBatchMatch = citySeenNames.find(n => jaroWinkler(n, normalizedName) >= FUZZY_THRESHOLD);
+    if (fuzzyBatchMatch) {
+      resultRecords.push({
+        jobId,
+        source: biz.source,
+        vertical: biz.vertical,
+        metro: biz.metro,
+        businessName: biz.businessName,
+        phone: biz.phone,
+        email: biz.email,
+        website: biz.website,
+        address: biz.address,
+        city: biz.city,
+        state: biz.state,
+        zip: biz.zip,
+        rating: biz.rating,
+        reviewCount: biz.reviewCount,
+        placeId: biz.placeId,
+        rawData: biz.rawData,
+        status: "duplicate_batch",
+        dedupReason: `Fuzzy duplicate within batch (matched "${fuzzyBatchMatch}")`,
+      });
+      duplicatesSkipped++;
+      continue;
+    }
+
+    seenExact.add(dedupeKey);
+    citySeenNames.push(normalizedName);
+    seenByCity.set(cityKey, citySeenNames);
 
     const existing = await storage.findSdrMerchantByNameCity(biz.businessName, biz.city);
 
     if (existing) {
+      await mergeApolloContact(existing.id, biz);
       resultRecords.push({
         jobId,
         source: biz.source,
@@ -358,7 +468,42 @@ async function dedupeAndInsert(
         rawData: biz.rawData,
         status: "duplicate_existing",
         merchantId: existing.id,
-        dedupReason: `Matched existing merchant #${existing.id}`,
+        dedupReason: `Exact match to existing merchant #${existing.id}`,
+      });
+      duplicatesSkipped++;
+      continue;
+    }
+
+    let fuzzyExisting: { id: number; businessName: string } | undefined;
+    if (biz.city) {
+      const candidates = await getCityMerchants(biz.city);
+      fuzzyExisting = candidates.find(
+        m => jaroWinkler(normalizeBusinessName(m.businessName), normalizedName) >= FUZZY_THRESHOLD
+      );
+    }
+
+    if (fuzzyExisting) {
+      await mergeApolloContact(fuzzyExisting.id, biz);
+      resultRecords.push({
+        jobId,
+        source: biz.source,
+        vertical: biz.vertical,
+        metro: biz.metro,
+        businessName: biz.businessName,
+        phone: biz.phone,
+        email: biz.email,
+        website: biz.website,
+        address: biz.address,
+        city: biz.city,
+        state: biz.state,
+        zip: biz.zip,
+        rating: biz.rating,
+        reviewCount: biz.reviewCount,
+        placeId: biz.placeId,
+        rawData: biz.rawData,
+        status: "duplicate_existing",
+        merchantId: fuzzyExisting.id,
+        dedupReason: `Fuzzy match to existing merchant #${fuzzyExisting.id} ("${fuzzyExisting.businessName}")`,
       });
       duplicatesSkipped++;
       continue;
@@ -414,6 +559,14 @@ async function dedupeAndInsert(
       };
 
       await storage.createSdrLeadState(leadStateData);
+
+      const newEntry = { id: merchant.id, businessName: biz.businessName };
+      if (biz.city) {
+        const cityKey2 = biz.city.toLowerCase();
+        const cached = cityMerchantsCache.get(cityKey2);
+        if (cached) cached.push(newEntry);
+        else cityMerchantsCache.set(cityKey2, [newEntry]);
+      }
 
       resultRecords.push({
         jobId,
