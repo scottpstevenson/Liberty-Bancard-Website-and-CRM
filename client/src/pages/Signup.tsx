@@ -126,6 +126,7 @@ export default function Signup() {
                   <Input
                     id="password"
                     type="password"
+                    autoComplete="new-password"
                     placeholder="Min 6 characters"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
@@ -143,6 +144,7 @@ export default function Signup() {
                   <Input
                     id="confirmPassword"
                     type="password"
+                    autoComplete="new-password"
                     placeholder="Confirm your password"
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}

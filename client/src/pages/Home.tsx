@@ -211,7 +211,7 @@ export default function Home() {
         {/* SECTION 2: Hero */}
         <section className="relative overflow-hidden" data-testid="section-hero">
           <div className="absolute inset-0">
-            <img src={heroBg} alt="Professional payment processing technology background with fintech aesthetic" className="w-full h-full object-cover" fetchPriority="high" width="1408" height="792" />
+            <img src={heroBg} alt="Professional payment processing technology background with fintech aesthetic" className="w-full h-full object-cover" fetchpriority="high" width="1408" height="792" />
             <div className="absolute inset-0 bg-gradient-to-r from-[hsl(222,47%,6%)/0.97] via-[hsl(222,47%,6%)/0.93] to-[hsl(222,47%,6%)/0.85]" />
           </div>
           <div className="glow-blob w-72 h-72 bg-sky-500 top-20 right-1/4" />
