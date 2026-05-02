@@ -75,6 +75,9 @@ export async function syncContactToGhl(contactId: number): Promise<{ success: bo
     if (ghlId && !contact.ghlContactId) {
       await storage.updateContact(contactId, { ghlContactId: ghlId });
     }
+    if (ghlId) {
+      console.log(`[GHL Sync] Contact #${contactId} synced → GHL ID ${ghlId}`);
+    }
 
     await checkAndApplyActivePipelineTag(contact, ghlId);
 

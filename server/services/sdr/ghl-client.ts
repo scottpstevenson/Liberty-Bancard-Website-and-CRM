@@ -109,7 +109,7 @@ export async function upsertContact(params: UpsertContactParams): Promise<string
   const locationId = params.locationId || getLocationId();
   if (!locationId) throw new Error("GHL_LOCATION_ID not set");
 
-  const payload = {
+  const payload: Record<string, unknown> = {
     locationId,
     firstName: params.firstName,
     lastName: params.lastName,
@@ -117,8 +117,11 @@ export async function upsertContact(params: UpsertContactParams): Promise<string
     phone: params.phone,
     companyName: params.companyName,
     tags: params.tags || [],
-    customField: params.customField || {},
   };
+
+  if (params.customField && Object.keys(params.customField).length > 0) {
+    payload.customFields = Object.entries(params.customField).map(([key, value]) => ({ key, field_value: value }));
+  }
 
   if (params.existingGhlId) {
     await sdrGhlFetch(`/contacts/${params.existingGhlId}`, {
@@ -140,7 +143,9 @@ export async function upsertContact(params: UpsertContactParams): Promise<string
 export async function updateCustomFields(ghlContactId: string, fields: Record<string, string>): Promise<void> {
   await sdrGhlFetch(`/contacts/${ghlContactId}`, {
     method: "PUT",
-    body: JSON.stringify({ customField: fields }),
+    body: JSON.stringify({
+      customFields: Object.entries(fields).map(([key, value]) => ({ key, field_value: value })),
+    }),
   });
 }
 

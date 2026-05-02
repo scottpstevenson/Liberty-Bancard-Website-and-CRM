@@ -404,10 +404,10 @@ export async function syncAffiliateSignupToGhl(params: {
       phone: params.phone,
       companyName: params.companyName || "",
       tags: ["LB-AFFILIATE", "src_website", "lead_affiliate_signup"],
-      customField: {
-        lb_lead_source: "affiliate",
-        lb_affiliate_code: params.affiliateCode,
-      },
+      customFields: [
+        { key: "lb_lead_source", field_value: "affiliate" },
+        { key: "lb_affiliate_code", field_value: params.affiliateCode },
+      ],
     };
 
     const response = await fetch("https://services.leadconnectorhq.com/contacts/", {
