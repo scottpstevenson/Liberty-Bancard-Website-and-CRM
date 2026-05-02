@@ -1,0 +1,179 @@
+import type { Express } from "express";
+import { isAuthenticated } from "../replit_integrations/auth";
+import { storage } from "../storage";
+import { z } from "zod";
+import { insertChargebackSchema, CHARGEBACK_DEADLINE_DAYS } from "@shared/schema";
+import { createPreferenceAwareNotification } from "../services/digest-service";
+
+export function registerChargebacksRoutes(app: Express) {
+  app.get("/api/chargebacks", isAuthenticated, async (req, res) => {
+    try {
+      const status = req.query.status as string | undefined;
+      const contactId = req.query.contactId ? Number(req.query.contactId) : undefined;
+      const cardBrand = req.query.cardBrand as string | undefined;
+      const overdueOnly = req.query.overdueOnly === "true";
+      const chargebackList = await storage.getChargebacks({ status, contactId, cardBrand, overdueOnly: overdueOnly || undefined });
+      res.json(chargebackList);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/chargebacks/stats", isAuthenticated, async (req, res) => {
+    try {
+      const stats = await storage.getChargebackStats();
+      res.json(stats);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/chargebacks/overdue", isAuthenticated, async (req, res) => {
+    try {
+      const overdue = await storage.getOverdueChargebacks();
+      res.json(overdue);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/chargebacks/contact/:contactId", isAuthenticated, async (req, res) => {
+    try {
+      const list = await storage.getChargebacksByContact(Number(req.params.contactId));
+      res.json(list);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/chargebacks/deal/:dealId", isAuthenticated, async (req, res) => {
+    try {
+      const list = await storage.getChargebacksByDeal(Number(req.params.dealId));
+      res.json(list);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/chargebacks/:id", isAuthenticated, async (req, res) => {
+    try {
+      const cb = await storage.getChargeback(Number(req.params.id));
+      if (!cb) return res.status(404).json({ message: "Not found" });
+      res.json(cb);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/chargebacks", isAuthenticated, async (req, res) => {
+    try {
+      const body = { ...req.body };
+
+      if (body.transactionDate && typeof body.transactionDate === "string") {
+        body.transactionDate = new Date(body.transactionDate);
+      }
+
+      if (!body.responseDeadline && body.cardBrand && body.transactionDate) {
+        const deadlineDays = CHARGEBACK_DEADLINE_DAYS[body.cardBrand] ?? 30;
+        const txDate = new Date(body.transactionDate);
+        const deadline = new Date(txDate);
+        deadline.setDate(deadline.getDate() + deadlineDays);
+        body.responseDeadline = deadline;
+      } else if (body.responseDeadline && typeof body.responseDeadline === "string") {
+        body.responseDeadline = new Date(body.responseDeadline);
+      }
+
+      const input = insertChargebackSchema.parse(body);
+      const cb = await storage.createChargeback(input);
+
+      await storage.createAuditLog({
+        action: "chargeback_created",
+        entityType: "chargeback",
+        entityId: cb.id,
+        details: { amount: cb.amount, cardBrand: cb.cardBrand, reasonCode: cb.reasonCode, contactId: cb.contactId },
+      });
+
+      await createPreferenceAwareNotification({
+        channel: "internal",
+        title: "New Chargeback Logged",
+        message: `Chargeback #${cb.id} — $${cb.amount.toFixed(2)} (${cb.cardBrand}) logged. Deadline: ${cb.responseDeadline ? new Date(cb.responseDeadline).toLocaleDateString() : "N/A"}.`,
+        type: "info",
+        metadata: { chargebackId: cb.id, eventType: "chargeback_created" },
+      }, "chargeback_created").catch(() => {});
+
+      res.status(201).json(cb);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join(".") });
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/chargebacks/:id", isAuthenticated, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const body = { ...req.body };
+
+      if (body.transactionDate && typeof body.transactionDate === "string") {
+        body.transactionDate = new Date(body.transactionDate);
+      }
+      if (body.responseDeadline && typeof body.responseDeadline === "string") {
+        body.responseDeadline = new Date(body.responseDeadline);
+      }
+      if (body.respondedAt && typeof body.respondedAt === "string") {
+        body.respondedAt = new Date(body.respondedAt);
+      }
+
+      if (body.status === "Responded" && !body.respondedAt) {
+        body.respondedAt = new Date();
+      }
+
+      const updated = await storage.updateChargeback(id, body);
+      if (!updated) return res.status(404).json({ message: "Not found" });
+
+      await storage.createAuditLog({
+        action: "chargeback_updated",
+        entityType: "chargeback",
+        entityId: updated.id,
+        details: { status: updated.status, outcome: updated.outcome },
+      });
+
+      res.json(updated);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/chargebacks/:id", isAuthenticated, async (req, res) => {
+    try {
+      if ((req.user as any)?.role !== "admin" && (req.user as any)?.role !== "manager") {
+        return res.status(403).json({ message: "Admin or manager required" });
+      }
+      await storage.deleteChargeback(Number(req.params.id));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/chargebacks/:id/evidence", isAuthenticated, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const cb = await storage.getChargeback(id);
+      if (!cb) return res.status(404).json({ message: "Not found" });
+
+      const schema = z.object({
+        name: z.string().min(1),
+        url: z.string().min(1),
+      });
+      const { name, url } = schema.parse(req.body);
+      const existing = (cb.evidenceFiles as any[]) || [];
+      const updated = await storage.updateChargeback(id, {
+        evidenceFiles: [...existing, { name, url, uploadedAt: new Date().toISOString() }],
+      });
+      res.json(updated);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      res.status(400).json({ message: err.message });
+    }
+  });
+}

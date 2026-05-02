@@ -94,6 +94,7 @@ import BlazeIntegration from "@/pages/dashboard/BlazeIntegration";
 import MerchantPortal from "@/pages/dashboard/MerchantPortal";
 import AgentManagement from "@/pages/dashboard/AgentManagement";
 import MerchantHealth from "@/pages/dashboard/MerchantHealth";
+import Chargebacks from "@/pages/dashboard/Chargebacks";
 import WinLoss from "@/pages/dashboard/WinLoss";
 import ReferralProgram from "@/pages/dashboard/ReferralProgram";
 import KnowledgeBase from "@/pages/dashboard/KnowledgeBase";
@@ -406,6 +407,9 @@ function Router() {
       </Route>
       <Route path="/dashboard/merchant-health">
         <ProtectedRoute component={MerchantHealth} />
+      </Route>
+      <Route path="/dashboard/chargebacks">
+        <ProtectedRoute component={Chargebacks} />
       </Route>
       <Route path="/dashboard/agent-management">
         <ProtectedRoute component={AgentManagement} />

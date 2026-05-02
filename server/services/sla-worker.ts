@@ -396,6 +396,43 @@ async function runScheduledAiOps() {
   }
 }
 
+async function checkChargebackDeadlines() {
+  try {
+    const overdue = await storage.getOverdueChargebacks();
+    for (const cb of overdue) {
+      const existingTasks = (await storage.getTasks()).filter(
+        t => t.title?.includes(`Chargeback #${cb.id}`) && t.status === "pending"
+      );
+      if (existingTasks.length > 0) continue;
+
+      const deadlineDays = cb.responseDeadline
+        ? Math.round((Date.now() - new Date(cb.responseDeadline).getTime()) / (1000 * 60 * 60 * 24))
+        : 0;
+
+      await storage.createTask({
+        contactId: cb.contactId || undefined,
+        dealId: cb.dealId || undefined,
+        title: `OVERDUE Chargeback #${cb.id} — $${cb.amount.toFixed(2)} (${cb.cardBrand}) past deadline by ${deadlineDays}d`,
+        assignedTo: "Scott Stevenson",
+        priority: "high",
+        dueDate: new Date(),
+      });
+
+      await createPreferenceAwareNotification({
+        channel: "internal",
+        title: "Chargeback Deadline Overdue",
+        message: `Chargeback #${cb.id} ($${cb.amount.toFixed(2)}, ${cb.cardBrand}) is ${deadlineDays} day(s) past its response deadline. Status: ${cb.status}.`,
+        type: "urgent",
+        metadata: { chargebackId: cb.id, eventType: "chargeback_overdue" },
+      }, "sla_breach").catch(() => {});
+
+      console.log(`[Chargeback] Overdue alert created for chargeback #${cb.id}`);
+    }
+  } catch (err) {
+    console.error("Chargeback deadline check error:", err);
+  }
+}
+
 async function checkApplicationReminders() {
   try {
     const { data: allDeals } = await storage.getDeals({ limit: 500 });
@@ -499,6 +536,7 @@ export function startSlaWorker() {
     await periodicLeadScoring().catch(err => console.error("Periodic scoring error:", err));
     await checkAndSendDigests().catch(err => console.error("Digest check error:", err));
     await checkApplicationReminders().catch(err => console.error("Application reminder error:", err));
+    await checkChargebackDeadlines().catch(err => console.error("Chargeback deadline check error:", err));
     cycleCount++;
     if (cycleCount % AI_OPS_EVERY_N_CYCLES === 0) {
       await runScheduledAiOps();

@@ -2699,6 +2699,52 @@ export const insertGhlWorkflowMappingSchema = createInsertSchema(ghlWorkflowMapp
 export type GhlWorkflowMapping = typeof ghlWorkflowMappings.$inferSelect;
 export type InsertGhlWorkflowMapping = z.infer<typeof insertGhlWorkflowMappingSchema>;
 
+export const chargebacks = pgTable("chargebacks", {
+  id: serial("id").primaryKey(),
+  contactId: integer("contact_id").references(() => contacts.id),
+  dealId: integer("deal_id").references(() => deals.id),
+  transactionDate: timestamp("transaction_date").notNull(),
+  amount: real("amount").notNull(),
+  cardBrand: text("card_brand").notNull(),
+  reasonCode: text("reason_code").notNull(),
+  reasonDescription: text("reason_description"),
+  status: text("status").notNull().default("New"),
+  responseDeadline: timestamp("response_deadline"),
+  evidenceFiles: jsonb("evidence_files").$type<{ name: string; url: string; uploadedAt: string }[]>().default([]),
+  respondedAt: timestamp("responded_at"),
+  outcome: text("outcome"),
+  notes: text("notes"),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("chargebacks_contact_id_idx").on(table.contactId),
+  index("chargebacks_deal_id_idx").on(table.dealId),
+  index("chargebacks_status_idx").on(table.status),
+  index("chargebacks_response_deadline_idx").on(table.responseDeadline),
+  index("chargebacks_created_at_idx").on(table.createdAt),
+]);
+
+export const insertChargebackSchema = createInsertSchema(chargebacks).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type Chargeback = typeof chargebacks.$inferSelect;
+export type InsertChargeback = z.infer<typeof insertChargebackSchema>;
+export type UpdateChargebackRequest = Partial<InsertChargeback>;
+
+export const CHARGEBACK_STATUSES = ["New", "Under Review", "Responded", "Won", "Lost"] as const;
+export const CHARGEBACK_CARD_BRANDS = ["Visa", "Mastercard", "Amex", "Discover"] as const;
+
+export const CHARGEBACK_DEADLINE_DAYS: Record<string, number> = {
+  Visa: 30,
+  Mastercard: 45,
+  Amex: 20,
+  Discover: 30,
+};
+
 export const GHL_PIPELINE_STAGE_MAP: Record<string, string> = {
   "New Lead": "new_lead",
   "Statement Received": "statement_received",

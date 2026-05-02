@@ -3,6 +3,8 @@ import {
   liveChats, liveChatMessages,
   type LiveChat, type InsertLiveChat, type LiveChatMessage, type InsertLiveChatMessage,
   contacts, companies, deals, tickets, tasks, documents, auditLogs, notifications, workflowRuns, workflows, rfis, users,
+  chargebacks,
+  type Chargeback, type InsertChargeback, type UpdateChargebackRequest,
   messageTemplates, collateralPackets, ghlActivityLog, slaConfigs,
   prospects, prospectLists, enrichmentJobs, campaigns, campaignSteps, outboundMessages, notes,
   emailLogs, callLogs, stageAutomationRules, followUpSequences, sequenceSteps, sequenceEnrollments,
@@ -495,6 +497,16 @@ export interface IStorage {
   getGhlWorkflowMappings(): Promise<import("@shared/schema").GhlWorkflowMapping[]>;
   upsertGhlWorkflowMapping(sequenceName: string, ghlWorkflowId: string | null, category?: string, description?: string): Promise<import("@shared/schema").GhlWorkflowMapping>;
   getGhlWorkflowIdBySequenceName(sequenceName: string): Promise<string | null>;
+
+  getChargebacks(filters?: { status?: string; contactId?: number; cardBrand?: string; overdueOnly?: boolean }): Promise<import("@shared/schema").Chargeback[]>;
+  getChargeback(id: number): Promise<import("@shared/schema").Chargeback | undefined>;
+  getChargebacksByContact(contactId: number): Promise<import("@shared/schema").Chargeback[]>;
+  getChargebacksByDeal(dealId: number): Promise<import("@shared/schema").Chargeback[]>;
+  createChargeback(data: import("@shared/schema").InsertChargeback): Promise<import("@shared/schema").Chargeback>;
+  updateChargeback(id: number, updates: import("@shared/schema").UpdateChargebackRequest): Promise<import("@shared/schema").Chargeback | undefined>;
+  deleteChargeback(id: number): Promise<void>;
+  getOverdueChargebacks(): Promise<import("@shared/schema").Chargeback[]>;
+  getChargebackStats(): Promise<{ total: number; open: number; overdue: number; won: number; lost: number; thisMonthWinRate: number; totalAtRiskAmount: number }>;
 }
 
 const DEFAULT_LIMIT = 100;
@@ -2965,6 +2977,75 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(liveChatMessages)
       .where(eq(liveChatMessages.chatId, chatId))
       .orderBy(asc(liveChatMessages.createdAt));
+  }
+
+  // ── Chargebacks ──────────────────────────────────────────────────────────────
+  async getChargebacks(filters?: { status?: string; contactId?: number; cardBrand?: string; overdueOnly?: boolean }): Promise<Chargeback[]> {
+    const conditions = [];
+    if (filters?.status) conditions.push(eq(chargebacks.status, filters.status));
+    if (filters?.contactId) conditions.push(eq(chargebacks.contactId, filters.contactId));
+    if (filters?.cardBrand) conditions.push(eq(chargebacks.cardBrand, filters.cardBrand));
+    if (filters?.overdueOnly) {
+      conditions.push(lt(chargebacks.responseDeadline, new Date()));
+      conditions.push(sql`${chargebacks.status} NOT IN ('Won', 'Lost')`);
+    }
+    return db.select().from(chargebacks)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(chargebacks.createdAt));
+  }
+
+  async getChargeback(id: number): Promise<Chargeback | undefined> {
+    const [row] = await db.select().from(chargebacks).where(eq(chargebacks.id, id));
+    return row;
+  }
+
+  async getChargebacksByContact(contactId: number): Promise<Chargeback[]> {
+    return db.select().from(chargebacks).where(eq(chargebacks.contactId, contactId)).orderBy(desc(chargebacks.createdAt));
+  }
+
+  async getChargebacksByDeal(dealId: number): Promise<Chargeback[]> {
+    return db.select().from(chargebacks).where(eq(chargebacks.dealId, dealId)).orderBy(desc(chargebacks.createdAt));
+  }
+
+  async createChargeback(data: InsertChargeback): Promise<Chargeback> {
+    const [row] = await db.insert(chargebacks).values(data).returning();
+    return row;
+  }
+
+  async updateChargeback(id: number, updates: UpdateChargebackRequest): Promise<Chargeback | undefined> {
+    const [row] = await db.update(chargebacks)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(chargebacks.id, id))
+      .returning();
+    return row;
+  }
+
+  async deleteChargeback(id: number): Promise<void> {
+    await db.delete(chargebacks).where(eq(chargebacks.id, id));
+  }
+
+  async getOverdueChargebacks(): Promise<Chargeback[]> {
+    return db.select().from(chargebacks)
+      .where(and(
+        lt(chargebacks.responseDeadline, new Date()),
+        sql`${chargebacks.status} NOT IN ('Won', 'Lost')`
+      ))
+      .orderBy(asc(chargebacks.responseDeadline));
+  }
+
+  async getChargebackStats(): Promise<{ total: number; open: number; overdue: number; won: number; lost: number; thisMonthWinRate: number; totalAtRiskAmount: number }> {
+    const all = await db.select().from(chargebacks);
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const open = all.filter(c => !["Won", "Lost"].includes(c.status));
+    const overdue = open.filter(c => c.responseDeadline && new Date(c.responseDeadline) < now);
+    const won = all.filter(c => c.status === "Won");
+    const lost = all.filter(c => c.status === "Lost");
+    const thisMonthResolved = all.filter(c => ["Won", "Lost"].includes(c.status) && c.updatedAt && new Date(c.updatedAt) >= startOfMonth);
+    const thisMonthWon = thisMonthResolved.filter(c => c.status === "Won");
+    const thisMonthWinRate = thisMonthResolved.length > 0 ? Math.round((thisMonthWon.length / thisMonthResolved.length) * 100) : 0;
+    const totalAtRiskAmount = open.reduce((sum, c) => sum + (c.amount || 0), 0);
+    return { total: all.length, open: open.length, overdue: overdue.length, won: won.length, lost: lost.length, thisMonthWinRate, totalAtRiskAmount };
   }
 }
 
