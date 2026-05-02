@@ -14,6 +14,14 @@ export function Footer() {
     { label: "Affiliate Program", href: "/affiliate" },
   ];
 
+  const growWithUsLinks = [
+    { label: "ISO & Partner Program", href: "/partners" },
+    { label: "Partner Portal Login", href: "/partner-portal" },
+    { label: "Affiliate Program", href: "/affiliate" },
+    { label: "Residual Income Calculator", href: "/partners#calculator" },
+    { label: "Become a Partner", href: "/partners#apply" },
+  ];
+
   const quizLinks = [
     { label: "Free Savings Analysis Quiz", href: "/free-analysis" },
     { label: "Processing Cost Quiz", href: "/quiz/processing-cost" },
@@ -140,6 +148,21 @@ export function Footer() {
                     href={link.href}
                     className="text-primary-foreground/70 text-sm hover:text-primary-foreground transition-colors"
                     data-testid={`link-footer-${link.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                  >
+                    {link.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+
+            <h4 className="font-semibold text-lg mt-8 mb-4" data-testid="text-footer-grow-heading">Grow With Us</h4>
+            <ul className="space-y-3">
+              {growWithUsLinks.map((link) => (
+                <li key={link.href}>
+                  <Link
+                    href={link.href}
+                    className="text-primary-foreground/70 text-sm hover:text-primary-foreground transition-colors"
+                    data-testid={`link-footer-grow-${link.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
                   >
                     {link.label}
                   </Link>

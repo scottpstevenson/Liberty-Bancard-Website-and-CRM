@@ -132,6 +132,8 @@ import WhyLiberty from "@/pages/WhyLiberty";
 import CaseStudies from "@/pages/CaseStudies";
 import FAQ from "@/pages/FAQ";
 import AffiliateProgram from "@/pages/AffiliateProgram";
+import ISOPartnerProgram from "@/pages/ISOPartnerProgram";
+import PartnerPortal from "@/pages/PartnerPortal";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { user, isLoading } = useAuth();
@@ -146,6 +148,10 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
 
   if (!user) {
     return <Redirect to="/login" />;
+  }
+
+  if ((user as any).role === "partner") {
+    return <Redirect to="/partner-portal" />;
   }
 
   return (
@@ -208,6 +214,9 @@ function Router() {
       <Route path="/case-studies" component={CaseStudies} />
       <Route path="/faq" component={FAQ} />
       <Route path="/affiliate" component={AffiliateProgram} />
+      <Route path="/partners" component={ISOPartnerProgram} />
+      <Route path="/partner-portal" component={PartnerPortal} />
+      <Route path="/dashboard/partner" component={PartnerPortal} />
       <Route path="/blog/:slug" component={BlogPost} />
       <Route path="/blog" component={Blog} />
       <Route path="/help/:category/:slug" component={HelpArticle} />

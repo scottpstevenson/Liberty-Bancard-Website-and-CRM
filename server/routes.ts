@@ -36,6 +36,24 @@ export async function registerRoutes(
   registerAuthRoutes(app);
   registerAudioRoutes(app);
 
+  app.use("/api", (req, res, next) => {
+    if (!req.isAuthenticated()) return next();
+    const role = (req.user as any)?.role;
+    if (role !== "partner") return next();
+    const partnerAllowedExact = new Set([
+      "/partner-apply",
+      "/partner/login",
+      "/partner/session",
+      "/partner/logout",
+    ]);
+    const allowed =
+      partnerAllowedExact.has(req.path) ||
+      req.path.startsWith("/partner/dashboard/") ||
+      req.path.startsWith("/auth");
+    if (allowed) return next();
+    return res.status(403).json({ message: "Partner accounts do not have CRM access." });
+  });
+
   registerContactsRoutes(app);
   registerDealsRoutes(app);
   registerTicketsTasksRoutes(app);

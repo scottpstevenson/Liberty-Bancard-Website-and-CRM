@@ -1,7 +1,7 @@
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
-import { Menu, X, Phone, Mail, Upload, Calendar, LayoutDashboard, ChevronDown, Zap } from "lucide-react";
+import { Menu, X, Phone, Mail, Upload, Calendar, LayoutDashboard, ChevronDown, Zap, Handshake } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import logoBlue from "@assets/logo-blue.png";
@@ -252,6 +252,20 @@ export function Navbar() {
               </div>
 
               <Link
+                href="/partners"
+                className={cn(
+                  "text-sm font-medium transition-colors flex items-center gap-1.5",
+                  location === "/partners" || location === "/partner-portal"
+                    ? "text-primary"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+                data-testid="link-nav-partners"
+              >
+                <Handshake className="w-3.5 h-3.5" />
+                Partner Program
+              </Link>
+
+              <Link
                 href="/dashboard"
                 className={cn(
                   "text-sm font-medium transition-colors flex items-center gap-1.5",
@@ -392,6 +406,21 @@ export function Navbar() {
               ))}
 
               <div className="h-px bg-border my-2" />
+
+              <Link
+                href="/partners"
+                className={cn(
+                  "px-3 py-2.5 rounded-md text-sm font-medium transition-colors flex items-center gap-2",
+                  location === "/partners" || location === "/partner-portal"
+                    ? "text-primary bg-primary/5"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                )}
+                onClick={() => setIsOpen(false)}
+                data-testid="link-mobile-nav-partners"
+              >
+                <Handshake className="w-4 h-4" />
+                Partner Program
+              </Link>
 
               <Link
                 href="/dashboard"
