@@ -90,6 +90,9 @@ import {
   merchantReferrals, type MerchantReferral, type InsertMerchantReferral,
   retentionCampaignConfigs, type RetentionCampaignConfig, type InsertRetentionCampaignConfig,
   type MidDailyStat, type InsertMidDailyStat,
+  roleplaySessions, type RoleplaySession, type InsertRoleplaySession,
+  roleplayExchanges, type RoleplayExchange, type InsertRoleplayExchange,
+  leaderboardSettings, type LeaderboardSettings,
 } from "@shared/schema";
 import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, count } from "drizzle-orm";
 

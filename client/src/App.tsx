@@ -119,6 +119,7 @@ import InboxHealth from "@/pages/dashboard/InboxHealth";
 import ActivationPanel from "@/pages/dashboard/ActivationPanel";
 import OperatorDashboard from "@/pages/dashboard/OperatorDashboard";
 import Training from "@/pages/dashboard/Training";
+import Leaderboard from "@/pages/dashboard/Leaderboard";
 import SalesRepHome from "@/pages/dashboard/SalesRepHome";
 import LiveChatDashboard from "@/pages/dashboard/LiveChat";
 import DocumentVault from "@/pages/dashboard/DocumentVault";
@@ -492,6 +493,9 @@ function Router() {
       </Route>
       <Route path="/dashboard/training">
         <ProtectedRoute component={Training} />
+      </Route>
+      <Route path="/dashboard/leaderboard">
+        <ProtectedRoute component={Leaderboard} />
       </Route>
       <Route path="/dashboard/my-day">
         <AgentRoute component={SalesRepHome} />

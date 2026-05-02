@@ -158,6 +158,7 @@ const businessItems: MenuItem[] = [
   { icon: UserPlus, label: "Agent Management", href: "/dashboard/agent-management", roles: ["admin", "manager"] },
   { icon: HeartPulse, label: "Merchant Health", href: "/dashboard/merchant-health", roles: ["admin", "manager"] },
   { icon: ShieldAlert, label: "Chargebacks", href: "/dashboard/chargebacks", roles: ["admin", "manager"] },
+  { icon: Trophy, label: "Leaderboard", href: "/dashboard/leaderboard", roles: ["admin", "manager", "agent"] },
   { icon: Trophy, label: "Win/Loss Analysis", href: "/dashboard/win-loss", roles: ["admin", "manager"] },
   { icon: Handshake, label: "Referral Program", href: "/dashboard/referral-program", roles: ["admin", "manager"] },
   { icon: Star, label: "Review Requests", href: "/dashboard/review-requests", roles: ["admin", "manager"] },

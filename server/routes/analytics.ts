@@ -5,6 +5,9 @@ import { pool } from "../db";
 import { contacts } from "@shared/schema";
 import { isGhlConfigured, sendGhlEmailForMerchant } from "../services/ghl";
 import { buildWeeklyDigest } from "../services/digest-service";
+import { db } from "../db";
+import { agents, deals, leaderboardSettings } from "@shared/schema";
+import { eq, and, gte, desc } from "drizzle-orm";
 
 export function registerAnalyticsRoutes(app: Express) {
   // === KPI DASHBOARD ===
@@ -501,6 +504,189 @@ export function registerAnalyticsRoutes(app: Express) {
         awaitingOutreach: parseInt(awaitingOutreach.rows[0].count, 10),
         pipelineValue: parseFloat(pipelineValue.rows[0].total_value) || 0,
       });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+
+  // === LEADERBOARD ===
+  app.get("/api/leaderboard", isAuthenticated, async (req, res) => {
+    try {
+      const { period = "month" } = req.query as { period?: string };
+      const now = new Date();
+
+      // Compute time windows for current and previous period
+      let currentStart: Date;
+      let prevStart: Date;
+      let prevEnd: Date;
+
+      if (period === "week") {
+        currentStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        prevStart = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+        prevEnd = currentStart;
+      } else if (period === "quarter") {
+        const qMonth = Math.floor(now.getMonth() / 3) * 3;
+        currentStart = new Date(now.getFullYear(), qMonth, 1);
+        prevStart = new Date(now.getFullYear(), qMonth - 3, 1);
+        prevEnd = currentStart;
+      } else if (period === "all") {
+        currentStart = new Date(0);
+        prevStart = new Date(0);
+        prevEnd = new Date(0);
+      } else {
+        // month
+        currentStart = new Date(now.getFullYear(), now.getMonth(), 1);
+        prevStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        prevEnd = currentStart;
+      }
+
+      const [allAgents, dealsResult, callLogsResult] = await Promise.all([
+        storage.getAgents(),
+        storage.getDeals({ limit: 10000 }),
+        pool.query(`SELECT assigned_to, created_at FROM call_logs WHERE assigned_to IS NOT NULL`).catch(() => ({ rows: [] as any[] })),
+      ]);
+
+      const allDeals = dealsResult.data;
+
+      const currentUser = req.user as any;
+      const currentUserId = currentUser?.id;
+
+      // Fetch leaderboard settings
+      const [settingsRow] = await db.select().from(leaderboardSettings).limit(1);
+      const settings = settingsRow || {
+        showDeals: true,
+        showRevenue: true,
+        showProposals: true,
+        showCallsMade: true,
+        showResponseRate: false,
+        visibleToAgents: true,
+        monthlyDealGoal: 10,
+        monthlyRevenueGoal: "50000",
+      };
+
+      const role = currentUser?.role;
+      if (role === "agent" && !settings.visibleToAgents) {
+        return res.json({ entries: [], period, settings });
+      }
+
+      const isCurrent = (date: Date | string | null | undefined) => {
+        if (!date) return false;
+        const d = new Date(date);
+        return d >= currentStart && d <= now;
+      };
+
+      const isPrev = (date: Date | string | null | undefined) => {
+        if (!date || period === "all") return false;
+        const d = new Date(date);
+        return d >= prevStart && d < prevEnd;
+      };
+
+      const parseMoney = (v: string | null | undefined) => {
+        if (!v) return 0;
+        const n = parseFloat(v.replace(/[^0-9.]/g, ""));
+        return isNaN(n) ? 0 : n;
+      };
+
+      const entries = allAgents
+        .filter(a => a.status === "active")
+        .map(agent => {
+          // Current period deals
+          const agentDeals = allDeals.filter(d => {
+            const owner = d.owner?.toLowerCase();
+            const agentName = `${agent.firstName} ${agent.lastName}`.toLowerCase();
+            return owner === agentName || owner === agent.email?.toLowerCase();
+          });
+
+          const currentDeals = agentDeals.filter(d => d.stage === "Closed Won" && isCurrent(d.closedAt || d.updatedAt));
+          const prevDeals = agentDeals.filter(d => d.stage === "Closed Won" && isPrev(d.closedAt || d.updatedAt));
+
+          const currentProposals = agentDeals.filter(d => isCurrent(d.proposalEmailSentAt));
+          const prevProposals = agentDeals.filter(d => isPrev(d.proposalEmailSentAt));
+
+          const currentRevenue = currentDeals.reduce((s, d) => s + parseMoney(d.totalVolume), 0);
+          const prevRevenue = prevDeals.reduce((s, d) => s + parseMoney(d.totalVolume), 0);
+
+          // Call logs (best effort)
+          const agentCalls = callLogsResult.rows.filter((r: any) => {
+            const assignedTo = (r.assigned_to || "").toLowerCase();
+            return assignedTo === `${agent.firstName} ${agent.lastName}`.toLowerCase() || assignedTo === agent.email?.toLowerCase();
+          });
+          const currentCalls = agentCalls.filter((r: any) => isCurrent(r.created_at)).length;
+          const prevCalls = agentCalls.filter((r: any) => isPrev(r.created_at)).length;
+
+          const isCurrentUser = !!(currentUserId && (agent.userId === currentUserId || agent.email === currentUser?.email));
+
+          // Response Rate = proposals sent / total deals touched in the period (as %)
+          // "Touched" = deal exists in the period (created or updated)
+          const currentTouched = agentDeals.filter(d => isCurrent(d.createdAt || d.updatedAt));
+          const prevTouched = agentDeals.filter(d => isPrev(d.createdAt || d.updatedAt));
+          const currentResponseRate = currentTouched.length > 0
+            ? Math.round((currentProposals.length / currentTouched.length) * 100)
+            : 0;
+          const prevResponseRate = prevTouched.length > 0
+            ? Math.round((prevProposals.length / prevTouched.length) * 100)
+            : 0;
+
+          return {
+            agentId: agent.id,
+            name: `${agent.firstName} ${agent.lastName}`,
+            initials: `${agent.firstName[0]}${agent.lastName[0]}`.toUpperCase(),
+            rank: 0,
+            dealsClosed: currentDeals.length,
+            revenueManaged: currentRevenue,
+            proposalsSent: currentProposals.length,
+            callsMade: currentCalls,
+            responseRate: currentResponseRate,
+            prevDealsClosed: prevDeals.length,
+            prevRevenueManaged: prevRevenue,
+            prevProposalsSent: prevProposals.length,
+            prevCallsMade: prevCalls,
+            prevResponseRate,
+            isCurrentUser,
+          };
+        });
+
+      // Sort by deals for default rank
+      entries.sort((a, b) => b.dealsClosed - a.dealsClosed);
+      entries.forEach((e, i) => { e.rank = i + 1; });
+
+      res.json({ entries, period, settings });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+
+  // === LEADERBOARD SETTINGS ===
+  app.get("/api/leaderboard/settings", isAuthenticated, async (req, res) => {
+    try {
+      const [row] = await db.select().from(leaderboardSettings).limit(1);
+      res.json(row || {
+        showDeals: true, showRevenue: true, showProposals: true, showCallsMade: true,
+        showResponseRate: false, visibleToAgents: true, monthlyDealGoal: 10, monthlyRevenueGoal: "50000",
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/leaderboard/settings", isAuthenticated, async (req, res) => {
+    const role = (req.user as any)?.role;
+    if (role !== "admin" && role !== "manager") return res.status(403).json({ message: "Admin/Manager only" });
+    try {
+      const updates = req.body;
+      const [existing] = await db.select().from(leaderboardSettings).limit(1);
+      if (existing) {
+        const [updated] = await db.update(leaderboardSettings)
+          .set({ ...updates, updatedAt: new Date() })
+          .where(eq(leaderboardSettings.id, existing.id))
+          .returning();
+        res.json(updated);
+      } else {
+        const [created] = await db.insert(leaderboardSettings).values(updates).returning();
+        res.json(created);
+      }
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

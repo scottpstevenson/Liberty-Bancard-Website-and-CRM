@@ -3050,6 +3050,70 @@ export const MERCHANT_REFERRAL_STATUSES = [
   "expired",
 ] as const;
 
+// ── AI Roleplay Sessions ──────────────────────────────────────────────────────
+export const roleplaySessions = pgTable("roleplay_sessions", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").references(() => users.id),
+  scenario: text("scenario").notNull(),
+  persona: text("persona").notNull(),
+  status: text("status").default("active"),
+  totalExchanges: integer("total_exchanges").default(0),
+  overallScore: integer("overall_score"),
+  coachingSummary: text("coaching_summary"),
+  strengths: text("strengths").array(),
+  gaps: text("gaps").array(),
+  suggestedPhrasing: text("suggested_phrasing").array(),
+  createdAt: timestamp("created_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+});
+
+export const insertRoleplaySessionSchema = createInsertSchema(roleplaySessions).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type RoleplaySession = typeof roleplaySessions.$inferSelect;
+export type InsertRoleplaySession = z.infer<typeof insertRoleplaySessionSchema>;
+
+export const roleplayExchanges = pgTable("roleplay_exchanges", {
+  id: serial("id").primaryKey(),
+  sessionId: integer("session_id").notNull().references(() => roleplaySessions.id),
+  repMessage: text("rep_message").notNull(),
+  merchantReply: text("merchant_reply").notNull(),
+  toneScore: integer("tone_score"),
+  clarityScore: integer("clarity_score"),
+  objectionAddressed: boolean("objection_addressed"),
+  feedback: text("feedback"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("roleplay_exchanges_session_id_idx").on(table.sessionId),
+]);
+
+export const insertRoleplayExchangeSchema = createInsertSchema(roleplayExchanges).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type RoleplayExchange = typeof roleplayExchanges.$inferSelect;
+export type InsertRoleplayExchange = z.infer<typeof insertRoleplayExchangeSchema>;
+
+// ── Leaderboard Settings ──────────────────────────────────────────────────────
+export const leaderboardSettings = pgTable("leaderboard_settings", {
+  id: serial("id").primaryKey(),
+  showDeals: boolean("show_deals").default(true),
+  showRevenue: boolean("show_revenue").default(true),
+  showProposals: boolean("show_proposals").default(true),
+  showCallsMade: boolean("show_calls_made").default(true),
+  showResponseRate: boolean("show_response_rate").default(false),
+  visibleToAgents: boolean("visible_to_agents").default(true),
+  monthlyDealGoal: integer("monthly_deal_goal").default(10),
+  monthlyRevenueGoal: text("monthly_revenue_goal").default("50000"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type LeaderboardSettings = typeof leaderboardSettings.$inferSelect;
+
 // ── Retention Campaign Configs ────────────────────────────────────────────────
 export const retentionCampaignConfigs = pgTable("retention_campaign_configs", {
   id: serial("id").primaryKey(),

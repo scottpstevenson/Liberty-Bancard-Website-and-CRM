@@ -30,6 +30,50 @@ export async function runStartupMigrations(): Promise<void> {
       CREATE INDEX IF NOT EXISTS vt_transactions_status_idx ON virtual_terminal_transactions(status);
       CREATE INDEX IF NOT EXISTS vt_transactions_created_at_idx ON virtual_terminal_transactions(created_at);
       CREATE INDEX IF NOT EXISTS vt_transactions_processed_by_idx ON virtual_terminal_transactions(processed_by);
+
+      CREATE TABLE IF NOT EXISTS roleplay_sessions (
+        id SERIAL PRIMARY KEY,
+        user_id VARCHAR REFERENCES users(id),
+        scenario TEXT NOT NULL,
+        persona TEXT NOT NULL,
+        status TEXT DEFAULT 'active',
+        total_exchanges INTEGER DEFAULT 0,
+        overall_score INTEGER,
+        coaching_summary TEXT,
+        strengths TEXT[],
+        gaps TEXT[],
+        suggested_phrasing TEXT[],
+        created_at TIMESTAMP DEFAULT NOW(),
+        completed_at TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS roleplay_exchanges (
+        id SERIAL PRIMARY KEY,
+        session_id INTEGER NOT NULL REFERENCES roleplay_sessions(id),
+        rep_message TEXT NOT NULL,
+        merchant_reply TEXT NOT NULL,
+        tone_score INTEGER,
+        clarity_score INTEGER,
+        objection_addressed BOOLEAN,
+        feedback TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS roleplay_exchanges_session_id_idx ON roleplay_exchanges(session_id);
+
+      CREATE TABLE IF NOT EXISTS leaderboard_settings (
+        id SERIAL PRIMARY KEY,
+        show_deals BOOLEAN DEFAULT true,
+        show_revenue BOOLEAN DEFAULT true,
+        show_proposals BOOLEAN DEFAULT true,
+        show_calls_made BOOLEAN DEFAULT true,
+        show_response_rate BOOLEAN DEFAULT false,
+        visible_to_agents BOOLEAN DEFAULT true,
+        monthly_deal_goal INTEGER DEFAULT 10,
+        monthly_revenue_goal TEXT DEFAULT '50000',
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
     `);
     console.log("[Migrations] Startup migrations applied successfully.");
   } catch (err: any) {
