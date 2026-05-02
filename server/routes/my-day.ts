@@ -160,12 +160,24 @@ export function registerMyDayRoutes(app: Express) {
         };
       });
 
+      let quotaWithActuals = quota;
+      if (quota) {
+        const periodStart = new Date(quota.periodStart);
+        const periodEnd = new Date(quota.periodEnd);
+        const liveActualDeals = myDeals.filter((d) => {
+          if (d.stage !== "Closed Won" || !d.closedAt) return false;
+          const closed = new Date(d.closedAt);
+          return closed >= periodStart && closed <= periodEnd;
+        }).length;
+        quotaWithActuals = { ...quota, actualDeals: liveActualDeals };
+      }
+
       return res.json({
         agent,
         contacts: contactsForDeals,
         dealsByStage,
         openDeals,
-        quota,
+        quota: quotaWithActuals,
         closedWonThisMonth: closedWonThisMonth.length,
         tasksToday: myTasks,
       });
