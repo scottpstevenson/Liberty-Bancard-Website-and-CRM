@@ -633,7 +633,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createDeal(insertDeal: InsertDeal) {
-    const [deal] = await db.insert(deals).values(insertDeal).returning();
+    let payload = { ...insertDeal };
+    if (payload.contactId && !payload.partnerOrgId) {
+      const [contact] = await db.select({ partnerOrgId: contacts.partnerOrgId }).from(contacts).where(eq(contacts.id, payload.contactId));
+      if (contact?.partnerOrgId) payload.partnerOrgId = contact.partnerOrgId;
+    }
+    const [deal] = await db.insert(deals).values(payload).returning();
     return deal;
   }
 
@@ -3322,6 +3327,91 @@ export class DatabaseStorage implements IStorage {
       return await this.updateMidDailyStat(existing.id, stat);
     }
     return await this.createMidDailyStat(stat);
+  }
+
+  // ── Partner Organizations ─────────────────────────────────────────────────
+  async getPartnerOrgs() {
+    const { partnerOrganizations } = await import("@shared/schema");
+    return await db.select().from(partnerOrganizations).orderBy(desc(partnerOrganizations.createdAt));
+  }
+
+  async getPartnerOrg(id: number) {
+    const { partnerOrganizations } = await import("@shared/schema");
+    const [org] = await db.select().from(partnerOrganizations).where(eq(partnerOrganizations.id, id));
+    return org || null;
+  }
+
+  async getPartnerOrgBySlug(slug: string) {
+    const { partnerOrganizations } = await import("@shared/schema");
+    const [org] = await db.select().from(partnerOrganizations).where(eq(partnerOrganizations.slug, slug));
+    return org || null;
+  }
+
+  async createPartnerOrg(data: import("@shared/schema").InsertPartnerOrganization) {
+    const { partnerOrganizations } = await import("@shared/schema");
+    const [org] = await db.insert(partnerOrganizations).values(data).returning();
+    return org;
+  }
+
+  async updatePartnerOrg(id: number, updates: Partial<import("@shared/schema").InsertPartnerOrganization>) {
+    const { partnerOrganizations } = await import("@shared/schema");
+    const [org] = await db.update(partnerOrganizations)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(partnerOrganizations.id, id))
+      .returning();
+    return org || null;
+  }
+
+  async deletePartnerOrg(id: number) {
+    const { partnerOrganizations } = await import("@shared/schema");
+    await db.delete(partnerOrganizations).where(eq(partnerOrganizations.id, id));
+  }
+
+  // ── Partner Org Users ─────────────────────────────────────────────────────
+  async getPartnerOrgUsers(orgId: number) {
+    const { partnerOrgUsers } = await import("@shared/schema");
+    return await db.select().from(partnerOrgUsers).where(eq(partnerOrgUsers.partnerOrgId, orgId)).orderBy(partnerOrgUsers.createdAt);
+  }
+
+  async getPartnerOrgUser(id: number) {
+    const { partnerOrgUsers } = await import("@shared/schema");
+    const [user] = await db.select().from(partnerOrgUsers).where(eq(partnerOrgUsers.id, id));
+    return user || null;
+  }
+
+  async getPartnerOrgUserByEmail(email: string) {
+    const { partnerOrgUsers } = await import("@shared/schema");
+    const [user] = await db.select().from(partnerOrgUsers).where(eq(partnerOrgUsers.email, email));
+    return user || null;
+  }
+
+  async getPartnerOrgUserByEmailAndOrg(email: string, orgId: number) {
+    const { partnerOrgUsers } = await import("@shared/schema");
+    const [user] = await db.select().from(partnerOrgUsers).where(
+      and(eq(partnerOrgUsers.email, email), eq(partnerOrgUsers.partnerOrgId, orgId))
+    );
+    return user || null;
+  }
+
+  async createPartnerOrgUser(data: import("@shared/schema").InsertPartnerOrgUser) {
+    const { partnerOrgUsers } = await import("@shared/schema");
+    const [user] = await db.insert(partnerOrgUsers).values(data).returning();
+    return user;
+  }
+
+  async updatePartnerOrgUser(id: number, updates: Partial<import("@shared/schema").InsertPartnerOrgUser>) {
+    const { partnerOrgUsers } = await import("@shared/schema");
+    const [user] = await db.update(partnerOrgUsers).set(updates).where(eq(partnerOrgUsers.id, id)).returning();
+    return user || null;
+  }
+
+  // ── Deals / Contacts by Partner Org ──────────────────────────────────────
+  async getDealsByPartnerOrg(partnerOrgId: number) {
+    return await db.select().from(deals).where(eq(deals.partnerOrgId, partnerOrgId)).orderBy(desc(deals.createdAt));
+  }
+
+  async getContactsByPartnerOrg(partnerOrgId: number) {
+    return await db.select().from(contacts).where(eq(contacts.partnerOrgId, partnerOrgId)).orderBy(desc(contacts.createdAt));
   }
 }
 

@@ -251,7 +251,8 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       }
 
       const statementFileBuffer = req.file?.buffer;
-      const statementFileName = req.file?.originalname || businessName + "_statement";
+      const rawStatementName = req.file?.originalname || businessName + "_statement";
+      const statementFileName = path.basename(rawStatementName).replace(/[^a-zA-Z0-9._-]/g, "_");
 
       if (statementFileBuffer) {
         const uploadsDir = path.join(process.cwd(), "uploads");

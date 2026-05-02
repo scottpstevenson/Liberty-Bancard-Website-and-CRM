@@ -38,6 +38,7 @@ import { registerResidualsRoutes } from "./routes/residuals";
 import { registerVirtualTerminalRoutes } from "./routes/virtual-terminal";
 import { registerBoardingRoutes } from "./routes/boarding";
 import { registerPushRoutes } from "./routes/push";
+import { registerPartnerOrgsRoutes } from "./routes/partner-orgs";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -60,11 +61,13 @@ export async function registerRoutes(
     const allowed =
       partnerAllowedExact.has(req.path) ||
       req.path.startsWith("/partner/dashboard/") ||
+      req.path.startsWith("/partner-org/") ||
       req.path.startsWith("/auth");
     if (allowed) return next();
     return res.status(403).json({ message: "Partner accounts do not have CRM access." });
   });
 
+  registerPartnerOrgsRoutes(app);
   registerContactsRoutes(app);
   registerDealsRoutes(app);
   registerTicketsTasksRoutes(app);

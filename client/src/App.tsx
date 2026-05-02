@@ -152,6 +152,9 @@ import FAQ from "@/pages/FAQ";
 import AffiliateProgram from "@/pages/AffiliateProgram";
 import ISOPartnerProgram from "@/pages/ISOPartnerProgram";
 import PartnerPortal from "@/pages/PartnerPortal";
+import PartnerBrandedPage from "@/pages/PartnerBrandedPage";
+import PartnerOrgDashboard from "@/pages/PartnerOrgDashboard";
+import PartnerOrgs from "@/pages/dashboard/PartnerOrgs";
 import SalesToolsHub from "@/pages/SalesToolsHub";
 import MobileApp from "@/pages/mobile/MobileApp";
 
@@ -281,6 +284,8 @@ function Router() {
       <Route path="/partners" component={ISOPartnerProgram} />
       <Route path="/partner-portal" component={PartnerPortal} />
       <Route path="/dashboard/partner" component={PartnerPortal} />
+      <Route path="/partner/:slug" component={PartnerBrandedPage} />
+      <Route path="/partner-org/:slug" component={PartnerOrgDashboard} />
       <Route path="/blog/:slug" component={BlogPost} />
       <Route path="/blog" component={Blog} />
       <Route path="/help/:category/:slug" component={HelpArticle} />
@@ -453,6 +458,9 @@ function Router() {
       </Route>
       <Route path="/dashboard/referral-program">
         <ProtectedRoute component={ReferralProgram} />
+      </Route>
+      <Route path="/dashboard/partner-orgs">
+        <ProtectedRoute component={PartnerOrgs} />
       </Route>
       <Route path="/dashboard/knowledge-base">
         <ProtectedRoute component={KnowledgeBase} />

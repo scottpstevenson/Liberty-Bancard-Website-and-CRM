@@ -162,6 +162,7 @@ const businessItems: MenuItem[] = [
   { icon: Trophy, label: "Leaderboard", href: "/dashboard/leaderboard", roles: ["admin", "manager", "agent"] },
   { icon: Trophy, label: "Win/Loss Analysis", href: "/dashboard/win-loss", roles: ["admin", "manager"] },
   { icon: Handshake, label: "Referral Program", href: "/dashboard/referral-program", roles: ["admin", "manager"] },
+  { icon: Link2, label: "Partner Orgs", href: "/dashboard/partner-orgs", roles: ["admin"] },
   { icon: Star, label: "Review Requests", href: "/dashboard/review-requests", roles: ["admin", "manager"] },
   { icon: ThumbsUp, label: "NPS / CSAT", href: "/dashboard/nps", roles: ["admin", "manager"] },
   { icon: RefreshCw, label: "Retention Campaigns", href: "/dashboard/retention-campaigns", roles: ["admin", "manager"] },

@@ -76,6 +76,7 @@ export const contacts = pgTable("contacts", {
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
   archivedAt: timestamp("archived_at"),
+  partnerOrgId: integer("partner_org_id"),
 }, (table) => [
   uniqueIndex("contacts_email_unique_idx").on(table.email).where(sql`archived_at IS NULL`),
   index("contacts_phone_idx").on(table.phone),
@@ -178,6 +179,7 @@ export const deals = pgTable("deals", {
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
   archivedAt: timestamp("archived_at"),
+  partnerOrgId: integer("partner_org_id"),
 }, (table) => [
   index("deals_contact_id_idx").on(table.contactId),
   index("deals_pipeline_idx").on(table.pipeline),
@@ -3169,3 +3171,53 @@ export const insertVirtualTerminalTransactionSchema = createInsertSchema(virtual
 
 export type VirtualTerminalTransaction = typeof virtualTerminalTransactions.$inferSelect;
 export type InsertVirtualTerminalTransaction = z.infer<typeof insertVirtualTerminalTransactionSchema>;
+
+// ── Sub-ISO White-Label Partner Organizations ─────────────────────────────────
+export const partnerOrganizations = pgTable("partner_organizations", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),
+  logoUrl: text("logo_url"),
+  primaryColor: text("primary_color").default("#2563eb"),
+  commissionRate: real("commission_rate").default(10),
+  status: text("status").default("active"),
+  contactName: text("contact_name"),
+  email: text("email"),
+  phone: text("phone"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("partner_orgs_slug_idx").on(table.slug),
+]);
+
+export const insertPartnerOrgSchema = createInsertSchema(partnerOrganizations).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type PartnerOrganization = typeof partnerOrganizations.$inferSelect;
+export type InsertPartnerOrganization = z.infer<typeof insertPartnerOrgSchema>;
+
+export const partnerOrgUsers = pgTable("partner_org_users", {
+  id: serial("id").primaryKey(),
+  partnerOrgId: integer("partner_org_id").references(() => partnerOrganizations.id).notNull(),
+  email: text("email").notNull(),
+  firstName: text("first_name").notNull(),
+  lastName: text("last_name").default(""),
+  passwordHash: text("password_hash"),
+  role: text("role").default("member"),
+  status: text("status").default("active"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("partner_org_users_email_org_idx").on(table.email, table.partnerOrgId),
+]);
+
+export const insertPartnerOrgUserSchema = createInsertSchema(partnerOrgUsers).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type PartnerOrgUser = typeof partnerOrgUsers.$inferSelect;
+export type InsertPartnerOrgUser = z.infer<typeof insertPartnerOrgUserSchema>;
