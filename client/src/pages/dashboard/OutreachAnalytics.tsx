@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
   TableBody,
@@ -13,7 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { BarChart2, Send, Mail, Eye, MessageCircle, AlertTriangle, Zap } from "lucide-react";
+import { BarChart2, Send, Mail, Eye, MessageCircle, AlertTriangle, Zap, FlaskConical, Trophy, Clock } from "lucide-react";
 import type { Campaign, OutboundMessage } from "@shared/schema";
 
 function getMessageStatusBadge(status: string | null | undefined) {
@@ -51,6 +52,155 @@ function getCampaignStatusBadge(status: string | null | undefined) {
   }
 }
 
+interface ABTestResult {
+  sequenceId: number;
+  sequenceName: string;
+  stepId: number;
+  stepOrder: number;
+  actionType: string;
+  variantA: { subject?: string; body?: string };
+  variantB: { subject?: string; body?: string };
+  abTestConfig: { splitRatio: number; minSampleSize: number; winnerCriteria: string };
+  abTestResults: {
+    variantASent?: number;
+    variantBSent?: number;
+    aOpens?: number;
+    bOpens?: number;
+    aReplies?: number;
+    bReplies?: number;
+    winnerSelected?: string;
+    winnerAt?: string;
+  };
+}
+
+function ABTestCard({ test }: { test: ABTestResult }) {
+  const r = test.abTestResults;
+  const aSent = r.variantASent ?? 0;
+  const bSent = r.variantBSent ?? 0;
+  const aOpens = r.aOpens ?? 0;
+  const bOpens = r.bOpens ?? 0;
+  const aReplies = r.aReplies ?? 0;
+  const bReplies = r.bReplies ?? 0;
+  const aOpenRate = aSent > 0 ? ((aOpens / aSent) * 100).toFixed(1) : "—";
+  const bOpenRate = bSent > 0 ? ((bOpens / bSent) * 100).toFixed(1) : "—";
+  const aReplyRate = aSent > 0 ? ((aReplies / aSent) * 100).toFixed(1) : "—";
+  const bReplyRate = bSent > 0 ? ((bReplies / bSent) * 100).toFixed(1) : "—";
+  const winnerCriteria = test.abTestConfig.winnerCriteria;
+  const aConversionRate = winnerCriteria === "reply_rate" ? aReplyRate : aOpenRate;
+  const bConversionRate = winnerCriteria === "reply_rate" ? bReplyRate : bOpenRate;
+  const conversionLabel = winnerCriteria === "reply_rate" ? "Reply Rate" : "Open Rate";
+  const totalSent = aSent + bSent;
+  const minSample = test.abTestConfig.minSampleSize;
+  const hasWinner = !!r.winnerSelected;
+  const isRunning = !hasWinner && totalSent < minSample;
+  const isReadyForWinner = !hasWinner && totalSent >= minSample;
+
+  return (
+    <Card data-testid={`ab-test-card-${test.stepId}`}>
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between gap-2 flex-wrap">
+          <div>
+            <CardTitle className="text-sm font-semibold">{test.sequenceName}</CardTitle>
+            <p className="text-xs text-muted-foreground mt-0.5">Step {test.stepOrder} · {test.actionType}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {hasWinner && (
+              <Badge variant="default" className="bg-green-600 gap-1">
+                <Trophy className="w-3 h-3" /> Winner: {r.winnerSelected}
+              </Badge>
+            )}
+            {isRunning && (
+              <Badge variant="outline" className="gap-1 text-yellow-600 border-yellow-400">
+                <Clock className="w-3 h-3" /> Running ({totalSent}/{minSample} sent)
+              </Badge>
+            )}
+            {isReadyForWinner && (
+              <Badge variant="outline" className="gap-1 text-blue-600 border-blue-400">
+                Ready to pick winner
+              </Badge>
+            )}
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid grid-cols-2 gap-3">
+          <div className={`rounded-lg border p-3 ${r.winnerSelected === "A" ? "border-green-400 bg-green-50 dark:bg-green-950/20" : ""}`} data-testid={`ab-variant-a-${test.stepId}`}>
+            <div className="flex items-center gap-1 mb-2">
+              <span className="text-xs font-bold">Variant A</span>
+              {r.winnerSelected === "A" && <Trophy className="w-3 h-3 text-green-600" />}
+            </div>
+            {test.variantA.subject && (
+              <p className="text-xs text-muted-foreground truncate mb-1" title={test.variantA.subject}>
+                "{test.variantA.subject}"
+              </p>
+            )}
+            <div className="grid grid-cols-2 gap-1 text-xs">
+              <div>
+                <span className="text-muted-foreground">Sent</span>
+                <p className="font-semibold">{aSent}</p>
+              </div>
+              <div className="col-span-2 border-t pt-1 mt-1">
+                <span className="text-muted-foreground font-medium">Conversion Rate ({conversionLabel})</span>
+                <p className="font-bold text-sm text-primary">{aConversionRate}{aConversionRate !== "—" ? "%" : ""}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Open Rate</span>
+                <p className="font-semibold">{aOpenRate}{aOpenRate !== "—" ? "%" : ""}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Reply Rate</span>
+                <p className="font-semibold">{aReplyRate}{aReplyRate !== "—" ? "%" : ""}</p>
+              </div>
+            </div>
+          </div>
+          <div className={`rounded-lg border p-3 ${r.winnerSelected === "B" ? "border-green-400 bg-green-50 dark:bg-green-950/20" : ""}`} data-testid={`ab-variant-b-${test.stepId}`}>
+            <div className="flex items-center gap-1 mb-2">
+              <span className="text-xs font-bold">Variant B</span>
+              {r.winnerSelected === "B" && <Trophy className="w-3 h-3 text-green-600" />}
+            </div>
+            {test.variantB.subject && (
+              <p className="text-xs text-muted-foreground truncate mb-1" title={test.variantB.subject}>
+                "{test.variantB.subject}"
+              </p>
+            )}
+            <div className="grid grid-cols-2 gap-1 text-xs">
+              <div>
+                <span className="text-muted-foreground">Sent</span>
+                <p className="font-semibold">{bSent}</p>
+              </div>
+              <div className="col-span-2 border-t pt-1 mt-1">
+                <span className="text-muted-foreground font-medium">Conversion Rate ({conversionLabel})</span>
+                <p className="font-bold text-sm text-primary">{bConversionRate}{bConversionRate !== "—" ? "%" : ""}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Open Rate</span>
+                <p className="font-semibold">{bOpenRate}{bOpenRate !== "—" ? "%" : ""}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Reply Rate</span>
+                <p className="font-semibold">{bReplyRate}{bReplyRate !== "—" ? "%" : ""}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          <span>Split: {test.abTestConfig.splitRatio}% A / {100 - test.abTestConfig.splitRatio}% B</span>
+          <span>·</span>
+          <span>Min sample: {minSample}</span>
+          <span>·</span>
+          <span>Winner by: {test.abTestConfig.winnerCriteria === "open_rate" ? "Open Rate" : "Reply Rate"}</span>
+          {r.winnerAt && (
+            <>
+              <span>·</span>
+              <span>Decided: {new Date(r.winnerAt).toLocaleDateString()}</span>
+            </>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function OutreachAnalytics() {
   const { toast } = useToast();
 
@@ -65,6 +215,10 @@ export default function OutreachAnalytics() {
       if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
       return res.json();
     },
+  });
+
+  const { data: abTestResults, isLoading: abLoading } = useQuery<ABTestResult[]>({
+    queryKey: ["/api/sequences/ab-test-results"],
   });
 
   const processQueueMutation = useMutation({
@@ -97,6 +251,9 @@ export default function OutreachAnalytics() {
         return dateB - dateA;
       })
     : [];
+
+  const activeTests = (abTestResults || []).filter(t => !t.abTestResults.winnerSelected);
+  const completedTests = (abTestResults || []).filter(t => !!t.abTestResults.winnerSelected);
 
   const isLoading = campaignsLoading;
 
@@ -133,7 +290,7 @@ export default function OutreachAnalytics() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold" data-testid="text-outreach-analytics-title">Outreach Analytics</h2>
-          <p className="text-sm text-muted-foreground">Campaign performance and outbound message tracking</p>
+          <p className="text-sm text-muted-foreground">Campaign performance, outbound message tracking, and A/B test results</p>
         </div>
         <Button
           onClick={() => processQueueMutation.mutate()}
@@ -201,140 +358,201 @@ export default function OutreachAnalytics() {
         </Card>
       </div>
 
-      <Card data-testid="card-campaign-performance">
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <BarChart2 className="w-4 h-4" />
-            Campaign Performance
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Campaign</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Sent</TableHead>
-                <TableHead className="text-right">Opened</TableHead>
-                <TableHead className="text-right">Replied</TableHead>
-                <TableHead className="text-right">Bounced</TableHead>
-                <TableHead className="text-right">Open Rate</TableHead>
-                <TableHead className="text-right">Reply Rate</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {sortedCampaigns.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={8} className="text-center h-24 text-muted-foreground" data-testid="text-no-campaigns">
-                    No campaigns found
-                  </TableCell>
-                </TableRow>
-              ) : (
-                sortedCampaigns.map((campaign) => {
-                  const cSent = campaign.totalSent || 0;
-                  const cOpened = campaign.totalOpened || 0;
-                  const cReplied = campaign.totalReplied || 0;
-                  const cBounced = campaign.totalBounced || 0;
-                  const cOpenRate = cSent > 0 ? ((cOpened / cSent) * 100).toFixed(1) : "0.0";
-                  const cReplyRate = cSent > 0 ? ((cReplied / cSent) * 100).toFixed(1) : "0.0";
+      <Tabs defaultValue="campaigns" data-testid="outreach-tabs">
+        <TabsList>
+          <TabsTrigger value="campaigns" data-testid="tab-campaigns">Campaigns</TabsTrigger>
+          <TabsTrigger value="ab-testing" data-testid="tab-ab-testing">
+            <FlaskConical className="w-3.5 h-3.5 mr-1.5" />
+            A/B Testing
+            {activeTests.length > 0 && (
+              <Badge variant="secondary" className="ml-1.5 text-xs">{activeTests.length}</Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="messages" data-testid="tab-messages">Recent Messages</TabsTrigger>
+        </TabsList>
 
-                  return (
-                    <TableRow key={campaign.id} data-testid={`row-campaign-${campaign.id}`}>
-                      <TableCell className="font-medium" data-testid={`text-campaign-name-${campaign.id}`}>
-                        {campaign.name}
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant="outline"
-                          className={`no-default-hover-elevate no-default-active-elevate ${getCampaignStatusBadge(campaign.status)}`}
-                          data-testid={`badge-campaign-status-${campaign.id}`}
-                        >
-                          {campaign.status || "draft"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right" data-testid={`text-campaign-sent-${campaign.id}`}>{cSent}</TableCell>
-                      <TableCell className="text-right" data-testid={`text-campaign-opened-${campaign.id}`}>{cOpened}</TableCell>
-                      <TableCell className="text-right" data-testid={`text-campaign-replied-${campaign.id}`}>{cReplied}</TableCell>
-                      <TableCell className="text-right" data-testid={`text-campaign-bounced-${campaign.id}`}>{cBounced}</TableCell>
-                      <TableCell className="text-right" data-testid={`text-campaign-open-rate-${campaign.id}`}>{cOpenRate}%</TableCell>
-                      <TableCell className="text-right" data-testid={`text-campaign-reply-rate-${campaign.id}`}>{cReplyRate}%</TableCell>
-                    </TableRow>
-                  );
-                })
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-
-      <Card data-testid="card-recent-messages">
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Mail className="w-4 h-4" />
-            Recent Outbound Messages
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          {messagesLoading ? (
-            <div className="p-6 space-y-3">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <Skeleton key={i} className="h-10 w-full" />
-              ))}
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Recipient</TableHead>
-                  <TableHead>Subject</TableHead>
-                  <TableHead>Channel</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Sent</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {!messages || messages.length === 0 ? (
+        <TabsContent value="campaigns" className="mt-4">
+          <Card data-testid="card-campaign-performance">
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <BarChart2 className="w-4 h-4" />
+                Campaign Performance
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center h-24 text-muted-foreground" data-testid="text-no-messages">
-                      No outbound messages found
-                    </TableCell>
+                    <TableHead>Campaign</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Sent</TableHead>
+                    <TableHead className="text-right">Opened</TableHead>
+                    <TableHead className="text-right">Replied</TableHead>
+                    <TableHead className="text-right">Bounced</TableHead>
+                    <TableHead className="text-right">Open Rate</TableHead>
+                    <TableHead className="text-right">Reply Rate</TableHead>
                   </TableRow>
-                ) : (
-                  messages.map((msg) => (
-                    <TableRow key={msg.id} data-testid={`row-message-${msg.id}`}>
-                      <TableCell className="font-medium" data-testid={`text-message-recipient-${msg.id}`}>
-                        {msg.toEmail || msg.toPhone || "N/A"}
-                      </TableCell>
-                      <TableCell className="max-w-[200px] truncate" data-testid={`text-message-subject-${msg.id}`}>
-                        {msg.personalizedSubject || msg.subject || "--"}
-                      </TableCell>
-                      <TableCell data-testid={`text-message-channel-${msg.id}`}>
-                        {msg.channel || "email"}
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant="outline"
-                          className={`no-default-hover-elevate no-default-active-elevate ${getMessageStatusBadge(msg.status)}`}
-                          data-testid={`badge-message-status-${msg.id}`}
-                        >
-                          {msg.status || "queued"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground text-sm" data-testid={`text-message-sent-at-${msg.id}`}>
-                        {msg.sentAt
-                          ? new Date(msg.sentAt).toLocaleString()
-                          : msg.scheduledFor
-                            ? `Scheduled: ${new Date(msg.scheduledFor).toLocaleString()}`
-                            : "--"}
+                </TableHeader>
+                <TableBody>
+                  {sortedCampaigns.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={8} className="text-center h-24 text-muted-foreground" data-testid="text-no-campaigns">
+                        No campaigns found
                       </TableCell>
                     </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
+                  ) : (
+                    sortedCampaigns.map((campaign) => {
+                      const cSent = campaign.totalSent || 0;
+                      const cOpened = campaign.totalOpened || 0;
+                      const cReplied = campaign.totalReplied || 0;
+                      const cBounced = campaign.totalBounced || 0;
+                      const cOpenRate = cSent > 0 ? ((cOpened / cSent) * 100).toFixed(1) : "0.0";
+                      const cReplyRate = cSent > 0 ? ((cReplied / cSent) * 100).toFixed(1) : "0.0";
+
+                      return (
+                        <TableRow key={campaign.id} data-testid={`row-campaign-${campaign.id}`}>
+                          <TableCell className="font-medium" data-testid={`text-campaign-name-${campaign.id}`}>
+                            {campaign.name}
+                          </TableCell>
+                          <TableCell>
+                            <Badge
+                              variant="outline"
+                              className={`no-default-hover-elevate no-default-active-elevate ${getCampaignStatusBadge(campaign.status)}`}
+                              data-testid={`badge-campaign-status-${campaign.id}`}
+                            >
+                              {campaign.status || "draft"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right" data-testid={`text-campaign-sent-${campaign.id}`}>{cSent}</TableCell>
+                          <TableCell className="text-right" data-testid={`text-campaign-opened-${campaign.id}`}>{cOpened}</TableCell>
+                          <TableCell className="text-right" data-testid={`text-campaign-replied-${campaign.id}`}>{cReplied}</TableCell>
+                          <TableCell className="text-right" data-testid={`text-campaign-bounced-${campaign.id}`}>{cBounced}</TableCell>
+                          <TableCell className="text-right" data-testid={`text-campaign-open-rate-${campaign.id}`}>{cOpenRate}%</TableCell>
+                          <TableCell className="text-right" data-testid={`text-campaign-reply-rate-${campaign.id}`}>{cReplyRate}%</TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="ab-testing" className="mt-4 space-y-4" data-testid="tab-content-ab-testing">
+          {abLoading ? (
+            <div className="space-y-4">
+              {[1, 2].map(i => <Skeleton key={i} className="h-48 w-full" />)}
+            </div>
+          ) : (!abTestResults || abTestResults.length === 0) ? (
+            <Card>
+              <CardContent className="py-12 text-center">
+                <FlaskConical className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+                <p className="text-muted-foreground mb-2">No A/B tests configured</p>
+                <p className="text-sm text-muted-foreground">
+                  When creating or editing a sequence step, toggle "A/B Test" on email or SMS steps to add a variant and start testing.
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              {activeTests.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-yellow-500" />
+                    Active Tests ({activeTests.length})
+                  </h3>
+                  <div className="space-y-3">
+                    {activeTests.map(t => <ABTestCard key={t.stepId} test={t} />)}
+                  </div>
+                </div>
+              )}
+              {completedTests.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                    <Trophy className="w-4 h-4 text-green-500" />
+                    Completed Tests ({completedTests.length})
+                  </h3>
+                  <div className="space-y-3">
+                    {completedTests.map(t => <ABTestCard key={t.stepId} test={t} />)}
+                  </div>
+                </div>
+              )}
+            </>
           )}
-        </CardContent>
-      </Card>
+        </TabsContent>
+
+        <TabsContent value="messages" className="mt-4">
+          <Card data-testid="card-recent-messages">
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Mail className="w-4 h-4" />
+                Recent Outbound Messages
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              {messagesLoading ? (
+                <div className="p-6 space-y-3">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <Skeleton key={i} className="h-10 w-full" />
+                  ))}
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Recipient</TableHead>
+                      <TableHead>Subject</TableHead>
+                      <TableHead>Channel</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Sent</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {!messages || messages.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center h-24 text-muted-foreground" data-testid="text-no-messages">
+                          No outbound messages found
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      messages.map((msg) => (
+                        <TableRow key={msg.id} data-testid={`row-message-${msg.id}`}>
+                          <TableCell className="font-medium" data-testid={`text-message-recipient-${msg.id}`}>
+                            {msg.toEmail || msg.toPhone || "N/A"}
+                          </TableCell>
+                          <TableCell className="max-w-[200px] truncate" data-testid={`text-message-subject-${msg.id}`}>
+                            {msg.personalizedSubject || msg.subject || "--"}
+                          </TableCell>
+                          <TableCell data-testid={`text-message-channel-${msg.id}`}>
+                            {msg.channel || "email"}
+                          </TableCell>
+                          <TableCell>
+                            <Badge
+                              variant="outline"
+                              className={`no-default-hover-elevate no-default-active-elevate ${getMessageStatusBadge(msg.status)}`}
+                              data-testid={`badge-message-status-${msg.id}`}
+                            >
+                              {msg.status || "queued"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-muted-foreground text-sm" data-testid={`text-message-sent-at-${msg.id}`}>
+                            {msg.sentAt
+                              ? new Date(msg.sentAt).toLocaleString()
+                              : msg.scheduledFor
+                                ? `Scheduled: ${new Date(msg.scheduledFor).toLocaleString()}`
+                                : "--"}
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

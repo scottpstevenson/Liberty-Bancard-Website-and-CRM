@@ -300,4 +300,61 @@ export function registerCampaignsRoutes(app: Express) {
     }
   });
 
+  // === A/B TEST RESULTS ===
+  app.get("/api/sequences/ab-test-results", isAuthenticated, async (req, res) => {
+    try {
+      const sequences = await storage.getFollowUpSequences();
+      const results: any[] = [];
+      for (const seq of sequences) {
+        const steps = await storage.getSequenceSteps(seq.id);
+        for (const step of steps) {
+          const cfg = step.abTestConfig as any;
+          if (cfg && (step.variantBSubject || step.variantBBody)) {
+            const r = (step.abTestResults as any) || {};
+            results.push({
+              sequenceId: seq.id,
+              sequenceName: seq.name,
+              stepId: step.id,
+              stepOrder: step.stepOrder,
+              actionType: step.actionType,
+              variantA: { subject: step.subject, body: step.body },
+              variantB: { subject: step.variantBSubject, body: step.variantBBody },
+              abTestConfig: cfg,
+              abTestResults: r,
+            });
+          }
+        }
+      }
+      res.json(results);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/sequence-steps/:id/ab-test-results", isAuthenticated, async (req, res) => {
+    try {
+      const schema = z.object({
+        variantASent: z.number().int().min(0).optional(),
+        variantBSent: z.number().int().min(0).optional(),
+        aOpens: z.number().int().min(0).optional(),
+        bOpens: z.number().int().min(0).optional(),
+        aReplies: z.number().int().min(0).optional(),
+        bReplies: z.number().int().min(0).optional(),
+        winnerSelected: z.string().optional(),
+        winnerAt: z.string().optional(),
+      });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: parsed.error.errors[0].message });
+      }
+      const step = await storage.updateSequenceStep(Number(req.params.id), {
+        abTestResults: parsed.data as any,
+      });
+      if (!step) return res.status(404).json({ message: "Step not found" });
+      res.json(step);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
 }

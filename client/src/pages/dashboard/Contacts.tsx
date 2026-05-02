@@ -533,6 +533,23 @@ export default function Contacts() {
     setBulkDialogOpen(true);
   };
 
+  const handleBulkLinkedInEnrich = async () => {
+    if (bulkUpdating) return;
+    setBulkUpdating(true);
+    try {
+      const res = await apiRequest("POST", "/api/contacts/bulk-enrich-linkedin", {
+        contactIds: Array.from(selectedIds),
+      });
+      const data = await res.json();
+      toast({ title: "LinkedIn enrichment started", description: data.message });
+      setSelectedIds(new Set());
+    } catch (err: any) {
+      toast({ title: "LinkedIn enrichment failed", description: err.message, variant: "destructive" });
+    } finally {
+      setBulkUpdating(false);
+    }
+  };
+
   const selectedContacts = Array.from(selectedIds);
 
   if (isError) {
@@ -576,6 +593,9 @@ export default function Contacts() {
                 <DropdownMenuItem onClick={() => bulkUpdateStatus("Contacted")} disabled={bulkUpdating} data-testid="bulk-mark-contacted">Mark Contacted</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => bulkUpdateStatus("Won")} disabled={bulkUpdating} data-testid="bulk-mark-won">Mark Won</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => bulkUpdateStatus("Lost")} disabled={bulkUpdating} data-testid="bulk-mark-lost">Mark Lost</DropdownMenuItem>
+                <DropdownMenuItem onClick={handleBulkLinkedInEnrich} disabled={bulkUpdating} data-testid="bulk-linkedin-enrich">
+                  Enrich from LinkedIn
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           )}

@@ -4,6 +4,7 @@ import { storage } from "../storage";
 import { z } from "zod";
 import { insertCompanySchema, insertContactSchema } from "@shared/schema";
 import { enrichContactBatch, isContactEnrichRunning } from "../services/enrichment";
+import { enrichContactFromLinkedIn, bulkEnrichFromLinkedIn } from "../services/linkedin-enrichment";
 import { getSerperUsage, isSerperConfigured, resetSerperUsage } from "../services/serper";
 import { autoEnrollFromTrigger } from "../services/sequence-worker";
 import { triggerWorkflowsByEvent } from "../services/workflow-executor";
@@ -185,6 +186,38 @@ export function registerContactsRoutes(app: Express) {
     }
   });
 
+
+  // === LINKEDIN ENRICHMENT ===
+  app.post("/api/contacts/:id/enrich-linkedin", isAuthenticated, async (req, res) => {
+    try {
+      const contactId = Number(req.params.id);
+      const result = await enrichContactFromLinkedIn(contactId);
+      if (!result.success) {
+        return res.status(400).json({ message: result.error, provider: result.provider });
+      }
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/contacts/bulk-enrich-linkedin", isAuthenticated, async (req, res) => {
+    try {
+      const schema = z.object({
+        contactIds: z.array(z.number().int().positive()).min(1).max(100),
+      });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: parsed.error.errors[0].message });
+      }
+      res.json({ message: `LinkedIn enrichment started for ${parsed.data.contactIds.length} contacts`, started: true });
+      bulkEnrichFromLinkedIn(parsed.data.contactIds).catch(err =>
+        console.error("[LinkedIn Bulk Enrich] Error:", err)
+      );
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
 
   // === COMPANIES ===
   app.get("/api/companies", isAuthenticated, async (req, res) => {

@@ -211,12 +211,35 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
 
         switch (step.actionType) {
           case "email": {
-            const emailBody = interpolate(step.body) + getEmailSignatureHtml("sales");
+            const abConfig = step.abTestConfig as { splitRatio?: number; minSampleSize?: number; winnerCriteria?: "open_rate" | "reply_rate" } | null;
+            const abEnabled = !!(step.variantBSubject || step.variantBBody);
+
+            const existing = (step.abTestResults as Record<string, any> | null) ?? {};
+            const currentWinner: string | null = existing.winnerSelected ?? null;
+
+            let chosenVariant: "A" | "B" = "A";
+            let subjectToSend = step.subject;
+            let bodyToSend = step.body;
+
+            if (abEnabled) {
+              if (currentWinner) {
+                chosenVariant = currentWinner as "A" | "B";
+              } else {
+                const splitRatio = abConfig?.splitRatio ?? 50;
+                chosenVariant = Math.random() * 100 < splitRatio ? "A" : "B";
+              }
+              if (chosenVariant === "B") {
+                subjectToSend = step.variantBSubject ?? step.subject;
+                bodyToSend = step.variantBBody ?? step.body;
+              }
+            }
+
+            const emailBody = interpolate(bodyToSend) + getEmailSignatureHtml("sales");
             if (isGhlConfigured() && enrollment.contactId) {
               try {
                 await sendGhlEmail({
                   contactId: enrollment.contactId,
-                  subject: interpolate(step.subject),
+                  subject: interpolate(subjectToSend),
                   body: emailBody,
                 });
                 stepExecuted = true;
@@ -227,24 +250,133 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
             await storage.createEmailLog({
               contactId: enrollment.contactId,
               direction: "outbound",
-              subject: interpolate(step.subject),
+              subject: interpolate(subjectToSend),
               body: emailBody,
               status: stepExecuted ? "sent" : "failed",
+              metadata: abEnabled ? { stepId: step.id, sequenceId: sequence.id, abVariant: chosenVariant } : undefined,
             });
+
+            if (abEnabled && stepExecuted && !currentWinner) {
+              const stepLogs = await storage.getEmailLogsByStepId(step.id);
+              const variantASent = stepLogs.filter(l => (l.metadata as any)?.abVariant === "A" && l.status === "sent").length;
+              const variantBSent = stepLogs.filter(l => (l.metadata as any)?.abVariant === "B" && l.status === "sent").length;
+              const aOpens = stepLogs.filter(l => (l.metadata as any)?.abVariant === "A" && l.openedAt != null).length;
+              const bOpens = stepLogs.filter(l => (l.metadata as any)?.abVariant === "B" && l.openedAt != null).length;
+              const aReplies = stepLogs.filter(l => (l.metadata as any)?.abVariant === "A" && l.repliedAt != null).length;
+              const bReplies = stepLogs.filter(l => (l.metadata as any)?.abVariant === "B" && l.repliedAt != null).length;
+              const totalSent = variantASent + variantBSent;
+              const minSampleSize = abConfig?.minSampleSize ?? 100;
+              const winnerCriteria = abConfig?.winnerCriteria ?? "open_rate";
+
+              let winnerSelected: string | null = null;
+              let winnerAt: string | null = existing.winnerAt ?? null;
+              if (totalSent >= minSampleSize) {
+                let rateA: number;
+                let rateB: number;
+                if (winnerCriteria === "reply_rate") {
+                  rateA = variantASent > 0 ? aReplies / variantASent : 0;
+                  rateB = variantBSent > 0 ? bReplies / variantBSent : 0;
+                } else {
+                  rateA = variantASent > 0 ? aOpens / variantASent : 0;
+                  rateB = variantBSent > 0 ? bOpens / variantBSent : 0;
+                }
+                winnerSelected = rateA >= rateB ? "A" : "B";
+                winnerAt = new Date().toISOString();
+              }
+
+              await storage.updateSequenceStep(step.id, {
+                abTestResults: {
+                  variantASent,
+                  variantBSent,
+                  aOpens,
+                  bOpens,
+                  aReplies,
+                  bReplies,
+                  winnerSelected,
+                  winnerAt,
+                  startedAt: existing.startedAt ?? new Date().toISOString(),
+                },
+              } as any);
+            }
             break;
           }
 
           case "sms": {
+            const abConfig = step.abTestConfig as { splitRatio?: number; minSampleSize?: number; winnerCriteria?: "open_rate" | "reply_rate" } | null;
+            const abEnabled = !!(step.variantBBody);
+
+            const existing = (step.abTestResults as Record<string, any> | null) ?? {};
+            const currentWinner: string | null = existing.winnerSelected ?? null;
+
+            let chosenVariant: "A" | "B" = "A";
+            let bodyToSend = step.body;
+
+            if (abEnabled) {
+              if (currentWinner) {
+                chosenVariant = currentWinner as "A" | "B";
+              } else {
+                const splitRatio = abConfig?.splitRatio ?? 50;
+                chosenVariant = Math.random() * 100 < splitRatio ? "A" : "B";
+              }
+              if (chosenVariant === "B") bodyToSend = step.variantBBody ?? step.body;
+            }
+
             if (isGhlConfigured() && enrollment.contactId) {
               try {
                 await sendGhlSms({
                   contactId: enrollment.contactId,
-                  body: interpolate(step.body),
+                  body: interpolate(bodyToSend),
                 });
                 stepExecuted = true;
               } catch (smsErr) {
                 console.error(`Sequence SMS failed for enrollment ${enrollment.id}:`, smsErr);
               }
+            }
+
+            await storage.createEmailLog({
+              contactId: enrollment.contactId,
+              direction: "outbound",
+              subject: null,
+              body: interpolate(bodyToSend),
+              status: stepExecuted ? "sent" : "failed",
+              metadata: { type: "sms", stepId: step.id, sequenceId: sequence.id, ...(abEnabled ? { abVariant: chosenVariant } : {}) },
+            });
+
+            if (abEnabled && stepExecuted && !currentWinner) {
+              const stepLogs = await storage.getEmailLogsByStepId(step.id);
+              const abLogs = stepLogs.filter(l => (l.metadata as any)?.type === "sms" && (l.metadata as any)?.abVariant);
+              const variantASent = abLogs.filter(l => (l.metadata as any)?.abVariant === "A" && l.status === "sent").length;
+              const variantBSent = abLogs.filter(l => (l.metadata as any)?.abVariant === "B" && l.status === "sent").length;
+              const aReplies = abLogs.filter(l => (l.metadata as any)?.abVariant === "A" && l.repliedAt != null).length;
+              const bReplies = abLogs.filter(l => (l.metadata as any)?.abVariant === "B" && l.repliedAt != null).length;
+              const totalSent = variantASent + variantBSent;
+              const minSampleSize = abConfig?.minSampleSize ?? 100;
+
+              const winnerCriteria = abConfig?.winnerCriteria ?? "reply_rate";
+              let winnerSelected: string | null = null;
+              let winnerAt: string | null = existing.winnerAt ?? null;
+              if (totalSent >= minSampleSize) {
+                const rateA = variantASent > 0 ? aReplies / variantASent : 0;
+                const rateB = variantBSent > 0 ? bReplies / variantBSent : 0;
+                winnerSelected = rateA >= rateB ? "A" : "B";
+                winnerAt = new Date().toISOString();
+                void winnerCriteria;
+              }
+
+              await storage.updateSequenceStep(step.id, {
+                abTestResults: {
+                  variantASent,
+                  variantBSent,
+                  aOpens: 0,
+                  bOpens: 0,
+                  aReplies,
+                  bReplies,
+                  winnerSelected,
+                  winnerAt,
+                  winnerCriteria,
+                  startedAt: existing.startedAt ?? new Date().toISOString(),
+                },
+              } as any);
             }
             break;
           }

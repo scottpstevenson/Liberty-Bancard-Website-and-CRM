@@ -19,7 +19,7 @@ import {
   ArrowLeft, Edit2, Save, X, Plus, StickyNote, TrendingUp, CheckSquare,
   Ticket, Mail, Phone, Building2, UserPlus, MessageSquare, Zap,
   AlertTriangle, Sparkles, Activity, ArrowRight, Clock, Link2, Trash2, Star,
-  RefreshCw, CheckCircle2, AlertCircle, ShieldAlert,
+  RefreshCw, CheckCircle2, AlertCircle, ShieldAlert, Linkedin,
 } from "lucide-react";
 import Comments from "@/components/Comments";
 
@@ -135,6 +135,24 @@ export default function ContactDetail() {
 
   const [showDealDialog, setShowDealDialog] = useState(false);
   const [dealForm, setDealForm] = useState({ pipeline: "sales", stage: "New Lead", offerPath: "", notes: "" });
+
+  const enrichLinkedInMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/contacts/${contactId}/enrich-linkedin`);
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/contacts", contactId, "detail"] });
+      if (data.fieldsUpdated && data.fieldsUpdated.length > 0) {
+        toast({ title: "LinkedIn enrichment complete", description: `Updated: ${data.fieldsUpdated.join(", ")}` });
+      } else {
+        toast({ title: "LinkedIn enrichment complete", description: "No new fields to update — all fields already populated." });
+      }
+    },
+    onError: (err: Error) => {
+      toast({ title: "LinkedIn enrichment failed", description: err.message, variant: "destructive" });
+    },
+  });
 
   const [showTicketDialog, setShowTicketDialog] = useState(false);
   const [ticketForm, setTicketForm] = useState({ subject: "", description: "", priority: "Normal", category: "Other" });
@@ -581,6 +599,90 @@ export default function ContactDetail() {
               <RefreshCw className={`h-3.5 w-3.5 mr-1 ${resyncToGhlMutation.isPending ? "animate-spin" : ""}`} />
               Re-sync to GHL
             </Button>
+          </div>
+        );
+      })()}
+
+      {/* LinkedIn Enrichment */}
+      {contact.linkedinUrl && (() => {
+        const log = ((contact as any).linkedinEnrichmentLog ?? []) as Array<{
+          enrichedAt: string;
+          provider: string;
+          fieldsUpdated: string[];
+          connectionCount?: number;
+          lastActivityDate?: string;
+          title?: string;
+          companyName?: string;
+          activitySummary?: string | null;
+        }>;
+        const latest = log[0];
+        return (
+          <div className="rounded-lg border bg-card" data-testid="section-linkedin-enrichment">
+            <div className="flex items-center gap-3 p-3">
+              <Linkedin className="h-4 w-4 text-blue-600 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  {(contact as any).linkedinEnrichedAt ? (
+                    <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-950/20 dark:text-blue-300 dark:border-blue-700" data-testid="badge-linkedin-enriched">
+                      Enriched {new Date((contact as any).linkedinEnrichedAt).toLocaleDateString()}
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-muted-foreground" data-testid="badge-linkedin-never-enriched">
+                      Never enriched
+                    </Badge>
+                  )}
+                  <a
+                    href={contact.linkedinUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-blue-600 hover:underline truncate max-w-[200px]"
+                    data-testid="link-linkedin-url"
+                  >
+                    {contact.linkedinUrl}
+                  </a>
+                </div>
+                {latest && (
+                  <div className="flex items-center gap-3 mt-1 flex-wrap">
+                    {latest.connectionCount != null && (
+                      <span className="text-xs text-muted-foreground" data-testid="text-linkedin-connections">
+                        {latest.connectionCount.toLocaleString()} connections
+                      </span>
+                    )}
+                    {latest.lastActivityDate && (
+                      <span className="text-xs text-muted-foreground" data-testid="text-linkedin-last-active">
+                        Last active: {latest.lastActivityDate}
+                      </span>
+                    )}
+                    {latest.title && (
+                      <span className="text-xs text-muted-foreground truncate max-w-[200px]" data-testid="text-linkedin-title">
+                        {latest.title}{latest.companyName ? ` · ${latest.companyName}` : ""}
+                      </span>
+                    )}
+                    {latest.fieldsUpdated?.length > 0 && (
+                      <span className="text-xs text-emerald-600 dark:text-emerald-400" data-testid="text-linkedin-fields-updated">
+                        Updated: {latest.fieldsUpdated.join(", ")}
+                      </span>
+                    )}
+                    {latest.activitySummary && (
+                      <span className="text-xs text-muted-foreground italic w-full" data-testid="text-linkedin-activity-summary">
+                        Recent activity: {latest.activitySummary.slice(0, 120)}{latest.activitySummary.length > 120 ? "…" : ""}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => enrichLinkedInMutation.mutate()}
+                disabled={enrichLinkedInMutation.isPending}
+                className="shrink-0"
+                data-testid="button-enrich-linkedin"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 mr-1 ${enrichLinkedInMutation.isPending ? "animate-spin" : ""}`} />
+                {enrichLinkedInMutation.isPending ? "Enriching..." : "Enrich from LinkedIn"}
+              </Button>
+            </div>
           </div>
         );
       })()}

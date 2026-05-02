@@ -8,15 +8,21 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Plus, Trash2, Loader2, Play, Pause, Mail, MessageSquare, Phone,
   CheckSquare, Clock, ChevronDown, ChevronUp, Users, Zap, Send, ArrowDown,
-  GripVertical, Target, BarChart3,
+  Target, BarChart3, FlaskConical,
 } from "lucide-react";
+
+interface ABTestConfig {
+  splitRatio: number;
+  minSampleSize: number;
+  winnerCriteria: "open_rate" | "reply_rate";
+}
 
 interface SequenceStep {
   id?: number;
@@ -27,6 +33,10 @@ interface SequenceStep {
   subject?: string;
   body?: string;
   config?: any;
+  variantBEnabled?: boolean;
+  variantBSubject?: string;
+  variantBBody?: string;
+  abTestConfig?: ABTestConfig;
 }
 
 const STEP_TYPES = [
@@ -52,6 +62,10 @@ function stepIcon(actionType: string) {
 function stepLabel(actionType: string) {
   const found = STEP_TYPES.find(s => s.value === actionType);
   return found ? found.label : actionType;
+}
+
+function supportsABTest(actionType: string) {
+  return actionType === "email" || actionType === "sms";
 }
 
 export default function Sequences() {
@@ -95,14 +109,20 @@ export default function Sequences() {
       });
       const seq = await seqRes.json();
       for (let i = 0; i < steps.length; i++) {
+        const s = steps[i];
         await apiRequest("POST", `/api/sequences/${seq.id}/steps`, {
           stepOrder: i + 1,
-          actionType: steps[i].actionType,
-          delayDays: steps[i].delayDays,
-          delayHours: steps[i].delayHours,
-          subject: steps[i].subject || null,
-          body: steps[i].body || null,
-          config: steps[i].config || null,
+          actionType: s.actionType,
+          delayDays: s.delayDays,
+          delayHours: s.delayHours,
+          subject: s.subject || null,
+          body: s.body || null,
+          config: s.config || null,
+          variantBSubject: s.variantBEnabled ? (s.variantBSubject || null) : null,
+          variantBBody: s.variantBEnabled ? (s.variantBBody || null) : null,
+          abTestConfig: s.variantBEnabled
+            ? (s.abTestConfig || { splitRatio: 50, minSampleSize: 100, winnerCriteria: "open_rate" })
+            : null,
         });
       }
       return seq;
@@ -169,6 +189,10 @@ export default function Sequences() {
       delayHours: 0,
       subject: "",
       body: "",
+      variantBEnabled: false,
+      variantBSubject: "",
+      variantBBody: "",
+      abTestConfig: { splitRatio: 50, minSampleSize: 100, winnerCriteria: "open_rate" },
     }]);
   };
 
@@ -419,7 +443,7 @@ export default function Sequences() {
                             <Badge variant="outline" className="text-xs">Step {index + 1}</Badge>
                             <Select
                               value={step.actionType}
-                              onValueChange={v => updateStep(index, { actionType: v })}
+                              onValueChange={v => updateStep(index, { actionType: v, variantBEnabled: false })}
                             >
                               <SelectTrigger className="w-40" data-testid={`select-step-type-${index}`}>
                                 <SelectValue />
@@ -470,12 +494,15 @@ export default function Sequences() {
 
                         {(step.actionType === "email" || step.actionType === "call_reminder") && (
                           <div className="space-y-2">
-                            <Input
-                              placeholder="Subject line"
-                              value={step.subject || ""}
-                              onChange={e => updateStep(index, { subject: e.target.value })}
-                              data-testid={`input-step-subject-${index}`}
-                            />
+                            <div>
+                              <Label className="text-xs text-muted-foreground mb-1 block">Variant A (Primary)</Label>
+                              <Input
+                                placeholder="Subject line"
+                                value={step.subject || ""}
+                                onChange={e => updateStep(index, { subject: e.target.value })}
+                                data-testid={`input-step-subject-${index}`}
+                              />
+                            </div>
                             {step.actionType === "email" && (
                               <Textarea
                                 placeholder="Email body... Use {{firstName}}, {{companyName}} for personalization"
@@ -489,13 +516,16 @@ export default function Sequences() {
                         )}
 
                         {step.actionType === "sms" && (
-                          <Textarea
-                            placeholder="SMS message... Use {{firstName}} for personalization"
-                            value={step.body || ""}
-                            onChange={e => updateStep(index, { body: e.target.value })}
-                            className="min-h-[60px]"
-                            data-testid={`input-step-sms-${index}`}
-                          />
+                          <div className="space-y-2">
+                            <Label className="text-xs text-muted-foreground block">Variant A (Primary)</Label>
+                            <Textarea
+                              placeholder="SMS message... Use {{firstName}} for personalization"
+                              value={step.body || ""}
+                              onChange={e => updateStep(index, { body: e.target.value })}
+                              className="min-h-[60px]"
+                              data-testid={`input-step-sms-${index}`}
+                            />
+                          </div>
                         )}
 
                         {step.actionType === "task" && (
@@ -511,6 +541,103 @@ export default function Sequences() {
                           <p className="text-sm text-muted-foreground">
                             This step pauses the sequence for the configured delay before proceeding.
                           </p>
+                        )}
+
+                        {supportsABTest(step.actionType) && (
+                          <div className="mt-3 border-t pt-3">
+                            <div className="flex items-center justify-between gap-2 mb-2">
+                              <div className="flex items-center gap-2">
+                                <FlaskConical className="w-4 h-4 text-purple-500" />
+                                <span className="text-sm font-medium">A/B Test</span>
+                                <Badge variant="outline" className="text-xs">Beta</Badge>
+                              </div>
+                              <Switch
+                                checked={!!step.variantBEnabled}
+                                onCheckedChange={v => updateStep(index, { variantBEnabled: v })}
+                                data-testid={`switch-ab-test-${index}`}
+                              />
+                            </div>
+
+                            {step.variantBEnabled && (
+                              <div className="space-y-3 mt-2 pl-1">
+                                <div className="p-3 rounded-md bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800 space-y-2">
+                                  <Label className="text-xs font-semibold text-purple-700 dark:text-purple-300 block">Variant B</Label>
+                                  {step.actionType === "email" && (
+                                    <>
+                                      <Input
+                                        placeholder="Variant B subject line"
+                                        value={step.variantBSubject || ""}
+                                        onChange={e => updateStep(index, { variantBSubject: e.target.value })}
+                                        data-testid={`input-variant-b-subject-${index}`}
+                                      />
+                                      <Textarea
+                                        placeholder="Variant B email body..."
+                                        value={step.variantBBody || ""}
+                                        onChange={e => updateStep(index, { variantBBody: e.target.value })}
+                                        className="min-h-[80px]"
+                                        data-testid={`input-variant-b-body-${index}`}
+                                      />
+                                    </>
+                                  )}
+                                  {step.actionType === "sms" && (
+                                    <Textarea
+                                      placeholder="Variant B SMS message..."
+                                      value={step.variantBBody || ""}
+                                      onChange={e => updateStep(index, { variantBBody: e.target.value })}
+                                      className="min-h-[60px]"
+                                      data-testid={`input-variant-b-sms-${index}`}
+                                    />
+                                  )}
+                                </div>
+
+                                <div className="grid grid-cols-3 gap-2">
+                                  <div className="space-y-1">
+                                    <Label className="text-xs">Traffic Split (A%)</Label>
+                                    <Input
+                                      type="number"
+                                      min={10}
+                                      max={90}
+                                      value={step.abTestConfig?.splitRatio ?? 50}
+                                      onChange={e => updateStep(index, {
+                                        abTestConfig: { ...step.abTestConfig!, splitRatio: Number(e.target.value) }
+                                      })}
+                                      data-testid={`input-ab-split-${index}`}
+                                    />
+                                    <p className="text-xs text-muted-foreground">B gets {100 - (step.abTestConfig?.splitRatio ?? 50)}%</p>
+                                  </div>
+                                  <div className="space-y-1">
+                                    <Label className="text-xs">Min Sample</Label>
+                                    <Input
+                                      type="number"
+                                      min={10}
+                                      value={step.abTestConfig?.minSampleSize ?? 100}
+                                      onChange={e => updateStep(index, {
+                                        abTestConfig: { ...step.abTestConfig!, minSampleSize: Number(e.target.value) }
+                                      })}
+                                      data-testid={`input-ab-sample-${index}`}
+                                    />
+                                  </div>
+                                  <div className="space-y-1">
+                                    <Label className="text-xs">Winner By</Label>
+                                    <Select
+                                      value={step.abTestConfig?.winnerCriteria ?? "open_rate"}
+                                      onValueChange={v => updateStep(index, {
+                                        abTestConfig: { ...step.abTestConfig!, winnerCriteria: v as "open_rate" | "reply_rate" }
+                                      })}
+                                    >
+                                      <SelectTrigger data-testid={`select-ab-criteria-${index}`}>
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="open_rate">Open Rate</SelectItem>
+                                        <SelectItem value="reply_rate">Reply Rate</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         )}
                       </CardContent>
                     </Card>
@@ -618,18 +745,48 @@ function SequenceStepsView({ sequenceId, enrollments }: { sequenceId: number; en
           <div className="space-y-1">
             {steps.map((step: any, i: number) => {
               const StepIcon = stepIcon(step.actionType);
+              const hasABTest = !!(step.abTestConfig && (step.variantBSubject || step.variantBBody));
+              const abResults = step.abTestResults as any;
               return (
-                <div key={step.id} className="flex items-center gap-3 py-1.5" data-testid={`view-step-${step.id}`}>
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Badge variant="outline" className="text-xs shrink-0">{i + 1}</Badge>
-                    <StepIcon className="w-4 h-4 shrink-0 text-muted-foreground" />
-                    <span className="text-sm font-medium">{stepLabel(step.actionType)}</span>
-                    {step.subject && <span className="text-xs text-muted-foreground truncate">- {step.subject}</span>}
+                <div key={step.id} className="space-y-1" data-testid={`view-step-${step.id}`}>
+                  <div className="flex items-center gap-3 py-1.5">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Badge variant="outline" className="text-xs shrink-0">{i + 1}</Badge>
+                      <StepIcon className="w-4 h-4 shrink-0 text-muted-foreground" />
+                      <span className="text-sm font-medium">{stepLabel(step.actionType)}</span>
+                      {step.subject && <span className="text-xs text-muted-foreground truncate">- {step.subject}</span>}
+                      {hasABTest && (
+                        <Badge variant="outline" className="text-xs shrink-0 border-purple-400 text-purple-600 dark:text-purple-400">
+                          <FlaskConical className="w-3 h-3 mr-1" /> A/B
+                        </Badge>
+                      )}
+                    </div>
+                    {(step.delayDays > 0 || step.delayHours > 0) && (
+                      <Badge variant="secondary" className="text-xs shrink-0">
+                        {step.delayDays > 0 && `${step.delayDays}d`} {step.delayHours > 0 && `${step.delayHours}h`} delay
+                      </Badge>
+                    )}
+                    {hasABTest && abResults?.winnerSelected && (
+                      <Badge variant="default" className="text-xs shrink-0 bg-green-600">
+                        Winner: {abResults.winnerSelected}
+                      </Badge>
+                    )}
                   </div>
-                  {(step.delayDays > 0 || step.delayHours > 0) && (
-                    <Badge variant="secondary" className="text-xs shrink-0">
-                      {step.delayDays > 0 && `${step.delayDays}d`} {step.delayHours > 0 && `${step.delayHours}h`} delay
-                    </Badge>
+                  {hasABTest && abResults && (
+                    <div className="ml-8 grid grid-cols-2 gap-2 text-xs text-muted-foreground pb-1">
+                      <div className="rounded border p-2">
+                        <p className="font-semibold mb-0.5">Variant A</p>
+                        <p>Sent: {abResults.variantASent ?? 0}</p>
+                        <p>Opens: {abResults.aOpens ?? 0}</p>
+                        <p>Replies: {abResults.aReplies ?? 0}</p>
+                      </div>
+                      <div className="rounded border p-2">
+                        <p className="font-semibold mb-0.5">Variant B</p>
+                        <p>Sent: {abResults.variantBSent ?? 0}</p>
+                        <p>Opens: {abResults.bOpens ?? 0}</p>
+                        <p>Replies: {abResults.bReplies ?? 0}</p>
+                      </div>
+                    </div>
                   )}
                 </div>
               );

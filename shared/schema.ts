@@ -66,6 +66,8 @@ export const contacts = pgTable("contacts", {
   website: text("website"),
   linkedinUrl: text("linkedin_url"),
   facebookUrl: text("facebook_url"),
+  linkedinEnrichedAt: timestamp("linkedin_enriched_at"),
+  linkedinEnrichmentLog: jsonb("linkedin_enrichment_log"),
   industry: text("industry"),
   leadSource: text("lead_source"),
   employeeCount: integer("employee_count"),
@@ -995,6 +997,10 @@ export const sequenceSteps = pgTable("sequence_steps", {
   body: text("body"),
   templateId: integer("template_id"),
   config: jsonb("config"),
+  variantBSubject: text("variant_b_subject"),
+  variantBBody: text("variant_b_body"),
+  abTestConfig: jsonb("ab_test_config"),
+  abTestResults: jsonb("ab_test_results"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

@@ -219,6 +219,7 @@ export interface IStorage {
   deleteNote(id: number): Promise<void>;
 
   getEmailLogs(contactId?: number): Promise<typeof emailLogs.$inferSelect[]>;
+  getEmailLogsByStepId(stepId: number): Promise<typeof emailLogs.$inferSelect[]>;
   createEmailLog(log: InsertEmailLog): Promise<typeof emailLogs.$inferSelect>;
 
   getCallLogs(contactId?: number): Promise<typeof callLogs.$inferSelect[]>;
@@ -1014,6 +1015,13 @@ export class DatabaseStorage implements IStorage {
       return await db.select().from(emailLogs).where(eq(emailLogs.contactId, contactId)).orderBy(desc(emailLogs.createdAt));
     }
     return await db.select().from(emailLogs).orderBy(desc(emailLogs.createdAt));
+  }
+
+  async getEmailLogsByStepId(stepId: number) {
+    const { sql } = await import("drizzle-orm");
+    return await db.select().from(emailLogs)
+      .where(sql`${emailLogs.metadata}->>'stepId' = ${String(stepId)}`)
+      .orderBy(desc(emailLogs.createdAt));
   }
 
   async createEmailLog(log: InsertEmailLog) {
