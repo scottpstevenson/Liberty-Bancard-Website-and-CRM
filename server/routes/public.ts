@@ -623,4 +623,60 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
     }
   });
 
+  app.post("/api/public/testimonial-submit", async (req, res) => {
+    try {
+      const { name, businessName, email, phone, industry, videoLink, savingsAmount, story } = req.body;
+      if (!name || typeof name !== "string" || name.length > 200) {
+        return res.status(400).json({ message: "Valid name is required" });
+      }
+      if (!email || typeof email !== "string" || !email.includes("@") || email.length > 200) {
+        return res.status(400).json({ message: "Valid email is required" });
+      }
+      if (!story || typeof story !== "string" || story.length < 10) {
+        return res.status(400).json({ message: "Please share your story" });
+      }
+      const nameParts = (name || "").split(" ");
+      const firstName = nameParts[0] || "";
+      const lastName = nameParts.slice(1).join(" ") || "";
+      const safePhone = String(phone || "").slice(0, 30);
+      const safeBusiness = String(businessName || "").slice(0, 200);
+      const safeIndustry = String(industry || "").slice(0, 100);
+      const safeVideoLink = String(videoLink || "").slice(0, 500);
+      const safeSavings = String(savingsAmount || "").slice(0, 100);
+      const safeStory = String(story || "").slice(0, 5000);
+
+      const contact = await createContactGhlFirst({
+        firstName, lastName, email, phone: safePhone,
+        status: "New",
+        tags: ["src_testimonial_submit", "testimonial_prospect"],
+      });
+
+      const noteContent = [
+        `TESTIMONIAL SUBMISSION`,
+        `Business: ${safeBusiness}`,
+        `Industry: ${safeIndustry}`,
+        `Savings: ${safeSavings}`,
+        `Video Link: ${safeVideoLink || "None"}`,
+        `Story: ${safeStory}`,
+      ].join("\n");
+
+      const deal = await storage.createDeal({
+        contactId: contact.id, pipeline: "sales", stage: "New Lead",
+        notes: noteContent,
+      });
+
+      await storage.createNotification({
+        channel: "#marketing", title: "New Testimonial Submission",
+        message: `${firstName} ${lastName} (${safeBusiness}) submitted their story. Savings: ${safeSavings || "Not specified"}.`,
+        type: "info",
+      });
+
+      scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
+      syncFormSubmissionToGhl({ contactId: contact.id, dealId: deal.id, leadSource: "testimonial_submit" }).catch(err => console.error("GHL form sync error:", err));
+      res.status(201).json({ success: true, contactId: contact.id });
+    } catch (err: any) {
+      res.status(400).json({ message: err.message || "Invalid submission" });
+    }
+  });
+
 }

@@ -17,6 +17,9 @@ import {
   getBeatSquareStripeHtml,
   getAffiliateProgramHtml,
   getFaqHtml,
+  getTestimonialsHtml,
+  getTestimonialsSubmitHtml,
+  getIntegrationsHtml,
 } from "../ssr/pages";
 import { CITIES, VERTICALS } from "../ssr/location-data";
 import { storage } from "../storage";
@@ -228,6 +231,24 @@ export function registerSsrRoutes(app: Express) {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Cache-Control", "public, max-age=86400");
     res.send(getFaqHtml());
+  });
+
+  app.get("/testimonials", (_req, res) => {
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.send(getTestimonialsHtml());
+  });
+
+  app.get("/testimonials/submit", (_req, res) => {
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Cache-Control", "no-store");
+    res.send(getTestimonialsSubmitHtml());
+  });
+
+  app.get("/integrations", (_req, res) => {
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.send(getIntegrationsHtml());
   });
 
   app.get("/blog", async (_req, res) => {

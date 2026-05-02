@@ -71,6 +71,8 @@ app.use(
           "*.facebook.com",
           "*.leadconnectorhq.com",
           "*.ghl.io",
+          "img.youtube.com",
+          "i.ytimg.com",
         ],
         connectSrc: [
           "'self'",
@@ -85,6 +87,8 @@ app.use(
           "'self'",
           "*.leadconnectorhq.com",
           "*.ghl.io",
+          "*.youtube.com",
+          "*.youtube-nocookie.com",
         ],
         frameAncestors: ["'self'"],
       },

@@ -1,6 +1,6 @@
 import { Helmet } from 'react-helmet-async';
 
-interface StructuredData {
+export interface StructuredData {
   "@context": string;
   "@type": string;
   [key: string]: unknown;

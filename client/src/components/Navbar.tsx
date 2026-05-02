@@ -30,6 +30,8 @@ const resourceLinks = [
   { name: "FAQ", href: "/faq" },
   { name: "Help Center", href: "/help" },
   { name: "Case Studies", href: "/case-studies" },
+  { name: "Merchant Testimonials", href: "/testimonials" },
+  { name: "Integrations", href: "/integrations" },
   { name: "Why Liberty Bancard", href: "/why-liberty-bancard" },
   { name: "Savings Calculator", href: "/savings-calculator" },
   { name: "Compare Rates", href: "/compare-rates" },

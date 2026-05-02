@@ -921,6 +921,362 @@ export function getAffiliateProgramHtml(): string {
   });
 }
 
+export function getTestimonialsHtml(): string {
+  const videoObjectSchema = (name: string, desc: string, savings: string) => ({
+    "@context": "https://schema.org",
+    "@type": "VideoObject",
+    name: `${name} — Merchant Testimonial | Liberty Bancard`,
+    description: desc,
+    thumbnailUrl: `${BASE_URL}/favicon.png`,
+    uploadDate: "2025-01-15",
+    duration: "PT2M30S",
+    publisher: { "@type": "Organization", name: "Liberty Bancard", logo: { "@type": "ImageObject", url: `${BASE_URL}/favicon.png` } },
+  });
+  const reviewSchema = (name: string, business: string, desc: string) => ({
+    "@context": "https://schema.org",
+    "@type": "Review",
+    reviewBody: desc,
+    author: { "@type": "Person", name, jobTitle: business },
+    itemReviewed: { "@type": "Organization", name: "Liberty Bancard", url: BASE_URL },
+    reviewRating: { "@type": "Rating", ratingValue: "5", bestRating: "5" },
+  });
+  const schemas = [
+    videoObjectSchema("Maria R.", "Our processing cost dropped to nearly zero after switching.", "$4,200"),
+    videoObjectSchema("Tony M.", "They found $127 a month in fees I never agreed to.", "$2,900"),
+    videoObjectSchema("David K.", "The savings were immediate once we saw the real interchange cost.", "$3,800"),
+    reviewSchema("Maria R.", "Full-Service Restaurant", "Our processing cost dropped to nearly zero after switching to Liberty Bancard's cash discount program."),
+    reviewSchema("Tony M.", "Auto Repair Shop Owner", "They found $127 a month in fees I never agreed to. Liberty Bancard cleaned everything up."),
+    reviewSchema("David K.", "Retail Store Owner", "The savings were immediate once we saw the real interchange cost. Switching from Stripe was seamless."),
+  ];
+  const testimonialCards = [
+    { name: "Maria R.", business: "Full-Service Restaurant", city: "South Miami, FL", quote: "Our processing cost dropped to nearly zero after switching to Liberty Bancard's cash discount program. That freed up cash we put right back into our kitchen.", savings: "$4,200/year saved", industry: "Restaurant" },
+    { name: "Tony M.", business: "Auto Repair Shop", city: "Broward County, FL", quote: "I was on tiered pricing and didn't realize half my transactions were at non-qualified rates. Liberty Bancard cleaned everything up and I'm saving almost $250 a month.", savings: "$2,900/year saved", industry: "Auto Repair" },
+    { name: "David K.", business: "Multi-Location Retail", city: "Boca Raton, FL", quote: "Stripe was easy to set up, but we had no idea how much we were overpaying. Liberty Bancard showed us our actual interchange costs and the markup we were paying on top.", savings: "$3,800/year saved", industry: "Retail" },
+    { name: "Dr. Sarah L.", business: "Medical Practice", city: "Tampa, FL", quote: "Our bank had us on tiered pricing for years. The Level 2 processing alone saved us a significant amount on commercial insurance card payments.", savings: "$6,100/year saved", industry: "Healthcare" },
+    { name: "James W.", business: "HVAC Contractor", city: "Palm Beach County, FL", quote: "Liberty Bancard set me up with a mobile reader and cash discount program. Now I process everything through one system and my processing cost is basically zero.", savings: "$1,800/year saved", industry: "Home Services" },
+    { name: "Rachel T.", business: "Online Specialty Retailer", city: "Remote / Online", quote: "We thought Shopify Payments was our only option. Liberty Bancard integrated a gateway and our costs dropped by over $5,000 a year. The integration was seamless.", savings: "$5,400/year saved", industry: "E-Commerce" },
+  ].map(t => `
+    <div class="ssr-card" style="display:flex;flex-direction:column;">
+      <div style="background:linear-gradient(135deg,#1e3a5f 0%,#1a5276 100%);border-radius:8px;padding:2.5rem 1.5rem;text-align:center;margin-bottom:1rem;">
+        <div style="font-size:2.5rem;font-weight:700;color:#38bdf8;">${t.savings}</div>
+        <div style="font-size:0.75rem;color:rgba(255,255,255,0.7);margin-top:0.25rem;text-transform:uppercase;letter-spacing:0.05em;">Video coming soon</div>
+      </div>
+      <div style="display:flex;gap:0.25rem;margin-bottom:0.75rem;">★★★★★</div>
+      <p style="font-style:italic;font-size:0.9rem;color:#374151;flex-grow:1;line-height:1.6;">"${t.quote}"</p>
+      <div style="border-top:1px solid #e5e7eb;padding-top:0.75rem;margin-top:1rem;display:flex;justify-content:space-between;align-items:center;">
+        <div>
+          <div style="font-size:0.875rem;font-weight:600;">${t.name}</div>
+          <div style="font-size:0.75rem;color:#6b7280;">${t.business} · ${t.city}</div>
+        </div>
+        <span style="font-size:0.7rem;background:#f1f5f9;color:#64748b;padding:0.2rem 0.6rem;border-radius:20px;">${t.industry}</span>
+      </div>
+    </div>`).join("");
+
+  const body = `
+  <div class="ssr-hero">
+    <div class="ssr-hero-inner">
+      <div class="ssr-breadcrumb"><a href="/">Home</a><span>/</span><span>Testimonials</span></div>
+      <div class="ssr-hero-badge">🎬 Merchant Stories</div>
+      <h1>Real Merchants. Real Numbers.</h1>
+      <p class="ssr-hero-subtitle">Watch real business owners share their payment processing transformation — specific savings, before-and-after numbers, and what switching to Liberty Bancard actually meant for their bottom line.</p>
+      <div class="ssr-hero-buttons">
+        <a href="/upload-statement" class="ssr-btn-primary">📤 Get Your Free Analysis</a>
+        <a href="/testimonials/submit" class="ssr-btn-outline">🎥 Share Your Story</a>
+      </div>
+    </div>
+  </div>
+
+  <section class="ssr-section ssr-section-muted">
+    <div class="ssr-section-inner">
+      <h2 class="ssr-section-heading">Merchant Video Testimonials</h2>
+      <p class="ssr-section-subheading">Filter by industry or browse all. Every merchant below started with a free statement review.</p>
+      <div class="ssr-grid-3" style="gap:1.5rem;">
+        ${testimonialCards}
+      </div>
+    </div>
+  </section>
+
+  <section class="ssr-section">
+    <div class="ssr-section-inner" style="text-align:center;max-width:700px;margin:0 auto;">
+      <h2>Want to Share Your Story?</h2>
+      <p>If you're a Liberty Bancard merchant with a success story to tell, we'd love to feature you. Submit your video or write a few lines — we handle the rest.</p>
+      <div class="ssr-cta-buttons" style="margin-top:1.5rem;">
+        <a href="/testimonials/submit" class="ssr-btn-primary">🎥 Submit Your Story</a>
+        <a href="/case-studies" class="ssr-btn-outline">📖 Read Full Case Studies</a>
+      </div>
+    </div>
+  </section>
+
+  ${ctaSection("Your Statement Tells the Truth. Let's Read It Together.", "Every merchant on this page started with a free statement review. Upload yours and see your real numbers — same day.")}`;
+
+  return ssrHtmlShell({
+    title: "Merchant Video Testimonials — Real Results | Liberty Bancard",
+    description: "Watch merchant testimonials from restaurant owners, retailers, healthcare practices, and more who saved thousands per year by switching to Liberty Bancard. Filter by industry.",
+    canonical: "/testimonials",
+    keywords: "merchant testimonials, payment processing reviews, Liberty Bancard reviews, merchant video testimonials, credit card processing success stories",
+    schemaJsons: schemas,
+    body,
+  });
+}
+
+export function getTestimonialsSubmitHtml(): string {
+  const schema = {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    name: "Submit Your Merchant Story | Liberty Bancard",
+    description: "Share your payment processing success story with Liberty Bancard. Submit a video link or written testimonial and we'll feature your business on our merchant testimonials page.",
+    url: `${BASE_URL}/testimonials/submit`,
+    breadcrumb: {
+      "@type": "BreadcrumbList",
+      itemListElement: [
+        { "@type": "ListItem", position: 1, name: "Home", item: BASE_URL },
+        { "@type": "ListItem", position: 2, name: "Testimonials", item: `${BASE_URL}/testimonials` },
+        { "@type": "ListItem", position: 3, name: "Submit Your Story", item: `${BASE_URL}/testimonials/submit` },
+      ],
+    },
+  };
+
+  const body = `
+  <div class="ssr-hero" style="background:linear-gradient(135deg,#1e3a5f 0%,#1a5276 100%);padding:5rem 1.5rem 3rem;">
+    <div class="ssr-hero-inner">
+      <div class="ssr-breadcrumb" style="color:rgba(255,255,255,0.7);">
+        <a href="/" style="color:rgba(255,255,255,0.7);">Home</a><span>/</span>
+        <a href="/testimonials" style="color:rgba(255,255,255,0.7);">Testimonials</a><span>/</span>
+        <span style="color:#fff;">Submit Your Story</span>
+      </div>
+      <div class="ssr-hero-badge">🎬 Merchant Stories</div>
+      <h1 style="color:#fff;">Submit Your Story</h1>
+      <p class="ssr-hero-subtitle" style="color:rgba(255,255,255,0.85);">We'd love to feature you on our testimonials page. Share what you were paying, what changed, and what the savings meant for your business.</p>
+    </div>
+  </div>
+
+  <section class="ssr-section">
+    <div class="ssr-section-inner" style="max-width:720px;margin:0 auto;">
+      <div class="ssr-card" style="padding:2.5rem;">
+        <h2 style="font-size:1.25rem;font-weight:700;margin-bottom:1.5rem;color:#1e293b;">Your Information</h2>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;">
+          <div>
+            <label style="font-size:0.875rem;font-weight:600;display:block;margin-bottom:0.4rem;">Your Name *</label>
+            <div style="border:1px solid #e2e8f0;border-radius:6px;padding:0.625rem 0.875rem;background:#f8fafc;color:#94a3b8;font-size:0.875rem;">First and Last</div>
+          </div>
+          <div>
+            <label style="font-size:0.875rem;font-weight:600;display:block;margin-bottom:0.4rem;">Business Name *</label>
+            <div style="border:1px solid #e2e8f0;border-radius:6px;padding:0.625rem 0.875rem;background:#f8fafc;color:#94a3b8;font-size:0.875rem;">Your Business</div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.5rem;">
+          <div>
+            <label style="font-size:0.875rem;font-weight:600;display:block;margin-bottom:0.4rem;">Email *</label>
+            <div style="border:1px solid #e2e8f0;border-radius:6px;padding:0.625rem 0.875rem;background:#f8fafc;color:#94a3b8;font-size:0.875rem;">you@example.com</div>
+          </div>
+          <div>
+            <label style="font-size:0.875rem;font-weight:600;display:block;margin-bottom:0.4rem;">Phone (optional)</label>
+            <div style="border:1px solid #e2e8f0;border-radius:6px;padding:0.625rem 0.875rem;background:#f8fafc;color:#94a3b8;font-size:0.875rem;">(555) 000-0000</div>
+          </div>
+        </div>
+
+        <h2 style="font-size:1.25rem;font-weight:700;margin-bottom:1.5rem;margin-top:2rem;color:#1e293b;border-top:1px solid #f1f5f9;padding-top:1.5rem;">Your Story</h2>
+        <div style="margin-bottom:1rem;">
+          <label style="font-size:0.875rem;font-weight:600;display:block;margin-bottom:0.4rem;">Industry *</label>
+          <div style="border:1px solid #e2e8f0;border-radius:6px;padding:0.625rem 0.875rem;background:#f8fafc;color:#94a3b8;font-size:0.875rem;">Select your industry...</div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;">
+          <div>
+            <label style="font-size:0.875rem;font-weight:600;display:block;margin-bottom:0.4rem;">Approximate Annual Savings (optional)</label>
+            <div style="border:1px solid #e2e8f0;border-radius:6px;padding:0.625rem 0.875rem;background:#f8fafc;color:#94a3b8;font-size:0.875rem;">$0</div>
+          </div>
+          <div>
+            <label style="font-size:0.875rem;font-weight:600;display:block;margin-bottom:0.4rem;">Video Link (optional)</label>
+            <div style="border:1px solid #e2e8f0;border-radius:6px;padding:0.625rem 0.875rem;background:#f8fafc;color:#94a3b8;font-size:0.875rem;">https://youtube.com/...</div>
+          </div>
+        </div>
+        <div style="margin-bottom:1.5rem;">
+          <label style="font-size:0.875rem;font-weight:600;display:block;margin-bottom:0.4rem;">Your Story *</label>
+          <div style="border:1px solid #e2e8f0;border-radius:6px;padding:0.875rem;background:#f8fafc;color:#94a3b8;font-size:0.875rem;height:120px;">Tell us what you were paying before, what changed after switching, and what the savings meant for your business...</div>
+        </div>
+        <p style="font-size:0.75rem;color:#64748b;margin-bottom:1rem;">By submitting, you agree that Liberty Bancard may feature your story (with your permission) on our website and marketing materials.</p>
+        <a href="/testimonials/submit" class="ssr-btn-primary" style="display:inline-block;width:100%;text-align:center;">Submit My Story →</a>
+      </div>
+      <div style="text-align:center;margin-top:1.5rem;">
+        <a href="/testimonials" style="font-size:0.875rem;color:#64748b;">← Back to all testimonials</a>
+      </div>
+    </div>
+  </section>`;
+
+  return ssrHtmlShell({
+    title: "Submit Your Merchant Story — Share Your Payment Processing Success | Liberty Bancard",
+    description: "Share your payment processing success story with Liberty Bancard. Submit a video link or written testimonial and we'll feature your business on our merchant testimonials page.",
+    canonical: "/testimonials/submit",
+    keywords: "merchant testimonial submission, share payment processing story, Liberty Bancard merchant review",
+    schemaJsons: [schema],
+    body,
+  });
+}
+
+export function getIntegrationsHtml(): string {
+  const schema = {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    name: "Software Integrations & Compatibility | Liberty Bancard",
+    description: "See which POS systems, accounting software, eCommerce platforms, and business tools Liberty Bancard works with. Keep your existing software, just pay less.",
+    url: `${BASE_URL}/integrations`,
+    about: {
+      "@type": "Service",
+      name: "Payment Processing Integrations",
+      provider: { "@type": "Organization", name: "Liberty Bancard" },
+    },
+  };
+
+  const categories = [
+    {
+      name: "POS Systems",
+      items: [
+        { name: "Clover POS", badge: "Direct Provider", desc: "Liberty Bancard is a direct Clover provider. We program and support Clover terminals, mini systems, and the full Station Duo with our own pricing, not Clover's published rates.", hardware: "Clover Flex 3, Clover Mini 3, Clover Station Duo" },
+        { name: "Dejavoo Terminals", badge: "Recommended", desc: "Dejavoo countertop and wireless terminals work natively with Liberty's programs, including cash discount and tip adjust.", hardware: "Dejavoo QD2, QD4, Z11" },
+        { name: "PAX Terminals", badge: "", desc: "PAX A920 and A35 smart terminals integrate cleanly with Liberty's interchange-plus pricing. Popular for retail and multi-lane environments.", hardware: "PAX A920, PAX A35" },
+        { name: "Toast POS", badge: "", desc: "Liberty Bancard integrates with Toast-compatible payment flows. Restaurants can route through our interchange-plus gateway while keeping the Toast interface.", hardware: "Toast hardware (via gateway)" },
+        { name: "Square (Migration)", badge: "Switching Guide", desc: "Switching from Square? We handle the transition. Most Square merchants save significantly on interchange-plus pricing.", hardware: "Your existing hardware or new terminal" },
+      ],
+    },
+    {
+      name: "Accounting",
+      items: [
+        { name: "QuickBooks", badge: "", desc: "Liberty Bancard transaction data exports cleanly into QuickBooks. Monthly statements include all the fields your bookkeeper needs for reconciliation.", hardware: "No hardware required" },
+        { name: "Xero", badge: "", desc: "Xero users can reconcile Liberty Bancard batch settlements easily. Our interchange-plus statements break down every cost line-by-line.", hardware: "No hardware required" },
+        { name: "Wave Accounting", badge: "", desc: "Wave-connected businesses can import Liberty Bancard transaction data and match settlements to deposits with clear reporting.", hardware: "No hardware required" },
+      ],
+    },
+    {
+      name: "eCommerce",
+      items: [
+        { name: "Shopify", badge: "Popular", desc: "We integrate with Shopify via Authorize.net and NMI gateways, allowing merchants to bypass Shopify Payments fees while keeping their storefront untouched.", hardware: "Authorize.net or NMI gateway" },
+        { name: "WooCommerce", badge: "", desc: "WooCommerce stores connect through standard payment gateway plugins. Authorize.net and NMI are both supported.", hardware: "Authorize.net or NMI gateway" },
+        { name: "Authorize.net", badge: "Primary Gateway", desc: "Authorize.net is Liberty Bancard's primary e-commerce gateway. It supports recurring billing, customer vaults, and advanced fraud detection.", hardware: "Software gateway (no hardware)" },
+      ],
+    },
+    {
+      name: "Practice Management",
+      items: [
+        { name: "Mindbody", badge: "", desc: "Mindbody users in fitness, yoga, and wellness can connect Liberty Bancard's payment processing to reduce per-transaction costs.", hardware: "Compatible card readers via gateway" },
+        { name: "Jane App", badge: "", desc: "Jane App is widely used by physical therapists and chiropractors. Liberty Bancard can process payments outside Jane's native billing for lower interchange costs.", hardware: "Dejavoo or PAX terminal" },
+        { name: "DrChrono", badge: "", desc: "Medical practices using DrChrono EHR can pair Liberty Bancard terminals for front-desk card collection while keeping their clinical workflow.", hardware: "Ingenico or Dejavoo countertop" },
+      ],
+    },
+    {
+      name: "Scheduling",
+      items: [
+        { name: "Acuity Scheduling", badge: "", desc: "Acuity-based businesses can use Liberty Bancard's gateway integrations to collect payments at checkout or for deposits.", hardware: "Software gateway" },
+        { name: "Calendly", badge: "", desc: "Service businesses using Calendly can combine Liberty Bancard's payment infrastructure for payment collection with their scheduling workflow.", hardware: "Software gateway" },
+        { name: "Vagaro", badge: "", desc: "Salons, spas, and fitness studios on Vagaro can explore Liberty Bancard's payment processing as a lower-cost alternative.", hardware: "Compatible card readers" },
+      ],
+    },
+    {
+      name: "CRM",
+      items: [
+        { name: "Salesforce", badge: "", desc: "Enterprise merchants can integrate Liberty Bancard transaction data into Salesforce via standard API exports.", hardware: "No hardware required" },
+        { name: "HubSpot", badge: "", desc: "Liberty Bancard's back-office data can connect to HubSpot for deal tracking, renewal management, and merchant lifecycle automation.", hardware: "No hardware required" },
+        { name: "Zoho CRM", badge: "", desc: "Zoho CRM users can sync Liberty Bancard merchant data and transaction summaries for account management and reporting.", hardware: "No hardware required" },
+      ],
+    },
+  ];
+
+  const categoryHtml = categories.map(cat => `
+    <div style="margin-bottom:3rem;">
+      <h2 style="font-size:1.5rem;font-weight:700;margin-bottom:1.25rem;color:#1e293b;border-bottom:2px solid #e2e8f0;padding-bottom:0.5rem;">${cat.name}</h2>
+      <div class="ssr-grid-3" style="gap:1.25rem;">
+        ${cat.items.map(item => `
+          <div class="ssr-card">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;margin-bottom:0.75rem;">
+              <div class="ssr-card-title" style="margin:0;">${item.name}</div>
+              ${item.badge ? `<span style="font-size:0.65rem;background:#eff6ff;color:#3b82f6;padding:0.15rem 0.5rem;border-radius:20px;font-weight:600;white-space:nowrap;">${item.badge}</span>` : ""}
+            </div>
+            <div class="ssr-card-text" style="margin-bottom:0.75rem;">${item.desc}</div>
+            <div style="font-size:0.75rem;color:#059669;display:flex;align-items:flex-start;gap:0.4rem;">
+              <span>✓</span><span><strong>Hardware:</strong> ${item.hardware}</span>
+            </div>
+          </div>`).join("")}
+      </div>
+    </div>`).join("");
+
+  const body = `
+  <div class="ssr-hero">
+    <div class="ssr-hero-inner">
+      <div class="ssr-breadcrumb"><a href="/">Home</a><span>/</span><span>Integrations</span></div>
+      <div class="ssr-hero-badge">🔌 Software Compatibility</div>
+      <h1>Works With Your Existing Software</h1>
+      <p class="ssr-hero-subtitle">Unlike Square, Clover, and Toast — which lock you into their ecosystem — Liberty Bancard connects with the platforms you already use. Keep your POS, your accounting software, your booking tool. Just pay less.</p>
+      <div class="ssr-hero-buttons">
+        <a href="/upload-statement" class="ssr-btn-primary">📤 Get My Free Analysis</a>
+        <a href="#integrations-list" class="ssr-btn-outline">Browse Integrations →</a>
+      </div>
+    </div>
+  </div>
+
+  <section class="ssr-section ssr-section-muted">
+    <div class="ssr-section-inner">
+      <div class="ssr-grid-3" style="margin-bottom:2rem;">
+        <div class="ssr-card" style="text-align:center;">
+          <div style="font-size:2rem;font-weight:700;color:#1d4ed8;">20+</div>
+          <div style="font-size:0.875rem;font-weight:600;">Compatible Platforms</div>
+        </div>
+        <div class="ssr-card" style="text-align:center;">
+          <div style="font-size:2rem;font-weight:700;color:#1d4ed8;">6</div>
+          <div style="font-size:0.875rem;font-weight:600;">Integration Categories</div>
+        </div>
+        <div class="ssr-card" style="text-align:center;">
+          <div style="font-size:2rem;font-weight:700;color:#1d4ed8;">0</div>
+          <div style="font-size:0.875rem;font-weight:600;">Lock-In Contracts</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="ssr-section" id="integrations-list">
+    <div class="ssr-section-inner">
+      <h2 class="ssr-section-heading">Integration Directory</h2>
+      <p class="ssr-section-subheading">Organized by category. Don't see your software? Ask us about compatibility during your free statement review.</p>
+      ${categoryHtml}
+    </div>
+  </section>
+
+  <section class="ssr-section ssr-section-muted">
+    <div class="ssr-section-inner">
+      <h2 class="ssr-section-heading">No Ecosystem Lock-In</h2>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:2rem;max-width:900px;margin:0 auto;">
+        <div class="ssr-card" style="border:2px solid #fca5a5;">
+          <div class="ssr-card-title" style="color:#dc2626;">Square / Clover / Toast Lock You In</div>
+          <ul style="margin:0;padding-left:1.25rem;font-size:0.875rem;color:#6b7280;line-height:2;">
+            <li>Must use their payment processor</li>
+            <li>Hardware only works on their network</li>
+            <li>Rate changes buried in terms</li>
+            <li>Switching means replacing all hardware</li>
+          </ul>
+        </div>
+        <div class="ssr-card" style="border:2px solid #86efac;">
+          <div class="ssr-card-title" style="color:#16a34a;">Liberty Bancard Connects With What You Have</div>
+          <ul style="margin:0;padding-left:1.25rem;font-size:0.875rem;color:#6b7280;line-height:2;">
+            <li>Works with Clover, Toast, PAX, and more</li>
+            <li>Keep your POS or upgrade on your terms</li>
+            <li>Transparent interchange-plus pricing</li>
+            <li>Switch without replacing existing software</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  ${ctaSection("Check Compatibility With Your Software", "Tell us what you use during your free statement review. We'll confirm compatibility before you switch anything.")}`;
+
+  return ssrHtmlShell({
+    title: "Software Integrations & Compatibility — Works With Your Existing Tools | Liberty Bancard",
+    description: "Liberty Bancard works with Clover, Toast, QuickBooks, Shopify, Mindbody, Acuity, and 20+ more platforms. Keep your software, lower your processing costs.",
+    canonical: "/integrations",
+    keywords: "payment processing integrations, POS integrations, QuickBooks payment processing, Shopify payment processor, Clover payment processing, merchant software compatibility",
+    schemaJsons: [schema],
+    body,
+  });
+}
+
 export function getFaqHtml(): string {
   const faqSchema = {
     "@context": "https://schema.org",

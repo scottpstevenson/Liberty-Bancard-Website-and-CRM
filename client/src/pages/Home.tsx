@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { SEO, getLocalBusinessSchema, getWebSiteSchema } from "@/components/SEO";
+import { LazyVideoEmbed } from "@/components/LazyVideoEmbed";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { WelcomePopup } from "@/components/WelcomePopup";
@@ -1054,6 +1055,97 @@ export default function Home() {
               <Link href="/case-studies" data-testid="link-reviews-case-studies">
                 <Button variant="outline" className="gap-2">
                   See the full breakdown in our case studies
+                  <ArrowRight className="w-4 h-4" />
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </section>
+
+        {/* SECTION 9.25: Featured Video Testimonials */}
+        <section className="bg-background py-20" data-testid="section-video-testimonials">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="reveal text-center mb-12">
+              <div className="inline-flex items-center gap-2 bg-primary/10 text-primary text-xs font-semibold px-3 py-1 rounded-md mb-4">
+                🎬 Merchant Stories
+              </div>
+              <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-video-testimonials-heading">
+                What Merchants Say After Their First Review
+              </h2>
+              <p className="text-muted-foreground max-w-xl mx-auto">Real business owners. Specific outcomes. Watch their stories — or read the full case study numbers.</p>
+            </div>
+            <div className="reveal grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+              {[
+                {
+                  name: "Maria R.",
+                  role: "Restaurant Owner",
+                  city: "South Miami, FL",
+                  keyStat: "$4,200/yr",
+                  youtubeId: "M7lc1UVf-VE" as string | null,
+                  duration: "2:14",
+                  isDemo: true,
+                  quote: "Our processing cost dropped to nearly zero after switching to the cash discount program. That freed up cash we put right back into our kitchen.",
+                },
+                {
+                  name: "Dr. Sarah L.",
+                  role: "Managing Partner, Medical Practice",
+                  city: "Tampa, FL",
+                  keyStat: "$6,100/yr",
+                  youtubeId: null as string | null,
+                  duration: "3:02",
+                  isDemo: false,
+                  quote: "Our bank had us on tiered pricing for years. Level 2 processing alone saved us thousands on commercial insurance card payments.",
+                },
+                {
+                  name: "Rachel T.",
+                  role: "Founder, Online Retailer",
+                  city: "Remote / Online",
+                  keyStat: "$5,400/yr",
+                  youtubeId: null as string | null,
+                  duration: "2:48",
+                  isDemo: false,
+                  quote: "We thought Shopify Payments was our only option. Liberty Bancard integrated a gateway and our costs dropped by over $5,000 a year. Seamless.",
+                },
+              ].map((item, i) => (
+                <Card key={i} className="overflow-hidden flex flex-col" data-testid={`card-video-testimonial-${i}`}>
+                  <CardContent className="p-0 flex flex-col flex-grow">
+                    <div className="p-4 pb-0">
+                      <LazyVideoEmbed
+                        youtubeId={item.youtubeId}
+                        merchantName={item.name}
+                        duration={item.duration}
+                        isDemo={item.isDemo}
+                      />
+                    </div>
+                    <div className="p-5 flex flex-col flex-grow">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex gap-0.5">
+                          {[1,2,3,4,5].map(s => <Star key={s} className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />)}
+                        </div>
+                        <span className="text-lg font-bold text-emerald-600 dark:text-emerald-400">{item.keyStat}</span>
+                      </div>
+                      <Quote className="w-5 h-5 text-primary/20 mb-2" />
+                      <p className="text-sm text-foreground leading-relaxed italic flex-grow mb-4" data-testid={`text-video-quote-${i}`}>
+                        "{item.quote}"
+                      </p>
+                      <div className="flex items-center gap-3 pt-4 border-t border-border">
+                        <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-bold shrink-0">
+                          {item.name.charAt(0)}
+                        </div>
+                        <div>
+                          <div className="text-sm font-semibold text-foreground" data-testid={`text-video-name-${i}`}>{item.name}</div>
+                          <div className="text-xs text-muted-foreground">{item.role} · {item.city}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+            <div className="text-center">
+              <Link href="/testimonials" data-testid="link-video-testimonials-all">
+                <Button variant="outline" className="gap-2">
+                  Watch all merchant stories
                   <ArrowRight className="w-4 h-4" />
                 </Button>
               </Link>

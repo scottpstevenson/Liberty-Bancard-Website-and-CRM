@@ -142,6 +142,9 @@ import CostQuiz from "@/pages/sales/CostQuiz";
 import SalesOnePager from "@/pages/sales/SalesOnePager";
 import WhyLiberty from "@/pages/WhyLiberty";
 import CaseStudies from "@/pages/CaseStudies";
+import Testimonials from "@/pages/Testimonials";
+import TestimonialsSubmit from "@/pages/TestimonialsSubmit";
+import Integrations from "@/pages/Integrations";
 import FAQ from "@/pages/FAQ";
 import AffiliateProgram from "@/pages/AffiliateProgram";
 import ISOPartnerProgram from "@/pages/ISOPartnerProgram";
@@ -266,6 +269,9 @@ function Router() {
       <Route path="/compare/:competitor" component={CompareVs} />
       <Route path="/why-liberty-bancard" component={WhyLiberty} />
       <Route path="/case-studies" component={CaseStudies} />
+      <Route path="/testimonials/submit" component={TestimonialsSubmit} />
+      <Route path="/testimonials" component={Testimonials} />
+      <Route path="/integrations" component={Integrations} />
       <Route path="/faq" component={FAQ} />
       <Route path="/affiliate" component={AffiliateProgram} />
       <Route path="/partners" component={ISOPartnerProgram} />
