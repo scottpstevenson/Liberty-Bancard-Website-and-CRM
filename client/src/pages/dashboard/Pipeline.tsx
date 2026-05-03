@@ -16,7 +16,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Calendar, Sparkles, Loader2, Download, ChevronDown, Archive, Settings, ArrowUp, ArrowDown, Pencil, Trash2, RotateCcw, MoreVertical, TrendingUp, UserRound } from "lucide-react";
+import { Plus, Calendar, Sparkles, Loader2, Download, ChevronDown, Archive, Settings, ArrowUp, ArrowDown, Pencil, Trash2, RotateCcw, MoreVertical, TrendingUp, TrendingDown, UserRound, AlertTriangle, Activity, ArrowUpDown } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
@@ -58,6 +58,103 @@ const PRESET_COLORS = [
   "#14b8a6", "#84cc16",
 ];
 
+interface MidSummary {
+  dealId: number;
+  mid: string;
+  totalVolume: number;
+  txCount: number;
+  chargebackCount: number;
+  trendPct: number;
+  sparkline: number[];
+  latestDate: string | null;
+  fetchedAt: string | null;
+}
+
+function fmtCompactCurrency(n: number) {
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
+  if (n >= 1_000) return `$${(n / 1_000).toFixed(n >= 10_000 ? 0 : 1)}k`;
+  return `$${n.toFixed(0)}`;
+}
+
+function VolumeSparkline({ values }: { values: number[] }) {
+  if (!values || values.length < 2) return null;
+  const w = 80;
+  const h = 20;
+  const max = Math.max(...values, 1);
+  const min = Math.min(...values, 0);
+  const range = max - min || 1;
+  const stepX = w / (values.length - 1);
+  const points = values
+    .map((v, i) => `${(i * stepX).toFixed(1)},${(h - ((v - min) / range) * h).toFixed(1)}`)
+    .join(" ");
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className="text-primary" data-testid="svg-deal-sparkline">
+      <polyline
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        points={points}
+      />
+    </svg>
+  );
+}
+
+function DealMidBadge({ summary }: { summary: MidSummary | undefined }) {
+  if (!summary) return null;
+  const hasData = summary.sparkline.length > 0 && summary.totalVolume > 0;
+  if (!hasData) {
+    return (
+      <Badge
+        variant="outline"
+        className="text-xs no-default-hover-elevate no-default-active-elevate"
+        data-testid={`badge-no-volume-${summary.dealId}`}
+        title={`MID ${summary.mid} — no recent processing activity`}
+      >
+        <Activity className="w-3 h-3 mr-1 opacity-60" /> No activity
+      </Badge>
+    );
+  }
+  const trendUp = summary.trendPct >= 0;
+  return (
+    <div className="flex items-center justify-between gap-2 rounded-md bg-muted/40 px-2 py-1.5" data-testid={`mid-summary-${summary.dealId}`}>
+      <div className="flex flex-col min-w-0">
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs font-semibold tabular-nums" data-testid={`text-deal-volume-${summary.dealId}`}>
+            30d: {fmtCompactCurrency(summary.totalVolume)}
+          </span>
+          {summary.chargebackCount > 0 && (
+            <Badge
+              variant="outline"
+              className="h-4 px-1 text-[10px] border-red-300 text-red-600 dark:text-red-400 no-default-hover-elevate no-default-active-elevate"
+              data-testid={`badge-chargebacks-${summary.dealId}`}
+              title={`${summary.chargebackCount} chargeback${summary.chargebackCount === 1 ? "" : "s"} in last 30 days`}
+            >
+              <AlertTriangle className="w-2.5 h-2.5 mr-0.5" />
+              {summary.chargebackCount} CB
+            </Badge>
+          )}
+        </div>
+        <div className="flex items-center gap-0.5 text-[10px]">
+          {trendUp ? (
+            <TrendingUp className="w-2.5 h-2.5 text-green-600 dark:text-green-400" />
+          ) : (
+            <TrendingDown className="w-2.5 h-2.5 text-red-600 dark:text-red-400" />
+          )}
+          <span
+            className={trendUp ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}
+            data-testid={`text-deal-trend-${summary.dealId}`}
+          >
+            {trendUp ? "+" : ""}{summary.trendPct.toFixed(0)}%
+          </span>
+        </div>
+      </div>
+      <VolumeSparkline values={summary.sparkline} />
+    </div>
+  );
+}
+
 function SortableDealCard({
   deal,
   isDealArchived,
@@ -68,6 +165,7 @@ function SortableDealCard({
   restoreDealMutation,
   getContactName,
   getCompanyName,
+  midSummary,
 }: {
   deal: Deal;
   isDealArchived: boolean;
@@ -78,6 +176,7 @@ function SortableDealCard({
   restoreDealMutation: any;
   getContactName: (id: number | null) => string;
   getCompanyName: (id: number | null) => string;
+  midSummary?: MidSummary;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: deal.id,
@@ -155,6 +254,7 @@ function SortableDealCard({
               {deal.offerPath}
             </Badge>
           )}
+          {deal.mid && <DealMidBadge summary={midSummary} />}
           <div className="text-xs text-muted-foreground" data-testid={`text-deal-date-${deal.id}`}>
             <Calendar className="w-3 h-3 inline-block mr-1" />
             {deal.createdAt ? new Date(deal.createdAt).toLocaleDateString() : "N/A"}
@@ -177,6 +277,7 @@ function DroppableColumn({
   getContactName,
   getCompanyName,
   setCreateOpen,
+  midSummaries,
 }: {
   stage: string;
   colorClass: string;
@@ -189,6 +290,7 @@ function DroppableColumn({
   getContactName: (id: number | null) => string;
   getCompanyName: (id: number | null) => string;
   setCreateOpen: (open: boolean) => void;
+  midSummaries: Record<string, MidSummary>;
 }) {
   return (
     <div className="w-[270px] flex-shrink-0" data-testid={`stage-column-${stage.replace(/\s+/g, "-").toLowerCase()}`}>
@@ -214,6 +316,7 @@ function DroppableColumn({
                 restoreDealMutation={restoreDealMutation}
                 getContactName={getContactName}
                 getCompanyName={getCompanyName}
+                midSummary={midSummaries[String(deal.id)]}
               />
             );
           })}
@@ -263,6 +366,7 @@ export default function Pipeline() {
 
   const [selectedDealIds, setSelectedDealIds] = useState<Set<number>>(new Set());
   const [showArchived, setShowArchived] = useState(false);
+  const [sortMode, setSortMode] = useState<"default" | "volume_desc" | "trending_down" | "no_activity">("default");
 
   const [editStage, setEditStage] = useState("");
   const [editNotes, setEditNotes] = useState("");
@@ -289,6 +393,17 @@ export default function Pipeline() {
     },
   });
   const contacts = contactsResult?.data;
+
+  const { data: midSummaryData } = useQuery<{ summaries: Record<string, MidSummary>; days: number }>({
+    queryKey: ["/api/mid-stats/pipeline-summary"],
+    queryFn: async () => {
+      const res = await fetch("/api/mid-stats/pipeline-summary?days=30", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch MID summaries");
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+  const midSummaries = midSummaryData?.summaries || {};
 
   const { data: pipelineStages } = useQuery<PipelineStage[]>({
     queryKey: ["/api/pipeline-stages", configPipeline],
@@ -661,12 +776,35 @@ export default function Pipeline() {
   };
 
   const getDealsByStage = (stage: string) => {
-    return deals?.filter((d) => {
+    const filtered = (deals || []).filter((d) => {
       if (d.stage !== stage) return false;
       const isArchived = !!(d as any).archivedAt;
       if (!showArchived && isArchived) return false;
+      if (sortMode === "trending_down") {
+        const s = midSummaries[String(d.id)];
+        if (!s || s.totalVolume <= 0 || s.trendPct >= 0) return false;
+      } else if (sortMode === "no_activity") {
+        if (!d.mid) return false;
+        const s = midSummaries[String(d.id)];
+        if (s && s.totalVolume > 0) return false;
+      }
       return true;
-    }) || [];
+    });
+
+    if (sortMode === "volume_desc") {
+      filtered.sort((a, b) => {
+        const av = midSummaries[String(a.id)]?.totalVolume || 0;
+        const bv = midSummaries[String(b.id)]?.totalVolume || 0;
+        return bv - av;
+      });
+    } else if (sortMode === "trending_down") {
+      filtered.sort((a, b) => {
+        const at = midSummaries[String(a.id)]?.trendPct ?? 0;
+        const bt = midSummaries[String(b.id)]?.trendPct ?? 0;
+        return at - bt;
+      });
+    }
+    return filtered;
   };
 
   if (dealsLoading) {
@@ -716,6 +854,18 @@ export default function Pipeline() {
               Show Archived
             </Label>
           </div>
+          <Select value={sortMode} onValueChange={(v) => setSortMode(v as any)}>
+            <SelectTrigger className="h-9 w-[180px]" data-testid="select-pipeline-sort">
+              <ArrowUpDown className="w-3.5 h-3.5 mr-1.5 opacity-70" />
+              <SelectValue placeholder="Sort / Filter" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="default" data-testid="sort-default">Default order</SelectItem>
+              <SelectItem value="volume_desc" data-testid="sort-volume-desc">Highest 30d volume</SelectItem>
+              <SelectItem value="trending_down" data-testid="sort-trending-down">Trending down only</SelectItem>
+              <SelectItem value="no_activity" data-testid="sort-no-activity">No activity (MID idle)</SelectItem>
+            </SelectContent>
+          </Select>
           <Button
             size="sm"
             variant="outline"
@@ -928,6 +1078,7 @@ export default function Pipeline() {
                   getContactName={getContactName}
                   getCompanyName={getCompanyName}
                   setCreateOpen={setCreateOpen}
+                  midSummaries={midSummaries}
                 />
               );
             })}

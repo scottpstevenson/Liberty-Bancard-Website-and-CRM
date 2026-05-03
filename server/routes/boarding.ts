@@ -329,6 +329,65 @@ export function registerBoardingRoutes(app: Express) {
     }
   });
 
+  app.get("/api/mid-stats/pipeline-summary", isAuthenticated, async (req, res) => {
+    try {
+      const days = req.query.days ? Number(req.query.days) : 30;
+      const allDealsResult = await storage.getDeals({ limit: 10000 });
+      const dealsWithMid = allDealsResult.data.filter((d) => d.mid);
+
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - days);
+      const cutoffStr = cutoff.toISOString().split("T")[0];
+
+      const summaries: Record<string, {
+        dealId: number;
+        mid: string;
+        totalVolume: number;
+        txCount: number;
+        chargebackCount: number;
+        trendPct: number;
+        sparkline: number[];
+        latestDate: string | null;
+        fetchedAt: string | null;
+      }> = {};
+
+      for (const deal of dealsWithMid) {
+        const stats = await storage.getMidDailyStatsByDeal(deal.id, days);
+        const inWindow = stats.filter((s) => s.date >= cutoffStr);
+        const asc = [...inWindow].sort((a, b) => a.date.localeCompare(b.date));
+
+        const totalVolume = asc.reduce((s, r) => s + (Number(r.volume) || 0), 0);
+        const txCount = asc.reduce((s, r) => s + (r.txCount || 0), 0);
+        const chargebackCount = asc.reduce((s, r) => s + (r.chargebackCount || 0), 0);
+
+        const half = Math.floor(asc.length / 2);
+        const firstVol = asc.slice(0, half).reduce((s, r) => s + (Number(r.volume) || 0), 0);
+        const secondVol = asc.slice(half).reduce((s, r) => s + (Number(r.volume) || 0), 0);
+        const trendPct = firstVol > 0 ? ((secondVol - firstVol) / firstVol) * 100 : 0;
+
+        const sparkline = asc.slice(-14).map((r) => Number(r.volume) || 0);
+        const latest = asc[asc.length - 1] || null;
+
+        summaries[String(deal.id)] = {
+          dealId: deal.id,
+          mid: deal.mid as string,
+          totalVolume,
+          txCount,
+          chargebackCount,
+          trendPct,
+          sparkline,
+          latestDate: latest?.date ?? null,
+          fetchedAt: latest?.fetchedAt ? new Date(latest.fetchedAt).toISOString() : null,
+        };
+      }
+
+      res.json({ summaries, days });
+    } catch (err: any) {
+      console.error("[MID Stats] Pipeline summary error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/mid-stats/summary", isAuthenticated, async (req, res) => {
     try {
       const allDealsResult = await storage.getDeals({ limit: 10000 });
