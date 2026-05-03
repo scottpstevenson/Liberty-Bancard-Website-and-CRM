@@ -164,14 +164,39 @@ export function registerToolkitRoutes(app: Express) {
     try {
       const config = getGhlConfig();
       if (!config) return res.json({ count: 0 });
-      const result = await ghlFetch(
-        `/conversations/search?locationId=${config.locationId}&limit=50&type=SMS&status=unread`
-      );
-      const conversations = result?.conversations || result?.data || [];
-      const count = conversations.reduce((acc: number, c: any) => acc + (c.unreadCount || (c.unread ? 1 : 0)), 0);
-      res.json({ count });
+      let totalUnread = 0;
+      let lastId: string | null = null;
+      const MAX_PAGES = 5;
+      for (let page = 0; page < MAX_PAGES; page++) {
+        const qs = lastId
+          ? `/conversations/search?locationId=${config.locationId}&limit=100&type=SMS&startAfterId=${lastId}`
+          : `/conversations/search?locationId=${config.locationId}&limit=100&type=SMS`;
+        const result = await ghlFetch(qs);
+        const conversations: any[] = result?.conversations || result?.data || [];
+        totalUnread += conversations.reduce((acc: number, c: any) => acc + (c.unreadCount || (c.unread ? 1 : 0)), 0);
+        if (!result?.nextPage || conversations.length === 0) break;
+        lastId = result?.lastId || conversations[conversations.length - 1]?.id || null;
+        if (!lastId) break;
+      }
+      res.json({ count: totalUnread });
     } catch {
       res.json({ count: 0 });
+    }
+  });
+
+  app.post("/api/sms-inbox/mark-read/:conversationId", isAuthenticated, async (req, res) => {
+    try {
+      const config = getGhlConfig();
+      if (!config) return res.status(503).json({ message: "GHL not configured" });
+      const { conversationId } = req.params;
+      await ghlFetch(`/conversations/${conversationId}`, {
+        method: "PUT",
+        body: JSON.stringify({ unreadCount: 0 }),
+      });
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error("[SMS Inbox] mark-read error:", err.message);
+      res.status(500).json({ message: err.message });
     }
   });
 

@@ -58,6 +58,17 @@ export default function SmsInbox() {
     refetchInterval: 15000,
   });
 
+  const markReadMutation = useMutation({
+    mutationFn: async (conversationId: string) => {
+      const res = await apiRequest("POST", `/api/sms-inbox/mark-read/${conversationId}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/sms-inbox/threads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sms-inbox/unread-count"] });
+    },
+  });
+
   const replyMutation = useMutation({
     mutationFn: async ({ conversationId, message }: { conversationId: string; message: string }) => {
       const res = await apiRequest("POST", "/api/sms-inbox/reply", { conversationId, message });
@@ -67,6 +78,7 @@ export default function SmsInbox() {
       setReplyText("");
       queryClient.invalidateQueries({ queryKey: ["/api/sms-inbox/thread", selectedThread?.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/sms-inbox/threads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sms-inbox/unread-count"] });
       toast({ title: "Message sent" });
     },
     onError: (err: any) => {
@@ -154,7 +166,12 @@ export default function SmsInbox() {
                   <button
                     key={thread.id}
                     className={`w-full text-left px-4 py-3 hover:bg-muted/50 transition-colors ${selectedThread?.id === thread.id ? "bg-muted" : ""}`}
-                    onClick={() => setSelectedThread(thread)}
+                    onClick={() => {
+                      setSelectedThread(thread);
+                      if (thread.unreadCount > 0) {
+                        markReadMutation.mutate(thread.id);
+                      }
+                    }}
                     data-testid={`thread-item-${thread.id}`}
                   >
                     <div className="flex items-center justify-between mb-0.5">
@@ -226,7 +243,7 @@ export default function SmsInbox() {
                   </div>
                 ) : (
                   messages.map((msg) => {
-                    const isOutbound = msg.direction === "outbound" || msg.type === "SMS" && msg.direction !== "inbound";
+                    const isOutbound = msg.direction === "outbound";
                     return (
                       <div
                         key={msg.id}
