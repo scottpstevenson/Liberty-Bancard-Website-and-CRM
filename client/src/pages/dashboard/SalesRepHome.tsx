@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import QRCode from "qrcode";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,7 +19,7 @@ import {
   Loader2, CalendarDays, PhoneCall, Link2, Copy, ChevronRight, Star,
   BookOpen, LayoutDashboard, Users, ClipboardList, Calendar, FileText,
   ExternalLink, XCircle, Activity, MessageSquare, Voicemail, Video,
-  Trophy, TrendingDown, Minus, Crown, Medal, Award,
+  Trophy, TrendingDown, Minus, Crown, Medal, Award, Smartphone, QrCode,
 } from "lucide-react";
 import { SALES_STAGES } from "@shared/schema";
 
@@ -623,6 +624,86 @@ function OnePagerDialog({ open, onClose, agentName }: { open: boolean; onClose: 
   );
 }
 
+function MobileAppCard() {
+  const { toast } = useToast();
+  const [qrDataUrl, setQrDataUrl] = useState<string>("");
+  const [showInstructions, setShowInstructions] = useState(false);
+  const mobileUrl = typeof window !== "undefined" ? `${window.location.origin}/mobile` : "/mobile";
+
+  useEffect(() => {
+    QRCode.toDataURL(mobileUrl, { width: 160, margin: 1 })
+      .then(setQrDataUrl)
+      .catch(() => setQrDataUrl(""));
+  }, [mobileUrl]);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(mobileUrl);
+    toast({ title: "Link copied", description: "Mobile app URL copied to clipboard." });
+  };
+
+  return (
+    <Card data-testid="card-mobile-app" className="border-blue-200 dark:border-blue-900 bg-gradient-to-br from-blue-50/60 to-transparent dark:from-blue-950/20">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Smartphone className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+          Mobile Field App
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-xs text-muted-foreground">
+          Take the CRM with you in the field. Scan the QR code with your phone or open it directly.
+        </p>
+        <div className="flex items-start gap-3">
+          {qrDataUrl ? (
+            <img
+              src={qrDataUrl}
+              alt="Mobile app QR code"
+              className="w-24 h-24 rounded-md border bg-white p-1 shrink-0"
+              data-testid="img-mobile-qr"
+            />
+          ) : (
+            <div className="w-24 h-24 rounded-md border bg-muted flex items-center justify-center shrink-0">
+              <QrCode className="w-8 h-8 text-muted-foreground" />
+            </div>
+          )}
+          <div className="flex-1 min-w-0 space-y-1.5">
+            <Button size="sm" variant="default" className="w-full h-8 text-xs" asChild data-testid="link-open-mobile">
+              <a href="/mobile" target="_blank" rel="noopener noreferrer">
+                <ExternalLink className="w-3 h-3 mr-1.5" />
+                Open Mobile App
+              </a>
+            </Button>
+            <Button size="sm" variant="outline" className="w-full h-8 text-xs" onClick={handleCopy} data-testid="button-copy-mobile-url">
+              <Copy className="w-3 h-3 mr-1.5" />
+              Copy Link
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="w-full h-7 text-xs text-muted-foreground"
+              onClick={() => setShowInstructions((v) => !v)}
+              data-testid="button-toggle-install-instructions"
+            >
+              {showInstructions ? "Hide" : "Add to Home Screen"}
+              <ChevronRight className={`w-3 h-3 ml-1 transition-transform ${showInstructions ? "rotate-90" : ""}`} />
+            </Button>
+          </div>
+        </div>
+        {showInstructions && (
+          <div className="rounded-md bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900 p-3 space-y-1.5" data-testid="install-instructions">
+            <p className="text-xs text-blue-800 dark:text-blue-300">
+              <strong>iOS (Safari):</strong> Tap Share, then "Add to Home Screen".
+            </p>
+            <p className="text-xs text-blue-800 dark:text-blue-300">
+              <strong>Android (Chrome):</strong> Tap the menu, then "Add to Home Screen".
+            </p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function SalesRepHome() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -959,6 +1040,9 @@ export default function SalesRepHome() {
 
         {/* Right Column */}
         <div className="space-y-4">
+          {/* Mobile Field App */}
+          <MobileAppCard />
+
           {/* Your Rank */}
           <YourRankCard />
 
