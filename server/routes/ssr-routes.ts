@@ -9,7 +9,6 @@ import {
   getWhyLibertyHtml,
   getZeroPercentHtml,
   getCaseStudiesHtml,
-  getEquipmentHtml,
   getEstimateHtml,
   getSavingsCalculatorHtml,
   getCompareRatesHtml,
@@ -186,9 +185,7 @@ export function registerSsrRoutes(app: Express) {
   });
 
   app.get("/equipment", (_req, res) => {
-    res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.setHeader("Cache-Control", "public, max-age=86400");
-    res.send(getEquipmentHtml());
+    res.redirect(301, "/shop");
   });
 
   app.get("/estimate", (_req, res) => {

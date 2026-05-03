@@ -10,6 +10,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 const solutionLinks = [
   { name: "Liberty Zero™ — Pay $0 to Process", href: "/0-percent-processing", featured: true },
   { name: "Beat Square & Stripe", href: "/beat-square-stripe", featured: false },
+  { name: "Payment Terminals & Equipment", href: "/shop", featured: false },
   { name: "Upload Statement", href: "/upload-statement", featured: false },
   { name: "Get Started", href: "/get-started", featured: false },
 ];

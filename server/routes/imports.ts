@@ -342,7 +342,7 @@ Guidelines:
       { url: "/faq", priority: "0.9", changefreq: "monthly" },
       { url: "/affiliate", priority: "0.7", changefreq: "monthly" },
       { url: "/why-liberty-bancard", priority: "0.8", changefreq: "monthly" },
-      { url: "/equipment", priority: "0.8", changefreq: "monthly" },
+      { url: "/shop", priority: "0.8", changefreq: "monthly" },
       { url: "/case-studies", priority: "0.8", changefreq: "monthly" },
       { url: "/testimonials", priority: "0.8", changefreq: "monthly" },
       { url: "/testimonials/submit", priority: "0.5", changefreq: "monthly" },

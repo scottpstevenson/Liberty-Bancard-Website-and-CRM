@@ -103,7 +103,7 @@ const tools: SalesTool[] = [
     title: "Equipment Catalog",
     description: "Full catalog of available terminals — Clover Flex 3, Clover Mini, PAX A920, Dejavoo QD4, SwipeSimple, and more. Includes specs, best-fit guide, and request form.",
     icon: Monitor,
-    href: "/equipment",
+    href: "/shop",
     utmContent: "equipment",
     audience: "Merchants evaluating hardware options",
   },

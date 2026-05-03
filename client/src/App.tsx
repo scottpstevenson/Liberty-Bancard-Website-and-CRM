@@ -140,7 +140,6 @@ import BlogPost from "@/pages/BlogPost";
 import IndustryPage from "@/pages/IndustryPage";
 import LocationIndustryPage from "@/pages/LocationIndustryPage";
 import HelpCenter from "@/pages/HelpCenter";
-import Equipment from "@/pages/Equipment";
 import TerminalShop from "@/pages/TerminalShop";
 import HelpArticle from "@/pages/HelpArticle";
 import FreeAnalysis from "@/pages/FreeAnalysis";
@@ -273,7 +272,9 @@ function Router() {
       <Route path="/thanks/application" component={ThanksApplication} />
       {/* /thanks-application is 301-redirected server-side to /thanks/application (Task #178) */}
       <Route path="/merchant-application" component={MerchantApplication} />
-      <Route path="/equipment" component={Equipment} />
+      <Route path="/equipment">
+        <Redirect to="/shop" />
+      </Route>
       <Route path="/shop" component={TerminalShop} />
       <Route path="/savings-calculator" component={SavingsCalculator} />
       <Route path="/compare-rates" component={RateComparison} />
