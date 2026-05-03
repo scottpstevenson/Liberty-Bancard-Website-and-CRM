@@ -3062,6 +3062,7 @@ export const roleplaySessions = pgTable("roleplay_sessions", {
   userId: varchar("user_id").references(() => users.id),
   scenario: text("scenario").notNull(),
   persona: text("persona").notNull(),
+  difficulty: text("difficulty").default("standard"),
   status: text("status").default("active"),
   totalExchanges: integer("total_exchanges").default(0),
   overallScore: integer("overall_score"),

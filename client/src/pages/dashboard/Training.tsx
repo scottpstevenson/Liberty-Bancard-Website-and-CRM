@@ -57,6 +57,7 @@ interface RoleplaySession {
   id: number;
   scenario: string;
   persona: string;
+  difficulty: string | null;
   status: string;
   totalExchanges: number;
   overallScore: number | null;
@@ -137,6 +138,28 @@ const SCENARIOS = [
   "0% Program Pitch",
 ];
 
+type Difficulty = "standard" | "hard" | "expert";
+
+const DIFFICULTIES: { value: Difficulty; label: string; description: string }[] = [
+  { value: "standard", label: "Standard", description: "Realistic merchant — typical resistance" },
+  { value: "hard", label: "Hard", description: "More skeptical, demands specifics" },
+  { value: "expert", label: "Expert", description: "Sophisticated, near-impossible to convert" },
+];
+
+const normalizeDifficulty = (d: string | null | undefined): Difficulty =>
+  d === "hard" || d === "expert" ? d : "standard";
+
+const difficultyLabel = (d: string | null | undefined) =>
+  DIFFICULTIES.find(x => x.value === normalizeDifficulty(d))?.label || "Standard";
+
+const difficultyBadgeClass = (d: string | null | undefined) => {
+  switch (normalizeDifficulty(d)) {
+    case "hard": return "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400";
+    case "expert": return "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400";
+    default: return "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400";
+  }
+};
+
 const PERSONAS = [
   "Auto Shop Owner",
   "Dentist",
@@ -168,6 +191,7 @@ function RoleplayPractice() {
   const { toast } = useToast();
   const [selectedScenario, setSelectedScenario] = useState("");
   const [selectedPersona, setSelectedPersona] = useState("");
+  const [selectedDifficulty, setSelectedDifficulty] = useState<Difficulty>("standard");
   const [currentSession, setCurrentSession] = useState<RoleplaySession | null>(null);
   const [repMessage, setRepMessage] = useState("");
   const [exchanges, setExchanges] = useState<(Exchange & { score?: ScoreData })[]>([]);
@@ -183,14 +207,20 @@ function RoleplayPractice() {
   });
 
   const startMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/training/roleplay/start", {
-        scenario: selectedScenario,
-        persona: selectedPersona,
-      });
-      return res.json();
+    mutationFn: async (overrides?: { scenario?: string; persona?: string; difficulty?: Difficulty }) => {
+      const payload = {
+        scenario: overrides?.scenario ?? selectedScenario,
+        persona: overrides?.persona ?? selectedPersona,
+        difficulty: overrides?.difficulty ?? selectedDifficulty,
+      };
+      const res = await apiRequest("POST", "/api/training/roleplay/start", payload);
+      const session = await res.json();
+      return { session, payload };
     },
-    onSuccess: (session) => {
+    onSuccess: ({ session, payload }) => {
+      setSelectedScenario(payload.scenario);
+      setSelectedPersona(payload.persona);
+      setSelectedDifficulty(payload.difficulty);
       setCurrentSession(session);
       setExchanges([]);
       setConversationHistory([]);
@@ -199,6 +229,27 @@ function RoleplayPractice() {
     },
     onError: (err: any) => toast({ title: "Failed to start session", description: err.message, variant: "destructive" }),
   });
+
+  const nextDifficulty = (d: string | null | undefined): Difficulty =>
+    normalizeDifficulty(d) === "standard" ? "hard" : "expert";
+
+  const retrySameScenario = () => {
+    if (!currentSession) return;
+    startMutation.mutate({
+      scenario: currentSession.scenario,
+      persona: currentSession.persona,
+      difficulty: normalizeDifficulty(currentSession.difficulty),
+    });
+  };
+
+  const tryHarderVersion = () => {
+    if (!currentSession) return;
+    startMutation.mutate({
+      scenario: currentSession.scenario,
+      persona: currentSession.persona,
+      difficulty: nextDifficulty(currentSession.difficulty),
+    });
+  };
 
   const exchangeMutation = useMutation({
     mutationFn: async () => {
@@ -255,6 +306,7 @@ function RoleplayPractice() {
     setRepMessage("");
     setSelectedScenario("");
     setSelectedPersona("");
+    setSelectedDifficulty("standard");
   };
 
   const canStart = selectedScenario && selectedPersona;
@@ -293,6 +345,9 @@ function RoleplayPractice() {
                         <p className="text-xs text-muted-foreground">{session.persona} · {new Date(session.createdAt).toLocaleDateString()}</p>
                       </div>
                       <div className="flex items-center gap-2">
+                        <Badge className={`text-xs ${difficultyBadgeClass(session.difficulty)}`} data-testid={`badge-difficulty-${session.id}`}>
+                          {difficultyLabel(session.difficulty)}
+                        </Badge>
                         {session.overallScore !== null && (
                           <Badge variant="secondary" className="text-xs" data-testid={`badge-session-score-${session.id}`}>
                             <Star className="w-3 h-3 mr-1 text-yellow-500" />
@@ -438,10 +493,27 @@ function RoleplayPractice() {
               ))}
             </div>
 
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Difficulty</label>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {DIFFICULTIES.map(d => (
+                  <button
+                    key={d.value}
+                    onClick={() => setSelectedDifficulty(d.value)}
+                    className={`p-3 rounded-lg border text-left text-sm transition-colors hover:border-primary ${selectedDifficulty === d.value ? "border-primary bg-primary/5 font-medium" : "border-border"}`}
+                    data-testid={`button-difficulty-${d.value}`}
+                  >
+                    <div className="font-medium">{d.label}</div>
+                    <div className="text-xs text-muted-foreground mt-0.5">{d.description}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <Button
               className="w-full"
               disabled={!canStart || startMutation.isPending}
-              onClick={() => startMutation.mutate()}
+              onClick={() => startMutation.mutate(undefined)}
               data-testid="button-start-session"
             >
               {startMutation.isPending ? (
@@ -459,6 +531,9 @@ function RoleplayPractice() {
             <div className="flex items-center gap-2 flex-wrap">
               <Badge variant="secondary">{currentSession.scenario}</Badge>
               <Badge variant="outline">{currentSession.persona}</Badge>
+              <Badge className={difficultyBadgeClass(currentSession.difficulty)} data-testid="badge-current-difficulty">
+                {difficultyLabel(currentSession.difficulty)}
+              </Badge>
               {isCompleted && <Badge className="bg-green-600 text-white">Session Complete</Badge>}
             </div>
             <div className="flex gap-2">
@@ -641,6 +716,33 @@ function RoleplayPractice() {
                         </ul>
                       </div>
                     )}
+
+                    <div className="pt-2 border-t space-y-2">
+                      <p className="text-xs font-medium">Practice again</p>
+                      <div className="flex flex-col gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={retrySameScenario}
+                          disabled={startMutation.isPending}
+                          data-testid="button-retry-same"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5 mr-1.5" />
+                          Retry Same Scenario
+                        </Button>
+                        {normalizeDifficulty(currentSession?.difficulty) !== "expert" && (
+                          <Button
+                            size="sm"
+                            onClick={tryHarderVersion}
+                            disabled={startMutation.isPending}
+                            data-testid="button-try-harder"
+                          >
+                            <TrendingUp className="w-3.5 h-3.5 mr-1.5" />
+                            Try a Harder Version ({difficultyLabel(nextDifficulty(currentSession?.difficulty))})
+                          </Button>
+                        )}
+                      </div>
+                    </div>
                   </CardContent>
                 </Card>
               )}

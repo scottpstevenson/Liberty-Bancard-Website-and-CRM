@@ -96,16 +96,28 @@ When the rep explains how interchange works (Visa/Mastercard sets base rates, th
     "Medspa Owner": "You operate a medspa processing $90K/month. You are success-oriented, detail-focused, and interested in anything that improves your bottom line — but only with proof.",
   };
 
+  const DIFFICULTY_MODIFIERS: Record<string, string> = {
+    standard: "",
+    hard: `
+
+DIFFICULTY: HARD MODE — You are significantly more resistant than a typical merchant. Be skeptical of every claim, interrupt with sharper objections, demand specific numbers and proof, and reference past bad experiences with processors. Do not warm up unless the rep gives concrete, specific, well-supported answers. Penalize vague language. Even when softening, stay guarded. Do not convert easily — make the rep work hard for any concession. Tone scoring should be stricter: only reward genuinely empathetic, professional, and concrete language.`,
+    expert: `
+
+DIFFICULTY: EXPERT MODE — You are an extremely tough, sophisticated merchant who has been pitched dozens of times. You know interchange, effective rate math, ETF clauses, equipment lease traps, and surcharge compliance details. Challenge the rep on technical accuracy. Call out generic pitches. Express open frustration when answers are vague. Only consider switching if the rep demonstrates true expertise AND offers a specific, quantified benefit. Stay in character as nearly impossible to convert.`,
+  };
+
   // Start a new roleplay session
   app.post("/api/training/roleplay/start", isDashboardUser, async (req, res) => {
     try {
-      const { scenario, persona } = req.body;
+      const { scenario, persona, difficulty } = req.body;
       if (!scenario || !persona) return res.status(400).json({ message: "scenario and persona required" });
+      const validDifficulty = ["standard", "hard", "expert"].includes(difficulty) ? difficulty : "standard";
       const userId = (req.user as any)?.id;
       const [session] = await db.insert(roleplaySessions).values({
         userId,
         scenario,
         persona,
+        difficulty: validDifficulty,
         status: "active",
       }).returning();
       res.json(session);
@@ -127,12 +139,13 @@ When the rep explains how interchange works (Visa/Mastercard sets base rates, th
 
       const scenarioScript = SCENARIO_SCRIPTS[session.scenario] || SCENARIO_SCRIPTS["Cold Call"];
       const personaContext = PERSONA_CONTEXTS[session.persona] || PERSONA_CONTEXTS["Restaurant Owner"];
+      const difficultyModifier = DIFFICULTY_MODIFIERS[session.difficulty || "standard"] || "";
 
       const systemPrompt = `${scenarioScript}
 
 PERSONA: ${personaContext}
 
-SCENARIO: ${session.scenario}
+SCENARIO: ${session.scenario}${difficultyModifier}
 
 SCORING: After your merchant reply, on a new line, output a JSON block like this (ALWAYS include it):
 SCORE_JSON: {"toneScore": 1-10, "clarityScore": 1-10, "objectionAddressed": true|false, "feedback": "one sentence coaching tip for the rep"}
