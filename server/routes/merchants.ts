@@ -8,6 +8,7 @@ import { getDocumentStatus, sendDocumentForEsign } from "../services/ghl";
 import { syncMerchantApplicationToGhl } from "../services/ghl-form-sync";
 import { createContactGhlFirst } from "../services/contact-writer";
 import { sendMerchantWelcomeEmail } from "../services/merchant-welcome";
+import { sendApplicationApprovedEmail, sendApplicationDeclinedEmail } from "../services/merchant-application-status";
 import { parse } from "csv-parse/sync";
 import path from "path";
 
@@ -126,6 +127,20 @@ export function registerMerchantsRoutes(app: Express) {
       if (!updated) return res.status(404).json({ message: "Not found" });
 
       const wasApproved = existing.status !== "approved" && updated.status === "approved";
+      const wasDeclined = existing.status !== "declined" && updated.status === "declined";
+
+      if (wasApproved) {
+        sendApplicationApprovedEmail(updated).catch((err) =>
+          console.error("[Application Approval] Approval email error:", err)
+        );
+      }
+
+      if (wasDeclined) {
+        sendApplicationDeclinedEmail(updated).catch((err) =>
+          console.error("[Application Decline] Decline email error:", err)
+        );
+      }
+
       if (wasApproved && updated.dealId) {
         (async () => {
           try {

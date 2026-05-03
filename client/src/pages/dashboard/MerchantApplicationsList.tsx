@@ -90,6 +90,8 @@ function ApplicationDetailView({
   const { toast } = useToast();
   const [requestInfoNote, setRequestInfoNote] = useState("");
   const [showRequestInfo, setShowRequestInfo] = useState(false);
+  const [declineReason, setDeclineReason] = useState("");
+  const [showDecline, setShowDecline] = useState(false);
 
   const { data: allDocuments } = useQuery<DocType[]>({
     queryKey: ["/api/documents"],
@@ -131,8 +133,14 @@ function ApplicationDetailView({
 
   const handleDecline = async () => {
     try {
-      await updateMutation.mutateAsync({ status: "declined", declinedAt: new Date() });
-      toast({ title: "Application declined", description: "The merchant application has been declined." });
+      await updateMutation.mutateAsync({
+        status: "declined",
+        declinedAt: new Date(),
+        declineReason: declineReason.trim() || null,
+      });
+      toast({ title: "Application declined", description: "The merchant application has been declined and the merchant has been notified." });
+      setShowDecline(false);
+      setDeclineReason("");
       onClose();
     } catch {
       toast({ title: "Error", description: "Could not decline application.", variant: "destructive" });
@@ -211,7 +219,7 @@ function ApplicationDetailView({
               <Button
                 variant="destructive"
                 size="sm"
-                onClick={handleDecline}
+                onClick={() => setShowDecline(!showDecline)}
                 disabled={updateMutation.isPending}
                 data-testid="button-decline-application"
               >
@@ -235,6 +243,37 @@ function ApplicationDetailView({
           )}
         </div>
       </div>
+
+      {showDecline && (
+        <Card data-testid="card-decline-reason">
+          <CardContent className="p-4 space-y-3">
+            <Label htmlFor="decline-reason">Reason for decline (optional, included in email)</Label>
+            <Textarea
+              id="decline-reason"
+              placeholder="e.g. Unable to verify business documentation, prohibited industry, etc."
+              value={declineReason}
+              onChange={(e) => setDeclineReason(e.target.value)}
+              data-testid="input-decline-reason"
+              rows={3}
+            />
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={handleDecline}
+                disabled={updateMutation.isPending}
+                data-testid="button-confirm-decline"
+              >
+                {updateMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                Confirm Decline & Notify Merchant
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setShowDecline(false)} data-testid="button-cancel-decline">
+                Cancel
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {showRequestInfo && (
         <Card data-testid="card-request-info">
