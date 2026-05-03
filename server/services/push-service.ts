@@ -14,6 +14,14 @@ let _vapidKeys: VapidKeys | null = null;
 function loadOrGenerateVapidKeys(): VapidKeys {
   if (_vapidKeys) return _vapidKeys;
 
+  if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
+    _vapidKeys = {
+      publicKey: process.env.VAPID_PUBLIC_KEY,
+      privateKey: process.env.VAPID_PRIVATE_KEY,
+    };
+    return _vapidKeys;
+  }
+
   try {
     if (fs.existsSync(KEYS_FILE)) {
       const data = JSON.parse(fs.readFileSync(KEYS_FILE, "utf8"));
