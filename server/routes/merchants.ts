@@ -84,6 +84,18 @@ export function registerMerchantsRoutes(app: Express) {
     }
   });
 
+  app.get("/api/merchant-applications/pending-count", isAdminOrManager, async (_req, res) => {
+    try {
+      const applications = await storage.getMerchantApplications();
+      const count = applications.filter(
+        (a) => a.status === "submitted" || a.status === "under_review"
+      ).length;
+      res.json({ count });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/merchant-applications/user/:userId", isAuthenticated, async (req, res) => {
     try {
       const application = await storage.getMerchantApplicationByUser(req.params.userId);
