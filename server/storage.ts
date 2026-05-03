@@ -311,6 +311,7 @@ export interface IStorage {
   getAgentMerchants(agentId?: number): Promise<AgentMerchant[]>;
   getAgentMerchant(id: number): Promise<AgentMerchant | undefined>;
   assignMerchantToAgent(data: InsertAgentMerchant): Promise<AgentMerchant>;
+  updateAgentMerchant(id: number, updates: Partial<InsertAgentMerchant>): Promise<AgentMerchant | undefined>;
   unassignMerchantFromAgent(id: number): Promise<void>;
   getAgentMerchantsByDeal(dealId: number): Promise<AgentMerchant[]>;
 
@@ -1830,6 +1831,11 @@ export class DatabaseStorage implements IStorage {
 
   async unassignMerchantFromAgent(id: number): Promise<void> {
     await db.delete(agentMerchants).where(eq(agentMerchants.id, id));
+  }
+
+  async updateAgentMerchant(id: number, updates: Partial<InsertAgentMerchant>): Promise<AgentMerchant | undefined> {
+    const [updated] = await db.update(agentMerchants).set(updates).where(eq(agentMerchants.id, id)).returning();
+    return updated;
   }
 
   async getAgentMerchantsByDeal(dealId: number): Promise<AgentMerchant[]> {

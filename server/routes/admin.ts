@@ -254,6 +254,7 @@ export function registerAdminRoutes(app: Express) {
         agentId: Number(agentId),
         dealId,
         merchantName,
+        mid: deal.mid || undefined,
       });
       res.json({ success: true, assignment: row });
     } catch (err: any) {
@@ -274,6 +275,23 @@ export function registerAdminRoutes(app: Express) {
       res.status(201).json(row);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/agent-merchants/:id", isAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as any;
+      if (user?.role !== 'admin' && user?.role !== 'manager') return res.status(403).json({ message: "Admin or manager role required" });
+      const { mid, merchantName } = req.body || {};
+      const updates: Record<string, unknown> = {};
+      if (mid !== undefined) updates.mid = mid === "" ? null : mid;
+      if (merchantName !== undefined) updates.merchantName = merchantName === "" ? null : merchantName;
+      if (Object.keys(updates).length === 0) return res.status(400).json({ message: "No editable fields supplied" });
+      const updated = await storage.updateAgentMerchant(Number(req.params.id), updates as any);
+      if (!updated) return res.status(404).json({ message: "Not found" });
+      res.json(updated);
+    } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
   });

@@ -1405,9 +1405,11 @@ export const agentMerchants = pgTable("agent_merchants", {
   agentId: integer("agent_id").notNull().references(() => agents.id),
   dealId: integer("deal_id").notNull().references(() => deals.id),
   merchantName: text("merchant_name"),
+  mid: text("mid"),
   assignedAt: timestamp("assigned_at").defaultNow(),
 }, (table) => [
   index("agent_merchants_agent_id_idx").on(table.agentId),
+  index("agent_merchants_mid_idx").on(table.mid),
   unique("agent_merchants_deal_id_unique").on(table.dealId),
 ]);
 

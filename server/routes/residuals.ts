@@ -130,6 +130,18 @@ export function registerResidualsRoutes(app: Express) {
         }
       }
 
+      // Index deals and agentMerchants by MID for direct matches when there
+      // is no merchantProfile or residual history yet.
+      const midToDeal = new Map<string, typeof allDeals[0]>();
+      for (const d of allDeals) {
+        if (d.mid) midToDeal.set(d.mid.trim().toLowerCase(), d);
+      }
+
+      const midToAgentMerchant = new Map<string, typeof allAgentMerchants[0]>();
+      for (const am of allAgentMerchants) {
+        if (am.mid) midToAgentMerchant.set(am.mid.trim().toLowerCase(), am);
+      }
+
       const importRecord = await storage.createResidualImport({
         month,
         fileName: req.file.originalname,
@@ -172,13 +184,20 @@ export function registerResidualsRoutes(app: Express) {
         const latestResidual = matchedResiduals.sort((a, b) =>
           new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
         )[0];
+        const matchedDeal = midToDeal.get(midKey);
+        const matchedAgentMerchant = midToAgentMerchant.get(midKey);
 
-        const isMatched = !!(matchedProfile || latestResidual);
+        const isMatched = !!(matchedProfile || latestResidual || matchedDeal || matchedAgentMerchant);
 
         // Compute expected residual: prefer deal.estimatedNetProfitMonthly from the
         // linked deal record; fall back to most recent residual history; then 0.
         let expectedResidual = 0;
-        const linkedDealId = matchedProfile?.dealId ?? latestResidual?.dealId ?? null;
+        const linkedDealId =
+          matchedProfile?.dealId ??
+          latestResidual?.dealId ??
+          matchedDeal?.id ??
+          matchedAgentMerchant?.dealId ??
+          null;
         if (linkedDealId) {
           const deal = dealMap.get(linkedDealId);
           if (deal?.estimatedNetProfitMonthly) {

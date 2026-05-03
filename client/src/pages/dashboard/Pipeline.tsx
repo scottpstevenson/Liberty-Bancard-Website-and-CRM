@@ -268,6 +268,7 @@ export default function Pipeline() {
   const [editNotes, setEditNotes] = useState("");
   const [editFollowUp, setEditFollowUp] = useState("");
   const [editAgentId, setEditAgentId] = useState<string>("none");
+  const [editMid, setEditMid] = useState("");
 
   const { data: dealsResult, isLoading: dealsLoading, isError: dealsError, refetch: refetchDeals } = useQuery<{ data: Deal[]; total: number }>({
     queryKey: ["/api/deals", { pipeline: "sales" }],
@@ -641,6 +642,7 @@ export default function Pipeline() {
     if (editStage && editStage !== selectedDeal.stage) updates.stage = editStage;
     if (editNotes !== (selectedDeal.notes || "")) updates.notes = editNotes;
     if (editFollowUp) updates.nextFollowUp = new Date(editFollowUp).toISOString();
+    if (editMid !== (selectedDeal.mid || "")) updates.mid = editMid.trim() || null;
     if (Object.keys(updates).length === 0) {
       setDetailOpen(false);
       return;
@@ -654,6 +656,7 @@ export default function Pipeline() {
     setEditNotes(deal.notes || "");
     setEditFollowUp(deal.nextFollowUp ? new Date(deal.nextFollowUp).toISOString().slice(0, 16) : "");
     setEditAgentId("none");
+    setEditMid(deal.mid || "");
     setDetailOpen(true);
   };
 
@@ -1015,6 +1018,20 @@ export default function Pipeline() {
                   onChange={(e) => setEditFollowUp(e.target.value)}
                   data-testid="input-edit-followup"
                 />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Merchant ID (MID)</Label>
+                <Input
+                  value={editMid}
+                  onChange={(e) => setEditMid(e.target.value)}
+                  placeholder="e.g. 5491234567890"
+                  className="font-mono"
+                  data-testid="input-edit-mid"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Used to match incoming residual reports back to this deal.
+                </p>
               </div>
 
               {isManagerOrAdmin && (

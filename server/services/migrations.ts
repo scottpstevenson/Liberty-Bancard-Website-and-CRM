@@ -112,6 +112,10 @@ export async function runStartupMigrations(): Promise<void> {
 
       ALTER TABLE deals
         ADD COLUMN IF NOT EXISTS partner_org_id INTEGER REFERENCES partner_organizations(id);
+
+      ALTER TABLE agent_merchants
+        ADD COLUMN IF NOT EXISTS mid TEXT;
+      CREATE INDEX IF NOT EXISTS agent_merchants_mid_idx ON agent_merchants(mid);
     `);
     console.log("[Migrations] Startup migrations applied successfully.");
   } catch (err: any) {

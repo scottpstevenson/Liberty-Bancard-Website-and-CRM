@@ -327,6 +327,31 @@ export function registerMerchantsRoutes(app: Express) {
     }
   });
 
+  app.patch("/api/merchant-profiles/:id", isAuthenticated, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      if (user?.role !== "admin" && user?.role !== "manager") {
+        return res.status(403).json({ message: "Admin or manager role required" });
+      }
+      const id = Number(req.params.id);
+      const allowed = ["merchantMid", "accountStatus", "programType", "currentMonthlyVolume"] as const;
+      const updates: Record<string, unknown> = {};
+      for (const k of allowed) {
+        if (req.body[k] !== undefined) {
+          updates[k] = req.body[k] === "" ? null : req.body[k];
+        }
+      }
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ message: "No editable fields supplied" });
+      }
+      const updated = await storage.updateMerchantProfile(id, updates as any);
+      if (!updated) return res.status(404).json({ message: "Not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
 
   // === EQUIPMENT ORDERS ===
   app.get("/api/equipment-orders", isAuthenticated, async (req, res) => {

@@ -128,7 +128,64 @@ function AccountStatusBanner({ profile, isLoading }: { profile: MerchantProfile 
   );
 }
 
-function AccountTab({ profile, isLoading }: { profile: MerchantProfile | null | undefined; isLoading: boolean }) {
+function AdminMidEditor({ profile }: { profile: MerchantProfile }) {
+  const { toast } = useToast();
+  const [value, setValue] = useState(profile.merchantMid || "");
+  const [editing, setEditing] = useState(false);
+
+  const mutation = useMutation({
+    mutationFn: async (mid: string) => {
+      const res = await apiRequest("PATCH", `/api/merchant-profiles/${profile.id}`, { merchantMid: mid });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/merchant-profile"] });
+      toast({ title: "MID updated", description: "Merchant MID saved." });
+      setEditing(false);
+    },
+    onError: (err: any) => {
+      toast({ title: "Update failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  if (!editing) {
+    return (
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => { setValue(profile.merchantMid || ""); setEditing(true); }}
+        data-testid="button-admin-edit-mid"
+      >
+        Edit MID
+      </Button>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2 mt-1">
+      <Input
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder="Enter MID"
+        className="font-mono h-8 text-sm w-48"
+        data-testid="input-admin-mid"
+      />
+      <Button
+        size="sm"
+        onClick={() => mutation.mutate(value.trim())}
+        disabled={mutation.isPending}
+        data-testid="button-save-admin-mid"
+      >
+        {mutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save"}
+      </Button>
+      <Button size="sm" variant="ghost" onClick={() => setEditing(false)} data-testid="button-cancel-admin-mid">
+        Cancel
+      </Button>
+    </div>
+  );
+}
+
+function AccountTab({ profile, isLoading, isAdmin }: { profile: MerchantProfile | null | undefined; isLoading: boolean; isAdmin: boolean }) {
   if (isLoading) {
     return (
       <div className="space-y-4" data-testid="account-loading">
@@ -179,6 +236,7 @@ function AccountTab({ profile, isLoading }: { profile: MerchantProfile | null | 
                 <Hash className="w-4 h-4 text-muted-foreground" />
                 {profile.merchantMid || "Not assigned yet"}
               </p>
+              {isAdmin && <AdminMidEditor profile={profile} />}
             </div>
             <div className="space-y-1">
               <p className="text-xs text-muted-foreground">Program Type</p>
@@ -1305,7 +1363,7 @@ export default function MerchantPortal() {
           <GettingStartedTab dealId={profile?.dealId} profile={profile} onTabChange={(tab) => setActiveTab(tab as TabKey)} />
         )}
         {activeTab === "account" && (
-          <AccountTab profile={profile} isLoading={profileLoading} />
+          <AccountTab profile={profile} isLoading={profileLoading} isAdmin={user?.role === "admin" || user?.role === "manager"} />
         )}
         {activeTab === "onboarding" && (
           <OnboardingTab dealId={profile?.dealId} profile={profile} />
