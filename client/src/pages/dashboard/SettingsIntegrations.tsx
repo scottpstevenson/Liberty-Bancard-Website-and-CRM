@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { CheckCircle2, XCircle, Plus, Trash2, Settings, Workflow, Mail, Edit2, Save, X, Loader2, ShieldCheck } from "lucide-react";
+import { CheckCircle2, XCircle, Plus, Trash2, Settings, Workflow, Mail, Edit2, Save, X, Loader2, ShieldCheck, Linkedin, Info } from "lucide-react";
 
 interface WorkflowEnvEntry {
   id: string;
@@ -460,6 +460,60 @@ function GhlWorkflowEnvTab() {
   );
 }
 
+function ProxycurlTab() {
+  const { data: status, isLoading } = useQuery<{ configured: boolean }>({
+    queryKey: ["/api/proxycurl/status"],
+  });
+
+  const configured = status?.configured ?? false;
+
+  return (
+    <div className="space-y-4" data-testid="section-proxycurl">
+      <p className="text-sm text-muted-foreground">
+        Proxycurl powers LinkedIn profile enrichment. When configured, the "Enrich from LinkedIn" button
+        on contact records will fetch name, title, company, location, and more directly from LinkedIn profiles.
+      </p>
+
+      <div className={`flex items-start gap-3 p-4 rounded-lg border ${configured ? "bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-800" : "bg-amber-50 border-amber-200 dark:bg-amber-900/20 dark:border-amber-800"}`} data-testid="banner-proxycurl-status">
+        {configured ? (
+          <CheckCircle2 className="w-5 h-5 text-green-600 dark:text-green-400 shrink-0 mt-0.5" />
+        ) : (
+          <Info className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+        )}
+        <div className="space-y-1">
+          {isLoading ? (
+            <p className="text-sm text-muted-foreground">Checking configuration…</p>
+          ) : configured ? (
+            <>
+              <p className="text-sm font-medium text-green-800 dark:text-green-200">Proxycurl API key is configured</p>
+              <p className="text-xs text-green-700 dark:text-green-300">LinkedIn enrichment is active. Open any contact with a LinkedIn URL and click "Enrich from LinkedIn".</p>
+            </>
+          ) : (
+            <>
+              <p className="text-sm font-medium text-amber-800 dark:text-amber-200">Proxycurl API key is not set</p>
+              <p className="text-xs text-amber-700 dark:text-amber-300">
+                Set the <code className="font-mono bg-amber-100 dark:bg-amber-900/40 px-1 rounded">PROXYCURL_API_KEY</code> environment variable to enable LinkedIn enrichment.
+                Get your API key at{" "}
+                <a href="https://nubela.co/proxycurl" target="_blank" rel="noopener noreferrer" className="underline font-medium">nubela.co/proxycurl</a>.
+              </p>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-md border p-4 space-y-3 bg-card">
+        <h3 className="text-sm font-semibold">Setup Instructions</h3>
+        <ol className="space-y-2 text-sm text-muted-foreground list-decimal list-inside">
+          <li>Sign up at <a href="https://nubela.co/proxycurl" target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">nubela.co/proxycurl</a> and obtain an API key.</li>
+          <li>In your Replit project, open the Secrets panel and add a new secret named <code className="font-mono bg-muted px-1 rounded text-xs">PROXYCURL_API_KEY</code> with your key as the value.</li>
+          <li>Restart the application for the change to take effect.</li>
+          <li>Open any contact record that has a LinkedIn URL and click <strong>Enrich from LinkedIn</strong>.</li>
+        </ol>
+      </div>
+    </div>
+  );
+}
+
 export default function SettingsIntegrations() {
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto" data-testid="page-settings-integrations">
@@ -469,7 +523,7 @@ export default function SettingsIntegrations() {
           Settings — Integrations
         </h1>
         <p className="text-muted-foreground mt-1 text-sm">
-          Manage GHL workflow IDs and SDR sending identities.
+          Manage GHL workflow IDs, SDR sending identities, and API integrations.
         </p>
       </div>
 
@@ -480,6 +534,9 @@ export default function SettingsIntegrations() {
           </TabsTrigger>
           <TabsTrigger value="sending-identities" data-testid="tab-sending-identities">
             <Mail className="w-4 h-4 mr-1.5" />Sending Identities
+          </TabsTrigger>
+          <TabsTrigger value="linkedin" data-testid="tab-linkedin-enrichment">
+            <Linkedin className="w-4 h-4 mr-1.5" />LinkedIn Enrichment
           </TabsTrigger>
         </TabsList>
 
@@ -509,6 +566,23 @@ export default function SettingsIntegrations() {
             </CardHeader>
             <CardContent>
               <SendingIdentitiesTab />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="linkedin" className="pt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Linkedin className="w-4 h-4 text-blue-600" />
+                LinkedIn Enrichment (Proxycurl)
+              </CardTitle>
+              <CardDescription>
+                Automatically enrich contact records with LinkedIn profile data including job title, company, and location.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ProxycurlTab />
             </CardContent>
           </Card>
         </TabsContent>

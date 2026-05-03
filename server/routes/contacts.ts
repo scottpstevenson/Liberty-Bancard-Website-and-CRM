@@ -189,6 +189,12 @@ export function registerContactsRoutes(app: Express) {
   });
 
 
+  // === PROXYCURL STATUS ===
+  app.get("/api/proxycurl/status", isAuthenticated, async (req, res) => {
+    const configured = !!process.env.PROXYCURL_API_KEY;
+    res.json({ configured });
+  });
+
   // === LINKEDIN ENRICHMENT ===
   app.post("/api/contacts/:id/enrich-linkedin", isAuthenticated, async (req, res) => {
     try {

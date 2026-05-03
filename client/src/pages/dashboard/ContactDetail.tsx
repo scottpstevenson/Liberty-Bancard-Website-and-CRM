@@ -24,9 +24,10 @@ import {
   Ticket, Mail, Phone, Building2, UserPlus, MessageSquare, Zap,
   AlertTriangle, Sparkles, Activity, ArrowRight, Clock, Link2, Trash2, Star,
   RefreshCw, CheckCircle2, AlertCircle, ShieldAlert, Linkedin, FolderOpen, Upload,
-  FileText, FileImage, File, Download, Calendar, User, UserRound, Loader2,
+  FileText, FileImage, File, Download, Calendar, User, UserRound, Loader2, Info,
   ChevronDown, ChevronUp,
 } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import Comments from "@/components/Comments";
 
 function DealAgentAssignment({ dealId, agents }: { dealId: number; agents: Agent[] }) {
@@ -213,6 +214,11 @@ export default function ContactDetail() {
   const [showDealDialog, setShowDealDialog] = useState(false);
   const [dealForm, setDealForm] = useState({ pipeline: "sales", stage: "New Lead", offerPath: "", notes: "" });
 
+  const { data: proxycurlStatus } = useQuery<{ configured: boolean }>({
+    queryKey: ["/api/proxycurl/status"],
+  });
+  const proxycurlConfigured = proxycurlStatus?.configured ?? true;
+
   const enrichLinkedInMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", `/api/contacts/${contactId}/enrich-linkedin`);
@@ -227,7 +233,16 @@ export default function ContactDetail() {
       }
     },
     onError: (err: Error) => {
-      toast({ title: "LinkedIn enrichment failed", description: err.message, variant: "destructive" });
+      const isKeyMissing = err.message?.toLowerCase().includes("proxycurl") || err.message?.toLowerCase().includes("api key");
+      if (isKeyMissing) {
+        toast({
+          title: "Proxycurl API key not configured",
+          description: "Add your Proxycurl API key in Settings → Integrations to enable LinkedIn enrichment.",
+          variant: "destructive",
+        });
+      } else {
+        toast({ title: "LinkedIn enrichment failed", description: err.message, variant: "destructive" });
+      }
     },
   });
 
@@ -759,17 +774,32 @@ export default function ContactDetail() {
                   </div>
                 )}
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => enrichLinkedInMutation.mutate()}
-                disabled={enrichLinkedInMutation.isPending}
-                className="shrink-0"
-                data-testid="button-enrich-linkedin"
-              >
-                <RefreshCw className={`h-3.5 w-3.5 mr-1 ${enrichLinkedInMutation.isPending ? "animate-spin" : ""}`} />
-                {enrichLinkedInMutation.isPending ? "Enriching..." : "Enrich from LinkedIn"}
-              </Button>
+              <div className="flex items-center gap-2 shrink-0">
+                {!proxycurlConfigured && (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="inline-flex items-center cursor-default" data-testid="badge-proxycurl-missing">
+                          <Info className="h-4 w-4 text-amber-500" />
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-xs">
+                        <p className="text-xs">Proxycurl API key not configured. Go to <strong>Settings → Integrations</strong> to add your key.</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => enrichLinkedInMutation.mutate()}
+                  disabled={enrichLinkedInMutation.isPending}
+                  data-testid="button-enrich-linkedin"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 mr-1 ${enrichLinkedInMutation.isPending ? "animate-spin" : ""}`} />
+                  {enrichLinkedInMutation.isPending ? "Enriching..." : "Enrich from LinkedIn"}
+                </Button>
+              </div>
             </div>
 
             {/* Enrichment History Toggle */}
