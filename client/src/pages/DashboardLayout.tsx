@@ -1,7 +1,8 @@
-import { ReactNode, useState, useMemo } from "react";
+import { ReactNode, useState, useMemo, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
+import { countUnreadSessions } from "@/lib/chatNotifications";
 import logoBlue from "@assets/logo-blue.png";
 import UniversalSearch from "@/components/UniversalSearch";
 import { EmailComposer } from "@/components/EmailComposer";
@@ -113,7 +114,7 @@ const menuItems: MenuItem[] = [
   { icon: Bell, label: "Notifications", href: "/dashboard/notifications", roles: ["admin", "manager", "agent"], badgeKey: "notificationsUnread" },
   { icon: Inbox, label: "Messages", href: "/dashboard/sms-inbox", roles: ["admin", "manager", "agent"], badgeKey: "smsUnread" },
   { icon: MessageSquare, label: "AI Advisor", href: "/dashboard/chat", roles: ["admin", "manager", "agent"] },
-  { icon: MessageCircle, label: "Live Chat", href: "/dashboard/live-chat", roles: ["admin", "manager", "agent"] },
+  { icon: MessageCircle, label: "Live Chat", href: "/dashboard/live-chat", roles: ["admin", "manager", "agent"], badgeKey: "liveChatUnread" },
   { icon: FileQuestion, label: "RFIs", href: "/dashboard/rfis", roles: ["admin", "manager"] },
   { icon: PieChart, label: "Reporting", href: "/dashboard/reporting", roles: ["admin", "manager"] },
   { icon: Calendar, label: "My Calendar", href: "/dashboard/calendar", roles: ["agent"] },
@@ -279,9 +280,27 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   });
   const notificationsUnreadCount = notifCountData?.unread || 0;
 
+  const { data: liveChatSessions = [] } = useQuery<Array<{ id: number; lastMessageAt: string; status: string }>>({
+    queryKey: ["/api/live-chat/sessions", "active"],
+    queryFn: async () => {
+      const res = await fetch("/api/live-chat/sessions?status=active", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    refetchInterval: 8000,
+    enabled: ["admin", "manager", "agent"].includes(role),
+  });
+
+  const [liveChatUnreadCount, setLiveChatUnreadCount] = useState(0);
+
+  useEffect(() => {
+    setLiveChatUnreadCount(countUnreadSessions(liveChatSessions));
+  }, [liveChatSessions]);
+
   const badges: Record<string, number> = {
     smsUnread: smsUnreadCount,
     notificationsUnread: notificationsUnreadCount,
+    liveChatUnread: liveChatUnreadCount,
   };
 
   const filteredMenu = useMemo(() => filterByRole(menuItems, role), [role]);

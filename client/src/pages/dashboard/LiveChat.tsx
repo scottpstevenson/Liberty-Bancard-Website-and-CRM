@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { format, formatDistanceToNow } from "date-fns";
+import { playChime, markSessionSeen, countUnreadSessions } from "@/lib/chatNotifications";
 
 interface LiveChat {
   id: number;
@@ -33,15 +34,24 @@ interface ChatMessage {
   createdAt: string;
 }
 
+const BASE_TITLE = "Liberty Bancard";
+
 export default function LiveChat() {
   const [selectedChatId, setSelectedChatId] = useState<number | null>(null);
   const [replyText, setReplyText] = useState("");
-  const [lastMessageId, setLastMessageId] = useState(0);
   const [filterStatus, setFilterStatus] = useState<"active" | "all">("active");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  // Track lastMessageAt per session to detect new activity via the sessions poll
+  const prevLastMessageAt = useRef<Record<number, string>>({});
+  // True after the first session list load, so we don't chime on initial render
+  const sessionsInitialized = useRef(false);
+  // Keep a stable ref to selectedChatId for use inside effects without stale closure
+  const selectedChatIdRef = useRef<number | null>(null);
+  selectedChatIdRef.current = selectedChatId;
 
   const { data: sessions = [], isLoading: sessionsLoading, refetch: refetchSessions } = useQuery<LiveChat[]>({
     queryKey: ["/api/live-chat/sessions", filterStatus],
@@ -67,13 +77,98 @@ export default function LiveChat() {
   const messages = chatData?.messages || [];
   const selectedChat = chatData?.chat || sessions.find(s => s.id === selectedChatId);
 
+  /** Returns true when the agent's tab is visible and focused. */
+  const isTabFocused = () =>
+    document.visibilityState === "visible" && document.hasFocus();
+
+  // When the tab regains focus, mark the currently-open session as seen.
+  useEffect(() => {
+    const handleFocus = () => {
+      if (selectedChatIdRef.current !== null) {
+        markSessionSeen(selectedChatIdRef.current);
+      }
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible" && selectedChatIdRef.current !== null) {
+        markSessionSeen(selectedChatIdRef.current);
+      }
+    };
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, []);
+
+  // When a session is selected while the tab is focused, mark it seen immediately.
+  useEffect(() => {
+    if (selectedChatId !== null && isTabFocused()) {
+      markSessionSeen(selectedChatId);
+    }
+  }, [selectedChatId]);
+
+  // Detect new messages via the sessions list poll.
+  // Chimes for any session whose lastMessageAt advanced — including the selected
+  // session when the tab is NOT focused (agent is on another tab or window).
+  useEffect(() => {
+    if (sessions.length === 0) return;
+
+    if (!sessionsInitialized.current) {
+      // First load — record baseline timestamps without chimng.
+      sessions.forEach(s => { prevLastMessageAt.current[s.id] = s.lastMessageAt; });
+      sessionsInitialized.current = true;
+      return;
+    }
+
+    let shouldChime = false;
+    sessions.forEach(s => {
+      const prev = prevLastMessageAt.current[s.id];
+      if (prev === undefined) {
+        // Newly appeared session — record baseline, no chime.
+        prevLastMessageAt.current[s.id] = s.lastMessageAt;
+        return;
+      }
+      if (s.lastMessageAt !== prev) {
+        prevLastMessageAt.current[s.id] = s.lastMessageAt;
+        const isCurrentlyOpen = s.id === selectedChatIdRef.current;
+        // Chime for non-selected sessions always; for the selected session only
+        // when the tab is not focused (agent isn't actually watching it).
+        if (!isCurrentlyOpen || !isTabFocused()) {
+          shouldChime = true;
+        }
+        // If the tab is focused and the session is open, mark it seen immediately.
+        if (isCurrentlyOpen && isTabFocused()) {
+          markSessionSeen(s.id);
+        }
+      }
+    });
+
+    if (shouldChime) playChime();
+  }, [sessions]);
+
+  // Scroll to bottom when messages change
   useEffect(() => {
     if (messages.length > 0) {
-      const maxId = Math.max(...messages.map(m => m.id));
-      setLastMessageId(maxId);
       setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
     }
   }, [messages]);
+
+  // Update document title with unread count across ALL active sessions.
+  // We do not exclude selectedChatId: if the tab is unfocused, that session can
+  // still be unread because markSessionSeen is only called on actual focus.
+  useEffect(() => {
+    const activeSessions = sessions.filter(s => s.status === "active");
+    const unread = countUnreadSessions(activeSessions);
+    if (unread > 0) {
+      document.title = `(${unread}) New Messages | ${BASE_TITLE}`;
+    } else {
+      document.title = `Live Chat | ${BASE_TITLE}`;
+    }
+    return () => {
+      document.title = BASE_TITLE;
+    };
+  }, [sessions]);
 
   const replyMutation = useMutation({
     mutationFn: async ({ chatId, content }: { chatId: number; content: string }) => {
@@ -166,37 +261,46 @@ export default function LiveChat() {
               </div>
             ) : (
               <div className="space-y-1 p-2">
-                {sessions.map(session => (
-                  <button
-                    key={session.id}
-                    onClick={() => setSelectedChatId(session.id)}
-                    className={cn(
-                      "w-full text-left p-3 rounded-lg transition-colors hover:bg-accent/50",
-                      selectedChatId === session.id ? "bg-accent" : ""
-                    )}
-                    data-testid={`session-item-${session.id}`}
-                  >
-                    <div className="flex items-center justify-between gap-2 mb-1">
-                      <div className="flex items-center gap-1.5">
-                        <User className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                        <span className="text-sm font-medium truncate">
-                          {session.visitorName || "Visitor"}
+                {sessions.map(session => {
+                  const isUnread = countUnreadSessions([session]) > 0 && session.id !== selectedChatId;
+                  return (
+                    <button
+                      key={session.id}
+                      onClick={() => {
+                        setSelectedChatId(session.id);
+                        markSessionSeen(session.id);
+                      }}
+                      className={cn(
+                        "w-full text-left p-3 rounded-lg transition-colors hover:bg-accent/50",
+                        selectedChatId === session.id ? "bg-accent" : ""
+                      )}
+                      data-testid={`session-item-${session.id}`}
+                    >
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <div className="flex items-center gap-1.5">
+                          <User className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                          <span className={cn("text-sm font-medium truncate", isUnread && "font-bold text-foreground")}>
+                            {session.visitorName || "Visitor"}
+                          </span>
+                          {isUnread && (
+                            <span className="flex h-2 w-2 rounded-full bg-destructive shrink-0" data-testid={`unread-dot-${session.id}`} />
+                          )}
+                        </div>
+                        <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full font-medium capitalize", statusColor[session.status] || statusColor.closed)}>
+                          {session.status.replace("_", " ")}
                         </span>
                       </div>
-                      <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full font-medium capitalize", statusColor[session.status] || statusColor.closed)}>
-                        {session.status.replace("_", " ")}
-                      </span>
-                    </div>
-                    {session.visitorEmail && (
-                      <p className="text-xs text-muted-foreground truncate mb-1">{session.visitorEmail}</p>
-                    )}
-                    <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                      <Clock className="w-3 h-3" />
-                      {formatDistanceToNow(new Date(session.lastMessageAt), { addSuffix: true })}
-                      {session.pageUrl && <span className="truncate ml-1 max-w-[100px]">· {session.pageUrl}</span>}
-                    </div>
-                  </button>
-                ))}
+                      {session.visitorEmail && (
+                        <p className="text-xs text-muted-foreground truncate mb-1">{session.visitorEmail}</p>
+                      )}
+                      <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                        <Clock className="w-3 h-3" />
+                        {formatDistanceToNow(new Date(session.lastMessageAt), { addSuffix: true })}
+                        {session.pageUrl && <span className="truncate ml-1 max-w-[100px]">· {session.pageUrl}</span>}
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             )}
           </ScrollArea>
