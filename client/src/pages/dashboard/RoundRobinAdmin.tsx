@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Loader2, UserPlus, Trash2, Pause, Play, RotateCcw, Users, ArrowRightLeft, ClipboardList } from "lucide-react";
+import { Loader2, UserPlus, Trash2, Pause, Play, RotateCcw, Users, ArrowRightLeft, ClipboardList, Download, ChevronLeft, ChevronRight, Search, X } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
@@ -33,11 +33,35 @@ interface RoundRobinPool {
   }>;
 }
 
+interface LogResponse {
+  log: RoundRobinPool["log"];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
 export default function RoundRobinAdmin() {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [newRep, setNewRep] = useState({ userId: "", name: "", email: "" });
+
+  const [repFilter, setRepFilter] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 25;
+
+  const buildLogParams = useCallback(() => {
+    const params = new URLSearchParams();
+    params.set("page", String(page));
+    params.set("pageSize", String(PAGE_SIZE));
+    if (repFilter.trim()) params.set("rep", repFilter.trim());
+    if (startDate) params.set("startDate", startDate);
+    if (endDate) params.set("endDate", endDate);
+    return params.toString();
+  }, [page, repFilter, startDate, endDate]);
 
   const { data: pool, isLoading } = useQuery<RoundRobinPool>({
     queryKey: ["/api/admin/round-robin"],
@@ -48,8 +72,13 @@ export default function RoundRobinAdmin() {
     queryKey: ["/api/admin/users"],
   });
 
-  const { data: logData } = useQuery<{ log: RoundRobinPool["log"] }>({
-    queryKey: ["/api/admin/round-robin/log"],
+  const { data: logData, isLoading: logLoading } = useQuery<LogResponse>({
+    queryKey: ["/api/admin/round-robin/log", page, repFilter, startDate, endDate],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/round-robin/log?${buildLogParams()}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch log");
+      return res.json();
+    },
   });
 
   const toggleEnabledMutation = useMutation({
@@ -141,6 +170,31 @@ export default function RoundRobinAdmin() {
     }
   };
 
+  const handleApplyFilters = () => {
+    setPage(1);
+    queryClient.invalidateQueries({ queryKey: ["/api/admin/round-robin/log"] });
+  };
+
+  const handleClearFilters = () => {
+    setRepFilter("");
+    setStartDate("");
+    setEndDate("");
+    setPage(1);
+  };
+
+  const handleExportCsv = () => {
+    const params = new URLSearchParams();
+    params.set("export", "csv");
+    if (repFilter.trim()) params.set("rep", repFilter.trim());
+    if (startDate) params.set("startDate", startDate);
+    if (endDate) params.set("endDate", endDate);
+    window.location.href = `/api/admin/round-robin/log?${params.toString()}`;
+  };
+
+  const hasFilters = repFilter.trim() || startDate || endDate;
+  const totalPages = logData?.totalPages || 1;
+  const totalEntries = logData?.total || 0;
+
   return (
     <div className="space-y-6" data-testid="page-round-robin">
       <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -189,7 +243,7 @@ export default function RoundRobinAdmin() {
         <Card data-testid="stat-rr-total-assigned">
           <CardContent className="pt-4 pb-3">
             <p className="text-xs text-muted-foreground flex items-center gap-1"><ClipboardList className="w-3 h-3" /> Assigned</p>
-            <p className="text-2xl font-bold">{log.length}</p>
+            <p className="text-2xl font-bold">{totalEntries}</p>
           </CardContent>
         </Card>
       </div>
@@ -341,38 +395,161 @@ export default function RoundRobinAdmin() {
       {/* Assignment Log */}
       <Card data-testid="card-assignment-log">
         <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <ClipboardList className="w-4 h-4" />
-            Assignment Log
-          </CardTitle>
-          <CardDescription>Recent lead assignments (last 200 entries)</CardDescription>
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div>
+              <CardTitle className="text-base flex items-center gap-2">
+                <ClipboardList className="w-4 h-4" />
+                Assignment Log
+              </CardTitle>
+              <CardDescription>
+                Full assignment history — paginated, filterable, and exportable
+              </CardDescription>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5 text-xs"
+              onClick={handleExportCsv}
+              data-testid="button-export-csv"
+            >
+              <Download className="w-3 h-3" />
+              Export CSV
+            </Button>
+          </div>
         </CardHeader>
-        <CardContent>
-          {log.length === 0 ? (
+        <CardContent className="space-y-4">
+          {/* Filters */}
+          <div className="flex flex-wrap gap-3 items-end p-3 bg-muted/30 rounded-lg border">
+            <div className="flex-1 min-w-[160px]">
+              <Label className="text-xs mb-1 block">Filter by Rep</Label>
+              <div className="relative">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                <Input
+                  placeholder="Rep name..."
+                  value={repFilter}
+                  onChange={(e) => setRepFilter(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleApplyFilters()}
+                  className="h-8 text-sm pl-7"
+                  data-testid="input-filter-rep"
+                />
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs mb-1 block">From</Label>
+              <Input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="h-8 text-sm w-[140px]"
+                data-testid="input-filter-start-date"
+              />
+            </div>
+            <div>
+              <Label className="text-xs mb-1 block">To</Label>
+              <Input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="h-8 text-sm w-[140px]"
+                data-testid="input-filter-end-date"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                className="h-8 text-xs"
+                onClick={handleApplyFilters}
+                data-testid="button-apply-filters"
+              >
+                Apply
+              </Button>
+              {hasFilters && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 text-xs"
+                  onClick={handleClearFilters}
+                  data-testid="button-clear-filters"
+                >
+                  <X className="w-3 h-3 mr-1" />
+                  Clear
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {logLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : log.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-6">
-              No assignments logged yet. When round-robin is enabled and a new contact is created, assignments appear here.
+              {hasFilters
+                ? "No assignments match the current filters."
+                : "No assignments logged yet. When round-robin is enabled and a new contact is created, assignments appear here."}
             </p>
           ) : (
-            <Table data-testid="table-assignment-log">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Contact</TableHead>
-                  <TableHead>Assigned To</TableHead>
-                  <TableHead>Time</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {log.slice(0, 50).map((entry, idx) => (
-                  <TableRow key={idx} data-testid={`row-log-${idx}`}>
-                    <TableCell className="text-sm">{entry.contactName}</TableCell>
-                    <TableCell className="text-sm font-medium">{entry.assignedName}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {new Date(entry.assignedAt).toLocaleString()}
-                    </TableCell>
+            <>
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span data-testid="text-log-count">
+                  Showing {((page - 1) * PAGE_SIZE) + 1}–{Math.min(page * PAGE_SIZE, totalEntries)} of {totalEntries} entries
+                </span>
+                {hasFilters && (
+                  <Badge variant="secondary" className="text-xs">Filtered</Badge>
+                )}
+              </div>
+              <Table data-testid="table-assignment-log">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Contact</TableHead>
+                    <TableHead>Assigned To</TableHead>
+                    <TableHead>Time</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {log.map((entry, idx) => (
+                    <TableRow key={idx} data-testid={`row-log-${idx}`}>
+                      <TableCell className="text-sm">{entry.contactName}</TableCell>
+                      <TableCell className="text-sm font-medium">{entry.assignedName}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {new Date(entry.assignedAt).toLocaleString()}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between pt-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs gap-1"
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={page <= 1}
+                    data-testid="button-prev-page"
+                  >
+                    <ChevronLeft className="w-3 h-3" />
+                    Previous
+                  </Button>
+                  <span className="text-xs text-muted-foreground" data-testid="text-page-info">
+                    Page {page} of {totalPages}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs gap-1"
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={page >= totalPages}
+                    data-testid="button-next-page"
+                  >
+                    Next
+                    <ChevronRight className="w-3 h-3" />
+                  </Button>
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>

@@ -388,6 +388,52 @@ export function registerToolkitRoutes(app: Express) {
       return res.status(403).json({ message: "Admin/Manager only" });
     }
     const pool = await getRoundRobinPool();
-    res.json({ log: pool.log || [] });
+    let log = pool.log || [];
+
+    const { rep, startDate, endDate, page, pageSize, export: exportFormat } = req.query;
+
+    if (rep && typeof rep === "string" && rep.trim()) {
+      const repLower = rep.trim().toLowerCase();
+      log = log.filter((e) => e.assignedName.toLowerCase().includes(repLower));
+    }
+
+    if (startDate && typeof startDate === "string") {
+      const start = new Date(startDate).getTime();
+      if (!isNaN(start)) {
+        log = log.filter((e) => new Date(e.assignedAt).getTime() >= start);
+      }
+    }
+
+    if (endDate && typeof endDate === "string") {
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      if (!isNaN(end.getTime())) {
+        log = log.filter((e) => new Date(e.assignedAt).getTime() <= end.getTime());
+      }
+    }
+
+    if (exportFormat === "csv") {
+      const header = "Contact,Assigned To,Assigned At\n";
+      const rows = log
+        .map((e) => `"${e.contactName.replace(/"/g, '""')}","${e.assignedName.replace(/"/g, '""')}","${new Date(e.assignedAt).toLocaleString()}"`)
+        .join("\n");
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", "attachment; filename=\"round-robin-log.csv\"");
+      return res.send(header + rows);
+    }
+
+    const total = log.length;
+    const parsedPage = Math.max(1, parseInt(String(page || "1"), 10));
+    const parsedPageSize = Math.min(200, Math.max(1, parseInt(String(pageSize || "25"), 10)));
+    const offset = (parsedPage - 1) * parsedPageSize;
+    const paginated = log.slice(offset, offset + parsedPageSize);
+
+    res.json({
+      log: paginated,
+      total,
+      page: parsedPage,
+      pageSize: parsedPageSize,
+      totalPages: Math.ceil(total / parsedPageSize),
+    });
   });
 }
