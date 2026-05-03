@@ -1,12 +1,13 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useLocation } from "wouter";
 import {
   ChevronDown, ChevronRight, Loader2, FileText, ChevronLeft,
-  TrendingUp, User, DollarSign, Clock,
+  TrendingUp, User, DollarSign, Clock, Search, X,
 } from "lucide-react";
 import { SALES_STAGES } from "@shared/schema";
+import { useAuth } from "@/hooks/use-auth";
 
 const CACHE_KEY = "mobile_deals_cache";
 function getCached() {
@@ -108,9 +109,12 @@ function StageSection({ stage, deals, onDealTap, onMoveDeal }: {
 
 export default function MobilePipeline() {
   const cached = getCached();
+  const { user } = useAuth();
   const [selectedDeal, setSelectedDeal] = useState<any>(null);
   const [noteText, setNoteText] = useState("");
   const [movingToStage, setMovingToStage] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [myDealsOnly, setMyDealsOnly] = useState(false);
 
   const { data, isLoading } = useQuery<{ data: any[]; total: number }>({
     queryKey: ["/api/deals"],
@@ -125,9 +129,45 @@ export default function MobilePipeline() {
   const deals = data?.data || cached?.data || [];
   const salesDeals = deals.filter((d: any) => d.pipeline === "sales" || !d.pipeline);
 
+  const myOwnerNames = useMemo(() => {
+    const names: string[] = [];
+    if (user) {
+      const fullName = `${user.firstName || ""} ${user.lastName || ""}`.trim();
+      if (fullName) names.push(fullName.toLowerCase());
+      if (user.email) names.push(user.email.toLowerCase());
+      if (user.firstName) names.push(user.firstName.toLowerCase());
+    }
+    return names;
+  }, [user]);
+
+  const filteredDeals = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return salesDeals.filter((d: any) => {
+      if (myDealsOnly) {
+        const owner = (d.owner || "").toLowerCase();
+        if (!owner || !myOwnerNames.some((n) => owner.includes(n) || n.includes(owner))) {
+          return false;
+        }
+      }
+      if (q) {
+        const contactName = d.contactName || (d.contact ? `${d.contact.firstName || ""} ${d.contact.lastName || ""}`.trim() : "");
+        const haystack = [
+          d.companyName,
+          contactName,
+          d.owner,
+          d.contact?.firstName,
+          d.contact?.lastName,
+          d.contact?.email,
+        ].filter(Boolean).join(" ").toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [salesDeals, searchQuery, myDealsOnly, myOwnerNames]);
+
   const dealsByStage: Record<string, any[]> = {};
   for (const stage of SALES_STAGES) {
-    dealsByStage[stage] = salesDeals.filter((d: any) => d.stage === stage);
+    dealsByStage[stage] = filteredDeals.filter((d: any) => d.stage === stage);
   }
 
   const updateStageMutation = useMutation({
@@ -164,8 +204,47 @@ export default function MobilePipeline() {
           <h1 className="text-xl font-bold text-gray-900 dark:text-white">Pipeline</h1>
           <div className="flex items-center gap-2">
             <TrendingUp className="w-5 h-5 text-purple-600" />
-            <span className="text-sm text-gray-500">{salesDeals.length} deals</span>
+            <span className="text-sm text-gray-500" data-testid="text-deal-count">
+              {filteredDeals.length}
+              {filteredDeals.length !== salesDeals.length && (
+                <span className="text-gray-400"> / {salesDeals.length}</span>
+              )} deals
+            </span>
           </div>
+        </div>
+        <div className="mt-3 relative">
+          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <input
+            data-testid="input-search-deals"
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search by company, contact, or owner"
+            className="w-full pl-9 pr-9 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          {searchQuery && (
+            <button
+              data-testid="button-clear-search"
+              onClick={() => setSearchQuery("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+        <div className="mt-2 flex items-center gap-2">
+          <button
+            data-testid="button-toggle-my-deals"
+            onClick={() => setMyDealsOnly((v) => !v)}
+            disabled={!user}
+            className={`text-xs font-medium px-3 py-1.5 rounded-full border transition-colors ${
+              myDealsOnly
+                ? "border-blue-500 bg-blue-500 text-white"
+                : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-800"
+            } ${!user ? "opacity-50" : ""}`}
+          >
+            My Deals
+          </button>
         </div>
       </div>
 
