@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { trackConversion } from "@/lib/analytics";
 import {
   Users, DollarSign, TrendingUp, CheckCircle, ArrowRight, Briefcase,
   BookOpen, BarChart3, Shield, Handshake, Calculator, Copy,
@@ -228,6 +229,10 @@ export default function ISOPartnerProgram() {
         toast({ title: data.message || "Submission failed", variant: "destructive" });
         return;
       }
+      trackConversion("iso_partner_apply", {
+        referral_type: form.referralType,
+        company: form.companyName,
+      });
       setAffiliateCode(data.affiliateCode || "");
       setView("success");
     } catch {

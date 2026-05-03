@@ -85,6 +85,7 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 interface DashboardLayoutProps {
   children: ReactNode;
@@ -433,8 +434,10 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           {user && !user.totpEnabled && (
             <TwoFaBanner role={role} />
           )}
-          <main className="flex-1 overflow-auto p-3 sm:p-6 max-w-7xl mx-auto w-full">
-            {children}
+          <main className="flex-1 overflow-auto p-3 sm:p-6 max-w-7xl mx-auto w-full" data-testid="dashboard-main">
+            <ErrorBoundary key={location}>
+              {children}
+            </ErrorBoundary>
           </main>
         </div>
       </div>

@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { trackConversion } from "@/lib/analytics";
 import {
   Video,
   CheckCircle,
@@ -50,6 +51,7 @@ export default function TestimonialsSubmit() {
         savingsAmount,
         story,
       });
+      trackConversion("testimonial_submit", { industry, has_video: !!videoLink });
       setSubmitted(true);
     } catch (error: any) {
       toast({

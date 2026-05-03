@@ -19,6 +19,8 @@ import { useToast } from "@/hooks/use-toast";
 import { exportToCSV } from "@/lib/export-csv";
 import SavedFilterBar from "@/components/SavedFilterBar";
 import DashboardErrorState from "@/components/DashboardErrorState";
+import { DataState } from "@/components/ui/data-state";
+import { toastError } from "@/lib/toast-helpers";
 import type { Ticket, Contact, TicketComment } from "@shared/schema";
 import { TICKET_CATEGORIES, SUPPORT_STAGES } from "@shared/schema";
 
@@ -323,7 +325,7 @@ export default function Tickets() {
       toast({ title: "Ticket created successfully" });
     },
     onError: (err: Error) => {
-      toast({ title: "Failed to create ticket", description: err.message, variant: "destructive" });
+      toastError(err, { title: "Failed to create ticket" });
     },
   });
 
@@ -340,7 +342,7 @@ export default function Tickets() {
       toast({ title: "Ticket updated successfully" });
     },
     onError: (err: Error) => {
-      toast({ title: "Failed to update ticket", description: err.message, variant: "destructive" });
+      toastError(err, { title: "Failed to update ticket" });
     },
   });
 
@@ -539,31 +541,30 @@ export default function Tickets() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {isLoading ? (
-                Array.from({ length: 4 }).map((_, i) => (
-                  <TableRow key={i}>
-                    <TableCell><Skeleton className="h-4 w-8" /></TableCell>
-                    <TableCell><Skeleton className="h-4 w-48" /></TableCell>
-                    <TableCell><Skeleton className="h-4 w-24" /></TableCell>
-                    <TableCell><Skeleton className="h-4 w-16" /></TableCell>
-                    <TableCell><Skeleton className="h-4 w-20" /></TableCell>
-                    <TableCell><Skeleton className="h-4 w-32" /></TableCell>
-                    <TableCell><Skeleton className="h-4 w-24" /></TableCell>
-                  </TableRow>
-                ))
-              ) : !tickets || tickets.length === 0 ? (
+              {isLoading || isError || !tickets || tickets.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={7}>
-                    <div className="flex flex-col items-center justify-center py-14 text-center gap-3" data-testid="empty-tickets">
-                      <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
-                        <MessageSquareText className="w-6 h-6 text-muted-foreground" />
-                      </div>
-                      <p className="text-sm font-medium text-foreground" data-testid="text-empty-tickets">No tickets yet</p>
-                      <p className="text-xs text-muted-foreground max-w-xs">Support tickets will appear here once submitted.</p>
-                      <Button size="sm" className="gap-1 mt-1" onClick={() => setCreateOpen(true)} data-testid="button-empty-create-ticket">
-                        <Plus className="w-3.5 h-3.5" /> Create Ticket
-                      </Button>
-                    </div>
+                    <DataState
+                      query={{ isLoading, isError, data: tickets, refetch }}
+                      testId="tickets"
+                      errorTitle="Failed to load tickets"
+                      emptyTitle="No tickets yet"
+                      emptyMessage="Support tickets will appear here once submitted."
+                      emptyAction={
+                        <Button size="sm" className="gap-1 mt-1" onClick={() => setCreateOpen(true)} data-testid="button-empty-create-ticket">
+                          <Plus className="w-3.5 h-3.5" /> Create Ticket
+                        </Button>
+                      }
+                      loadingFallback={
+                        <div className="space-y-2 py-4">
+                          {Array.from({ length: 4 }).map((_, i) => (
+                            <Skeleton key={i} className="h-10 w-full" />
+                          ))}
+                        </div>
+                      }
+                    >
+                      {null}
+                    </DataState>
                   </TableCell>
                 </TableRow>
               ) : (

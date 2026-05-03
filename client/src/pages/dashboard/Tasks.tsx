@@ -17,6 +17,8 @@ import { useToast } from "@/hooks/use-toast";
 import Comments from "@/components/Comments";
 import SavedFilterBar from "@/components/SavedFilterBar";
 import DashboardErrorState from "@/components/DashboardErrorState";
+import { DataState } from "@/components/ui/data-state";
+import { toastError } from "@/lib/toast-helpers";
 import type { Task } from "@shared/schema";
 
 const STATUS_OPTIONS = ["pending", "in_progress", "completed"] as const;
@@ -111,7 +113,7 @@ export default function Tasks() {
       toast({ title: "Task created successfully" });
     },
     onError: (err: Error) => {
-      toast({ title: "Failed to create task", description: err.message, variant: "destructive" });
+      toastError(err, { title: "Failed to create task" });
     },
   });
 
@@ -125,7 +127,7 @@ export default function Tasks() {
       toast({ title: "Task updated" });
     },
     onError: (err: Error) => {
-      toast({ title: "Failed to update task", description: err.message, variant: "destructive" });
+      toastError(err, { title: "Failed to update task" });
     },
   });
 
@@ -139,7 +141,7 @@ export default function Tasks() {
       toast({ title: `AI generated ${data.generated} new tasks`, description: "Tasks created based on stalling deals, SLA breaches, and cold leads." });
     },
     onError: (err: Error) => {
-      toast({ title: "AI task generation failed", description: err.message, variant: "destructive" });
+      toastError(err, { title: "AI task generation failed" });
     },
   });
 
@@ -156,7 +158,7 @@ export default function Tasks() {
       toast({ title: "Tasks assigned successfully" });
     },
     onError: (err: Error) => {
-      toast({ title: "Failed to assign tasks", description: err.message, variant: "destructive" });
+      toastError(err, { title: "Failed to assign tasks" });
     },
   });
 
@@ -175,7 +177,7 @@ export default function Tasks() {
       toast({ title: "Tasks marked as complete" });
     },
     onError: (err: Error) => {
-      toast({ title: "Failed to complete tasks", description: err.message, variant: "destructive" });
+      toastError(err, { title: "Failed to complete tasks" });
     },
   });
 
@@ -192,7 +194,7 @@ export default function Tasks() {
       toast({ title: "Tasks deleted successfully" });
     },
     onError: (err: Error) => {
-      toast({ title: "Failed to delete tasks", description: err.message, variant: "destructive" });
+      toastError(err, { title: "Failed to delete tasks" });
     },
   });
 
@@ -247,37 +249,44 @@ export default function Tasks() {
     }
   };
 
-  if (isLoading) {
-    return (
-      <div className="space-y-6" data-testid="tasks-loading">
-        <div className="flex items-center justify-between">
-          <Skeleton className="h-8 w-24" />
-          <Skeleton className="h-9 w-32" />
-        </div>
-        <div className="border rounded-md overflow-x-auto">
-          <table className="w-full">
-            <tbody>
-              {Array.from({ length: 5 }).map((_, i) => (
-                <tr key={i} className="border-b last:border-0">
-                  <td className="p-3"><Skeleton className="h-4 w-4" /></td>
-                  <td className="p-3"><Skeleton className="h-4 w-48" /></td>
-                  <td className="p-3"><Skeleton className="h-4 w-24" /></td>
-                  <td className="p-3"><Skeleton className="h-4 w-28" /></td>
-                  <td className="p-3"><Skeleton className="h-4 w-16" /></td>
-                  <td className="p-3"><Skeleton className="h-4 w-20" /></td>
-                  <td className="p-3"><Skeleton className="h-4 w-16" /></td>
-                  <td className="p-3"><Skeleton className="h-4 w-20" /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+  const tasksLoadingFallback = (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <Skeleton className="h-8 w-24" />
+        <Skeleton className="h-9 w-32" />
       </div>
-    );
-  }
+      <div className="border rounded-md overflow-x-auto">
+        <table className="w-full">
+          <tbody>
+            {Array.from({ length: 5 }).map((_, i) => (
+              <tr key={i} className="border-b last:border-0">
+                <td className="p-3"><Skeleton className="h-4 w-4" /></td>
+                <td className="p-3"><Skeleton className="h-4 w-48" /></td>
+                <td className="p-3"><Skeleton className="h-4 w-24" /></td>
+                <td className="p-3"><Skeleton className="h-4 w-28" /></td>
+                <td className="p-3"><Skeleton className="h-4 w-16" /></td>
+                <td className="p-3"><Skeleton className="h-4 w-20" /></td>
+                <td className="p-3"><Skeleton className="h-4 w-16" /></td>
+                <td className="p-3"><Skeleton className="h-4 w-20" /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
 
-  if (isError) {
-    return <DashboardErrorState title="Failed to load tasks" onRetry={() => refetch()} />;
+  if (isLoading || isError) {
+    return (
+      <DataState
+        query={{ isLoading, isError, error: undefined, refetch }}
+        loadingFallback={tasksLoadingFallback}
+        errorTitle="Failed to load tasks"
+        testId="tasks"
+      >
+        {null}
+      </DataState>
+    );
   }
 
   return (

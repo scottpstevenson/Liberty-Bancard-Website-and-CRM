@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { trackConversion } from "@/lib/analytics";
 import { useState } from "react";
 import {
   Loader2,
@@ -99,6 +100,7 @@ export default function Support() {
       return res.json();
     },
     onSuccess: () => {
+      trackConversion("support_request", { issue_type: form.getValues("issueType"), priority: form.getValues("priority") });
       toast({
         title: "Request Submitted",
         description: "We received your support request and will follow up shortly.",

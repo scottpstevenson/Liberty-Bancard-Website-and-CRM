@@ -10,6 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { trackQuizStart, trackQuizStep, trackQuizComplete, trackConversion, trackFormSubmission } from "@/lib/tracking";
+import { trackConversion as trackConversionV2 } from "@/lib/analytics";
 import {
   ArrowLeft,
   ArrowRight,
@@ -408,6 +409,7 @@ export default function FreeAnalysis() {
       trackQuizComplete();
       trackFormSubmission("free_analysis_quiz", results?.estimatedAnnualSavings);
       trackConversion("free_analysis_quiz", results?.estimatedAnnualSavings);
+      trackConversionV2("free_analysis_quiz", { value: results?.estimatedAnnualSavings });
     } catch (error: any) {
       setSubmitError(getFormErrorMessage(error));
     } finally {

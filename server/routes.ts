@@ -150,9 +150,21 @@ export async function registerRoutes(
   registerBoardingRoutes(app);
   registerPushRoutes(app);
 
-  // Must be registered LAST — extracts route permissions by walking the
-  // already-populated express router stack (Task #169 API surface audit).
+  // Must be registered before the API 404 catch-all — extracts route
+  // permissions by walking the already-populated express router stack
+  // (Task #169 API surface audit).
   registerPermissionsAuditRoutes(app);
+
+  // API 404 catch-all — must come AFTER all /api routes are registered but
+  // BEFORE the Vite/static SPA fallback so unknown API paths return JSON
+  // instead of the SPA HTML shell.
+  app.use("/api", (req, res, next) => {
+    if (res.headersSent) return next();
+    res.status(404).json({
+      message: `API endpoint not found: ${req.method} ${req.originalUrl}`,
+      code: "not_found",
+    });
+  });
 
   return httpServer;
 }

@@ -8,6 +8,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CheckCheck, AlertTriangle, Info, AlertCircle, Settings, Trash2, Mail, Bell, Calendar, X } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { DataState } from "@/components/ui/data-state";
+import { toastError } from "@/lib/toast-helpers";
 import { useToast } from "@/hooks/use-toast";
 import type { NotificationPreference } from "@shared/schema";
 import { NOTIFICATION_EVENT_TYPES } from "@shared/schema";
@@ -102,7 +105,7 @@ export default function Notifications() {
 
   const queryKey = ["/api/notifications", category, offset];
 
-  const { data: page, isLoading } = useQuery<PaginatedNotifications>({
+  const { data: page, isLoading, isError, refetch } = useQuery<PaginatedNotifications>({
     queryKey,
     queryFn: async () => {
       const res = await fetch(
@@ -160,7 +163,7 @@ export default function Notifications() {
       qc.invalidateQueries({ queryKey: ["/api/notifications/count"] });
     },
     onError: (err: Error) => {
-      toast({ title: "Failed to mark as read", description: err.message, variant: "destructive" });
+      toastError(err, { title: "Failed to mark as read" });
     },
   });
 
@@ -173,7 +176,7 @@ export default function Notifications() {
       invalidateAll();
     },
     onError: (err: Error) => {
-      toast({ title: "Failed to dismiss notification", description: err.message, variant: "destructive" });
+      toastError(err, { title: "Failed to dismiss notification" });
     },
   });
 
@@ -187,7 +190,7 @@ export default function Notifications() {
       toast({ title: "All notifications marked as read" });
     },
     onError: (err: Error) => {
-      toast({ title: "Failed to mark all as read", description: err.message, variant: "destructive" });
+      toastError(err, { title: "Failed to mark all as read" });
     },
   });
 
@@ -203,7 +206,7 @@ export default function Notifications() {
       toast({ title: deleted > 0 ? `Removed ${deleted} old read notification${deleted !== 1 ? "s" : ""}` : "No old read notifications to clear" });
     },
     onError: (err: Error) => {
-      toast({ title: "Failed to clear old notifications", description: err.message, variant: "destructive" });
+      toastError(err, { title: "Failed to clear old notifications" });
     },
   });
 
@@ -215,7 +218,7 @@ export default function Notifications() {
       qc.invalidateQueries({ queryKey: ["/api/notification-preferences"] });
     },
     onError: (err: Error) => {
-      toast({ title: "Failed to update preference", description: err.message, variant: "destructive" });
+      toastError(err, { title: "Failed to update preference" });
     },
   });
 
@@ -247,11 +250,25 @@ export default function Notifications() {
     (t) => t === "daily_digest" || t === "weekly_digest"
   );
 
-  if (isLoading && notifications.length === 0) {
+  if ((isLoading && notifications.length === 0) || isError) {
     return (
-      <div className="flex items-center justify-center h-64" data-testid="notifications-loading">
-        <div className="text-muted-foreground">Loading notifications...</div>
-      </div>
+      <DataState
+        query={{ isLoading: isLoading && notifications.length === 0, isError, refetch }}
+        loadingFallback={
+          <div className="space-y-3" data-testid="notifications-loading">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="border rounded-md p-4 space-y-2">
+                <Skeleton className="h-4 w-2/3" />
+                <Skeleton className="h-3 w-1/3" />
+              </div>
+            ))}
+          </div>
+        }
+        errorTitle="Failed to load notifications"
+        testId="notifications"
+      >
+        {null}
+      </DataState>
     );
   }
 
@@ -428,9 +445,14 @@ export default function Notifications() {
           <TabsContent key={tab.value} value={tab.value} className="mt-4">
             <div className="space-y-3" data-testid="notifications-list">
               {notifications.length === 0 && !isLoading && (
-                <div className="text-center text-muted-foreground py-12" data-testid="text-no-notifications">
-                  No notifications
-                </div>
+                <DataState
+                  query={{ data: [] }}
+                  emptyTitle="No notifications"
+                  emptyMessage="You're all caught up. New activity will appear here."
+                  testId="notifications-empty"
+                >
+                  {null}
+                </DataState>
               )}
               {notifications.map((notification) => (
                 <Card

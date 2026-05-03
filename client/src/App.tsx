@@ -15,6 +15,7 @@ import { CookieConsent } from "@/components/CookieConsent";
 import ChatWidget from "@/components/ChatWidget";
 import { trackPageView } from "@/lib/tracking";
 import { captureUTMParams } from "@/lib/utm";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 import Login from "@/pages/Login";
 import Signup from "@/pages/Signup";
@@ -596,7 +597,9 @@ function PublicLayout() {
 
   return (
     <>
-      <Router />
+      <ErrorBoundary key={location}>
+        <Router />
+      </ErrorBoundary>
       {!isDashboard && !isThanksPage && !isAuthPage && !isMobile && <StickyMobileCTA />}
       {!isDashboard && !isAuthPage && !isMobile && <ExitIntentPopup />}
       {!isDashboard && !isThanksPage && !isAuthPage && !isMobile && <ContactBubble />}

@@ -9,6 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { apiRequest } from "@/lib/queryClient";
 import { getStoredUTMParams } from "@/lib/utm";
 import { trackMerchantApplication } from "@/lib/tracking";
+import { trackConversion } from "@/lib/analytics";
 import { useToast } from "@/hooks/use-toast";
 import {
   Select,
@@ -401,6 +402,11 @@ export default function MerchantApplication() {
       });
       const data = await res.json();
       trackMerchantApplication();
+      trackConversion("merchant_application", {
+        application_id: data.id,
+        estimated_volume: estimatedMonthlyVolume,
+        program: preferredProgram,
+      });
       setApplicationId(data.id);
 
       setEsignSending(true);

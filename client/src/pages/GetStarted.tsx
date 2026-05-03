@@ -11,6 +11,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { getStoredUTMParams } from "@/lib/utm";
 import { useToast } from "@/hooks/use-toast";
 import { trackConversion, trackQuizStart, trackQuizComplete, trackFormSubmission } from "@/lib/tracking";
+import { trackConversion as trackConversionV2 } from "@/lib/analytics";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 import {
   ArrowLeft,
@@ -230,6 +231,7 @@ export default function GetStarted() {
       trackQuizComplete();
       trackFormSubmission("get_started_submission");
       trackConversion("get_started_submission");
+      trackConversionV2("get_started_submission");
       setSubmitted(true);
     } catch (error: any) {
       setSubmitError(getFormErrorMessage(error));

@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { getStoredUTMParams } from "@/lib/utm";
 import { trackAffiliateSignup } from "@/lib/tracking";
+import { trackConversion } from "@/lib/analytics";
 import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -132,6 +133,7 @@ export default function AffiliateProgram() {
         return;
       }
       trackAffiliateSignup();
+      trackConversion("affiliate_signup", { affiliate_code: data.affiliateCode });
       setAffiliateCode(data.affiliateCode);
       setDashboardCode(data.affiliateCode);
       toast({ title: "Welcome to the affiliate program!" });
