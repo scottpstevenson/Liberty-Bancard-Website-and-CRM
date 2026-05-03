@@ -1,0 +1,1395 @@
+{
+  "PREBUILT_WORKFLOWS": [
+    {
+      "name": "A. Statement Upload Intake",
+      "triggerType": "form_submitted",
+      "triggerConfig": {
+        "formType": "statement_upload"
+      },
+      "actions": [
+        {
+          "type": "create_task",
+          "title": "Review statement + send breakdown",
+          "assignedTo": "Scott Stevenson",
+          "priority": "high",
+          "dueHours": 2
+        },
+        {
+          "type": "send_notification",
+          "channel": "internal",
+          "title": "New Statement Upload",
+          "message": "Statement uploaded - 2hr SLA to review",
+          "notificationType": "alert"
+        },
+        {
+          "type": "update_contact_tags",
+          "addTags": [
+            "src_website",
+            "lead_statement_upload"
+          ]
+        },
+        {
+          "type": "create_audit_log",
+          "logAction": "statement_intake_workflow"
+        }
+      ],
+      "enabled": true
+    },
+    {
+      "name": "B. Estimate Request Intake",
+      "triggerType": "form_submitted",
+      "triggerConfig": {
+        "formType": "estimate"
+      },
+      "actions": [
+        {
+          "type": "create_task",
+          "title": "Qualify estimate lead + request statement",
+          "assignedTo": "Scott Stevenson",
+          "priority": "medium",
+          "dueHours": 4
+        },
+        {
+          "type": "send_notification",
+          "channel": "internal",
+          "title": "New Estimate Request",
+          "message": "Estimate form submitted - qualify and request statement",
+          "notificationType": "info"
+        },
+        {
+          "type": "update_contact_tags",
+          "addTags": [
+            "src_website",
+            "lead_estimate"
+          ]
+        },
+        {
+          "type": "send_ghl_email",
+          "subject": "Thanks for your interest - Liberty Bancard",
+          "body": "<p>Hi {{contact.firstName}},</p><p>Thanks for requesting an estimate. To give you an accurate breakdown, we'll need your most recent processing statement.</p><p>You can upload it here: [UPLOAD_LINK]</p><p>Or reply to this email with the statement attached. Once we review it, we'll have real numbers to show you - no guesswork.</p><p>Best,<br/>Liberty Bancard Team</p><p style='font-size:11px;color:#999;'>Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+        },
+        {
+          "type": "create_audit_log",
+          "logAction": "estimate_intake_workflow"
+        }
+      ],
+      "enabled": true
+    },
+    {
+      "name": "C. Appointment Booked",
+      "triggerType": "deal_stage_changed",
+      "triggerConfig": {
+        "toStage": "Call Booked"
+      },
+      "actions": [
+        {
+          "type": "create_task",
+          "title": "Prepare for review call - pull statement analysis",
+          "assignedTo": "Scott Stevenson",
+          "priority": "high",
+          "dueHours": 1
+        },
+        {
+          "type": "send_notification",
+          "channel": "internal",
+          "title": "Call Booked",
+          "message": "Review call booked - prepare statement analysis",
+          "notificationType": "info"
+        },
+        {
+          "type": "send_ghl_sms",
+          "body": "Hi {{contact.firstName}}, your call with Liberty Bancard is confirmed. We'll walk through your statement breakdown. Talk soon!"
+        },
+        {
+          "type": "send_ghl_email",
+          "subject": "Your Review Call is Confirmed",
+          "body": "<p>Hi {{contact.firstName}},</p><p>Your call is confirmed. During our 10-minute review, we'll cover:</p><ul><li>Your current effective rate</li><li>Where your fees are going</li><li>Your options for a better structure</li></ul><p>No pressure, no obligation - just real numbers from your statement.</p><p>Best,<br/>Liberty Bancard Team</p><p style='font-size:11px;color:#999;'>Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+        },
+        {
+          "type": "create_audit_log",
+          "logAction": "appointment_booked_workflow"
+        }
+      ],
+      "enabled": true
+    },
+    {
+      "name": "D. No-Show Rescue",
+      "triggerType": "deal_sla_breach",
+      "triggerConfig": {
+        "stage": "Call Booked",
+        "maxMinutes": 1440
+      },
+      "actions": [
+        {
+          "type": "send_ghl_sms",
+          "body": "Hi {{contact.firstName}}, looks like we missed connecting. Want to reschedule your free 10-min statement review? Reply YES and we'll set it up."
+        },
+        {
+          "type": "wait",
+          "hours": 24
+        },
+        {
+          "type": "send_ghl_email",
+          "subject": "We saved your analysis - reschedule anytime",
+          "body": "<p>Hi {{contact.firstName}},</p><p>We noticed we weren't able to connect for your statement review call. No worries - your analysis is saved and ready whenever you are.</p><p>Pick a new time that works: {{calendarLink}}</p><p>We'll keep your data on file so you won't need to resubmit anything.</p><p>Best,<br/>Liberty Bancard Team</p><p style='font-size:11px;color:#999;'>Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+        },
+        {
+          "type": "create_task",
+          "title": "No-show follow-up - attempt reschedule",
+          "assignedTo": "Scott Stevenson",
+          "priority": "medium",
+          "dueHours": 48
+        },
+        {
+          "type": "create_audit_log",
+          "logAction": "no_show_rescue_workflow"
+        }
+      ],
+      "enabled": true
+    },
+    {
+      "name": "E. Proposal Follow-Up Cadence",
+      "triggerType": "deal_stage_changed",
+      "triggerConfig": {
+        "toStage": "Proposal Sent"
+      },
+      "actions": [
+        {
+          "type": "create_task",
+          "title": "Follow up on proposal - check if merchant reviewed",
+          "assignedTo": "Scott Stevenson",
+          "priority": "medium",
+          "dueHours": 48
+        },
+        {
+          "type": "wait",
+          "hours": 48
+        },
+        {
+          "type": "send_ghl_sms",
+          "body": "Hi {{contact.firstName}}, just checking if you had a chance to review the processing analysis we sent. Any questions? Happy to walk through the numbers."
+        },
+        {
+          "type": "wait",
+          "hours": 72
+        },
+        {
+          "type": "send_ghl_email",
+          "subject": "Quick follow-up on your processing review",
+          "body": "<p>Hi {{contact.firstName}},</p><p>Just following up on the statement analysis we sent over. A few merchants in {{contact.vertical}} have seen great results switching to our recommended program.</p><p>Want to do a quick 5-minute recap? {{calendarLink}}</p><p>Best,<br/>Liberty Bancard Team</p><p style='font-size:11px;color:#999;'>Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.</p>"
+        },
+        {
+          "type": "wait",
+          "hours": 120
+        },
+        {
+          "type": "send_ghl_email",
+          "subject": "Last check-in on your processing options",
+          "body": "<p>Hi {{contact.firstName}},</p><p>This is our last follow-up on the processing analysis we prepared for {{contact.companyName}}.</p><p>Your analysis is saved and ready whenever you want to revisit. Just reply to this email or book a call: {{calendarLink}}</p><p>We're here when you need us.</p><p>Best,<br/>Liberty Bancard Team</p><p style='font-size:11px;color:#999;'>Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+        },
+        {
+          "type": "create_audit_log",
+          "logAction": "proposal_followup_workflow"
+        }
+      ],
+      "enabled": true
+    },
+    {
+      "name": "F. Closed Won - Onboarding Kickoff",
+      "triggerType": "deal_stage_changed",
+      "triggerConfig": {
+        "toStage": "Closed Won"
+      },
+      "actions": [
+        {
+          "type": "update_deal",
+          "stage": "Contract Sent",
+          "notes": "Deal won - moved to onboarding pipeline",
+          "pipeline": "onboarding"
+        },
+        {
+          "type": "create_onboarding_checklist"
+        },
+        {
+          "type": "create_task",
+          "title": "Send application + collect docs",
+          "assignedTo": "Scott Stevenson",
+          "priority": "high",
+          "dueHours": 2
+        },
+        {
+          "type": "create_task",
+          "title": "Verify document checklist complete (statement, voided check, ID)",
+          "assignedTo": "Scott Stevenson",
+          "priority": "high",
+          "dueHours": 48
+        },
+        {
+          "type": "create_task",
+          "title": "Order terminal (if applicable)",
+          "assignedTo": "Scott Stevenson",
+          "priority": "medium",
+          "dueHours": 24
+        },
+        {
+          "type": "send_notification",
+          "channel": "internal",
+          "title": "New Deal Won!",
+          "message": "Deal closed won - begin onboarding immediately. Application link sent to merchant, document collection initiated.",
+          "notificationType": "success"
+        },
+        {
+          "type": "send_ghl_email",
+          "subject": "Welcome to Liberty Bancard - Your Application & Next Steps",
+          "body": "<p>Hi {{contact.firstName}},</p><p>Welcome aboard! We're excited to get {{contact.companyName}} set up with better processing.</p><p><strong>Step 1: Complete Your Application</strong></p><p>Your merchant application takes about 5 minutes to complete. Click below to get started:</p><p><a href='https://libertybancard.com/apply' style='display:inline-block;padding:12px 24px;background:#2563eb;color:white;text-decoration:none;border-radius:6px;font-weight:bold;'>Start Your Application</a></p><p><strong>Step 2: Upload Required Documents</strong></p><p>To complete underwriting, we'll need:</p><ul><li>Most recent processing statement</li><li>Voided check or bank letter</li><li>Government-issued photo ID</li></ul><p>You can upload these documents through your merchant portal or reply to this email with them attached.</p><p><strong>What Happens Next:</strong></p><ol><li>Complete the application (5 min)</li><li>Upload required documents</li><li>Underwriting review (typically 24-48 hours)</li><li>Terminal setup and configuration (if applicable)</li><li>Go-live and first batch!</li></ol><p>You'll have a dedicated point of contact throughout. We'll keep you updated at every step.</p><p>Best,<br/>Liberty Bancard Team</p>"
+        },
+        {
+          "type": "send_ghl_sms",
+          "body": "Welcome to Liberty Bancard, {{contact.firstName}}! Your application is ready at libertybancard.com/apply - takes about 5 min. We'll also need your processing statement, voided check, and photo ID. Questions? Just reply here."
+        },
+        {
+          "type": "update_contact_tags",
+          "addTags": [
+            "status_onboarding",
+            "closed_won"
+          ]
+        },
+        {
+          "type": "create_audit_log",
+          "logAction": "closed_won_onboarding_workflow"
+        }
+      ],
+      "enabled": true
+    },
+    {
+      "name": "F2. Application Reminder - Day 1",
+      "triggerType": "application_reminder",
+      "triggerConfig": {
+        "dayNumber": 1
+      },
+      "actions": [
+        {
+          "type": "send_ghl_email",
+          "subject": "Your Liberty Bancard Application is Waiting",
+          "body": "<p>Hi {{contact.firstName}},</p><p>We noticed you haven't completed your merchant application yet. It only takes about 5 minutes!</p><p><a href='https://libertybancard.com/apply' style='display:inline-block;padding:12px 24px;background:#2563eb;color:white;text-decoration:none;border-radius:6px;font-weight:bold;'>Complete Your Application</a></p><p>Once submitted, we can begin underwriting and get you set up quickly.</p><p>Need help? Just reply to this email or call us at 954-266-8214.</p><p>Best,<br/>Liberty Bancard Team</p>"
+        },
+        {
+          "type": "send_ghl_sms",
+          "body": "Hi {{contact.firstName}}, friendly reminder to complete your Liberty Bancard application at libertybancard.com/apply. Only takes 5 min! Need help? Reply here or call 954-266-8214."
+        },
+        {
+          "type": "create_audit_log",
+          "logAction": "application_reminder_day1"
+        }
+      ],
+      "enabled": true
+    },
+    {
+      "name": "F3. Application Reminder - Day 3",
+      "triggerType": "application_reminder",
+      "triggerConfig": {
+        "dayNumber": 3
+      },
+      "actions": [
+        {
+          "type": "send_ghl_email",
+          "subject": "Don't Miss Out - Complete Your Application",
+          "body": "<p>Hi {{contact.firstName}},</p><p>Just a friendly follow-up - your merchant application for {{contact.companyName}} is still incomplete.</p><p>We're ready to get you set up with better processing rates as soon as you're done. The application takes about 5 minutes:</p><p><a href='https://libertybancard.com/apply' style='display:inline-block;padding:12px 24px;background:#2563eb;color:white;text-decoration:none;border-radius:6px;font-weight:bold;'>Complete Your Application</a></p><p>If you're running into any issues or have questions about the process, we're here to help. Reply to this email or give us a call.</p><p>Best,<br/>Liberty Bancard Team</p>"
+        },
+        {
+          "type": "send_ghl_sms",
+          "body": "Hi {{contact.firstName}}, your Liberty Bancard application is still waiting. Complete it in 5 min at libertybancard.com/apply. Questions? Call 954-266-8214 - we're happy to walk you through it!"
+        },
+        {
+          "type": "create_task",
+          "title": "Day 3: Follow up on incomplete application",
+          "assignedTo": "Scott Stevenson",
+          "priority": "medium",
+          "dueHours": 8
+        },
+        {
+          "type": "create_audit_log",
+          "logAction": "application_reminder_day3"
+        }
+      ],
+      "enabled": true
+    },
+    {
+      "name": "F4. Application Reminder - Day 7",
+      "triggerType": "application_reminder",
+      "triggerConfig": {
+        "dayNumber": 7
+      },
+      "actions": [
+        {
+          "type": "send_ghl_email",
+          "subject": "Last Reminder - Your Application is Saved",
+          "body": "<p>Hi {{contact.firstName}},</p><p>This is our last reminder about your merchant application. Your information is saved and the application is ready whenever you are.</p><p><a href='https://libertybancard.com/apply' style='display:inline-block;padding:12px 24px;background:#2563eb;color:white;text-decoration:none;border-radius:6px;font-weight:bold;'>Complete Your Application</a></p><p>If you'd prefer, we can complete the application together over the phone. Just reply 'CALL ME' and we'll reach out.</p><p>Best,<br/>Liberty Bancard Team</p>"
+        },
+        {
+          "type": "send_ghl_sms",
+          "body": "Hi {{contact.firstName}}, last reminder about your Liberty Bancard application. Reply CALL ME and we'll help you complete it over the phone. Or finish it at libertybancard.com/apply."
+        },
+        {
+          "type": "create_task",
+          "title": "Day 7: Final application follow-up - consider phone assist",
+          "assignedTo": "Scott Stevenson",
+          "priority": "high",
+          "dueHours": 4
+        },
+        {
+          "type": "send_notification",
+          "channel": "internal",
+          "title": "Application Still Incomplete (Day 7)",
+          "message": "Merchant has not completed application after 7 days. Consider direct outreach.",
+          "notificationType": "alert"
+        },
+        {
+          "type": "create_audit_log",
+          "logAction": "application_reminder_day7"
+        }
+      ],
+      "enabled": true
+    },
+    {
+      "name": "G. Go-Live Lifecycle (Day 2/7/14/30)",
+      "triggerType": "go_live_milestone",
+      "triggerConfig": {},
+      "actions": [
+        {
+          "type": "wait",
+          "hours": 48
+        },
+        {
+          "type": "send_ghl_sms",
+          "body": "Hi {{contact.firstName}}, it's day 2 with Liberty Bancard! How did your first batch go? Any questions about deposits or your terminal? Reply anytime."
+        },
+        {
+          "type": "create_task",
+          "title": "Day 2 check-in: verify first batch processed",
+          "assignedTo": "Scott Stevenson",
+          "priority": "medium",
+          "dueHours": 4
+        },
+        {
+          "type": "wait",
+          "hours": 120
+        },
+        {
+          "type": "send_ghl_email",
+          "subject": "One week in - how's everything running?",
+          "body": "<p>Hi {{contact.firstName}},</p><p>It's been a week since you went live with Liberty Bancard. How's everything going?</p><p>A few things to check:</p><ul><li>Are deposits landing on time?</li><li>Is the terminal working as expected?</li><li>Any questions about your statement?</li></ul><p>If anything needs attention, just reply to this email or call us directly.</p><p>Best,<br/>Liberty Bancard Team</p>"
+        },
+        {
+          "type": "create_task",
+          "title": "Day 7 check-in: confirm merchant satisfaction + request review",
+          "assignedTo": "Scott Stevenson",
+          "priority": "medium",
+          "dueHours": 24
+        },
+        {
+          "type": "request_review",
+          "reviewUrl": "[GOOGLE_REVIEW_LINK]"
+        },
+        {
+          "type": "wait",
+          "hours": 168
+        },
+        {
+          "type": "send_ghl_email",
+          "subject": "Two weeks in - quick check",
+          "body": "<p>Hi {{contact.firstName}},</p><p>Just a quick 2-week check-in. We want to make sure everything is running smoothly.</p><p>If you have any questions about your first full statement, we're happy to walk through it with you.</p><p>Best,<br/>Liberty Bancard Team</p>"
+        },
+        {
+          "type": "wait",
+          "hours": 384
+        },
+        {
+          "type": "send_ghl_email",
+          "subject": "Your first full month - let's review",
+          "body": "<p>Hi {{contact.firstName}},</p><p>Congratulations on your first full month with Liberty Bancard!</p><p>Your first complete statement should be available now. Want us to review it together to make sure everything looks right?</p><p>Book a quick call: {{calendarLink}}</p><p>Best,<br/>Liberty Bancard Team</p>"
+        },
+        {
+          "type": "create_task",
+          "title": "Day 30: Review first full statement with merchant",
+          "assignedTo": "Scott Stevenson",
+          "priority": "medium",
+          "dueHours": 48
+        },
+        {
+          "type": "update_contact_tags",
+          "addTags": [
+            "milestone_30_days"
+          ]
+        },
+        {
+          "type": "create_audit_log",
+          "logAction": "go_live_lifecycle_workflow"
+        }
+      ],
+      "enabled": true
+    },
+    {
+      "name": "H. Case Study Request",
+      "triggerType": "deal_stage_changed",
+      "triggerConfig": {
+        "toStage": "Active (30 Days)"
+      },
+      "actions": [
+        {
+          "type": "create_task",
+          "title": "Evaluate merchant for case study potential",
+          "assignedTo": "Scott Stevenson",
+          "priority": "low",
+          "dueHours": 168
+        },
+        {
+          "type": "wait",
+          "hours": 72
+        },
+        {
+          "type": "send_ghl_email",
+          "subject": "Would you share your experience?",
+          "body": "<p>Hi {{contact.firstName}},</p><p>You've been with Liberty Bancard for 30 days now, and we'd love to hear about your experience.</p><p>Would you be open to a quick 5-minute interview? We'll share the final piece with you before publishing, and your story could help other {{contact.vertical}} businesses make better decisions about their processing.</p><p>No pressure at all - just reply YES if you're interested!</p><p>Best,<br/>Liberty Bancard Team</p>"
+        },
+        {
+          "type": "create_audit_log",
+          "logAction": "case_study_request_workflow"
+        }
+      ],
+      "enabled": true
+    },
+    {
+      "name": "I. Support SLA Escalation",
+      "triggerType": "ticket_sla_breach",
+      "triggerConfig": {},
+      "actions": [
+        {
+          "type": "create_task",
+          "title": "URGENT: SLA breached - respond to ticket immediately",
+          "assignedTo": "Support Team",
+          "priority": "high",
+          "dueHours": 0.5
+        },
+        {
+          "type": "send_notification",
+          "channel": "internal",
+          "title": "SLA Breach Alert",
+          "message": "A support ticket has breached its SLA deadline. Immediate response required.",
+          "notificationType": "urgent"
+        },
+        {
+          "type": "create_audit_log",
+          "logAction": "support_sla_escalation_workflow"
+        }
+      ],
+      "enabled": true
+    }
+  ],
+  "DEFAULT_SLA_CONFIGS": [
+    {
+      "name": "Statement Review 2hr",
+      "entityType": "deal",
+      "stage": "Statement Received",
+      "maxDurationMinutes": 120,
+      "escalationAction": "create_task_and_notify",
+      "isActive": true
+    },
+    {
+      "name": "New Lead 24hr Follow-up",
+      "entityType": "deal",
+      "stage": "New Lead",
+      "maxDurationMinutes": 1440,
+      "escalationAction": "create_task_and_notify",
+      "isActive": true
+    },
+    {
+      "name": "Proposal Follow-up 48hr",
+      "entityType": "deal",
+      "stage": "Proposal Sent",
+      "maxDurationMinutes": 2880,
+      "escalationAction": "create_task_and_notify",
+      "isActive": true
+    },
+    {
+      "name": "Call Booked No-Show 24hr",
+      "entityType": "deal",
+      "stage": "Call Booked",
+      "maxDurationMinutes": 1440,
+      "escalationAction": "create_task_and_notify",
+      "isActive": true
+    },
+    {
+      "name": "Support Ticket 4hr SLA",
+      "entityType": "ticket",
+      "stage": null,
+      "maxDurationMinutes": 240,
+      "escalationAction": "escalate_ticket",
+      "isActive": true
+    }
+  ],
+  "DEFAULT_MESSAGE_TEMPLATES": [
+    {
+      "name": "Proposal Email",
+      "category": "proposal",
+      "channel": "email",
+      "subject": "Your Processing Analysis is Ready - {{contact.companyName}}",
+      "body": "<p>Hi {{contact.firstName}},</p>\n<p>We've completed our review of your processing statement. Here's what we found:</p>\n<ul>\n<li><strong>Current Effective Rate:</strong> {{deal.effectiveRate}}</li>\n<li><strong>Monthly Volume:</strong> {{deal.totalVolume}}</li>\n<li><strong>Current Fees:</strong> {{deal.totalFees}}</li>\n<li><strong>Top Cost Drivers:</strong> {{deal.topCostDrivers}}</li>\n<li><strong>Recommended Path:</strong> {{deal.recommendedPath}}</li>\n</ul>\n<p><strong>Next Step:</strong> <a href=\"{{calendarLink}}\">Book a 10-minute call</a> to walk through the numbers together.</p>\n<p>Best,<br/>Liberty Bancard Team</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.</p>",
+      "mergeFields": [
+        "contact.firstName",
+        "contact.companyName",
+        "deal.effectiveRate",
+        "deal.totalVolume",
+        "deal.totalFees",
+        "deal.topCostDrivers",
+        "deal.recommendedPath",
+        "calendarLink"
+      ],
+      "isActive": true
+    },
+    {
+      "name": "Follow-Up SMS",
+      "category": "follow_up",
+      "channel": "sms",
+      "subject": null,
+      "body": "Hi {{contact.firstName}}, just checking in on the processing analysis we sent over. Had a chance to review? Happy to answer any questions - reply here or book a call: {{calendarLink}}",
+      "mergeFields": [
+        "contact.firstName",
+        "calendarLink"
+      ],
+      "isActive": true
+    },
+    {
+      "name": "Welcome Onboarding Email",
+      "category": "onboarding",
+      "channel": "email",
+      "subject": "Welcome to Liberty Bancard - Let's Get Started",
+      "body": "<p>Hi {{contact.firstName}},</p>\n<p>Welcome to Liberty Bancard! We're excited to get {{contact.companyName}} set up.</p>\n<p><strong>Your onboarding checklist:</strong></p>\n<ol>\n<li>Complete the merchant application (5 min)</li>\n<li>Provide a voided check or bank letter</li>\n<li>Confirm terminal/equipment needs</li>\n</ol>\n<p>We'll keep you updated through every step. Questions? Reply to this email anytime.</p>\n<p>Best,<br/>Liberty Bancard Team</p>",
+      "mergeFields": [
+        "contact.firstName",
+        "contact.companyName"
+      ],
+      "isActive": true
+    },
+    {
+      "name": "Day 7 Review Request",
+      "category": "review_request",
+      "channel": "email",
+      "subject": "How's your experience with Liberty Bancard?",
+      "body": "<p>Hi {{contact.firstName}},</p>\n<p>It's been a week since your switch to Liberty Bancard. We hope everything's running smoothly!</p>\n<p>Would you take 30 seconds to share your experience? <a href=\"[GOOGLE_REVIEW_LINK]\">Leave a Review</a></p>\n<p>Your feedback helps other business owners make better processing decisions.</p>\n<p>Best,<br/>Liberty Bancard Team</p>",
+      "mergeFields": [
+        "contact.firstName"
+      ],
+      "isActive": true
+    },
+    {
+      "name": "Application Reminder Email",
+      "category": "onboarding",
+      "channel": "email",
+      "subject": "Your Liberty Bancard Application is Waiting",
+      "body": "<p>Hi {{contact.firstName}},</p>\n<p>We noticed you haven't completed your merchant application yet for {{contact.companyName}}. It only takes about 5 minutes!</p>\n<p><a href=\"https://libertybancard.com/apply\" style=\"display:inline-block;padding:12px 24px;background:#2563eb;color:white;text-decoration:none;border-radius:6px;font-weight:bold;\">Complete Your Application</a></p>\n<p>Once submitted, we can begin underwriting and get you processing within days.</p>\n<p>Need help? Just reply to this email or call us at 954-266-8214.</p>\n<p>Best,<br/>Liberty Bancard Team</p>",
+      "mergeFields": [
+        "contact.firstName",
+        "contact.companyName"
+      ],
+      "isActive": true
+    },
+    {
+      "name": "Application Reminder SMS",
+      "category": "onboarding",
+      "channel": "sms",
+      "subject": null,
+      "body": "Hi {{contact.firstName}}, friendly reminder to complete your Liberty Bancard application at libertybancard.com/apply. Only takes 5 min! Need help? Reply here or call 954-266-8214.",
+      "mergeFields": [
+        "contact.firstName"
+      ],
+      "isActive": true
+    },
+    {
+      "name": "30-Day Nurture Email",
+      "category": "nurture",
+      "channel": "email",
+      "subject": "Still thinking about your processing?",
+      "body": "<p>Hi {{contact.firstName}},</p>\n<p>We know switching processors is a big decision. No rush - but we wanted to check in.</p>\n<p>Your statement analysis is saved and the numbers haven't changed. When you're ready, we're here.</p>\n<p><a href=\"{{calendarLink}}\">Book a 5-minute recap</a> whenever it works for you.</p>\n<p>Best,<br/>Liberty Bancard Team</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+      "mergeFields": [
+        "contact.firstName",
+        "calendarLink"
+      ],
+      "isActive": true
+    },
+    {
+      "name": "90-Day Reactivation Email",
+      "category": "reactivation",
+      "channel": "email",
+      "subject": "Your free processing review is still available",
+      "body": "<p>Hi {{contact.firstName}},</p>\n<p>It's been a while since we last connected. Just wanted to let you know your processing review is still available.</p>\n<p>A lot can change in a few months - new card brand rules, rate adjustments, new programs. If your current processor hasn't reviewed your rates lately, it might be time.</p>\n<p>Want a fresh look? <a href=\"{{calendarLink}}\">Book a 10-minute review</a> - no obligation.</p>\n<p>Best,<br/>Liberty Bancard Team</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.</p>",
+      "mergeFields": [
+        "contact.firstName",
+        "calendarLink"
+      ],
+      "isActive": true
+    },
+    {
+      "name": "Nurture SMS",
+      "category": "nurture",
+      "channel": "sms",
+      "subject": null,
+      "body": "Hi {{contact.firstName}}, your Liberty Bancard statement analysis is still ready. Want to revisit the numbers? Reply or book: {{calendarLink}}",
+      "mergeFields": [
+        "contact.firstName",
+        "calendarLink"
+      ],
+      "isActive": true
+    },
+    {
+      "name": "Support Acknowledgment",
+      "category": "support",
+      "channel": "email",
+      "subject": "We received your support request - Liberty Bancard",
+      "body": "<p>Hi {{contact.firstName}},</p>\n<p>We received your support request and a team member will be in touch shortly.</p>\n<p>Our typical response time is within 4 hours during business hours.</p>\n<p>Best,<br/>Liberty Bancard Support Team</p>",
+      "mergeFields": [
+        "contact.firstName"
+      ],
+      "isActive": true
+    }
+  ],
+  "DEFAULT_COLLATERAL_PACKETS": [
+    {
+      "name": "Wholesale Pricing Packet",
+      "offerPath": "Wholesale",
+      "vertical": null,
+      "tags": [
+        "wholesale"
+      ],
+      "pages": [
+        "/assets/one-pagers/why-liberty",
+        "/assets/one-pagers/how-statement-review-works",
+        "/assets/one-pagers/hidden-fees-checklist"
+      ],
+      "description": "Standard wholesale pricing overview for cost-plus merchants. Includes why Liberty, statement review process, and hidden fees checklist.",
+      "isActive": true
+    },
+    {
+      "name": "0% Processing Program Packet",
+      "offerPath": "0% Program",
+      "vertical": null,
+      "tags": [
+        "zero-percent",
+        "cash-discount"
+      ],
+      "pages": [
+        "/assets/0-percent/overview",
+        "/assets/0-percent/compliance-checklist",
+        "/assets/terminal/smart-terminal"
+      ],
+      "description": "Cash discount / surcharge program overview with compliance checklist and terminal specs.",
+      "isActive": true
+    },
+    {
+      "name": "Terminal Solutions Packet",
+      "offerPath": "Terminal Needed",
+      "vertical": null,
+      "tags": [
+        "terminal",
+        "equipment"
+      ],
+      "pages": [
+        "/assets/terminal/smart-terminal",
+        "/assets/terminal/go-live-checklist",
+        "/assets/one-pagers/funding-deposits-clarity"
+      ],
+      "description": "Liberty Smart Terminal features, go-live checklist, and funding/deposit information.",
+      "isActive": true
+    },
+    {
+      "name": "Square/Stripe Comparison Packet",
+      "offerPath": "Compare vs Square/Stripe",
+      "vertical": null,
+      "tags": [
+        "comparison",
+        "flat-rate"
+      ],
+      "pages": [
+        "/assets/compare/beat-square-stripe",
+        "/assets/one-pagers/why-liberty",
+        "/assets/one-pagers/hidden-fees-checklist"
+      ],
+      "description": "Head-to-head comparison against flat-rate processors with supporting materials.",
+      "isActive": true
+    },
+    {
+      "name": "Medical/Dental/Medspa Packet",
+      "offerPath": null,
+      "vertical": "Medical/Dental/Medspa",
+      "tags": [
+        "medical",
+        "dental",
+        "medspa",
+        "healthcare"
+      ],
+      "pages": [
+        "/assets/verticals/medical",
+        "/assets/case-studies/medical-front-desk",
+        "/assets/0-percent/overview",
+        "/assets/terminal/smart-terminal"
+      ],
+      "description": "Healthcare-specific processing solutions with case study, 0% program info, and terminal specs.",
+      "isActive": true
+    },
+    {
+      "name": "Restaurant Packet",
+      "offerPath": null,
+      "vertical": "Restaurant",
+      "tags": [
+        "restaurant",
+        "food-service"
+      ],
+      "pages": [
+        "/assets/verticals/restaurant",
+        "/assets/case-studies/restaurant-tips-speed",
+        "/assets/terminal/smart-terminal"
+      ],
+      "description": "Restaurant processing solutions with case study and terminal configuration for high-volume use.",
+      "isActive": true
+    }
+  ],
+  "PILLAR_SDR_CAMPAIGNS": [
+    {
+      "campaign": {
+        "name": "SDR-01: Statement Review Cold Outreach",
+        "description": "Core proof-first campaign. Targets all verticals with statement review offer. Highest conversion cold sequence - leads with value, no hype.",
+        "aiPersonalization": true,
+        "totalSteps": 5,
+        "dailySendLimit": 400,
+        "status": "draft"
+      },
+      "steps": [
+        {
+          "stepOrder": 1,
+          "stepType": "initial_outreach",
+          "delayDays": 0,
+          "subject": "Quick question about {{companyName}}'s processing costs",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>I work with {{vertical}} businesses in your area and one thing I see over and over: most owners are paying more than they need to because they've never had anyone break down their statement line by line.</p>\n<p>We offer a free, no-obligation statement review where we show you exactly what you're paying, where the fees go, and whether there's a better structure available for {{companyName}}.</p>\n<p>No pressure, no pitch - just a clear breakdown of your real costs. If we can't show you something better, we'll tell you that too.</p>\n<p>Would you be open to a quick look? You can upload your statement here: {{uploadLink}}</p>\n<p>Best,<br/>Scott Stevenson<br/>Liberty Bancard</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.</p>",
+          "aiPrompt": "Personalize the opening line based on the prospect's vertical and company name. Reference something specific about their industry's typical processing challenges. Keep the tone consultative and proof-first. Never make savings claims.",
+          "useAiPersonalization": true,
+          "channel": "email"
+        },
+        {
+          "stepOrder": 2,
+          "stepType": "follow_up",
+          "delayDays": 3,
+          "subject": "Re: {{companyName}} processing review",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>Just following up on my note about reviewing {{companyName}}'s processing statement.</p>\n<p>Most {{vertical}} businesses I work with find at least one or two line items they didn't know they were being charged for. Things like PCI non-compliance fees, batch fees, or interchange padding that adds up fast.</p>\n<p>It takes about 10 minutes to review. No strings attached - if your current setup is already optimized, I'll tell you.</p>\n<p>Here's a link to upload your statement: {{uploadLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "useAiPersonalization": true,
+          "channel": "email"
+        },
+        {
+          "stepOrder": 3,
+          "stepType": "value_add",
+          "delayDays": 5,
+          "subject": "The hidden fee most {{vertical}} owners miss",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>Wanted to share something I see frequently with {{vertical}} businesses:</p>\n<p>Many processors bundle interchange markups, assessment fees, and add-on charges into a single \"rate\" that makes it nearly impossible to see what you're actually paying.</p>\n<p>When we do a statement review, we break it all apart - interchange pass-through vs. processor markup vs. unnecessary add-ons. It's the only way to get an apples-to-apples comparison.</p>\n<p>If you've never had that breakdown done, it's worth 10 minutes. No cost, no commitment.</p>\n<p>Upload your latest statement here: {{uploadLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.</p>",
+          "aiPrompt": "Reference a specific hidden fee pattern common in the prospect's vertical. For restaurants, mention tip-related interchange. For medical, mention high-ticket single-swipe downgrades. For retail, mention keyed vs. swiped rate differences.",
+          "useAiPersonalization": true,
+          "channel": "email"
+        },
+        {
+          "stepOrder": 4,
+          "stepType": "social_proof",
+          "delayDays": 7,
+          "subject": "How {{vertical}} businesses are cutting through processor noise",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>I know your inbox is busy, so I'll keep this short.</p>\n<p>We've helped dozens of {{vertical}} businesses get clarity on their processing costs. Not with a sales pitch - with a line-item breakdown of their actual statement.</p>\n<p>The feedback we hear most often: \"I didn't even know I was paying that.\"</p>\n<p>If you're curious, it takes less than 10 minutes. Upload your most recent statement and we'll have your analysis ready within 2 hours.</p>\n<p>{{uploadLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "useAiPersonalization": true,
+          "channel": "email"
+        },
+        {
+          "stepOrder": 5,
+          "stepType": "breakup",
+          "delayDays": 10,
+          "subject": "Last note from me, {{firstName}}",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>This is my last follow-up. I don't want to be a bother - I know you're busy running {{companyName}}.</p>\n<p>If you ever want a free, no-strings statement review, the offer stands. Just reply to this email or upload your statement anytime: {{uploadLink}}</p>\n<p>Wishing you and your business the best.</p>\n<p>Best,<br/>Scott Stevenson<br/>Liberty Bancard<br/>954-266-8214</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "useAiPersonalization": false,
+          "channel": "email"
+        }
+      ]
+    },
+    {
+      "campaign": {
+        "name": "SDR-02: 0% Processing Program",
+        "description": "Targets businesses interested in cash discount / surcharge programs. Compliance-first messaging about eliminating processing fees where permitted by law.",
+        "targetScores": [
+          "hot",
+          "warm"
+        ],
+        "aiPersonalization": true,
+        "totalSteps": 5,
+        "dailySendLimit": 300,
+        "status": "draft"
+      },
+      "steps": [
+        {
+          "stepOrder": 1,
+          "stepType": "initial_outreach",
+          "delayDays": 0,
+          "subject": "A question about how {{companyName}} handles card fees",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>I'm reaching out because many {{vertical}} business owners I talk to have one question: why am I absorbing 3-4% on every card transaction?</p>\n<p>There's a compliant program that allows businesses to pass card processing costs to the cardholder - where permitted by state law and card brand rules. It's called a cash discount (or surcharge) program, and it's fully legal in most states.</p>\n<p>If this sounds interesting, I'd love to walk you through how it works and whether it's a fit for {{companyName}}. No commitment, just information.</p>\n<p>Want to learn more? Reply to this email or book a quick 10-minute call: {{calendarLink}}</p>\n<p>Best,<br/>Scott Stevenson<br/>Liberty Bancard</p>\n<p style=\"font-size:11px;color:#999;\">\"0% processing\" refers to compliant cash discount or surcharging programs where permitted. Eligibility depends on state law, card brand rules, and underwriting. Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "aiPrompt": "Personalize based on the prospect's vertical. Reference how similar businesses in their industry have adopted 0% programs. Emphasize compliance and legality. Never guarantee savings.",
+          "useAiPersonalization": true,
+          "channel": "email"
+        },
+        {
+          "stepOrder": 2,
+          "stepType": "follow_up",
+          "delayDays": 3,
+          "subject": "Re: {{companyName}} - 0% processing question",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>Following up on my note about compliant 0% processing programs.</p>\n<p>Here's how it works in plain English: you post your cash price. Card-paying customers see a small service fee added at checkout. Your net processing cost can drop to $0 or near-$0, depending on your profile.</p>\n<p>It's fully transparent, signage-compliant, and used by thousands of businesses nationwide. Whether it's right for {{companyName}} depends on your volume, vertical, and state - and we can figure that out in a 10-minute call.</p>\n<p>Interested? {{calendarLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "useAiPersonalization": true,
+          "channel": "email"
+        },
+        {
+          "stepOrder": 3,
+          "stepType": "value_add",
+          "delayDays": 5,
+          "subject": "What {{vertical}} owners ask about 0% programs",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>I get a lot of the same questions from {{vertical}} business owners, so I wanted to address the big ones upfront:</p>\n<p><strong>Is it legal?</strong> Yes - cash discount and surcharge programs are permitted in most states, subject to card brand rules and proper signage.</p>\n<p><strong>Will customers complain?</strong> In our experience, most customers don't even notice - especially when signage is clear and the fee is small.</p>\n<p><strong>What about debit cards?</strong> Debit is handled differently depending on the program structure. We'll walk you through the specifics.</p>\n<p><strong>How does setup work?</strong> We handle everything - terminal programming, signage, and compliance review. Typical setup is 3-5 business days after approval.</p>\n<p>Want to see if it works for {{companyName}}? Reply or call: 954-266-8214</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "aiPrompt": "Customize the FAQ based on the prospect's vertical. For restaurants, address tip handling. For medical, address patient perception. For retail, address customer experience at checkout.",
+          "useAiPersonalization": true,
+          "channel": "email"
+        },
+        {
+          "stepOrder": 4,
+          "stepType": "social_proof",
+          "delayDays": 7,
+          "subject": "Why {{vertical}} owners are switching to 0% programs",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>More and more {{vertical}} businesses are adopting compliant cash discount programs - not because of a sales pitch, but because the math is simple: why absorb a cost you don't have to?</p>\n<p>We've helped businesses across your industry set up programs that are fully transparent, signage-compliant, and easy for staff to manage.</p>\n<p>If you've been curious, a 10-minute call is all it takes to see if it's a fit: {{calendarLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "useAiPersonalization": true,
+          "channel": "email"
+        },
+        {
+          "stepOrder": 5,
+          "stepType": "breakup",
+          "delayDays": 10,
+          "subject": "Closing the loop, {{firstName}}",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>This is my last note on this topic. I don't want to be a nuisance.</p>\n<p>If you ever want to explore whether a 0% processing program could work for {{companyName}}, just reply to this email. The consultation is always free and there's never any pressure.</p>\n<p>Best,<br/>Scott Stevenson<br/>Liberty Bancard<br/>954-266-8214</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "useAiPersonalization": false,
+          "channel": "email"
+        }
+      ]
+    },
+    {
+      "campaign": {
+        "name": "SDR-03: Beat Square & Stripe",
+        "description": "Targets businesses currently using flat-rate processors like Square, Stripe, or PayPal. Shows the cost gap vs. interchange-plus pricing with proof-first approach.",
+        "aiPersonalization": true,
+        "totalSteps": 5,
+        "dailySendLimit": 350,
+        "status": "draft"
+      },
+      "steps": [
+        {
+          "stepOrder": 1,
+          "stepType": "initial_outreach",
+          "delayDays": 0,
+          "subject": "Is {{companyName}} overpaying on Square/Stripe?",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>Quick question: do you know your actual effective processing rate at {{companyName}}?</p>\n<p>If you're on Square, Stripe, or another flat-rate processor, you're paying the same percentage on every transaction - regardless of card type. That means you're overpaying on debit cards and basic credit cards that have much lower interchange costs.</p>\n<p>We help businesses like yours see the real numbers. A free statement comparison shows you exactly what you're paying now versus what you could pay on an interchange-plus structure - line by line.</p>\n<p>No hype, no guesswork. Just math.</p>\n<p>Want to see the comparison? Upload a recent statement or invoice here: {{uploadLink}}</p>\n<p>Best,<br/>Scott Stevenson<br/>Liberty Bancard</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.</p>",
+          "aiPrompt": "Personalize based on the prospect's estimated volume. For higher-volume businesses, emphasize the dollar impact of flat-rate overpayment. For lower-volume, focus on transparency and hidden fees in flat-rate pricing.",
+          "useAiPersonalization": true,
+          "channel": "email"
+        },
+        {
+          "stepOrder": 2,
+          "stepType": "follow_up",
+          "delayDays": 3,
+          "subject": "The flat-rate trap (quick read for {{firstName}})",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>Here's something most flat-rate processor users don't realize:</p>\n<p>A debit card costs the processor about 0.05% + $0.21 in interchange. But Square charges you 2.6% + $0.10. That's a massive gap - and it adds up on every debit transaction your business processes.</p>\n<p>On the flip side, premium rewards cards cost more in interchange. With flat-rate pricing, you don't see any of this - it's all blended into one number.</p>\n<p>With interchange-plus pricing, you pay the actual card cost plus a small transparent markup. For most businesses processing over $5k/month, the difference is significant.</p>\n<p>I'd love to run a side-by-side comparison for {{companyName}} - free, no commitment. Upload a statement or Stripe payout report here: {{uploadLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.</p>",
+          "useAiPersonalization": true,
+          "channel": "email"
+        },
+        {
+          "stepOrder": 3,
+          "stepType": "value_add",
+          "delayDays": 5,
+          "subject": "What Square doesn't show you",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>One thing I hear from business owners who switch from Square or Stripe: \"I had no idea how much I was actually paying.\"</p>\n<p>Flat-rate processors keep things simple on purpose - one rate, one number. But simple doesn't mean cheap. Without a line-item breakdown, there's no way to know if you're getting a fair deal.</p>\n<p>We do free statement comparisons where we put your flat-rate costs next to interchange-plus pricing, line by line. If flat-rate is actually better for your business, we'll tell you that.</p>\n<p>No sales pitch. Just numbers. {{uploadLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "useAiPersonalization": true,
+          "channel": "email"
+        },
+        {
+          "stepOrder": 4,
+          "stepType": "social_proof",
+          "delayDays": 7,
+          "subject": "Why {{vertical}} businesses are leaving flat-rate",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>More and more {{vertical}} businesses are moving away from flat-rate processors - not because someone talked them into it, but because they finally saw the numbers.</p>\n<p>When you compare your flat-rate costs against interchange-plus pricing, the difference usually speaks for itself. And you keep everything you already have - next-day funding, online payments, the works.</p>\n<p>If you're curious, a 10-minute review is all it takes: {{calendarLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "useAiPersonalization": true,
+          "channel": "email"
+        },
+        {
+          "stepOrder": 5,
+          "stepType": "breakup",
+          "delayDays": 10,
+          "subject": "Last note on your processing, {{firstName}}",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>This is my last email on this. I know switching processors isn't top of mind when you're busy running {{companyName}}.</p>\n<p>If you ever want a free comparison of your flat-rate costs vs. interchange-plus, just reply. The offer stands and there's never any pressure.</p>\n<p>Best,<br/>Scott Stevenson<br/>Liberty Bancard<br/>954-266-8214</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "useAiPersonalization": false,
+          "channel": "email"
+        }
+      ]
+    },
+    {
+      "campaign": {
+        "name": "SDR-04: Restaurant & Food Service",
+        "description": "Restaurant-specific outreach. Addresses tip handling, high-volume processing, terminal speed, and industry-specific pain points like tip adjustment fees.",
+        "targetVerticals": [
+          "Restaurant",
+          "Food Service",
+          "Bar",
+          "Cafe",
+          "Bakery",
+          "Food Truck"
+        ],
+        "aiPersonalization": true,
+        "totalSteps": 5,
+        "dailySendLimit": 300,
+        "status": "draft"
+      },
+      "steps": [
+        {
+          "stepOrder": 1,
+          "stepType": "initial_outreach",
+          "delayDays": 0,
+          "subject": "A processing question for {{companyName}}",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>I work specifically with restaurants and food service businesses on their payment processing, and I wanted to reach out because there are some industry-specific costs that most owners don't know about.</p>\n<p>For example: tip adjustment fees, batch timing that delays deposits, and interchange downgrades on keyed-in orders. These are line items that add up fast in a high-volume restaurant.</p>\n<p>We offer a free statement review where we break down every fee, show you where the money goes, and identify if there's a better structure available for {{companyName}}.</p>\n<p>It takes 10 minutes and there's zero obligation. Upload your latest statement here: {{uploadLink}}</p>\n<p>Best,<br/>Scott Stevenson<br/>Liberty Bancard</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.</p>",
+          "aiPrompt": "Customize based on restaurant type. For fine dining, mention higher average tickets and rewards card interchange. For fast casual, focus on speed and volume. For bars, mention late-night batching and tip adjustments.",
+          "useAiPersonalization": true,
+          "channel": "email"
+        },
+        {
+          "stepOrder": 2,
+          "stepType": "follow_up",
+          "delayDays": 3,
+          "subject": "Re: Processing costs at {{companyName}}",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>Following up on my note about restaurant processing costs. Here are the three biggest fee traps I see in this industry:</p>\n<ol>\n<li><strong>Tip adjustment fees</strong> - Some processors charge a separate fee every time a tip is adjusted. At 100+ tickets/day, this adds up.</li>\n<li><strong>Batch timing</strong> - If your batch doesn't close at the right time, you could be waiting an extra day for deposits.</li>\n<li><strong>Keyed-in surcharges</strong> - Phone orders and manual entries often get hit with higher interchange rates.</li>\n</ol>\n<p>Our free review catches all of this. Want to take a look? {{uploadLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "useAiPersonalization": true,
+          "channel": "email"
+        },
+        {
+          "stepOrder": 3,
+          "stepType": "value_add",
+          "delayDays": 5,
+          "subject": "Do you know your real effective rate at {{companyName}}?",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>Most restaurant owners I talk to can tell me their \"rate\" but not their effective rate - the total percentage they actually pay when all fees are included.</p>\n<p>Here's a quick way to check: take your total fees from last month's statement and divide by your total volume. If the number is higher than you expected, there may be room for a better structure.</p>\n<p>We do this analysis for free. No pitch, no pressure - just the actual math from your statement.</p>\n<p>Upload here: {{uploadLink}} or reply and I'll walk you through it.</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "useAiPersonalization": true,
+          "channel": "email"
+        },
+        {
+          "stepOrder": 4,
+          "stepType": "social_proof",
+          "delayDays": 7,
+          "subject": "How restaurants are getting processing clarity",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>I've helped dozens of restaurants get clarity on their processing costs. The most common reaction after our review: \"I didn't know I was paying for that.\"</p>\n<p>Whether you stay with your current processor or make a change, having a clear breakdown of your costs puts you in a better position to negotiate and make informed decisions.</p>\n<p>Ready for your free review? It's just 10 minutes: {{calendarLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "useAiPersonalization": true,
+          "channel": "email"
+        },
+        {
+          "stepOrder": 5,
+          "stepType": "breakup",
+          "delayDays": 10,
+          "subject": "Last note, {{firstName}}",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>I know you're busy keeping {{companyName}} running, so this is my last email. If you ever want a free statement review - or just have a question about your processing - reply anytime or call 954-266-8214.</p>\n<p>Best,<br/>Scott Stevenson<br/>Liberty Bancard</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "useAiPersonalization": false,
+          "channel": "email"
+        }
+      ]
+    },
+    {
+      "campaign": {
+        "name": "SDR-05: Medical / Dental / Medspa",
+        "description": "Healthcare-specific outreach targeting medical offices, dental practices, and medspas. Addresses high-ticket transactions, patient payment experience, and terminal needs.",
+        "targetVerticals": [
+          "Medical",
+          "Dental",
+          "Medspa",
+          "Healthcare",
+          "Dermatology",
+          "Chiropractic",
+          "Veterinary",
+          "Optometry"
+        ],
+        "aiPersonalization": true,
+        "totalSteps": 5,
+        "dailySendLimit": 250,
+        "status": "draft"
+      },
+      "steps": [
+        {
+          "stepOrder": 1,
+          "stepType": "initial_outreach",
+          "delayDays": 0,
+          "subject": "Quick question about {{companyName}}'s payment processing",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>I specialize in payment processing for medical and dental practices, and I wanted to reach out because healthcare businesses have some unique processing challenges that most providers don't address.</p>\n<p>High-ticket transactions, patient financing, front-desk payment flow, and the fact that most patients pay with rewards cards (which cost you more in interchange) - these all impact your bottom line.</p>\n<p>We offer a free statement review where we break down your costs line by line and identify if there's a better structure for {{companyName}}. Most practices find at least one or two areas for improvement.</p>\n<p>No obligation - just a clear look at your numbers. Upload your latest statement: {{uploadLink}}</p>\n<p>Best,<br/>Scott Stevenson<br/>Liberty Bancard</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.</p>",
+          "aiPrompt": "Personalize based on healthcare sub-type. For dental, mention high copay collections. For medspa, mention recurring treatment packages. For medical, mention insurance copay vs. self-pay dynamics. Reference the front-desk payment experience.",
+          "useAiPersonalization": true,
+          "channel": "email"
+        },
+        {
+          "stepOrder": 2,
+          "stepType": "follow_up",
+          "delayDays": 3,
+          "subject": "Re: Payment processing at {{companyName}}",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>Following up on my note about processing costs for healthcare practices. Here's what I see most often:</p>\n<ul>\n<li><strong>Rewards card surcharges:</strong> Patients paying with premium rewards cards can cost you 0.5-1% more per swipe than standard cards - and in healthcare, that's a lot of patients.</li>\n<li><strong>Keyed-in transactions:</strong> If your front desk keys in card numbers (common for phone bookings), you may be paying a higher rate on every one.</li>\n<li><strong>Terminal limitations:</strong> Outdated terminals can slow down checkout, frustrate patients, and miss contactless/tap-to-pay.</li>\n</ul>\n<p>Our free review covers all of this. Takes 10 minutes, zero commitment: {{uploadLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "useAiPersonalization": true,
+          "channel": "email"
+        },
+        {
+          "stepOrder": 3,
+          "stepType": "value_add",
+          "delayDays": 5,
+          "subject": "The patient payment experience at {{companyName}}",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>Beyond costs, I wanted to mention something we help practices with: the front-desk payment experience.</p>\n<p>Modern terminals with tap-to-pay, chip, and digital wallet support make checkout faster and give patients a more professional experience. Some practices also benefit from compliant programs that can offset processing costs entirely.</p>\n<p>If you're interested in modernizing your payment setup - or just want to see what your current processing costs really look like - I'd love to help.</p>\n<p>Free review here: {{uploadLink}} or book a call: {{calendarLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "aiPrompt": "For medspa and dental, mention the value of a sleek payment experience for patient perception. For medical offices, focus on efficiency and speed at the front desk.",
+          "useAiPersonalization": true,
+          "channel": "email"
+        },
+        {
+          "stepOrder": 4,
+          "stepType": "social_proof",
+          "delayDays": 7,
+          "subject": "How healthcare practices are optimizing processing",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>We've helped many dental, medical, and medspa practices get clarity on their processing costs. The most common outcome: they had no idea how much interchange padding was costing them on high-ticket treatments.</p>\n<p>Whether you stick with your current setup or make a change, knowing your real numbers puts you in control.</p>\n<p>Free 10-minute review: {{calendarLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "useAiPersonalization": true,
+          "channel": "email"
+        },
+        {
+          "stepOrder": 5,
+          "stepType": "breakup",
+          "delayDays": 10,
+          "subject": "Last note, {{firstName}}",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>This is my last follow-up. I know running a practice keeps you incredibly busy.</p>\n<p>If you ever want a free processing review for {{companyName}}, just reply or call 954-266-8214. The offer stands.</p>\n<p>Best,<br/>Scott Stevenson<br/>Liberty Bancard</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "useAiPersonalization": false,
+          "channel": "email"
+        }
+      ]
+    },
+    {
+      "campaign": {
+        "name": "SDR-06: Retail & E-Commerce",
+        "description": "Targets retail stores, e-commerce businesses, and omnichannel merchants. Focuses on volume-based pricing advantages, online vs. in-store rate differences, and terminal modernization.",
+        "targetVerticals": [
+          "Retail",
+          "E-Commerce",
+          "Boutique",
+          "Apparel",
+          "Electronics",
+          "Home Goods",
+          "Convenience Store"
+        ],
+        "aiPersonalization": true,
+        "totalSteps": 5,
+        "dailySendLimit": 300,
+        "status": "draft"
+      },
+      "steps": [
+        {
+          "stepOrder": 1,
+          "stepType": "initial_outreach",
+          "delayDays": 0,
+          "subject": "A quick question about {{companyName}}'s processing",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>I work with retail businesses on their payment processing, and I had a quick question: do you know the difference between what you pay on in-store swipes vs. online/keyed transactions?</p>\n<p>Most retail owners are surprised to learn the gap is significant - sometimes 0.5-1% higher per online transaction. If you sell both in-store and online, that difference can add up fast.</p>\n<p>We do free statement reviews where we break down your costs by transaction type, card type, and fee category. It takes about 10 minutes and there's no obligation.</p>\n<p>Want to see your breakdown? Upload your latest statement: {{uploadLink}}</p>\n<p>Best,<br/>Scott Stevenson<br/>Liberty Bancard</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.</p>",
+          "aiPrompt": "Personalize based on whether the prospect has an online store. For e-commerce heavy businesses, emphasize card-not-present rates. For brick-and-mortar, focus on terminal modernization and debit routing.",
+          "useAiPersonalization": true,
+          "channel": "email"
+        },
+        {
+          "stepOrder": 2,
+          "stepType": "follow_up",
+          "delayDays": 3,
+          "subject": "Re: Processing costs at {{companyName}}",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>Following up on my note about retail processing costs. Here's a quick checklist of fees to watch for:</p>\n<ul>\n<li><strong>Card-not-present markup:</strong> Online and phone orders often carry higher interchange rates.</li>\n<li><strong>Debit routing:</strong> Are you on PIN debit routing? It's typically cheaper than signature debit for in-store transactions.</li>\n<li><strong>PCI compliance fees:</strong> Some processors charge $99+/year for PCI - others include it. Do you know what you're paying?</li>\n<li><strong>Terminal lease vs. purchase:</strong> If you're leasing a terminal, you may be paying 3-5x its retail value over the lease term.</li>\n</ul>\n<p>Our free review catches all of this. Upload your statement: {{uploadLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "useAiPersonalization": true,
+          "channel": "email"
+        },
+        {
+          "stepOrder": 3,
+          "stepType": "value_add",
+          "delayDays": 5,
+          "subject": "The retail processing cost nobody talks about",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>Here's something most retail business owners miss: interchange downgrades.</p>\n<p>When a transaction doesn't qualify for the best interchange rate (wrong AVS data, late settlement, missing Level II data), your processor charges a higher rate. These downgrades can account for 10-20% of your total fees - and most statements don't clearly show them.</p>\n<p>We break all of this apart in our free review. If your processor is doing a good job, we'll confirm it. If there are opportunities, we'll show you exactly where.</p>\n<p>{{uploadLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "useAiPersonalization": true,
+          "channel": "email"
+        },
+        {
+          "stepOrder": 4,
+          "stepType": "social_proof",
+          "delayDays": 7,
+          "subject": "How retail owners are getting processing clarity",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>We've helped many retail businesses understand their processing costs for the first time. The most common reaction: \"Why didn't my current processor show me this?\"</p>\n<p>That's because most processors benefit from complexity. We believe in transparency.</p>\n<p>10-minute free review, no strings: {{calendarLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "useAiPersonalization": true,
+          "channel": "email"
+        },
+        {
+          "stepOrder": 5,
+          "stepType": "breakup",
+          "delayDays": 10,
+          "subject": "Last note, {{firstName}}",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>This is my final follow-up. If you ever want a free look at your processing costs, just reply or call 954-266-8214. No pressure, ever.</p>\n<p>Wishing {{companyName}} continued success.</p>\n<p>Best,<br/>Scott Stevenson<br/>Liberty Bancard</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "useAiPersonalization": false,
+          "channel": "email"
+        }
+      ]
+    },
+    {
+      "campaign": {
+        "name": "SDR-07: Auto / Service / Trades",
+        "description": "Targets auto repair, service businesses, contractors, and trades. Addresses high-ticket single transactions, manual entry rates, and next-day funding needs.",
+        "targetVerticals": [
+          "Auto Repair",
+          "Auto Dealership",
+          "HVAC",
+          "Plumbing",
+          "Electrical",
+          "Landscaping",
+          "Construction",
+          "Towing",
+          "Car Wash"
+        ],
+        "aiPersonalization": true,
+        "totalSteps": 5,
+        "dailySendLimit": 250,
+        "status": "draft"
+      },
+      "steps": [
+        {
+          "stepOrder": 1,
+          "stepType": "initial_outreach",
+          "delayDays": 0,
+          "subject": "Quick question about payments at {{companyName}}",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>I work with auto and service businesses on their payment processing, and I wanted to reach out because this industry has some unique cost drivers that most processors don't address.</p>\n<p>High-ticket transactions, manual card entry (common for phone estimates and invoiced work), and the need for reliable next-day funding are all areas where the wrong processing setup costs you real money.</p>\n<p>We offer a free statement review where we break down your costs line by line. Most service businesses find at least one area where they're paying more than necessary.</p>\n<p>No pitch, no obligation. Upload your latest statement here: {{uploadLink}}</p>\n<p>Best,<br/>Scott Stevenson<br/>Liberty Bancard</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.</p>",
+          "aiPrompt": "Personalize based on service type. For auto repair, mention high-ticket single transactions on repairs. For HVAC/plumbing, mention field payments and mobile processing. For car wash, mention high-volume small transactions and speed.",
+          "useAiPersonalization": true,
+          "channel": "email"
+        },
+        {
+          "stepOrder": 2,
+          "stepType": "follow_up",
+          "delayDays": 3,
+          "subject": "Re: Processing costs at {{companyName}}",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>Following up on my note about processing costs for service businesses. Here's what I see most often:</p>\n<ul>\n<li><strong>Keyed-in rates:</strong> When you take card numbers over the phone or key them into a terminal, you often pay 0.5-1% more per transaction. For a $2,000 repair, that's $10-$20 extra.</li>\n<li><strong>Funding delays:</strong> Some processors hold deposits for 2-3 days. If you need cash flow to buy parts or pay techs, that matters.</li>\n<li><strong>Monthly minimums and junk fees:</strong> Statement fees, batch fees, PCI fees - they pile up and most owners never question them.</li>\n</ul>\n<p>Our free review catches all of this. 10 minutes, no strings: {{uploadLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "useAiPersonalization": true,
+          "channel": "email"
+        },
+        {
+          "stepOrder": 3,
+          "stepType": "value_add",
+          "delayDays": 5,
+          "subject": "Next-day funding for service businesses",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>One thing that matters a lot in the service industry: getting paid fast. Parts, labor, overhead - cash flow is everything.</p>\n<p>We offer next-day funding options for qualified merchants. Batch closes in the evening, deposit lands the next morning. No weekend delays on qualifying transactions.</p>\n<p>If you're currently waiting 2-3 days for deposits, this alone could change how you manage cash flow.</p>\n<p>Want to learn more? Reply or book a quick call: {{calendarLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">\"Next-day funding\" options may be available for qualified merchants and depend on cutoff times, bank schedules, and risk review. Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "useAiPersonalization": true,
+          "channel": "email"
+        },
+        {
+          "stepOrder": 4,
+          "stepType": "social_proof",
+          "delayDays": 7,
+          "subject": "How service businesses are getting processing clarity",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>We've helped auto shops, contractors, and service businesses across South Florida and beyond get real clarity on their processing costs.</p>\n<p>The feedback is always the same: \"I didn't realize how much I was overpaying on keyed transactions.\"</p>\n<p>If you're curious, it takes 10 minutes to find out: {{calendarLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "useAiPersonalization": true,
+          "channel": "email"
+        },
+        {
+          "stepOrder": 5,
+          "stepType": "breakup",
+          "delayDays": 10,
+          "subject": "Last note, {{firstName}}",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>This is my final follow-up. If you ever want a free look at your processing costs or have questions about next-day funding, reply anytime or call 954-266-8214.</p>\n<p>Best,<br/>Scott Stevenson<br/>Liberty Bancard</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "useAiPersonalization": false,
+          "channel": "email"
+        }
+      ]
+    },
+    {
+      "campaign": {
+        "name": "SDR-08: Win-Back / Reactivation",
+        "description": "Targets cold leads that previously engaged but didn't convert. Re-engages with fresh value and a low-pressure approach. Ideal for 30/60/90-day reactivation cycles.",
+        "targetScores": [
+          "cold"
+        ],
+        "aiPersonalization": true,
+        "totalSteps": 4,
+        "dailySendLimit": 200,
+        "status": "draft"
+      },
+      "steps": [
+        {
+          "stepOrder": 1,
+          "stepType": "initial_outreach",
+          "delayDays": 0,
+          "subject": "Checking in, {{firstName}}",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>It's been a while since we last connected, and I wanted to check in.</p>\n<p>A lot has changed in the processing world - new interchange schedules, updated card brand rules, and new compliance programs that may benefit {{companyName}}.</p>\n<p>If your current processor hasn't reviewed your rates recently (most don't proactively do this), it might be worth a fresh look.</p>\n<p>Our free statement review takes 10 minutes and gives you a clear picture of where you stand today. No strings attached.</p>\n<p>Upload your latest statement: {{uploadLink}}</p>\n<p>Best,<br/>Scott Stevenson<br/>Liberty Bancard</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.</p>",
+          "aiPrompt": "Reference the time that has passed since last contact. Mention that interchange rates change twice a year (April and October) and that their current costs may have shifted. Keep tone warm and low-pressure.",
+          "useAiPersonalization": true,
+          "channel": "email"
+        },
+        {
+          "stepOrder": 2,
+          "stepType": "value_add",
+          "delayDays": 5,
+          "subject": "Has your processor reviewed your rates lately?",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>Here's something most merchants don't know: Visa and Mastercard update their interchange schedules twice a year. That means your actual processing costs may have changed since we last spoke - up or down.</p>\n<p>Most processors don't proactively review your account when rates change. That's where we come in.</p>\n<p>A fresh statement review takes 10 minutes and shows you exactly where you stand. Even if you decide to stay with your current provider, you'll have the information you need to negotiate.</p>\n<p>{{uploadLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "useAiPersonalization": true,
+          "channel": "email"
+        },
+        {
+          "stepOrder": 3,
+          "stepType": "social_proof",
+          "delayDays": 7,
+          "subject": "Why merchants come back for a second look",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>Many of our best merchant relationships started with a second conversation. Timing matters - and sometimes the first time isn't the right time.</p>\n<p>If you're ready for a fresh look at {{companyName}}'s processing costs, we're here. Same free review, same no-pressure approach.</p>\n<p>Book a 10-minute call: {{calendarLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "useAiPersonalization": true,
+          "channel": "email"
+        },
+        {
+          "stepOrder": 4,
+          "stepType": "breakup",
+          "delayDays": 10,
+          "subject": "Your review is still available, {{firstName}}",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>Just a final note: your free processing review is available whenever you're ready. No expiration, no pressure.</p>\n<p>Reply anytime or upload your statement here: {{uploadLink}}</p>\n<p>Wishing {{companyName}} continued success.</p>\n<p>Best,<br/>Scott Stevenson<br/>Liberty Bancard<br/>954-266-8214</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "useAiPersonalization": false,
+          "channel": "email"
+        }
+      ]
+    },
+    {
+      "campaign": {
+        "name": "SDR-09: Professional Services",
+        "description": "Targets law firms, accounting firms, consultants, and other professional service businesses. Addresses high-ticket invoiced payments, recurring billing, and client payment experience.",
+        "targetVerticals": [
+          "Law Firm",
+          "Accounting",
+          "Consulting",
+          "Insurance",
+          "Real Estate",
+          "Financial Services",
+          "Architecture"
+        ],
+        "aiPersonalization": true,
+        "totalSteps": 5,
+        "dailySendLimit": 200,
+        "status": "draft"
+      },
+      "steps": [
+        {
+          "stepOrder": 1,
+          "stepType": "initial_outreach",
+          "delayDays": 0,
+          "subject": "How {{companyName}} handles client payments",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>I work with professional service firms on their payment processing, and I've noticed that this sector has unique challenges most processors don't address well.</p>\n<p>Large invoiced payments, retainer collections, and the fact that clients often pay with premium rewards cards (which cost you more) all impact your bottom line.</p>\n<p>We offer a free statement review that breaks down your costs by transaction type and card type. Most professional firms find they're paying significantly more on large transactions than they need to.</p>\n<p>No obligation - just clarity. Upload your latest statement: {{uploadLink}}</p>\n<p>Best,<br/>Scott Stevenson<br/>Liberty Bancard</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.</p>",
+          "aiPrompt": "Personalize for the specific professional service type. For law firms, mention trust account compliance and IOLTA considerations. For accounting, mention seasonal volume fluctuations. For consulting, mention recurring billing and subscription patterns.",
+          "useAiPersonalization": true,
+          "channel": "email"
+        },
+        {
+          "stepOrder": 2,
+          "stepType": "follow_up",
+          "delayDays": 3,
+          "subject": "Re: Payment processing at {{companyName}}",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>Following up on my note about processing costs for professional services. Here's what I see most often:</p>\n<ul>\n<li><strong>High-ticket interchange:</strong> A $5,000 invoice paid with a rewards card can cost you $100+ in processing fees. Interchange-plus pricing can reduce that significantly.</li>\n<li><strong>Keyed/invoiced transactions:</strong> If you're sending payment links or keying in card numbers, you're likely paying higher card-not-present rates.</li>\n<li><strong>Level II/III data:</strong> Many B2B transactions qualify for lower interchange when Level II or Level III data is submitted. Most processors don't do this automatically.</li>\n</ul>\n<p>Our free review shows you all of this. 10 minutes, no commitment: {{uploadLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "useAiPersonalization": true,
+          "channel": "email"
+        },
+        {
+          "stepOrder": 3,
+          "stepType": "value_add",
+          "delayDays": 5,
+          "subject": "The cost of premium cards at {{companyName}}",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>Professional service clients tend to pay with premium rewards cards - Amex Gold, Chase Sapphire, corporate cards. These carry the highest interchange rates.</p>\n<p>On a flat-rate processor, you pay the same 2.9% regardless. On interchange-plus, you only pay the actual card cost plus a small markup. For premium cards, the savings difference is smaller - but for standard debit and credit cards, it's significant.</p>\n<p>The only way to know which is better for {{companyName}} is to look at your actual card mix. That's exactly what our free review does.</p>\n<p>{{uploadLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "useAiPersonalization": true,
+          "channel": "email"
+        },
+        {
+          "stepOrder": 4,
+          "stepType": "social_proof",
+          "delayDays": 7,
+          "subject": "How professional firms optimize processing",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>We've worked with law firms, CPA practices, and consulting firms to bring clarity to their processing costs. The common thread: they were all paying more on invoiced payments than they needed to.</p>\n<p>If you're curious about your own numbers, a 10-minute call is all it takes: {{calendarLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "useAiPersonalization": true,
+          "channel": "email"
+        },
+        {
+          "stepOrder": 5,
+          "stepType": "breakup",
+          "delayDays": 10,
+          "subject": "Last note, {{firstName}}",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>This is my final follow-up. If you ever want a free processing review for {{companyName}}, reply anytime or call 954-266-8214.</p>\n<p>Best,<br/>Scott Stevenson<br/>Liberty Bancard</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "useAiPersonalization": false,
+          "channel": "email"
+        }
+      ]
+    },
+    {
+      "campaign": {
+        "name": "SDR-10: Salon / Spa / Beauty",
+        "description": "Targets salons, spas, nail shops, and beauty businesses. Addresses appointment-based payments, tipping, recurring visits, and retail product sales alongside services.",
+        "targetVerticals": [
+          "Salon",
+          "Spa",
+          "Nail Salon",
+          "Barbershop",
+          "Beauty",
+          "Hair Salon",
+          "Tattoo"
+        ],
+        "aiPersonalization": true,
+        "totalSteps": 5,
+        "dailySendLimit": 250,
+        "status": "draft"
+      },
+      "steps": [
+        {
+          "stepOrder": 1,
+          "stepType": "initial_outreach",
+          "delayDays": 0,
+          "subject": "Quick question about payments at {{companyName}}",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>I work with salons and beauty businesses on their payment processing, and I wanted to reach out because this industry has some specific cost drivers that most processors don't explain.</p>\n<p>Tips, small-ticket transactions, product vs. service sales, and the mix of debit vs. credit cards all affect what you actually pay. Most salon owners I talk to have never seen a breakdown of these costs.</p>\n<p>We offer a free statement review where we show you exactly what each fee is, where it goes, and whether there's a better option for {{companyName}}.</p>\n<p>No obligation, no sales pitch. Just a clear look at your numbers: {{uploadLink}}</p>\n<p>Best,<br/>Scott Stevenson<br/>Liberty Bancard</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.</p>",
+          "aiPrompt": "Personalize based on salon type. For upscale salons/spas, mention higher average tickets and client experience. For nail salons, mention high volume of small transactions. For barbershops, mention tip handling and mobile payments.",
+          "useAiPersonalization": true,
+          "channel": "email"
+        },
+        {
+          "stepOrder": 2,
+          "stepType": "follow_up",
+          "delayDays": 3,
+          "subject": "Re: Processing costs at {{companyName}}",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>Following up on my note. Here are the top fee traps I see in salons and beauty businesses:</p>\n<ul>\n<li><strong>Tip adjustment fees:</strong> Some processors charge separately for every tip adjustment - and at 30-50 transactions per day, it adds up.</li>\n<li><strong>Small-ticket surcharges:</strong> If your average ticket is under $25, some pricing structures penalize you with per-transaction minimums.</li>\n<li><strong>Terminal leases:</strong> Many beauty businesses are locked into 3-4 year terminal leases at 3-5x the purchase price.</li>\n</ul>\n<p>Our free review catches all of this. Upload your statement: {{uploadLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "useAiPersonalization": true,
+          "channel": "email"
+        },
+        {
+          "stepOrder": 3,
+          "stepType": "value_add",
+          "delayDays": 5,
+          "subject": "Modern payment options for {{companyName}}",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>Beyond processing costs, I wanted to mention something that matters a lot in the beauty industry: the client payment experience.</p>\n<p>Modern terminals with tap-to-pay, Apple Pay, and Google Pay make checkout fast and seamless. Some salons also benefit from compliant programs that can offset processing costs entirely.</p>\n<p>If you're interested in upgrading your payment experience - or just want to see what your current costs look like - I'd love to help.</p>\n<p>Free review: {{uploadLink}} or call: 954-266-8214</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "useAiPersonalization": true,
+          "channel": "email"
+        },
+        {
+          "stepOrder": 4,
+          "stepType": "social_proof",
+          "delayDays": 7,
+          "subject": "How beauty businesses are cutting processing costs",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>We've helped many salons, spas, and beauty businesses get clarity on their processing. The most common reaction: \"Why was I paying for that?\"</p>\n<p>If you're curious, a free 10-minute review is all it takes: {{calendarLink}}</p>\n<p>Best,<br/>Scott</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "useAiPersonalization": true,
+          "channel": "email"
+        },
+        {
+          "stepOrder": 5,
+          "stepType": "breakup",
+          "delayDays": 10,
+          "subject": "Last note, {{firstName}}",
+          "bodyTemplate": "<p>Hi {{firstName}},</p>\n<p>This is my final follow-up. If you ever want a free processing review, reply or call 954-266-8214. No pressure, ever.</p>\n<p>Best,<br/>Scott Stevenson<br/>Liberty Bancard</p>\n<p style=\"font-size:11px;color:#999;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>",
+          "useAiPersonalization": false,
+          "channel": "email"
+        }
+      ]
+    }
+  ]
+}

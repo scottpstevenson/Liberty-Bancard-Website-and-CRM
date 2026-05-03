@@ -1,0 +1,121 @@
+// Auto-generated barrel of imports/helpers shared by storage domain modules.
+  import { db, pool } from "../db";
+import {
+  liveChats, liveChatMessages,
+  type LiveChat, type InsertLiveChat, type LiveChatMessage, type InsertLiveChatMessage,
+  contacts, companies, deals, tickets, tasks, documents, auditLogs, notifications, workflowRuns, workflows, rfis, users,
+  chargebacks,
+  type Chargeback, type InsertChargeback, type UpdateChargebackRequest,
+  messageTemplates, collateralPackets, ghlActivityLog, slaConfigs,
+  prospects, prospectLists, enrichmentJobs, campaigns, campaignSteps, outboundMessages, notes,
+  emailLogs, callLogs, stageAutomationRules, followUpSequences, sequenceSteps, sequenceEnrollments,
+  sunbizEntities, consentAuditLogs, calendarEvents,
+  merchantApplications, merchantProfiles, equipmentOrders, agents, agentQuotas, agentMerchants, residualReports, merchantResiduals,
+  healthAlerts, dealCompetitors, partners, referrals, commissionTiers, knowledgeBase, reviewRequests, testimonialSubmissions, onboardingSteps, midDailyStats,
+  sdrMerchants, sdrMerchantContacts, sdrLeadState, sdrLeadEvents, sdrChannelAttempts, sdrComplianceState,
+  sendingIdentities,
+  leadDiscoveryJobs, leadDiscoveryResults,
+  type SendingIdentity, type InsertSendingIdentity,
+  businesses, businessAliases, businessLocations, leadSources, enrichmentRuns,
+  type LeadDiscoveryJob, type InsertLeadDiscoveryJob,
+  type LeadDiscoveryResult, type InsertLeadDiscoveryResult,
+  type Business, type InsertBusiness, type UpdateBusinessRequest,
+  type BusinessAlias, type InsertBusinessAlias,
+  type BusinessLocation, type InsertBusinessLocation,
+  type LeadSource, type InsertLeadSource,
+  type EnrichmentRun, type InsertEnrichmentRun,
+  type SdrMerchant, type InsertSdrMerchant,
+  type SdrMerchantContact, type InsertSdrMerchantContact,
+  type SdrLeadState, type InsertSdrLeadState,
+  type SdrLeadEvent, type InsertSdrLeadEvent,
+  type SdrChannelAttempt, type InsertSdrChannelAttempt,
+  type SdrComplianceState, type InsertSdrComplianceState,
+  type InsertContact, type UpdateContactRequest,
+  type InsertCompany,
+  type InsertDeal, type UpdateDealRequest,
+  type InsertTicket, type UpdateTicketRequest,
+  type InsertTask, type UpdateTaskRequest,
+  type InsertDocument,
+  type InsertAuditLog,
+  type InsertNotification,
+  type InsertWorkflow, type UpdateWorkflowRequest,
+  type InsertWorkflowRun,
+  type InsertRfi, type UpdateRfiRequest,
+  type InsertMessageTemplate, type MessageTemplate,
+  type InsertCollateralPacket,
+  type InsertGhlActivityLog,
+  type InsertSlaConfig,
+  type Prospect, type InsertProspect, type UpdateProspectRequest,
+  type InsertProspectList,
+  type InsertEnrichmentJob,
+  type InsertCampaign, type UpdateCampaignRequest,
+  type InsertCampaignStep,
+  type InsertOutboundMessage, type UpdateOutboundMessageRequest,
+  type InsertNote,
+  type InsertEmailLog, type InsertCallLog, type InsertStageAutomationRule, type InsertFollowUpSequence, type InsertSequenceStep, type InsertSequenceEnrollment,
+  type InsertSunbizEntity, type UpdateSunbizEntityRequest, type SunbizEntity,
+  type InsertMerchantApplication, type MerchantApplication,
+  type InsertMerchantProfile, type MerchantProfile,
+  type InsertEquipmentOrder, type EquipmentOrder,
+  type InsertAgent, type Agent,
+  type InsertAgentMerchant, type AgentMerchant,
+  type InsertAgentQuota, type AgentQuota,
+  type InsertResidualReport, type ResidualReport,
+  type InsertMerchantResidual, type MerchantResidual,
+  type InsertHealthAlert, type HealthAlert,
+  type InsertDealCompetitor, type DealCompetitor,
+  type InsertPartner, type Partner,
+  type InsertReferral, type Referral,
+  type InsertCommissionTier, type CommissionTier,
+  type InsertKnowledgeBaseArticle, type KnowledgeBaseArticle,
+  type InsertReviewRequest, type ReviewRequest,
+  type InsertTestimonialSubmission, type TestimonialSubmission,
+  type InsertOnboardingStep, type OnboardingStep,
+  type InsertConsentAuditLog, type ConsentAuditLog,
+  type CalendarEvent, type InsertCalendarEvent,
+  systemSettings,
+  dataDeleteRequests,
+  type DataDeleteRequest, type InsertDataDeleteRequest,
+  comments, ticketComments, contactCompanies, pipelineStages, notificationPreferences, savedFilters,
+  type Comment, type InsertComment,
+  type TicketComment, type InsertTicketComment,
+  type ContactCompany, type InsertContactCompany,
+  type PipelineStage, type InsertPipelineStage,
+  type NotificationPreference, type InsertNotificationPreference,
+  type SavedFilter, type InsertSavedFilter,
+  csvImports, type CsvImport, type InsertCsvImport,
+  generatedBlogPosts,
+  type GeneratedBlogPost, type InsertGeneratedBlogPost,
+  type UpdateSdrLeadState,
+  ghlWorkflowMappings, type GhlWorkflowMapping,
+  npsResponses, type NpsResponse, type InsertNpsResponse,
+  merchantReferrals, type MerchantReferral, type InsertMerchantReferral,
+  retentionCampaignConfigs, type RetentionCampaignConfig, type InsertRetentionCampaignConfig,
+  type MidDailyStat, type InsertMidDailyStat,
+  roleplaySessions, type RoleplaySession, type InsertRoleplaySession,
+  roleplayExchanges, type RoleplayExchange, type InsertRoleplayExchange,
+  leaderboardSettings, type LeaderboardSettings,
+} from "@shared/schema";
+import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, count } from "drizzle-orm";
+
+  export interface PaginationParams {
+    limit?: number;
+    offset?: number;
+  }
+
+  export interface PaginatedResult<T> {
+    data: T[];
+    total: number;
+    limit: number;
+    offset: number;
+  }
+
+  const DEFAULT_LIMIT = 100;
+  const MAX_LIMIT = 500;
+
+  export function normalizePagination(params?: PaginationParams): { limit: number; offset: number } {
+    const limit = Math.min(Math.max(params?.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
+    const offset = Math.max(params?.offset ?? 0, 0);
+    return { limit, offset };
+  }
+  

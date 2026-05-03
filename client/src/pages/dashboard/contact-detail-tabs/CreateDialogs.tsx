@@ -1,0 +1,389 @@
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Building2 } from "lucide-react";
+import type { Dispatch, SetStateAction } from "react";
+import type { Company, ContactCompany } from "@shared/schema";
+
+type DealForm = { pipeline: string; stage: string; offerPath: string; notes: string };
+type TicketForm = { subject: string; description: string; priority: string; category: string };
+type TaskForm = { title: string; description: string; dueDate: string };
+type NewCompanyForm = { legalName: string; dba: string; vertical: string; website: string };
+
+interface Props {
+  showDealDialog: boolean;
+  setShowDealDialog: Dispatch<SetStateAction<boolean>>;
+  dealForm: DealForm;
+  setDealForm: Dispatch<SetStateAction<DealForm>>;
+  createDeal: () => void;
+
+  showTicketDialog: boolean;
+  setShowTicketDialog: Dispatch<SetStateAction<boolean>>;
+  ticketForm: TicketForm;
+  setTicketForm: Dispatch<SetStateAction<TicketForm>>;
+  createTicket: () => void;
+
+  showTaskDialog: boolean;
+  setShowTaskDialog: Dispatch<SetStateAction<boolean>>;
+  taskForm: TaskForm;
+  setTaskForm: Dispatch<SetStateAction<TaskForm>>;
+  createTask: () => void;
+
+  showCompanyDialog: boolean;
+  setShowCompanyDialog: Dispatch<SetStateAction<boolean>>;
+  companyMode: "existing" | "new";
+  setCompanyMode: Dispatch<SetStateAction<"existing" | "new">>;
+  companySearch: string;
+  setCompanySearch: Dispatch<SetStateAction<string>>;
+  selectedCompanyId: string;
+  setSelectedCompanyId: Dispatch<SetStateAction<string>>;
+  newCompanyForm: NewCompanyForm;
+  setNewCompanyForm: Dispatch<SetStateAction<NewCompanyForm>>;
+  companyRole: string;
+  setCompanyRole: Dispatch<SetStateAction<string>>;
+  companyIsPrimary: boolean;
+  setCompanyIsPrimary: Dispatch<SetStateAction<boolean>>;
+  allCompanies: Company[];
+  contactCompanies: ContactCompany[];
+  addCompanyAssociation: { mutate: (v: { companyId: number; role?: string; isPrimary: boolean }) => void; isPending: boolean };
+  createAndLinkCompany: { mutate: () => void; isPending: boolean };
+}
+
+export function CreateDialogs(p: Props) {
+  return (
+    <>
+      {/* Create Deal Dialog */}
+      <Dialog open={p.showDealDialog} onOpenChange={p.setShowDealDialog}>
+        <DialogContent data-testid="dialog-create-deal">
+          <DialogHeader>
+            <DialogTitle>Create Deal</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Pipeline</label>
+              <Select value={p.dealForm.pipeline} onValueChange={v => p.setDealForm(prev => ({ ...prev, pipeline: v }))}>
+                <SelectTrigger data-testid="select-deal-pipeline">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="sales">Sales</SelectItem>
+                  <SelectItem value="onboarding">Onboarding</SelectItem>
+                  <SelectItem value="retention">Retention</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Stage</label>
+              <Input
+                value={p.dealForm.stage}
+                onChange={e => p.setDealForm(prev => ({ ...prev, stage: e.target.value }))}
+                data-testid="input-deal-stage"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Offer Path</label>
+              <Input
+                value={p.dealForm.offerPath}
+                onChange={e => p.setDealForm(prev => ({ ...prev, offerPath: e.target.value }))}
+                placeholder="e.g., Cash Discount, Flat Rate"
+                data-testid="input-deal-offerpath"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Notes</label>
+              <Textarea
+                value={p.dealForm.notes}
+                onChange={e => p.setDealForm(prev => ({ ...prev, notes: e.target.value }))}
+                rows={3}
+                data-testid="textarea-deal-notes"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => p.setShowDealDialog(false)} data-testid="button-cancel-deal">
+                Cancel
+              </Button>
+              <Button onClick={p.createDeal} data-testid="button-submit-deal">
+                Create Deal
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create Ticket Dialog */}
+      <Dialog open={p.showTicketDialog} onOpenChange={p.setShowTicketDialog}>
+        <DialogContent data-testid="dialog-create-ticket">
+          <DialogHeader>
+            <DialogTitle>Create Ticket</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Subject</label>
+              <Input
+                value={p.ticketForm.subject}
+                onChange={e => p.setTicketForm(prev => ({ ...prev, subject: e.target.value }))}
+                data-testid="input-ticket-subject"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Description</label>
+              <Textarea
+                value={p.ticketForm.description}
+                onChange={e => p.setTicketForm(prev => ({ ...prev, description: e.target.value }))}
+                rows={3}
+                data-testid="textarea-ticket-description"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Priority</label>
+              <Select value={p.ticketForm.priority} onValueChange={v => p.setTicketForm(prev => ({ ...prev, priority: v }))}>
+                <SelectTrigger data-testid="select-ticket-priority">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Low">Low</SelectItem>
+                  <SelectItem value="Normal">Normal</SelectItem>
+                  <SelectItem value="High">High</SelectItem>
+                  <SelectItem value="Urgent">Urgent</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => p.setShowTicketDialog(false)} data-testid="button-cancel-ticket">
+                Cancel
+              </Button>
+              <Button onClick={p.createTicket} disabled={!p.ticketForm.subject || !p.ticketForm.description} data-testid="button-submit-ticket">
+                Create Ticket
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create Task Dialog */}
+      <Dialog open={p.showTaskDialog} onOpenChange={p.setShowTaskDialog}>
+        <DialogContent data-testid="dialog-create-task">
+          <DialogHeader>
+            <DialogTitle>Create Task</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Title</label>
+              <Input
+                value={p.taskForm.title}
+                onChange={e => p.setTaskForm(prev => ({ ...prev, title: e.target.value }))}
+                data-testid="input-task-title"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Description</label>
+              <Textarea
+                value={p.taskForm.description}
+                onChange={e => p.setTaskForm(prev => ({ ...prev, description: e.target.value }))}
+                rows={3}
+                data-testid="textarea-task-description"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Due Date</label>
+              <Input
+                type="date"
+                value={p.taskForm.dueDate}
+                onChange={e => p.setTaskForm(prev => ({ ...prev, dueDate: e.target.value }))}
+                data-testid="input-task-duedate"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => p.setShowTaskDialog(false)} data-testid="button-cancel-task">
+                Cancel
+              </Button>
+              <Button onClick={p.createTask} disabled={!p.taskForm.title} data-testid="button-submit-task">
+                Create Task
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Link Company Dialog */}
+      <Dialog open={p.showCompanyDialog} onOpenChange={p.setShowCompanyDialog}>
+        <DialogContent data-testid="dialog-link-company">
+          <DialogHeader>
+            <DialogTitle>Link Company</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="flex gap-2">
+              <Button
+                variant={p.companyMode === "existing" ? "default" : "outline"}
+                size="sm"
+                onClick={() => p.setCompanyMode("existing")}
+                data-testid="button-mode-existing"
+              >
+                Select Existing
+              </Button>
+              <Button
+                variant={p.companyMode === "new" ? "default" : "outline"}
+                size="sm"
+                onClick={() => p.setCompanyMode("new")}
+                data-testid="button-mode-new"
+              >
+                Create New
+              </Button>
+            </div>
+
+            {p.companyMode === "existing" ? (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Search Company</label>
+                <Input
+                  value={p.companySearch}
+                  onChange={e => p.setCompanySearch(e.target.value)}
+                  placeholder="Search by name..."
+                  data-testid="input-company-search"
+                />
+                <div className="max-h-40 overflow-y-auto border rounded-md">
+                  {p.allCompanies
+                    .filter(c => {
+                      if (!p.companySearch) return true;
+                      const q = p.companySearch.toLowerCase();
+                      return (
+                        c.legalName.toLowerCase().includes(q) ||
+                        (c.dba && c.dba.toLowerCase().includes(q))
+                      );
+                    })
+                    .filter(c => !p.contactCompanies.some(cc => cc.companyId === c.id))
+                    .map(c => (
+                      <div
+                        key={c.id}
+                        className={`flex items-center gap-2 p-2 cursor-pointer hover-elevate ${p.selectedCompanyId === String(c.id) ? "bg-accent" : ""}`}
+                        onClick={() => p.setSelectedCompanyId(String(c.id))}
+                        data-testid={`company-option-${c.id}`}
+                      >
+                        <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate">{c.legalName}</p>
+                          {c.dba && <p className="text-xs text-muted-foreground truncate">DBA: {c.dba}</p>}
+                        </div>
+                      </div>
+                    ))}
+                  {p.allCompanies.filter(c => {
+                    if (!p.companySearch) return true;
+                    const q = p.companySearch.toLowerCase();
+                    return c.legalName.toLowerCase().includes(q) || (c.dba && c.dba.toLowerCase().includes(q));
+                  }).filter(c => !p.contactCompanies.some(cc => cc.companyId === c.id)).length === 0 && (
+                    <p className="text-sm text-muted-foreground p-3 text-center">No companies found</p>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Legal Name *</label>
+                  <Input
+                    value={p.newCompanyForm.legalName}
+                    onChange={e => p.setNewCompanyForm(prev => ({ ...prev, legalName: e.target.value }))}
+                    placeholder="Company legal name"
+                    data-testid="input-new-company-name"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">DBA</label>
+                  <Input
+                    value={p.newCompanyForm.dba}
+                    onChange={e => p.setNewCompanyForm(prev => ({ ...prev, dba: e.target.value }))}
+                    placeholder="Doing business as"
+                    data-testid="input-new-company-dba"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Vertical</label>
+                  <Select value={p.newCompanyForm.vertical} onValueChange={v => p.setNewCompanyForm(prev => ({ ...prev, vertical: v }))}>
+                    <SelectTrigger data-testid="select-new-company-vertical">
+                      <SelectValue placeholder="Select vertical" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Medical/Dental/Medspa">Medical/Dental/Medspa</SelectItem>
+                      <SelectItem value="Automotive">Automotive</SelectItem>
+                      <SelectItem value="Restaurant">Restaurant</SelectItem>
+                      <SelectItem value="Home Services">Home Services</SelectItem>
+                      <SelectItem value="Retail">Retail</SelectItem>
+                      <SelectItem value="Other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Website</label>
+                  <Input
+                    value={p.newCompanyForm.website}
+                    onChange={e => p.setNewCompanyForm(prev => ({ ...prev, website: e.target.value }))}
+                    placeholder="https://..."
+                    data-testid="input-new-company-website"
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Role</label>
+              <Select value={p.companyRole} onValueChange={p.setCompanyRole}>
+                <SelectTrigger data-testid="select-company-role">
+                  <SelectValue placeholder="Select role" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Owner">Owner</SelectItem>
+                  <SelectItem value="Manager">Manager</SelectItem>
+                  <SelectItem value="Employee">Employee</SelectItem>
+                  <SelectItem value="Partner">Partner</SelectItem>
+                  <SelectItem value="Consultant">Consultant</SelectItem>
+                  <SelectItem value="Other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="company-primary"
+                checked={p.companyIsPrimary}
+                onChange={e => p.setCompanyIsPrimary(e.target.checked)}
+                className="rounded border-input"
+                data-testid="checkbox-company-primary"
+              />
+              <label htmlFor="company-primary" className="text-sm font-medium cursor-pointer">
+                Primary Company
+              </label>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => p.setShowCompanyDialog(false)} data-testid="button-cancel-company">
+                Cancel
+              </Button>
+              {p.companyMode === "existing" ? (
+                <Button
+                  onClick={() => p.addCompanyAssociation.mutate({
+                    companyId: Number(p.selectedCompanyId),
+                    role: p.companyRole || undefined,
+                    isPrimary: p.companyIsPrimary,
+                  })}
+                  disabled={!p.selectedCompanyId || p.addCompanyAssociation.isPending}
+                  data-testid="button-submit-link-company"
+                >
+                  Link Company
+                </Button>
+              ) : (
+                <Button
+                  onClick={() => p.createAndLinkCompany.mutate()}
+                  disabled={!p.newCompanyForm.legalName || p.createAndLinkCompany.isPending}
+                  data-testid="button-submit-create-company"
+                >
+                  Create & Link
+                </Button>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
