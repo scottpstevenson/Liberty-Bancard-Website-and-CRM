@@ -18,6 +18,7 @@ import {
   Loader2, CalendarDays, PhoneCall, Link2, Copy, ChevronRight, Star,
   BookOpen, LayoutDashboard, Users, ClipboardList, Calendar, FileText,
   ExternalLink, XCircle, Activity, MessageSquare, Voicemail, Video,
+  Trophy, TrendingDown, Minus, Crown, Medal, Award,
 } from "lucide-react";
 import { SALES_STAGES } from "@shared/schema";
 
@@ -113,6 +114,193 @@ function UpcomingMeetingsWidget() {
                 )}
               </div>
             ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+interface LeaderboardEntry {
+  agentId: number;
+  name: string;
+  initials: string;
+  rank: number;
+  dealsClosed: number;
+  revenueManaged: number;
+  proposalsSent: number;
+  callsMade: number;
+  responseRate: number;
+  prevDealsClosed: number;
+  prevRevenueManaged: number;
+  prevProposalsSent: number;
+  prevCallsMade: number;
+  prevResponseRate: number;
+  isCurrentUser: boolean;
+}
+
+interface LeaderboardResponse {
+  entries: LeaderboardEntry[];
+  period: string;
+  settings: {
+    showDeals: boolean;
+    showRevenue: boolean;
+    visibleToAgents: boolean;
+    monthlyDealGoal: number;
+    monthlyRevenueGoal: string;
+  };
+}
+
+function formatRevenueShort(val: number): string {
+  if (val >= 1_000_000) return `$${(val / 1_000_000).toFixed(1)}M`;
+  if (val >= 1_000) return `$${(val / 1_000).toFixed(1)}K`;
+  return `$${Math.round(val)}`;
+}
+
+function YourRankCard() {
+  const { data, isLoading } = useQuery<LeaderboardResponse>({
+    queryKey: ["/api/leaderboard", "month"],
+    queryFn: async () => {
+      const res = await fetch("/api/leaderboard?period=month", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load leaderboard");
+      return res.json();
+    },
+    refetchInterval: 5 * 60 * 1000,
+  });
+
+  if (isLoading) {
+    return (
+      <Card data-testid="card-your-rank">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Trophy className="w-4 h-4 text-yellow-500" />
+            Your Rank
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-full" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const entries = data?.entries ?? [];
+  const settings = data?.settings;
+
+  const sortedByDeals = [...entries].sort((a, b) => b.dealsClosed - a.dealsClosed);
+  const me = sortedByDeals.find((e) => e.isCurrentUser);
+  const myRank = me ? sortedByDeals.indexOf(me) + 1 : null;
+  const totalAgents = sortedByDeals.length;
+
+  // Compute previous-month rank for movement indicator
+  const sortedByPrevDeals = [...entries].sort((a, b) => b.prevDealsClosed - a.prevDealsClosed);
+  const prevRank = me ? sortedByPrevDeals.findIndex((e) => e.agentId === me.agentId) + 1 : 0;
+
+  if (!me || totalAgents === 0) {
+    return (
+      <Card data-testid="card-your-rank">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Trophy className="w-4 h-4 text-yellow-500" />
+            Your Rank
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-xs text-muted-foreground text-center py-4" data-testid="text-no-rank">
+            {settings && !settings.visibleToAgents
+              ? "Leaderboard hidden by your team admin."
+              : "Rank will appear once you have activity this month."}
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const dealGoal = settings?.monthlyDealGoal ?? 0;
+  const revenueGoal = settings ? parseFloat(settings.monthlyRevenueGoal) || 0 : 0;
+  const dealPct = dealGoal > 0 ? Math.min(100, Math.round((me.dealsClosed / dealGoal) * 100)) : null;
+  const revenuePct = revenueGoal > 0 ? Math.min(100, Math.round((me.revenueManaged / revenueGoal) * 100)) : null;
+
+  const rankDelta = prevRank > 0 ? prevRank - myRank! : 0; // positive = moved up
+  const RankIcon = myRank === 1 ? Crown : myRank === 2 ? Medal : myRank === 3 ? Award : Trophy;
+  const rankColor = myRank === 1 ? "text-yellow-500" : myRank === 2 ? "text-gray-400" : myRank === 3 ? "text-amber-600" : "text-primary";
+
+  return (
+    <Card data-testid="card-your-rank">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Trophy className="w-4 h-4 text-yellow-500" />
+            Your Rank
+          </div>
+          <Button variant="ghost" size="sm" asChild data-testid="link-leaderboard">
+            <Link href="/dashboard/leaderboard">
+              View <ChevronRight className="w-3 h-3 ml-0.5" />
+            </Link>
+          </Button>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center gap-3">
+          <div className={`w-12 h-12 rounded-full bg-muted flex items-center justify-center ${rankColor}`}>
+            <RankIcon className="w-6 h-6" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-baseline gap-1">
+              <span className="text-2xl font-bold" data-testid="text-your-rank">#{myRank}</span>
+              <span className="text-xs text-muted-foreground">of {totalAgents}</span>
+            </div>
+            <div className="flex items-center gap-1 text-xs mt-0.5" data-testid="text-rank-trend">
+              {prevRank === 0 ? (
+                <span className="text-muted-foreground flex items-center gap-1">
+                  <Minus className="w-3 h-3" /> No data last month
+                </span>
+              ) : rankDelta > 0 ? (
+                <span className="text-green-600 dark:text-green-500 flex items-center gap-1 font-medium">
+                  <TrendingUp className="w-3 h-3" /> Up {rankDelta} from last month
+                </span>
+              ) : rankDelta < 0 ? (
+                <span className="text-destructive flex items-center gap-1 font-medium">
+                  <TrendingDown className="w-3 h-3" /> Down {Math.abs(rankDelta)} from last month
+                </span>
+              ) : (
+                <span className="text-muted-foreground flex items-center gap-1">
+                  <Minus className="w-3 h-3" /> Same as last month
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {dealPct !== null && (
+          <div className="space-y-1.5" data-testid="rank-deals-progress">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-medium flex items-center gap-1.5">
+                <Target className="w-3 h-3 text-primary" />
+                Deals Closed
+              </span>
+              <span className="text-muted-foreground" data-testid="text-rank-deals-value">
+                {me.dealsClosed} / {dealGoal}
+              </span>
+            </div>
+            <Progress value={dealPct} className="h-1.5" />
+          </div>
+        )}
+
+        {revenuePct !== null && (
+          <div className="space-y-1.5" data-testid="rank-revenue-progress">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-medium flex items-center gap-1.5">
+                <TrendingUp className="w-3 h-3 text-green-600" />
+                Revenue
+              </span>
+              <span className="text-muted-foreground" data-testid="text-rank-revenue-value">
+                {formatRevenueShort(me.revenueManaged)} / {formatRevenueShort(revenueGoal)}
+              </span>
+            </div>
+            <Progress value={revenuePct} className="h-1.5" />
           </div>
         )}
       </CardContent>
@@ -771,6 +959,9 @@ export default function SalesRepHome() {
 
         {/* Right Column */}
         <div className="space-y-4">
+          {/* Your Rank */}
+          <YourRankCard />
+
           {/* Upcoming Meetings */}
           <UpcomingMeetingsWidget />
 
