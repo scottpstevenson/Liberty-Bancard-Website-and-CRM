@@ -24,6 +24,7 @@ import { registerPartnersRoutes } from "./routes/partners";
 import { registerCrmOperationsRoutes } from "./routes/crm-operations";
 import { registerImportsRoutes } from "./routes/imports";
 import { registerSdrRoutes } from "./routes/sdr";
+import { registerActivationRoutes } from "./routes/activation";
 import { registerSsrRoutes } from "./routes/ssr-routes";
 import { registerOgRoutes } from "./routes/og";
 import { registerSeoAdminRoutes } from "./routes/seo-admin";
@@ -90,6 +91,7 @@ export async function registerRoutes(
   registerCrmOperationsRoutes(app);
   registerImportsRoutes(app);
   registerSdrRoutes(app);
+  registerActivationRoutes(app);
 
   // SEO #178 — programmatic OG image route + admin coverage endpoint.
   // Registered BEFORE registerSsrRoutes so the 301 redirect for the

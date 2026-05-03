@@ -52,6 +52,113 @@ const DEFAULT_SLA_RULES = [
   },
 ];
 
+const SLA_THROTTLE_HOURS = 6;
+
+/**
+ * Find the most recent matching breach audit row inside the throttle window.
+ * Returns the row (so the caller can collapse into it) or null.
+ */
+async function findRecentBreachAudit(entityType: string, entityId: number, action: string, hours: number) {
+  const cutoff = Date.now() - hours * 60 * 60 * 1000;
+  const logs = await storage.getAuditLogs();
+  const matches = logs.filter((l: any) =>
+    l.entityType === entityType &&
+    l.entityId === entityId &&
+    l.action === action &&
+    l.createdAt && new Date(l.createdAt).getTime() > cutoff
+  );
+  if (matches.length === 0) return null;
+  matches.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  return matches[0];
+}
+
+/**
+ * Collapse a repeat breach: bump the counter on the most recent audit row in
+ * the throttle window, and refresh the existing pending task description.
+ * Returns true when a collapse happened (caller should skip creating new noise).
+ */
+async function collapseBreachIfRecent(
+  entityType: string,
+  entityId: number,
+  action: string,
+  existingTaskId: number | null,
+): Promise<boolean> {
+  let recent = await findRecentBreachAudit(entityType, entityId, action, SLA_THROTTLE_HOURS);
+  // If a stale pending task exists but the audit row has aged out of the
+  // throttle window, anchor a fresh audit row so the counter keeps advancing
+  // for long-running breaches instead of going silent.
+  if (!recent && existingTaskId) {
+    recent = await storage.createAuditLog({
+      action,
+      entityType,
+      entityId,
+      details: { sla_breach_collapsed: false, collapsedCount: 1, anchoredFromStaleTask: true, taskId: existingTaskId },
+    });
+  }
+  if (!recent) return false;
+
+  const prevDetails = (recent.details as Record<string, unknown>) || {};
+  const prevCount = typeof prevDetails.collapsedCount === "number" ? prevDetails.collapsedCount : 1;
+  const nextCount = prevCount + 1;
+
+  // Update the existing audit row in place rather than emitting a new
+  // *_collapsed audit per cycle. This keeps audit volume flat across the
+  // throttle window so collapse truly silences the alert storm for any
+  // downstream metrics/alerting that watch the audit_logs table.
+  const { auditLogs } = await import("@shared/schema");
+  const { eq } = await import("drizzle-orm");
+  const { db } = await import("../db");
+  // Slide the audit row's createdAt forward so the 6h throttle window
+  // anchors on the latest occurrence — long-running breaches keep
+  // incrementing the counter indefinitely instead of stopping after 6h.
+  const nowIso = new Date();
+  await db.update(auditLogs).set({
+    createdAt: nowIso,
+    details: {
+      ...prevDetails,
+      sla_breach_collapsed: true,
+      collapsedCount: nextCount,
+      collapsedAt: nowIso.toISOString(),
+      firstBreachAt: prevDetails.firstBreachAt || (recent.createdAt ? new Date(recent.createdAt).toISOString() : nowIso.toISOString()),
+    },
+  }).where(eq(auditLogs.id, recent.id));
+
+  if (existingTaskId) {
+    const tasks = await storage.getTasks();
+    const t = tasks.find(x => x.id === existingTaskId);
+    if (t) {
+      const baseDesc = (t.description || "").replace(/\s*\(\+\d+ repeat breaches.*\)$/, "");
+      await storage.updateTask(existingTaskId, {
+        description: `${baseDesc} (+${nextCount - 1} repeat breaches in last ${SLA_THROTTLE_HOURS}h)`,
+      });
+    }
+  }
+  return true;
+}
+
+async function autoResolveClearedSlaTasks(activeStuckIds: Set<number>) {
+  try {
+    const tasks = await storage.getTasks();
+    const pendingSla = tasks.filter(t =>
+      t.status === "pending" && t.title?.includes("SLA Alert") && t.dealId && !activeStuckIds.has(t.dealId)
+    );
+    for (const t of pendingSla) {
+      await storage.updateTask(t.id, { status: "completed" });
+      await storage.createAuditLog({
+        action: "sla_breach_resolved",
+        entityType: "deal",
+        entityId: t.dealId!,
+        details: { taskId: t.id, resolvedAt: new Date().toISOString(), reason: "Deal moved out of breached stage" },
+      });
+    }
+    if (pendingSla.length > 0) {
+      console.log(`[SLA] Auto-resolved ${pendingSla.length} cleared SLA breaches`);
+    }
+  } catch (err) {
+    console.error("[SLA] Auto-resolve error:", err);
+  }
+}
+
 async function checkDealSla(rule: typeof DEFAULT_SLA_RULES[0]) {
   if (!rule.stage) return;
 
@@ -61,7 +168,15 @@ async function checkDealSla(rule: typeof DEFAULT_SLA_RULES[0]) {
     const existingTasks = (await storage.getTasks()).filter(
       t => t.dealId === deal.id && t.status === "pending" && t.title?.includes("SLA")
     );
-    if (existingTasks.length > 0) continue;
+    const existingTaskId = existingTasks[0]?.id ?? null;
+
+    // Collapse: if this same breach already happened within the throttle
+    // window, bump the counter on the existing audit/task instead of creating
+    // a new alert.
+    if (existingTaskId || await findRecentBreachAudit("deal", deal.id, "sla_breach", SLA_THROTTLE_HOURS)) {
+      await collapseBreachIfRecent("deal", deal.id, "sla_breach", existingTaskId);
+      continue;
+    }
 
     const minutesStuck = Math.round((Date.now() - new Date(deal.updatedAt!).getTime()) / 60000);
     const hoursStuck = Math.round(minutesStuck / 60);
@@ -87,7 +202,7 @@ async function checkDealSla(rule: typeof DEFAULT_SLA_RULES[0]) {
       action: "sla_breach",
       entityType: "deal",
       entityId: deal.id,
-      details: { rule: rule.name, minutesStuck, stage: rule.stage },
+      details: { rule: rule.name, minutesStuck, stage: rule.stage, sla_breach_collapsed: false },
     });
 
     sendCriticalEmailNotification({
@@ -122,7 +237,11 @@ async function checkTicketSla() {
     const existingTasks = (await storage.getTasks()).filter(
       t => t.ticketId === ticket.id && t.status === "pending" && t.title?.includes("SLA")
     );
-    if (existingTasks.length > 0) continue;
+    const existingTaskId = existingTasks[0]?.id ?? null;
+    if (existingTaskId || await findRecentBreachAudit("ticket", ticket.id, "ticket_sla_breach", SLA_THROTTLE_HOURS)) {
+      await collapseBreachIfRecent("ticket", ticket.id, "ticket_sla_breach", existingTaskId);
+      continue;
+    }
 
     const minutesPastSla = ticket.slaDeadline
       ? Math.round((Date.now() - new Date(ticket.slaDeadline).getTime()) / 60000)
@@ -174,13 +293,19 @@ async function runSlaCheck() {
         }))
       : DEFAULT_SLA_RULES;
 
+    const activeStuckDealIds = new Set<number>();
     for (const rule of rules) {
       if (rule.entityType === "deal") {
         await checkDealSla(rule);
+        if (rule.stage) {
+          const stuck = await storage.getDealsStuckInStage(rule.stage, rule.maxDurationMinutes);
+          stuck.forEach((d: any) => activeStuckDealIds.add(d.id));
+        }
       } else if (rule.entityType === "ticket") {
         await checkTicketSla();
       }
     }
+    await autoResolveClearedSlaTasks(activeStuckDealIds);
   } catch (err) {
     console.error("SLA check error:", err);
   }
@@ -332,6 +457,7 @@ async function periodicLeadScoring() {
 let slaInterval: NodeJS.Timeout | null = null;
 let cycleCount = 0;
 const AI_OPS_EVERY_N_CYCLES = 2;
+const STAGE_PROGRESSION_EVERY_N_CYCLES = 12; // ~1 hour at 5-min cycle
 
 async function runScheduledAiOps() {
   try {
@@ -614,11 +740,49 @@ export function startSlaWorker() {
   console.log("SLA Worker started - checking every 5 minutes");
   slaInterval = setInterval(async () => {
     await runSlaCheck();
+    await storage.setSystemSetting("sla_worker_last_tick", { at: new Date().toISOString(), cycle: cycleCount + 1 }).catch(() => {});
     await checkWaitingWorkflows();
     if (featureFlags.LEGACY_OUTREACH_ENABLED) {
-      await processSequenceEnrollments().catch(err => console.error("Sequence enrollment processing error:", err));
+      let processed = 0, sent = 0;
+      try {
+        const result = await processSequenceEnrollments();
+        if (result && typeof result === "object") {
+          processed = (result as any).processed ?? 0;
+          sent = (result as any).sent ?? 0;
+        }
+      } catch (err) {
+        console.error("Sequence enrollment processing error:", err);
+      }
+      await storage.setSystemSetting("sequence_runner_last_tick", {
+        at: new Date().toISOString(),
+        processed,
+        sent,
+        enabled: true,
+      }).catch(() => {});
       await processSendQueue().catch(err => console.error("Campaign send queue error:", err));
       await runSunbizAutoConvert().catch(err => console.error("Sunbiz auto-convert error:", err));
+    } else {
+      await storage.setSystemSetting("sequence_runner_last_tick", {
+        at: new Date().toISOString(),
+        processed: 0,
+        sent: 0,
+        enabled: false,
+        note: "LEGACY_OUTREACH_ENABLED is off",
+      }).catch(() => {});
+    }
+
+    // Auto-advance sales deals based on derived signals once per hour
+    // (cycleCount increments at the bottom of this interval).
+    if (cycleCount % STAGE_PROGRESSION_EVERY_N_CYCLES === 0) {
+      try {
+        const { runStageProgressionSweep } = await import("./stage-progression");
+        const result = await runStageProgressionSweep({ limit: 1000 });
+        if (result.progressed > 0) {
+          console.log(`[StageProgression] Auto-advanced ${result.progressed}/${result.evaluated} active sales deals`);
+        }
+      } catch (err) {
+        console.error("[StageProgression] Worker sweep error:", err);
+      }
     }
     await processEnrichmentQueue().catch(err => console.error("Enrichment queue error:", err));
     await processSunbizEnrichmentQueue(5).catch(err => console.error("Sunbiz enrichment queue error:", err));

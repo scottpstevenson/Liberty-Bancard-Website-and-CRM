@@ -8,7 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "@/components/ui/dialog";
-import { Loader2, Play, Square, Pause, Shield, Activity, Server, Mail, AlertTriangle, CheckCircle2, XCircle, Zap, RefreshCw, Radio, ArrowRightLeft, Plus, Pencil } from "lucide-react";
+import { Loader2, Play, Square, Pause, Shield, Activity, Server, Mail, AlertTriangle, CheckCircle2, XCircle, Zap, RefreshCw, Radio, ArrowRightLeft, Plus, Pencil, ListChecks, Circle } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
@@ -51,6 +51,8 @@ interface SendingIdentity {
   dailyLimit: number;
   sentToday: number;
   healthScore: number | null;
+  warmupStatus?: string | null;
+  warmupStartedAt?: string | null;
 }
 
 interface ChannelAttempt {
@@ -124,6 +126,363 @@ interface IdentityFormState {
 }
 
 const emptyIdentityForm: IdentityFormState = { label: "", emailAddress: "", dailyLimit: "50", status: "active" };
+
+interface ActivationCheck {
+  id: string;
+  label: string;
+  ok: boolean;
+  detail: string;
+}
+
+interface ActivationStatus {
+  ready: boolean;
+  checks: ActivationCheck[];
+  heartbeat: { sequenceRunner: any; slaWorker: any; stageProgression: any };
+  activeIdentities: number;
+  totalIdentities: number;
+  activeEnrollments: number;
+  flags: Record<string, boolean>;
+}
+
+interface WizardProps {
+  identities: SendingIdentity[];
+  ghlHealth: GhlHealthData | undefined;
+  onTestGhl: () => void;
+  ghlTesting: boolean;
+}
+
+interface ValidationResult {
+  ok: boolean;
+  errors: string[];
+  warnings: string[];
+  ghlProbe: { ok: boolean; detail: string };
+}
+
+function SendingIdentityWizard({ identities, ghlHealth, onTestGhl, ghlTesting }: WizardProps) {
+  const { toast } = useToast();
+  const [form, setForm] = useState<IdentityFormState>(emptyIdentityForm);
+  const [validation, setValidation] = useState<ValidationResult | null>(null);
+  const hasIdentity = identities.length > 0;
+  const firstIdentity = identities[0];
+
+  const ghlReady = !!ghlHealth?.configured && !!ghlHealth?.authTest;
+
+  const validateMutation = useMutation({
+    mutationFn: async () => {
+      const r = await apiRequest("POST", "/api/operator/validate-identity", {
+        label: form.label,
+        emailAddress: form.emailAddress,
+      });
+      return r.json() as Promise<ValidationResult>;
+    },
+    onSuccess: (data) => {
+      setValidation(data);
+      if (!data.ok) toast({ title: "Validation failed", description: data.errors[0], variant: "destructive" });
+    },
+    onError: (err: Error) => toast({ title: "Validation error", description: err.message, variant: "destructive" }),
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      // Always re-validate server-side immediately before saving so the GHL
+      // sender check is the gate, not the client state.
+      const v = await apiRequest("POST", "/api/operator/validate-identity", {
+        label: form.label,
+        emailAddress: form.emailAddress,
+      });
+      const vData = await v.json() as ValidationResult;
+      setValidation(vData);
+      if (!vData.ok) {
+        throw new Error(vData.errors[0] || "Identity validation failed");
+      }
+      const r = await apiRequest("POST", "/api/sdr/sending-identities", {
+        label: form.label,
+        emailAddress: form.emailAddress,
+        dailyLimit: parseInt(form.dailyLimit, 10),
+        status: form.status,
+      });
+      return r.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/sdr/sending-identities"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sdr/health"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/operator/activation-status"] });
+      toast({ title: "Sending identity created", description: "Warmup schedule started" });
+      setForm(emptyIdentityForm);
+      setValidation(null);
+    },
+    onError: (err: Error) => toast({ title: "Failed to create identity", description: err.message, variant: "destructive" }),
+  });
+
+  const step1Done = ghlReady;
+  const step2Done = hasIdentity;
+  const step3Done = hasIdentity && (firstIdentity?.warmupStatus === "warm" || firstIdentity?.healthScore !== null);
+
+  const warmupSchedule = [
+    { day: "Day 1-3", limit: 10, label: "Initial warmup" },
+    { day: "Day 4-7", limit: 25, label: "Ramp-up" },
+    { day: "Day 8-14", limit: 50, label: "Mid warmup" },
+    { day: "Day 15+", limit: form.dailyLimit ? parseInt(form.dailyLimit, 10) : 50, label: "Full daily limit" },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Mail className="w-4 h-4" /> First Sending Identity Wizard
+            <Badge variant={hasIdentity ? "default" : "secondary"}>
+              {hasIdentity ? "Identity active" : "Action required"}
+            </Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Step 1 — GHL validation */}
+          <div className="border rounded p-3" data-testid="wizard-step-ghl">
+            <div className="flex items-start gap-3">
+              <div className="flex items-center justify-center w-6 h-6 rounded-full border text-xs font-bold">1</div>
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  {step1Done ? <CheckCircle2 className="w-4 h-4 text-green-600" /> : <Circle className="w-4 h-4 text-muted-foreground" />}
+                  <span className="font-medium text-sm">Validate GHL connection</span>
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  Configured: <Badge variant={ghlHealth?.configured ? "default" : "destructive"}>{ghlHealth?.configured ? "Yes" : "No"}</Badge>
+                  {" "}Auth: <Badge variant={ghlHealth?.authTest ? "default" : "secondary"}>{ghlHealth?.authTest ? "Pass" : "Pending"}</Badge>
+                  {" "}Webhook: <Badge variant={ghlHealth?.hasWebhookSecret ? "default" : "secondary"}>{ghlHealth?.hasWebhookSecret ? "Set" : "Missing"}</Badge>
+                </div>
+                <Button size="sm" variant="outline" className="mt-2" onClick={onTestGhl} disabled={ghlTesting} data-testid="button-wizard-test-ghl">
+                  {ghlTesting ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Zap className="w-3 h-3 mr-1" />}
+                  Test &amp; bootstrap GHL
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* Step 2 — Identity form */}
+          <div className="border rounded p-3" data-testid="wizard-step-identity">
+            <div className="flex items-start gap-3">
+              <div className="flex items-center justify-center w-6 h-6 rounded-full border text-xs font-bold">2</div>
+              <div className="flex-1 space-y-2">
+                <div className="flex items-center gap-2">
+                  {step2Done ? <CheckCircle2 className="w-4 h-4 text-green-600" /> : <Circle className="w-4 h-4 text-muted-foreground" />}
+                  <span className="font-medium text-sm">Add your first sending identity</span>
+                </div>
+                {!hasIdentity ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
+                    <div>
+                      <Label className="text-xs">Label</Label>
+                      <Input value={form.label} onChange={e => setForm(f => ({ ...f, label: e.target.value }))} placeholder="Main Sales" data-testid="input-wizard-label" />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Email Address</Label>
+                      <Input type="email" value={form.emailAddress} onChange={e => setForm(f => ({ ...f, emailAddress: e.target.value }))} placeholder="sales@example.com" data-testid="input-wizard-email" />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Daily Limit (post-warmup)</Label>
+                      <Input type="number" value={form.dailyLimit} onChange={e => setForm(f => ({ ...f, dailyLimit: e.target.value }))} min={1} max={200} data-testid="input-wizard-limit" />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Status</Label>
+                      <Select value={form.status} onValueChange={v => setForm(f => ({ ...f, status: v }))}>
+                        <SelectTrigger data-testid="select-wizard-status"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="active">Active</SelectItem>
+                          <SelectItem value="warming">Warming</SelectItem>
+                          <SelectItem value="paused">Paused</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="md:col-span-2 flex flex-wrap gap-2">
+                      <Button
+                        variant="outline"
+                        onClick={() => validateMutation.mutate()}
+                        disabled={validateMutation.isPending || !form.label || !form.emailAddress}
+                        data-testid="button-wizard-validate"
+                      >
+                        {validateMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Shield className="w-4 h-4 mr-1" />}
+                        Validate sender in GHL
+                      </Button>
+                      <Button
+                        onClick={() => createMutation.mutate()}
+                        disabled={!step1Done || !validation?.ok || createMutation.isPending || !form.label || !form.emailAddress}
+                        data-testid="button-wizard-create"
+                      >
+                        {createMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Plus className="w-4 h-4 mr-1" />}
+                        Create identity &amp; start warmup
+                      </Button>
+                    </div>
+                    {!step1Done && <p className="text-xs text-yellow-600 md:col-span-2">Pass step 1 (GHL connection) before validating the sender.</p>}
+                    {validation && (
+                      <div className={`md:col-span-2 text-xs p-2 rounded border ${validation.ok ? "border-green-500/50 bg-green-500/5" : "border-red-500/50 bg-red-500/5"}`} data-testid="text-wizard-validation">
+                        <div className="font-medium flex items-center gap-1">
+                          {validation.ok ? <CheckCircle2 className="w-3 h-3 text-green-600" /> : <XCircle className="w-3 h-3 text-red-600" />}
+                          {validation.ok ? "Sender validated — ready to save" : "Sender validation failed"}
+                        </div>
+                        {validation.errors.map((e, i) => <div key={`e${i}`} className="text-red-600 ml-4">• {e}</div>)}
+                        {validation.warnings.map((w, i) => <div key={`w${i}`} className="text-yellow-600 ml-4">⚠ {w}</div>)}
+                        {validation.ghlProbe && <div className="text-muted-foreground ml-4">GHL probe: {validation.ghlProbe.detail}</div>}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-xs text-muted-foreground" data-testid="text-identity-summary">
+                    {firstIdentity.label} &lt;{firstIdentity.emailAddress}&gt; · status {firstIdentity.status}
+                    {firstIdentity.warmupStatus ? ` · warmup ${firstIdentity.warmupStatus}` : ""}
+                    {firstIdentity.healthScore !== null ? ` · health ${firstIdentity.healthScore}` : ""}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Step 3 — Warmup schedule */}
+          <div className="border rounded p-3" data-testid="wizard-step-warmup">
+            <div className="flex items-start gap-3">
+              <div className="flex items-center justify-center w-6 h-6 rounded-full border text-xs font-bold">3</div>
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  {step3Done ? <CheckCircle2 className="w-4 h-4 text-green-600" /> : <Circle className="w-4 h-4 text-muted-foreground" />}
+                  <span className="font-medium text-sm">Warmup schedule</span>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  New identities are throttled in stages to protect deliverability. The system enforces these caps automatically — review the schedule below.
+                </p>
+                <div className="overflow-x-auto mt-2">
+                  <table className="w-full text-xs border" data-testid="table-warmup-schedule">
+                    <thead>
+                      <tr className="border-b bg-muted/30 text-left">
+                        <th className="py-1 px-2">Window</th>
+                        <th className="py-1 px-2">Send cap / day</th>
+                        <th className="py-1 px-2">Stage</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {warmupSchedule.map(w => (
+                        <tr key={w.day} className="border-b">
+                          <td className="py-1 px-2">{w.day}</td>
+                          <td className="py-1 px-2">{w.limit}</td>
+                          <td className="py-1 px-2">{w.label}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {firstIdentity?.warmupStartedAt && (
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Warmup started: {new Date(firstIdentity.warmupStartedAt).toLocaleString()} · Current status: <strong>{firstIdentity.warmupStatus || "warming"}</strong>
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function Day1Runbook() {
+  const { toast } = useToast();
+  const { data, isLoading, refetch } = useQuery<ActivationStatus>({
+    queryKey: ["/api/operator/activation-status"],
+    refetchInterval: 30000,
+  });
+
+  const backfillMutation = useMutation({
+    mutationFn: async () => {
+      const r = await apiRequest("POST", "/api/operator/backfill-stages", { limit: 1000 });
+      return r.json();
+    },
+    onSuccess: (res: any) => {
+      toast({ title: "Stage backfill complete", description: `Evaluated ${res.evaluated}, progressed ${res.progressed}` });
+      refetch();
+    },
+    onError: (err: Error) => toast({ title: "Backfill failed", description: err.message, variant: "destructive" }),
+  });
+
+  if (isLoading || !data) {
+    return <div className="p-6"><Loader2 className="w-5 h-5 animate-spin" /></div>;
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <ListChecks className="w-4 h-4" /> Day-1 Activation Checklist
+            <Badge variant={data.ready ? "default" : "secondary"} data-testid="badge-runbook-ready">
+              {data.ready ? "READY" : "NOT READY"}
+            </Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ol className="space-y-3">
+            {data.checks.map((check, idx) => (
+              <li key={check.id} className="flex items-start gap-3 p-2 border rounded" data-testid={`runbook-check-${check.id}`}>
+                <div className="flex items-center justify-center w-6 h-6 rounded-full border text-xs font-bold mt-0.5">{idx + 1}</div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    {check.ok ? (
+                      <CheckCircle2 className="w-4 h-4 text-green-600" data-testid={`runbook-ok-${check.id}`} />
+                    ) : (
+                      <Circle className="w-4 h-4 text-muted-foreground" data-testid={`runbook-pending-${check.id}`} />
+                    )}
+                    <span className={check.ok ? "text-sm" : "text-sm font-medium"}>{check.label}</span>
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1 ml-6">{check.detail}</div>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Worker Heartbeats</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-xs">
+          <div className="flex justify-between">
+            <span>SLA worker last tick</span>
+            <span data-testid="text-sla-heartbeat">{data.heartbeat.slaWorker?.at ? new Date(data.heartbeat.slaWorker.at).toLocaleString() : "never"}</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Sequence runner last tick</span>
+            <span data-testid="text-sequence-heartbeat">{data.heartbeat.sequenceRunner?.at ? new Date(data.heartbeat.sequenceRunner.at).toLocaleString() : "never"}</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Last sequence batch</span>
+            <span>processed {data.heartbeat.sequenceRunner?.processed ?? 0}, sent {data.heartbeat.sequenceRunner?.sent ?? 0}</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Stage progression last run</span>
+            <span data-testid="text-stage-heartbeat">{data.heartbeat.stageProgression?.at ? `${new Date(data.heartbeat.stageProgression.at).toLocaleString()} (progressed ${data.heartbeat.stageProgression.progressed})` : "never"}</span>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">One-shot Operations</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Button
+            onClick={() => backfillMutation.mutate()}
+            disabled={backfillMutation.isPending}
+            data-testid="button-backfill-stages"
+          >
+            {backfillMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Zap className="w-4 h-4 mr-1" />}
+            Backfill stuck deal stages
+          </Button>
+          <p className="text-xs text-muted-foreground mt-2">
+            Walks every active sales deal, infers the correct stage from existing signals (statement, review, proposal, app), and advances. Safe to re-run.
+          </p>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
 
 export default function ActivationPanel() {
   const { toast } = useToast();
@@ -321,14 +680,29 @@ export default function ActivationPanel() {
         </Card>
       )}
 
-      <Tabs defaultValue="status">
+      <Tabs defaultValue={identities.length === 0 ? "wizard" : "status"}>
         <TabsList data-testid="tabs-activation">
+          <TabsTrigger value="runbook" data-testid="tab-runbook">Day-1 Runbook</TabsTrigger>
+          <TabsTrigger value="wizard" data-testid="tab-identity-wizard">Identity Wizard</TabsTrigger>
           <TabsTrigger value="status" data-testid="tab-status">System Status</TabsTrigger>
           <TabsTrigger value="bridge" data-testid="tab-bridge">Bridge</TabsTrigger>
           <TabsTrigger value="orchestrator" data-testid="tab-orchestrator">Orchestrator</TabsTrigger>
           <TabsTrigger value="activity" data-testid="tab-activity">Activity</TabsTrigger>
           <TabsTrigger value="stuck" data-testid="tab-stuck">Stuck Leads</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="runbook" className="space-y-4">
+          <Day1Runbook />
+        </TabsContent>
+
+        <TabsContent value="wizard" className="space-y-4">
+          <SendingIdentityWizard
+            identities={identities}
+            ghlHealth={ghlHealth}
+            onTestGhl={() => ghlTestMutation.mutate()}
+            ghlTesting={ghlTestMutation.isPending}
+          />
+        </TabsContent>
 
         <TabsContent value="status" className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

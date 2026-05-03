@@ -573,6 +573,228 @@ function StuckLeadsPanel() {
   );
 }
 
+interface ActivationStatusData {
+  ready: boolean;
+  checks: Array<{ id: string; label: string; ok: boolean; detail: string }>;
+  heartbeat: { sequenceRunner: any; slaWorker: any; stageProgression: any };
+  activeIdentities: number;
+  totalIdentities: number;
+  activeEnrollments: number;
+  flags: Record<string, boolean>;
+}
+
+function ReadinessChecklistWidget() {
+  const { data, isLoading } = useQuery<ActivationStatusData>({
+    queryKey: ["/api/operator/activation-status"],
+    refetchInterval: 30000,
+  });
+
+  if (isLoading || !data) {
+    return <div className="p-6"><Loader2 className="w-5 h-5 animate-spin" /></div>;
+  }
+
+  const slaTickAt = data.heartbeat.slaWorker?.at ? new Date(data.heartbeat.slaWorker.at).getTime() : 0;
+  const seqTickAt = data.heartbeat.sequenceRunner?.at ? new Date(data.heartbeat.sequenceRunner.at).getTime() : 0;
+  const STALE_MS = 15 * 60 * 1000;
+  const workersFresh = slaTickAt > 0 && (Date.now() - slaTickAt) < STALE_MS;
+  const systemActive = data.ready && workersFresh;
+  const failed = data.checks.filter(c => !c.ok);
+  const reason = systemActive
+    ? "All preconditions met — pipeline & outreach active"
+    : failed.length > 0
+      ? `Idle — ${failed[0].label}`
+      : "Idle — worker heartbeat stale";
+
+  return (
+    <div className="space-y-3">
+      <Card className={systemActive ? "border-green-500/50 bg-green-500/5" : "border-yellow-500/50 bg-yellow-500/5"}>
+        <CardContent className="p-4 flex items-start gap-3">
+          {systemActive ? (
+            <CheckCircle2 className="w-6 h-6 text-green-600 mt-0.5" />
+          ) : (
+            <AlertTriangle className="w-6 h-6 text-yellow-600 mt-0.5" />
+          )}
+          <div className="flex-1">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-base" data-testid="text-system-status">
+                System {systemActive ? "Active" : "Idle"}
+              </span>
+              <Badge variant={systemActive ? "default" : "secondary"} data-testid="badge-system-status">
+                {data.checks.filter(c => c.ok).length}/{data.checks.length} checks pass
+              </Badge>
+            </div>
+            <div className="text-sm text-muted-foreground mt-1" data-testid="text-system-reason">{reason}</div>
+            <div className="text-xs text-muted-foreground mt-2">
+              SLA tick: {data.heartbeat.slaWorker?.at ? new Date(data.heartbeat.slaWorker.at).toLocaleString() : "never"} ·
+              {" "}Sequence tick: {data.heartbeat.sequenceRunner?.at ? new Date(data.heartbeat.sequenceRunner.at).toLocaleString() : "never"}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2"><CardTitle className="text-sm">Pre-Flight Readiness Checklist</CardTitle></CardHeader>
+        <CardContent>
+          <ol className="space-y-2">
+            {data.checks.map((check, idx) => (
+              <li key={check.id} className="flex items-start gap-3 p-2 border rounded" data-testid={`operator-check-${check.id}`}>
+                <div className="flex items-center justify-center w-6 h-6 rounded-full border text-xs font-bold mt-0.5">{idx + 1}</div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    {check.ok
+                      ? <CheckCircle2 className="w-4 h-4 text-green-600" />
+                      : <AlertTriangle className="w-4 h-4 text-yellow-600" />}
+                    <span className="text-sm font-medium">{check.label}</span>
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1 ml-6">{check.detail}</div>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+interface RecentSendsData {
+  windowHours: number;
+  totals: { email: number; calls: number; outbound: number; all: number };
+  recent: Array<{ id: number; channel: string; to: string; subject: string; status: string; sentAt: string }>;
+}
+
+function RecentSendsWidget() {
+  const { data, isLoading } = useQuery<RecentSendsData>({
+    queryKey: ["/api/operator/recent-sends"],
+    refetchInterval: 30000,
+  });
+
+  if (isLoading || !data) {
+    return <div className="p-6"><Loader2 className="w-5 h-5 animate-spin" /></div>;
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <KpiCard label="Email (24h)" value={data.totals.email} icon={Mail} color="text-blue-600" />
+        <KpiCard label="Calls (24h)" value={data.totals.calls} icon={Phone} color="text-purple-600" />
+        <KpiCard label="Outbound (24h)" value={data.totals.outbound} icon={Send} color="text-green-600" />
+        <KpiCard label="All Sends (24h)" value={data.totals.all} icon={Activity} color="text-orange-600" />
+      </div>
+      <Card>
+        <CardHeader className="pb-2"><CardTitle className="text-sm">Recent Email Sends (last 20)</CardTitle></CardHeader>
+        <CardContent>
+          {data.recent.length === 0 ? (
+            <div className="text-center py-6 text-muted-foreground text-sm" data-testid="text-no-recent-sends">No outbound sends in last 24 hours</div>
+          ) : (
+            <div className="max-h-80 overflow-auto">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-background">
+                  <tr className="border-b text-left">
+                    <th className="py-1 px-2">Time</th>
+                    <th className="py-1 px-2">To</th>
+                    <th className="py-1 px-2">Subject</th>
+                    <th className="py-1 px-2">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.recent.map(r => (
+                    <tr key={r.id} className="border-b" data-testid={`recent-send-${r.id}`}>
+                      <td className="py-1 px-2 whitespace-nowrap">{r.sentAt ? new Date(r.sentAt).toLocaleTimeString() : "-"}</td>
+                      <td className="py-1 px-2 truncate max-w-32">{r.to}</td>
+                      <td className="py-1 px-2 truncate max-w-64">{r.subject}</td>
+                      <td className="py-1 px-2"><Badge variant="outline" className="text-xs">{r.status}</Badge></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+interface SilentSequencesData {
+  totalActive: number;
+  silentCount: number;
+  reason: string;
+  workerStale: boolean;
+  outreachEnabled: boolean;
+  lastTick: any;
+  items: Array<{ id: number; contactId: number; dealId: number; sequenceId: number; currentStep: number; status: string; nextActionAt: string; updatedAt: string }>;
+}
+
+function SilentSequencesWidget() {
+  const { data, isLoading } = useQuery<SilentSequencesData>({
+    queryKey: ["/api/operator/silent-sequences"],
+    refetchInterval: 30000,
+  });
+
+  if (isLoading || !data) {
+    return <div className="p-6"><Loader2 className="w-5 h-5 animate-spin" /></div>;
+  }
+
+  return (
+    <div className="space-y-3">
+      <Card className={data.silentCount > 0 || data.workerStale ? "border-yellow-500/50 bg-yellow-500/5" : ""}>
+        <CardContent className="p-4">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className={`w-5 h-5 mt-0.5 ${data.silentCount > 0 || data.workerStale ? "text-yellow-600" : "text-muted-foreground"}`} />
+            <div className="flex-1">
+              <div className="font-medium text-sm" data-testid="text-silent-reason">{data.reason}</div>
+              <div className="text-xs text-muted-foreground mt-1">
+                {data.totalActive} active enrollments · {data.silentCount} silent for &gt;24h ·
+                {" "}Outreach flag: <span className={data.outreachEnabled ? "text-green-600" : "text-red-600"}>{data.outreachEnabled ? "ON" : "OFF"}</span>
+              </div>
+              <div className="text-xs text-muted-foreground">
+                Last tick: {data.lastTick?.at ? new Date(data.lastTick.at).toLocaleString() : "never"}
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2"><CardTitle className="text-sm">Silent Enrollments (no progress &gt;24h)</CardTitle></CardHeader>
+        <CardContent>
+          {data.items.length === 0 ? (
+            <div className="text-center py-6 text-muted-foreground text-sm" data-testid="text-no-silent">All enrollments are progressing</div>
+          ) : (
+            <div className="max-h-80 overflow-auto">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-background">
+                  <tr className="border-b text-left">
+                    <th className="py-1 px-2">ID</th>
+                    <th className="py-1 px-2">Contact</th>
+                    <th className="py-1 px-2">Sequence</th>
+                    <th className="py-1 px-2">Step</th>
+                    <th className="py-1 px-2">Next Action</th>
+                    <th className="py-1 px-2">Updated</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.items.map(it => (
+                    <tr key={it.id} className="border-b" data-testid={`silent-row-${it.id}`}>
+                      <td className="py-1 px-2">{it.id}</td>
+                      <td className="py-1 px-2">{it.contactId}</td>
+                      <td className="py-1 px-2">{it.sequenceId}</td>
+                      <td className="py-1 px-2">{it.currentStep}</td>
+                      <td className="py-1 px-2 text-muted-foreground whitespace-nowrap">{it.nextActionAt ? new Date(it.nextActionAt).toLocaleString() : "-"}</td>
+                      <td className="py-1 px-2 text-muted-foreground whitespace-nowrap">{it.updatedAt ? new Date(it.updatedAt).toLocaleString() : "-"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 function LowConfidencePanel() {
   const { data: items, isLoading, isError, refetch } = useQuery<LowConfidenceItem[]>({
     queryKey: ["/api/sdr/operator/low-confidence"],
@@ -674,17 +896,29 @@ export default function OperatorDashboard() {
         </Button>
       </div>
 
-      <Tabs defaultValue="kpis" className="w-full">
+      <Tabs defaultValue="readiness" className="w-full">
         <TabsList className="w-full justify-start flex-wrap" data-testid="tabs-operator">
+          <TabsTrigger value="readiness" data-testid="tab-readiness">Readiness</TabsTrigger>
           <TabsTrigger value="kpis" data-testid="tab-kpis">KPIs</TabsTrigger>
+          <TabsTrigger value="recent-sends" data-testid="tab-recent-sends">Recent Sends</TabsTrigger>
+          <TabsTrigger value="silent-sequences" data-testid="tab-silent-sequences">Sequences Not Firing</TabsTrigger>
           <TabsTrigger value="send-monitoring" data-testid="tab-send-monitoring">Send Monitoring</TabsTrigger>
           <TabsTrigger value="webhook-events" data-testid="tab-webhook-events">Webhook Events</TabsTrigger>
           <TabsTrigger value="stuck-leads" data-testid="tab-stuck-leads">Stuck Leads</TabsTrigger>
           <TabsTrigger value="low-confidence" data-testid="tab-low-confidence">Low Confidence</TabsTrigger>
         </TabsList>
 
+        <TabsContent value="readiness">
+          <ReadinessChecklistWidget />
+        </TabsContent>
         <TabsContent value="kpis">
           <OperatorKpiPanel />
+        </TabsContent>
+        <TabsContent value="recent-sends">
+          <RecentSendsWidget />
+        </TabsContent>
+        <TabsContent value="silent-sequences">
+          <SilentSequencesWidget />
         </TabsContent>
         <TabsContent value="send-monitoring">
           <SendMonitoringPanel />
