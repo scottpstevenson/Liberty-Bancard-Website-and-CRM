@@ -290,7 +290,12 @@ export function validateWebhookSignature(payload: string, signature: string): bo
       .createHmac("sha256", secret)
       .update(payload)
       .digest("hex");
-    return signature === expectedSig || signature === `sha256=${expectedSig}`;
+    const sigToCompare = signature.startsWith("sha256=") ? signature.slice(7) : signature;
+    if (sigToCompare.length !== expectedSig.length) return false;
+    return crypto.timingSafeEqual(
+      Buffer.from(sigToCompare, "hex"),
+      Buffer.from(expectedSig, "hex"),
+    );
   } catch {
     return false;
   }

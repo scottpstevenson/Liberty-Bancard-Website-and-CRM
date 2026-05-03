@@ -913,31 +913,58 @@ export async function runSqlClassification(batchLimit?: number): Promise<{ total
   });
 
   try {
-    const unqLike = unqualifiedKws.map(kw => `LOWER(entity_name) LIKE '%${kw.replace(/'/g, "''")}%'`).join(" OR ");
-    const unqWhere = `entity_status = 'Active' AND (vertical IS NULL OR vertical = '' OR vertical = 'Other') AND score IS DISTINCT FROM 'unqualified' AND (${unqLike})`;
-    const unqSql = batchLimit
-      ? `UPDATE sunbiz_entities SET vertical = 'Other', score = 'unqualified', enrichment_status = 'classified', ai_summary = 'Likely holding/investment/nonprofit entity' WHERE id IN (SELECT id FROM sunbiz_entities WHERE ${unqWhere} LIMIT ${batchLimit})`
-      : `UPDATE sunbiz_entities SET vertical = 'Other', score = 'unqualified', enrichment_status = 'classified', ai_summary = 'Likely holding/investment/nonprofit entity' WHERE ${unqWhere}`;
+    const limitClause = batchLimit ? sql` LIMIT ${batchLimit}` : sql``;
 
-    const unqResult = await db.execute(sql.raw(unqSql));
+    const unqLikes = unqualifiedKws.map(kw => sql`LOWER(entity_name) LIKE ${'%' + kw + '%'}`);
+    const unqLikeSql = sql.join(unqLikes, sql` OR `);
+
+    const unqResult = await db.execute(sql`
+      UPDATE sunbiz_entities
+      SET vertical = 'Other',
+          score = 'unqualified',
+          enrichment_status = 'classified',
+          ai_summary = 'Likely holding/investment/nonprofit entity'
+      WHERE id IN (
+        SELECT id FROM sunbiz_entities
+        WHERE entity_status = 'Active'
+          AND (vertical IS NULL OR vertical = '' OR vertical = 'Other')
+          AND score IS DISTINCT FROM 'unqualified'
+          AND (${unqLikeSql})
+        ${limitClause}
+      )
+    `);
     const unqCount = (unqResult as any).rowCount || 0;
     console.log(`[SQLClassify] Marked ${unqCount} as unqualified`);
     rounds++;
 
     for (const rule of verticalRules) {
-      const likeClauses = rule.keywords.map(kw => {
-        const escaped = kw.replace(/'/g, "''");
-        return `LOWER(entity_name) LIKE '%${escaped}%' OR LOWER(COALESCE(dba,'')) LIKE '%${escaped}%'`;
-      }).join(" OR ");
-
-      const vertWhere = `entity_status = 'Active' AND (vertical IS NULL OR vertical = '' OR vertical = 'Other') AND score IS DISTINCT FROM 'unqualified' AND (${likeClauses})`;
-      const vertSet = `vertical = '${rule.vertical}', score = '${rule.score}', enrichment_status = 'classified', ai_summary = '${rule.vertical} business identified by keyword match', owner_name = CASE WHEN owner_name IS NULL AND officers IS NOT NULL AND officers::text != '[]' THEN COALESCE(officers->0->>'name', NULL) ELSE owner_name END`;
-      const updateSql = batchLimit
-        ? `UPDATE sunbiz_entities SET ${vertSet} WHERE id IN (SELECT id FROM sunbiz_entities WHERE ${vertWhere} LIMIT ${batchLimit})`
-        : `UPDATE sunbiz_entities SET ${vertSet} WHERE ${vertWhere}`;
+      const likeClauses = rule.keywords.map(kw =>
+        sql`LOWER(entity_name) LIKE ${'%' + kw + '%'} OR LOWER(COALESCE(dba,'')) LIKE ${'%' + kw + '%'}`
+      );
+      const likeSql = sql.join(likeClauses, sql` OR `);
+      const aiSummary = `${rule.vertical} business identified by keyword match`;
 
       try {
-        const result = await db.execute(sql.raw(updateSql));
+        const result = await db.execute(sql`
+          UPDATE sunbiz_entities
+          SET vertical = ${rule.vertical},
+              score = ${rule.score},
+              enrichment_status = 'classified',
+              ai_summary = ${aiSummary},
+              owner_name = CASE
+                WHEN owner_name IS NULL AND officers IS NOT NULL AND officers::text != '[]'
+                THEN COALESCE(officers->0->>'name', NULL)
+                ELSE owner_name
+              END
+          WHERE id IN (
+            SELECT id FROM sunbiz_entities
+            WHERE entity_status = 'Active'
+              AND (vertical IS NULL OR vertical = '' OR vertical = 'Other')
+              AND score IS DISTINCT FROM 'unqualified'
+              AND (${likeSql})
+            ${limitClause}
+          )
+        `);
         const count = (result as any).rowCount || 0;
         if (count > 0) {
           totalClassified += count;
@@ -949,13 +976,26 @@ export async function runSqlClassification(batchLimit?: number): Promise<{ total
       }
     }
 
-    const coldWhere = `entity_status = 'Active' AND (vertical IS NULL OR vertical = '' OR vertical = 'Other') AND (enrichment_status IS NULL OR enrichment_status = 'pending' OR enrichment_status = 'raw') AND score IS DISTINCT FROM 'unqualified'`;
-    const coldSet = `score = 'cold', enrichment_status = 'classified', vertical = 'Other', ai_summary = 'Business type unclear from name', owner_name = CASE WHEN owner_name IS NULL AND officers IS NOT NULL AND officers::text != '[]' THEN COALESCE(officers->0->>'name', NULL) ELSE owner_name END`;
-    const coldSql = batchLimit
-      ? `UPDATE sunbiz_entities SET ${coldSet} WHERE id IN (SELECT id FROM sunbiz_entities WHERE ${coldWhere} LIMIT ${batchLimit})`
-      : `UPDATE sunbiz_entities SET ${coldSet} WHERE ${coldWhere}`;
-
-    const coldResult = await db.execute(sql.raw(coldSql));
+    const coldResult = await db.execute(sql`
+      UPDATE sunbiz_entities
+      SET score = 'cold',
+          enrichment_status = 'classified',
+          vertical = 'Other',
+          ai_summary = 'Business type unclear from name',
+          owner_name = CASE
+            WHEN owner_name IS NULL AND officers IS NOT NULL AND officers::text != '[]'
+            THEN COALESCE(officers->0->>'name', NULL)
+            ELSE owner_name
+          END
+      WHERE id IN (
+        SELECT id FROM sunbiz_entities
+        WHERE entity_status = 'Active'
+          AND (vertical IS NULL OR vertical = '' OR vertical = 'Other')
+          AND (enrichment_status IS NULL OR enrichment_status = 'pending' OR enrichment_status = 'raw')
+          AND score IS DISTINCT FROM 'unqualified'
+        ${limitClause}
+      )
+    `);
     const coldCount = (coldResult as any).rowCount || 0;
     console.log(`[SQLClassify] Remaining ${coldCount} marked as cold/Other`);
     rounds++;

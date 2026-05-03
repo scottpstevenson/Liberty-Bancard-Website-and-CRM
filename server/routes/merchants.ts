@@ -20,6 +20,15 @@ const isAdminOrManager: RequestHandler = (req, res, next) => {
   return res.status(403).json({ message: "Admin or manager access required" });
 };
 
+function canAccessApplication(req: any, application: { userId?: string | null }): boolean {
+  const user = req.user as any;
+  if (!user) return false;
+  const role = user.role;
+  if (role === "admin" || role === "manager") return true;
+  if (application.userId && user.id && application.userId === user.id) return true;
+  return false;
+}
+
 export function registerMerchantsRoutes(app: Express) {
   // === MERCHANT APPLICATIONS ===
   app.post("/api/merchant-applications", isAuthenticated, async (req, res) => {
@@ -111,6 +120,9 @@ export function registerMerchantsRoutes(app: Express) {
     try {
       const application = await storage.getMerchantApplication(Number(req.params.id));
       if (!application) return res.status(404).json({ message: "Not found" });
+      if (!canAccessApplication(req, application)) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       res.json(application);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -293,6 +305,9 @@ export function registerMerchantsRoutes(app: Express) {
       const appId = Number(req.params.id);
       const application = await storage.getMerchantApplication(appId);
       if (!application) return res.status(404).json({ message: "Application not found" });
+      if (!canAccessApplication(req, application)) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
 
       if (!application.esignDocumentId) {
         return res.json({ status: application.esignStatus || "pending" });

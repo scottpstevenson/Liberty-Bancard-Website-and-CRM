@@ -5,6 +5,7 @@ import { z } from "zod";
 import { insertRfiSchema, insertWorkflowSchema } from "@shared/schema";
 import { executeWorkflowActions, triggerWorkflowsByEvent } from "../services/workflow-executor";
 import { parse } from "csv-parse/sync";
+import { requireInternalWebhookSecret } from "../middleware/internal-webhook-auth";
 
 export function registerWorkflowsRoutes(app: Express) {
   // === RFIs ===
@@ -157,7 +158,7 @@ export function registerWorkflowsRoutes(app: Express) {
 
 
   // === WORKFLOW TRIGGER EXECUTION ===
-  app.post("/api/webhooks/trigger", async (req, res) => {
+  app.post("/api/webhooks/trigger", requireInternalWebhookSecret, async (req, res) => {
     try {
       const { event, entityType, entityId, data } = req.body;
       if (!event) return res.status(400).json({ message: "event required" });

@@ -17,6 +17,7 @@ import { parse } from "csv-parse/sync";
 import path from "path";
 import fs from "fs";
 import { upload, trackReferral, sendConfirmationSms } from "./helpers";
+import { publicLeadRateLimit } from "../middleware/public-rate-limit";
 
 export function registerPublicRoutes(app: Express) {
   const autoProposalRateLimit = new Map<string, number>();
@@ -157,7 +158,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
 
 
   // === PUBLIC FORM SUBMISSIONS ===
-  app.post("/api/public/statement-upload", upload.single("statementFile"), async (req, res) => {
+  app.post("/api/public/statement-upload", publicLeadRateLimit, upload.single("statementFile"), async (req, res) => {
     try {
       const { businessName, contactName, email, mobile, vertical, currentProvider, interestedIn0Percent, needTerminal, notes, consentSms, referralCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, landingPage } = req.body;
       const nameParts = (contactName || "").split(" ");
@@ -292,7 +293,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
     }
   });
 
-  app.post("/api/public/estimate", async (req, res) => {
+  app.post("/api/public/estimate", publicLeadRateLimit, async (req, res) => {
     try {
       const { contactName, email, phone, monthlyVolume, totalFees, currentProvider, notes, referralCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, landingPage } = req.body;
       const nameParts = (contactName || "").split(" ");
@@ -343,7 +344,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
     }
   });
 
-  app.post("/api/public/support", async (req, res) => {
+  app.post("/api/public/support", publicLeadRateLimit, async (req, res) => {
     try {
       const { name, businessName, email, mobile, issueType, priority, message: msg, consentSms } = req.body;
       const nameParts = (name || "").trim().split(" ").filter(Boolean);
@@ -412,7 +413,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
     }
   });
 
-  app.post("/api/public/get-started", async (req, res) => {
+  app.post("/api/public/get-started", publicLeadRateLimit, async (req, res) => {
     try {
       const { goal, vertical, monthlyVolume, needTerminal, interestedIn0Percent, firstName, lastName, email, phone, consentSms, referralCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, landingPage } = req.body;
 

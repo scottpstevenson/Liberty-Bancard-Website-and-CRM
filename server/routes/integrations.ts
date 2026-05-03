@@ -8,6 +8,7 @@ import { routeContact } from "../services/smart-router";
 import { fullSyncFromGhl, fullSyncToGhl, getGhlSyncStatus, getFullSyncDashboard, syncContactToGhl, syncDealToGhl, syncCompanyToGhl, syncTaskToGhl, syncTicketToGhl, syncNoteToGhl, syncTagsToGhl } from "../services/ghl-sync";
 import { getWorkflowStatus, GHL_WORKFLOW_REGISTRY, getPlatformEmailConfig, getWorkflowRegistryWithStatus, setWorkflowEnvValue } from "../services/ghl-workflows";
 import { buildSequenceList } from "../services/sequence-blueprints";
+import { requireInternalWebhookSecret } from "../middleware/internal-webhook-auth";
 
 export function registerIntegrationsRoutes(app: Express) {
   // === GHL INTEGRATION ===
@@ -445,7 +446,7 @@ export function registerIntegrationsRoutes(app: Express) {
     res.json({ success: true, message: "Settings saved. Connect via Zapier for the most reliable integration with Blaze.ai." });
   });
 
-  app.post("/api/webhooks/blaze", async (req, res) => {
+  app.post("/api/webhooks/blaze", requireInternalWebhookSecret, async (req, res) => {
     try {
       const { type, content, metadata } = req.body;
       console.log(`[Blaze Webhook] Received: ${type}`, metadata);
