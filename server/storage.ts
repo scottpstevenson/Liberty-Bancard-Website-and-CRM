@@ -567,8 +567,10 @@ export interface IStorage {
   updateResidualImport(id: number, updates: Partial<import("@shared/schema").InsertResidualImport>): Promise<import("@shared/schema").ResidualImport | undefined>;
   deleteResidualImport(id: number): Promise<void>;
   getResidualImportRows(importId: number): Promise<import("@shared/schema").ResidualImportRow[]>;
+  getResidualImportRow(id: number): Promise<import("@shared/schema").ResidualImportRow | undefined>;
   createResidualImportRow(data: import("@shared/schema").InsertResidualImportRow): Promise<import("@shared/schema").ResidualImportRow>;
   createResidualImportRowsBulk(data: import("@shared/schema").InsertResidualImportRow[]): Promise<import("@shared/schema").ResidualImportRow[]>;
+  updateResidualImportRow(id: number, updates: Partial<import("@shared/schema").InsertResidualImportRow>): Promise<import("@shared/schema").ResidualImportRow | undefined>;
   deleteResidualImportRows(importId: number): Promise<void>;
 }
 
@@ -3395,6 +3397,18 @@ export class DatabaseStorage implements IStorage {
     const { residualImportRows } = await import("@shared/schema");
     if (data.length === 0) return [];
     return await db.insert(residualImportRows).values(data).returning();
+  }
+
+  async getResidualImportRow(id: number) {
+    const { residualImportRows } = await import("@shared/schema");
+    const [row] = await db.select().from(residualImportRows).where(eq(residualImportRows.id, id));
+    return row;
+  }
+
+  async updateResidualImportRow(id: number, updates: Partial<import("@shared/schema").InsertResidualImportRow>) {
+    const { residualImportRows } = await import("@shared/schema");
+    const [updated] = await db.update(residualImportRows).set(updates).where(eq(residualImportRows.id, id)).returning();
+    return updated;
   }
 
   async deleteResidualImportRows(importId: number) {

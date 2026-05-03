@@ -451,6 +451,116 @@ export function registerResidualsRoutes(app: Express) {
     }
   });
 
+  app.patch("/api/residuals/imports/:importId/rows/:rowId/match", isAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as any;
+      if (user?.role !== "admin" && user?.role !== "manager") {
+        return res.status(403).json({ message: "Admin or manager role required" });
+      }
+
+      const importId = Number(req.params.importId);
+      const rowId = Number(req.params.rowId);
+      const { dealId } = req.body;
+      if (!dealId || isNaN(Number(dealId))) {
+        return res.status(400).json({ message: "dealId is required" });
+      }
+
+      const importRecord = await storage.getResidualImport(importId);
+      if (!importRecord) return res.status(404).json({ message: "Import not found" });
+      if (importRecord.status === "confirmed") {
+        return res.status(400).json({ message: "Cannot modify a confirmed import" });
+      }
+
+      const row = await storage.getResidualImportRow(rowId);
+      if (!row || row.importId !== importId) {
+        return res.status(404).json({ message: "Row not found" });
+      }
+
+      const deal = await storage.getDeal(Number(dealId));
+      if (!deal) return res.status(404).json({ message: "Deal not found" });
+
+      const { merchantProfiles, agentMerchants, companies } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+
+      const [profile] = await db.select().from(merchantProfiles).where(eq(merchantProfiles.dealId, deal.id));
+      const [agentMerchant] = await db.select().from(agentMerchants).where(eq(agentMerchants.dealId, deal.id));
+
+      let merchantName = row.merchantName || "";
+      if (deal.companyId) {
+        const [company] = await db.select().from(companies).where(eq(companies.id, deal.companyId));
+        if (company) merchantName = company.dba || company.legalName || merchantName;
+      }
+
+      let expectedResidual = 0;
+      if (deal.estimatedNetProfitMonthly) {
+        expectedResidual = parseNum(deal.estimatedNetProfitMonthly);
+      }
+
+      const netResidual = parseNum(row.netResidual);
+      const variance = netResidual - expectedResidual;
+      const variancePct = expectedResidual !== 0 ? (variance / expectedResidual) * 100 : 0;
+
+      const thresholdPct = importRecord.varianceThresholdPct ?? 5;
+      const thresholdAmt = importRecord.varianceThresholdAmt ?? 50;
+      let varianceStatus = "in_range";
+      const exceedsPct = expectedResidual !== 0 && Math.abs(variancePct) > thresholdPct;
+      const exceedsAmt = Math.abs(variance) > thresholdAmt;
+      if (exceedsPct || exceedsAmt) {
+        varianceStatus = variance < 0 ? "under" : "over";
+      }
+
+      let agentId: number | null = null;
+      let agentName: string | null = null;
+      if (agentMerchant?.agentId) {
+        agentId = agentMerchant.agentId;
+        const agent = await storage.getAgent(agentMerchant.agentId);
+        if (agent) agentName = `${agent.firstName} ${agent.lastName}`;
+      }
+
+      const updatedRow = await storage.updateResidualImportRow(rowId, {
+        isMatched: true,
+        matchedDealId: deal.id,
+        matchedProfileId: profile?.id ?? null,
+        merchantName: merchantName || row.mid,
+        expectedResidual: String(expectedResidual),
+        variance: variance.toFixed(2),
+        variancePct: variancePct.toFixed(2),
+        varianceStatus,
+        agentId,
+        agentName,
+      });
+
+      // Persist the MID on the merchant profile so future imports auto-match
+      // via the midToProfile lookup. Always overwrite — the admin's manual
+      // link is the source of truth for this profile's MID going forward.
+      if (profile) {
+        await db.update(merchantProfiles).set({ merchantMid: row.mid, updatedAt: new Date() }).where(eq(merchantProfiles.id, profile.id));
+      }
+      // If no merchantProfile exists for the deal, future auto-matching will
+      // still work once this import is confirmed, because the confirm step
+      // calls createMerchantResidual(dealId, mid) which seeds the
+      // midToResidual lookup used by the importer.
+
+      // Recompute import-level aggregate counts based on previous row state
+      const wasFlagged = row.varianceStatus && row.varianceStatus !== "in_range" && row.isMatched;
+      const isFlaggedNow = varianceStatus !== "in_range";
+      const prevVariance = parseNum(row.variance);
+      const varianceDelta = variance - (row.isMatched ? prevVariance : 0);
+
+      await storage.updateResidualImport(importId, {
+        matchedRows: (importRecord.matchedRows ?? 0) + (row.isMatched ? 0 : 1),
+        unmatchedRows: Math.max(0, (importRecord.unmatchedRows ?? 0) - (row.isMatched ? 0 : 1)),
+        flaggedRows: (importRecord.flaggedRows ?? 0) + (isFlaggedNow ? 1 : 0) - (wasFlagged ? 1 : 0),
+        totalVariance: (parseNum(importRecord.totalVariance) + varianceDelta).toFixed(2),
+      });
+
+      res.json(updatedRow);
+    } catch (err: any) {
+      console.error("[Residuals Match]", err);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.patch("/api/residuals/imports/:id/settings", isAuthenticated, async (req, res) => {
     try {
       const user = req.user as any;
