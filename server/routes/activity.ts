@@ -230,7 +230,7 @@ export function registerActivityRoutes(app: Express) {
       const log = await storage.createCallLog(input);
       await storage.createAuditLog({ action: "call_logged", entityType: "contact", entityId: log.contactId || 0, details: { direction: log.direction, outcome: log.outcome || "", duration: String(log.duration || 0) } });
       if (log.outcome === "Appointment Set" || log.outcome === "Interested") {
-        await storage.createNotification({ channel: "internal", title: "Positive Call Outcome", message: `Call with contact #${log.contactId}: ${log.outcome}`, type: "info" });
+        await storage.createNotification({ channel: "internal", title: "Positive Call Outcome", message: `Call with contact #${log.contactId}: ${log.outcome}`, type: "info", metadata: { contactId: log.contactId || undefined, entityType: "contact", entityId: log.contactId || undefined } });
       }
       res.status(201).json(log);
     } catch (err) {

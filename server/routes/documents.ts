@@ -341,6 +341,7 @@ export function registerDocumentsRoutes(app: Express) {
         title: "New Document Uploaded",
         message: `${user.firstName} ${user.lastName} uploaded: ${fileName} (${docType})`,
         type: "info",
+        metadata: { contactId: uploaderContactId || undefined, dealId: associatedDealId || dealId || undefined, entityType: dealId ? "deal" : "contact", entityId: dealId || uploaderContactId || undefined },
       });
 
       if (dealId) {

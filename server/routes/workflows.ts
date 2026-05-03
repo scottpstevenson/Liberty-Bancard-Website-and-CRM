@@ -37,6 +37,7 @@ export function registerWorkflowsRoutes(app: Express) {
         title: `New RFI: ${rfi.subject}`,
         message: `Priority: ${rfi.priority} | Category: ${rfi.category} | Assigned to: ${rfi.assignedTo || "Unassigned"}`,
         type: rfi.priority === "Urgent" ? "urgent" : "info",
+        metadata: { rfiId: rfi.id, contactId: rfi.contactId || undefined, dealId: rfi.dealId || undefined, entityType: "rfi", entityId: rfi.id },
       });
       res.status(201).json(rfi);
     } catch (err: any) {
@@ -60,6 +61,7 @@ export function registerWorkflowsRoutes(app: Express) {
           title: `RFI Responded: ${updated.subject}`,
           message: `RFI #${updated.id} has been responded to`,
           type: "info",
+          metadata: { rfiId: updated.id, contactId: updated.contactId || undefined, dealId: updated.dealId || undefined, entityType: "rfi", entityId: updated.id },
         });
       }
       res.json(updated);

@@ -120,6 +120,7 @@ export function registerDealsRoutes(app: Express) {
                   title: action.title || `Stage Automation: ${rule.name}`,
                   message: action.message || `Deal moved to ${updated.stage}`,
                   type: "info",
+                  metadata: { dealId: updated.id, contactId: updated.contactId || undefined, entityType: "deal", entityId: updated.id },
                 });
               } else if (action.type === "create_follow_up") {
                 const followUpDate = new Date(Date.now() + (action.delayHours || 24) * 3600000);

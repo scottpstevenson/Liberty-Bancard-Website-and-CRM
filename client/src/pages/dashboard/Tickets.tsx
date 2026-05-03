@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSearch } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -399,6 +400,17 @@ export default function Tickets() {
     setAiResult(null);
     setDetailOpen(true);
   };
+
+  const search = useSearch();
+  useEffect(() => {
+    const idStr = new URLSearchParams(search).get("id");
+    const id = idStr ? Number(idStr) : NaN;
+    if (!Number.isFinite(id) || !tickets) return;
+    const ticket = tickets.find((t) => t.id === id);
+    if (ticket && (!detailOpen || selectedTicket?.id !== id)) {
+      openTicketDetail(ticket);
+    }
+  }, [search, tickets]);
 
   if (isError) {
     return <DashboardErrorState title="Failed to load tickets" onRetry={() => refetch()} />;

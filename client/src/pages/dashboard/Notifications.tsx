@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Card, CardContent } from "@/components/ui/card";
@@ -67,6 +68,72 @@ function getTypeLabel(type: string | null): string {
   }
 }
 
+type NotificationEntityType =
+  | "contact" | "ticket" | "deal" | "rfi" | "chat" | "merchant" | "lead";
+
+interface NotificationLinkMetadata {
+  link?: string;
+  entityType?: NotificationEntityType;
+  entityId?: number | string;
+  contactId?: number;
+  ticketId?: number;
+  rfiId?: number;
+  chatId?: number;
+  dealId?: number;
+  merchantId?: number;
+  leadId?: number;
+  importId?: number;
+  digestType?: "daily" | "weekly";
+}
+
+function asNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+function getNotificationLink(notification: NotificationRecord): string | null {
+  const m: NotificationLinkMetadata = (notification.metadata || {}) as NotificationLinkMetadata;
+
+  if (typeof m.link === "string" && m.link.startsWith("/")) return m.link;
+
+  const entityId = asNumber(m.entityId);
+  if (m.entityType && entityId != null) {
+    switch (m.entityType) {
+      case "contact": return `/dashboard/contacts/${entityId}`;
+      case "ticket": return `/dashboard/tickets?id=${entityId}`;
+      case "deal": return `/dashboard/pipeline?id=${entityId}`;
+      case "rfi": return `/dashboard/rfis?id=${entityId}`;
+      case "chat": return `/dashboard/live-chat?id=${entityId}`;
+      case "merchant":
+      case "lead": return `/dashboard/sdr?id=${entityId}`;
+    }
+  }
+
+  const contactId = asNumber(m.contactId);
+  const ticketId = asNumber(m.ticketId);
+  const rfiId = asNumber(m.rfiId);
+  const chatId = asNumber(m.chatId);
+  const dealId = asNumber(m.dealId);
+  const merchantId = asNumber(m.merchantId);
+  const leadId = asNumber(m.leadId);
+  const importId = asNumber(m.importId);
+
+  if (ticketId != null) return `/dashboard/tickets?id=${ticketId}`;
+  if (rfiId != null) return `/dashboard/rfis?id=${rfiId}`;
+  if (chatId != null) return `/dashboard/live-chat?id=${chatId}`;
+  if (dealId != null) return `/dashboard/pipeline?id=${dealId}`;
+  if (contactId != null) return `/dashboard/contacts/${contactId}`;
+  if (merchantId != null) return `/dashboard/sdr?id=${merchantId}`;
+  if (leadId != null) return `/dashboard/sdr?id=${leadId}`;
+  if (importId != null) return `/dashboard/residual-revenue`;
+  if (m.digestType === "daily" || m.digestType === "weekly") return `/dashboard`;
+  return null;
+}
+
 function formatEventType(eventType: string): string {
   return eventType
     .split("_")
@@ -98,6 +165,7 @@ function getEventDescription(eventType: string): string {
 export default function Notifications() {
   const { toast } = useToast();
   const qc = useQueryClient();
+  const [, navigate] = useLocation();
   const [category, setCategory] = useState("all");
   const [offset, setOffset] = useState(0);
   const [allLoaded, setAllLoaded] = useState<NotificationRecord[]>([]);
@@ -209,6 +277,16 @@ export default function Notifications() {
       toastError(err, { title: "Failed to clear old notifications" });
     },
   });
+
+  const handleNotificationClick = useCallback((notification: NotificationRecord) => {
+    const link = getNotificationLink(notification);
+    if (!notification.read) {
+      markReadMutation.mutate(notification.id);
+    }
+    if (link) {
+      navigate(link);
+    }
+  }, [navigate, markReadMutation]);
 
   const updatePrefMutation = useMutation({
     mutationFn: async (params: { eventType: string; enabled?: boolean; emailEnabled?: boolean; digestDaily?: boolean; digestWeekly?: boolean }) => {
@@ -454,28 +532,22 @@ export default function Notifications() {
                   {null}
                 </DataState>
               )}
-              {notifications.map((notification) => (
+              {notifications.map((notification) => {
+                const link = getNotificationLink(notification);
+                return (
                 <Card
                   key={notification.id}
-                  className={`hover-elevate ${!notification.read ? "" : "opacity-60"}`}
+                  className={`hover-elevate ${!notification.read ? "" : "opacity-60"} ${link ? "cursor-pointer" : ""}`}
                   data-testid={`card-notification-${notification.id}`}
+                  data-notification-link={link ?? ""}
+                  onClick={() => handleNotificationClick(notification)}
                 >
                   <CardContent className="p-4">
                     <div className="flex items-start gap-3">
-                      <div
-                        className="mt-0.5 flex-shrink-0 cursor-pointer"
-                        onClick={() => {
-                          if (!notification.read) markReadMutation.mutate(notification.id);
-                        }}
-                      >
+                      <div className="mt-0.5 flex-shrink-0">
                         {getTypeIcon(notification.type)}
                       </div>
-                      <div
-                        className="flex-1 min-w-0 space-y-1 cursor-pointer"
-                        onClick={() => {
-                          if (!notification.read) markReadMutation.mutate(notification.id);
-                        }}
-                      >
+                      <div className="flex-1 min-w-0 space-y-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-medium text-sm" data-testid={`text-notification-title-${notification.id}`}>
                             {notification.title}
@@ -516,7 +588,8 @@ export default function Notifications() {
                     </div>
                   </CardContent>
                 </Card>
-              ))}
+                );
+              })}
               {isLoading && (
                 <div className="text-center text-muted-foreground py-4" data-testid="notifications-loading-more">
                   Loading...

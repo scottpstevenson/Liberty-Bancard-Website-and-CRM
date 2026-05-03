@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSearch } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -347,6 +348,12 @@ export default function Pipeline() {
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedDeal, setSelectedDeal] = useState<Deal | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const search = useSearch();
+  const dealIdParam = (() => {
+    const v = new URLSearchParams(search).get("id");
+    const n = v ? Number(v) : NaN;
+    return Number.isFinite(n) ? n : null;
+  })();
   const [configOpen, setConfigOpen] = useState(false);
   const [configPipeline, setConfigPipeline] = useState("sales");
   const [addStageName, setAddStageName] = useState("");
@@ -774,6 +781,14 @@ export default function Pipeline() {
     setEditMid(deal.mid || "");
     setDetailOpen(true);
   };
+
+  useEffect(() => {
+    if (dealIdParam == null || !deals) return;
+    const deal = deals.find((d) => d.id === dealIdParam);
+    if (deal && (!detailOpen || selectedDeal?.id !== dealIdParam)) {
+      openDealDetail(deal);
+    }
+  }, [dealIdParam, deals]);
 
   const getDealsByStage = (stage: string) => {
     const filtered = (deals || []).filter((d) => {
