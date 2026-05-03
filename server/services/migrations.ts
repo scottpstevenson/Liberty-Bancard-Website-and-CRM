@@ -141,6 +141,9 @@ export async function runStartupMigrations(): Promise<void> {
 
       ALTER TABLE email_logs
         ADD COLUMN IF NOT EXISTS clicked_at TIMESTAMP;
+
+      ALTER TABLE merchant_applications
+        ADD COLUMN IF NOT EXISTS underwriting_notes_log JSONB DEFAULT '[]'::jsonb;
     `);
     console.log("[Migrations] Startup migrations applied successfully.");
   } catch (err: any) {

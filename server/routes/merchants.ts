@@ -123,7 +123,34 @@ export function registerMerchantsRoutes(app: Express) {
       const existing = await storage.getMerchantApplication(appId);
       if (!existing) return res.status(404).json({ message: "Not found" });
 
-      const updated = await storage.updateMerchantApplication(appId, req.body);
+      const updates = { ...req.body } as Record<string, any>;
+      const incomingNote = typeof updates.underwritingNotes === "string"
+        ? updates.underwritingNotes.trim()
+        : "";
+      if (incomingNote) {
+        const user = (req.user as any) || {};
+        const authorName = [user.firstName, user.lastName].filter(Boolean).join(" ").trim()
+          || user.email
+          || user.id
+          || "Unknown";
+        const prevLog = Array.isArray(existing.underwritingNotesLog)
+          ? existing.underwritingNotesLog
+          : [];
+        updates.underwritingNotesLog = [
+          ...prevLog,
+          {
+            note: incomingNote,
+            author: authorName,
+            authorId: user.id ?? null,
+            createdAt: new Date().toISOString(),
+          },
+        ];
+      } else if ("underwritingNotes" in updates && !incomingNote) {
+        // Don't overwrite existing notes with an empty string
+        delete updates.underwritingNotes;
+      }
+
+      const updated = await storage.updateMerchantApplication(appId, updates);
       if (!updated) return res.status(404).json({ message: "Not found" });
 
       const wasApproved = existing.status !== "approved" && updated.status === "approved";

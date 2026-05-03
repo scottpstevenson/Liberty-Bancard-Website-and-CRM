@@ -15,9 +15,9 @@ import {
   Search, FileText, Building2, Mail, Calendar,
   CheckCircle2, XCircle, SendHorizonal, MessageSquarePlus,
   ChevronLeft, Loader2, User, CreditCard,
-  MapPin, Landmark, ClipboardCheck, Paperclip, ExternalLink,
+  MapPin, Landmark, ClipboardCheck, Paperclip, ExternalLink, History,
 } from "lucide-react";
-import type { MerchantApplication, Document as DocType } from "@shared/schema";
+import type { MerchantApplication, Document as DocType, UnderwritingNoteEntry } from "@shared/schema";
 
 const STATUS_TABS = [
   { value: "all", label: "All" },
@@ -56,6 +56,14 @@ function formatDate(date: string | Date | null | undefined): string {
   return new Date(date).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
 }
 
+function formatDateTime(date: string | Date | null | undefined): string {
+  if (!date) return "—";
+  return new Date(date).toLocaleString("en-US", {
+    year: "numeric", month: "short", day: "numeric",
+    hour: "numeric", minute: "2-digit",
+  });
+}
+
 function DetailField({ label, value }: { label: string; value: React.ReactNode }) {
   if (!value) return null;
   return (
@@ -80,12 +88,76 @@ function DetailSection({ title, icon: Icon, children }: { title: string; icon: a
   );
 }
 
+function UnderwritingNotesTimeline({
+  log,
+  legacyNote,
+}: {
+  log: UnderwritingNoteEntry[];
+  legacyNote: string | null | undefined;
+}) {
+  const entries = Array.isArray(log) ? [...log] : [];
+  const hasLegacyOnly = entries.length === 0 && legacyNote && legacyNote.trim().length > 0;
+  const sorted = entries.sort((a, b) => {
+    const ad = new Date(a.createdAt).getTime();
+    const bd = new Date(b.createdAt).getTime();
+    return ad - bd;
+  });
+
+  return (
+    <div className="space-y-3" data-testid="section-underwriting-notes-history">
+      <div className="flex items-center gap-2 text-sm font-semibold text-foreground border-b pb-1">
+        <History className="w-4 h-4 text-primary" />
+        Underwriting Notes History
+      </div>
+      {sorted.length === 0 && !hasLegacyOnly ? (
+        <p className="text-sm text-muted-foreground" data-testid="text-no-uw-notes">
+          No underwriting notes yet. Use "Request Info" to add a timestamped note.
+        </p>
+      ) : (
+        <div className="space-y-2" data-testid="list-uw-notes">
+          {sorted.map((entry, idx) => (
+            <div
+              key={`${entry.createdAt}-${idx}`}
+              className="rounded-md border bg-muted/30 p-3 space-y-1"
+              data-testid={`uw-note-${idx}`}
+            >
+              <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                <span className="font-medium text-foreground" data-testid={`uw-note-author-${idx}`}>
+                  {entry.author || "Unknown"}
+                </span>
+                <span data-testid={`uw-note-date-${idx}`}>{formatDateTime(entry.createdAt)}</span>
+              </div>
+              <p className="text-sm text-foreground whitespace-pre-wrap" data-testid={`uw-note-text-${idx}`}>
+                {entry.note}
+              </p>
+            </div>
+          ))}
+          {hasLegacyOnly && (
+            <div
+              className="rounded-md border bg-muted/30 p-3 space-y-1"
+              data-testid="uw-note-legacy"
+            >
+              <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">Legacy note</span>
+                <span>—</span>
+              </div>
+              <p className="text-sm text-foreground whitespace-pre-wrap">{legacyNote}</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ApplicationDetailView({
   application,
   onClose,
+  onUpdated,
 }: {
   application: MerchantApplication;
   onClose: () => void;
+  onUpdated: (app: MerchantApplication) => void;
 }) {
   const { toast } = useToast();
   const [requestInfoNote, setRequestInfoNote] = useState("");
@@ -103,10 +175,13 @@ function ApplicationDetailView({
   ) ?? [];
 
   const updateMutation = useMutation({
-    mutationFn: (updates: Partial<MerchantApplication>) =>
-      apiRequest("PATCH", `/api/merchant-applications/${application.id}`, updates),
-    onSuccess: () => {
+    mutationFn: async (updates: Partial<MerchantApplication>) => {
+      const res = await apiRequest("PATCH", `/api/merchant-applications/${application.id}`, updates);
+      return (await res.json()) as MerchantApplication;
+    },
+    onSuccess: (updated) => {
       queryClient.invalidateQueries({ queryKey: ["/api/merchant-applications"] });
+      onUpdated(updated);
     },
   });
 
@@ -148,15 +223,20 @@ function ApplicationDetailView({
   };
 
   const handleRequestInfo = async () => {
+    const trimmed = requestInfoNote.trim();
+    if (!trimmed) {
+      toast({ title: "Note required", description: "Please add a note describing what's needed.", variant: "destructive" });
+      return;
+    }
     try {
       await updateMutation.mutateAsync({
         status: "under_review",
         underwritingStatus: "documents_needed",
-        underwritingNotes: requestInfoNote || null,
+        underwritingNotes: trimmed,
       });
-      toast({ title: "Info requested", description: "Application status updated to Under Review — Documents Needed." });
+      toast({ title: "Note added", description: "Underwriting note saved to the application history." });
+      setRequestInfoNote("");
       setShowRequestInfo(false);
-      onClose();
     } catch {
       toast({ title: "Error", description: "Could not update application.", variant: "destructive" });
     }
@@ -344,13 +424,18 @@ function ApplicationDetailView({
           <DetailField label="E-Sign Status" value={application.esignStatus} />
           <DetailField label="E-Signed At" value={formatDate(application.esignedAt)} />
           <DetailField label="Underwriting Status" value={application.underwritingStatus} />
-          <DetailField label="UW Notes" value={application.underwritingNotes} />
+          <DetailField label="Latest UW Note" value={application.underwritingNotes} />
           <DetailField label="Approved At" value={formatDate(application.approvedAt)} />
           <DetailField label="Declined At" value={formatDate(application.declinedAt)} />
           {application.declineReason && (
             <DetailField label="Decline Reason" value={application.declineReason} />
           )}
         </DetailSection>
+
+        <UnderwritingNotesTimeline
+          log={(application.underwritingNotesLog as UnderwritingNoteEntry[] | null) ?? []}
+          legacyNote={application.underwritingNotes}
+        />
 
         <div className="space-y-3">
           <div className="flex items-center gap-2 text-sm font-semibold text-foreground border-b pb-1">
@@ -428,6 +513,7 @@ export default function MerchantApplicationsList() {
       <ApplicationDetailView
         application={selectedApp}
         onClose={() => setSelectedApp(null)}
+        onUpdated={(updated) => setSelectedApp(updated)}
       />
     );
   }

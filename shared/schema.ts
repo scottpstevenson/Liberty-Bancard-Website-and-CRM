@@ -1207,6 +1207,13 @@ export const systemSettings = pgTable("system_settings", {
 
 export type SystemSetting = typeof systemSettings.$inferSelect;
 
+export type UnderwritingNoteEntry = {
+  note: string;
+  author: string;
+  authorId?: string | null;
+  createdAt: string;
+};
+
 export const merchantApplications = pgTable("merchant_applications", {
   id: serial("id").primaryKey(),
   userId: varchar("user_id").references(() => users.id),
@@ -1265,6 +1272,7 @@ export const merchantApplications = pgTable("merchant_applications", {
   esignIp: text("esign_ip"),
   underwritingStatus: text("underwriting_status").default("pending"),
   underwritingNotes: text("underwriting_notes"),
+  underwritingNotesLog: jsonb("underwriting_notes_log").$type<UnderwritingNoteEntry[]>().default(sql`'[]'::jsonb`),
   approvedAt: timestamp("approved_at"),
   declinedAt: timestamp("declined_at"),
   declineReason: text("decline_reason"),
