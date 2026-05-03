@@ -913,6 +913,7 @@ export const emailLogs = pgTable("email_logs", {
   templateId: integer("template_id"),
   status: text("status").default("sent"),
   openedAt: timestamp("opened_at"),
+  clickedAt: timestamp("clicked_at"),
   repliedAt: timestamp("replied_at"),
   metadata: jsonb("metadata"),
   createdAt: timestamp("created_at").defaultNow(),
@@ -1037,6 +1038,27 @@ export const insertSequenceStepSchema = createInsertSchema(sequenceSteps).omit({
 
 export type SequenceStep = typeof sequenceSteps.$inferSelect;
 export type InsertSequenceStep = z.infer<typeof insertSequenceStepSchema>;
+
+export interface AbTestConfig {
+  splitRatio?: number;
+  minSampleSize?: number;
+  winnerCriteria?: "open_rate" | "click_rate" | "reply_rate";
+}
+
+export interface AbTestResults {
+  variantASent: number;
+  variantBSent: number;
+  aOpens: number;
+  bOpens: number;
+  aClicks: number;
+  bClicks: number;
+  aReplies: number;
+  bReplies: number;
+  winnerSelected: string | null;
+  winnerAt: string | null;
+  startedAt: string | null;
+  statisticallySignificant?: boolean;
+}
 
 export const sequenceEnrollments = pgTable("sequence_enrollments", {
   id: serial("id").primaryKey(),

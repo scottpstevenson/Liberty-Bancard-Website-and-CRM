@@ -138,6 +138,9 @@ export async function runStartupMigrations(): Promise<void> {
       );
       CREATE INDEX IF NOT EXISTS testimonial_submissions_status_idx ON testimonial_submissions(status);
       CREATE INDEX IF NOT EXISTS testimonial_submissions_created_at_idx ON testimonial_submissions(created_at);
+
+      ALTER TABLE email_logs
+        ADD COLUMN IF NOT EXISTS clicked_at TIMESTAMP;
     `);
     console.log("[Migrations] Startup migrations applied successfully.");
   } catch (err: any) {

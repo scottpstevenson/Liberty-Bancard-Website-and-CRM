@@ -1,13 +1,52 @@
 import { z } from "zod";
 import { db } from "../../db";
-import { sdrLeadEvents, sdrMerchants, sdrLeadState } from "@shared/schema";
+import { sdrLeadEvents, sdrMerchants, sdrLeadState, contacts, emailLogs } from "@shared/schema";
 import type { SdrMerchant } from "@shared/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, isNull, desc } from "drizzle-orm";
 import { upsertContact, addTag, isSdrGhlConfigured, ensureGhlBootstrapped, updateCustomFields, sendChatReply, sendSmsReply, sendEmailReply } from "./ghl-client";
 import { onStageChange } from "./ghl-sync-rules";
 import { routeBotContext, analyzeForHandoff, executeHandoff, classifyMessageIntent, generateSmartReply } from "./conversation-ai";
 import { getAllowedTransitions } from "./stage-rules";
 import { scoreLeadFull } from "./scoring";
+
+async function markSequenceEmailReplied(ghlContactId: string, channel: "email" | "sms"): Promise<void> {
+  try {
+    const [contact] = await db.select({ id: contacts.id })
+      .from(contacts)
+      .where(eq(contacts.ghlContactId, ghlContactId))
+      .limit(1);
+
+    if (!contact) return;
+
+    const outboundLogs = await db.select()
+      .from(emailLogs)
+      .where(
+        and(
+          eq(emailLogs.contactId, contact.id),
+          eq(emailLogs.direction, "outbound"),
+          isNull(emailLogs.repliedAt)
+        )
+      )
+      .orderBy(desc(emailLogs.createdAt))
+      .limit(20);
+
+    const sequenceLogs = outboundLogs.filter(l => {
+      const meta = l.metadata as Record<string, any> | null;
+      if (!meta?.abVariant) return false;
+      if (channel === "sms") return meta?.type === "sms";
+      return meta?.type !== "sms";
+    });
+
+    if (sequenceLogs.length === 0) return;
+
+    const toMark = sequenceLogs[0];
+    await db.update(emailLogs)
+      .set({ repliedAt: new Date(), status: "replied" })
+      .where(eq(emailLogs.id, toMark.id));
+  } catch (err) {
+    console.warn("[Chat Handler] Failed to mark sequence email reply:", err);
+  }
+}
 
 const conversationCreatedSchema = z.object({
   contactId: z.string().optional(),
@@ -320,8 +359,13 @@ export async function handleSmsThread(rawPayload: unknown): Promise<{ reply?: st
 
   const payload = parsed.data;
   const ghlContactId = payload.contactId;
-  const merchant = await findMerchantByGhlId(ghlContactId);
   const isInbound = payload.direction === "inbound";
+
+  if (isInbound && payload.body) {
+    markSequenceEmailReplied(ghlContactId, "sms").catch(() => {});
+  }
+
+  const merchant = await findMerchantByGhlId(ghlContactId);
 
   if (!merchant || !isInbound || !payload.body) return;
 
@@ -398,8 +442,13 @@ export async function handleEmailThread(rawPayload: unknown): Promise<{ reply?: 
 
   const payload = parsed.data;
   const ghlContactId = payload.contactId;
-  const merchant = await findMerchantByGhlId(ghlContactId);
   const isInbound = payload.direction === "inbound";
+
+  if (isInbound && payload.body) {
+    markSequenceEmailReplied(ghlContactId, "email").catch(() => {});
+  }
+
+  const merchant = await findMerchantByGhlId(ghlContactId);
 
   if (!merchant || !isInbound || !payload.body) return;
 

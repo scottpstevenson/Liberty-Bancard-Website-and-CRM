@@ -10,6 +10,7 @@ import { featureFlags } from "./feature-flags";
 import { scoreContact } from "./lead-scoring";
 import { checkCompliance } from "./smart-router";
 import { checkAndSendDigests, sendCriticalEmailNotification, createPreferenceAwareNotification } from "./digest-service";
+import { checkAbTestWinners } from "./ab-test-worker";
 
 const SLA_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -628,6 +629,7 @@ export function startSlaWorker() {
     await checkChargebackDeadlines().catch(err => console.error("Chargeback deadline check error:", err));
     await checkNpsTriggers().catch(err => console.error("NPS trigger check error:", err));
     await checkRetentionCampaigns().catch(err => console.error("Retention campaign check error:", err));
+    await checkAbTestWinners().catch(err => console.error("A/B test winner check error:", err));
     cycleCount++;
     if (cycleCount % AI_OPS_EVERY_N_CYCLES === 0) {
       await runScheduledAiOps();

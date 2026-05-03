@@ -66,10 +66,13 @@ interface ABTestResult {
     variantBSent?: number;
     aOpens?: number;
     bOpens?: number;
+    aClicks?: number;
+    bClicks?: number;
     aReplies?: number;
     bReplies?: number;
-    winnerSelected?: string;
-    winnerAt?: string;
+    winnerSelected?: string | null;
+    winnerAt?: string | null;
+    statisticallySignificant?: boolean;
   };
 }
 
@@ -79,16 +82,20 @@ function ABTestCard({ test }: { test: ABTestResult }) {
   const bSent = r.variantBSent ?? 0;
   const aOpens = r.aOpens ?? 0;
   const bOpens = r.bOpens ?? 0;
+  const aClicks = r.aClicks ?? 0;
+  const bClicks = r.bClicks ?? 0;
   const aReplies = r.aReplies ?? 0;
   const bReplies = r.bReplies ?? 0;
   const aOpenRate = aSent > 0 ? ((aOpens / aSent) * 100).toFixed(1) : "—";
   const bOpenRate = bSent > 0 ? ((bOpens / bSent) * 100).toFixed(1) : "—";
+  const aClickRate = aSent > 0 ? ((aClicks / aSent) * 100).toFixed(1) : "—";
+  const bClickRate = bSent > 0 ? ((bClicks / bSent) * 100).toFixed(1) : "—";
   const aReplyRate = aSent > 0 ? ((aReplies / aSent) * 100).toFixed(1) : "—";
   const bReplyRate = bSent > 0 ? ((bReplies / bSent) * 100).toFixed(1) : "—";
   const winnerCriteria = test.abTestConfig.winnerCriteria;
-  const aConversionRate = winnerCriteria === "reply_rate" ? aReplyRate : aOpenRate;
-  const bConversionRate = winnerCriteria === "reply_rate" ? bReplyRate : bOpenRate;
-  const conversionLabel = winnerCriteria === "reply_rate" ? "Reply Rate" : "Open Rate";
+  const aConversionRate = winnerCriteria === "reply_rate" ? aReplyRate : winnerCriteria === "click_rate" ? aClickRate : aOpenRate;
+  const bConversionRate = winnerCriteria === "reply_rate" ? bReplyRate : winnerCriteria === "click_rate" ? bClickRate : bOpenRate;
+  const conversionLabel = winnerCriteria === "reply_rate" ? "Reply Rate" : winnerCriteria === "click_rate" ? "Click Rate" : "Open Rate";
   const totalSent = aSent + bSent;
   const minSample = test.abTestConfig.minSampleSize;
   const hasWinner = !!r.winnerSelected;
@@ -103,19 +110,24 @@ function ABTestCard({ test }: { test: ABTestResult }) {
             <CardTitle className="text-sm font-semibold">{test.sequenceName}</CardTitle>
             <p className="text-xs text-muted-foreground mt-0.5">Step {test.stepOrder} · {test.actionType}</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             {hasWinner && (
-              <Badge variant="default" className="bg-green-600 gap-1">
+              <Badge variant="default" className="bg-green-600 gap-1" data-testid={`badge-ab-winner-${test.stepId}`}>
                 <Trophy className="w-3 h-3" /> Winner: {r.winnerSelected}
               </Badge>
             )}
+            {hasWinner && r.statisticallySignificant && (
+              <Badge variant="outline" className="gap-1 text-green-700 border-green-400 text-[10px]" data-testid={`badge-ab-sig-${test.stepId}`}>
+                95% confidence
+              </Badge>
+            )}
             {isRunning && (
-              <Badge variant="outline" className="gap-1 text-yellow-600 border-yellow-400">
+              <Badge variant="outline" className="gap-1 text-yellow-600 border-yellow-400" data-testid={`badge-ab-running-${test.stepId}`}>
                 <Clock className="w-3 h-3" /> Running ({totalSent}/{minSample} sent)
               </Badge>
             )}
             {isReadyForWinner && (
-              <Badge variant="outline" className="gap-1 text-blue-600 border-blue-400">
+              <Badge variant="outline" className="gap-1 text-blue-600 border-blue-400" data-testid={`badge-ab-ready-${test.stepId}`}>
                 Ready to pick winner
               </Badge>
             )}
@@ -137,19 +149,23 @@ function ABTestCard({ test }: { test: ABTestResult }) {
             <div className="grid grid-cols-2 gap-1 text-xs">
               <div>
                 <span className="text-muted-foreground">Sent</span>
-                <p className="font-semibold">{aSent}</p>
+                <p className="font-semibold" data-testid={`text-ab-a-sent-${test.stepId}`}>{aSent}</p>
               </div>
               <div className="col-span-2 border-t pt-1 mt-1">
                 <span className="text-muted-foreground font-medium">Conversion Rate ({conversionLabel})</span>
-                <p className="font-bold text-sm text-primary">{aConversionRate}{aConversionRate !== "—" ? "%" : ""}</p>
+                <p className="font-bold text-sm text-primary" data-testid={`text-ab-a-conversion-${test.stepId}`}>{aConversionRate}{aConversionRate !== "—" ? "%" : ""}</p>
               </div>
               <div>
                 <span className="text-muted-foreground">Open Rate</span>
-                <p className="font-semibold">{aOpenRate}{aOpenRate !== "—" ? "%" : ""}</p>
+                <p className="font-semibold" data-testid={`text-ab-a-open-${test.stepId}`}>{aOpenRate}{aOpenRate !== "—" ? "%" : ""}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Click Rate</span>
+                <p className="font-semibold" data-testid={`text-ab-a-click-${test.stepId}`}>{aClickRate}{aClickRate !== "—" ? "%" : ""}</p>
               </div>
               <div>
                 <span className="text-muted-foreground">Reply Rate</span>
-                <p className="font-semibold">{aReplyRate}{aReplyRate !== "—" ? "%" : ""}</p>
+                <p className="font-semibold" data-testid={`text-ab-a-reply-${test.stepId}`}>{aReplyRate}{aReplyRate !== "—" ? "%" : ""}</p>
               </div>
             </div>
           </div>
@@ -166,29 +182,33 @@ function ABTestCard({ test }: { test: ABTestResult }) {
             <div className="grid grid-cols-2 gap-1 text-xs">
               <div>
                 <span className="text-muted-foreground">Sent</span>
-                <p className="font-semibold">{bSent}</p>
+                <p className="font-semibold" data-testid={`text-ab-b-sent-${test.stepId}`}>{bSent}</p>
               </div>
               <div className="col-span-2 border-t pt-1 mt-1">
                 <span className="text-muted-foreground font-medium">Conversion Rate ({conversionLabel})</span>
-                <p className="font-bold text-sm text-primary">{bConversionRate}{bConversionRate !== "—" ? "%" : ""}</p>
+                <p className="font-bold text-sm text-primary" data-testid={`text-ab-b-conversion-${test.stepId}`}>{bConversionRate}{bConversionRate !== "—" ? "%" : ""}</p>
               </div>
               <div>
                 <span className="text-muted-foreground">Open Rate</span>
-                <p className="font-semibold">{bOpenRate}{bOpenRate !== "—" ? "%" : ""}</p>
+                <p className="font-semibold" data-testid={`text-ab-b-open-${test.stepId}`}>{bOpenRate}{bOpenRate !== "—" ? "%" : ""}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Click Rate</span>
+                <p className="font-semibold" data-testid={`text-ab-b-click-${test.stepId}`}>{bClickRate}{bClickRate !== "—" ? "%" : ""}</p>
               </div>
               <div>
                 <span className="text-muted-foreground">Reply Rate</span>
-                <p className="font-semibold">{bReplyRate}{bReplyRate !== "—" ? "%" : ""}</p>
+                <p className="font-semibold" data-testid={`text-ab-b-reply-${test.stepId}`}>{bReplyRate}{bReplyRate !== "—" ? "%" : ""}</p>
               </div>
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+        <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
           <span>Split: {test.abTestConfig.splitRatio}% A / {100 - test.abTestConfig.splitRatio}% B</span>
           <span>·</span>
           <span>Min sample: {minSample}</span>
           <span>·</span>
-          <span>Winner by: {test.abTestConfig.winnerCriteria === "open_rate" ? "Open Rate" : "Reply Rate"}</span>
+          <span>Winner by: {winnerCriteria === "open_rate" ? "Open Rate" : winnerCriteria === "click_rate" ? "Click Rate" : "Reply Rate"}</span>
           {r.winnerAt && (
             <>
               <span>·</span>
@@ -232,6 +252,23 @@ export default function OutreachAnalytics() {
     },
     onError: (err: Error) => {
       toast({ title: "Queue processing failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const refreshAbMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/sequences/trigger-ab-check");
+      return res.json();
+    },
+    onSuccess: (data: { checked: number; updated: number; winnersSelected: number }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/sequences/ab-test-results"] });
+      toast({
+        title: "A/B tests refreshed",
+        description: `Checked ${data.checked} test${data.checked !== 1 ? "s" : ""}. ${data.winnersSelected > 0 ? `${data.winnersSelected} winner${data.winnersSelected !== 1 ? "s" : ""} selected.` : "No new winners yet."}`,
+      });
+    },
+    onError: (err: Error) => {
+      toast({ title: "A/B refresh failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -440,6 +477,19 @@ export default function OutreachAnalytics() {
         </TabsContent>
 
         <TabsContent value="ab-testing" className="mt-4 space-y-4" data-testid="tab-content-ab-testing">
+          <div className="flex justify-end">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => refreshAbMutation.mutate()}
+              disabled={refreshAbMutation.isPending}
+              className="gap-2"
+              data-testid="button-refresh-ab"
+            >
+              <FlaskConical className="w-3.5 h-3.5" />
+              {refreshAbMutation.isPending ? "Checking..." : "Refresh A/B Data"}
+            </Button>
+          </div>
           {abLoading ? (
             <div className="space-y-4">
               {[1, 2].map(i => <Skeleton key={i} className="h-48 w-full" />)}

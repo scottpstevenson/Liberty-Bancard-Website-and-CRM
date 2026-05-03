@@ -4,6 +4,7 @@ import { getEmailSignatureHtml } from "./email-signatures";
 import { createPreferenceAwareNotification } from "./digest-service";
 import { enrollContactInGhlWorkflow, tagContactForInboxOrganization } from "./ghl-workflow-enrollment";
 import type { VoiceBotMode } from "./sdr/voice-orchestrator";
+import type { AbTestConfig, AbTestResults } from "@shared/schema";
 
 const GHL_WORKFLOW_ONLY = process.env.GHL_WORKFLOW_ONLY_MODE === "true";
 
@@ -211,10 +212,10 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
 
         switch (step.actionType) {
           case "email": {
-            const abConfig = step.abTestConfig as { splitRatio?: number; minSampleSize?: number; winnerCriteria?: "open_rate" | "reply_rate" } | null;
+            const abConfig = (step.abTestConfig as AbTestConfig | null);
             const abEnabled = !!(step.variantBSubject || step.variantBBody);
 
-            const existing = (step.abTestResults as Record<string, any> | null) ?? {};
+            const existing = (step.abTestResults as Partial<AbTestResults> | null) ?? {};
             const currentWinner: string | null = existing.winnerSelected ?? null;
 
             let chosenVariant: "A" | "B" = "A";
@@ -258,54 +259,61 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
 
             if (abEnabled && stepExecuted && !currentWinner) {
               const stepLogs = await storage.getEmailLogsByStepId(step.id);
-              const variantASent = stepLogs.filter(l => (l.metadata as any)?.abVariant === "A" && l.status === "sent").length;
-              const variantBSent = stepLogs.filter(l => (l.metadata as any)?.abVariant === "B" && l.status === "sent").length;
-              const aOpens = stepLogs.filter(l => (l.metadata as any)?.abVariant === "A" && l.openedAt != null).length;
-              const bOpens = stepLogs.filter(l => (l.metadata as any)?.abVariant === "B" && l.openedAt != null).length;
-              const aReplies = stepLogs.filter(l => (l.metadata as any)?.abVariant === "A" && l.repliedAt != null).length;
-              const bReplies = stepLogs.filter(l => (l.metadata as any)?.abVariant === "B" && l.repliedAt != null).length;
+              const meta = (l: { metadata: unknown }) => l.metadata as Record<string, unknown> | null;
+              const variantASent = stepLogs.filter(l => meta(l)?.abVariant === "A" && l.status === "sent").length;
+              const variantBSent = stepLogs.filter(l => meta(l)?.abVariant === "B" && l.status === "sent").length;
+              const aOpens = stepLogs.filter(l => meta(l)?.abVariant === "A" && l.openedAt != null).length;
+              const bOpens = stepLogs.filter(l => meta(l)?.abVariant === "B" && l.openedAt != null).length;
+              const aClicks = stepLogs.filter(l => meta(l)?.abVariant === "A" && l.clickedAt != null).length;
+              const bClicks = stepLogs.filter(l => meta(l)?.abVariant === "B" && l.clickedAt != null).length;
+              const aReplies = stepLogs.filter(l => meta(l)?.abVariant === "A" && l.repliedAt != null).length;
+              const bReplies = stepLogs.filter(l => meta(l)?.abVariant === "B" && l.repliedAt != null).length;
               const totalSent = variantASent + variantBSent;
               const minSampleSize = abConfig?.minSampleSize ?? 100;
               const winnerCriteria = abConfig?.winnerCriteria ?? "open_rate";
 
               let winnerSelected: string | null = null;
               let winnerAt: string | null = existing.winnerAt ?? null;
+              let statisticallySignificant = false;
               if (totalSent >= minSampleSize) {
-                let rateA: number;
-                let rateB: number;
-                if (winnerCriteria === "reply_rate") {
-                  rateA = variantASent > 0 ? aReplies / variantASent : 0;
-                  rateB = variantBSent > 0 ? bReplies / variantBSent : 0;
-                } else {
-                  rateA = variantASent > 0 ? aOpens / variantASent : 0;
-                  rateB = variantBSent > 0 ? bOpens / variantBSent : 0;
+                const successA = winnerCriteria === "reply_rate" ? aReplies : winnerCriteria === "click_rate" ? aClicks : aOpens;
+                const successB = winnerCriteria === "reply_rate" ? bReplies : winnerCriteria === "click_rate" ? bClicks : bOpens;
+                const pPooled = variantASent + variantBSent > 0 ? (successA + successB) / (variantASent + variantBSent) : 0;
+                if (pPooled > 0 && pPooled < 1 && variantASent >= 5 && variantBSent >= 5) {
+                  const se = Math.sqrt(pPooled * (1 - pPooled) * (1 / variantASent + 1 / variantBSent));
+                  const p1 = variantASent > 0 ? successA / variantASent : 0;
+                  const p2 = variantBSent > 0 ? successB / variantBSent : 0;
+                  if (se > 0 && Math.abs((p1 - p2) / se) >= 1.96) {
+                    statisticallySignificant = true;
+                    winnerSelected = p1 >= p2 ? "A" : "B";
+                    winnerAt = new Date().toISOString();
+                  }
                 }
-                winnerSelected = rateA >= rateB ? "A" : "B";
-                winnerAt = new Date().toISOString();
               }
 
-              await storage.updateSequenceStep(step.id, {
-                abTestResults: {
-                  variantASent,
-                  variantBSent,
-                  aOpens,
-                  bOpens,
-                  aReplies,
-                  bReplies,
-                  winnerSelected,
-                  winnerAt,
-                  startedAt: existing.startedAt ?? new Date().toISOString(),
-                },
-              } as any);
+              await storage.updateSequenceStepAbTestResults(step.id, {
+                variantASent,
+                variantBSent,
+                aOpens,
+                bOpens,
+                aClicks,
+                bClicks,
+                aReplies,
+                bReplies,
+                winnerSelected,
+                winnerAt,
+                startedAt: existing.startedAt ?? new Date().toISOString(),
+                statisticallySignificant,
+              });
             }
             break;
           }
 
           case "sms": {
-            const abConfig = step.abTestConfig as { splitRatio?: number; minSampleSize?: number; winnerCriteria?: "open_rate" | "reply_rate" } | null;
+            const abConfig = (step.abTestConfig as AbTestConfig | null);
             const abEnabled = !!(step.variantBBody);
 
-            const existing = (step.abTestResults as Record<string, any> | null) ?? {};
+            const existing = (step.abTestResults as Partial<AbTestResults> | null) ?? {};
             const currentWinner: string | null = existing.winnerSelected ?? null;
 
             let chosenVariant: "A" | "B" = "A";
@@ -344,39 +352,46 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
 
             if (abEnabled && stepExecuted && !currentWinner) {
               const stepLogs = await storage.getEmailLogsByStepId(step.id);
-              const abLogs = stepLogs.filter(l => (l.metadata as any)?.type === "sms" && (l.metadata as any)?.abVariant);
-              const variantASent = abLogs.filter(l => (l.metadata as any)?.abVariant === "A" && l.status === "sent").length;
-              const variantBSent = abLogs.filter(l => (l.metadata as any)?.abVariant === "B" && l.status === "sent").length;
-              const aReplies = abLogs.filter(l => (l.metadata as any)?.abVariant === "A" && l.repliedAt != null).length;
-              const bReplies = abLogs.filter(l => (l.metadata as any)?.abVariant === "B" && l.repliedAt != null).length;
+              const meta = (l: { metadata: unknown }) => l.metadata as Record<string, unknown> | null;
+              const abLogs = stepLogs.filter(l => meta(l)?.type === "sms" && meta(l)?.abVariant);
+              const variantASent = abLogs.filter(l => meta(l)?.abVariant === "A" && l.status === "sent").length;
+              const variantBSent = abLogs.filter(l => meta(l)?.abVariant === "B" && l.status === "sent").length;
+              const aReplies = abLogs.filter(l => meta(l)?.abVariant === "A" && l.repliedAt != null).length;
+              const bReplies = abLogs.filter(l => meta(l)?.abVariant === "B" && l.repliedAt != null).length;
               const totalSent = variantASent + variantBSent;
               const minSampleSize = abConfig?.minSampleSize ?? 100;
 
-              const winnerCriteria = abConfig?.winnerCriteria ?? "reply_rate";
               let winnerSelected: string | null = null;
               let winnerAt: string | null = existing.winnerAt ?? null;
+              let statisticallySignificant = false;
               if (totalSent >= minSampleSize) {
-                const rateA = variantASent > 0 ? aReplies / variantASent : 0;
-                const rateB = variantBSent > 0 ? bReplies / variantBSent : 0;
-                winnerSelected = rateA >= rateB ? "A" : "B";
-                winnerAt = new Date().toISOString();
-                void winnerCriteria;
+                const pPooled = variantASent + variantBSent > 0 ? (aReplies + bReplies) / (variantASent + variantBSent) : 0;
+                if (pPooled > 0 && pPooled < 1 && variantASent >= 5 && variantBSent >= 5) {
+                  const se = Math.sqrt(pPooled * (1 - pPooled) * (1 / variantASent + 1 / variantBSent));
+                  const p1 = variantASent > 0 ? aReplies / variantASent : 0;
+                  const p2 = variantBSent > 0 ? bReplies / variantBSent : 0;
+                  if (se > 0 && Math.abs((p1 - p2) / se) >= 1.96) {
+                    statisticallySignificant = true;
+                    winnerSelected = p1 >= p2 ? "A" : "B";
+                    winnerAt = new Date().toISOString();
+                  }
+                }
               }
 
-              await storage.updateSequenceStep(step.id, {
-                abTestResults: {
-                  variantASent,
-                  variantBSent,
-                  aOpens: 0,
-                  bOpens: 0,
-                  aReplies,
-                  bReplies,
-                  winnerSelected,
-                  winnerAt,
-                  winnerCriteria,
-                  startedAt: existing.startedAt ?? new Date().toISOString(),
-                },
-              } as any);
+              await storage.updateSequenceStepAbTestResults(step.id, {
+                variantASent,
+                variantBSent,
+                aOpens: 0,
+                bOpens: 0,
+                aClicks: 0,
+                bClicks: 0,
+                aReplies,
+                bReplies,
+                winnerSelected,
+                winnerAt,
+                startedAt: existing.startedAt ?? new Date().toISOString(),
+                statisticallySignificant,
+              });
             }
             break;
           }

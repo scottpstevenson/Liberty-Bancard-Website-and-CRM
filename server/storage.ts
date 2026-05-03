@@ -51,7 +51,7 @@ import {
   type InsertCampaignStep,
   type InsertOutboundMessage, type UpdateOutboundMessageRequest,
   type InsertNote,
-  type InsertEmailLog, type InsertCallLog, type InsertStageAutomationRule, type InsertFollowUpSequence, type InsertSequenceStep, type InsertSequenceEnrollment,
+  type InsertEmailLog, type InsertCallLog, type InsertStageAutomationRule, type InsertFollowUpSequence, type InsertSequenceStep, type InsertSequenceEnrollment, type AbTestResults,
   type InsertSunbizEntity, type UpdateSunbizEntityRequest, type SunbizEntity,
   type InsertMerchantApplication, type MerchantApplication,
   type InsertMerchantProfile, type MerchantProfile,
@@ -232,7 +232,9 @@ export interface IStorage {
 
   getEmailLogs(contactId?: number): Promise<typeof emailLogs.$inferSelect[]>;
   getEmailLogsByStepId(stepId: number): Promise<typeof emailLogs.$inferSelect[]>;
+  getEmailLogsByContactId(contactId: number): Promise<typeof emailLogs.$inferSelect[]>;
   createEmailLog(log: InsertEmailLog): Promise<typeof emailLogs.$inferSelect>;
+  updateEmailLog(id: number, updates: Partial<InsertEmailLog>): Promise<typeof emailLogs.$inferSelect | undefined>;
 
   getCallLogs(contactId?: number): Promise<typeof callLogs.$inferSelect[]>;
   createCallLog(log: InsertCallLog): Promise<typeof callLogs.$inferSelect>;
@@ -253,6 +255,7 @@ export interface IStorage {
   getSequenceSteps(sequenceId: number): Promise<typeof sequenceSteps.$inferSelect[]>;
   createSequenceStep(step: InsertSequenceStep): Promise<typeof sequenceSteps.$inferSelect>;
   updateSequenceStep(id: number, updates: Partial<InsertSequenceStep>): Promise<typeof sequenceSteps.$inferSelect | undefined>;
+  updateSequenceStepAbTestResults(id: number, results: AbTestResults): Promise<typeof sequenceSteps.$inferSelect | undefined>;
   deleteSequenceStep(id: number): Promise<void>;
 
   getSequenceEnrollments(sequenceId?: number): Promise<typeof sequenceEnrollments.$inferSelect[]>;
@@ -1168,6 +1171,17 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
+  async getEmailLogsByContactId(contactId: number) {
+    return await db.select().from(emailLogs)
+      .where(eq(emailLogs.contactId, contactId))
+      .orderBy(desc(emailLogs.createdAt));
+  }
+
+  async updateEmailLog(id: number, updates: Partial<InsertEmailLog>) {
+    const [updated] = await db.update(emailLogs).set(updates).where(eq(emailLogs.id, id)).returning();
+    return updated;
+  }
+
   async getCallLogs(contactId?: number) {
     if (contactId) {
       return await db.select().from(callLogs).where(eq(callLogs.contactId, contactId)).orderBy(desc(callLogs.createdAt));
@@ -1253,6 +1267,14 @@ export class DatabaseStorage implements IStorage {
 
   async updateSequenceStep(id: number, updates: Partial<InsertSequenceStep>) {
     const [updated] = await db.update(sequenceSteps).set(updates).where(eq(sequenceSteps.id, id)).returning();
+    return updated;
+  }
+
+  async updateSequenceStepAbTestResults(id: number, results: AbTestResults) {
+    const [updated] = await db.update(sequenceSteps)
+      .set({ abTestResults: results as Record<string, unknown> })
+      .where(eq(sequenceSteps.id, id))
+      .returning();
     return updated;
   }
 

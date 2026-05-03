@@ -3,8 +3,22 @@ import { isAuthenticated } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
 import { contacts, insertCampaignSchema, insertCampaignStepSchema, insertFollowUpSequenceSchema, insertSequenceEnrollmentSchema, insertSequenceStepSchema } from "@shared/schema";
+import type { AbTestConfig, AbTestResults } from "@shared/schema";
 import { getCampaignAnalytics, processSendQueue, queueCampaignMessages } from "../services/campaign-engine";
 import { parse } from "csv-parse/sync";
+import { checkAbTestWinners } from "../services/ab-test-worker";
+
+interface AbTestResultRow {
+  sequenceId: number;
+  sequenceName: string;
+  stepId: number;
+  stepOrder: number;
+  actionType: string;
+  variantA: { subject?: string; body?: string };
+  variantB: { subject?: string; body?: string };
+  abTestConfig: { splitRatio: number; minSampleSize: number; winnerCriteria: string };
+  abTestResults: Partial<AbTestResults>;
+}
 
 export function registerCampaignsRoutes(app: Express) {
   // === CAMPAIGNS ===
@@ -301,26 +315,43 @@ export function registerCampaignsRoutes(app: Express) {
   });
 
   // === A/B TEST RESULTS ===
-  app.get("/api/sequences/ab-test-results", isAuthenticated, async (req, res) => {
+  app.get("/api/sequences/ab-test-results", isAuthenticated, async (_req, res) => {
     try {
       const sequences = await storage.getFollowUpSequences();
-      const results: any[] = [];
+      const results: AbTestResultRow[] = [];
       for (const seq of sequences) {
         const steps = await storage.getSequenceSteps(seq.id);
         for (const step of steps) {
-          const cfg = step.abTestConfig as any;
+          const cfg = step.abTestConfig as AbTestConfig | null;
           if (cfg && (step.variantBSubject || step.variantBBody)) {
-            const r = (step.abTestResults as any) || {};
+            const r = (step.abTestResults as Partial<AbTestResults>) || {};
             results.push({
               sequenceId: seq.id,
-              sequenceName: seq.name,
+              sequenceName: seq.name ?? "",
               stepId: step.id,
-              stepOrder: step.stepOrder,
-              actionType: step.actionType,
-              variantA: { subject: step.subject, body: step.body },
-              variantB: { subject: step.variantBSubject, body: step.variantBBody },
-              abTestConfig: cfg,
-              abTestResults: r,
+              stepOrder: step.stepOrder ?? 1,
+              actionType: step.actionType ?? "email",
+              variantA: { subject: step.subject ?? undefined, body: step.body ?? undefined },
+              variantB: { subject: step.variantBSubject ?? undefined, body: step.variantBBody ?? undefined },
+              abTestConfig: {
+                splitRatio: cfg.splitRatio ?? 50,
+                minSampleSize: cfg.minSampleSize ?? 100,
+                winnerCriteria: cfg.winnerCriteria ?? "open_rate",
+              },
+              abTestResults: {
+                variantASent: r.variantASent ?? 0,
+                variantBSent: r.variantBSent ?? 0,
+                aOpens: r.aOpens ?? 0,
+                bOpens: r.bOpens ?? 0,
+                aClicks: r.aClicks ?? 0,
+                bClicks: r.bClicks ?? 0,
+                aReplies: r.aReplies ?? 0,
+                bReplies: r.bReplies ?? 0,
+                winnerSelected: r.winnerSelected ?? null,
+                winnerAt: r.winnerAt ?? null,
+                startedAt: r.startedAt ?? null,
+                statisticallySignificant: r.statisticallySignificant,
+              },
             });
           }
         }
@@ -338,20 +369,57 @@ export function registerCampaignsRoutes(app: Express) {
         variantBSent: z.number().int().min(0).optional(),
         aOpens: z.number().int().min(0).optional(),
         bOpens: z.number().int().min(0).optional(),
+        aClicks: z.number().int().min(0).optional(),
+        bClicks: z.number().int().min(0).optional(),
         aReplies: z.number().int().min(0).optional(),
         bReplies: z.number().int().min(0).optional(),
-        winnerSelected: z.string().optional(),
-        winnerAt: z.string().optional(),
+        winnerSelected: z.string().nullable().optional(),
+        winnerAt: z.string().nullable().optional(),
+        statisticallySignificant: z.boolean().optional(),
       });
       const parsed = schema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: parsed.error.errors[0].message });
       }
-      const step = await storage.updateSequenceStep(Number(req.params.id), {
-        abTestResults: parsed.data as any,
-      });
+      const step = await storage.updateSequenceStepAbTestResults(
+        Number(req.params.id),
+        {
+          variantASent: parsed.data.variantASent ?? 0,
+          variantBSent: parsed.data.variantBSent ?? 0,
+          aOpens: parsed.data.aOpens ?? 0,
+          bOpens: parsed.data.bOpens ?? 0,
+          aClicks: parsed.data.aClicks ?? 0,
+          bClicks: parsed.data.bClicks ?? 0,
+          aReplies: parsed.data.aReplies ?? 0,
+          bReplies: parsed.data.bReplies ?? 0,
+          winnerSelected: parsed.data.winnerSelected ?? null,
+          winnerAt: parsed.data.winnerAt ?? null,
+          startedAt: null,
+          statisticallySignificant: parsed.data.statisticallySignificant,
+        }
+      );
       if (!step) return res.status(404).json({ message: "Step not found" });
       res.json(step);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/sequences/trigger-ab-check", isAuthenticated, async (_req, res) => {
+    try {
+      const result = await checkAbTestWinners();
+      res.json({ message: "A/B test check complete", ...result });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/email-logs/:id/track-click", async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!id || isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      await storage.updateEmailLog(id, { clickedAt: new Date(), status: "clicked" });
+      res.json({ message: "Click recorded" });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
