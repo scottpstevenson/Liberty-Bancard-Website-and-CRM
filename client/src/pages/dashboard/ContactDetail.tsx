@@ -25,6 +25,7 @@ import {
   AlertTriangle, Sparkles, Activity, ArrowRight, Clock, Link2, Trash2, Star,
   RefreshCw, CheckCircle2, AlertCircle, ShieldAlert, Linkedin, FolderOpen, Upload,
   FileText, FileImage, File, Download, Calendar, User, UserRound, Loader2,
+  ChevronDown, ChevronUp,
 } from "lucide-react";
 import Comments from "@/components/Comments";
 
@@ -206,6 +207,8 @@ export default function ContactDetail() {
   const [tagInput, setTagInput] = useState("");
   const [noteContent, setNoteContent] = useState("");
   const [activeTab, setActiveTab] = useState("overview");
+
+  const [showLinkedinHistory, setShowLinkedinHistory] = useState(false);
 
   const [showDealDialog, setShowDealDialog] = useState(false);
   const [dealForm, setDealForm] = useState({ pipeline: "sales", stage: "New Lead", offerPath: "", notes: "" });
@@ -767,6 +770,85 @@ export default function ContactDetail() {
                 <RefreshCw className={`h-3.5 w-3.5 mr-1 ${enrichLinkedInMutation.isPending ? "animate-spin" : ""}`} />
                 {enrichLinkedInMutation.isPending ? "Enriching..." : "Enrich from LinkedIn"}
               </Button>
+            </div>
+
+            {/* Enrichment History Toggle */}
+            <div className="border-t px-3 py-1.5">
+              {log.length === 0 ? (
+                <p className="text-xs text-muted-foreground py-1" data-testid="text-linkedin-no-history">
+                  No enrichment history yet.
+                </p>
+              ) : (
+                <>
+                  <button
+                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors w-full text-left py-1"
+                    onClick={() => setShowLinkedinHistory(v => !v)}
+                    data-testid="button-toggle-linkedin-history"
+                  >
+                    {showLinkedinHistory ? (
+                      <ChevronUp className="h-3.5 w-3.5" />
+                    ) : (
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    )}
+                    Enrichment History ({log.length} {log.length === 1 ? "run" : "runs"})
+                  </button>
+
+                  {showLinkedinHistory && (
+                    <div className="mt-1 mb-2 space-y-2" data-testid="section-linkedin-history-list">
+                      {log.map((entry, idx) => (
+                        <div
+                          key={idx}
+                          className="rounded-md border bg-muted/40 px-3 py-2 text-xs space-y-1"
+                          data-testid={`card-linkedin-history-${idx}`}
+                        >
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <span className="font-medium text-foreground" data-testid={`text-linkedin-history-date-${idx}`}>
+                              {new Date(entry.enrichedAt).toLocaleString()}
+                            </span>
+                            <Badge variant="outline" className="text-[10px] py-0 h-4" data-testid={`badge-linkedin-history-provider-${idx}`}>
+                              {entry.provider}
+                            </Badge>
+                          </div>
+                          {entry.fieldsUpdated?.length > 0 ? (
+                            <div className="flex flex-wrap gap-1" data-testid={`text-linkedin-history-fields-${idx}`}>
+                              <span className="text-muted-foreground">Fields updated:</span>
+                              {entry.fieldsUpdated.map(f => (
+                                <span key={f} className="text-emerald-600 dark:text-emerald-400 font-medium">{f}</span>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-muted-foreground italic" data-testid={`text-linkedin-history-no-fields-${idx}`}>
+                              No fields updated (all already populated)
+                            </p>
+                          )}
+                          <div className="flex flex-wrap gap-3 text-muted-foreground">
+                            {entry.title && (
+                              <span data-testid={`text-linkedin-history-title-${idx}`}>
+                                {entry.title}{entry.companyName ? ` · ${entry.companyName}` : ""}
+                              </span>
+                            )}
+                            {entry.connectionCount != null && (
+                              <span data-testid={`text-linkedin-history-connections-${idx}`}>
+                                {entry.connectionCount.toLocaleString()} connections
+                              </span>
+                            )}
+                            {entry.lastActivityDate && (
+                              <span data-testid={`text-linkedin-history-lastactive-${idx}`}>
+                                Last active: {entry.lastActivityDate}
+                              </span>
+                            )}
+                          </div>
+                          {entry.activitySummary && (
+                            <p className="italic text-muted-foreground" data-testid={`text-linkedin-history-summary-${idx}`}>
+                              {entry.activitySummary.slice(0, 160)}{entry.activitySummary.length > 160 ? "…" : ""}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           </div>
         );
