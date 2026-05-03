@@ -388,6 +388,84 @@ export function registerBoardingRoutes(app: Express) {
     }
   });
 
+  app.get("/api/boarding/submissions", isAuthenticated, async (req, res) => {
+    try {
+      const statusFilter = (req.query.status as string | undefined) || undefined;
+      const allDealsResult = await storage.getDeals({ limit: 10000 });
+      const allDeals = allDealsResult.data;
+
+      const inFlight = allDeals.filter((d) => {
+        const s = d.boardingStatus || "not_submitted";
+        if (s === "not_submitted") return false;
+        if (statusFilter && statusFilter !== "all" && s !== statusFilter) return false;
+        return true;
+      });
+
+      const contactIds = Array.from(
+        new Set(inFlight.map((d) => d.contactId).filter((id): id is number => !!id))
+      );
+      const contactMap = new Map<number, any>();
+      for (const id of contactIds) {
+        const c = await storage.getContact(id);
+        if (c) contactMap.set(id, c);
+      }
+
+      const now = Date.now();
+      const submissions = inFlight.map((d) => {
+        const contact = d.contactId ? contactMap.get(d.contactId) : null;
+        const merchantName =
+          contact?.companyName ||
+          [contact?.firstName, contact?.lastName].filter(Boolean).join(" ") ||
+          `Deal #${d.id}`;
+        const log = (d.boardingLog as any[]) || [];
+        const latestLog = log.length > 0 ? log[log.length - 1] : null;
+        const submittedAt = d.boardingSubmittedAt ? new Date(d.boardingSubmittedAt) : null;
+        const daysPending = submittedAt
+          ? Math.max(0, Math.floor((now - submittedAt.getTime()) / (1000 * 60 * 60 * 24)))
+          : null;
+
+        return {
+          dealId: d.id,
+          contactId: d.contactId,
+          merchantName,
+          processorApplicationId: d.processorApplicationId,
+          boardingStatus: d.boardingStatus || "not_submitted",
+          boardingSubmittedAt: d.boardingSubmittedAt,
+          boardingApprovedAt: d.boardingApprovedAt,
+          daysPending,
+          latestLogMessage: latestLog?.message || latestLog?.event || null,
+          latestLogTimestamp: latestLog?.timestamp || null,
+          mid: d.mid,
+          owner: d.owner,
+          pipeline: d.pipeline,
+          stage: d.stage,
+        };
+      });
+
+      submissions.sort((a, b) => {
+        const at = a.boardingSubmittedAt ? new Date(a.boardingSubmittedAt).getTime() : 0;
+        const bt = b.boardingSubmittedAt ? new Date(b.boardingSubmittedAt).getTime() : 0;
+        return bt - at;
+      });
+
+      const counts: Record<string, number> = {
+        submitted: 0,
+        under_review: 0,
+        more_info_needed: 0,
+        approved: 0,
+        declined: 0,
+      };
+      for (const s of submissions) {
+        if (counts[s.boardingStatus] !== undefined) counts[s.boardingStatus]++;
+      }
+
+      res.json({ submissions, counts, total: submissions.length });
+    } catch (err: any) {
+      console.error("[Boarding] List error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/mid-stats/summary", isAuthenticated, async (req, res) => {
     try {
       const allDealsResult = await storage.getDeals({ limit: 10000 });
