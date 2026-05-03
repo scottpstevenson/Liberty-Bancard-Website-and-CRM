@@ -394,6 +394,30 @@ export async function setupAuth(app: Express) {
     }
   });
 
+  app.post("/api/auth/totp/regenerate-backup-codes", isAuthenticated, totpRateLimit, async (req, res) => {
+    const user = req.user as any;
+    const { password } = req.body;
+    if (!password) return res.status(400).json({ message: "Password is required to regenerate backup codes" });
+
+    try {
+      const fullUser = await authStorage.getUser(user.id);
+      if (!fullUser?.passwordHash) return res.status(400).json({ message: "Cannot regenerate backup codes for this account" });
+
+      const isValid = await bcrypt.compare(password, fullUser.passwordHash);
+      if (!isValid) return res.status(401).json({ message: "Incorrect password" });
+
+      const totpData = await authStorage.getTotpData(user.id);
+      if (!totpData.enabled) return res.status(400).json({ message: "2FA is not enabled on this account" });
+
+      const { plain, hashed } = generateBackupCodes();
+      await authStorage.enableTotp(user.id, hashed);
+
+      res.json({ success: true, backupCodes: plain });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.delete("/api/auth/totp/trusted-devices", isAuthenticated, async (req, res) => {
     const user = req.user as any;
     try {

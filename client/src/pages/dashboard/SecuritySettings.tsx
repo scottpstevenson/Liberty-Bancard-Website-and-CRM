@@ -30,6 +30,9 @@ export default function SecuritySettings() {
   const [disableDialogOpen, setDisableDialogOpen] = useState(false);
   const [disablePassword, setDisablePassword] = useState("");
   const [copiedSecret, setCopiedSecret] = useState(false);
+  const [regenDialogOpen, setRegenDialogOpen] = useState(false);
+  const [regenPassword, setRegenPassword] = useState("");
+  const [regenCodes, setRegenCodes] = useState<string[]>([]);
 
   const { data: status, isLoading } = useQuery<TotpStatus>({
     queryKey: ["/api/auth/totp/status"],
@@ -76,6 +79,22 @@ export default function SecuritySettings() {
       setDisablePassword("");
       queryClient.invalidateQueries({ queryKey: ["/api/auth/totp/status"] });
       toast({ title: "2FA Disabled", description: "Two-factor authentication has been removed from your account." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const regenMutation = useMutation({
+    mutationFn: async (password: string) => {
+      const res = await apiRequest("POST", "/api/auth/totp/regenerate-backup-codes", { password });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setRegenCodes(data.backupCodes);
+      setRegenPassword("");
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/totp/status"] });
+      toast({ title: "Backup codes regenerated", description: "Your old backup codes have been invalidated. Save these new codes in a safe place." });
     },
     onError: (err: Error) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -245,10 +264,20 @@ export default function SecuritySettings() {
                 <span className="text-muted-foreground">Backup codes remaining</span>
                 <span className="font-medium" data-testid="text-backup-codes-remaining">{status.backupCodesRemaining} of 8</span>
               </div>
-              <Button variant="destructive" onClick={() => setDisableDialogOpen(true)} data-testid="button-disable-2fa">
-                <ShieldOff className="w-4 h-4 mr-2" />
-                Disable 2FA
-              </Button>
+              <div className="flex gap-2 flex-wrap">
+                <Button
+                  variant="outline"
+                  onClick={() => { setRegenCodes([]); setRegenPassword(""); setRegenDialogOpen(true); }}
+                  data-testid="button-regen-backup-codes"
+                >
+                  <KeyRound className="w-4 h-4 mr-2" />
+                  Regenerate Backup Codes
+                </Button>
+                <Button variant="destructive" onClick={() => setDisableDialogOpen(true)} data-testid="button-disable-2fa">
+                  <ShieldOff className="w-4 h-4 mr-2" />
+                  Disable 2FA
+                </Button>
+              </div>
             </div>
           )}
         </CardContent>
@@ -306,6 +335,83 @@ export default function SecuritySettings() {
           </p>
         </CardContent>
       </Card>
+
+      <Dialog open={regenDialogOpen} onOpenChange={(open) => { setRegenDialogOpen(open); if (!open) { setRegenCodes([]); setRegenPassword(""); } }}>
+        <DialogContent data-testid="dialog-regen-backup-codes">
+          <DialogHeader>
+            <DialogTitle>Regenerate Backup Codes</DialogTitle>
+            <DialogDescription>
+              This will permanently invalidate your existing backup codes and generate 8 new ones. Enter your password to confirm.
+            </DialogDescription>
+          </DialogHeader>
+          {regenCodes.length === 0 ? (
+            <div className="space-y-4 py-2">
+              <Alert className="border-amber-200 bg-amber-50 dark:bg-amber-950/20">
+                <AlertTriangle className="w-4 h-4 text-amber-600" />
+                <AlertDescription className="text-amber-800 dark:text-amber-300">
+                  Your current backup codes will be permanently invalidated.
+                </AlertDescription>
+              </Alert>
+              <div className="space-y-2">
+                <Label htmlFor="regen-password">Password</Label>
+                <Input
+                  id="regen-password"
+                  type="password"
+                  value={regenPassword}
+                  onChange={(e) => setRegenPassword(e.target.value)}
+                  placeholder="Enter your password"
+                  data-testid="input-regen-password"
+                  onKeyDown={(e) => { if (e.key === "Enter" && regenPassword) regenMutation.mutate(regenPassword); }}
+                />
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => { setRegenDialogOpen(false); setRegenPassword(""); }} data-testid="button-cancel-regen">
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => regenMutation.mutate(regenPassword)}
+                  disabled={!regenPassword || regenMutation.isPending}
+                  data-testid="button-confirm-regen"
+                >
+                  {regenMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <KeyRound className="w-4 h-4 mr-2" />}
+                  Regenerate Codes
+                </Button>
+              </DialogFooter>
+            </div>
+          ) : (
+            <div className="space-y-4 py-2">
+              <Alert className="border-amber-200 bg-amber-50 dark:bg-amber-950/20">
+                <AlertTriangle className="w-4 h-4 text-amber-600" />
+                <AlertDescription className="text-amber-800 dark:text-amber-300">
+                  <strong>Save these codes now!</strong> They won't be shown again. Each code can only be used once.
+                </AlertDescription>
+              </Alert>
+              <div className="bg-muted rounded-lg p-4 font-mono text-sm space-y-1" data-testid="div-regen-backup-codes">
+                {regenCodes.map((code, i) => (
+                  <div key={i} className="text-center" data-testid={`text-regen-code-${i}`}>{code}</div>
+                ))}
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={async () => {
+                    await navigator.clipboard.writeText(regenCodes.join("\n"));
+                    toast({ title: "Copied", description: "Backup codes copied to clipboard." });
+                  }}
+                  data-testid="button-copy-regen-codes"
+                >
+                  <Copy className="w-4 h-4 mr-2" />
+                  Copy Codes
+                </Button>
+                <Button onClick={() => { setRegenDialogOpen(false); setRegenCodes([]); }} data-testid="button-done-regen">
+                  <CheckCircle2 className="w-4 h-4 mr-2" />
+                  Done
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={disableDialogOpen} onOpenChange={setDisableDialogOpen}>
         <DialogContent data-testid="dialog-disable-2fa">
