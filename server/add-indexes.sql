@@ -51,3 +51,13 @@ CREATE INDEX IF NOT EXISTS idx_documents_deal_id ON documents(deal_id);
 -- notifications: read status for unread count
 CREATE INDEX IF NOT EXISTS idx_notifications_read ON notifications(read);
 CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at DESC);
+-- Partial index for unread count badge (covers WHERE read = false scoped by recipient)
+CREATE INDEX IF NOT EXISTS idx_notifications_unread_recipient
+  ON notifications(recipient_id) WHERE read = false;
+-- Recipient lookup for paginated list (recipient + recency)
+CREATE INDEX IF NOT EXISTS idx_notifications_recipient_created_at
+  ON notifications(recipient_id, created_at DESC);
+
+-- notification_preferences: speed up disabled-event subquery filter
+CREATE INDEX IF NOT EXISTS idx_notif_prefs_user_disabled
+  ON notification_preferences(user_id, event_type) WHERE enabled = false;

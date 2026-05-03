@@ -286,7 +286,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
   const { data: notifCountData } = useQuery<{ unread: number }>({
     queryKey: ["/api/notifications/count"],
-    refetchInterval: 60000,
+    refetchInterval: 30000,
     enabled: ["admin", "manager", "agent"].includes(role),
   });
   const notificationsUnreadCount = notifCountData?.unread || 0;

@@ -27,26 +27,10 @@ export function registerNotificationsRoutes(app: Express) {
       const userId = (req.user as any)?.id;
       const { data, total } = await storage.getNotificationsPaginated({ limit, offset, category, userId });
 
-      // Filter out notifications for disabled event types (in-memory post-fetch filter)
-      let filtered = data;
-      if (userId) {
-        const prefs = await storage.getNotificationPreferences(userId);
-        const disabledEvents = prefs
-          .filter((p) => p.enabled === false)
-          .map((p) => p.eventType);
-        if (disabledEvents.length > 0) {
-          filtered = data.filter((n) => {
-            const meta = n.metadata as Record<string, unknown> | null;
-            const eventType = meta?.eventType as string | undefined;
-            return !eventType || !disabledEvents.includes(eventType);
-          });
-        }
-      }
-
-      // `hasMore` is based on the DB total (before preference filtering) so the client
-      // continues fetching even when preference-filtering reduces a page's visible count.
+      // Preference-based event-type filtering is applied in SQL by the storage layer,
+      // so the page's data and total are already accurate post-filter.
       const hasMore = total > offset + limit;
-      res.json({ data: filtered, total, limit, offset, hasMore });
+      res.json({ data, total, limit, offset, hasMore });
     } catch (err: any) {
       console.error("Get notifications error:", err.message);
       res.status(500).json({ message: err.message });

@@ -128,9 +128,22 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
           )
         : undefined;
 
-    const where = userScope && categoryCondition
-      ? and(userScope, categoryCondition)
-      : userScope ?? categoryCondition;
+    // Push preference-based event-type filtering into SQL: exclude notifications whose
+    // metadata.eventType matches a disabled preference for this user. NOT EXISTS keeps
+    // notifications without an eventType or without a matching preference row.
+    const preferenceCondition = userId
+      ? sql`NOT EXISTS (
+          SELECT 1 FROM ${notificationPreferences}
+          WHERE ${notificationPreferences.userId} = ${userId}
+            AND ${notificationPreferences.enabled} = false
+            AND ${notificationPreferences.eventType} = (${notifications.metadata}->>'eventType')
+        )`
+      : undefined;
+
+    const conditions = [userScope, categoryCondition, preferenceCondition].filter(
+      (c): c is NonNullable<typeof c> => c !== undefined
+    );
+    const where = conditions.length > 0 ? and(...conditions) : undefined;
 
     const [data, totalRows] = await Promise.all([
       where
