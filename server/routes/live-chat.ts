@@ -354,39 +354,78 @@ export function registerLiveChatRoutes(app: Express) {
     }
   });
 
-  // === AGENT: Close a chat session ===
+  // === AGENT: Update a chat session (close or link contact) ===
   app.patch("/api/live-chat/sessions/:id", isAuthenticated, async (req, res) => {
     try {
-      const schema = z.object({ status: z.enum(["active", "closed"]) });
-      const { status } = schema.parse(req.body);
+      const schema = z.object({
+        status: z.enum(["active", "closed"]).optional(),
+        contactId: z.number().int().positive().nullable().optional(),
+      }).refine(d => d.status !== undefined || d.contactId !== undefined, {
+        message: "At least one of status or contactId is required",
+      });
+      const body = schema.parse(req.body);
       const chatId = Number(req.params.id);
       const chat = await storage.getLiveChat(chatId);
       if (!chat) return res.status(404).json({ message: "Chat not found" });
 
-      const baseUpdate: Parameters<typeof storage.updateLiveChat>[1] = { status };
-      if (status === "closed") {
-        baseUpdate.closedAt = new Date();
-        if (chat.contactId) {
-          const messages = await storage.getLiveChatMessages(chatId);
-          if (messages.length > 0) {
-            const transcript = messages
-              .map(m => `[${m.senderType === "agent" ? "Agent" : "Visitor"}] ${m.content}`)
-              .join("\n");
-            await storage.createNote({
-              entityType: "contact",
-              entityId: chat.contactId,
-              content: `Live chat transcript (${new Date(chat.createdAt).toLocaleString()}):\n\n${transcript}`,
-              authorName: "System",
-              pinned: false,
-            });
+      const baseUpdate: Parameters<typeof storage.updateLiveChat>[1] = {};
+
+      if (body.status !== undefined) {
+        baseUpdate.status = body.status;
+        if (body.status === "closed") {
+          baseUpdate.closedAt = new Date();
+          const resolvedContactId = body.contactId !== undefined ? body.contactId : chat.contactId;
+          if (resolvedContactId) {
+            const messages = await storage.getLiveChatMessages(chatId);
+            if (messages.length > 0) {
+              const transcript = messages
+                .map(m => `[${m.senderType === "agent" ? "Agent" : "Visitor"}] ${m.content}`)
+                .join("\n");
+              await storage.createNote({
+                entityType: "contact",
+                entityId: resolvedContactId,
+                content: `Live chat transcript (${new Date(chat.createdAt).toLocaleString()}):\n\n${transcript}`,
+                authorName: "System",
+                pinned: false,
+              });
+            }
           }
         }
+      }
+
+      if (body.contactId !== undefined) {
+        baseUpdate.contactId = body.contactId;
       }
 
       const updated = await storage.updateLiveChat(chatId, baseUpdate);
       res.json(updated);
     } catch (err: unknown) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      res.status(500).json({ message: err instanceof Error ? err.message : "Internal error" });
+    }
+  });
+
+  // === AGENT: Search contacts for linking ===
+  app.get("/api/live-chat/contacts/search", isAuthenticated, async (req, res) => {
+    try {
+      const q = (req.query.q as string || "").toLowerCase().trim();
+      if (!q || q.length < 2) return res.json([]);
+      const { data: allContacts } = await storage.getContacts({ limit: 500 });
+      const matches = allContacts
+        .filter(c => {
+          const str = `${c.firstName} ${c.lastName} ${c.email} ${c.companyName || ""} ${c.phone || ""}`.toLowerCase();
+          return str.includes(q);
+        })
+        .slice(0, 15)
+        .map(c => ({
+          id: c.id,
+          firstName: c.firstName,
+          lastName: c.lastName,
+          email: c.email,
+          companyName: c.companyName,
+        }));
+      res.json(matches);
+    } catch (err: unknown) {
       res.status(500).json({ message: err instanceof Error ? err.message : "Internal error" });
     }
   });

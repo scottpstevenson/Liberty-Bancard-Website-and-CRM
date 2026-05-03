@@ -5,7 +5,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, Send, MessageCircle, User, Clock, X, CheckCircle2, RefreshCw } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { Loader2, Send, MessageCircle, User, Clock, X, CheckCircle2, RefreshCw, Search, Link2, UserCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -36,12 +43,24 @@ interface ChatMessage {
 
 const BASE_TITLE = "Liberty Bancard";
 
+interface ContactResult {
+  id: number;
+  firstName: string;
+  lastName: string;
+  email: string;
+  companyName: string | null;
+}
+
 export default function LiveChat() {
   const [selectedChatId, setSelectedChatId] = useState<number | null>(null);
   const [replyText, setReplyText] = useState("");
   const [filterStatus, setFilterStatus] = useState<"active" | "all">("active");
+  const [sessionSearch, setSessionSearch] = useState("");
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
+  const [contactSearch, setContactSearch] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const contactSearchRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -72,6 +91,17 @@ export default function LiveChat() {
     },
     enabled: !!selectedChatId,
     refetchInterval: 4000,
+  });
+
+  const { data: contactResults = [], isFetching: contactSearching } = useQuery<ContactResult[]>({
+    queryKey: ["/api/live-chat/contacts/search", contactSearch],
+    queryFn: async () => {
+      if (contactSearch.trim().length < 2) return [];
+      const res = await fetch(`/api/live-chat/contacts/search?q=${encodeURIComponent(contactSearch.trim())}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to search contacts");
+      return res.json();
+    },
+    enabled: contactSearch.trim().length >= 2,
   });
 
   const messages = chatData?.messages || [];
@@ -115,7 +145,7 @@ export default function LiveChat() {
     if (sessions.length === 0) return;
 
     if (!sessionsInitialized.current) {
-      // First load — record baseline timestamps without chimng.
+      // First load — record baseline timestamps without chiming.
       sessions.forEach(s => { prevLastMessageAt.current[s.id] = s.lastMessageAt; });
       sessionsInitialized.current = true;
       return;
@@ -147,6 +177,16 @@ export default function LiveChat() {
     if (shouldChime) playChime();
   }, [sessions]);
 
+  const filteredSessions = sessions.filter(s => {
+    if (!sessionSearch.trim()) return true;
+    const q = sessionSearch.toLowerCase().trim();
+    return (
+      (s.visitorName || "").toLowerCase().includes(q) ||
+      (s.visitorEmail || "").toLowerCase().includes(q) ||
+      (s.pageUrl || "").toLowerCase().includes(q)
+    );
+  });
+
   // Scroll to bottom when messages change
   useEffect(() => {
     if (messages.length > 0) {
@@ -169,6 +209,13 @@ export default function LiveChat() {
       document.title = BASE_TITLE;
     };
   }, [sessions]);
+
+  useEffect(() => {
+    if (linkDialogOpen) {
+      setContactSearch("");
+      setTimeout(() => contactSearchRef.current?.focus(), 100);
+    }
+  }, [linkDialogOpen]);
 
   const replyMutation = useMutation({
     mutationFn: async ({ chatId, content }: { chatId: number; content: string }) => {
@@ -196,6 +243,22 @@ export default function LiveChat() {
     },
     onError: () => {
       toast({ title: "Failed to close chat", variant: "destructive" });
+    },
+  });
+
+  const linkContactMutation = useMutation({
+    mutationFn: async ({ chatId, contactId }: { chatId: number; contactId: number }) => {
+      const res = await apiRequest("PATCH", `/api/live-chat/sessions/${chatId}`, { contactId });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Contact linked", description: "This chat is now linked to the CRM contact." });
+      setLinkDialogOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/live-chat/sessions", filterStatus] });
+      queryClient.invalidateQueries({ queryKey: ["/api/live-chat/sessions", selectedChatId, "messages"] });
+    },
+    onError: () => {
+      toast({ title: "Failed to link contact", variant: "destructive" });
     },
   });
 
@@ -244,24 +307,45 @@ export default function LiveChat() {
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4 min-h-0">
         {/* Sessions list */}
         <Card className="flex flex-col min-h-0">
-          <CardHeader className="p-3 pb-2 shrink-0">
+          <CardHeader className="p-3 pb-2 shrink-0 space-y-2">
             <CardTitle className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
               {filterStatus === "active" ? "Active Sessions" : "All Sessions"}
             </CardTitle>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+              <Input
+                placeholder="Search by name, email, or URL…"
+                value={sessionSearch}
+                onChange={e => setSessionSearch(e.target.value)}
+                className="pl-8 h-8 text-sm"
+                data-testid="session-search-input"
+              />
+              {sessionSearch && (
+                <button
+                  onClick={() => setSessionSearch("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  data-testid="session-search-clear"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
           </CardHeader>
           <ScrollArea className="flex-1">
             {sessionsLoading ? (
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
               </div>
-            ) : sessions.length === 0 ? (
+            ) : filteredSessions.length === 0 ? (
               <div className="text-center py-8 px-4">
                 <MessageCircle className="w-8 h-8 text-muted-foreground/40 mx-auto mb-2" />
-                <p className="text-sm text-muted-foreground">No {filterStatus === "active" ? "active" : ""} chats</p>
+                <p className="text-sm text-muted-foreground">
+                  {sessionSearch ? "No sessions match your search" : `No ${filterStatus === "active" ? "active" : ""} chats`}
+                </p>
               </div>
             ) : (
               <div className="space-y-1 p-2">
-                {sessions.map(session => {
+                {filteredSessions.map(session => {
                   const isUnread = countUnreadSessions([session]) > 0 && session.id !== selectedChatId;
                   return (
                     <button
@@ -284,6 +368,9 @@ export default function LiveChat() {
                           </span>
                           {isUnread && (
                             <span className="flex h-2 w-2 rounded-full bg-destructive shrink-0" data-testid={`unread-dot-${session.id}`} />
+                          )}
+                          {session.contactId && (
+                            <UserCheck className="w-3 h-3 text-emerald-500 shrink-0" title="Linked to CRM contact" />
                           )}
                         </div>
                         <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full font-medium capitalize", statusColor[session.status] || statusColor.closed)}>
@@ -318,7 +405,7 @@ export default function LiveChat() {
           ) : (
             <>
               {/* Chat header */}
-              <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0 gap-2 flex-wrap">
                 <div>
                   <p className="font-semibold text-sm" data-testid="chat-visitor-name">
                     {selectedChat?.visitorName || "Visitor"}
@@ -328,15 +415,26 @@ export default function LiveChat() {
                     {selectedChat?.contactId && (
                       <a
                         href={`/dashboard/contacts/${selectedChat.contactId}`}
-                        className="ml-2 text-sky-600 hover:underline"
+                        className="ml-2 text-sky-600 hover:underline inline-flex items-center gap-0.5"
                         data-testid="contact-link"
                       >
+                        <UserCheck className="w-3 h-3" />
                         View Contact →
                       </a>
                     )}
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setLinkDialogOpen(true)}
+                    className="gap-1.5 text-xs"
+                    data-testid="link-contact-button"
+                  >
+                    <Link2 className="w-3.5 h-3.5" />
+                    {selectedChat?.contactId ? "Change Contact" : "Link to Contact"}
+                  </Button>
                   {selectedChat?.status === "active" && (
                     <Button
                       variant="outline"
@@ -436,6 +534,84 @@ export default function LiveChat() {
           )}
         </Card>
       </div>
+
+      {/* Link to Contact dialog */}
+      <Dialog open={linkDialogOpen} onOpenChange={setLinkDialogOpen}>
+        <DialogContent className="max-w-md" data-testid="link-contact-dialog">
+          <DialogHeader>
+            <DialogTitle>Link to CRM Contact</DialogTitle>
+            <DialogDescription>
+              Search for a contact by name, email, or company to manually link this chat session.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+              <Input
+                ref={contactSearchRef}
+                placeholder="Search contacts…"
+                value={contactSearch}
+                onChange={e => setContactSearch(e.target.value)}
+                className="pl-9"
+                data-testid="contact-search-input"
+              />
+              {contactSearching && (
+                <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />
+              )}
+            </div>
+
+            {contactSearch.trim().length > 0 && contactSearch.trim().length < 2 && (
+              <p className="text-xs text-muted-foreground text-center py-2">Type at least 2 characters to search</p>
+            )}
+
+            {contactSearch.trim().length >= 2 && !contactSearching && contactResults.length === 0 && (
+              <p className="text-xs text-muted-foreground text-center py-4">No contacts found</p>
+            )}
+
+            {contactResults.length > 0 && (
+              <div className="space-y-1 max-h-60 overflow-y-auto" data-testid="contact-search-results">
+                {contactResults.map(contact => (
+                  <button
+                    key={contact.id}
+                    onClick={() => {
+                      if (selectedChatId) {
+                        linkContactMutation.mutate({ chatId: selectedChatId, contactId: contact.id });
+                      }
+                    }}
+                    disabled={linkContactMutation.isPending}
+                    className={cn(
+                      "w-full text-left px-3 py-2.5 rounded-lg border border-border hover:bg-accent/50 transition-colors",
+                      selectedChat?.contactId === contact.id ? "bg-accent border-primary/30" : ""
+                    )}
+                    data-testid={`contact-result-${contact.id}`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">
+                          {contact.firstName} {contact.lastName}
+                          {selectedChat?.contactId === contact.id && (
+                            <span className="ml-1.5 text-[10px] text-emerald-600 font-normal">(current)</span>
+                          )}
+                        </p>
+                        <p className="text-xs text-muted-foreground truncate">{contact.email}</p>
+                        {contact.companyName && (
+                          <p className="text-xs text-muted-foreground truncate">{contact.companyName}</p>
+                        )}
+                      </div>
+                      {linkContactMutation.isPending ? (
+                        <Loader2 className="w-4 h-4 animate-spin text-muted-foreground shrink-0" />
+                      ) : (
+                        <Link2 className="w-4 h-4 text-muted-foreground shrink-0" />
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
