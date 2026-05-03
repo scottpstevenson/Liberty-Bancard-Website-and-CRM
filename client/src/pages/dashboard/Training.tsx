@@ -37,6 +37,8 @@ import {
   MessageSquare,
   User,
   Bot,
+  ClipboardList,
+  ArrowLeft,
 } from "lucide-react";
 
 interface TrainingFolder {
@@ -754,6 +756,345 @@ function RoleplayPractice() {
   );
 }
 
+interface AdminSession extends RoleplaySession {
+  userId: string | null;
+  userEmail: string | null;
+  userFirstName: string | null;
+  userLastName: string | null;
+  userRole: string | null;
+  avgTone: number | null;
+  avgClarity: number | null;
+}
+
+interface RepSummary {
+  userId: string;
+  name: string;
+  email: string;
+  role: string;
+  sessionsCompleted: number;
+  totalSessions: number;
+  avgTone: number | null;
+  avgClarity: number | null;
+  avgOverall: number | null;
+  lastSessionAt: string | null;
+  sessions: AdminSession[];
+}
+
+function CoachingDashboard() {
+  const [selectedRep, setSelectedRep] = useState<RepSummary | null>(null);
+  const [selectedSession, setSelectedSession] = useState<AdminSession | null>(null);
+  const [drillExchanges, setDrillExchanges] = useState<Exchange[]>([]);
+  const [loadingExchanges, setLoadingExchanges] = useState(false);
+
+  const { data: sessions, isLoading } = useQuery<AdminSession[]>({
+    queryKey: ["/api/training/roleplay/admin/sessions"],
+  });
+
+  const reps: RepSummary[] = (() => {
+    if (!sessions) return [];
+    const map = new Map<string, RepSummary>();
+    for (const s of sessions) {
+      if (!s.userId) continue;
+      const name = [s.userFirstName, s.userLastName].filter(Boolean).join(" ") || s.userEmail || "Unknown";
+      const existing = map.get(s.userId) || {
+        userId: s.userId,
+        name,
+        email: s.userEmail || "",
+        role: s.userRole || "agent",
+        sessionsCompleted: 0,
+        totalSessions: 0,
+        avgTone: null,
+        avgClarity: null,
+        avgOverall: null,
+        lastSessionAt: null,
+        sessions: [],
+      };
+      existing.totalSessions += 1;
+      if (s.status === "completed") existing.sessionsCompleted += 1;
+      existing.sessions.push(s);
+      if (!existing.lastSessionAt || (s.createdAt && s.createdAt > existing.lastSessionAt)) {
+        existing.lastSessionAt = s.createdAt;
+      }
+      map.set(s.userId, existing);
+    }
+    // Compute averages from completed sessions
+    for (const rep of Array.from(map.values())) {
+      const tones = rep.sessions.map(s => s.avgTone).filter((v): v is number => v !== null);
+      const clarities = rep.sessions.map(s => s.avgClarity).filter((v): v is number => v !== null);
+      const overalls = rep.sessions.map(s => s.overallScore).filter((v): v is number => v !== null);
+      const avg = (a: number[]) => a.length ? Math.round((a.reduce((x, y) => x + y, 0) / a.length) * 10) / 10 : null;
+      rep.avgTone = avg(tones);
+      rep.avgClarity = avg(clarities);
+      rep.avgOverall = avg(overalls);
+    }
+    return Array.from(map.values()).sort((a, b) => (b.lastSessionAt || "").localeCompare(a.lastSessionAt || ""));
+  })();
+
+  const loadSession = async (s: AdminSession) => {
+    setSelectedSession(s);
+    setDrillExchanges([]);
+    setLoadingExchanges(true);
+    try {
+      const res = await fetch(`/api/training/roleplay/admin/sessions/${s.id}/exchanges`, { credentials: "include" });
+      const data = await res.json();
+      setDrillExchanges(data);
+    } catch {
+      setDrillExchanges([]);
+    } finally {
+      setLoadingExchanges(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="space-y-3" data-testid="coaching-loading">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Skeleton key={i} className="h-16 w-full" />
+        ))}
+      </div>
+    );
+  }
+
+  if (!reps.length) {
+    return (
+      <Card data-testid="coaching-empty">
+        <CardContent className="py-12 text-center text-muted-foreground">
+          <Users className="w-10 h-10 mx-auto mb-3 opacity-40" />
+          <p className="font-medium">No roleplay activity yet</p>
+          <p className="text-sm mt-1">Once reps start practicing, their scores and trends will show up here.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Drill into a specific session
+  if (selectedRep && selectedSession) {
+    return (
+      <div className="space-y-4" data-testid="coaching-session-detail">
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={() => { setSelectedSession(null); setDrillExchanges([]); }} data-testid="button-back-to-rep">
+            <ArrowLeft className="w-4 h-4 mr-1" />
+            Back to {selectedRep.name}
+          </Button>
+        </div>
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div>
+                <CardTitle className="text-base">{selectedSession.scenario}</CardTitle>
+                <CardDescription>
+                  {selectedSession.persona} · {selectedSession.createdAt ? new Date(selectedSession.createdAt).toLocaleString() : ""}
+                </CardDescription>
+              </div>
+              {selectedSession.overallScore !== null && (
+                <Badge variant="secondary" data-testid="badge-detail-overall">
+                  <Star className="w-3 h-3 mr-1 text-yellow-500" />
+                  Overall {selectedSession.overallScore}/10
+                </Badge>
+              )}
+            </div>
+          </CardHeader>
+          {selectedSession.coachingSummary && (
+            <CardContent className="space-y-3 text-sm">
+              <p className="text-muted-foreground">{selectedSession.coachingSummary}</p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {selectedSession.overallScore !== null && <ScoreBar label="Overall" score={selectedSession.overallScore} />}
+                {selectedSession.avgTone !== null && <ScoreBar label="Avg Tone" score={Math.round(selectedSession.avgTone)} />}
+                {selectedSession.avgClarity !== null && <ScoreBar label="Avg Clarity" score={Math.round(selectedSession.avgClarity)} />}
+              </div>
+              {selectedSession.strengths && selectedSession.strengths.length > 0 && (
+                <div>
+                  <p className="font-medium text-green-600 mb-1">Strengths</p>
+                  <ul className="list-disc list-inside space-y-0.5 text-muted-foreground">
+                    {selectedSession.strengths.map((s, i) => <li key={i}>{s}</li>)}
+                  </ul>
+                </div>
+              )}
+              {selectedSession.gaps && selectedSession.gaps.length > 0 && (
+                <div>
+                  <p className="font-medium text-amber-600 mb-1">Areas to Improve</p>
+                  <ul className="list-disc list-inside space-y-0.5 text-muted-foreground">
+                    {selectedSession.gaps.map((g, i) => <li key={i}>{g}</li>)}
+                  </ul>
+                </div>
+              )}
+              {selectedSession.suggestedPhrasing && selectedSession.suggestedPhrasing.length > 0 && (
+                <div>
+                  <p className="font-medium text-primary mb-1">Suggested phrasing</p>
+                  <ul className="space-y-1">
+                    {selectedSession.suggestedPhrasing.map((p, i) => (
+                      <li key={i} className="text-xs text-muted-foreground italic border-l-2 border-primary pl-2">{p}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </CardContent>
+          )}
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">{drillExchanges.length} Exchanges</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {loadingExchanges ? (
+              <Skeleton className="h-24 w-full" />
+            ) : drillExchanges.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No exchanges recorded.</p>
+            ) : drillExchanges.map((ex) => (
+              <div key={ex.id} className="border rounded-md p-3 space-y-2 text-sm" data-testid={`exchange-detail-${ex.id}`}>
+                <div className="flex items-start gap-2">
+                  <User className="w-3.5 h-3.5 mt-0.5 text-primary shrink-0" />
+                  <span>{ex.repMessage}</span>
+                </div>
+                <div className="flex items-start gap-2 text-muted-foreground">
+                  <Bot className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                  <span>{ex.merchantReply}</span>
+                </div>
+                {ex.toneScore !== null && (
+                  <div className="flex gap-3 pt-1 flex-wrap">
+                    <Badge variant="outline" className="text-xs">Tone {ex.toneScore}/10</Badge>
+                    <Badge variant="outline" className="text-xs">Clarity {ex.clarityScore}/10</Badge>
+                    {ex.objectionAddressed && <Badge variant="secondary" className="text-xs bg-green-100 text-green-700">Objection ✓</Badge>}
+                  </div>
+                )}
+                {ex.feedback && <p className="text-xs italic text-muted-foreground">💡 {ex.feedback}</p>}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Rep detail view
+  if (selectedRep) {
+    return (
+      <div className="space-y-4" data-testid="coaching-rep-detail">
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={() => setSelectedRep(null)} data-testid="button-back-to-reps">
+            <ArrowLeft className="w-4 h-4 mr-1" />
+            Back to all reps
+          </Button>
+        </div>
+        <Card>
+          <CardHeader>
+            <div className="flex items-start justify-between flex-wrap gap-2">
+              <div>
+                <CardTitle data-testid="text-rep-name">{selectedRep.name}</CardTitle>
+                <CardDescription>{selectedRep.email} · {selectedRep.role}</CardDescription>
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                <Badge variant="outline" data-testid="badge-rep-completed">{selectedRep.sessionsCompleted} completed</Badge>
+                {selectedRep.avgOverall !== null && (
+                  <Badge variant="secondary" data-testid="badge-rep-avg-overall">
+                    <Star className="w-3 h-3 mr-1 text-yellow-500" />
+                    Avg {selectedRep.avgOverall}/10
+                  </Badge>
+                )}
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {selectedRep.avgOverall !== null && <ScoreBar label="Avg Overall" score={Math.round(selectedRep.avgOverall)} />}
+            {selectedRep.avgTone !== null && <ScoreBar label="Avg Tone" score={Math.round(selectedRep.avgTone)} />}
+            {selectedRep.avgClarity !== null && <ScoreBar label="Avg Clarity" score={Math.round(selectedRep.avgClarity)} />}
+          </CardContent>
+        </Card>
+        <div className="space-y-2">
+          <h3 className="font-medium text-sm">Session History ({selectedRep.sessions.length})</h3>
+          {selectedRep.sessions.map(s => (
+            <Card
+              key={s.id}
+              className="cursor-pointer hover:shadow-sm transition-shadow"
+              onClick={() => loadSession(s)}
+              data-testid={`card-rep-session-${s.id}`}
+            >
+              <CardContent className="py-3 px-4">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="min-w-0">
+                    <p className="font-medium text-sm truncate">{s.scenario}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {s.persona} · {s.createdAt ? new Date(s.createdAt).toLocaleDateString() : ""} · {s.totalExchanges} turns
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {s.avgTone !== null && <Badge variant="outline" className="text-xs">Tone {s.avgTone}</Badge>}
+                    {s.avgClarity !== null && <Badge variant="outline" className="text-xs">Clarity {s.avgClarity}</Badge>}
+                    {s.overallScore !== null && (
+                      <Badge variant="secondary" className="text-xs">
+                        <Star className="w-3 h-3 mr-1 text-yellow-500" />
+                        {s.overallScore}/10
+                      </Badge>
+                    )}
+                    <Badge variant={s.status === "completed" ? "secondary" : "outline"} className="text-xs">
+                      {s.status === "completed" ? "Done" : "Active"}
+                    </Badge>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // Rep list view
+  return (
+    <div className="space-y-3" data-testid="coaching-rep-list">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold flex items-center gap-2">
+            <ClipboardList className="w-5 h-5 text-primary" />
+            Team Coaching
+          </h2>
+          <p className="text-sm text-muted-foreground">Review your team's roleplay activity, scores, and trends. Click a rep to drill into their sessions.</p>
+        </div>
+        <Badge variant="outline" data-testid="badge-rep-count">{reps.length} {reps.length === 1 ? "rep" : "reps"}</Badge>
+      </div>
+      <div className="space-y-2">
+        {reps.map(rep => (
+          <Card
+            key={rep.userId}
+            className="cursor-pointer hover:shadow-sm transition-shadow"
+            onClick={() => setSelectedRep(rep)}
+            data-testid={`card-rep-${rep.userId}`}
+          >
+            <CardContent className="py-3 px-4">
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-sm" data-testid={`text-rep-name-${rep.userId}`}>{rep.name}</p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {rep.email} · last session {rep.lastSessionAt ? new Date(rep.lastSessionAt).toLocaleDateString() : "—"}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Badge variant="outline" className="text-xs" data-testid={`badge-rep-sessions-${rep.userId}`}>
+                    {rep.sessionsCompleted}/{rep.totalSessions} sessions
+                  </Badge>
+                  {rep.avgTone !== null && (
+                    <Badge variant="outline" className="text-xs" data-testid={`badge-rep-tone-${rep.userId}`}>Tone {rep.avgTone}</Badge>
+                  )}
+                  {rep.avgClarity !== null && (
+                    <Badge variant="outline" className="text-xs" data-testid={`badge-rep-clarity-${rep.userId}`}>Clarity {rep.avgClarity}</Badge>
+                  )}
+                  {rep.avgOverall !== null && (
+                    <Badge variant="secondary" className="text-xs" data-testid={`badge-rep-overall-${rep.userId}`}>
+                      <Star className="w-3 h-3 mr-1 text-yellow-500" />
+                      {rep.avgOverall}/10
+                    </Badge>
+                  )}
+                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function Training() {
   const { toast } = useToast();
   const { user } = useAuth();
@@ -845,6 +1186,12 @@ export default function Training() {
             <Brain className="w-4 h-4 mr-2" />
             AI Practice
           </TabsTrigger>
+          {canManageHub && (
+            <TabsTrigger value="coaching" data-testid="tab-coaching">
+              <ClipboardList className="w-4 h-4 mr-2" />
+              Team Coaching
+            </TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="docs">
@@ -1003,6 +1350,12 @@ export default function Training() {
         <TabsContent value="practice">
           <RoleplayPractice />
         </TabsContent>
+
+        {canManageHub && (
+          <TabsContent value="coaching">
+            <CoachingDashboard />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );

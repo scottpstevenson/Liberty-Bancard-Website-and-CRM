@@ -3,8 +3,8 @@ import { isDashboardUser, isAuthenticated } from "../replit_integrations/auth";
 import { getTrainingHubStatus, createTrainingHub, appendGhlBlueprintsToDoc, syncGhlBlueprintsToMainDoc, LIBERTY_BANCARD_GHL_DOC_ID } from "../services/google-drive";
 import { storage } from "../storage";
 import { db } from "../db";
-import { roleplaySessions, roleplayExchanges } from "@shared/schema";
-import { eq, desc } from "drizzle-orm";
+import { roleplaySessions, roleplayExchanges, users } from "@shared/schema";
+import { eq, desc, inArray } from "drizzle-orm";
 import { createMasterVault, getVaultStatus } from "../services/business-vault";
 
 // Admin or manager role required for write operations
@@ -313,6 +313,85 @@ Return valid JSON with:
       if (session.userId !== userId) return res.status(403).json({ message: "Not your session" });
       const exchanges = await db.select().from(roleplayExchanges)
         .where(eq(roleplayExchanges.sessionId, Number(req.params.sessionId)))
+        .orderBy(roleplayExchanges.createdAt);
+      res.json(exchanges);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === MANAGER COACHING DASHBOARD ===
+
+  // Get all roleplay sessions across all users (admin/manager only)
+  app.get("/api/training/roleplay/admin/sessions", isAdminOrManager, async (req, res) => {
+    try {
+      const rows = await db
+        .select({
+          id: roleplaySessions.id,
+          userId: roleplaySessions.userId,
+          scenario: roleplaySessions.scenario,
+          persona: roleplaySessions.persona,
+          status: roleplaySessions.status,
+          totalExchanges: roleplaySessions.totalExchanges,
+          overallScore: roleplaySessions.overallScore,
+          coachingSummary: roleplaySessions.coachingSummary,
+          strengths: roleplaySessions.strengths,
+          gaps: roleplaySessions.gaps,
+          suggestedPhrasing: roleplaySessions.suggestedPhrasing,
+          createdAt: roleplaySessions.createdAt,
+          completedAt: roleplaySessions.completedAt,
+          userEmail: users.email,
+          userFirstName: users.firstName,
+          userLastName: users.lastName,
+          userRole: users.role,
+        })
+        .from(roleplaySessions)
+        .leftJoin(users, eq(roleplaySessions.userId, users.id))
+        .orderBy(desc(roleplaySessions.createdAt))
+        .limit(500);
+
+      // Per-session avg tone/clarity from exchanges
+      const sessionIds = rows.map(r => r.id);
+      let exchangesBySession = new Map<number, { tone: number[]; clarity: number[] }>();
+      if (sessionIds.length > 0) {
+        const allEx = await db.select({
+          sessionId: roleplayExchanges.sessionId,
+          toneScore: roleplayExchanges.toneScore,
+          clarityScore: roleplayExchanges.clarityScore,
+        }).from(roleplayExchanges).where(inArray(roleplayExchanges.sessionId, sessionIds));
+        for (const ex of allEx) {
+          const bucket = exchangesBySession.get(ex.sessionId) || { tone: [], clarity: [] };
+          if (ex.toneScore !== null) bucket.tone.push(ex.toneScore);
+          if (ex.clarityScore !== null) bucket.clarity.push(ex.clarityScore);
+          exchangesBySession.set(ex.sessionId, bucket);
+        }
+      }
+
+      const sessions = rows.map(r => {
+        const ex = exchangesBySession.get(r.id);
+        const avg = (arr: number[]) => arr.length ? Math.round((arr.reduce((a, b) => a + b, 0) / arr.length) * 10) / 10 : null;
+        return {
+          ...r,
+          avgTone: ex ? avg(ex.tone) : null,
+          avgClarity: ex ? avg(ex.clarity) : null,
+        };
+      });
+
+      res.json(sessions);
+    } catch (err: any) {
+      console.error("Admin roleplay sessions error:", err);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Get exchanges for any session (admin/manager only)
+  app.get("/api/training/roleplay/admin/sessions/:sessionId/exchanges", isAdminOrManager, async (req, res) => {
+    try {
+      const sessionId = Number(req.params.sessionId);
+      const [session] = await db.select().from(roleplaySessions).where(eq(roleplaySessions.id, sessionId));
+      if (!session) return res.status(404).json({ message: "Session not found" });
+      const exchanges = await db.select().from(roleplayExchanges)
+        .where(eq(roleplayExchanges.sessionId, sessionId))
         .orderBy(roleplayExchanges.createdAt);
       res.json(exchanges);
     } catch (err: any) {
