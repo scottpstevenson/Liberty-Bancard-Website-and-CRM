@@ -144,6 +144,55 @@ export async function runStartupMigrations(): Promise<void> {
 
       ALTER TABLE merchant_applications
         ADD COLUMN IF NOT EXISTS underwriting_notes_log JSONB DEFAULT '[]'::jsonb;
+
+      -- Task #179 Content Engine: blog post extensions
+      ALTER TABLE generated_blog_posts ADD COLUMN IF NOT EXISTS author_id INTEGER;
+      ALTER TABLE generated_blog_posts ADD COLUMN IF NOT EXISTS pillar TEXT;
+      ALTER TABLE generated_blog_posts ADD COLUMN IF NOT EXISTS cluster TEXT;
+      ALTER TABLE generated_blog_posts ADD COLUMN IF NOT EXISTS seo_title TEXT;
+      ALTER TABLE generated_blog_posts ADD COLUMN IF NOT EXISTS og_image TEXT;
+      ALTER TABLE generated_blog_posts ADD COLUMN IF NOT EXISTS internal_links JSONB;
+      ALTER TABLE generated_blog_posts ADD COLUMN IF NOT EXISTS reviewer_notes TEXT;
+      CREATE INDEX IF NOT EXISTS gbp_status_scheduled_idx ON generated_blog_posts(status, scheduled_at);
+      CREATE INDEX IF NOT EXISTS gbp_pillar_idx ON generated_blog_posts(pillar);
+
+      CREATE TABLE IF NOT EXISTS content_authors (
+        id SERIAL PRIMARY KEY,
+        slug TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        title TEXT NOT NULL,
+        bio TEXT NOT NULL,
+        long_bio TEXT,
+        avatar_url TEXT,
+        linkedin_url TEXT,
+        twitter_url TEXT,
+        website_url TEXT,
+        expertise TEXT[],
+        email TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS social_posts (
+        id SERIAL PRIMARY KEY,
+        platform TEXT NOT NULL DEFAULT 'linkedin',
+        body TEXT NOT NULL,
+        hashtags TEXT[],
+        link_url TEXT,
+        image_url TEXT,
+        author_id INTEGER,
+        author_name TEXT,
+        status TEXT NOT NULL DEFAULT 'draft',
+        scheduled_at TIMESTAMP,
+        published_at TIMESTAMP,
+        external_post_id TEXT,
+        external_post_url TEXT,
+        pillar TEXT,
+        cluster TEXT,
+        reviewer_notes TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        created_by INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS social_posts_status_idx ON social_posts(status, scheduled_at);
     `);
     console.log("[Migrations] Startup migrations applied successfully.");
   } catch (err: any) {

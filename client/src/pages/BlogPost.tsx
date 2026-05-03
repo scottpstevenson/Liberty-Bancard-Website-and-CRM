@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, ArrowRight, Clock, User, Calendar, Upload } from "lucide-react";
+import { ShareButtons } from "@/components/ShareButtons";
 import { allBlogPosts, type BlogPost as BlogPostType, type GeneratedBlogPostResponse, dbPostToBlogPost } from "@/lib/all-blog-data";
 import { getFAQSchema } from "@/components/SEO";
 import type { BlogSection } from "@/lib/all-blog-data";
@@ -276,8 +277,18 @@ export default function BlogPost() {
             </span>
           </div>
 
+          <div className="mb-6 flex items-center justify-between">
+            <span className="text-xs text-muted-foreground uppercase tracking-wide">Share this article</span>
+            <ShareButtons title={post.title} description={post.excerpt} hashtags={["payments", "smallbusiness"]} />
+          </div>
+
           <div className="prose-custom" data-testid="article-content">
             {post.content.map((section, index) => renderSection(section, index))}
+          </div>
+
+          <div className="mt-8 pt-6 border-t border-border flex items-center justify-between">
+            <span className="text-xs text-muted-foreground uppercase tracking-wide">Found this useful? Share it.</span>
+            <ShareButtons title={post.title} description={post.excerpt} hashtags={["payments", "smallbusiness"]} />
           </div>
 
           <div className="border-t border-border mt-12 pt-8">

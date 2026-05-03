@@ -41,6 +41,8 @@ import { registerBoardingRoutes } from "./routes/boarding";
 import { registerPushRoutes } from "./routes/push";
 import { registerPartnerOrgsRoutes } from "./routes/partner-orgs";
 import { registerPermissionsAuditRoutes } from "./routes/permissions-audit";
+import { registerContentRoutes } from "./routes/content";
+import { registerSocialRoutes } from "./routes/social";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -149,6 +151,8 @@ export async function registerRoutes(
   registerVirtualTerminalRoutes(app);
   registerBoardingRoutes(app);
   registerPushRoutes(app);
+  registerContentRoutes(app);
+  registerSocialRoutes(app);
 
   // Must be registered before the API 404 catch-all — extracts route
   // permissions by walking the already-populated express router stack

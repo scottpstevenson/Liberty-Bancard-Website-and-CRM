@@ -5,6 +5,7 @@ import { blogPosts4 } from "./blog-data-4";
 import { blogPosts5 } from "./blog-data-5";
 import { blogPosts6 } from "./blog-data-6";
 import { blogPosts7 } from "./blog-data-7";
+import { pillarBlogPosts } from "./blog-data-pillars";
 export type { BlogPost, BlogSection } from "./blog-data";
 import type { BlogPost, BlogSection } from "./blog-data";
 
@@ -56,6 +57,7 @@ export const allBlogPosts = [
   ...blogPosts5,
   ...blogPosts6,
   ...blogPosts7,
+  ...pillarBlogPosts,
 ];
 
 export const blogCategories = Array.from(

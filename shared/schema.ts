@@ -2153,6 +2153,7 @@ export const generatedBlogPosts = pgTable("generated_blog_posts", {
   excerpt: text("excerpt").notNull(),
   category: text("category").notNull(),
   author: text("author").notNull().default("Liberty Bancard Team"),
+  authorId: integer("author_id"),
   readTime: text("read_time").notNull(),
   publishDate: text("publish_date").notNull(),
   publishedISO: text("published_iso").notNull(),
@@ -2166,6 +2167,12 @@ export const generatedBlogPosts = pgTable("generated_blog_posts", {
   publishedAt: timestamp("published_at"),
   createdAt: timestamp("created_at").defaultNow(),
   createdBy: integer("created_by"),
+  pillar: text("pillar"),
+  cluster: text("cluster"),
+  seoTitle: text("seo_title"),
+  ogImage: text("og_image"),
+  internalLinks: jsonb("internal_links"),
+  reviewerNotes: text("reviewer_notes"),
 });
 
 export const insertGeneratedBlogPostSchema = createInsertSchema(generatedBlogPosts).omit({
@@ -2175,6 +2182,51 @@ export const insertGeneratedBlogPostSchema = createInsertSchema(generatedBlogPos
 
 export type GeneratedBlogPost = typeof generatedBlogPosts.$inferSelect;
 export type InsertGeneratedBlogPost = z.infer<typeof insertGeneratedBlogPostSchema>;
+
+export const contentAuthors = pgTable("content_authors", {
+  id: serial("id").primaryKey(),
+  slug: text("slug").notNull().unique(),
+  name: text("name").notNull(),
+  title: text("title").notNull(),
+  bio: text("bio").notNull(),
+  longBio: text("long_bio"),
+  avatarUrl: text("avatar_url"),
+  linkedinUrl: text("linkedin_url"),
+  twitterUrl: text("twitter_url"),
+  websiteUrl: text("website_url"),
+  expertise: text("expertise").array(),
+  email: text("email"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertContentAuthorSchema = createInsertSchema(contentAuthors).omit({ id: true, createdAt: true });
+export type ContentAuthor = typeof contentAuthors.$inferSelect;
+export type InsertContentAuthor = z.infer<typeof insertContentAuthorSchema>;
+
+export const socialPosts = pgTable("social_posts", {
+  id: serial("id").primaryKey(),
+  platform: text("platform").notNull().default("linkedin"),
+  body: text("body").notNull(),
+  hashtags: text("hashtags").array(),
+  linkUrl: text("link_url"),
+  imageUrl: text("image_url"),
+  authorId: integer("author_id"),
+  authorName: text("author_name"),
+  status: text("status").notNull().default("draft"),
+  scheduledAt: timestamp("scheduled_at"),
+  publishedAt: timestamp("published_at"),
+  externalPostId: text("external_post_id"),
+  externalPostUrl: text("external_post_url"),
+  pillar: text("pillar"),
+  cluster: text("cluster"),
+  reviewerNotes: text("reviewer_notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  createdBy: integer("created_by"),
+});
+
+export const insertSocialPostSchema = createInsertSchema(socialPosts).omit({ id: true, createdAt: true });
+export type SocialPost = typeof socialPosts.$inferSelect;
+export type InsertSocialPost = z.infer<typeof insertSocialPostSchema>;
 
 export const SDR_PIPELINE_STAGES = [
   "DISCOVERED", "ENRICHING", "ENRICHED", "DEDUPED", "CLASSIFIED", "QUALIFIED",

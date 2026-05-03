@@ -12,6 +12,8 @@ import { seedVerticalCampaigns } from "./services/seed-vertical-campaigns";
 import { seedStageRules, seedDemoProspects } from "./services/seed-automation";
 import { startDailyOutreachWorker } from "./services/daily-outreach";
 import { startDailyMaintenanceScheduler, seedScottSendingIdentity } from "./services/sdr/inbox-rotation";
+import { startContentScheduler } from "./services/content-scheduler";
+import { seedContentEngine } from "./services/seed-content-engine";
 import { featureFlags } from "./services/feature-flags";
 import { runStartupMigrations } from "./services/migrations";
 import { hydrateWorkflowEnvFromDb } from "./services/ghl-workflows";
@@ -241,6 +243,12 @@ app.use((req, res, next) => {
       }
 
       startDailyMaintenanceScheduler();
+
+      // Task #179 — Content Engine: scheduled blog publish + LinkedIn drafts
+      startContentScheduler();
+      seedContentEngine().catch(err => {
+        console.error("[Seed] Content Engine seeding failed:", err);
+      });
     },
   );
 })();

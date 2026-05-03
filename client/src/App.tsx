@@ -116,6 +116,9 @@ import Forecasting from "@/pages/dashboard/Forecasting";
 import PciAssessment from "@/pages/dashboard/PciAssessment";
 import DataRequests from "@/pages/dashboard/DataRequests";
 import BlogGenerator from "@/pages/dashboard/BlogGenerator";
+import ContentEditor from "@/pages/dashboard/ContentEditor";
+import SocialComposer from "@/pages/dashboard/SocialComposer";
+import AuthorPage from "@/pages/AuthorPage";
 import SdrDashboard from "@/pages/dashboard/SdrDashboard";
 import SmsInbox from "@/pages/dashboard/SmsInbox";
 import BinLookup from "@/pages/dashboard/BinLookup";
@@ -297,6 +300,7 @@ function Router() {
       <Route path="/partner-org/:slug" component={PartnerOrgDashboard} />
       <Route path="/blog/:slug" component={BlogPost} />
       <Route path="/blog" component={Blog} />
+      <Route path="/authors/:slug" component={AuthorPage} />
       <Route path="/help/:category/:slug" component={HelpArticle} />
       <Route path="/help/:category" component={HelpArticle} />
       <Route path="/help" component={HelpCenter} />
@@ -512,6 +516,12 @@ function Router() {
       </Route>
       <Route path="/dashboard/blog-generator">
         <ProtectedRoute component={BlogGenerator} />
+      </Route>
+      <Route path="/dashboard/content">
+        <ProtectedRoute component={ContentEditor} />
+      </Route>
+      <Route path="/dashboard/social">
+        <ProtectedRoute component={SocialComposer} />
       </Route>
       <Route path="/dashboard/sdr">
         <ProtectedRoute component={SdrDashboard} />

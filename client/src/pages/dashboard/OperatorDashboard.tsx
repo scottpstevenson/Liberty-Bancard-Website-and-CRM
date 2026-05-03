@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { ContentOrganicKpiPanel } from "@/components/ContentOrganicKpiPanel";
 import {
   Activity, AlertTriangle, ArrowUpRight, BarChart3, Calendar, CheckCircle2,
   Clock, Loader2, Mail, MessageSquare, Phone, RefreshCw, Send, Shield,
@@ -906,6 +907,7 @@ export default function OperatorDashboard() {
           <TabsTrigger value="webhook-events" data-testid="tab-webhook-events">Webhook Events</TabsTrigger>
           <TabsTrigger value="stuck-leads" data-testid="tab-stuck-leads">Stuck Leads</TabsTrigger>
           <TabsTrigger value="low-confidence" data-testid="tab-low-confidence">Low Confidence</TabsTrigger>
+          <TabsTrigger value="content-organic" data-testid="tab-content-organic">Content & Organic</TabsTrigger>
         </TabsList>
 
         <TabsContent value="readiness">
@@ -931,6 +933,9 @@ export default function OperatorDashboard() {
         </TabsContent>
         <TabsContent value="low-confidence">
           <LowConfidencePanel />
+        </TabsContent>
+        <TabsContent value="content-organic">
+          <ContentOrganicKpiPanel />
         </TabsContent>
       </Tabs>
     </div>

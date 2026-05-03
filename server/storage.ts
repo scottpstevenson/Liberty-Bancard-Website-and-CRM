@@ -121,6 +121,7 @@ import { MiscStorage } from "./storage/misc";
 import { BusinessesStorage } from "./storage/businesses";
 import { SdrStorage } from "./storage/sdr";
 import { PartnerOrgsStorage } from "./storage/partner-orgs";
+import { ContentStorage } from "./storage/content";
 
 export interface PaginationParams {
   limit?: number;
@@ -636,10 +637,10 @@ function normalizePagination(params?: PaginationParams): { limit: number; offset
     }
   }
 
-export interface DatabaseStorage extends ContactsStorage, DealsStorage, TicketsStorage, TasksStorage, DocumentsStorage, AuditStorage, NotificationsStorage, WorkflowsStorage, TemplatesStorage, ProspectsStorage, CampaignsStorage, NotesStorage, CommLogsStorage, AutomationStorage, SunbizStorage, MerchantsStorage, ResidualsStorage, HealthStorage, PartnersStorage, ReviewsStorage, MiscStorage, BusinessesStorage, SdrStorage, PartnerOrgsStorage {}
+export interface DatabaseStorage extends ContactsStorage, DealsStorage, TicketsStorage, TasksStorage, DocumentsStorage, AuditStorage, NotificationsStorage, WorkflowsStorage, TemplatesStorage, ProspectsStorage, CampaignsStorage, NotesStorage, CommLogsStorage, AutomationStorage, SunbizStorage, MerchantsStorage, ResidualsStorage, HealthStorage, PartnersStorage, ReviewsStorage, MiscStorage, BusinessesStorage, SdrStorage, PartnerOrgsStorage, ContentStorage {}
 
 export class DatabaseStorage implements IStorage {}
 
-applyMixins(DatabaseStorage, [ContactsStorage, DealsStorage, TicketsStorage, TasksStorage, DocumentsStorage, AuditStorage, NotificationsStorage, WorkflowsStorage, TemplatesStorage, ProspectsStorage, CampaignsStorage, NotesStorage, CommLogsStorage, AutomationStorage, SunbizStorage, MerchantsStorage, ResidualsStorage, HealthStorage, PartnersStorage, ReviewsStorage, MiscStorage, BusinessesStorage, SdrStorage, PartnerOrgsStorage]);
+applyMixins(DatabaseStorage, [ContactsStorage, DealsStorage, TicketsStorage, TasksStorage, DocumentsStorage, AuditStorage, NotificationsStorage, WorkflowsStorage, TemplatesStorage, ProspectsStorage, CampaignsStorage, NotesStorage, CommLogsStorage, AutomationStorage, SunbizStorage, MerchantsStorage, ResidualsStorage, HealthStorage, PartnersStorage, ReviewsStorage, MiscStorage, BusinessesStorage, SdrStorage, PartnerOrgsStorage, ContentStorage]);
 
 export const storage = new DatabaseStorage();

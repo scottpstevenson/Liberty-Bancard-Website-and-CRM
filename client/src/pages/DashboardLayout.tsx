@@ -69,6 +69,8 @@ import {
   FolderOpen,
   X,
   ShieldOff,
+  FileText,
+  Linkedin,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -195,6 +197,8 @@ const adminItems: MenuItem[] = [
   { icon: ArrowRightLeft, label: "Round-Robin", href: "/dashboard/round-robin", roles: ["admin", "manager"] },
   { icon: ShieldCheck, label: "Security Settings", href: "/dashboard/security", roles: ["admin", "manager", "agent", "merchant"] },
   { icon: Pencil, label: "Blog Generator", href: "/dashboard/blog-generator", roles: ["admin"] },
+  { icon: FileText, label: "Content Engine", href: "/dashboard/content", roles: ["admin", "manager"] },
+  { icon: Linkedin, label: "LinkedIn Composer", href: "/dashboard/social", roles: ["admin", "manager"] },
   { icon: GraduationCap, label: "Training Hub Setup", href: "/dashboard/training", roles: ["admin", "manager"] },
   { icon: SearchIcon, label: "SEO Health", href: "/dashboard/seo-health", roles: ["admin", "manager"] },
 ];
