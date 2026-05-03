@@ -208,10 +208,12 @@ export function registerToolkitRoutes(app: Express) {
       if (!config) return res.json({ appointments: [], configured: false });
 
       const now = Date.now();
+      const lookbackMs = 24 * 60 * 60 * 1000;
+      const startTime = now - lookbackMs;
       const endTime = now + 30 * 24 * 60 * 60 * 1000;
       const calendarId = config.calendarId;
 
-      let path = `/calendars/events?locationId=${config.locationId}&startTime=${now}&endTime=${endTime}&limit=20`;
+      let path = `/calendars/events?locationId=${config.locationId}&startTime=${startTime}&endTime=${endTime}&limit=50`;
       if (calendarId) path += `&calendarId=${calendarId}`;
 
       const result = await ghlFetch(path);
@@ -219,22 +221,36 @@ export function registerToolkitRoutes(app: Express) {
 
       const appointments = events
         .filter((e: any) => e.status !== "cancelled")
-        .slice(0, 10)
-        .map((e: any) => ({
-          id: e.id,
-          title: e.title || e.summary || "Appointment",
-          contactName: e.contact?.name || e.contactName || e.attendees?.[0]?.name || "Contact",
-          contactId: e.contact?.id || e.contactId || null,
-          startTime: e.startTime || e.start?.dateTime || e.startDate,
-          endTime: e.endTime || e.end?.dateTime || e.endDate,
-          status: e.status || "booked",
-          calendarType: e.calendarType || e.appointmentStatus || "booked",
-          ghlLink: e.meetingLocationType === "zoom" || e.locationType === "zoom"
-            ? e.zoomLink || null
-            : null,
-          noShow: e.status === "noShow" || e.appointmentStatus === "no_show",
-          locationName: e.calendarName || e.calendarId || null,
-        }));
+        .map((e: any) => {
+          const isNoShow =
+            e.status === "noShow" ||
+            e.appointmentStatus === "noShow" ||
+            e.appointmentStatus === "no_show" ||
+            e.status === "no_show";
+          const startTs = e.startTime || e.start?.dateTime || e.startDate;
+          const startMs = typeof startTs === "number" ? startTs : (startTs ? Date.parse(startTs) : NaN);
+          const isPast = !isNaN(startMs) && startMs < now;
+          return {
+            id: e.id,
+            title: e.title || e.summary || "Appointment",
+            contactName: e.contact?.name || e.contactName || e.attendees?.[0]?.name || "Contact",
+            contactId: e.contact?.id || e.contactId || null,
+            startTime: startTs,
+            endTime: e.endTime || e.end?.dateTime || e.endDate,
+            status: e.status || "booked",
+            calendarType: e.calendarType || e.appointmentStatus || "booked",
+            ghlLink: e.meetingLocationType === "zoom" || e.locationType === "zoom"
+              ? e.zoomLink || null
+              : null,
+            noShow: isNoShow && isPast,
+            locationName: e.calendarName || e.calendarId || null,
+          };
+        })
+        .sort((a: any, b: any) => {
+          const toMs = (ts: any) => typeof ts === "number" ? ts : (ts ? Date.parse(ts) : 0);
+          return toMs(a.startTime) - toMs(b.startTime);
+        })
+        .slice(0, 10);
 
       res.json({ appointments, configured: true });
     } catch (err: any) {

@@ -26,8 +26,8 @@ interface Appointment {
   title: string;
   contactName: string;
   contactId: string | null;
-  startTime: string | null;
-  endTime: string | null;
+  startTime: string | number | null;
+  endTime: string | number | null;
   status: string;
   calendarType: string;
   ghlLink: string | null;
@@ -43,10 +43,11 @@ function UpcomingMeetingsWidget() {
 
   const appointments = data?.appointments || [];
 
-  function formatApptTime(ts: string | null): string {
-    if (!ts) return "—";
-    const d = new Date(typeof ts === "number" ? ts : parseInt(ts) || ts);
-    if (isNaN(d.getTime())) return ts;
+  function formatApptTime(ts: string | number | null): string {
+    if (ts === null || ts === undefined || ts === "") return "—";
+    const ms = typeof ts === "number" ? ts : Date.parse(ts);
+    const d = new Date(ms);
+    if (isNaN(d.getTime())) return String(ts);
     return d.toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
   }
 
