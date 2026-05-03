@@ -39,6 +39,7 @@ import { registerVirtualTerminalRoutes } from "./routes/virtual-terminal";
 import { registerBoardingRoutes } from "./routes/boarding";
 import { registerPushRoutes } from "./routes/push";
 import { registerPartnerOrgsRoutes } from "./routes/partner-orgs";
+import { registerPermissionsAuditRoutes } from "./routes/permissions-audit";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -146,6 +147,10 @@ export async function registerRoutes(
   registerVirtualTerminalRoutes(app);
   registerBoardingRoutes(app);
   registerPushRoutes(app);
+
+  // Must be registered LAST — extracts route permissions by walking the
+  // already-populated express router stack (Task #169 API surface audit).
+  registerPermissionsAuditRoutes(app);
 
   return httpServer;
 }

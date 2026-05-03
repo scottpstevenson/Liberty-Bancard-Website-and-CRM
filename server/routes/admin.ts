@@ -1,5 +1,5 @@
 import type { Express } from "express";
-import { isAuthenticated } from "../replit_integrations/auth";
+import { isAuthenticated, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { db } from "../db";
 import { z } from "zod";
@@ -10,8 +10,7 @@ import path from "path";
 
 export function registerAdminRoutes(app: Express) {
   // === ADMIN: USER MANAGEMENT ===
-  app.get("/api/admin/users", isAuthenticated, async (req, res) => {
-    if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+  app.get("/api/admin/users", requireRole('admin'), async (req, res) => {
     try {
       const allUsers = await db.select({
         id: users.id,
@@ -31,8 +30,7 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.get("/api/admin/mfa-settings", isAuthenticated, async (req, res) => {
-    if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+  app.get("/api/admin/mfa-settings", requireRole('admin'), async (req, res) => {
     try {
       const { systemSettings } = await import("@shared/schema");
       const { eq: eqOp } = await import("drizzle-orm");
@@ -43,8 +41,7 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.put("/api/admin/mfa-settings", isAuthenticated, async (req, res) => {
-    if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+  app.put("/api/admin/mfa-settings", requireRole('admin'), async (req, res) => {
     try {
       const { mfaRequired } = req.body;
       if (typeof mfaRequired !== 'boolean') return res.status(400).json({ message: "mfaRequired must be a boolean" });
@@ -60,8 +57,7 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.post("/api/admin/users/:id/reset-2fa", isAuthenticated, async (req, res) => {
-    if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+  app.post("/api/admin/users/:id/reset-2fa", requireRole('admin'), async (req, res) => {
     try {
       const { authStorage } = await import("../replit_integrations/auth/storage");
       await authStorage.adminResetTotp(String(req.params.id));
@@ -74,8 +70,7 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.put("/api/admin/users/:id/role", isAuthenticated, async (req, res) => {
-    if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+  app.put("/api/admin/users/:id/role", requireRole('admin'), async (req, res) => {
     try {
       const { role } = req.body;
       if (!['admin', 'manager', 'agent', 'merchant'].includes(role)) {
@@ -92,10 +87,8 @@ export function registerAdminRoutes(app: Express) {
 
 
   // === AGENTS ===
-  app.get("/api/agents", isAuthenticated, async (req, res) => {
+  app.get("/api/agents", requireRole('admin', 'manager'), async (req, res) => {
     try {
-      const user = req.user as any;
-      if (user?.role !== 'admin' && user?.role !== 'manager') return res.status(403).json({ message: "Admin or manager role required" });
       const agentsList = await storage.getAgents();
       res.json(agentsList);
     } catch (err: any) {
@@ -103,10 +96,8 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.get("/api/agents/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/agents/:id", requireRole('admin', 'manager'), async (req, res) => {
     try {
-      const user = req.user as any;
-      if (user?.role !== 'admin' && user?.role !== 'manager') return res.status(403).json({ message: "Admin or manager role required" });
       const agent = await storage.getAgent(Number(req.params.id));
       if (!agent) return res.status(404).json({ message: "Not found" });
       res.json(agent);
@@ -115,10 +106,8 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.post("/api/agents", isAuthenticated, async (req, res) => {
+  app.post("/api/agents", requireRole('admin', 'manager'), async (req, res) => {
     try {
-      const user = req.user as any;
-      if (user?.role !== 'admin' && user?.role !== 'manager') return res.status(403).json({ message: "Admin or manager role required" });
       const body = { ...req.body };
       if (body.hireDate && typeof body.hireDate === 'string') { body.hireDate = new Date(body.hireDate); }
       const input = insertAgentSchema.parse(body);
@@ -130,10 +119,8 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.patch("/api/agents/:id", isAuthenticated, async (req, res) => {
+  app.patch("/api/agents/:id", requireRole('admin', 'manager'), async (req, res) => {
     try {
-      const user = req.user as any;
-      if (user?.role !== 'admin' && user?.role !== 'manager') return res.status(403).json({ message: "Admin or manager role required" });
       const body = { ...req.body };
       if (body.hireDate && typeof body.hireDate === 'string') { body.hireDate = new Date(body.hireDate); }
       const updated = await storage.updateAgent(Number(req.params.id), body);
@@ -144,10 +131,8 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.delete("/api/agents/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/agents/:id", requireRole('admin', 'manager'), async (req, res) => {
     try {
-      const user = req.user as any;
-      if (user?.role !== 'admin' && user?.role !== 'manager') return res.status(403).json({ message: "Admin or manager role required" });
       const agent = await storage.getAgent(Number(req.params.id));
       if (!agent) return res.status(404).json({ message: "Not found" });
       await storage.updateAgent(Number(req.params.id), { status: "inactive" });
@@ -159,10 +144,8 @@ export function registerAdminRoutes(app: Express) {
 
 
   // === AGENT QUOTAS ===
-  app.get("/api/agent-quotas", isAuthenticated, async (req, res) => {
+  app.get("/api/agent-quotas", requireRole('admin', 'manager'), async (req, res) => {
     try {
-      const user = req.user as any;
-      if (user?.role !== 'admin' && user?.role !== 'manager') return res.status(403).json({ message: "Admin or manager role required" });
       const quotas = await storage.getAgentQuotas();
       res.json(quotas);
     } catch (err: any) {
@@ -170,10 +153,8 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.post("/api/agent-quotas", isAuthenticated, async (req, res) => {
+  app.post("/api/agent-quotas", requireRole('admin', 'manager'), async (req, res) => {
     try {
-      const user = req.user as any;
-      if (user?.role !== 'admin' && user?.role !== 'manager') return res.status(403).json({ message: "Admin or manager role required" });
       const input = insertAgentQuotaSchema.parse(req.body);
       const quota = await storage.createAgentQuota(input);
       res.status(201).json(quota);
@@ -183,10 +164,8 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.put("/api/agent-quotas/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/agent-quotas/:id", requireRole('admin', 'manager'), async (req, res) => {
     try {
-      const user = req.user as any;
-      if (user?.role !== 'admin' && user?.role !== 'manager') return res.status(403).json({ message: "Admin or manager role required" });
       const updated = await storage.updateAgentQuota(Number(req.params.id), req.body);
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
@@ -197,10 +176,8 @@ export function registerAdminRoutes(app: Express) {
 
 
   // === AGENT MERCHANTS (admin/manager only) ===
-  app.get("/api/agent-merchants", isAuthenticated, async (req, res) => {
+  app.get("/api/agent-merchants", requireRole('admin', 'manager'), async (req, res) => {
     try {
-      const user = req.user as any;
-      if (user?.role !== 'admin' && user?.role !== 'manager') return res.status(403).json({ message: "Admin or manager role required" });
       const agentId = req.query.agentId ? Number(req.query.agentId) : undefined;
       const rows = await storage.getAgentMerchants(agentId);
       res.json(rows);
@@ -209,10 +186,8 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.get("/api/agent-merchants/deal/:dealId", isAuthenticated, async (req, res) => {
+  app.get("/api/agent-merchants/deal/:dealId", requireRole('admin', 'manager'), async (req, res) => {
     try {
-      const user = req.user as any;
-      if (user?.role !== 'admin' && user?.role !== 'manager') return res.status(403).json({ message: "Admin or manager role required" });
       const rows = await storage.getAgentMerchantsByDeal(Number(req.params.dealId));
       res.json(rows[0] ?? null);
     } catch (err: any) {
@@ -220,10 +195,8 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.put("/api/agent-merchants/deal/:dealId/assign", isAuthenticated, async (req, res) => {
+  app.put("/api/agent-merchants/deal/:dealId/assign", requireRole('admin', 'manager'), async (req, res) => {
     try {
-      const user = req.user as any;
-      if (user?.role !== 'admin' && user?.role !== 'manager') return res.status(403).json({ message: "Admin or manager role required" });
       const dealId = Number(req.params.dealId);
       const { agentId } = req.body;
 
@@ -262,10 +235,8 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.post("/api/agent-merchants", isAuthenticated, async (req, res) => {
+  app.post("/api/agent-merchants", requireRole('admin', 'manager'), async (req, res) => {
     try {
-      const user = req.user as any;
-      if (user?.role !== 'admin' && user?.role !== 'manager') return res.status(403).json({ message: "Admin or manager role required" });
       const input = insertAgentMerchantSchema.parse(req.body);
       const existingAssignments = await storage.getAgentMerchantsByDeal(input.dealId);
       if (existingAssignments.length > 0) {
@@ -279,10 +250,8 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.patch("/api/agent-merchants/:id", isAuthenticated, async (req, res) => {
+  app.patch("/api/agent-merchants/:id", requireRole('admin', 'manager'), async (req, res) => {
     try {
-      const user = req.user as any;
-      if (user?.role !== 'admin' && user?.role !== 'manager') return res.status(403).json({ message: "Admin or manager role required" });
       const { mid, merchantName } = req.body || {};
       const updates: Record<string, unknown> = {};
       if (mid !== undefined) updates.mid = mid === "" ? null : mid;
@@ -296,10 +265,8 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.delete("/api/agent-merchants/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/agent-merchants/:id", requireRole('admin', 'manager'), async (req, res) => {
     try {
-      const user = req.user as any;
-      if (user?.role !== 'admin' && user?.role !== 'manager') return res.status(403).json({ message: "Admin or manager role required" });
       await storage.unassignMerchantFromAgent(Number(req.params.id));
       res.status(204).send();
     } catch (err: any) {
@@ -308,9 +275,7 @@ export function registerAdminRoutes(app: Express) {
   });
 
   // === RESIDUAL CALCULATOR (admin only) ===
-  app.post("/api/agents/residual-calculator", isAuthenticated, async (req, res) => {
-    const user = req.user as any;
-    if (user?.role !== 'admin') return res.status(403).json({ message: "Admin role required" });
+  app.post("/api/agents/residual-calculator", requireRole('admin'), async (req, res) => {
     try {
       const { agentId, totalResidual, month } = req.body;
       if (!agentId || totalResidual === undefined) {
@@ -523,8 +488,7 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.get("/api/data-requests", isAuthenticated, async (req, res) => {
-    if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+  app.get("/api/data-requests", requireRole('admin'), async (req, res) => {
     try {
       const requests = await storage.getDataDeleteRequests();
       res.json(requests);
@@ -533,8 +497,7 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.put("/api/data-requests/:id", isAuthenticated, async (req, res) => {
-    if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+  app.put("/api/data-requests/:id", requireRole('admin'), async (req, res) => {
     try {
       const updated = await storage.updateDataDeleteRequest(Number(req.params.id), req.body);
       if (!updated) return res.status(404).json({ message: "Not found" });

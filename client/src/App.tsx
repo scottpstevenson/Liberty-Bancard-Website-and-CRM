@@ -107,6 +107,7 @@ import TestimonialSubmissions from "@/pages/dashboard/TestimonialSubmissions";
 import ResidualRevenue from "@/pages/dashboard/ResidualRevenue";
 import ConsentAudit from "@/pages/dashboard/ConsentAudit";
 import UserManagement from "@/pages/dashboard/UserManagement";
+import Permissions from "@/pages/dashboard/Permissions";
 import SecuritySettings from "@/pages/dashboard/SecuritySettings";
 import Calendar from "@/pages/dashboard/Calendar";
 import Forecasting from "@/pages/dashboard/Forecasting";
@@ -485,6 +486,9 @@ function Router() {
       </Route>
       <Route path="/dashboard/user-management">
         <ProtectedRoute component={UserManagement} />
+      </Route>
+      <Route path="/dashboard/permissions">
+        <ProtectedRoute component={Permissions} />
       </Route>
       <Route path="/dashboard/security">
         <ProtectedRoute component={SecuritySettings} />

@@ -1,5 +1,5 @@
 import type { Express } from "express";
-import { isAuthenticated } from "../replit_integrations/auth";
+import { isAuthenticated, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { isGhlConfigured, sendGhlEmailForMerchant } from "../services/ghl";
 import { buildDailyDigest } from "../services/digest-service";
@@ -129,8 +129,8 @@ export function registerNotificationsRoutes(app: Express) {
   });
 
 
-  // === AUDIT LOGS ===
-  app.get("/api/audit-logs", isAuthenticated, async (req, res) => {
+  // === AUDIT LOGS === (admin-only — sensitive system-wide log)
+  app.get("/api/audit-logs", requireRole('admin'), async (req, res) => {
     try {
       const logs = await storage.getAuditLogs();
       res.json(logs);

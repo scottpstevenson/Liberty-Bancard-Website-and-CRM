@@ -1,6 +1,6 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { storage } from "../storage";
-import { isAuthenticated } from "../replit_integrations/auth";
+import { isAuthenticated, requireRole } from "../replit_integrations/auth";
 import { SEO_ROUTE_DEFAULTS, type SeoRouteDefault } from "@shared/seo-routes";
 
 interface SeoCoverageRow {
@@ -92,7 +92,7 @@ async function probeRouteHead(baseUrl: string, path: string): Promise<{
 }
 
 export function registerSeoAdminRoutes(app: Express) {
-  app.get("/api/admin/seo-coverage", isAuthenticated, requireAdminOrManager, async (req, res) => {
+  app.get("/api/admin/seo-coverage", requireRole("admin", "manager"), async (req, res) => {
     try {
       const rows: SeoCoverageRow[] = Object.entries(SEO_ROUTE_DEFAULTS).map(([path, def]) =>
         evaluateRow(path, def)

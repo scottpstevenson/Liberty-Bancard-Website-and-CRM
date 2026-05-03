@@ -1,5 +1,5 @@
 import type { Express } from "express";
-import { isAuthenticated } from "../replit_integrations/auth";
+import { isAuthenticated, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import {
   submitMerchantToProcessor,
@@ -320,7 +320,7 @@ export function registerBoardingRoutes(app: Express) {
     }
   });
 
-  app.post("/api/admin/run-mid-ingestion", isAuthenticated, async (req, res) => {
+  app.post("/api/admin/run-mid-ingestion", requireRole("admin"), async (req, res) => {
     try {
       const result = await ingestMidDataForActiveMids();
       res.json({ success: true, ...result });

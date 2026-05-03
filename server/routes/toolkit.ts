@@ -1,5 +1,5 @@
 import type { Express } from "express";
-import { isAuthenticated, isAdmin } from "../replit_integrations/auth";
+import { isAuthenticated, isAdmin, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 
 const GHL_API_BASE = "https://services.leadconnectorhq.com";
@@ -334,18 +334,12 @@ export function registerToolkitRoutes(app: Express) {
 
 
   // === ROUND-ROBIN ASSIGNMENT ===
-  app.get("/api/admin/round-robin", isAuthenticated, async (req, res) => {
-    if (!["admin", "manager"].includes((req.user as any)?.role)) {
-      return res.status(403).json({ message: "Admin/Manager only" });
-    }
+  app.get("/api/admin/round-robin", requireRole("admin", "manager"), async (req, res) => {
     const pool = await getRoundRobinPool();
     res.json(pool);
   });
 
-  app.put("/api/admin/round-robin", isAuthenticated, async (req, res) => {
-    if (!["admin", "manager"].includes((req.user as any)?.role)) {
-      return res.status(403).json({ message: "Admin/Manager only" });
-    }
+  app.put("/api/admin/round-robin", requireRole("admin", "manager"), async (req, res) => {
     try {
       const existing = await getRoundRobinPool();
       const { reps, enabled } = req.body;
@@ -370,10 +364,7 @@ export function registerToolkitRoutes(app: Express) {
     }
   });
 
-  app.patch("/api/admin/round-robin/rep/:userId", isAuthenticated, async (req, res) => {
-    if (!["admin", "manager"].includes((req.user as any)?.role)) {
-      return res.status(403).json({ message: "Admin/Manager only" });
-    }
+  app.patch("/api/admin/round-robin/rep/:userId", requireRole("admin", "manager"), async (req, res) => {
     try {
       const pool = await getRoundRobinPool();
       const { userId } = req.params;
@@ -390,10 +381,7 @@ export function registerToolkitRoutes(app: Express) {
     }
   });
 
-  app.delete("/api/admin/round-robin/rep/:userId", isAuthenticated, async (req, res) => {
-    if (!["admin", "manager"].includes((req.user as any)?.role)) {
-      return res.status(403).json({ message: "Admin/Manager only" });
-    }
+  app.delete("/api/admin/round-robin/rep/:userId", requireRole("admin", "manager"), async (req, res) => {
     try {
       const pool = await getRoundRobinPool();
       pool.reps = pool.reps.filter((r) => r.userId !== req.params.userId);
@@ -405,10 +393,7 @@ export function registerToolkitRoutes(app: Express) {
     }
   });
 
-  app.post("/api/admin/round-robin/rep", isAuthenticated, async (req, res) => {
-    if (!["admin", "manager"].includes((req.user as any)?.role)) {
-      return res.status(403).json({ message: "Admin/Manager only" });
-    }
+  app.post("/api/admin/round-robin/rep", requireRole("admin", "manager"), async (req, res) => {
     try {
       const pool = await getRoundRobinPool();
       const { userId, name, email } = req.body;
@@ -424,10 +409,7 @@ export function registerToolkitRoutes(app: Express) {
     }
   });
 
-  app.get("/api/admin/round-robin/log", isAuthenticated, async (req, res) => {
-    if (!["admin", "manager"].includes((req.user as any)?.role)) {
-      return res.status(403).json({ message: "Admin/Manager only" });
-    }
+  app.get("/api/admin/round-robin/log", requireRole("admin", "manager"), async (req, res) => {
     const pool = await getRoundRobinPool();
     let log = pool.log || [];
 

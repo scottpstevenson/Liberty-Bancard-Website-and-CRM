@@ -75,6 +75,14 @@ const loginRateLimit = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { message: "Too many login attempts, please try again later." },
+  // Allow loopback requests to bypass the limiter outside production so the
+  // role-guard smoke test (scripts/smoke-role-guards.ts) can authenticate
+  // repeatedly without tripping a 429. Production traffic is unaffected.
+  skip: (req) => {
+    if (process.env.NODE_ENV === "production") return false;
+    const ip = req.ip ?? "";
+    return ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
+  },
 });
 
 const signupRateLimit = rateLimit({
@@ -584,43 +592,73 @@ export async function setupAuth(app: Express) {
   await seedAdminUser();
 }
 
-export const isAuthenticated: RequestHandler = (req, res, next) => {
+/**
+ * A role-aware RequestHandler that carries metadata describing which roles
+ * are permitted to invoke it. Exposed so the permissions-audit endpoint can
+ * walk the Express router stack and report on it without using `any` casts.
+ */
+export type RoleAwareRequestHandler = RequestHandler & { _requiredRoles: readonly string[] };
+
+function tagRoles<H extends RequestHandler>(handler: H, roles: readonly string[]): H & { _requiredRoles: readonly string[] } {
+  const tagged = handler as H & { _requiredRoles: readonly string[] };
+  tagged._requiredRoles = roles;
+  return tagged;
+}
+
+function getUserRole(req: Parameters<RequestHandler>[0]): string | undefined {
+  const user = req.user as { role?: unknown } | undefined;
+  return typeof user?.role === "string" ? user.role : undefined;
+}
+
+export const isAuthenticated: RoleAwareRequestHandler = tagRoles<RequestHandler>((req, res, next) => {
   if (req.isAuthenticated()) {
     return next();
   }
   return res.status(401).json({ message: "Unauthorized" });
-};
+}, ["any-authenticated"]);
 
-export const isAdmin: RequestHandler = (req, res, next) => {
-  if (req.isAuthenticated() && (req.user as any)?.role === 'admin') {
-    return next();
-  }
+export const isAdmin: RoleAwareRequestHandler = tagRoles<RequestHandler>((req, res, next) => {
+  if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized" });
+  if (getUserRole(req) === "admin") return next();
   return res.status(403).json({ message: "Admin access required" });
-};
+}, ["admin"]);
 
-export const isAffiliate: RequestHandler = (req, res, next) => {
-  if (req.isAuthenticated()) {
-    const role = (req.user as any)?.role;
-    if (role === 'affiliate' || role === 'admin') {
-      return next();
-    }
-  }
+export const isAffiliate: RoleAwareRequestHandler = tagRoles<RequestHandler>((req, res, next) => {
+  if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized" });
+  const role = getUserRole(req);
+  if (role === "affiliate" || role === "admin") return next();
   return res.status(403).json({ message: "Affiliate access required" });
-};
+}, ["affiliate", "admin"]);
 
-export const isPartnerAuthenticated: RequestHandler = (req, res, next) => {
-  if (req.isAuthenticated() && (req.user as any)?.role === 'partner') {
+export const isPartnerAuthenticated: RoleAwareRequestHandler = tagRoles<RequestHandler>((req, res, next) => {
+  if (req.isAuthenticated() && getUserRole(req) === "partner") {
     return next();
   }
   return res.status(401).json({ message: "Partner authentication required. Please log in to your partner portal." });
-};
+}, ["partner"]);
 
-export const isDashboardUser: RequestHandler = (req, res, next) => {
-  if (req.isAuthenticated()) {
-    const role = (req.user as any)?.role;
-    if (role === 'admin' || role === 'manager' || role === 'agent') {
-      return next();
-    }
-  }
+export const isDashboardUser: RoleAwareRequestHandler = tagRoles<RequestHandler>((req, res, next) => {
+  if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized" });
+  const role = getUserRole(req);
+  if (role === "admin" || role === "manager" || role === "agent") return next();
   return res.status(403).json({ message: "Dashboard access required" });
-};
+}, ["admin", "manager", "agent"]);
+
+/**
+ * Central role-guard middleware. Returns 401 if not authenticated, 403 if
+ * authenticated but role isn't in the allowed set. Tags the handler with
+ * _requiredRoles so the permissions-audit endpoint can introspect it without
+ * resorting to `any`.
+ */
+export function requireRole(...roles: string[]): RoleAwareRequestHandler {
+  return tagRoles<RequestHandler>((req, res, next) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    const role = getUserRole(req);
+    if (!role || !roles.includes(role)) {
+      return res.status(403).json({ message: `Requires role: ${roles.join(" or ")}` });
+    }
+    return next();
+  }, roles);
+}

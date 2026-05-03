@@ -1,5 +1,5 @@
 import type { Express } from "express";
-import { isAuthenticated } from "../replit_integrations/auth";
+import { isAuthenticated, requireRole } from "../replit_integrations/auth";
 import { db } from "../db";
 import { z } from "zod";
 import { desc, eq } from "drizzle-orm";
@@ -177,8 +177,7 @@ export function registerVirtualTerminalRoutes(app: Express) {
     }
   });
 
-  app.put("/api/admin/users/:id/permissions", isAuthenticated, async (req, res) => {
-    if ((req.user as any)?.role !== "admin") return res.status(403).json({ message: "Admin only" });
+  app.put("/api/admin/users/:id/permissions", requireRole("admin"), async (req, res) => {
     try {
       const { permissions } = req.body;
       if (!Array.isArray(permissions)) return res.status(400).json({ message: "permissions must be an array" });

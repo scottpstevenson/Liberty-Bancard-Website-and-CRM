@@ -189,6 +189,7 @@ const agentResourceItems: MenuItem[] = [
 const adminItems: MenuItem[] = [
   { icon: FolderOpen, label: "Document Vault", href: "/dashboard/document-vault", roles: ["admin", "manager"] },
   { icon: UserCog, label: "User Management", href: "/dashboard/user-management", roles: ["admin"] },
+  { icon: ShieldCheck, label: "Permissions Audit", href: "/dashboard/permissions", roles: ["admin"] },
   { icon: ArrowRightLeft, label: "Round-Robin", href: "/dashboard/round-robin", roles: ["admin", "manager"] },
   { icon: ShieldCheck, label: "Security Settings", href: "/dashboard/security", roles: ["admin", "manager", "agent", "merchant"] },
   { icon: Pencil, label: "Blog Generator", href: "/dashboard/blog-generator", roles: ["admin"] },
