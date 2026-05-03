@@ -485,6 +485,73 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
   });
 
 
+  // === INTEGRATION REQUEST ===
+  app.post("/api/public/integration-request", async (req, res) => {
+    try {
+      const schema = z.object({
+        softwareName: z.string().min(1, "Software name is required").max(120),
+        softwareCategory: z.string().max(80).optional().default(""),
+        contactName: z.string().min(1, "Name is required").max(120),
+        email: z.string().email("Valid email required").max(160),
+        businessName: z.string().max(160).optional().default(""),
+        phone: z.string().max(40).optional().default(""),
+        notes: z.string().max(2000).optional().default(""),
+      });
+      const data = schema.parse(req.body);
+
+      const nameParts = data.contactName.trim().split(" ").filter(Boolean);
+      const firstName = nameParts[0] || "";
+      const lastName = nameParts.slice(1).join(" ") || "";
+
+      const softwareSlug = data.softwareName.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 40) || "unknown";
+      const tags = ["src_website", "lead_integration_request", `integration_${softwareSlug}`];
+
+      const requestNote = `Integration request: ${data.softwareName}${data.softwareCategory ? ` (${data.softwareCategory})` : ""}.${data.notes ? ` Notes: ${data.notes}` : ""}`;
+
+      const contact = await createContactGhlFirst({
+        firstName,
+        lastName,
+        email: data.email,
+        phone: data.phone || "",
+        companyName: data.businessName || undefined,
+        notes: requestNote,
+        landingPage: "/integrations",
+        status: "New",
+        tags,
+      });
+
+      await storage.createNotification({
+        channel: "#sales",
+        title: "Integration Request",
+        message: `${firstName} ${lastName}${data.businessName ? ` (${data.businessName})` : ""} asked about ${data.softwareName}${data.softwareCategory ? ` — ${data.softwareCategory}` : ""}`,
+        type: "info",
+        metadata: { contactId: contact.id, software: data.softwareName, category: data.softwareCategory },
+      });
+
+      await storage.createAuditLog({
+        action: "integration_requested",
+        entityType: "contact",
+        entityId: contact.id,
+        details: {
+          software: data.softwareName,
+          category: data.softwareCategory,
+          notes: data.notes,
+          source: "website_integrations_page",
+        },
+      });
+
+      autoEnrollFromTrigger("form_submitted", { contactId: contact.id, formType: "integration_request" }).catch(err => console.error("Auto-enroll error:", err));
+      triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id }, { formType: "integration_request", software: data.softwareName }).catch(err => console.error("Workflow trigger error:", err));
+
+      res.status(201).json({ success: true, contactId: contact.id });
+    } catch (err: any) {
+      if (err?.issues) {
+        return res.status(400).json({ message: err.issues[0]?.message || "Invalid submission" });
+      }
+      res.status(400).json({ message: err.message || "Invalid submission" });
+    }
+  });
+
   // === CALLBACK REQUEST ===
   app.post("/api/public/callback", async (req, res) => {
     try {

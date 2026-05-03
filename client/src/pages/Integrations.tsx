@@ -5,7 +5,13 @@ import { Footer } from "@/components/Footer";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Link } from "wouter";
+import { useMutation } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import {
   Monitor,
   ShoppingCart,
@@ -18,6 +24,7 @@ import {
   Upload,
   ExternalLink,
   Puzzle,
+  Send,
 } from "lucide-react";
 
 interface Integration {
@@ -257,6 +264,60 @@ const integrationsSchema: StructuredData = {
 
 export default function Integrations() {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const { toast } = useToast();
+  const [requestForm, setRequestForm] = useState({
+    softwareName: "",
+    softwareCategory: "",
+    contactName: "",
+    email: "",
+    businessName: "",
+    phone: "",
+    notes: "",
+  });
+  const [submitted, setSubmitted] = useState(false);
+
+  const requestMutation = useMutation({
+    mutationFn: async (payload: typeof requestForm) => {
+      const res = await apiRequest("POST", "/api/public/integration-request", payload);
+      return res.json();
+    },
+    onSuccess: () => {
+      setSubmitted(true);
+      setRequestForm({
+        softwareName: "",
+        softwareCategory: "",
+        contactName: "",
+        email: "",
+        businessName: "",
+        phone: "",
+        notes: "",
+      });
+      toast({
+        title: "Request received",
+        description: "Thanks — our team will reach out within one business day about your software.",
+      });
+    },
+    onError: (err: Error) => {
+      toast({
+        title: "Could not submit request",
+        description: err.message || "Please try again or email support@libertybancard.com.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleRequestSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!requestForm.softwareName.trim() || !requestForm.contactName.trim() || !requestForm.email.trim()) {
+      toast({
+        title: "Missing information",
+        description: "Please share the software name, your name, and an email address.",
+        variant: "destructive",
+      });
+      return;
+    }
+    requestMutation.mutate(requestForm);
+  };
 
   const filtered = selectedCategory
     ? integrations.filter((i) => i.category === selectedCategory)
@@ -473,33 +534,157 @@ export default function Integrations() {
           </div>
         </section>
 
-        {/* Don't see your software? */}
+        {/* Don't see your software? — Integration request form */}
         <section className="bg-muted/30 py-16" data-testid="section-not-listed">
-          <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-            <h2
-              className="text-2xl md:text-3xl font-bold mb-4"
-              data-testid="text-not-listed-heading"
-            >
-              Don't See Your Software?
-            </h2>
-            <p className="text-muted-foreground mb-6 max-w-xl mx-auto">
-              We integrate with dozens of platforms beyond this list. If you use a specific POS, EHR, booking tool, or accounting system, ask us about compatibility during your free statement review.
-            </p>
-            <div className="flex flex-wrap gap-4 justify-center">
+          <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="text-center mb-8">
+              <Badge variant="secondary" className="mb-3" data-testid="badge-request-integration">
+                Request an Integration
+              </Badge>
+              <h2
+                className="text-2xl md:text-3xl font-bold mb-4"
+                data-testid="text-not-listed-heading"
+              >
+                Don't See Your Software?
+              </h2>
+              <p className="text-muted-foreground max-w-xl mx-auto">
+                Tell us which POS, EHR, booking tool, or accounting system you use. We'll check compatibility and follow up — usually within one business day.
+              </p>
+            </div>
+
+            <Card data-testid="card-integration-request-form">
+              <CardContent className="p-6 sm:p-8">
+                {submitted ? (
+                  <div className="text-center py-6" data-testid="status-request-success">
+                    <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-3" />
+                    <h3 className="text-lg font-semibold mb-2">Thanks — we got your request</h3>
+                    <p className="text-sm text-muted-foreground mb-4 max-w-md mx-auto">
+                      A Liberty Bancard specialist will follow up about your software shortly. Need it sooner? Call <a href="tel:9542668214" className="text-primary hover:underline">954-266-8214</a>.
+                    </p>
+                    <Button
+                      variant="outline"
+                      onClick={() => setSubmitted(false)}
+                      data-testid="button-submit-another-request"
+                    >
+                      Submit another request
+                    </Button>
+                  </div>
+                ) : (
+                  <form onSubmit={handleRequestSubmit} className="space-y-4" data-testid="form-integration-request">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <Label htmlFor="ir-software-name">Software name *</Label>
+                        <Input
+                          id="ir-software-name"
+                          required
+                          placeholder="e.g. Lightspeed Retail"
+                          value={requestForm.softwareName}
+                          onChange={(e) => setRequestForm({ ...requestForm, softwareName: e.target.value })}
+                          data-testid="input-software-name"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="ir-software-category">Software category</Label>
+                        <Input
+                          id="ir-software-category"
+                          placeholder="POS, EHR, booking, etc."
+                          value={requestForm.softwareCategory}
+                          onChange={(e) => setRequestForm({ ...requestForm, softwareCategory: e.target.value })}
+                          data-testid="input-software-category"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <Label htmlFor="ir-contact-name">Your name *</Label>
+                        <Input
+                          id="ir-contact-name"
+                          required
+                          placeholder="Full name"
+                          value={requestForm.contactName}
+                          onChange={(e) => setRequestForm({ ...requestForm, contactName: e.target.value })}
+                          data-testid="input-contact-name"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="ir-email">Email *</Label>
+                        <Input
+                          id="ir-email"
+                          type="email"
+                          required
+                          placeholder="you@company.com"
+                          value={requestForm.email}
+                          onChange={(e) => setRequestForm({ ...requestForm, email: e.target.value })}
+                          data-testid="input-email"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <Label htmlFor="ir-business-name">Business name</Label>
+                        <Input
+                          id="ir-business-name"
+                          placeholder="Your business"
+                          value={requestForm.businessName}
+                          onChange={(e) => setRequestForm({ ...requestForm, businessName: e.target.value })}
+                          data-testid="input-business-name"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="ir-phone">Phone</Label>
+                        <Input
+                          id="ir-phone"
+                          type="tel"
+                          placeholder="(optional)"
+                          value={requestForm.phone}
+                          onChange={(e) => setRequestForm({ ...requestForm, phone: e.target.value })}
+                          data-testid="input-phone"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <Label htmlFor="ir-notes">How do you use it?</Label>
+                      <Textarea
+                        id="ir-notes"
+                        rows={3}
+                        placeholder="Tell us how the software fits into your business — checkout, scheduling, billing, reporting, etc."
+                        value={requestForm.notes}
+                        onChange={(e) => setRequestForm({ ...requestForm, notes: e.target.value })}
+                        data-testid="input-notes"
+                      />
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between pt-2">
+                      <p className="text-xs text-muted-foreground">
+                        We'll only use your info to reply about this request.
+                      </p>
+                      <Button
+                        type="submit"
+                        size="lg"
+                        className="gap-2"
+                        disabled={requestMutation.isPending}
+                        data-testid="button-submit-integration-request"
+                      >
+                        <Send className="w-4 h-4" />
+                        {requestMutation.isPending ? "Sending..." : "Request Integration"}
+                      </Button>
+                    </div>
+                  </form>
+                )}
+              </CardContent>
+            </Card>
+
+            <div className="text-center mt-6">
               <Link href="/upload-statement" data-testid="link-not-listed-cta">
-                <Button size="lg" className="gap-2">
+                <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground hover:text-foreground">
                   <Upload className="w-4 h-4" />
-                  Get My Free Analysis
+                  Or get a free statement analysis instead
+                  <ArrowRight className="w-4 h-4" />
                 </Button>
               </Link>
-              <a
-                href="mailto:support@libertybancard.com"
-                className="inline-flex items-center gap-2 px-6 py-3 text-sm font-medium text-muted-foreground hover:text-foreground border border-border rounded-md transition-colors"
-                data-testid="link-email-integrations"
-              >
-                Ask About Compatibility
-                <ArrowRight className="w-4 h-4" />
-              </a>
             </div>
           </div>
         </section>
