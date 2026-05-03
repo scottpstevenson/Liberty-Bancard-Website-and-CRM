@@ -328,6 +328,31 @@ export default function BlogPost() {
             </div>
           </div>
         </section>
+
+        <section className="bg-primary text-primary-foreground py-16">
+          <div className="max-w-3xl mx-auto px-4 text-center">
+            <h2 className="text-2xl md:text-3xl font-display font-bold mb-4" data-testid="text-blogpost-cta-heading">
+              Ready to See What You're Really Paying?
+            </h2>
+            <p className="text-primary-foreground/80 mb-6">
+              Upload your processing statement for a free, line-by-line breakdown. Keep the analysis even if you don't switch.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-4 justify-center flex-wrap">
+              <Link href="/upload-statement" data-testid="link-blogpost-cta-upload">
+                <Button size="lg" variant="secondary" className="gap-2">
+                  <Upload className="w-4 h-4" />
+                  Upload Statement
+                </Button>
+              </Link>
+              <Link href="/free-analysis" data-testid="link-blogpost-cta-analysis">
+                <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
+                  Get Free Analysis
+                  <ArrowRight className="w-4 h-4" />
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </section>
       </main>
 
       <Footer />

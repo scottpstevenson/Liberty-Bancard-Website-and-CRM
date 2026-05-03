@@ -251,7 +251,22 @@ export function registerSsrRoutes(app: Express) {
     res.send(getIntegrationsHtml());
   });
 
-  app.get("/blog", async (_req, res) => {
+  // /blog and /blog/:slug are handled by the React SPA so they render the
+  // full site Navbar (with dropdowns, phone, Book 10-Min Call, Upload
+  // Statement) and Footer that match other public pages. SEO metadata and
+  // structured data for these pages are provided client-side by the
+  // <SEO /> component in Blog.tsx and BlogPost.tsx via react-helmet-async.
+  // We still serve SSR HTML to known crawlers so search engines see the
+  // metadata without needing to execute JavaScript.
+  const isCrawler = (ua: string | undefined): boolean => {
+    if (!ua) return false;
+    return /bot|crawler|spider|crawling|googlebot|bingbot|yandex|duckduckbot|baiduspider|facebookexternalhit|twitterbot|linkedinbot|slackbot|whatsapp|telegrambot|applebot|ahrefsbot|semrushbot|mj12bot|dotbot|petalbot|gptbot|claudebot|chatgpt-user|perplexitybot|ccbot/i.test(ua);
+  };
+
+  app.get("/blog", async (req, res, next) => {
+    if (!isCrawler(req.headers["user-agent"])) {
+      return next();
+    }
     try {
       const posts = await getAllBlogPosts();
       const html = renderBlogHubHtml(posts);
@@ -260,20 +275,21 @@ export function registerSsrRoutes(app: Express) {
       res.send(html);
     } catch (err) {
       console.error("[SSR] Blog hub error:", err);
-      res.redirect(302, "/?source=blog");
+      next();
     }
   });
 
-  app.get("/blog/:slug", async (req, res) => {
+  app.get("/blog/:slug", async (req, res, next) => {
+    if (!isCrawler(req.headers["user-agent"])) {
+      return next();
+    }
     const slug = req.params.slug;
     try {
       const posts = await getAllBlogPosts();
       const post = posts.find(p => p.slug === slug);
 
       if (!post) {
-        res.status(404).setHeader("Content-Type", "text/html; charset=utf-8");
-        res.send(notFoundHtml("Blog Post Not Found", `The blog post "${slug}" does not exist.`));
-        return;
+        return next();
       }
 
       const html = renderBlogPostHtml(post);
@@ -282,7 +298,7 @@ export function registerSsrRoutes(app: Express) {
       res.send(html);
     } catch (err) {
       console.error("[SSR] Blog post error:", err);
-      res.redirect(302, "/blog");
+      next();
     }
   });
 
