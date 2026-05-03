@@ -3225,3 +3225,37 @@ export const insertPartnerOrgUserSchema = createInsertSchema(partnerOrgUsers).om
 
 export type PartnerOrgUser = typeof partnerOrgUsers.$inferSelect;
 export type InsertPartnerOrgUser = z.infer<typeof insertPartnerOrgUserSchema>;
+
+export const TESTIMONIAL_SUBMISSION_STATUSES = ["pending", "approved", "rejected"] as const;
+
+export const testimonialSubmissions = pgTable("testimonial_submissions", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  businessName: text("business_name"),
+  email: text("email").notNull(),
+  phone: text("phone"),
+  industry: text("industry"),
+  videoLink: text("video_link"),
+  savingsAmount: text("savings_amount"),
+  story: text("story").notNull(),
+  status: text("status").default("pending").notNull(),
+  publish: boolean("publish").default(false).notNull(),
+  reviewedBy: text("reviewed_by"),
+  reviewedAt: timestamp("reviewed_at"),
+  reviewNotes: text("review_notes"),
+  contactId: integer("contact_id").references(() => contacts.id),
+  dealId: integer("deal_id").references(() => deals.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("testimonial_submissions_status_idx").on(table.status),
+  index("testimonial_submissions_created_at_idx").on(table.createdAt),
+]);
+
+export const insertTestimonialSubmissionSchema = createInsertSchema(testimonialSubmissions).omit({
+  id: true,
+  createdAt: true,
+  reviewedAt: true,
+});
+
+export type TestimonialSubmission = typeof testimonialSubmissions.$inferSelect;
+export type InsertTestimonialSubmission = z.infer<typeof insertTestimonialSubmissionSchema>;

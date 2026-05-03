@@ -103,6 +103,7 @@ import WinLoss from "@/pages/dashboard/WinLoss";
 import ReferralProgram from "@/pages/dashboard/ReferralProgram";
 import KnowledgeBase from "@/pages/dashboard/KnowledgeBase";
 import ReviewRequests from "@/pages/dashboard/ReviewRequests";
+import TestimonialSubmissions from "@/pages/dashboard/TestimonialSubmissions";
 import ResidualRevenue from "@/pages/dashboard/ResidualRevenue";
 import ConsentAudit from "@/pages/dashboard/ConsentAudit";
 import UserManagement from "@/pages/dashboard/UserManagement";
@@ -364,6 +365,9 @@ function Router() {
       </Route>
       <Route path="/dashboard/review-requests">
         <ProtectedRoute component={ReviewRequests} />
+      </Route>
+      <Route path="/dashboard/testimonial-submissions">
+        <ProtectedRoute component={TestimonialSubmissions} />
       </Route>
       <Route path="/dashboard/onboarding-kickoff">
         <ProtectedRoute component={OnboardingKickoff} />

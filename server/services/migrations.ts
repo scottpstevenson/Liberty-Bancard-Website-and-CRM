@@ -116,6 +116,28 @@ export async function runStartupMigrations(): Promise<void> {
       ALTER TABLE agent_merchants
         ADD COLUMN IF NOT EXISTS mid TEXT;
       CREATE INDEX IF NOT EXISTS agent_merchants_mid_idx ON agent_merchants(mid);
+
+      CREATE TABLE IF NOT EXISTS testimonial_submissions (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        business_name TEXT,
+        email TEXT NOT NULL,
+        phone TEXT,
+        industry TEXT,
+        video_link TEXT,
+        savings_amount TEXT,
+        story TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        publish BOOLEAN NOT NULL DEFAULT false,
+        reviewed_by TEXT,
+        reviewed_at TIMESTAMP,
+        review_notes TEXT,
+        contact_id INTEGER REFERENCES contacts(id),
+        deal_id INTEGER REFERENCES deals(id),
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS testimonial_submissions_status_idx ON testimonial_submissions(status);
+      CREATE INDEX IF NOT EXISTS testimonial_submissions_created_at_idx ON testimonial_submissions(created_at);
     `);
     console.log("[Migrations] Startup migrations applied successfully.");
   } catch (err: any) {

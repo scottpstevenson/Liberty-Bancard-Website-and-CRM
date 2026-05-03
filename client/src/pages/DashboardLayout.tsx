@@ -168,6 +168,7 @@ const businessItems: MenuItem[] = [
   { icon: Handshake, label: "Referral Program", href: "/dashboard/referral-program", roles: ["admin", "manager"] },
   { icon: Link2, label: "Partner Orgs", href: "/dashboard/partner-orgs", roles: ["admin"] },
   { icon: Star, label: "Review Requests", href: "/dashboard/review-requests", roles: ["admin", "manager"] },
+  { icon: MessageSquare, label: "Testimonial Submissions", href: "/dashboard/testimonial-submissions", roles: ["admin", "manager"] },
   { icon: ThumbsUp, label: "NPS / CSAT", href: "/dashboard/nps", roles: ["admin", "manager"] },
   { icon: RefreshCw, label: "Retention Campaigns", href: "/dashboard/retention-campaigns", roles: ["admin", "manager"] },
 ];

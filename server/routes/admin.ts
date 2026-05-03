@@ -585,4 +585,45 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // === TESTIMONIAL SUBMISSIONS (staff review inbox) ===
+  app.get("/api/testimonial-submissions", isAuthenticated, async (req, res) => {
+    try {
+      const status = typeof req.query.status === "string" ? req.query.status : undefined;
+      const submissions = await storage.getTestimonialSubmissions(status);
+      res.json(submissions);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/testimonial-submissions/:id", isAuthenticated, async (req, res) => {
+    try {
+      const submission = await storage.getTestimonialSubmission(Number(req.params.id));
+      if (!submission) return res.status(404).json({ message: "Not found" });
+      res.json(submission);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/testimonial-submissions/:id", isAuthenticated, async (req, res) => {
+    try {
+      const allowed = ["status", "publish", "reviewNotes", "reviewedBy"] as const;
+      const updates: Record<string, any> = {};
+      for (const k of allowed) if (k in req.body) updates[k] = req.body[k];
+      if (updates.status && !["pending", "approved", "rejected"].includes(updates.status)) {
+        return res.status(400).json({ message: "Invalid status" });
+      }
+      const user: any = req.user;
+      if (updates.status && updates.status !== "pending" && !updates.reviewedBy) {
+        updates.reviewedBy = user?.email || user?.id || "staff";
+      }
+      const updated = await storage.updateTestimonialSubmission(Number(req.params.id), updates);
+      if (!updated) return res.status(404).json({ message: "Not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
 }

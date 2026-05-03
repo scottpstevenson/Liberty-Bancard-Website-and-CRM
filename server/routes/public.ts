@@ -624,6 +624,29 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
     }
   });
 
+  app.get("/api/public/testimonials/approved", async (_req, res) => {
+    try {
+      const submissions = await storage.getPublishedTestimonialSubmissions();
+      const sanitized = submissions.map((s) => {
+        const firstName = (s.name || "").split(" ")[0] || "Anonymous";
+        const lastInitial = ((s.name || "").split(" ")[1] || "").charAt(0);
+        return {
+          id: s.id,
+          displayName: lastInitial ? `${firstName} ${lastInitial}.` : firstName,
+          businessName: s.businessName,
+          industry: s.industry,
+          videoLink: s.videoLink,
+          savingsAmount: s.savingsAmount,
+          story: s.story,
+          createdAt: s.createdAt,
+        };
+      });
+      res.json(sanitized);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/public/testimonial-submit", async (req, res) => {
     try {
       const { name, businessName, email, phone, industry, videoLink, savingsAmount, story } = req.body;
@@ -666,15 +689,30 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         notes: noteContent,
       });
 
+      const submission = await storage.createTestimonialSubmission({
+        name: `${firstName} ${lastName}`.trim().slice(0, 200),
+        businessName: safeBusiness || null,
+        email,
+        phone: safePhone || null,
+        industry: safeIndustry || null,
+        videoLink: safeVideoLink || null,
+        savingsAmount: safeSavings || null,
+        story: safeStory,
+        status: "pending",
+        publish: false,
+        contactId: contact.id,
+        dealId: deal.id,
+      });
+
       await storage.createNotification({
         channel: "#marketing", title: "New Testimonial Submission",
-        message: `${firstName} ${lastName} (${safeBusiness}) submitted their story. Savings: ${safeSavings || "Not specified"}.`,
+        message: `${firstName} ${lastName} (${safeBusiness}) submitted their story. Savings: ${safeSavings || "Not specified"}. Review at /dashboard/testimonial-submissions`.slice(0, 500),
         type: "info",
       });
 
       scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
       syncFormSubmissionToGhl({ contactId: contact.id, dealId: deal.id, leadSource: "testimonial_submit" }).catch(err => console.error("GHL form sync error:", err));
-      res.status(201).json({ success: true, contactId: contact.id });
+      res.status(201).json({ success: true, contactId: contact.id, submissionId: submission.id });
     } catch (err: any) {
       res.status(400).json({ message: err.message || "Invalid submission" });
     }

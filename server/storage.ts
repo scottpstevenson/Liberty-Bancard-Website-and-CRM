@@ -10,7 +10,7 @@ import {
   emailLogs, callLogs, stageAutomationRules, followUpSequences, sequenceSteps, sequenceEnrollments,
   sunbizEntities, consentAuditLogs, calendarEvents,
   merchantApplications, merchantProfiles, equipmentOrders, agents, agentQuotas, agentMerchants, residualReports, merchantResiduals,
-  healthAlerts, dealCompetitors, partners, referrals, commissionTiers, knowledgeBase, reviewRequests, onboardingSteps, midDailyStats,
+  healthAlerts, dealCompetitors, partners, referrals, commissionTiers, knowledgeBase, reviewRequests, testimonialSubmissions, onboardingSteps, midDailyStats,
   sdrMerchants, sdrMerchantContacts, sdrLeadState, sdrLeadEvents, sdrChannelAttempts, sdrComplianceState,
   sendingIdentities,
   leadDiscoveryJobs, leadDiscoveryResults,
@@ -68,6 +68,7 @@ import {
   type InsertCommissionTier, type CommissionTier,
   type InsertKnowledgeBaseArticle, type KnowledgeBaseArticle,
   type InsertReviewRequest, type ReviewRequest,
+  type InsertTestimonialSubmission, type TestimonialSubmission,
   type InsertOnboardingStep, type OnboardingStep,
   type InsertConsentAuditLog, type ConsentAuditLog,
   type CalendarEvent, type InsertCalendarEvent,
@@ -377,6 +378,12 @@ export interface IStorage {
   getReviewRequestsByDeal(dealId: number): Promise<ReviewRequest[]>;
   createReviewRequest(request: InsertReviewRequest): Promise<ReviewRequest>;
   updateReviewRequest(id: number, updates: Partial<InsertReviewRequest>): Promise<ReviewRequest | undefined>;
+
+  getTestimonialSubmissions(status?: string): Promise<TestimonialSubmission[]>;
+  getTestimonialSubmission(id: number): Promise<TestimonialSubmission | undefined>;
+  getPublishedTestimonialSubmissions(): Promise<TestimonialSubmission[]>;
+  createTestimonialSubmission(submission: InsertTestimonialSubmission): Promise<TestimonialSubmission>;
+  updateTestimonialSubmission(id: number, updates: Partial<InsertTestimonialSubmission>): Promise<TestimonialSubmission | undefined>;
 
   getNpsResponses(): Promise<NpsResponse[]>;
   getNpsResponse(id: number): Promise<NpsResponse | undefined>;
@@ -2112,6 +2119,38 @@ export class DatabaseStorage implements IStorage {
 
   async updateReviewRequest(id: number, updates: Partial<InsertReviewRequest>) {
     const [updated] = await db.update(reviewRequests).set(updates).where(eq(reviewRequests.id, id)).returning();
+    return updated;
+  }
+
+  async getTestimonialSubmissions(status?: string) {
+    if (status) {
+      return await db.select().from(testimonialSubmissions).where(eq(testimonialSubmissions.status, status)).orderBy(desc(testimonialSubmissions.createdAt));
+    }
+    return await db.select().from(testimonialSubmissions).orderBy(desc(testimonialSubmissions.createdAt));
+  }
+
+  async getTestimonialSubmission(id: number) {
+    const [submission] = await db.select().from(testimonialSubmissions).where(eq(testimonialSubmissions.id, id));
+    return submission;
+  }
+
+  async getPublishedTestimonialSubmissions() {
+    return await db.select().from(testimonialSubmissions)
+      .where(and(eq(testimonialSubmissions.status, "approved"), eq(testimonialSubmissions.publish, true)))
+      .orderBy(desc(testimonialSubmissions.createdAt));
+  }
+
+  async createTestimonialSubmission(submission: InsertTestimonialSubmission) {
+    const [created] = await db.insert(testimonialSubmissions).values(submission).returning();
+    return created;
+  }
+
+  async updateTestimonialSubmission(id: number, updates: Partial<InsertTestimonialSubmission>) {
+    const payload: any = { ...updates };
+    if (updates.status && updates.status !== "pending") {
+      payload.reviewedAt = new Date();
+    }
+    const [updated] = await db.update(testimonialSubmissions).set(payload).where(eq(testimonialSubmissions.id, id)).returning();
     return updated;
   }
 

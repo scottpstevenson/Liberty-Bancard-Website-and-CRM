@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { SEO, type StructuredData } from "@/components/SEO";
 import { LazyVideoEmbed } from "@/components/LazyVideoEmbed";
 import { Navbar } from "@/components/Navbar";
@@ -190,13 +191,34 @@ const reviewSchema = (t: VideoTestimonial): StructuredData => ({
   reviewRating: { "@type": "Rating", ratingValue: "5", bestRating: "5" },
 });
 
+interface ApprovedSubmission {
+  id: number;
+  displayName: string;
+  businessName: string | null;
+  industry: string | null;
+  videoLink: string | null;
+  savingsAmount: string | null;
+  story: string;
+  createdAt: string | null;
+}
+
 export default function Testimonials() {
   const [selectedIndustry, setSelectedIndustry] = useState("All");
+
+  const { data: approvedSubmissions } = useQuery<ApprovedSubmission[]>({
+    queryKey: ["/api/public/testimonials/approved"],
+  });
 
   const filtered =
     selectedIndustry === "All"
       ? testimonials
       : testimonials.filter((t) => t.industry === selectedIndustry);
+
+  const approved = approvedSubmissions || [];
+  const filteredApproved =
+    selectedIndustry === "All"
+      ? approved
+      : approved.filter((s) => (s.industry || "") === selectedIndustry);
 
   const schemas = [
     ...testimonials.map(videoObjectSchema),
@@ -355,6 +377,68 @@ export default function Testimonials() {
           {filtered.length === 0 && (
             <div className="text-center py-16" data-testid="text-no-results">
               <p className="text-muted-foreground">No testimonials found for this filter.</p>
+            </div>
+          )}
+
+          {filteredApproved.length > 0 && (
+            <div className="mt-16" data-testid="section-merchant-stories">
+              <div className="text-center mb-8">
+                <Badge variant="secondary" className="mb-3" data-testid="badge-merchant-stories">
+                  Submitted by Merchants
+                </Badge>
+                <h2 className="text-2xl md:text-3xl font-bold tracking-tight">
+                  More Stories From Our Customers
+                </h2>
+                <p className="text-sm text-muted-foreground mt-2">
+                  Stories shared directly by Liberty Bancard merchants and approved by our team.
+                </p>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {filteredApproved.map((s) => (
+                  <Card key={s.id} data-testid={`card-approved-submission-${s.id}`}>
+                    <CardContent className="p-5 flex flex-col h-full">
+                      <div className="flex items-start justify-between gap-3 mb-3">
+                        <div>
+                          <div className="text-sm font-semibold" data-testid={`text-approved-name-${s.id}`}>
+                            {s.displayName}
+                          </div>
+                          {s.businessName && (
+                            <div className="text-xs text-muted-foreground" data-testid={`text-approved-business-${s.id}`}>
+                              {s.businessName}
+                            </div>
+                          )}
+                        </div>
+                        {s.savingsAmount && (
+                          <div className="text-right shrink-0">
+                            <div className="text-base font-bold text-emerald-600 dark:text-emerald-400" data-testid={`text-approved-savings-${s.id}`}>
+                              {s.savingsAmount}
+                            </div>
+                            <div className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                              reported savings
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex gap-0.5 mb-3">
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <Star key={star} className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                        ))}
+                      </div>
+                      <div className="flex items-start gap-2 flex-grow">
+                        <Quote className="w-4 h-4 text-primary/20 mt-0.5 shrink-0" />
+                        <p className="text-sm leading-relaxed italic" data-testid={`text-approved-story-${s.id}`}>
+                          {s.story}
+                        </p>
+                      </div>
+                      {s.industry && (
+                        <div className="mt-4 pt-3 border-t flex items-center justify-end">
+                          <Badge variant="outline" className="text-xs">{s.industry}</Badge>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
             </div>
           )}
         </section>
