@@ -534,6 +534,20 @@ export function registerMerchantsRoutes(app: Express) {
     }
   });
 
+  app.get("/api/merchant-profiles/:id/welcome-email-history", isAdminOrManager, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const profile = await storage.getMerchantProfile(id);
+      if (!profile) return res.status(404).json({ message: "Merchant profile not found" });
+
+      const logs = await storage.getAuditLogsByEntity("merchant_profile", id);
+      const welcomeLogs = logs.filter(l => l.action === "merchant_portal_welcome_sent");
+      res.json(welcomeLogs);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
 
   // === EQUIPMENT ORDERS ===
   app.get("/api/equipment-orders", isDashboardUser, async (req, res) => {

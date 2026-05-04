@@ -168,6 +168,7 @@ export interface IStorage {
   deleteDocument(id: number): Promise<void>;
 
   getAuditLogs(): Promise<typeof auditLogs.$inferSelect[]>;
+  getAuditLogsByEntity(entityType: string, entityId: number): Promise<typeof auditLogs.$inferSelect[]>;
   createAuditLog(log: InsertAuditLog): Promise<typeof auditLogs.$inferSelect>;
 
   getNotifications(): Promise<typeof notifications.$inferSelect[]>;

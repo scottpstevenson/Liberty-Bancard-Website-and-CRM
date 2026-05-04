@@ -105,6 +105,11 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
     return await db.select().from(auditLogs).orderBy(desc(auditLogs.createdAt));
   }
 
+  async getAuditLogsByEntity(entityType: string, entityId: number) {
+    return await db.select().from(auditLogs)
+      .where(and(eq(auditLogs.entityType, entityType), eq(auditLogs.entityId, entityId)))
+      .orderBy(desc(auditLogs.createdAt));
+  }
 
   async createAuditLog(insertLog: InsertAuditLog) {
     const [log] = await db.insert(auditLogs).values(insertLog).returning();

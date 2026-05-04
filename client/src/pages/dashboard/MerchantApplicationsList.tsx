@@ -198,6 +198,21 @@ function ApplicationDetailView({
     refetchOnWindowFocus: false,
   });
 
+  const { data: welcomeEmailHistory, isLoading: isLoadingWelcomeHistory } = useQuery<Array<{
+    id: number;
+    action: string;
+    createdAt: string | null;
+    details: { contactId?: number; mid?: string | null; method?: string } | null;
+  }>>({
+    queryKey: ["/api/merchant-profiles", merchantProfile?.id, "welcome-email-history"],
+    queryFn: async () => {
+      const res = await fetch(`/api/merchant-profiles/${merchantProfile!.id}/welcome-email-history`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch welcome email history");
+      return res.json();
+    },
+    enabled: !!merchantProfile?.id,
+  });
+
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
 
   useEffect(() => {
@@ -226,6 +241,7 @@ function ApplicationDetailView({
     return m > 0 ? `${m}m ${s}s` : `${s}s`;
   }, []);
 
+
   const resendWelcomeMutation = useMutation({
     mutationFn: async (profileId: number) => {
       const res = await apiRequest("POST", `/api/merchant-profiles/${profileId}/send-welcome`, {});
@@ -235,6 +251,7 @@ function ApplicationDetailView({
       toast({ title: "Welcome email sent", description: "The merchant portal welcome email has been resent." });
       setCooldownSeconds(300);
       refetchWelcomeStatus();
+      queryClient.invalidateQueries({ queryKey: ["/api/merchant-profiles", merchantProfile?.id, "welcome-email-history"] });
     },
     onError: (err: any) => {
       if (err.message?.includes("wait")) {
@@ -533,6 +550,53 @@ function ApplicationDetailView({
           log={(application.underwritingNotesLog as UnderwritingNoteEntry[] | null) ?? []}
           legacyNote={application.underwritingNotes}
         />
+
+        {application.status === "approved" && merchantProfile && (
+          <div className="space-y-3" data-testid="section-welcome-email-history">
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground border-b pb-1">
+              <Mail className="w-4 h-4 text-primary" />
+              Welcome Email History
+            </div>
+            {isLoadingWelcomeHistory ? (
+              <div className="space-y-2">
+                <Skeleton className="h-10 w-full" />
+              </div>
+            ) : !welcomeEmailHistory || welcomeEmailHistory.length === 0 ? (
+              <p className="text-sm text-muted-foreground" data-testid="text-no-welcome-emails">
+                No welcome emails have been sent yet.
+              </p>
+            ) : (
+              <div className="space-y-2" data-testid="list-welcome-emails">
+                {welcomeEmailHistory.map((log, idx) => {
+                  const details = log.details as { contactId?: number; mid?: string | null; method?: string } | null;
+                  const methodLabel = details?.method === "ghl_workflow" ? "GHL Workflow"
+                    : details?.method === "ghl_direct_email" ? "GHL Email"
+                    : details?.method === "smtp" ? "SMTP"
+                    : details?.method || "Unknown";
+                  return (
+                    <div
+                      key={log.id}
+                      className="flex items-center justify-between gap-3 rounded-md border bg-muted/30 px-3 py-2"
+                      data-testid={`welcome-email-entry-${idx}`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <MailCheck className="w-4 h-4 text-green-600 dark:text-green-400 shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium" data-testid={`welcome-email-date-${idx}`}>
+                            {formatDateTime(log.createdAt)}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Sent via {methodLabel}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="space-y-3">
           <div className="flex items-center gap-2 text-sm font-semibold text-foreground border-b pb-1">
