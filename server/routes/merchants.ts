@@ -12,6 +12,9 @@ import { sendApplicationApprovedEmail, sendApplicationDeclinedEmail } from "../s
 import { parse } from "csv-parse/sync";
 import path from "path";
 
+const WELCOME_EMAIL_COOLDOWN_MS = 5 * 60 * 1000;
+const welcomeEmailCooldowns = new Map<number, Date>();
+
 const isAdminOrManager: RequestHandler = (req, res, next) => {
   const role = (req.user as any)?.role;
   if (req.isAuthenticated() && (role === "admin" || role === "manager")) {
@@ -434,6 +437,39 @@ export function registerMerchantsRoutes(app: Express) {
     }
   });
 
+  app.get("/api/merchant-profiles/:id/welcome-email-status", isAdminOrManager, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const profile = await storage.getMerchantProfile(id);
+      if (!profile) return res.status(404).json({ message: "Merchant profile not found" });
+
+      let lastSentAt: Date | null = welcomeEmailCooldowns.get(id) ?? null;
+
+      if (!lastSentAt) {
+        const allLogs = await storage.getAuditLogs();
+        const lastLog = allLogs.find(
+          (l) => l.action === "merchant_portal_welcome_sent" && l.entityType === "merchant_profile" && l.entityId === id
+        );
+        if (lastLog?.createdAt) {
+          lastSentAt = new Date(lastLog.createdAt);
+          welcomeEmailCooldowns.set(id, lastSentAt);
+        }
+      }
+
+      const now = new Date();
+      const cooldownRemaining = lastSentAt
+        ? Math.max(0, Math.ceil((WELCOME_EMAIL_COOLDOWN_MS - (now.getTime() - lastSentAt.getTime())) / 1000))
+        : 0;
+
+      res.json({
+        lastSentAt: lastSentAt?.toISOString() ?? null,
+        cooldownRemaining,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/merchant-profiles/:id/send-welcome", isAdminOrManager, async (req, res) => {
     try {
       const id = Number(req.params.id);
@@ -444,8 +480,35 @@ export function registerMerchantsRoutes(app: Express) {
         return res.status(400).json({ message: "Welcome email can only be sent to active merchant accounts" });
       }
 
+      let lastSentAt: Date | null = welcomeEmailCooldowns.get(id) ?? null;
+
+      if (!lastSentAt) {
+        const allLogs = await storage.getAuditLogs();
+        const lastLog = allLogs.find(
+          (l) => l.action === "merchant_portal_welcome_sent" && l.entityType === "merchant_profile" && l.entityId === id
+        );
+        if (lastLog?.createdAt) {
+          lastSentAt = new Date(lastLog.createdAt);
+          welcomeEmailCooldowns.set(id, lastSentAt);
+        }
+      }
+
+      if (lastSentAt) {
+        const elapsed = Date.now() - lastSentAt.getTime();
+        if (elapsed < WELCOME_EMAIL_COOLDOWN_MS) {
+          const retryAfter = Math.ceil((WELCOME_EMAIL_COOLDOWN_MS - elapsed) / 1000);
+          return res.status(429).json({
+            message: `Please wait ${Math.ceil(retryAfter / 60)} minute(s) before resending the welcome email.`,
+            retryAfter,
+            lastSentAt: lastSentAt.toISOString(),
+          });
+        }
+      }
+
       await sendMerchantPortalWelcomeEmail(profile);
-      res.json({ success: true, message: "Welcome email has been resent" });
+      const sentAt = new Date();
+      welcomeEmailCooldowns.set(id, sentAt);
+      res.json({ success: true, message: "Welcome email has been resent", lastSentAt: sentAt.toISOString() });
     } catch (err: any) {
       console.error(`[Resend Welcome] Error for profile #${req.params.id}:`, err);
       res.status(500).json({ message: err.message || "Failed to send welcome email" });

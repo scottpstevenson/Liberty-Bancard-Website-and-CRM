@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -184,16 +184,65 @@ function ApplicationDetailView({
     (p) => p.applicationId === application.id
   );
 
+  const { data: welcomeStatus, refetch: refetchWelcomeStatus } = useQuery<{
+    lastSentAt: string | null;
+    cooldownRemaining: number;
+  }>({
+    queryKey: ["/api/merchant-profiles", merchantProfile?.id, "welcome-email-status"],
+    queryFn: async () => {
+      const res = await fetch(`/api/merchant-profiles/${merchantProfile!.id}/welcome-email-status`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch status");
+      return res.json();
+    },
+    enabled: !!merchantProfile && merchantProfile.accountStatus === "active",
+    refetchOnWindowFocus: false,
+  });
+
+  const [cooldownSeconds, setCooldownSeconds] = useState(0);
+
+  useEffect(() => {
+    if (welcomeStatus?.cooldownRemaining && welcomeStatus.cooldownRemaining > 0) {
+      setCooldownSeconds(welcomeStatus.cooldownRemaining);
+    }
+  }, [welcomeStatus]);
+
+  useEffect(() => {
+    if (cooldownSeconds <= 0) return;
+    const timer = setInterval(() => {
+      setCooldownSeconds((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [cooldownSeconds]);
+
+  const formatCooldown = useCallback((seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return m > 0 ? `${m}m ${s}s` : `${s}s`;
+  }, []);
+
   const resendWelcomeMutation = useMutation({
     mutationFn: async (profileId: number) => {
       const res = await apiRequest("POST", `/api/merchant-profiles/${profileId}/send-welcome`, {});
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data: any) => {
       toast({ title: "Welcome email sent", description: "The merchant portal welcome email has been resent." });
+      setCooldownSeconds(300);
+      refetchWelcomeStatus();
     },
     onError: (err: any) => {
-      toast({ title: "Failed to send email", description: err.message || "Could not resend welcome email.", variant: "destructive" });
+      if (err.message?.includes("wait")) {
+        toast({ title: "Cooldown active", description: err.message, variant: "destructive" });
+        refetchWelcomeStatus();
+      } else {
+        toast({ title: "Failed to send email", description: err.message || "Could not resend welcome email.", variant: "destructive" });
+      }
     },
   });
 
@@ -345,20 +394,29 @@ function ApplicationDetailView({
             </>
           )}
           {application.status === "approved" && merchantProfile?.accountStatus === "active" && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => resendWelcomeMutation.mutate(merchantProfile.id)}
-              disabled={resendWelcomeMutation.isPending}
-              data-testid="button-resend-welcome-email"
-            >
-              {resendWelcomeMutation.isPending ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <MailCheck className="w-4 h-4 mr-2" />
+            <div className="flex flex-col items-start gap-1">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => resendWelcomeMutation.mutate(merchantProfile.id)}
+                disabled={resendWelcomeMutation.isPending || cooldownSeconds > 0}
+                data-testid="button-resend-welcome-email"
+              >
+                {resendWelcomeMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <MailCheck className="w-4 h-4 mr-2" />
+                )}
+                {cooldownSeconds > 0
+                  ? `Resend in ${formatCooldown(cooldownSeconds)}`
+                  : "Resend Welcome Email"}
+              </Button>
+              {welcomeStatus?.lastSentAt && (
+                <span className="text-xs text-muted-foreground" data-testid="text-last-welcome-sent">
+                  Last sent: {new Date(welcomeStatus.lastSentAt).toLocaleString()}
+                </span>
               )}
-              Resend Welcome Email
-            </Button>
+            </div>
           )}
         </div>
       </div>
