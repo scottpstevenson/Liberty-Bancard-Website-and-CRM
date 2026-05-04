@@ -111,6 +111,22 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
       .orderBy(desc(auditLogs.createdAt));
   }
 
+  async getLastAuditLogByAction(action: string, entityType: string, entityId: number) {
+    const [log] = await db
+      .select()
+      .from(auditLogs)
+      .where(
+        and(
+          eq(auditLogs.action, action),
+          eq(auditLogs.entityType, entityType),
+          eq(auditLogs.entityId, entityId)
+        )
+      )
+      .orderBy(desc(auditLogs.createdAt))
+      .limit(1);
+    return log;
+  }
+
   async createAuditLog(insertLog: InsertAuditLog) {
     const [log] = await db.insert(auditLogs).values(insertLog).returning();
     return log;

@@ -446,10 +446,7 @@ export function registerMerchantsRoutes(app: Express) {
       let lastSentAt: Date | null = welcomeEmailCooldowns.get(id) ?? null;
 
       if (!lastSentAt) {
-        const allLogs = await storage.getAuditLogs();
-        const lastLog = allLogs.find(
-          (l) => l.action === "merchant_portal_welcome_sent" && l.entityType === "merchant_profile" && l.entityId === id
-        );
+        const lastLog = await storage.getLastAuditLogByAction("merchant_portal_welcome_sent", "merchant_profile", id);
         if (lastLog?.createdAt) {
           lastSentAt = new Date(lastLog.createdAt);
           welcomeEmailCooldowns.set(id, lastSentAt);
@@ -483,10 +480,7 @@ export function registerMerchantsRoutes(app: Express) {
       let lastSentAt: Date | null = welcomeEmailCooldowns.get(id) ?? null;
 
       if (!lastSentAt) {
-        const allLogs = await storage.getAuditLogs();
-        const lastLog = allLogs.find(
-          (l) => l.action === "merchant_portal_welcome_sent" && l.entityType === "merchant_profile" && l.entityId === id
-        );
+        const lastLog = await storage.getLastAuditLogByAction("merchant_portal_welcome_sent", "merchant_profile", id);
         if (lastLog?.createdAt) {
           lastSentAt = new Date(lastLog.createdAt);
           welcomeEmailCooldowns.set(id, lastSentAt);
