@@ -142,110 +142,106 @@ function buildPortalWelcomeEmail(
 
 export async function sendMerchantPortalWelcomeEmail(profile: MerchantProfile): Promise<void> {
   const TAG = "[Merchant Approved]";
-  try {
-    let contact: Contact | undefined;
-    if (profile.contactId) {
-      contact = await storage.getContact(profile.contactId);
-    }
-
-    if (!contact) {
-      console.warn(`${TAG} Skipped portal welcome email for profile #${profile.id} — no linked contact`);
-      return;
-    }
-
-    if (!contact.email) {
-      console.warn(`${TAG} Skipped portal welcome email for profile #${profile.id} — contact #${contact.id} has no email address`);
-      return;
-    }
-
-    const appUrl = process.env.APP_URL || "https://libertybancard.com";
-    const portalUrl = `${appUrl}/merchant-portal`;
-    const firstName = contact.firstName || "there";
-    const companyName = contact.companyName || "";
-    const mid = profile.merchantMid || null;
-
-    let ghlContactId = contact.ghlContactId;
-
-    if (!ghlContactId && isSdrGhlConfigured()) {
-      console.log(`${TAG} Contact #${contact.id} has no GHL contact ID — attempting upsert via email`);
-      try {
-        ghlContactId = await upsertContact({
-          firstName: contact.firstName || "",
-          lastName: contact.lastName || "",
-          email: contact.email,
-          phone: contact.phone || undefined,
-          companyName: contact.companyName || undefined,
-          tags: ["merchant", "approved"],
-        });
-
-        if (ghlContactId) {
-          await storage.updateContact(contact.id, { ghlContactId });
-          console.log(`${TAG} GHL contact created/found for contact #${contact.id}: ${ghlContactId}`);
-        }
-      } catch (upsertErr) {
-        console.error(`${TAG} Failed to upsert GHL contact for contact #${contact.id}:`, upsertErr);
-      }
-    }
-
-    const ghlWorkflowId = process.env.GHL_WORKFLOW_MERCHANT_APPROVED;
-    let method: "ghl_workflow" | "ghl_direct_email" | "smtp" = "smtp";
-
-    if (ghlWorkflowId && ghlContactId) {
-      await triggerWorkflow({
-        workflowId: ghlWorkflowId,
-        contactId: ghlContactId,
-        metadata: {
-          profileId: profile.id,
-          contactId: contact.id,
-          merchantMid: mid,
-          portalUrl,
-          source: "merchant_approved",
-          approvedAt: new Date().toISOString(),
-        },
-      });
-      method = "ghl_workflow";
-      console.log(`${TAG} Portal welcome email sent to contact #${contact.id} via ghl_workflow`);
-    } else if (ghlContactId) {
-      const subject = `Your Liberty Bancard merchant account is approved — here's how to log in`;
-      const htmlBody = buildPortalWelcomeEmail(firstName, companyName, mid, portalUrl);
-
-      await sendEmailReply({
-        contactId: ghlContactId,
-        subject,
-        htmlBody,
-      });
-      method = "ghl_direct_email";
-      console.log(`${TAG} Portal welcome email sent to contact #${contact.id} via ghl_direct_email`);
-    } else if (isSmtpConfigured()) {
-      const subject = `Your Liberty Bancard merchant account is approved — here's how to log in`;
-      const htmlBody = buildPortalWelcomeEmail(firstName, companyName, mid, portalUrl);
-
-      const result = await sendSmtpEmail({
-        to: contact.email,
-        subject,
-        html: htmlBody,
-      });
-
-      if (!result.success) {
-        console.error(`${TAG} SMTP fallback failed for contact #${contact.id}: ${result.error}`);
-        return;
-      }
-      method = "smtp";
-      console.log(`${TAG} Portal welcome email sent to contact #${contact.id} via smtp fallback`);
-    } else {
-      console.warn(`${TAG} Cannot send portal welcome email for profile #${profile.id} — no GHL contact ID and SMTP not configured. Set SMTP_HOST, SMTP_USER, SMTP_PASS for fallback delivery.`);
-      return;
-    }
-
-    await storage.createAuditLog({
-      action: "merchant_portal_welcome_sent",
-      entityType: "merchant_profile",
-      entityId: profile.id,
-      details: { contactId: contact.id, mid, method },
-    });
-  } catch (err) {
-    console.error(`${TAG} Portal welcome email error for profile #${profile.id}:`, err);
+  let contact: Contact | undefined;
+  if (profile.contactId) {
+    contact = await storage.getContact(profile.contactId);
   }
+
+  if (!contact) {
+    const msg = `No linked contact found for profile #${profile.id}`;
+    console.warn(`${TAG} Skipped portal welcome email — ${msg}`);
+    throw new Error(msg);
+  }
+
+  if (!contact.email) {
+    const msg = `Contact #${contact.id} has no email address for profile #${profile.id}`;
+    console.warn(`${TAG} Skipped portal welcome email — ${msg}`);
+    throw new Error(msg);
+  }
+
+  const appUrl = process.env.APP_URL || "https://libertybancard.com";
+  const portalUrl = `${appUrl}/merchant-portal`;
+  const firstName = contact.firstName || "there";
+  const companyName = contact.companyName || "";
+  const mid = profile.merchantMid || null;
+
+  let ghlContactId = contact.ghlContactId;
+
+  if (!ghlContactId && isSdrGhlConfigured()) {
+    console.log(`${TAG} Contact #${contact.id} has no GHL contact ID — attempting upsert via email`);
+    try {
+      ghlContactId = await upsertContact({
+        firstName: contact.firstName || "",
+        lastName: contact.lastName || "",
+        email: contact.email,
+        phone: contact.phone || undefined,
+        companyName: contact.companyName || undefined,
+        tags: ["merchant", "approved"],
+      });
+
+      if (ghlContactId) {
+        await storage.updateContact(contact.id, { ghlContactId });
+        console.log(`${TAG} GHL contact created/found for contact #${contact.id}: ${ghlContactId}`);
+      }
+    } catch (upsertErr) {
+      console.error(`${TAG} Failed to upsert GHL contact for contact #${contact.id}:`, upsertErr);
+    }
+  }
+
+  const ghlWorkflowId = process.env.GHL_WORKFLOW_MERCHANT_APPROVED;
+  let method: "ghl_workflow" | "ghl_direct_email" | "smtp" = "smtp";
+
+  if (ghlWorkflowId && ghlContactId) {
+    await triggerWorkflow({
+      workflowId: ghlWorkflowId,
+      contactId: ghlContactId,
+      metadata: {
+        profileId: profile.id,
+        contactId: contact.id,
+        merchantMid: mid,
+        portalUrl,
+        source: "merchant_approved",
+        approvedAt: new Date().toISOString(),
+      },
+    });
+    method = "ghl_workflow";
+    console.log(`${TAG} Portal welcome email sent to contact #${contact.id} via ghl_workflow`);
+  } else if (ghlContactId) {
+    const subject = `Your Liberty Bancard merchant account is approved — here's how to log in`;
+    const htmlBody = buildPortalWelcomeEmail(firstName, companyName, mid, portalUrl);
+
+    await sendEmailReply({
+      contactId: ghlContactId,
+      subject,
+      htmlBody,
+    });
+    method = "ghl_direct_email";
+    console.log(`${TAG} Portal welcome email sent to contact #${contact.id} via ghl_direct_email`);
+  } else if (isSmtpConfigured()) {
+    const subject = `Your Liberty Bancard merchant account is approved — here's how to log in`;
+    const htmlBody = buildPortalWelcomeEmail(firstName, companyName, mid, portalUrl);
+
+    const result = await sendSmtpEmail({
+      to: contact.email,
+      subject,
+      html: htmlBody,
+    });
+
+    if (!result.success) {
+      throw new Error(`SMTP fallback failed for contact #${contact.id}: ${result.error}`);
+    }
+    method = "smtp";
+    console.log(`${TAG} Portal welcome email sent to contact #${contact.id} via smtp fallback`);
+  } else {
+    throw new Error(`Cannot send portal welcome email for profile #${profile.id} — no GHL contact ID and SMTP not configured`);
+  }
+
+  await storage.createAuditLog({
+    action: "merchant_portal_welcome_sent",
+    entityType: "merchant_profile",
+    entityId: profile.id,
+    details: { contactId: contact.id, mid, method },
+  });
 }
 
 export async function sendMerchantWelcomeEmail(contact: Contact, deal: Deal): Promise<void> {

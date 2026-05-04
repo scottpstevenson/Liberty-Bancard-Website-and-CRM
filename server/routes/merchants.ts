@@ -434,6 +434,24 @@ export function registerMerchantsRoutes(app: Express) {
     }
   });
 
+  app.post("/api/merchant-profiles/:id/send-welcome", isAdminOrManager, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const profile = await storage.getMerchantProfile(id);
+      if (!profile) return res.status(404).json({ message: "Merchant profile not found" });
+
+      if (profile.accountStatus !== "active") {
+        return res.status(400).json({ message: "Welcome email can only be sent to active merchant accounts" });
+      }
+
+      await sendMerchantPortalWelcomeEmail(profile);
+      res.json({ success: true, message: "Welcome email has been resent" });
+    } catch (err: any) {
+      console.error(`[Resend Welcome] Error for profile #${req.params.id}:`, err);
+      res.status(500).json({ message: err.message || "Failed to send welcome email" });
+    }
+  });
+
   app.get("/api/merchant-profiles", isAdminOrManager, async (req, res) => {
     try {
       const profiles = await storage.getMerchantProfiles();

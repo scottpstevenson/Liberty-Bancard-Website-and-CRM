@@ -6,7 +6,6 @@ import { Progress } from "@/components/ui/progress";
 import { PageHeader } from "@/components/ui/page-header";
 import { DataState } from "@/components/ui/data-state";
 import { TrendingUp, Star, ThumbsDown, Minus, MessageSquare, BarChart3, Users } from "lucide-react";
-import { PageHeader } from "@/components/ui/page-header";
 import type { NpsResponse } from "@shared/schema";
 
 interface NpsStats {

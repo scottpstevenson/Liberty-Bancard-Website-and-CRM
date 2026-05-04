@@ -15,10 +15,10 @@ import {
   Search, FileText, Building2, Mail, Calendar,
   CheckCircle2, XCircle, SendHorizonal, MessageSquarePlus,
   ChevronLeft, Loader2, User, CreditCard,
-  MapPin, Landmark, ClipboardCheck, Paperclip, ExternalLink, History,
+  MapPin, Landmark, ClipboardCheck, Paperclip, ExternalLink, History, MailCheck,
 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
-import type { MerchantApplication, Document as DocType, UnderwritingNoteEntry } from "@shared/schema";
+import type { MerchantApplication, MerchantProfile, Document as DocType, UnderwritingNoteEntry } from "@shared/schema";
 
 const STATUS_TABS = [
   { value: "all", label: "All" },
@@ -175,6 +175,28 @@ function ApplicationDetailView({
     (d) => application.contactId && d.contactId === application.contactId
   ) ?? [];
 
+  const { data: allProfiles } = useQuery<MerchantProfile[]>({
+    queryKey: ["/api/merchant-profiles"],
+    enabled: application.status === "approved",
+  });
+
+  const merchantProfile = allProfiles?.find(
+    (p) => p.applicationId === application.id
+  );
+
+  const resendWelcomeMutation = useMutation({
+    mutationFn: async (profileId: number) => {
+      const res = await apiRequest("POST", `/api/merchant-profiles/${profileId}/send-welcome`, {});
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Welcome email sent", description: "The merchant portal welcome email has been resent." });
+    },
+    onError: (err: any) => {
+      toast({ title: "Failed to send email", description: err.message || "Could not resend welcome email.", variant: "destructive" });
+    },
+  });
+
   const updateMutation = useMutation({
     mutationFn: async (updates: Partial<MerchantApplication>) => {
       const res = await apiRequest("PATCH", `/api/merchant-applications/${application.id}`, updates);
@@ -321,6 +343,22 @@ function ApplicationDetailView({
                 Approve
               </Button>
             </>
+          )}
+          {application.status === "approved" && merchantProfile?.accountStatus === "active" && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => resendWelcomeMutation.mutate(merchantProfile.id)}
+              disabled={resendWelcomeMutation.isPending}
+              data-testid="button-resend-welcome-email"
+            >
+              {resendWelcomeMutation.isPending ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <MailCheck className="w-4 h-4 mr-2" />
+              )}
+              Resend Welcome Email
+            </Button>
           )}
         </div>
       </div>
