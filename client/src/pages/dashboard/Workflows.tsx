@@ -217,7 +217,7 @@ export default function Workflows() {
                     <CardContent className="p-3 space-y-2">
                       <div className="flex items-center justify-between gap-2">
                         <Badge variant="secondary">Step {idx + 1}</Badge>
-                        <Button variant="ghost" size="icon" onClick={() => removeAction(idx)} data-testid={`button-remove-action-${idx}`}>
+                        <Button variant="ghost" size="icon" aria-label="Remove action" onClick={() => removeAction(idx)} data-testid={`button-remove-action-${idx}`}>
                           <Trash2 className="w-3.5 h-3.5" />
                         </Button>
                       </div>
@@ -374,6 +374,7 @@ export default function Workflows() {
                           <Button
                             variant="outline"
                             size="icon"
+                            aria-label="Workflow settings"
                             onClick={() => setDetailWorkflow(wf)}
                             data-testid={`button-detail-workflow-${wf.id}`}
                           >
@@ -383,6 +384,7 @@ export default function Workflows() {
                             <Button
                               variant="outline"
                               size="icon"
+                              aria-label="Run workflow"
                               onClick={() => runMutation.mutate(wf.id)}
                               disabled={runMutation.isPending}
                               data-testid={`button-run-workflow-${wf.id}`}
@@ -393,6 +395,7 @@ export default function Workflows() {
                           <Button
                             variant="ghost"
                             size="icon"
+                            aria-label="Delete workflow"
                             onClick={() => deleteMutation.mutate(wf.id)}
                             data-testid={`button-delete-workflow-${wf.id}`}
                           >

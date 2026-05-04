@@ -218,6 +218,7 @@ export default function SmsInbox() {
                     variant="ghost"
                     size="icon"
                     className="h-7 w-7 md:hidden"
+                    aria-label="Back to threads"
                     onClick={() => setSelectedThread(null)}
                   >
                     <ArrowLeft className="w-4 h-4" />

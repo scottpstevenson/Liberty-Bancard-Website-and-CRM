@@ -251,6 +251,7 @@ export default function UniversalSearch() {
         <Button
           variant={showAdvanced ? "default" : "ghost"}
           size="icon"
+          aria-label="Advanced search"
           onClick={() => { setShowAdvanced(!showAdvanced); setIsOpen(false); }}
           data-testid="button-advanced-search"
         >
@@ -266,7 +267,7 @@ export default function UniversalSearch() {
         >
           <div className="flex items-center justify-between gap-2">
             <span className="text-sm font-medium">Advanced Search</span>
-            <Button variant="ghost" size="icon" onClick={clearAdvanced} data-testid="button-close-advanced">
+            <Button variant="ghost" size="icon" aria-label="Close advanced search" onClick={clearAdvanced} data-testid="button-close-advanced">
               <X className="w-4 h-4" />
             </Button>
           </div>

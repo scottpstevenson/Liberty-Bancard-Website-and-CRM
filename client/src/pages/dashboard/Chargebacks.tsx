@@ -157,7 +157,7 @@ function ChargebackDetailPanel({ chargeback: cb, onClose, onUpdated }: DetailPan
           <p className="text-2xl font-bold mt-2" data-testid="text-detail-amount">{formatCurrency(cb.amount)}</p>
           <p className="text-sm text-muted-foreground" data-testid="text-detail-reason-code">{cb.reasonCode}</p>
         </div>
-        <Button variant="ghost" size="icon" onClick={onClose} data-testid="button-close-detail">
+        <Button variant="ghost" size="icon" aria-label="Close detail" onClick={onClose} data-testid="button-close-detail">
           <X className="w-4 h-4" />
         </Button>
       </div>

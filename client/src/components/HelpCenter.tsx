@@ -145,7 +145,7 @@ function AIChatPanel({ department, context }: { department: string; context: str
           className="flex-1 text-sm"
           data-testid="help-chat-input"
         />
-        <Button size="icon" onClick={handleSend} disabled={!inputValue.trim() || isLoading} data-testid="help-chat-send">
+        <Button size="icon" aria-label="Send message" onClick={handleSend} disabled={!inputValue.trim() || isLoading} data-testid="help-chat-send">
           <Send className="w-4 h-4" />
         </Button>
       </div>

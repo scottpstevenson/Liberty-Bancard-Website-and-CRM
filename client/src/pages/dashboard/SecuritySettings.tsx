@@ -198,7 +198,7 @@ export default function SecuritySettings() {
                       className="font-mono text-xs"
                       data-testid="input-totp-secret"
                     />
-                    <Button variant="outline" size="icon" onClick={copySecret} data-testid="button-copy-secret">
+                    <Button variant="outline" size="icon" aria-label="Copy secret" onClick={copySecret} data-testid="button-copy-secret">
                       {copiedSecret ? <CheckCircle2 className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
                     </Button>
                   </div>

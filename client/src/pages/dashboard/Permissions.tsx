@@ -4,10 +4,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ResponsiveTable } from "@/components/ui/responsive-table";
 import { PageHeader } from "@/components/ui/page-header";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/use-auth";
 import { useState, useMemo } from "react";
+import { DataState } from "@/components/ui/data-state";
 
 interface RoutePermission {
   method: string;
@@ -86,14 +86,13 @@ export default function Permissions() {
         data-testid="input-filter-permissions"
       />
 
-      {isLoading ? (
-        <div className="space-y-2">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <Skeleton key={i} className="h-8 w-full" />
-          ))}
-        </div>
-      ) : (
-        <ResponsiveTable data-testid="table-permissions-scroll">
+      <DataState
+        query={{ isLoading, data: filtered }}
+        emptyTitle="No routes found"
+        emptyMessage="No API routes match the current filter."
+        testId="permissions"
+      >
+        <div className="border rounded-md overflow-x-auto">
           <Table data-testid="table-permissions">
             <TableHeader>
               <TableRow>
@@ -133,8 +132,9 @@ export default function Permissions() {
               )}
             </TableBody>
           </Table>
-        </ResponsiveTable>
-      )}
+        </div>
+      </DataState>
+
       {data && (
         <p className="mt-3 text-xs text-muted-foreground" data-testid="text-route-count">
           Showing {filtered.length} of {data.routes.length} registered API routes.

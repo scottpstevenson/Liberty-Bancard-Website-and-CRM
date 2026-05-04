@@ -10,7 +10,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Loader2, Plus, Trash2, Edit, Zap, Settings } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import type { RetentionCampaignConfig } from "@shared/schema";
@@ -203,11 +207,10 @@ export default function RetentionCampaigns() {
   };
 
   return (
-    <div className="space-y-8" data-testid="retention-campaigns-page">
+    <div className="space-y-6" data-testid="retention-campaigns-page">
       <PageHeader
         title="Retention Campaigns"
         subtitle="Configure automatic outreach tasks when merchant health alerts fire"
-        data-testid="text-page-title"
         actions={
           <Button data-testid="button-add-config" onClick={() => setDialogOpen(true)}>
             <Plus className="w-4 h-4 mr-2" />
@@ -294,16 +297,38 @@ export default function RetentionCampaigns() {
                     >
                       <Edit className="w-4 h-4" />
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => deleteMutation.mutate(config.id)}
-                      disabled={deleteMutation.isPending}
-                      className="text-destructive hover:text-destructive"
-                      data-testid={`button-delete-${config.id}`}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:text-destructive"
+                          aria-label={`Delete ${config.campaignName}`}
+                          data-testid={`button-delete-${config.id}`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete Campaign Config</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Are you sure you want to delete "{config.campaignName}"? This action cannot be undone.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel data-testid={`button-cancel-delete-${config.id}`}>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={() => deleteMutation.mutate(config.id)}
+                            disabled={deleteMutation.isPending}
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            data-testid={`button-confirm-delete-${config.id}`}
+                          >
+                            Delete
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
                   </div>
                 </div>
               </CardContent>

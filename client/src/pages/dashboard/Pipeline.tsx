@@ -217,7 +217,7 @@ function SortableDealCard({
             </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="shrink-0" onClick={(e) => e.stopPropagation()} data-testid={`button-deal-actions-${deal.id}`}>
+                <Button variant="ghost" size="icon" className="shrink-0" aria-label="Deal actions" onClick={(e) => e.stopPropagation()} data-testid={`button-deal-actions-${deal.id}`}>
                   <MoreVertical className="h-3 w-3" />
                 </Button>
               </DropdownMenuTrigger>
@@ -1358,6 +1358,7 @@ export default function Pipeline() {
                             <Button
                               size="icon"
                               variant="ghost"
+                              aria-label="Move stage up"
                               onClick={() => handleMoveStage(stage, "up")}
                               disabled={idx === 0 || reorderStagesMutation.isPending}
                               data-testid={`button-move-up-${stage.id}`}
@@ -1367,6 +1368,7 @@ export default function Pipeline() {
                             <Button
                               size="icon"
                               variant="ghost"
+                              aria-label="Move stage down"
                               onClick={() => handleMoveStage(stage, "down")}
                               disabled={idx === sortedStages.length - 1 || reorderStagesMutation.isPending}
                               data-testid={`button-move-down-${stage.id}`}
@@ -1376,6 +1378,7 @@ export default function Pipeline() {
                             <Button
                               size="icon"
                               variant="ghost"
+                              aria-label="Edit stage"
                               onClick={() => {
                                 setEditingStage(stage);
                                 setEditStageName(stage.stageName);
@@ -1388,6 +1391,7 @@ export default function Pipeline() {
                             <Button
                               size="icon"
                               variant="ghost"
+                              aria-label="Delete stage"
                               onClick={() => setDeleteConfirmStage(stage)}
                               data-testid={`button-delete-stage-${stage.id}`}
                             >

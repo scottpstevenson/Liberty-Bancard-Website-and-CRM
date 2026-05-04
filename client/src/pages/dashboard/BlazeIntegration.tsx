@@ -153,6 +153,7 @@ export default function BlazeIntegration() {
                 <Button
                   size="icon"
                   variant="outline"
+                  aria-label="Copy webhook URL"
                   onClick={() => {
                     navigator.clipboard.writeText(inboundWebhookUrl);
                     toast({ title: "Copied", description: "Webhook URL copied to clipboard" });

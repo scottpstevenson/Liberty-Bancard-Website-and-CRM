@@ -13,7 +13,7 @@ Do not make changes to the file `package-lock.json`.
 The system is built on a modern web stack, emphasizing scalability, responsiveness, and robust data management.
 
 ### UI/UX Decisions
-The frontend uses React with Vite, TypeScript, Tailwind CSS, and shadcn/ui. `wouter` is used for routing and `react-helmet-async` for SEO. The design includes specific color schemes and templates for a professional user experience across public marketing, terminal shop, legal/compliance pages, and CRM dashboards.
+The frontend uses React with Vite, TypeScript, Tailwind CSS, and shadcn/ui. `wouter` is used for routing and `react-helmet-async` for SEO. The design includes specific color schemes and templates for a professional user experience across public marketing, terminal shop, legal/compliance pages, and CRM dashboards. Shared layout primitives: `PageHeader` (`client/src/components/ui/page-header.tsx`) for consistent page titles + actions, `ResponsiveTable` (`client/src/components/ui/responsive-table.tsx`) for desktop table / mobile card-list, and `DataState` (`client/src/components/ui/data-state.tsx`) for loading/error/empty states. All icon-only buttons (`size="icon"`) have `aria-label` attributes. See `docs/ui-audit.md` for the full audit.
 
 ### Technical Implementations
 - **Backend**: Express.js with TypeScript, organizing API routes into domain-specific modules.

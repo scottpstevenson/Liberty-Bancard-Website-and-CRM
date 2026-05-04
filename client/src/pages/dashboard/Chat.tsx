@@ -202,6 +202,7 @@ export default function Chat() {
           <Button
             onClick={handleSend}
             size="icon"
+            aria-label="Send message"
             disabled={!inputValue.trim() || isLoading}
             data-testid="button-send-message"
           >

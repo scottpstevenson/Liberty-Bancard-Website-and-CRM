@@ -168,6 +168,7 @@ export default function BlogGenerator() {
                 <Button
                   variant="outline"
                   size="icon"
+                  aria-label="Add keyword"
                   onClick={addKeyword}
                   data-testid="button-add-keyword"
                 >
@@ -330,6 +331,7 @@ export default function BlogGenerator() {
                       <Button
                         variant="ghost"
                         size="icon"
+                        aria-label="View post"
                         onClick={() => window.open(`/blog/${post.slug}`, "_blank")}
                         data-testid={`button-view-${post.id}`}
                       >
@@ -340,6 +342,7 @@ export default function BlogGenerator() {
                       <Button
                         variant="ghost"
                         size="icon"
+                        aria-label="Publish post"
                         onClick={() => publishMutation.mutate(post.id)}
                         disabled={publishMutation.isPending}
                         data-testid={`button-publish-${post.id}`}
@@ -350,6 +353,7 @@ export default function BlogGenerator() {
                     <Button
                       variant="ghost"
                       size="icon"
+                      aria-label="Delete post"
                       onClick={() => deleteMutation.mutate(post.id)}
                       disabled={deleteMutation.isPending}
                       className="text-destructive hover:text-destructive"

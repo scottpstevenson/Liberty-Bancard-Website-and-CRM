@@ -3,6 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
+import { PageHeader } from "@/components/ui/page-header";
+import { DataState } from "@/components/ui/data-state";
 import { TrendingUp, Star, ThumbsDown, Minus, MessageSquare, BarChart3, Users } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import type { NpsResponse } from "@shared/schema";
@@ -58,28 +60,17 @@ export default function NpsDashboard() {
     return "text-red-600 dark:text-red-400";
   };
 
-  if (isLoading) {
-    return (
-      <div className="space-y-8" data-testid="nps-loading">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {[1, 2, 3, 4].map(i => (
-            <Card key={i}>
-              <CardHeader className="pb-2"><Skeleton className="h-4 w-24" /></CardHeader>
-              <CardContent><Skeleton className="h-8 w-16" /></CardContent>
-            </Card>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-8" data-testid="nps-dashboard-page">
+    <div className="space-y-6" data-testid="nps-dashboard-page">
       <PageHeader
         title="NPS / CSAT Dashboard"
         subtitle="Net Promoter Score tracking and merchant satisfaction surveys"
-        data-testid="text-page-title"
       />
+
+      <DataState
+        query={{ isLoading, data: stats }}
+        testId="nps"
+      >
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card data-testid="card-nps-score">
@@ -198,6 +189,7 @@ export default function NpsDashboard() {
           </CardContent>
         </Card>
       </div>
+      </DataState>
     </div>
   );
 }

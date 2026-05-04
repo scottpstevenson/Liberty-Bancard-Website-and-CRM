@@ -503,6 +503,7 @@ export default function LeadGenCleaner() {
                           <Button
                             size="icon"
                             variant="ghost"
+                            aria-label="View details"
                             onClick={() => setDetailEntity(entity)}
                             data-testid={`button-view-${entity.id}`}
                           >
@@ -512,6 +513,7 @@ export default function LeadGenCleaner() {
                             <Button
                               size="icon"
                               variant="ghost"
+                              aria-label="Enrich entity"
                               onClick={() => enrichMutation.mutate(entity.id)}
                               disabled={enrichMutation.isPending}
                               data-testid={`button-enrich-${entity.id}`}

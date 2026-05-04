@@ -17,6 +17,7 @@ import {
   ChevronLeft, Loader2, User, CreditCard,
   MapPin, Landmark, ClipboardCheck, Paperclip, ExternalLink, History,
 } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 import type { MerchantApplication, Document as DocType, UnderwritingNoteEntry } from "@shared/schema";
 
 const STATUS_TABS = [
@@ -519,19 +520,18 @@ export default function MerchantApplicationsList() {
   }
 
   return (
-    <div className="space-y-4" data-testid="merchant-applications-list">
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Merchant Applications</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Review and manage submitted merchant applications
-          </p>
-        </div>
-        <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="text-total-count">
-          <FileText className="w-4 h-4" />
-          {total} total
-        </div>
-      </div>
+    <div className="space-y-6" data-testid="merchant-applications-list">
+      <PageHeader
+        title="Merchant Applications"
+        subtitle="Review and manage submitted merchant applications"
+        testId="text-merchant-applications-header"
+        actions={
+          <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="text-total-count">
+            <FileText className="w-4 h-4" />
+            {total} total
+          </div>
+        }
+      />
 
       <div className="flex items-center gap-3 flex-wrap">
         <div className="relative flex-1 min-w-48">

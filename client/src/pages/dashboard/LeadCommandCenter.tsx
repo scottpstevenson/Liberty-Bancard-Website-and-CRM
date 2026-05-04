@@ -528,19 +528,19 @@ export default function LeadCommandCenter() {
           Showing {Math.min((page - 1) * PAGE_SIZE + 1, rowCount)}-{Math.min(page * PAGE_SIZE, rowCount)} of {rowCount}
         </span>
         <div className="flex items-center gap-1">
-          <Button size="icon" variant="ghost" onClick={() => setPage(1)} disabled={page <= 1} data-testid="button-page-first">
+          <Button size="icon" variant="ghost" aria-label="First page" onClick={() => setPage(1)} disabled={page <= 1} data-testid="button-page-first">
             <ChevronsLeft className="h-4 w-4" />
           </Button>
-          <Button size="icon" variant="ghost" onClick={() => setPage(page - 1)} disabled={page <= 1} data-testid="button-page-prev">
+          <Button size="icon" variant="ghost" aria-label="Previous page" onClick={() => setPage(page - 1)} disabled={page <= 1} data-testid="button-page-prev">
             <ChevronLeft className="h-4 w-4" />
           </Button>
           <span className="text-sm px-2 min-w-[80px] text-center">
             Page {page} of {total}
           </span>
-          <Button size="icon" variant="ghost" onClick={() => setPage(page + 1)} disabled={page >= total} data-testid="button-page-next">
+          <Button size="icon" variant="ghost" aria-label="Next page" onClick={() => setPage(page + 1)} disabled={page >= total} data-testid="button-page-next">
             <ChevronRight className="h-4 w-4" />
           </Button>
-          <Button size="icon" variant="ghost" onClick={() => setPage(total)} disabled={page >= total} data-testid="button-page-last">
+          <Button size="icon" variant="ghost" aria-label="Last page" onClick={() => setPage(total)} disabled={page >= total} data-testid="button-page-last">
             <ChevronsRight className="h-4 w-4" />
           </Button>
         </div>
@@ -595,6 +595,7 @@ export default function LeadCommandCenter() {
                           size="icon"
                           variant="ghost"
                           className="h-6 w-6"
+                          aria-label="Expand row"
                           onClick={(e) => { e.stopPropagation(); toggleExpanded(row.id); }}
                           data-testid={`button-expand-${row.id}`}
                         >

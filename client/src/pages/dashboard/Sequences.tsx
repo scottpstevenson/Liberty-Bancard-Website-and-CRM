@@ -334,6 +334,7 @@ export default function Sequences() {
                       <Button
                         size="icon"
                         variant="ghost"
+                        aria-label={seq.status === "active" ? "Pause sequence" : "Resume sequence"}
                         onClick={() => toggleMutation.mutate({
                           id: seq.id,
                           status: seq.status === "active" ? "paused" : "active"
@@ -345,6 +346,7 @@ export default function Sequences() {
                       <Button
                         size="icon"
                         variant="ghost"
+                        aria-label={isExpanded ? "Collapse sequence" : "Expand sequence"}
                         onClick={() => setExpandedId(isExpanded ? null : seq.id)}
                         data-testid={`button-expand-${seq.id}`}
                       >
@@ -353,6 +355,7 @@ export default function Sequences() {
                       <Button
                         size="icon"
                         variant="ghost"
+                        aria-label="Delete sequence"
                         onClick={() => deleteMutation.mutate(seq.id)}
                         data-testid={`button-delete-${seq.id}`}
                       >
@@ -460,6 +463,7 @@ export default function Sequences() {
                           <Button
                             size="icon"
                             variant="ghost"
+                            aria-label="Remove step"
                             onClick={() => removeStep(index)}
                             data-testid={`button-remove-step-${index}`}
                           >

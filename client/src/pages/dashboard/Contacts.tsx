@@ -826,18 +826,19 @@ export default function Contacts() {
                           <Button
                             variant="ghost"
                             size="icon"
+                            aria-label="Restore contact"
                             onClick={(e) => { e.stopPropagation(); restoreContactMutation.mutate(contact.id); }}
                             data-testid={`button-restore-contact-${contact.id}`}
                           >
                             <RotateCcw className="h-4 w-4" />
                           </Button>
                         )}
-                        <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); setLocation(`/dashboard/contacts/${contact.id}`); }} data-testid={`button-view-${contact.id}`}>
+                        <Button variant="ghost" size="icon" aria-label="View contact" onClick={(e) => { e.stopPropagation(); setLocation(`/dashboard/contacts/${contact.id}`); }} data-testid={`button-view-${contact.id}`}>
                           <ExternalLink className="h-4 w-4" />
                         </Button>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" onClick={(e) => e.stopPropagation()} data-testid={`button-actions-${contact.id}`}>
+                            <Button variant="ghost" size="icon" aria-label="More actions" onClick={(e) => e.stopPropagation()} data-testid={`button-actions-${contact.id}`}>
                               <MoreHorizontal className="h-4 w-4" />
                             </Button>
                           </DropdownMenuTrigger>

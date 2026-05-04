@@ -8,15 +8,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from "@/components/ui/table";
-import { ResponsiveTable } from "@/components/ui/responsive-table";
-import { PageHeader } from "@/components/ui/page-header";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PageHeader } from "@/components/ui/page-header";
+import { DataState } from "@/components/ui/data-state";
+import { ResponsiveTable } from "@/components/ui/responsive-table";
 import {
-  Search, RefreshCw, Loader2, Inbox, ExternalLink, Building2,
+  Search, RefreshCw, Loader2, ExternalLink, Building2,
 } from "lucide-react";
 
 type BoardingStatus =
@@ -180,7 +177,7 @@ export default function BoardingTracker() {
   ).length;
 
   return (
-    <div className="space-y-4" data-testid="page-boarding-tracker">
+    <div className="space-y-6" data-testid="page-boarding-tracker">
       <Helmet>
         <title>Boarding Submissions | Liberty Bancard</title>
       </Helmet>
@@ -188,9 +185,9 @@ export default function BoardingTracker() {
       <PageHeader
         title="Boarding Submissions"
         subtitle="Underwriting tracker for all deals submitted to the processor."
-        data-testid="header-boarding"
         actions={
           <Button
+            variant="outline"
             onClick={() => refreshAllMutation.mutate()}
             disabled={refreshAllMutation.isPending || inFlightCount === 0}
             data-testid="button-refresh-all"
@@ -257,151 +254,164 @@ export default function BoardingTracker() {
         </TabsList>
       </Tabs>
 
+      <DataState
+        query={{ isLoading, data: filtered }}
+        emptyTitle="No boarding submissions found"
+        emptyMessage={
+          search || statusFilter !== "all"
+            ? "Try adjusting your filters."
+            : "Deals submitted to the processor will appear here."
+        }
+        testId="boarding"
+      >
       <Card>
         <CardContent className="p-0">
-          {isLoading ? (
-            <div className="p-6 space-y-3" data-testid="boarding-loading">
-              {[1, 2, 3, 4, 5].map((i) => (
-                <div key={i} className="flex gap-4 items-center">
-                  <Skeleton className="h-4 w-40" />
-                  <Skeleton className="h-4 w-32" />
-                  <Skeleton className="h-4 w-20" />
-                  <Skeleton className="h-4 w-24" />
-                  <Skeleton className="h-4 w-48" />
-                </div>
-              ))}
-            </div>
-          ) : filtered.length === 0 ? (
-            <div
-              className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground"
-              data-testid="empty-boarding"
-            >
-              <Inbox className="w-10 h-10" />
-              <p className="text-sm font-medium">
-                No boarding submissions found
-              </p>
-              <p className="text-xs">
-                {search || statusFilter !== "all"
-                  ? "Try adjusting your filters."
-                  : "Deals submitted to the processor will appear here."}
-              </p>
-            </div>
-          ) : (
-            <ResponsiveTable data-testid="table-boarding-scroll">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Merchant</TableHead>
-                  <TableHead className="hidden md:table-cell">Application ID</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="hidden sm:table-cell">Submitted</TableHead>
-                  <TableHead className="hidden sm:table-cell">Days</TableHead>
-                  <TableHead className="hidden lg:table-cell">Latest Log</TableHead>
-                  <TableHead className="hidden lg:table-cell">MID</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filtered.map((s) => (
-                  <TableRow
-                    key={s.dealId}
-                    data-testid={`row-boarding-${s.dealId}`}
-                  >
-                    <TableCell>
-                      <div className="flex items-center gap-2 min-w-0">
-                        <Building2 className="w-4 h-4 text-muted-foreground shrink-0" />
-                        <div className="min-w-0">
-                          <p
-                            className="font-medium text-foreground truncate"
-                            data-testid={`text-merchant-${s.dealId}`}
-                          >
-                            {s.merchantName}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            Deal #{s.dealId}
-                            {s.owner ? ` · ${s.owner}` : ""}
-                          </p>
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell className="hidden md:table-cell">
-                      <span
-                        className="font-mono text-xs"
-                        data-testid={`text-app-id-${s.dealId}`}
-                      >
-                        {s.processorApplicationId || "—"}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={getStatusVariant(s.boardingStatus)}
-                        data-testid={`badge-status-${s.dealId}`}
-                      >
-                        {getStatusLabel(s.boardingStatus)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="hidden sm:table-cell">
-                      <span
-                        className="text-sm text-muted-foreground"
-                        data-testid={`text-submitted-${s.dealId}`}
-                      >
-                        {formatDate(s.boardingSubmittedAt)}
-                      </span>
-                    </TableCell>
-                    <TableCell className="hidden sm:table-cell">
-                      <span
-                        className="text-sm font-medium"
-                        data-testid={`text-days-${s.dealId}`}
-                      >
-                        {s.daysPending !== null ? `${s.daysPending}d` : "—"}
-                      </span>
-                    </TableCell>
-                    <TableCell className="hidden lg:table-cell max-w-xs">
-                      <p
-                        className="text-xs text-muted-foreground truncate"
-                        title={s.latestLogMessage || ""}
-                        data-testid={`text-log-${s.dealId}`}
-                      >
-                        {s.latestLogMessage || "—"}
+          <ResponsiveTable
+            data={filtered}
+            keyExtractor={(s) => s.dealId}
+            testId="boarding"
+            columns={[
+              {
+                header: "Merchant",
+                cell: (s) => (
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Building2 className="w-4 h-4 text-muted-foreground shrink-0" />
+                    <div className="min-w-0">
+                      <p className="font-medium text-foreground truncate" data-testid={`text-merchant-${s.dealId}`}>
+                        {s.merchantName}
                       </p>
-                      {s.latestLogTimestamp && (
-                        <p className="text-[10px] text-muted-foreground/70">
-                          {formatDate(s.latestLogTimestamp)}
+                      <p className="text-xs text-muted-foreground">
+                        Deal #{s.dealId}{s.owner ? ` · ${s.owner}` : ""}
+                      </p>
+                    </div>
+                  </div>
+                ),
+              },
+              {
+                header: "Application ID",
+                cell: (s) => (
+                  <span className="font-mono text-xs" data-testid={`text-app-id-${s.dealId}`}>
+                    {s.processorApplicationId || "—"}
+                  </span>
+                ),
+              },
+              {
+                header: "Status",
+                cell: (s) => (
+                  <Badge variant={getStatusVariant(s.boardingStatus)} data-testid={`badge-status-${s.dealId}`}>
+                    {getStatusLabel(s.boardingStatus)}
+                  </Badge>
+                ),
+              },
+              {
+                header: "Submitted",
+                cell: (s) => (
+                  <span className="text-sm text-muted-foreground" data-testid={`text-submitted-${s.dealId}`}>
+                    {formatDate(s.boardingSubmittedAt)}
+                  </span>
+                ),
+              },
+              {
+                header: "Days Pending",
+                cell: (s) => (
+                  <span className="text-sm font-medium" data-testid={`text-days-${s.dealId}`}>
+                    {s.daysPending !== null ? `${s.daysPending}d` : "—"}
+                  </span>
+                ),
+              },
+              {
+                header: "Latest Log",
+                className: "max-w-xs",
+                cell: (s) => (
+                  <div>
+                    <p className="text-xs text-muted-foreground truncate" title={s.latestLogMessage || ""} data-testid={`text-log-${s.dealId}`}>
+                      {s.latestLogMessage || "—"}
+                    </p>
+                    {s.latestLogTimestamp && (
+                      <p className="text-[10px] text-muted-foreground/70">{formatDate(s.latestLogTimestamp)}</p>
+                    )}
+                  </div>
+                ),
+              },
+              {
+                header: "MID",
+                cell: (s) => (
+                  <span className="font-mono text-xs" data-testid={`text-mid-${s.dealId}`}>
+                    {s.mid || "—"}
+                  </span>
+                ),
+              },
+              {
+                header: "Actions",
+                className: "text-right",
+                cell: (s) =>
+                  s.contactId ? (
+                    <Link href={`/dashboard/contacts/${s.contactId}`}>
+                      <Button variant="ghost" size="sm" aria-label={`Open ${s.merchantName}`} data-testid={`button-open-${s.dealId}`}>
+                        <ExternalLink className="w-4 h-4 mr-1" />
+                        Open
+                      </Button>
+                    </Link>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">—</span>
+                  ),
+              },
+            ]}
+            mobileCard={(s) => (
+              <Card data-testid={`card-boarding-${s.dealId}`}>
+                <CardContent className="p-4 space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Building2 className="w-4 h-4 text-muted-foreground shrink-0" />
+                      <div className="min-w-0">
+                        <p className="font-medium text-foreground truncate" data-testid={`text-merchant-${s.dealId}`}>
+                          {s.merchantName}
                         </p>
-                      )}
-                    </TableCell>
-                    <TableCell className="hidden lg:table-cell">
-                      <span
-                        className="font-mono text-xs"
-                        data-testid={`text-mid-${s.dealId}`}
-                      >
-                        {s.mid || "—"}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {s.contactId ? (
-                        <Link href={`/dashboard/contacts/${s.contactId}`}>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            data-testid={`button-open-${s.dealId}`}
-                          >
-                            <ExternalLink className="w-4 h-4 mr-1" />
-                            Open
-                          </Button>
-                        </Link>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-            </ResponsiveTable>
-          )}
+                        <p className="text-xs text-muted-foreground">
+                          Deal #{s.dealId}{s.owner ? ` · ${s.owner}` : ""}
+                        </p>
+                      </div>
+                    </div>
+                    <Badge variant={getStatusVariant(s.boardingStatus)} data-testid={`badge-status-${s.dealId}`}>
+                      {getStatusLabel(s.boardingStatus)}
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <span className="text-muted-foreground">App ID: </span>
+                      <span className="font-mono">{s.processorApplicationId || "—"}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">MID: </span>
+                      <span className="font-mono">{s.mid || "—"}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Submitted: </span>
+                      <span>{formatDate(s.boardingSubmittedAt)}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Pending: </span>
+                      <span className="font-medium">{s.daysPending !== null ? `${s.daysPending}d` : "—"}</span>
+                    </div>
+                  </div>
+                  {s.latestLogMessage && (
+                    <p className="text-xs text-muted-foreground truncate">{s.latestLogMessage}</p>
+                  )}
+                  {s.contactId && (
+                    <Link href={`/dashboard/contacts/${s.contactId}`}>
+                      <Button variant="outline" size="sm" className="w-full gap-1" aria-label={`Open ${s.merchantName}`} data-testid={`button-open-${s.dealId}`}>
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        Open Contact
+                      </Button>
+                    </Link>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+          />
         </CardContent>
       </Card>
+      </DataState>
     </div>
   );
 }

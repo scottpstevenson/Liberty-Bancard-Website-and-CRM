@@ -5,7 +5,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CheckCheck, AlertTriangle, Info, AlertCircle, Settings, Trash2, Mail, Bell, Calendar, X } from "lucide-react";
@@ -355,51 +355,44 @@ export default function Notifications() {
     <div className="space-y-6" data-testid="notifications-page">
       <PageHeader
         title="Notifications"
-        data-testid="text-notifications-title"
+        subtitle={unreadCount > 0 ? `${unreadCount} unread` : undefined}
+        testId="text-notifications-title"
         actions={
-          <div className="flex items-center gap-2 flex-wrap">
-            {unreadCount > 0 && (
-              <Badge variant="destructive" className="no-default-hover-elevate no-default-active-elevate" data-testid="badge-unread-count">
-                {unreadCount} unread
-              </Badge>
-            )}
+          <>
             {unreadCount > 0 && (
               <Button
                 variant="outline"
-                size="sm"
                 onClick={() => markAllReadMutation.mutate()}
                 disabled={markAllReadMutation.isPending}
                 className="gap-2"
                 data-testid="button-mark-all-read"
               >
                 <CheckCheck className="w-4 h-4" />
-                <span className="hidden sm:inline">Mark All Read</span>
+                Mark All Read
               </Button>
             )}
             <Button
               variant="outline"
-              size="sm"
               onClick={() => clearOldReadMutation.mutate()}
               disabled={clearOldReadMutation.isPending}
               className="gap-2"
               data-testid="button-clear-old-read"
             >
               <Trash2 className="w-4 h-4" />
-              <span className="hidden sm:inline">Clear Old</span>
+              Clear Old Read
             </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => setPrefsOpen(true)}
-              data-testid="button-notification-settings"
-            >
-              <Settings className="w-4 h-4" />
-            </Button>
-          </div>
-        }
-      />
-      <Dialog open={prefsOpen} onOpenChange={setPrefsOpen}>
-        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto" data-testid="dialog-notification-preferences">
+            <Dialog open={prefsOpen} onOpenChange={setPrefsOpen}>
+              <DialogTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  aria-label="Notification settings"
+                  data-testid="button-notification-settings"
+                >
+                  <Settings className="w-4 h-4" />
+                </Button>
+              </DialogTrigger>
+            <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto" data-testid="dialog-notification-preferences">
               <DialogHeader>
                 <DialogTitle data-testid="text-preferences-title">Notification Preferences</DialogTitle>
               </DialogHeader>
@@ -509,8 +502,11 @@ export default function Notifications() {
                   })}
                 </TabsContent>
               </Tabs>
-        </DialogContent>
-      </Dialog>
+            </DialogContent>
+          </Dialog>
+          </>
+        }
+      />
 
       {/* Category filter tabs */}
       <Tabs value={category} onValueChange={handleCategoryChange} data-testid="tabs-category-filter">
@@ -579,6 +575,7 @@ export default function Notifications() {
                         variant="ghost"
                         size="icon"
                         className="flex-shrink-0 h-6 w-6 text-muted-foreground hover:text-foreground"
+                        aria-label="Dismiss notification"
                         onClick={(e) => {
                           e.stopPropagation();
                           dismissMutation.mutate(notification.id);

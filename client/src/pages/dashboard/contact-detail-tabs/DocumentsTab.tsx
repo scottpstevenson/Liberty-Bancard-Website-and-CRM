@@ -218,7 +218,7 @@ export function ContactDocumentsTab({ contactId }: { contactId: number }) {
                       size="icon"
                       className="h-8 w-8"
                       onClick={() => window.open(`/api/merchant-documents/${doc.id}/download`, "_blank")}
-                      title="Download"
+                      aria-label={`Download ${doc.fileName}`}
                       data-testid={`button-download-${doc.id}`}
                     >
                       <Download className="h-3.5 w-3.5" />
@@ -228,7 +228,7 @@ export function ContactDocumentsTab({ contactId }: { contactId: number }) {
                       size="icon"
                       className="h-8 w-8 hover:text-destructive"
                       onClick={() => setDeleteDocTarget(doc)}
-                      title="Delete"
+                      aria-label={`Delete ${doc.fileName}`}
                       data-testid={`button-delete-${doc.id}`}
                     >
                       <Trash2 className="h-3.5 w-3.5" />

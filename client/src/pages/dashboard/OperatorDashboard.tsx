@@ -9,6 +9,7 @@ import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { ContentOrganicKpiPanel } from "@/components/ContentOrganicKpiPanel";
+import { PageHeader } from "@/components/ui/page-header";
 import {
   Activity, AlertTriangle, ArrowUpRight, BarChart3, Calendar, CheckCircle2,
   Clock, Loader2, Mail, MessageSquare, Phone, RefreshCw, Send, Shield,
@@ -880,22 +881,23 @@ export default function OperatorDashboard() {
   });
 
   return (
-    <div className="space-y-6 p-4 md:p-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold" data-testid="text-operator-title">Operator Dashboard</h1>
-          <p className="text-muted-foreground text-sm">Pilot instrumentation — real-time send monitoring and alerts</p>
-        </div>
-        <Button
-          onClick={() => digestMutation.mutate()}
-          disabled={digestMutation.isPending}
-          variant="outline"
-          data-testid="button-send-digest"
-        >
-          {digestMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Mail className="w-4 h-4 mr-2" />}
-          Send Daily Digest
-        </Button>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        title="Operator Dashboard"
+        subtitle="Pilot instrumentation — real-time send monitoring and alerts"
+        testId="text-operator-title"
+        actions={
+          <Button
+            onClick={() => digestMutation.mutate()}
+            disabled={digestMutation.isPending}
+            variant="outline"
+            data-testid="button-send-digest"
+          >
+            {digestMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Mail className="w-4 h-4 mr-2" />}
+            Send Daily Digest
+          </Button>
+        }
+      />
 
       <Tabs defaultValue="readiness" className="w-full">
         <TabsList className="w-full justify-start flex-wrap" data-testid="tabs-operator">

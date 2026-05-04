@@ -230,6 +230,7 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
                   variant="ghost"
                   size="icon"
                   className="ml-auto"
+                  aria-label="Delete step"
                   onClick={() => deleteStepMutation.mutate(step.id)}
                   disabled={deleteStepMutation.isPending}
                   data-testid={`button-delete-step-${step.id}`}

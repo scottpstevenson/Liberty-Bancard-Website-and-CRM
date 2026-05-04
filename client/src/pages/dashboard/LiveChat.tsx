@@ -298,7 +298,7 @@ export default function LiveChat() {
           >
             All
           </Button>
-          <Button variant="outline" size="icon" onClick={() => refetchSessions()} data-testid="refresh-sessions">
+          <Button variant="outline" size="icon" aria-label="Refresh sessions" onClick={() => refetchSessions()} data-testid="refresh-sessions">
             <RefreshCw className="w-4 h-4" />
           </Button>
         </div>

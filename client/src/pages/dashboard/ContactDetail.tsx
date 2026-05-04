@@ -629,6 +629,7 @@ export default function ContactDetail() {
                     <Button
                       variant="ghost"
                       size="icon"
+                      aria-label="Remove company association"
                       onClick={() => removeCompanyAssociation.mutate(cc.id)}
                       disabled={removeCompanyAssociation.isPending}
                       data-testid={`button-remove-company-${cc.id}`}

@@ -310,7 +310,7 @@ export default function StageRules() {
                     <CardContent className="p-3 space-y-2">
                       <div className="flex items-center justify-between gap-2 flex-wrap">
                         <Badge variant="secondary">Action {idx + 1}</Badge>
-                        <Button variant="ghost" size="icon" onClick={() => removeAction(idx)} data-testid={`button-remove-action-${idx}`}>
+                        <Button variant="ghost" size="icon" aria-label="Remove action" onClick={() => removeAction(idx)} data-testid={`button-remove-action-${idx}`}>
                           <Trash2 className="w-3.5 h-3.5" />
                         </Button>
                       </div>
@@ -528,12 +528,13 @@ export default function StageRules() {
                       onCheckedChange={(checked) => toggleMutation.mutate({ id: rule.id, enabled: checked })}
                       data-testid={`switch-rule-enabled-${rule.id}`}
                     />
-                    <Button variant="ghost" size="icon" onClick={() => openEdit(rule)} data-testid={`button-edit-rule-${rule.id}`}>
+                    <Button variant="ghost" size="icon" aria-label="Edit rule" onClick={() => openEdit(rule)} data-testid={`button-edit-rule-${rule.id}`}>
                       <Pencil className="w-4 h-4" />
                     </Button>
                     <Button
                       variant="ghost"
                       size="icon"
+                      aria-label="Delete rule"
                       onClick={() => deleteMutation.mutate(rule.id)}
                       data-testid={`button-delete-rule-${rule.id}`}
                     >

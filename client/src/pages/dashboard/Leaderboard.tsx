@@ -202,7 +202,7 @@ export default function Leaderboard() {
             </SelectContent>
           </Select>
           {isAdmin && (
-            <Button variant="outline" size="icon" onClick={openSettings} data-testid="button-leaderboard-settings">
+            <Button variant="outline" size="icon" aria-label="Leaderboard settings" onClick={openSettings} data-testid="button-leaderboard-settings">
               <Settings className="w-4 h-4" />
             </Button>
           )}

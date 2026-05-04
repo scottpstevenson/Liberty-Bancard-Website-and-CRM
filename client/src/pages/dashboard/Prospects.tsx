@@ -339,7 +339,7 @@ export default function Prospects() {
                           size="icon"
                           onClick={() => enrichMutation.mutate(prospect.id)}
                           disabled={enrichMutation.isPending}
-                          title="Enrich prospect"
+                          aria-label="Enrich prospect"
                           data-testid={`button-enrich-${prospect.id}`}
                         >
                           <Sparkles className="h-4 w-4" />
@@ -350,7 +350,7 @@ export default function Prospects() {
                             size="icon"
                             onClick={() => convertMutation.mutate(prospect.id)}
                             disabled={convertMutation.isPending}
-                            title="Convert to contact"
+                            aria-label="Convert to contact"
                             data-testid={`button-convert-${prospect.id}`}
                           >
                             <UserPlus className="h-4 w-4" />

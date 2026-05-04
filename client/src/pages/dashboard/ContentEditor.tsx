@@ -207,11 +207,11 @@ export default function ContentEditor() {
                       </div>
                       <div className="flex gap-1 shrink-0">
                         {p.status === "published" && (
-                          <Button size="icon" variant="ghost" onClick={() => window.open(`/blog/${p.slug}`, "_blank")} data-testid={`button-view-${p.id}`}>
+                          <Button size="icon" variant="ghost" aria-label="View post" onClick={() => window.open(`/blog/${p.slug}`, "_blank")} data-testid={`button-view-${p.id}`}>
                             <Eye className="w-4 h-4" />
                           </Button>
                         )}
-                        <Button size="icon" variant="ghost" onClick={() => setEditingId(p.id)} data-testid={`button-edit-${p.id}`}>
+                        <Button size="icon" variant="ghost" aria-label="Edit post" onClick={() => setEditingId(p.id)} data-testid={`button-edit-${p.id}`}>
                           <Edit3 className="w-4 h-4" />
                         </Button>
                       </div>

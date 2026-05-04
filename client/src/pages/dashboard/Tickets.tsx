@@ -21,7 +21,6 @@ import { exportToCSV } from "@/lib/export-csv";
 import SavedFilterBar from "@/components/SavedFilterBar";
 import DashboardErrorState from "@/components/DashboardErrorState";
 import { DataState } from "@/components/ui/data-state";
-import { ResponsiveTable } from "@/components/ui/responsive-table";
 import { PageHeader } from "@/components/ui/page-header";
 import { toastError } from "@/lib/toast-helpers";
 import type { Ticket, Contact, TicketComment } from "@shared/schema";
@@ -422,9 +421,9 @@ export default function Tickets() {
     <div className="space-y-6" data-testid="tickets-page">
       <PageHeader
         title="Support Tickets"
-        data-testid="text-tickets-title"
+        testId="text-tickets-title"
         actions={
-          <div className="flex items-center gap-3 flex-wrap">
+          <>
             <Button
               size="sm"
               variant="outline"
@@ -448,17 +447,16 @@ export default function Tickets() {
               }}
               data-testid="button-export-tickets"
             >
-              <Download className="w-4 h-4 mr-1" /> Export
+              <Download className="w-4 h-4 mr-1" /> Export Tickets
             </Button>
-            <Button data-testid="button-new-ticket" className="gap-2" onClick={() => setCreateOpen(true)}>
-              <Plus className="w-4 h-4" />
-              New Ticket
-            </Button>
-          </div>
-        }
-      />
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent data-testid="dialog-create-ticket">
+            <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+              <DialogTrigger asChild>
+                <Button data-testid="button-new-ticket" className="gap-2">
+                  <Plus className="w-4 h-4" />
+                  New Ticket
+                </Button>
+              </DialogTrigger>
+          <DialogContent data-testid="dialog-create-ticket">
             <DialogHeader>
               <DialogTitle>Create Support Ticket</DialogTitle>
             </DialogHeader>
@@ -533,7 +531,10 @@ export default function Tickets() {
               </div>
             </div>
           </DialogContent>
-      </Dialog>
+            </Dialog>
+          </>
+        }
+      />
 
       <SavedFilterBar
         entityType="ticket"

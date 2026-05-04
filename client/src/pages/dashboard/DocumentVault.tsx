@@ -123,11 +123,11 @@ export default function DocumentVault() {
   });
 
   return (
-    <div className="space-y-6 p-4 md:p-6 max-w-7xl mx-auto" data-testid="document-vault-page">
+    <div className="space-y-6" data-testid="document-vault-page">
       <PageHeader
         title="Document Vault"
         subtitle="All merchant KYC documents across all records"
-        data-testid="text-vault-title"
+        testId="text-vault-title"
         actions={
           <div className="text-sm text-muted-foreground" data-testid="text-doc-count">
             {docs.length} document{docs.length !== 1 ? "s" : ""} total
@@ -269,7 +269,7 @@ export default function DocumentVault() {
                         size="icon"
                         className="h-8 w-8"
                         onClick={() => setLocation(`/dashboard/contacts/${doc.contactId}`)}
-                        title="View merchant record"
+                        aria-label={`View merchant record for ${doc.fileName}`}
                         data-testid={`button-view-merchant-${doc.id}`}
                       >
                         <ExternalLink className="h-3.5 w-3.5" />
@@ -280,7 +280,7 @@ export default function DocumentVault() {
                       size="icon"
                       className="h-8 w-8"
                       onClick={() => window.open(`/api/merchant-documents/${doc.id}/download`, "_blank")}
-                      title="Download"
+                      aria-label={`Download ${doc.fileName}`}
                       data-testid={`button-download-doc-${doc.id}`}
                     >
                       <Download className="h-3.5 w-3.5" />
@@ -290,7 +290,7 @@ export default function DocumentVault() {
                       size="icon"
                       className="h-8 w-8 hover:text-destructive"
                       onClick={() => setDeleteTarget(doc)}
-                      title="Delete"
+                      aria-label={`Delete ${doc.fileName}`}
                       data-testid={`button-delete-doc-${doc.id}`}
                     >
                       <Trash2 className="h-3.5 w-3.5" />

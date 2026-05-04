@@ -257,13 +257,13 @@ export default function CalendarPage() {
         <div className="lg:col-span-2">
           <Card data-testid="calendar-grid-card">
             <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-              <Button variant="outline" size="icon" onClick={prevMonth} data-testid="button-prev-month">
+              <Button variant="outline" size="icon" aria-label="Previous month" onClick={prevMonth} data-testid="button-prev-month">
                 <ChevronLeft className="h-4 w-4" />
               </Button>
               <CardTitle className="text-lg" data-testid="text-current-month">
                 {MONTH_NAMES[currentMonth]} {currentYear}
               </CardTitle>
-              <Button variant="outline" size="icon" onClick={nextMonth} data-testid="button-next-month">
+              <Button variant="outline" size="icon" aria-label="Next month" onClick={nextMonth} data-testid="button-next-month">
                 <ChevronRight className="h-4 w-4" />
               </Button>
             </CardHeader>
