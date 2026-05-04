@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { setupAuth, registerAuthRoutes } from "./replit_integrations/auth";
 import { registerAudioRoutes } from "./replit_integrations/audio/routes";
+import { csrfTokenEndpoint } from "./middleware/csrf";
 
 import { registerContactsRoutes } from "./routes/contacts";
 import { registerDealsRoutes } from "./routes/deals";
@@ -51,6 +52,8 @@ export async function registerRoutes(
   await setupAuth(app);
   registerAuthRoutes(app);
   registerAudioRoutes(app);
+
+  app.get("/api/csrf-token", csrfTokenEndpoint);
 
   app.use("/api", (req, res, next) => {
     if (!req.isAuthenticated()) return next();

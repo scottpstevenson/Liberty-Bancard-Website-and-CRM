@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useParams } from "wouter";
+import { getCsrfToken } from "@/lib/queryClient";
 import { SEO } from "@/components/SEO";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -145,9 +146,12 @@ export default function PartnerOrgDashboard() {
     }
     setInviting(true);
     try {
+      const inviteHeaders: Record<string, string> = { "Content-Type": "application/json" };
+      const csrfInvite = getCsrfToken();
+      if (csrfInvite) inviteHeaders["X-CSRF-Token"] = csrfInvite;
       const res = await fetch("/api/partner-org/invite-user", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: inviteHeaders,
         credentials: "include",
         body: JSON.stringify(inviteForm),
       });

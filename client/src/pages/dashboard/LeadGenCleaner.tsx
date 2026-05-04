@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, getCsrfToken } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -100,7 +100,10 @@ export default function LeadGenCleaner() {
 
   const uploadMutation = useMutation({
     mutationFn: async (formData: FormData) => {
-      const response = await fetch("/api/sunbiz/upload", { method: "POST", body: formData });
+      const headers: Record<string, string> = {};
+      const csrf = getCsrfToken();
+      if (csrf) headers["X-CSRF-Token"] = csrf;
+      const response = await fetch("/api/sunbiz/upload", { method: "POST", body: formData, headers, credentials: "include" });
       if (!response.ok) throw new Error(await response.text());
       return response.json();
     },
@@ -157,7 +160,10 @@ export default function LeadGenCleaner() {
 
   const corevtUploadMutation = useMutation({
     mutationFn: async (formData: FormData) => {
-      const response = await fetch("/api/sunbiz/upload-corevt", { method: "POST", body: formData });
+      const headers: Record<string, string> = {};
+      const csrf = getCsrfToken();
+      if (csrf) headers["X-CSRF-Token"] = csrf;
+      const response = await fetch("/api/sunbiz/upload-corevt", { method: "POST", body: formData, headers, credentials: "include" });
       if (!response.ok) throw new Error(await response.text());
       return response.json();
     },

@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo, Fragment } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, getCsrfToken } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -381,7 +381,10 @@ export default function LeadCommandCenter() {
 
   const uploadMutation = useMutation({
     mutationFn: async (formData: FormData) => {
-      const res = await fetch("/api/sunbiz/upload", { method: "POST", body: formData });
+      const headers: Record<string, string> = {};
+      const csrf = getCsrfToken();
+      if (csrf) headers["X-CSRF-Token"] = csrf;
+      const res = await fetch("/api/sunbiz/upload", { method: "POST", body: formData, headers, credentials: "include" });
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
@@ -391,7 +394,10 @@ export default function LeadCommandCenter() {
 
   const corevtUploadMutation = useMutation({
     mutationFn: async (formData: FormData) => {
-      const res = await fetch("/api/sunbiz/upload-corevt", { method: "POST", body: formData });
+      const headers: Record<string, string> = {};
+      const csrf = getCsrfToken();
+      if (csrf) headers["X-CSRF-Token"] = csrf;
+      const res = await fetch("/api/sunbiz/upload-corevt", { method: "POST", body: formData, headers, credentials: "include" });
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },

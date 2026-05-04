@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, getCsrfToken } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -527,10 +527,14 @@ function DocumentsTab({ contactId }: { contactId: number | null | undefined }) {
       const formData = new FormData();
       formData.append("file", selectedFile);
       setUploadProgress(30);
+      const uploadHeaders: Record<string, string> = {};
+      const csrfVal = getCsrfToken();
+      if (csrfVal) uploadHeaders["X-CSRF-Token"] = csrfVal;
       const res = await fetch("/api/merchant-portal/upload-statement", {
         method: "POST",
         credentials: "include",
         body: formData,
+        headers: uploadHeaders,
       });
       setUploadProgress(80);
       if (!res.ok) {
@@ -966,10 +970,14 @@ function ReferralTab({ profile }: { profile: MerchantProfile | null | undefined 
     if (!referralCode || !referredEmail) return;
     setSubmitting(true);
     try {
+      const referralHeaders: Record<string, string> = { "Content-Type": "application/json" };
+      const csrfRef = getCsrfToken();
+      if (csrfRef) referralHeaders["X-CSRF-Token"] = csrfRef;
       const res = await fetch("/api/merchant-referrals", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: referralHeaders,
         body: JSON.stringify({ referralCode, referredEmail, referredName, referredCompany }),
+        credentials: "include",
       });
       if (!res.ok) {
         const err = await res.json();

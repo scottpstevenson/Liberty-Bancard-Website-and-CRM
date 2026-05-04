@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, getCsrfToken } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -55,8 +55,12 @@ export function ContactDocumentsTab({ contactId }: { contactId: number }) {
       formData.append("category", uploadCategory);
       formData.append("contactId", String(contactId));
 
+      const uploadHeaders: Record<string, string> = {};
+      const csrfUpload = getCsrfToken();
+      if (csrfUpload) uploadHeaders["X-CSRF-Token"] = csrfUpload;
       const res = await fetch("/api/merchant-documents/upload", {
         method: "POST",
+        headers: uploadHeaders,
         credentials: "include",
         body: formData,
       });

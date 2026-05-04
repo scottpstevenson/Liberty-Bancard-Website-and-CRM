@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, getCsrfToken } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -96,9 +96,14 @@ export default function ProspectImport() {
 
   const uploadMutation = useMutation({
     mutationFn: async (formData: FormData) => {
+      const headers: Record<string, string> = {};
+      const csrf = getCsrfToken();
+      if (csrf) headers["X-CSRF-Token"] = csrf;
       const response = await fetch("/api/prospects/import", {
         method: "POST",
         body: formData,
+        headers,
+        credentials: "include",
       });
       if (!response.ok) throw new Error("Upload failed");
       return response.json();

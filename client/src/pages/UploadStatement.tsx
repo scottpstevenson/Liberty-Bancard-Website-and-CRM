@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { getCsrfToken } from "@/lib/queryClient";
 import { SEO, getServiceSchema } from "@/components/SEO";
 import { useLocation, Link } from "wouter";
 import { z } from "zod";
@@ -254,9 +255,12 @@ export default function UploadStatement() {
     setAnalyzing(true);
     setAnalysisError(null);
     try {
+      const analysisHeaders: Record<string, string> = { "Content-Type": "application/json" };
+      const csrfAnalysis = getCsrfToken();
+      if (csrfAnalysis) analysisHeaders["X-CSRF-Token"] = csrfAnalysis;
       const res = await fetch("/api/ai/analyze-statement", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: analysisHeaders,
         credentials: "include",
         body: JSON.stringify({
           statementData: `Monthly volume: $${analysisVolume}, Current effective rate: ${analysisRate}%, Processor type: unknown`

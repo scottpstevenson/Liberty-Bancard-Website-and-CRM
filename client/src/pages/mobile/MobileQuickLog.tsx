@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { queryClient } from "@/lib/queryClient";
+import { queryClient, getCsrfToken } from "@/lib/queryClient";
 import { useOfflineQueue } from "@/hooks/use-offline-queue";
 import { Phone, MessageSquare, CheckSquare, Camera, X, ChevronDown, Loader2, CheckCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -145,9 +145,13 @@ export default function MobileQuickLog({
     if (contactId) formData.append("contactId", contactId);
     if (photoCaption) formData.append("notes", photoCaption);
     try {
+      const uploadHeaders: Record<string, string> = {};
+      const csrf = getCsrfToken();
+      if (csrf) uploadHeaders["X-CSRF-Token"] = csrf;
       const res = await fetch("/api/documents", {
         method: "POST",
         body: formData,
+        headers: uploadHeaders,
         credentials: "include",
       });
       if (res.ok) {

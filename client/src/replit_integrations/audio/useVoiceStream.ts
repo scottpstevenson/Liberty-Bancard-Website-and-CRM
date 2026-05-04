@@ -3,6 +3,7 @@
  * Converts audio blob to base64 and sends as JSON to match server expectations.
  */
 import { useCallback } from "react";
+import { getCsrfToken } from "@/lib/queryClient";
 import { useAudioPlayback } from "./useAudioPlayback";
 
 interface StreamCallbacks {
@@ -30,9 +31,12 @@ export function useVoiceStream(callbacks: StreamCallbacks = {}) {
         fileReader.readAsDataURL(audioBlob);
       });
 
+      const voiceHeaders: Record<string, string> = { "Content-Type": "application/json" };
+      const csrfVoice = getCsrfToken();
+      if (csrfVoice) voiceHeaders["X-CSRF-Token"] = csrfVoice;
       const response = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: voiceHeaders,
         body: JSON.stringify({ audio: base64Audio }),
       });
       if (!response.ok) throw new Error("Voice request failed");

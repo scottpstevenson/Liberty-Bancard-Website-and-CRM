@@ -14,6 +14,7 @@ import { isGhlConfigured, sendGhlEmailForMerchant as sendGhlEmail } from "../../
 import { db } from "../../db";
 import { systemSettings } from "@shared/schema";
 import { eq } from "drizzle-orm";
+import { csrfProtection } from "../../middleware/csrf";
 
 export function getSession() {
   const sessionTtl = 7 * 24 * 60 * 60 * 1000;
@@ -130,6 +131,7 @@ export async function setupAuth(app: Express) {
   app.use(getSession());
   app.use(passport.initialize());
   app.use(passport.session());
+  app.use(csrfProtection);
 
   passport.use(
     new LocalStrategy(

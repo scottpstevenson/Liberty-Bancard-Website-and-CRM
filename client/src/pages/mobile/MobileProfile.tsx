@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
+import { getCsrfToken } from "@/lib/queryClient";
 import { LogOut, User, ExternalLink, Shield, Bell, ChevronRight, Smartphone, Info, BellOff, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -57,9 +58,12 @@ export default function MobileProfile() {
         applicationServerKey: await urlBase64ToUint8Array(publicKey),
       });
 
+      const pushHeaders: Record<string, string> = { "Content-Type": "application/json" };
+      const csrfPush = getCsrfToken();
+      if (csrfPush) pushHeaders["X-CSRF-Token"] = csrfPush;
       const subRes = await fetch("/api/push/subscribe", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: pushHeaders,
         credentials: "include",
         body: JSON.stringify({ subscription }),
       });
@@ -80,9 +84,12 @@ export default function MobileProfile() {
       const registration = await navigator.serviceWorker.ready;
       const subscription = await registration.pushManager.getSubscription();
       if (subscription) {
+        const delHeaders: Record<string, string> = { "Content-Type": "application/json" };
+        const csrfDel = getCsrfToken();
+        if (csrfDel) delHeaders["X-CSRF-Token"] = csrfDel;
         await fetch("/api/push/subscribe", {
           method: "DELETE",
-          headers: { "Content-Type": "application/json" },
+          headers: delHeaders,
           credentials: "include",
           body: JSON.stringify({ endpoint: subscription.endpoint }),
         });

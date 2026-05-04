@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef } from "react";
+import { getCsrfToken } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -269,8 +270,12 @@ export default function ResidualRevenue() {
 
   const uploadMutation = useMutation({
     mutationFn: async (formData: FormData) => {
+      const residualHeaders: Record<string, string> = {};
+      const csrfResidual = getCsrfToken();
+      if (csrfResidual) residualHeaders["X-CSRF-Token"] = csrfResidual;
       const res = await fetch("/api/residuals/import", {
         method: "POST",
+        headers: residualHeaders,
         body: formData,
         credentials: "include",
       });

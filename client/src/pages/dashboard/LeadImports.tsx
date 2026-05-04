@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient } from "@/lib/queryClient";
+import { queryClient, getCsrfToken } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -106,9 +106,14 @@ export default function LeadImports() {
 
   const uploadMutation = useMutation({
     mutationFn: async (formData: FormData) => {
+      const headers: Record<string, string> = {};
+      const csrf = getCsrfToken();
+      if (csrf) headers["X-CSRF-Token"] = csrf;
       const res = await fetch("/api/leads/import-csv", {
         method: "POST",
         body: formData,
+        headers,
+        credentials: "include",
       });
       if (!res.ok) {
         const error = await res.json().catch(() => ({ message: "Upload failed" }));
