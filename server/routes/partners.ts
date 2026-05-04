@@ -1,7 +1,8 @@
 import type { Express } from "express";
-import { isAuthenticated, isAffiliate, isPartnerAuthenticated } from "../replit_integrations/auth";
+import { isAuthenticated, isDashboardUser, requireRole, isAffiliate, isPartnerAuthenticated } from "../replit_integrations/auth";
 import rateLimit from "express-rate-limit";
 import { storage } from "../storage";
+import { publicLeadRateLimit } from "../middleware/public-rate-limit";
 import { authStorage } from "../replit_integrations/auth/storage";
 import { db } from "../db";
 import { users } from "@shared/schema";
@@ -34,7 +35,7 @@ const partnerLoginRateLimit = rateLimit({
 
 export function registerPartnersRoutes(app: Express) {
   // === PARTNERS (admin) ===
-  app.get("/api/partners", isAuthenticated, async (req, res) => {
+  app.get("/api/partners", isDashboardUser, async (req, res) => {
     try {
       const partnersList = await storage.getPartners();
       res.json(partnersList);
@@ -43,7 +44,7 @@ export function registerPartnersRoutes(app: Express) {
     }
   });
 
-  app.get("/api/partners/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/partners/:id", isDashboardUser, async (req, res) => {
     try {
       const partner = await storage.getPartner(Number(req.params.id));
       if (!partner) return res.status(404).json({ message: "Not found" });
@@ -53,8 +54,7 @@ export function registerPartnersRoutes(app: Express) {
     }
   });
 
-  app.post("/api/partners", isAuthenticated, async (req, res) => {
-    if ((req.user as any)?.role !== "admin") return res.status(403).json({ message: "Admin only" });
+  app.post("/api/partners", requireRole("admin"), async (req, res) => {
     try {
       const input = insertPartnerSchema.parse(req.body);
       const partner = await storage.createPartner(input);
@@ -65,8 +65,7 @@ export function registerPartnersRoutes(app: Express) {
     }
   });
 
-  app.patch("/api/partners/:id", isAuthenticated, async (req, res) => {
-    if ((req.user as any)?.role !== "admin") return res.status(403).json({ message: "Admin only" });
+  app.patch("/api/partners/:id", requireRole("admin"), async (req, res) => {
     try {
       const { status, commissionPercent, notes } = req.body;
       const updates: Partial<InsertPartner> = {};
@@ -139,7 +138,7 @@ export function registerPartnersRoutes(app: Express) {
   });
 
   // === PUBLIC ISO/PARTNER APPLICATION ===
-  app.post("/api/partner-apply", async (req, res) => {
+  app.post("/api/partner-apply", publicLeadRateLimit, async (req, res) => {
     try {
       const {
         firstName, lastName, email, phone, companyName,
@@ -261,7 +260,7 @@ export function registerPartnersRoutes(app: Express) {
   });
 
   // === PARTNER PORTAL AUTH ===
-  app.post("/api/partner/login", async (req, res) => {
+  app.post("/api/partner/login", partnerLoginRateLimit, async (req, res) => {
     try {
       const { email, password } = req.body;
       if (!email || !password) {
@@ -371,7 +370,7 @@ export function registerPartnersRoutes(app: Express) {
     }
   });
 
-  app.post("/api/partner/reset-password", async (req, res) => {
+  app.post("/api/partner/reset-password", publicLeadRateLimit, async (req, res) => {
     try {
       const { token, password } = req.body;
       if (!token || !password || typeof token !== "string" || typeof password !== "string") {
@@ -513,7 +512,7 @@ export function registerPartnersRoutes(app: Express) {
     }
   });
 
-  app.post("/api/partners/reset-password", async (req, res) => {
+  app.post("/api/partners/reset-password", publicLeadRateLimit, async (req, res) => {
     try {
       const { token, password } = req.body;
       if (!token || !password || typeof token !== "string" || typeof password !== "string") {
@@ -544,7 +543,7 @@ export function registerPartnersRoutes(app: Express) {
     }
   });
 
-  app.post("/api/partners/set-password", async (req, res) => {
+  app.post("/api/partners/set-password", publicLeadRateLimit, async (req, res) => {
     try {
       const { token, password } = req.body;
       if (!token || !password || typeof token !== "string" || typeof password !== "string") {
@@ -605,7 +604,7 @@ export function registerPartnersRoutes(app: Express) {
   });
 
   // === REFERRAL CLICK TRACKING ===
-  app.get("/api/partner/track/:code", async (req, res) => {
+  app.get("/api/partner/track/:code", publicLeadRateLimit, async (req, res) => {
     try {
       const code = req.params.code as string;
       if (!code || code.length > 50) return res.status(400).json({ message: "Invalid code." });
@@ -683,7 +682,7 @@ export function registerPartnersRoutes(app: Express) {
   });
 
   // === REFERRALS ===
-  app.get("/api/referrals", isAuthenticated, async (req, res) => {
+  app.get("/api/referrals", isDashboardUser, async (req, res) => {
     try {
       const partnerId = req.query.partnerId ? Number(req.query.partnerId) : undefined;
       const referralsList = partnerId ? await storage.getReferralsByPartner(partnerId) : await storage.getReferrals();
@@ -693,7 +692,7 @@ export function registerPartnersRoutes(app: Express) {
     }
   });
 
-  app.post("/api/referrals", isAuthenticated, async (req, res) => {
+  app.post("/api/referrals", isDashboardUser, async (req, res) => {
     try {
       const input = insertReferralSchema.parse(req.body);
       const referral = await storage.createReferral(input);
@@ -704,7 +703,7 @@ export function registerPartnersRoutes(app: Express) {
     }
   });
 
-  app.patch("/api/referrals/:id", isAuthenticated, async (req, res) => {
+  app.patch("/api/referrals/:id", isDashboardUser, async (req, res) => {
     try {
       const updated = await storage.updateReferral(Number(req.params.id), req.body);
       if (!updated) return res.status(404).json({ message: "Not found" });
@@ -715,7 +714,7 @@ export function registerPartnersRoutes(app: Express) {
   });
 
   // === COMMISSION TIERS ===
-  app.get("/api/commission-tiers", isAuthenticated, async (_req, res) => {
+  app.get("/api/commission-tiers", isDashboardUser, async (_req, res) => {
     try {
       const tiers = await storage.getCommissionTiers();
       res.json(tiers);
@@ -724,8 +723,7 @@ export function registerPartnersRoutes(app: Express) {
     }
   });
 
-  app.post("/api/commission-tiers", isAuthenticated, async (req, res) => {
-    if ((req.user as any)?.role !== "admin") return res.status(403).json({ message: "Admin only" });
+  app.post("/api/commission-tiers", requireRole("admin"), async (req, res) => {
     try {
       const tier = await storage.createCommissionTier(req.body);
       res.status(201).json(tier);
@@ -734,8 +732,7 @@ export function registerPartnersRoutes(app: Express) {
     }
   });
 
-  app.delete("/api/commission-tiers/:id", isAuthenticated, async (req, res) => {
-    if ((req.user as any)?.role !== "admin") return res.status(403).json({ message: "Admin only" });
+  app.delete("/api/commission-tiers/:id", requireRole("admin"), async (req, res) => {
     try {
       await storage.deleteCommissionTier(Number(req.params.id));
       res.json({ message: "Deleted" });

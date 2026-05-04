@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 /**
- * Task #169 — Role-guard smoke test.
+ * Task #169 + #201 — Role-guard smoke test.
  *
  * Replit/this project does not ship Playwright. This Node smoke test
  * exercises the auth boundary on every endpoint touched by the audit:
@@ -36,13 +36,11 @@ const MERCHANT_EMAIL = "smoke-test-merchant@libertybancard.test";
 const MERCHANT_PASSWORD = "smoke-test-pw-Aa1!";
 
 const CASES: GuardCase[] = [
-  // New endpoints from this task
+  // ── Pre-existing admin routes (task #169) ──
   { method: "GET", path: "/api/users",                       anon: [401], merchant: [403], admin: [200], description: "admin user list" },
   { method: "GET", path: "/api/merchants",                   anon: [401], merchant: [403], admin: [200], description: "admin/manager merchants" },
   { method: "GET", path: "/api/dashboard/stats",             anon: [401], merchant: [403], admin: [200], description: "dashboard KPIs" },
   { method: "GET", path: "/api/admin/route-permissions",     anon: [401], merchant: [403], admin: [200], description: "permissions audit" },
-
-  // Pre-existing admin routes that were tagged with requireRole in this task
   { method: "GET", path: "/api/admin/users",                 anon: [401], merchant: [403], admin: [200],      description: "admin users" },
   { method: "GET", path: "/api/admin/mfa-settings",          anon: [401], merchant: [403], admin: [200],      description: "admin mfa settings" },
   { method: "GET", path: "/api/agents",                      anon: [401], merchant: [403], admin: [200],      description: "admin/manager agents" },
@@ -50,6 +48,49 @@ const CASES: GuardCase[] = [
   { method: "GET", path: "/api/admin/round-robin",           anon: [401], merchant: [403], admin: [200],      description: "round-robin pool" },
   { method: "GET", path: "/api/admin/round-robin/log",       anon: [401], merchant: [403], admin: [200],      description: "round-robin log" },
   { method: "GET", path: "/api/admin/seo-coverage",          anon: [401], merchant: [403], admin: [200, 500], description: "seo coverage" },
+
+  // ── Task #201: CRM routes upgraded to isDashboardUser ──
+  // deals.ts
+  { method: "GET",  path: "/api/deals",                      anon: [401], merchant: [403], admin: [200], description: "deals list" },
+  { method: "GET",  path: "/api/deals/1",                    anon: [401], merchant: [403], admin: [200, 404], description: "deal by id" },
+  { method: "GET",  path: "/api/deal-competitors",           anon: [401], merchant: [403], admin: [200], description: "deal competitors" },
+  { method: "GET",  path: "/api/stage-rules",                anon: [401], merchant: [403], admin: [200], description: "stage rules" },
+  { method: "GET",  path: "/api/pipeline-stages",            anon: [401], merchant: [403], admin: [200], description: "pipeline stages" },
+
+  // contacts.ts
+  { method: "GET",  path: "/api/contacts",                   anon: [401], merchant: [403], admin: [200], description: "contacts list" },
+  { method: "GET",  path: "/api/contacts/1",                 anon: [401], merchant: [403], admin: [200, 404], description: "contact by id" },
+  { method: "GET",  path: "/api/companies",                  anon: [401], merchant: [403], admin: [200], description: "companies list" },
+  { method: "GET",  path: "/api/serper/status",              anon: [401], merchant: [403], admin: [200], description: "serper status" },
+  { method: "GET",  path: "/api/proxycurl/status",           anon: [401], merchant: [403], admin: [200], description: "proxycurl status" },
+
+  // tickets-tasks.ts
+  { method: "GET",  path: "/api/tickets",                    anon: [401], merchant: [403], admin: [200], description: "tickets list" },
+  { method: "GET",  path: "/api/tasks",                      anon: [401], merchant: [403], admin: [200], description: "tasks list" },
+
+  // chargebacks.ts
+  { method: "GET",  path: "/api/chargebacks",                anon: [401], merchant: [403], admin: [200], description: "chargebacks list" },
+  { method: "GET",  path: "/api/chargebacks/stats",          anon: [401], merchant: [403], admin: [200], description: "chargeback stats" },
+  { method: "GET",  path: "/api/chargebacks/overdue",        anon: [401], merchant: [403], admin: [200], description: "chargebacks overdue" },
+
+  // boarding.ts
+  { method: "GET",  path: "/api/boarding/submissions",       anon: [401], merchant: [403], admin: [200], description: "boarding submissions" },
+  { method: "GET",  path: "/api/mid-stats/summary",          anon: [401], merchant: [403], admin: [200], description: "MID stats summary" },
+  { method: "GET",  path: "/api/mid-stats/pipeline-summary", anon: [401], merchant: [403], admin: [200], description: "MID pipeline summary" },
+
+  // documents.ts (legacy + collateral + knowledge base)
+  { method: "GET",  path: "/api/documents",                  anon: [401], merchant: [403], admin: [200], description: "legacy documents" },
+  { method: "GET",  path: "/api/collateral-packets",         anon: [401], merchant: [403], admin: [200], description: "collateral packets" },
+  { method: "GET",  path: "/api/knowledge-base",             anon: [401], merchant: [403], admin: [200], description: "knowledge base" },
+
+  // merchants.ts (CRM-managed)
+  { method: "GET",  path: "/api/equipment-orders",           anon: [401], merchant: [403], admin: [200], description: "equipment orders" },
+  { method: "GET",  path: "/api/onboarding-steps/deal/1",    anon: [401], merchant: [403], admin: [200], description: "onboarding steps" },
+
+  // partners.ts (CRM partner management)
+  { method: "GET",  path: "/api/partners",                   anon: [401], merchant: [403], admin: [200], description: "partners list" },
+  { method: "GET",  path: "/api/referrals",                  anon: [401], merchant: [403], admin: [200], description: "referrals list" },
+  { method: "GET",  path: "/api/commission-tiers",           anon: [401], merchant: [403], admin: [200], description: "commission tiers" },
 ];
 
 async function ensureMerchantUser(): Promise<void> {
@@ -84,7 +125,6 @@ async function login(email: string, password: string): Promise<string> {
   }
   const setCookie = res.headers.get("set-cookie");
   if (!setCookie) throw new Error(`No session cookie returned for ${email}`);
-  // Take the first cookie (connect.sid=...) value before any attribute.
   const cookie = setCookie.split(",")[0].split(";")[0];
   return cookie;
 }

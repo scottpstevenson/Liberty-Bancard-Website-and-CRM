@@ -1,5 +1,5 @@
 import type { Express } from "express";
-import { isAuthenticated } from "../replit_integrations/auth";
+import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
 import { insertCompanySchema, insertContactSchema } from "@shared/schema";
@@ -26,7 +26,7 @@ function isUniqueEmailViolation(err: any): boolean {
 
 export function registerContactsRoutes(app: Express) {
   // === CONTACTS ===
-  app.get("/api/contacts", isAuthenticated, async (req, res) => {
+  app.get("/api/contacts", isDashboardUser, async (req, res) => {
     try {
       const limit = req.query.limit ? Number(req.query.limit) : undefined;
       const offset = req.query.offset ? Number(req.query.offset) : undefined;
@@ -38,7 +38,7 @@ export function registerContactsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/contacts", isAuthenticated, async (req, res) => {
+  app.post("/api/contacts", isDashboardUser, async (req, res) => {
     try {
       const input = insertContactSchema.parse(req.body);
       const contact = await createContactGhlFirst(input);
@@ -71,7 +71,7 @@ export function registerContactsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/contacts/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/contacts/:id", isDashboardUser, async (req, res) => {
     try {
       const contact = await storage.getContact(Number(req.params.id));
       if (!contact) return res.status(404).json({ message: "Not found" });
@@ -90,7 +90,7 @@ export function registerContactsRoutes(app: Express) {
     }
   });
 
-  app.put("/api/contacts/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/contacts/:id", isDashboardUser, async (req, res) => {
     try {
       const contactId = Number(req.params.id);
       const updated = await updateContactGhlFirst(contactId, req.body);
@@ -109,8 +109,7 @@ export function registerContactsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/contacts/enrich-batch", isAuthenticated, async (req, res) => {
-    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
+  app.post("/api/contacts/enrich-batch", requireRole("admin", "manager"), async (req, res) => {
     try {
       const schema = z.object({
         contactIds: z.array(z.number().int().positive()).optional().default([]),
@@ -159,7 +158,7 @@ export function registerContactsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/contacts/enrich-progress", isAuthenticated, async (req, res) => {
+  app.get("/api/contacts/enrich-progress", isDashboardUser, async (req, res) => {
     try {
       const progress = await storage.getSystemSetting("contact_enrich_batch_progress");
       res.json(progress || { status: "idle" });
@@ -168,7 +167,7 @@ export function registerContactsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/serper/status", isAuthenticated, async (req, res) => {
+  app.get("/api/serper/status", isDashboardUser, async (req, res) => {
     try {
       const configured = isSerperConfigured();
       const usage = await getSerperUsage();
@@ -178,9 +177,8 @@ export function registerContactsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/serper/reset-usage", isAuthenticated, async (req, res) => {
+  app.post("/api/serper/reset-usage", requireRole("admin", "manager"), async (req, res) => {
     try {
-      if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
       await resetSerperUsage();
       res.json({ success: true, message: "Serper usage stats reset" });
     } catch (err: any) {
@@ -190,13 +188,13 @@ export function registerContactsRoutes(app: Express) {
 
 
   // === PROXYCURL STATUS ===
-  app.get("/api/proxycurl/status", isAuthenticated, async (req, res) => {
+  app.get("/api/proxycurl/status", isDashboardUser, async (req, res) => {
     const configured = !!process.env.PROXYCURL_API_KEY;
     res.json({ configured });
   });
 
   // === LINKEDIN ENRICHMENT ===
-  app.post("/api/contacts/:id/enrich-linkedin", isAuthenticated, async (req, res) => {
+  app.post("/api/contacts/:id/enrich-linkedin", isDashboardUser, async (req, res) => {
     try {
       const contactId = Number(req.params.id);
       const result = await enrichContactFromLinkedIn(contactId);
@@ -209,7 +207,7 @@ export function registerContactsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/contacts/bulk-enrich-linkedin", isAuthenticated, async (req, res) => {
+  app.post("/api/contacts/bulk-enrich-linkedin", isDashboardUser, async (req, res) => {
     try {
       const schema = z.object({
         contactIds: z.array(z.number().int().positive()).min(1).max(100),
@@ -228,7 +226,7 @@ export function registerContactsRoutes(app: Express) {
   });
 
   // === COMPANIES ===
-  app.get("/api/companies", isAuthenticated, async (req, res) => {
+  app.get("/api/companies", isDashboardUser, async (req, res) => {
     try {
       const companies = await storage.getCompanies();
       res.json(companies);
@@ -237,7 +235,7 @@ export function registerContactsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/companies", isAuthenticated, async (req, res) => {
+  app.post("/api/companies", isDashboardUser, async (req, res) => {
     try {
       const input = insertCompanySchema.parse(req.body);
       const company = await storage.createCompany(input);

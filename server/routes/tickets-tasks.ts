@@ -1,5 +1,5 @@
 import type { Express } from "express";
-import { isAuthenticated } from "../replit_integrations/auth";
+import { isAuthenticated, isDashboardUser } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
 import { and } from "drizzle-orm";
@@ -10,7 +10,7 @@ import { parse } from "csv-parse/sync";
 
 export function registerTicketsTasksRoutes(app: Express) {
   // === TICKETS ===
-  app.get("/api/tickets", isAuthenticated, async (req, res) => {
+  app.get("/api/tickets", isDashboardUser, async (req, res) => {
     try {
       const limit = req.query.limit ? Number(req.query.limit) : undefined;
       const offset = req.query.offset ? Number(req.query.offset) : undefined;
@@ -21,7 +21,7 @@ export function registerTicketsTasksRoutes(app: Express) {
     }
   });
 
-  app.post("/api/tickets", isAuthenticated, async (req, res) => {
+  app.post("/api/tickets", isDashboardUser, async (req, res) => {
     try {
       const input = insertTicketSchema.parse(req.body);
       const ticket = await storage.createTicket(input);
@@ -35,7 +35,7 @@ export function registerTicketsTasksRoutes(app: Express) {
     }
   });
 
-  app.get("/api/tickets/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/tickets/:id", isDashboardUser, async (req, res) => {
     try {
       const ticket = await storage.getTicket(Number(req.params.id));
       if (!ticket) return res.status(404).json({ message: "Not found" });
@@ -45,7 +45,7 @@ export function registerTicketsTasksRoutes(app: Express) {
     }
   });
 
-  app.put("/api/tickets/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/tickets/:id", isDashboardUser, async (req, res) => {
     try {
       const ticketId = Number(req.params.id);
       const { data: existing } = await storage.getTickets({ limit: 500 });
@@ -96,7 +96,7 @@ export function registerTicketsTasksRoutes(app: Express) {
 
 
   // === TASKS ===
-  app.get("/api/tasks", isAuthenticated, async (req, res) => {
+  app.get("/api/tasks", isDashboardUser, async (req, res) => {
     try {
       const tasks = await storage.getTasks();
       res.json(tasks);
@@ -105,7 +105,7 @@ export function registerTicketsTasksRoutes(app: Express) {
     }
   });
 
-  app.post("/api/tasks", isAuthenticated, async (req, res) => {
+  app.post("/api/tasks", isDashboardUser, async (req, res) => {
     try {
       const input = insertTaskSchema.parse(req.body);
       const task = await storage.createTask(input);
@@ -119,7 +119,7 @@ export function registerTicketsTasksRoutes(app: Express) {
     }
   });
 
-  app.put("/api/tasks/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/tasks/:id", isDashboardUser, async (req, res) => {
     try {
       const updated = await storage.updateTask(Number(req.params.id), req.body);
       if (!updated) return res.status(404).json({ message: "Not found" });
@@ -131,7 +131,7 @@ export function registerTicketsTasksRoutes(app: Express) {
 
 
   // === TICKET COMMENTS (Conversation Threading) ===
-  app.get("/api/tickets/:id/comments", isAuthenticated, async (req, res) => {
+  app.get("/api/tickets/:id/comments", isDashboardUser, async (req, res) => {
     try {
       const result = await storage.getTicketComments(Number(req.params.id));
       res.json(result);
@@ -140,7 +140,7 @@ export function registerTicketsTasksRoutes(app: Express) {
     }
   });
 
-  app.post("/api/tickets/:id/comments", isAuthenticated, async (req, res) => {
+  app.post("/api/tickets/:id/comments", isDashboardUser, async (req, res) => {
     try {
       const input = insertTicketCommentSchema.parse({
         ...req.body,

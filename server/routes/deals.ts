@@ -1,5 +1,5 @@
 import type { Express } from "express";
-import { isAuthenticated } from "../replit_integrations/auth";
+import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
 import { contacts, insertDealCompetitorSchema, insertDealSchema, insertPipelineStageSchema, insertStageAutomationRuleSchema } from "@shared/schema";
@@ -20,7 +20,7 @@ import { sendPushToAllReps } from "../services/push-service";
 
 export function registerDealsRoutes(app: Express) {
   // === DEALS ===
-  app.get("/api/deals", isAuthenticated, async (req, res) => {
+  app.get("/api/deals", isDashboardUser, async (req, res) => {
     try {
       const pipeline = req.query.pipeline as string | undefined;
       const limit = req.query.limit ? Number(req.query.limit) : undefined;
@@ -34,7 +34,7 @@ export function registerDealsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/deals", isAuthenticated, async (req, res) => {
+  app.post("/api/deals", isDashboardUser, async (req, res) => {
     try {
       const input = insertDealSchema.parse(req.body);
       const deal = await storage.createDeal(input);
@@ -50,7 +50,7 @@ export function registerDealsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/deals/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/deals/:id", isDashboardUser, async (req, res) => {
     try {
       const deal = await storage.getDeal(Number(req.params.id));
       if (!deal) return res.status(404).json({ message: "Not found" });
@@ -60,7 +60,7 @@ export function registerDealsRoutes(app: Express) {
     }
   });
 
-  app.put("/api/deals/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/deals/:id", isDashboardUser, async (req, res) => {
     try {
       const old = await storage.getDeal(Number(req.params.id));
       const updated = await storage.updateDeal(Number(req.params.id), req.body);
@@ -207,7 +207,7 @@ export function registerDealsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/deals/:id/recalculate-volume", isAuthenticated, async (req, res) => {
+  app.post("/api/deals/:id/recalculate-volume", isDashboardUser, async (req, res) => {
     try {
       const deal = await storage.getDeal(Number(req.params.id));
       if (!deal) return res.status(404).json({ message: "Deal not found" });
@@ -232,7 +232,7 @@ export function registerDealsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/contacts/:id/recalculate-volume", isAuthenticated, async (req, res) => {
+  app.post("/api/contacts/:id/recalculate-volume", isDashboardUser, async (req, res) => {
     try {
       const contact = await storage.getContact(Number(req.params.id));
       if (!contact) return res.status(404).json({ message: "Contact not found" });
@@ -248,7 +248,7 @@ export function registerDealsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/prospects/:id/recalculate-volume", isAuthenticated, async (req, res) => {
+  app.post("/api/prospects/:id/recalculate-volume", isDashboardUser, async (req, res) => {
     try {
       const prospect = await storage.getProspect(Number(req.params.id));
       if (!prospect) return res.status(404).json({ message: "Prospect not found" });
@@ -266,7 +266,7 @@ export function registerDealsRoutes(app: Express) {
 
 
   // === DEAL COMPETITORS ===
-  app.get("/api/deal-competitors", isAuthenticated, async (req, res) => {
+  app.get("/api/deal-competitors", isDashboardUser, async (req, res) => {
     try {
       const competitors = await storage.getDealCompetitors();
       res.json(competitors);
@@ -275,7 +275,7 @@ export function registerDealsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/deal-competitors/deal/:dealId", isAuthenticated, async (req, res) => {
+  app.get("/api/deal-competitors/deal/:dealId", isDashboardUser, async (req, res) => {
     try {
       const competitors = await storage.getDealCompetitorsByDeal(Number(req.params.dealId));
       res.json(competitors);
@@ -284,7 +284,7 @@ export function registerDealsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/deal-competitors", isAuthenticated, async (req, res) => {
+  app.post("/api/deal-competitors", isDashboardUser, async (req, res) => {
     try {
       const input = insertDealCompetitorSchema.parse(req.body);
       const competitor = await storage.createDealCompetitor(input);
@@ -295,7 +295,7 @@ export function registerDealsRoutes(app: Express) {
     }
   });
 
-  app.patch("/api/deal-competitors/:id", isAuthenticated, async (req, res) => {
+  app.patch("/api/deal-competitors/:id", isDashboardUser, async (req, res) => {
     try {
       const updated = await storage.updateDealCompetitor(Number(req.params.id), req.body);
       if (!updated) return res.status(404).json({ message: "Not found" });
@@ -307,7 +307,7 @@ export function registerDealsRoutes(app: Express) {
 
 
   // === STAGE AUTOMATION RULES ===
-  app.get("/api/stage-rules", isAuthenticated, async (req, res) => {
+  app.get("/api/stage-rules", isDashboardUser, async (req, res) => {
     try {
       const pipeline = req.query.pipeline as string | undefined;
       const rules = await storage.getStageAutomationRules(pipeline);
@@ -317,7 +317,7 @@ export function registerDealsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/stage-rules/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/stage-rules/:id", isDashboardUser, async (req, res) => {
     try {
       const rule = await storage.getStageAutomationRule(Number(req.params.id));
       if (!rule) return res.status(404).json({ message: "Not found" });
@@ -327,7 +327,7 @@ export function registerDealsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/stage-rules", isAuthenticated, async (req, res) => {
+  app.post("/api/stage-rules", requireRole("admin", "manager"), async (req, res) => {
     try {
       const input = insertStageAutomationRuleSchema.parse(req.body);
       const rule = await storage.createStageAutomationRule(input);
@@ -339,7 +339,7 @@ export function registerDealsRoutes(app: Express) {
     }
   });
 
-  app.put("/api/stage-rules/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/stage-rules/:id", requireRole("admin", "manager"), async (req, res) => {
     try {
       const updated = await storage.updateStageAutomationRule(Number(req.params.id), req.body);
       if (!updated) return res.status(404).json({ message: "Not found" });
@@ -349,7 +349,7 @@ export function registerDealsRoutes(app: Express) {
     }
   });
 
-  app.delete("/api/stage-rules/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/stage-rules/:id", requireRole("admin", "manager"), async (req, res) => {
     try {
       await storage.deleteStageAutomationRule(Number(req.params.id));
       res.json({ success: true });
@@ -360,7 +360,7 @@ export function registerDealsRoutes(app: Express) {
 
 
   // === PIPELINE STAGES CONFIGURATION ===
-  app.get("/api/pipeline-stages", isAuthenticated, async (req, res) => {
+  app.get("/api/pipeline-stages", isDashboardUser, async (req, res) => {
     try {
       const pipeline = req.query.pipeline ? String(req.query.pipeline) : undefined;
       const stages = await storage.getPipelineStages(pipeline);
@@ -370,8 +370,7 @@ export function registerDealsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/pipeline-stages", isAuthenticated, async (req, res) => {
-    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
+  app.post("/api/pipeline-stages", requireRole("admin", "manager"), async (req, res) => {
     try {
       const input = insertPipelineStageSchema.parse(req.body);
       const stage = await storage.createPipelineStage(input);
@@ -382,8 +381,7 @@ export function registerDealsRoutes(app: Express) {
     }
   });
 
-  app.put("/api/pipeline-stages/:id", isAuthenticated, async (req, res) => {
-    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
+  app.put("/api/pipeline-stages/:id", requireRole("admin", "manager"), async (req, res) => {
     try {
       const updated = await storage.updatePipelineStage(Number(req.params.id), req.body);
       if (!updated) return res.status(404).json({ message: "Not found" });
@@ -393,8 +391,7 @@ export function registerDealsRoutes(app: Express) {
     }
   });
 
-  app.delete("/api/pipeline-stages/:id", isAuthenticated, async (req, res) => {
-    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
+  app.delete("/api/pipeline-stages/:id", requireRole("admin", "manager"), async (req, res) => {
     try {
       await storage.deletePipelineStage(Number(req.params.id));
       res.json({ success: true });
@@ -403,8 +400,7 @@ export function registerDealsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/pipeline-stages/reorder", isAuthenticated, async (req, res) => {
-    if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin/Manager only" });
+  app.post("/api/pipeline-stages/reorder", requireRole("admin", "manager"), async (req, res) => {
     try {
       const { stages } = req.body;
       if (!Array.isArray(stages)) return res.status(400).json({ message: "stages array required" });
@@ -419,7 +415,7 @@ export function registerDealsRoutes(app: Express) {
 
 
   // === AUTO DEAL STAGE PROGRESSION ===
-  app.post("/api/ai/auto-progress-deals", isAuthenticated, async (req, res) => {
+  app.post("/api/ai/auto-progress-deals", requireRole("admin", "manager"), async (req, res) => {
     try {
       const { data: allDeals } = await storage.getDeals({ limit: 500 });
       const salesDeals = allDeals.filter(d => d.pipeline === "sales" && d.stage !== "Closed Won" && d.stage !== "Closed Lost");

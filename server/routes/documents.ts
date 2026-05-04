@@ -1,5 +1,5 @@
 import type { Express } from "express";
-import { isAuthenticated } from "../replit_integrations/auth";
+import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
 import { insertCollateralPacketSchema, insertDocumentSchema, insertKnowledgeBaseSchema } from "@shared/schema";
@@ -189,12 +189,12 @@ export function registerDocumentsRoutes(app: Express) {
   });
 
   // === LEGACY DOCUMENTS (kept for backward compatibility) ===
-  app.get("/api/documents", isAuthenticated, async (req, res) => {
+  app.get("/api/documents", isDashboardUser, async (req, res) => {
     const documents = await storage.getDocuments();
     res.json(documents);
   });
 
-  app.post("/api/documents", isAuthenticated, async (req, res) => {
+  app.post("/api/documents", isDashboardUser, async (req, res) => {
     try {
       const input = insertDocumentSchema.parse(req.body);
       const doc = await storage.createDocument(input);
@@ -205,7 +205,7 @@ export function registerDocumentsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/documents/upload", isAuthenticated, upload.single("file"), async (req, res) => {
+  app.post("/api/documents/upload", isDashboardUser, upload.single("file"), async (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ message: "No file uploaded" });
 
@@ -232,7 +232,7 @@ export function registerDocumentsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/documents/download/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/documents/download/:id", isDashboardUser, async (req, res) => {
     try {
       const docs = await storage.getDocuments();
       const doc = docs.find(d => d.id === Number(req.params.id));
@@ -252,7 +252,7 @@ export function registerDocumentsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/documents/contact/:contactId", isAuthenticated, async (req, res) => {
+  app.get("/api/documents/contact/:contactId", isDashboardUser, async (req, res) => {
     const docs = await storage.getDocuments();
     const contactDocs = docs.filter(d => d.contactId === Number(req.params.contactId));
     res.json(contactDocs);
@@ -428,12 +428,12 @@ export function registerDocumentsRoutes(app: Express) {
 
 
   // === COLLATERAL PACKETS ===
-  app.get("/api/collateral-packets", isAuthenticated, async (req, res) => {
+  app.get("/api/collateral-packets", isDashboardUser, async (req, res) => {
     const packets = await storage.getCollateralPackets();
     res.json(packets);
   });
 
-  app.post("/api/collateral-packets", isAuthenticated, async (req, res) => {
+  app.post("/api/collateral-packets", isDashboardUser, async (req, res) => {
     try {
       const input = insertCollateralPacketSchema.parse(req.body);
       const packet = await storage.createCollateralPacket(input);
@@ -446,7 +446,7 @@ export function registerDocumentsRoutes(app: Express) {
 
 
   // === KNOWLEDGE BASE ===
-  app.get("/api/knowledge-base", isAuthenticated, async (req, res) => {
+  app.get("/api/knowledge-base", isDashboardUser, async (req, res) => {
     try {
       const articles = await storage.getPublishedArticles();
       res.json(articles);
@@ -455,7 +455,7 @@ export function registerDocumentsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/knowledge-base/category/:category", isAuthenticated, async (req, res) => {
+  app.get("/api/knowledge-base/category/:category", isDashboardUser, async (req, res) => {
     try {
       const articles = await storage.getKnowledgeBaseByCategory(req.params.category);
       res.json(articles);
@@ -464,7 +464,7 @@ export function registerDocumentsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/knowledge-base/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/knowledge-base/:id", isDashboardUser, async (req, res) => {
     try {
       const article = await storage.getKnowledgeBaseArticle(Number(req.params.id));
       if (!article) return res.status(404).json({ message: "Not found" });
@@ -474,7 +474,7 @@ export function registerDocumentsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/knowledge-base", isAuthenticated, async (req, res) => {
+  app.post("/api/knowledge-base", requireRole("admin", "manager"), async (req, res) => {
     try {
       const input = insertKnowledgeBaseSchema.parse(req.body);
       const article = await storage.createKnowledgeBaseArticle(input);
@@ -485,7 +485,7 @@ export function registerDocumentsRoutes(app: Express) {
     }
   });
 
-  app.patch("/api/knowledge-base/:id", isAuthenticated, async (req, res) => {
+  app.patch("/api/knowledge-base/:id", requireRole("admin", "manager"), async (req, res) => {
     try {
       const updated = await storage.updateKnowledgeBaseArticle(Number(req.params.id), req.body);
       if (!updated) return res.status(404).json({ message: "Not found" });

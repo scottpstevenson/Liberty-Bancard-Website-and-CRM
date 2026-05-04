@@ -1,12 +1,12 @@
 import type { Express } from "express";
-import { isAuthenticated } from "../replit_integrations/auth";
+import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
 import { insertChargebackSchema, CHARGEBACK_DEADLINE_DAYS } from "@shared/schema";
 import { createPreferenceAwareNotification } from "../services/digest-service";
 
 export function registerChargebacksRoutes(app: Express) {
-  app.get("/api/chargebacks", isAuthenticated, async (req, res) => {
+  app.get("/api/chargebacks", isDashboardUser, async (req, res) => {
     try {
       const status = req.query.status as string | undefined;
       const contactId = req.query.contactId ? Number(req.query.contactId) : undefined;
@@ -19,7 +19,7 @@ export function registerChargebacksRoutes(app: Express) {
     }
   });
 
-  app.get("/api/chargebacks/stats", isAuthenticated, async (req, res) => {
+  app.get("/api/chargebacks/stats", isDashboardUser, async (req, res) => {
     try {
       const stats = await storage.getChargebackStats();
       res.json(stats);
@@ -28,7 +28,7 @@ export function registerChargebacksRoutes(app: Express) {
     }
   });
 
-  app.get("/api/chargebacks/overdue", isAuthenticated, async (req, res) => {
+  app.get("/api/chargebacks/overdue", isDashboardUser, async (req, res) => {
     try {
       const overdue = await storage.getOverdueChargebacks();
       res.json(overdue);
@@ -37,7 +37,7 @@ export function registerChargebacksRoutes(app: Express) {
     }
   });
 
-  app.get("/api/chargebacks/contact/:contactId", isAuthenticated, async (req, res) => {
+  app.get("/api/chargebacks/contact/:contactId", isDashboardUser, async (req, res) => {
     try {
       const list = await storage.getChargebacksByContact(Number(req.params.contactId));
       res.json(list);
@@ -46,7 +46,7 @@ export function registerChargebacksRoutes(app: Express) {
     }
   });
 
-  app.get("/api/chargebacks/deal/:dealId", isAuthenticated, async (req, res) => {
+  app.get("/api/chargebacks/deal/:dealId", isDashboardUser, async (req, res) => {
     try {
       const list = await storage.getChargebacksByDeal(Number(req.params.dealId));
       res.json(list);
@@ -55,7 +55,7 @@ export function registerChargebacksRoutes(app: Express) {
     }
   });
 
-  app.get("/api/chargebacks/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/chargebacks/:id", isDashboardUser, async (req, res) => {
     try {
       const cb = await storage.getChargeback(Number(req.params.id));
       if (!cb) return res.status(404).json({ message: "Not found" });
@@ -65,7 +65,7 @@ export function registerChargebacksRoutes(app: Express) {
     }
   });
 
-  app.post("/api/chargebacks", isAuthenticated, async (req, res) => {
+  app.post("/api/chargebacks", isDashboardUser, async (req, res) => {
     try {
       const body = { ...req.body };
 
@@ -108,7 +108,7 @@ export function registerChargebacksRoutes(app: Express) {
     }
   });
 
-  app.patch("/api/chargebacks/:id", isAuthenticated, async (req, res) => {
+  app.patch("/api/chargebacks/:id", isDashboardUser, async (req, res) => {
     try {
       const id = Number(req.params.id);
       const body = { ...req.body };
@@ -143,11 +143,8 @@ export function registerChargebacksRoutes(app: Express) {
     }
   });
 
-  app.delete("/api/chargebacks/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/chargebacks/:id", requireRole("admin", "manager"), async (req, res) => {
     try {
-      if ((req.user as any)?.role !== "admin" && (req.user as any)?.role !== "manager") {
-        return res.status(403).json({ message: "Admin or manager required" });
-      }
       await storage.deleteChargeback(Number(req.params.id));
       res.json({ success: true });
     } catch (err: any) {
@@ -155,7 +152,7 @@ export function registerChargebacksRoutes(app: Express) {
     }
   });
 
-  app.post("/api/chargebacks/:id/evidence", isAuthenticated, async (req, res) => {
+  app.post("/api/chargebacks/:id/evidence", isDashboardUser, async (req, res) => {
     try {
       const id = Number(req.params.id);
       const cb = await storage.getChargeback(id);

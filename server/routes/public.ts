@@ -487,7 +487,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
 
 
   // === INTEGRATION REQUEST ===
-  app.post("/api/public/integration-request", async (req, res) => {
+  app.post("/api/public/integration-request", publicLeadRateLimit, async (req, res) => {
     try {
       const schema = z.object({
         softwareName: z.string().min(1, "Software name is required").max(120),
@@ -554,7 +554,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
   });
 
   // === CALLBACK REQUEST ===
-  app.post("/api/public/callback", async (req, res) => {
+  app.post("/api/public/callback", publicLeadRateLimit, async (req, res) => {
     try {
       const { name, phone, bestTime, notes } = req.body;
       const nameParts = (name || "").split(" ");
@@ -591,7 +591,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
     }
   });
 
-  app.post("/api/equipment-order", async (req, res) => {
+  app.post("/api/equipment-order", publicLeadRateLimit, async (req, res) => {
     try {
       const { firstName, lastName, email, phone, businessName, message, items, referralCode, promoCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, landingPage } = req.body;
       if (!firstName || typeof firstName !== "string" || firstName.length > 100) {
@@ -715,7 +715,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
     }
   });
 
-  app.post("/api/public/testimonial-submit", async (req, res) => {
+  app.post("/api/public/testimonial-submit", publicLeadRateLimit, async (req, res) => {
     try {
       const { name, businessName, email, phone, industry, videoLink, savingsAmount, story } = req.body;
       if (!name || typeof name !== "string" || name.length > 200) {

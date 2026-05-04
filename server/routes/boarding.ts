@@ -1,5 +1,5 @@
 import type { Express } from "express";
-import { isAuthenticated, requireRole } from "../replit_integrations/auth";
+import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import {
   submitMerchantToProcessor,
@@ -9,7 +9,7 @@ import {
 } from "../services/processor-api";
 
 export function registerBoardingRoutes(app: Express) {
-  app.post("/api/deals/:id/submit-to-processor", isAuthenticated, async (req, res) => {
+  app.post("/api/deals/:id/submit-to-processor", isDashboardUser, async (req, res) => {
     try {
       const dealId = Number(req.params.id);
       const deal = await storage.getDeal(dealId);
@@ -131,7 +131,7 @@ export function registerBoardingRoutes(app: Express) {
     }
   });
 
-  app.post("/api/deals/:id/refresh-boarding-status", isAuthenticated, async (req, res) => {
+  app.post("/api/deals/:id/refresh-boarding-status", isDashboardUser, async (req, res) => {
     try {
       const dealId = Number(req.params.id);
       const deal = await storage.getDeal(dealId);
@@ -222,7 +222,7 @@ export function registerBoardingRoutes(app: Express) {
     }
   });
 
-  app.get("/api/deals/:id/boarding-status", isAuthenticated, async (req, res) => {
+  app.get("/api/deals/:id/boarding-status", isDashboardUser, async (req, res) => {
     try {
       const dealId = Number(req.params.id);
       const deal = await storage.getDeal(dealId);
@@ -241,7 +241,7 @@ export function registerBoardingRoutes(app: Express) {
     }
   });
 
-  app.get("/api/deals/:id/mid-stats", isAuthenticated, async (req, res) => {
+  app.get("/api/deals/:id/mid-stats", isDashboardUser, async (req, res) => {
     try {
       const dealId = Number(req.params.id);
       const days = req.query.days ? Number(req.query.days) : 30;
@@ -267,7 +267,7 @@ export function registerBoardingRoutes(app: Express) {
     }
   });
 
-  app.post("/api/deals/:id/refresh-mid-stats", isAuthenticated, async (req, res) => {
+  app.post("/api/deals/:id/refresh-mid-stats", isDashboardUser, async (req, res) => {
     try {
       const dealId = Number(req.params.id);
       const deal = await storage.getDeal(dealId);
@@ -329,7 +329,7 @@ export function registerBoardingRoutes(app: Express) {
     }
   });
 
-  app.get("/api/mid-stats/pipeline-summary", isAuthenticated, async (req, res) => {
+  app.get("/api/mid-stats/pipeline-summary", isDashboardUser, async (req, res) => {
     try {
       const days = req.query.days ? Number(req.query.days) : 30;
       const allDealsResult = await storage.getDeals({ limit: 10000 });
@@ -388,7 +388,7 @@ export function registerBoardingRoutes(app: Express) {
     }
   });
 
-  app.get("/api/boarding/submissions", isAuthenticated, async (req, res) => {
+  app.get("/api/boarding/submissions", isDashboardUser, async (req, res) => {
     try {
       const statusFilter = (req.query.status as string | undefined) || undefined;
       const allDealsResult = await storage.getDeals({ limit: 10000 });
@@ -466,7 +466,7 @@ export function registerBoardingRoutes(app: Express) {
     }
   });
 
-  app.get("/api/mid-stats/summary", isAuthenticated, async (req, res) => {
+  app.get("/api/mid-stats/summary", isDashboardUser, async (req, res) => {
     try {
       const allDealsResult = await storage.getDeals({ limit: 10000 });
       const allDeals = allDealsResult.data;

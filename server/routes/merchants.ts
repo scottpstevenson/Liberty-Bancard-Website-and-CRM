@@ -1,5 +1,5 @@
 import type { Express, RequestHandler } from "express";
-import { isAuthenticated, isDashboardUser } from "../replit_integrations/auth";
+import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
 import { and } from "drizzle-orm";
@@ -455,7 +455,7 @@ export function registerMerchantsRoutes(app: Express) {
 
 
   // === EQUIPMENT ORDERS ===
-  app.get("/api/equipment-orders", isAuthenticated, async (req, res) => {
+  app.get("/api/equipment-orders", isDashboardUser, async (req, res) => {
     try {
       const dealId = req.query.dealId ? Number(req.query.dealId) : undefined;
       const orders = dealId ? await storage.getEquipmentOrdersByDeal(dealId) : await storage.getEquipmentOrders();
@@ -465,7 +465,7 @@ export function registerMerchantsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/equipment-orders/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/equipment-orders/:id", isDashboardUser, async (req, res) => {
     try {
       const order = await storage.getEquipmentOrder(Number(req.params.id));
       if (!order) return res.status(404).json({ message: "Not found" });
@@ -475,7 +475,7 @@ export function registerMerchantsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/equipment-orders", isAuthenticated, async (req, res) => {
+  app.post("/api/equipment-orders", isDashboardUser, async (req, res) => {
     try {
       const input = insertEquipmentOrderSchema.parse(req.body);
       const order = await storage.createEquipmentOrder(input);
@@ -486,7 +486,7 @@ export function registerMerchantsRoutes(app: Express) {
     }
   });
 
-  app.patch("/api/equipment-orders/:id", isAuthenticated, async (req, res) => {
+  app.patch("/api/equipment-orders/:id", requireRole("admin", "manager"), async (req, res) => {
     try {
       const updated = await storage.updateEquipmentOrder(Number(req.params.id), req.body);
       if (!updated) return res.status(404).json({ message: "Not found" });
@@ -498,7 +498,7 @@ export function registerMerchantsRoutes(app: Express) {
 
 
   // === ONBOARDING STEPS ===
-  app.get("/api/onboarding-steps/deal/:dealId", isAuthenticated, async (req, res) => {
+  app.get("/api/onboarding-steps/deal/:dealId", isDashboardUser, async (req, res) => {
     try {
       const steps = await storage.getOnboardingStepsByDeal(Number(req.params.dealId));
       res.json(steps);
@@ -507,7 +507,7 @@ export function registerMerchantsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/onboarding-steps/application/:applicationId", isAuthenticated, async (req, res) => {
+  app.get("/api/onboarding-steps/application/:applicationId", isDashboardUser, async (req, res) => {
     try {
       const steps = await storage.getOnboardingStepsByApplication(Number(req.params.applicationId));
       res.json(steps);
@@ -516,7 +516,7 @@ export function registerMerchantsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/onboarding-steps", isAuthenticated, async (req, res) => {
+  app.post("/api/onboarding-steps", requireRole("admin", "manager"), async (req, res) => {
     try {
       const input = insertOnboardingStepSchema.parse(req.body);
       const step = await storage.createOnboardingStep(input);
@@ -527,7 +527,7 @@ export function registerMerchantsRoutes(app: Express) {
     }
   });
 
-  app.patch("/api/onboarding-steps/:id", isAuthenticated, async (req, res) => {
+  app.patch("/api/onboarding-steps/:id", requireRole("admin", "manager"), async (req, res) => {
     try {
       const updated = await storage.updateOnboardingStep(Number(req.params.id), req.body);
       if (!updated) return res.status(404).json({ message: "Not found" });
