@@ -7,7 +7,7 @@ import { insertEquipmentOrderSchema, insertMerchantApplicationSchema, insertMerc
 import { getDocumentStatus, sendDocumentForEsign } from "../services/ghl";
 import { syncMerchantApplicationToGhl } from "../services/ghl-form-sync";
 import { createContactGhlFirst } from "../services/contact-writer";
-import { sendMerchantWelcomeEmail } from "../services/merchant-welcome";
+import { sendMerchantWelcomeEmail, sendMerchantPortalWelcomeEmail } from "../services/merchant-welcome";
 import { sendApplicationApprovedEmail, sendApplicationDeclinedEmail } from "../services/merchant-application-status";
 import { parse } from "csv-parse/sync";
 import path from "path";
@@ -403,6 +403,9 @@ export function registerMerchantsRoutes(app: Express) {
         return res.status(403).json({ message: "Admin or manager role required" });
       }
       const id = Number(req.params.id);
+      const existing = await storage.getMerchantProfile(id);
+      if (!existing) return res.status(404).json({ message: "Not found" });
+
       const allowed = ["merchantMid", "accountStatus", "programType", "currentMonthlyVolume"] as const;
       const updates: Record<string, unknown> = {};
       for (const k of allowed) {
@@ -415,9 +418,38 @@ export function registerMerchantsRoutes(app: Express) {
       }
       const updated = await storage.updateMerchantProfile(id, updates as any);
       if (!updated) return res.status(404).json({ message: "Not found" });
+
+      const wasActivated =
+        existing.accountStatus !== "active" && updated.accountStatus === "active";
+
+      if (wasActivated) {
+        sendMerchantPortalWelcomeEmail(updated).catch(err =>
+          console.error("[Merchant Profile] Portal welcome email error:", err)
+        );
+      }
+
       res.json(updated);
     } catch (err: any) {
       res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/merchant-profiles", isAdminOrManager, async (req, res) => {
+    try {
+      const profiles = await storage.getMerchantProfiles();
+      res.json(profiles);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/merchant-profiles/:id", isAdminOrManager, async (req, res) => {
+    try {
+      const profile = await storage.getMerchantProfile(Number(req.params.id));
+      if (!profile) return res.status(404).json({ message: "Not found" });
+      res.json(profile);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
     }
   });
 
