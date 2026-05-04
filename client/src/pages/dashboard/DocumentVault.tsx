@@ -16,6 +16,7 @@ import {
   FolderOpen, Search, Download, Trash2, Filter, FileText,
   FileImage, File, Calendar, User, Building2, ExternalLink,
 } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 
 function formatFileSize(bytes: number | null | undefined): string {
   if (!bytes) return "—";
@@ -123,19 +124,16 @@ export default function DocumentVault() {
 
   return (
     <div className="space-y-6 p-4 md:p-6 max-w-7xl mx-auto" data-testid="document-vault-page">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2" data-testid="text-vault-title">
-            <FolderOpen className="h-6 w-6" /> Document Vault
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            All merchant KYC documents across all records
-          </p>
-        </div>
-        <div className="text-sm text-muted-foreground" data-testid="text-doc-count">
-          {docs.length} document{docs.length !== 1 ? "s" : ""} total
-        </div>
-      </div>
+      <PageHeader
+        title="Document Vault"
+        subtitle="All merchant KYC documents across all records"
+        data-testid="text-vault-title"
+        actions={
+          <div className="text-sm text-muted-foreground" data-testid="text-doc-count">
+            {docs.length} document{docs.length !== 1 ? "s" : ""} total
+          </div>
+        }
+      />
 
       {/* Category Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

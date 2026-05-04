@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
 import { TrendingUp, Star, ThumbsDown, Minus, MessageSquare, BarChart3, Users } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 import type { NpsResponse } from "@shared/schema";
 
 interface NpsStats {
@@ -74,10 +75,11 @@ export default function NpsDashboard() {
 
   return (
     <div className="space-y-8" data-testid="nps-dashboard-page">
-      <div>
-        <h1 className="text-2xl font-bold" data-testid="text-page-title">NPS / CSAT Dashboard</h1>
-        <p className="text-muted-foreground mt-1">Net Promoter Score tracking and merchant satisfaction surveys</p>
-      </div>
+      <PageHeader
+        title="NPS / CSAT Dashboard"
+        subtitle="Net Promoter Score tracking and merchant satisfaction surveys"
+        data-testid="text-page-title"
+      />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card data-testid="card-nps-score">

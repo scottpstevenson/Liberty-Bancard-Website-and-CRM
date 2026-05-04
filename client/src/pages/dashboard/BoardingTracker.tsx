@@ -12,6 +12,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
+import { ResponsiveTable } from "@/components/ui/responsive-table";
+import { PageHeader } from "@/components/ui/page-header";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Search, RefreshCw, Loader2, Inbox, ExternalLink, Building2,
@@ -183,28 +185,25 @@ export default function BoardingTracker() {
         <title>Boarding Submissions | Liberty Bancard</title>
       </Helmet>
 
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">
-            Boarding Submissions
-          </h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Underwriting tracker for all deals submitted to the processor.
-          </p>
-        </div>
-        <Button
-          onClick={() => refreshAllMutation.mutate()}
-          disabled={refreshAllMutation.isPending || inFlightCount === 0}
-          data-testid="button-refresh-all"
-        >
-          {refreshAllMutation.isPending ? (
-            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-          ) : (
-            <RefreshCw className="w-4 h-4 mr-2" />
-          )}
-          Refresh All Statuses{inFlightCount > 0 ? ` (${inFlightCount})` : ""}
-        </Button>
-      </div>
+      <PageHeader
+        title="Boarding Submissions"
+        subtitle="Underwriting tracker for all deals submitted to the processor."
+        data-testid="header-boarding"
+        actions={
+          <Button
+            onClick={() => refreshAllMutation.mutate()}
+            disabled={refreshAllMutation.isPending || inFlightCount === 0}
+            data-testid="button-refresh-all"
+          >
+            {refreshAllMutation.isPending ? (
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <RefreshCw className="w-4 h-4 mr-2" />
+            )}
+            Refresh All Statuses{inFlightCount > 0 ? ` (${inFlightCount})` : ""}
+          </Button>
+        }
+      />
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         {(
@@ -288,16 +287,17 @@ export default function BoardingTracker() {
               </p>
             </div>
           ) : (
+            <ResponsiveTable data-testid="table-boarding-scroll">
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Merchant</TableHead>
-                  <TableHead>Application ID</TableHead>
+                  <TableHead className="hidden md:table-cell">Application ID</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Submitted</TableHead>
-                  <TableHead>Days Pending</TableHead>
-                  <TableHead>Latest Log</TableHead>
-                  <TableHead>MID</TableHead>
+                  <TableHead className="hidden sm:table-cell">Submitted</TableHead>
+                  <TableHead className="hidden sm:table-cell">Days</TableHead>
+                  <TableHead className="hidden lg:table-cell">Latest Log</TableHead>
+                  <TableHead className="hidden lg:table-cell">MID</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -324,7 +324,7 @@ export default function BoardingTracker() {
                         </div>
                       </div>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="hidden md:table-cell">
                       <span
                         className="font-mono text-xs"
                         data-testid={`text-app-id-${s.dealId}`}
@@ -340,7 +340,7 @@ export default function BoardingTracker() {
                         {getStatusLabel(s.boardingStatus)}
                       </Badge>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="hidden sm:table-cell">
                       <span
                         className="text-sm text-muted-foreground"
                         data-testid={`text-submitted-${s.dealId}`}
@@ -348,7 +348,7 @@ export default function BoardingTracker() {
                         {formatDate(s.boardingSubmittedAt)}
                       </span>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="hidden sm:table-cell">
                       <span
                         className="text-sm font-medium"
                         data-testid={`text-days-${s.dealId}`}
@@ -356,7 +356,7 @@ export default function BoardingTracker() {
                         {s.daysPending !== null ? `${s.daysPending}d` : "—"}
                       </span>
                     </TableCell>
-                    <TableCell className="max-w-xs">
+                    <TableCell className="hidden lg:table-cell max-w-xs">
                       <p
                         className="text-xs text-muted-foreground truncate"
                         title={s.latestLogMessage || ""}
@@ -370,7 +370,7 @@ export default function BoardingTracker() {
                         </p>
                       )}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="hidden lg:table-cell">
                       <span
                         className="font-mono text-xs"
                         data-testid={`text-mid-${s.dealId}`}
@@ -398,6 +398,7 @@ export default function BoardingTracker() {
                 ))}
               </TableBody>
             </Table>
+            </ResponsiveTable>
           )}
         </CardContent>
       </Card>

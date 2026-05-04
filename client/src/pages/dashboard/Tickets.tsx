@@ -5,7 +5,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -21,6 +21,8 @@ import { exportToCSV } from "@/lib/export-csv";
 import SavedFilterBar from "@/components/SavedFilterBar";
 import DashboardErrorState from "@/components/DashboardErrorState";
 import { DataState } from "@/components/ui/data-state";
+import { ResponsiveTable } from "@/components/ui/responsive-table";
+import { PageHeader } from "@/components/ui/page-header";
 import { toastError } from "@/lib/toast-helpers";
 import type { Ticket, Contact, TicketComment } from "@shared/schema";
 import { TICKET_CATEGORIES, SUPPORT_STAGES } from "@shared/schema";
@@ -418,42 +420,45 @@ export default function Tickets() {
 
   return (
     <div className="space-y-6" data-testid="tickets-page">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <h2 className="text-2xl font-bold" data-testid="text-tickets-title">Support Tickets</h2>
-        <div className="flex items-center gap-3 flex-wrap">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              const exportData = (tickets || []).map(t => ({
-                subject: t.subject,
-                status: t.status || "",
-                priority: t.priority || "",
-                category: t.category || "",
-                assignedTo: t.assignedTo || "",
-                createdAt: t.createdAt ? new Date(t.createdAt).toLocaleDateString() : "",
-              }));
-              exportToCSV(exportData, "tickets", [
-                { key: "subject", label: "Subject" },
-                { key: "status", label: "Status" },
-                { key: "priority", label: "Priority" },
-                { key: "category", label: "Category" },
-                { key: "assignedTo", label: "Assigned To" },
-                { key: "createdAt", label: "Created At" },
-              ]);
-            }}
-            data-testid="button-export-tickets"
-          >
-            <Download className="w-4 h-4 mr-1" /> Export Tickets
-          </Button>
-        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-          <DialogTrigger asChild>
-            <Button data-testid="button-new-ticket" className="gap-2">
+      <PageHeader
+        title="Support Tickets"
+        data-testid="text-tickets-title"
+        actions={
+          <div className="flex items-center gap-3 flex-wrap">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                const exportData = (tickets || []).map(t => ({
+                  subject: t.subject,
+                  status: t.status || "",
+                  priority: t.priority || "",
+                  category: t.category || "",
+                  assignedTo: t.assignedTo || "",
+                  createdAt: t.createdAt ? new Date(t.createdAt).toLocaleDateString() : "",
+                }));
+                exportToCSV(exportData, "tickets", [
+                  { key: "subject", label: "Subject" },
+                  { key: "status", label: "Status" },
+                  { key: "priority", label: "Priority" },
+                  { key: "category", label: "Category" },
+                  { key: "assignedTo", label: "Assigned To" },
+                  { key: "createdAt", label: "Created At" },
+                ]);
+              }}
+              data-testid="button-export-tickets"
+            >
+              <Download className="w-4 h-4 mr-1" /> Export
+            </Button>
+            <Button data-testid="button-new-ticket" className="gap-2" onClick={() => setCreateOpen(true)}>
               <Plus className="w-4 h-4" />
               New Ticket
             </Button>
-          </DialogTrigger>
-          <DialogContent data-testid="dialog-create-ticket">
+          </div>
+        }
+      />
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent data-testid="dialog-create-ticket">
             <DialogHeader>
               <DialogTitle>Create Support Ticket</DialogTitle>
             </DialogHeader>
@@ -528,9 +533,7 @@ export default function Tickets() {
               </div>
             </div>
           </DialogContent>
-        </Dialog>
-        </div>
-      </div>
+      </Dialog>
 
       <SavedFilterBar
         entityType="ticket"
@@ -539,17 +542,18 @@ export default function Tickets() {
       />
 
       <Card>
-        <CardContent className="p-0 overflow-x-auto">
-          <Table data-testid="table-tickets" className="min-w-[700px]">
+        <CardContent className="p-0">
+          <ResponsiveTable data-testid="table-tickets-scroll">
+          <Table data-testid="table-tickets">
             <TableHeader>
               <TableRow>
                 <TableHead>ID</TableHead>
                 <TableHead>Subject</TableHead>
-                <TableHead>Category</TableHead>
+                <TableHead className="hidden md:table-cell">Category</TableHead>
                 <TableHead>Priority</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead>SLA Deadline</TableHead>
-                <TableHead>Created</TableHead>
+                <TableHead className="hidden lg:table-cell">SLA Deadline</TableHead>
+                <TableHead className="hidden sm:table-cell">Created</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -589,7 +593,7 @@ export default function Tickets() {
                   >
                     <TableCell className="font-medium" data-testid={`text-ticket-id-${ticket.id}`}>#{ticket.id}</TableCell>
                     <TableCell data-testid={`text-ticket-subject-${ticket.id}`}>{ticket.subject}</TableCell>
-                    <TableCell data-testid={`text-ticket-category-${ticket.id}`}>{ticket.category}</TableCell>
+                    <TableCell className="hidden md:table-cell" data-testid={`text-ticket-category-${ticket.id}`}>{ticket.category}</TableCell>
                     <TableCell>
                       <Badge variant={getPriorityVariant(ticket.priority)} data-testid={`badge-priority-${ticket.id}`}>
                         {ticket.priority}
@@ -600,7 +604,7 @@ export default function Tickets() {
                         {ticket.status}
                       </span>
                     </TableCell>
-                    <TableCell data-testid={`text-ticket-sla-${ticket.id}`}>
+                    <TableCell className="hidden lg:table-cell" data-testid={`text-ticket-sla-${ticket.id}`}>
                       <div className="flex items-center gap-2">
                         {ticket.slaDeadline ? new Date(ticket.slaDeadline).toLocaleString() : "N/A"}
                         {isSlaBreached(ticket) && (
@@ -611,7 +615,7 @@ export default function Tickets() {
                         )}
                       </div>
                     </TableCell>
-                    <TableCell data-testid={`text-ticket-created-${ticket.id}`}>
+                    <TableCell className="hidden sm:table-cell" data-testid={`text-ticket-created-${ticket.id}`}>
                       {ticket.createdAt ? new Date(ticket.createdAt).toLocaleDateString() : "N/A"}
                     </TableCell>
                   </TableRow>
@@ -619,6 +623,7 @@ export default function Tickets() {
               )}
             </TableBody>
           </Table>
+          </ResponsiveTable>
         </CardContent>
       </Card>
 

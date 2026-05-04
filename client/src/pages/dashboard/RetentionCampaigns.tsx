@@ -10,8 +10,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Loader2, Plus, Trash2, Edit, Zap, Settings } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 import type { RetentionCampaignConfig } from "@shared/schema";
 
 const ALERT_TYPE_OPTIONS = [
@@ -203,28 +204,25 @@ export default function RetentionCampaigns() {
 
   return (
     <div className="space-y-8" data-testid="retention-campaigns-page">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold" data-testid="text-page-title">Retention Campaigns</h1>
-          <p className="text-muted-foreground mt-1">
-            Configure automatic outreach tasks when merchant health alerts fire
-          </p>
-        </div>
-        <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) setEditConfig(undefined); }}>
-          <DialogTrigger asChild>
-            <Button data-testid="button-add-config">
-              <Plus className="w-4 h-4 mr-2" />
-              Add Config
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-lg">
-            <DialogHeader>
-              <DialogTitle>{editConfig ? "Edit" : "New"} Retention Campaign Config</DialogTitle>
-            </DialogHeader>
-            <ConfigForm config={editConfig} onClose={() => { setDialogOpen(false); setEditConfig(undefined); }} />
-          </DialogContent>
-        </Dialog>
-      </div>
+      <PageHeader
+        title="Retention Campaigns"
+        subtitle="Configure automatic outreach tasks when merchant health alerts fire"
+        data-testid="text-page-title"
+        actions={
+          <Button data-testid="button-add-config" onClick={() => setDialogOpen(true)}>
+            <Plus className="w-4 h-4 mr-2" />
+            Add Config
+          </Button>
+        }
+      />
+      <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) setEditConfig(undefined); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{editConfig ? "Edit" : "New"} Retention Campaign Config</DialogTitle>
+          </DialogHeader>
+          <ConfigForm config={editConfig} onClose={() => { setDialogOpen(false); setEditConfig(undefined); }} />
+        </DialogContent>
+      </Dialog>
 
       <Card data-testid="card-how-it-works">
         <CardHeader>

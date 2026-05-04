@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -18,6 +18,8 @@ import Comments from "@/components/Comments";
 import SavedFilterBar from "@/components/SavedFilterBar";
 import DashboardErrorState from "@/components/DashboardErrorState";
 import { DataState } from "@/components/ui/data-state";
+import { ResponsiveTable } from "@/components/ui/responsive-table";
+import { PageHeader } from "@/components/ui/page-header";
 import { toastError } from "@/lib/toast-helpers";
 import type { Task } from "@shared/schema";
 
@@ -291,135 +293,137 @@ export default function Tasks() {
 
   return (
     <div className="space-y-6" data-testid="tasks-page">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <h2 className="text-2xl font-bold" data-testid="text-tasks-title">Tasks</h2>
-        <div className="flex items-center gap-3 flex-wrap">
-          <Select value={filterStatus} onValueChange={setFilterStatus}>
-            <SelectTrigger className="w-[160px]" data-testid="select-filter-status">
-              <SelectValue placeholder="Filter by status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All</SelectItem>
-              {STATUS_OPTIONS.map((s) => (
-                <SelectItem key={s} value={s}>{getStatusLabel(s)}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button
-            variant="outline"
-            data-testid="button-ai-generate-tasks"
-            className="gap-2"
-            onClick={() => generateTasksMutation.mutate()}
-            disabled={generateTasksMutation.isPending}
-          >
-            {generateTasksMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-            AI Generate Tasks
-          </Button>
-          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-            <DialogTrigger asChild>
-              <Button data-testid="button-new-task" className="gap-2">
-                <Plus className="w-4 h-4" />
-                New Task
-              </Button>
-            </DialogTrigger>
-            <DialogContent data-testid="dialog-create-task">
-              <DialogHeader>
-                <DialogTitle>Create New Task</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4 pt-2">
-                <div className="space-y-2">
-                  <Label>Title</Label>
-                  <Input
-                    value={newTask.title}
-                    onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
-                    placeholder="Task title"
-                    data-testid="input-task-title"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Description</Label>
-                  <Textarea
-                    value={newTask.description}
-                    onChange={(e) => setNewTask({ ...newTask, description: e.target.value })}
-                    placeholder="Task description..."
-                    data-testid="input-task-description"
-                  />
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Assigned To</Label>
-                    <Input
-                      value={newTask.assignedTo}
-                      onChange={(e) => setNewTask({ ...newTask, assignedTo: e.target.value })}
-                      placeholder="Name"
-                      data-testid="input-task-assigned"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Due Date</Label>
-                    <Input
-                      type="datetime-local"
-                      value={newTask.dueDate}
-                      onChange={(e) => setNewTask({ ...newTask, dueDate: e.target.value })}
-                      data-testid="input-task-duedate"
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label>Priority</Label>
-                  <Select value={newTask.priority} onValueChange={(v) => setNewTask({ ...newTask, priority: v })}>
-                    <SelectTrigger data-testid="select-task-priority">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {PRIORITY_OPTIONS.map((p) => (
-                        <SelectItem key={p} value={p}>{getPriorityLabel(p)}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div className="space-y-2">
-                    <Label>Deal ID</Label>
-                    <Input
-                      value={newTask.dealId}
-                      onChange={(e) => setNewTask({ ...newTask, dealId: e.target.value })}
-                      placeholder="Optional"
-                      data-testid="input-task-deal-id"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Contact ID</Label>
-                    <Input
-                      value={newTask.contactId}
-                      onChange={(e) => setNewTask({ ...newTask, contactId: e.target.value })}
-                      placeholder="Optional"
-                      data-testid="input-task-contact-id"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Ticket ID</Label>
-                    <Input
-                      value={newTask.ticketId}
-                      onChange={(e) => setNewTask({ ...newTask, ticketId: e.target.value })}
-                      placeholder="Optional"
-                      data-testid="input-task-ticket-id"
-                    />
-                  </div>
-                </div>
-                <div className="flex justify-end gap-2 pt-2">
-                  <Button variant="outline" onClick={() => setCreateOpen(false)} data-testid="button-cancel-task">
-                    Cancel
-                  </Button>
-                  <Button onClick={handleCreateTask} disabled={createTaskMutation.isPending} data-testid="button-submit-task">
-                    {createTaskMutation.isPending ? "Creating..." : "Create Task"}
-                  </Button>
-                </div>
+      <PageHeader
+        title="Tasks"
+        data-testid="text-tasks-title"
+        actions={
+          <div className="flex items-center gap-3 flex-wrap">
+            <Select value={filterStatus} onValueChange={setFilterStatus}>
+              <SelectTrigger className="w-[160px]" data-testid="select-filter-status">
+                <SelectValue placeholder="Filter by status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All</SelectItem>
+                {STATUS_OPTIONS.map((s) => (
+                  <SelectItem key={s} value={s}>{getStatusLabel(s)}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              data-testid="button-ai-generate-tasks"
+              className="gap-2"
+              onClick={() => generateTasksMutation.mutate()}
+              disabled={generateTasksMutation.isPending}
+            >
+              {generateTasksMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+              AI Generate Tasks
+            </Button>
+            <Button data-testid="button-new-task" className="gap-2" onClick={() => setCreateOpen(true)}>
+              <Plus className="w-4 h-4" />
+              New Task
+            </Button>
+          </div>
+        }
+      />
+
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent data-testid="dialog-create-task">
+          <DialogHeader>
+            <DialogTitle>Create New Task</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div className="space-y-2">
+              <Label>Title</Label>
+              <Input
+                value={newTask.title}
+                onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
+                placeholder="Task title"
+                data-testid="input-task-title"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Description</Label>
+              <Textarea
+                value={newTask.description}
+                onChange={(e) => setNewTask({ ...newTask, description: e.target.value })}
+                placeholder="Task description..."
+                data-testid="input-task-description"
+              />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Assigned To</Label>
+                <Input
+                  value={newTask.assignedTo}
+                  onChange={(e) => setNewTask({ ...newTask, assignedTo: e.target.value })}
+                  placeholder="Name"
+                  data-testid="input-task-assigned"
+                />
               </div>
-            </DialogContent>
-          </Dialog>
-        </div>
-      </div>
+              <div className="space-y-2">
+                <Label>Due Date</Label>
+                <Input
+                  type="datetime-local"
+                  value={newTask.dueDate}
+                  onChange={(e) => setNewTask({ ...newTask, dueDate: e.target.value })}
+                  data-testid="input-task-duedate"
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Priority</Label>
+              <Select value={newTask.priority} onValueChange={(v) => setNewTask({ ...newTask, priority: v })}>
+                <SelectTrigger data-testid="select-task-priority">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PRIORITY_OPTIONS.map((p) => (
+                    <SelectItem key={p} value={p}>{getPriorityLabel(p)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label>Deal ID</Label>
+                <Input
+                  value={newTask.dealId}
+                  onChange={(e) => setNewTask({ ...newTask, dealId: e.target.value })}
+                  placeholder="Optional"
+                  data-testid="input-task-deal-id"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Contact ID</Label>
+                <Input
+                  value={newTask.contactId}
+                  onChange={(e) => setNewTask({ ...newTask, contactId: e.target.value })}
+                  placeholder="Optional"
+                  data-testid="input-task-contact-id"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Ticket ID</Label>
+                <Input
+                  value={newTask.ticketId}
+                  onChange={(e) => setNewTask({ ...newTask, ticketId: e.target.value })}
+                  placeholder="Optional"
+                  data-testid="input-task-ticket-id"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => setCreateOpen(false)} data-testid="button-cancel-task">
+                Cancel
+              </Button>
+              <Button onClick={handleCreateTask} disabled={createTaskMutation.isPending} data-testid="button-submit-task">
+                {createTaskMutation.isPending ? "Creating..." : "Create Task"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {selectedTaskIds.size > 0 && (
         <div className="flex items-center gap-3 flex-wrap" data-testid="tasks-bulk-bar">
@@ -508,8 +512,8 @@ export default function Tasks() {
         }}
       />
 
-      <div className="border rounded-md overflow-x-auto" data-testid="tasks-table">
-        <Table className="min-w-[600px]">
+      <ResponsiveTable data-testid="tasks-table">
+        <Table>
           <TableHeader>
             <TableRow>
               <TableHead className="w-10">
@@ -520,11 +524,11 @@ export default function Tasks() {
                 />
               </TableHead>
               <TableHead>Title</TableHead>
-              <TableHead>Assigned To</TableHead>
-              <TableHead>Due Date</TableHead>
+              <TableHead className="hidden md:table-cell">Assigned To</TableHead>
+              <TableHead className="hidden sm:table-cell">Due Date</TableHead>
               <TableHead>Priority</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead>Related</TableHead>
+              <TableHead className="hidden lg:table-cell">Related</TableHead>
               <TableHead>Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -566,10 +570,10 @@ export default function Tasks() {
                       )}
                     </div>
                   </TableCell>
-                  <TableCell data-testid={`text-task-assigned-${task.id}`}>
+                  <TableCell className="hidden md:table-cell" data-testid={`text-task-assigned-${task.id}`}>
                     {task.assignedTo || "Unassigned"}
                   </TableCell>
-                  <TableCell data-testid={`text-task-due-${task.id}`}>
+                  <TableCell className="hidden sm:table-cell" data-testid={`text-task-due-${task.id}`}>
                     <div className="flex items-center gap-2">
                       {task.dueDate ? new Date(task.dueDate).toLocaleDateString() : "No date"}
                       {overdue && (
@@ -589,7 +593,7 @@ export default function Tasks() {
                       {getStatusLabel(task.status)}
                     </Badge>
                   </TableCell>
-                  <TableCell data-testid={`text-task-related-${task.id}`}>
+                  <TableCell className="hidden lg:table-cell" data-testid={`text-task-related-${task.id}`}>
                     <div className="text-xs text-muted-foreground space-y-0.5">
                       {task.dealId && <div>Deal #{task.dealId}</div>}
                       {task.contactId && <div>Contact #{task.contactId}</div>}
@@ -634,7 +638,7 @@ export default function Tasks() {
             })}
           </TableBody>
         </Table>
-      </div>
+      </ResponsiveTable>
     </div>
   );
 }
