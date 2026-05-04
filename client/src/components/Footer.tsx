@@ -1,11 +1,12 @@
 import { Link } from "wouter";
 import { Phone, Mail, Calendar } from "lucide-react";
 import logoWhite from "@assets/logo-white.png";
+import { CALENDAR_URL } from "@/lib/constants";
 
 export function Footer() {
   const quickLinks = [
     { label: "Home", href: "/" },
-    { label: "Get Started", href: "/get-started" },
+    { label: "Get Started", href: CALENDAR_URL, external: true },
     { label: "Upload Statement", href: "/upload-statement" },
     { label: "About & Contact", href: "/about-contact" },
     { label: "Support", href: "/support" },
@@ -28,7 +29,7 @@ export function Footer() {
     { label: "Savings Calculator", href: "/savings-calculator" },
     { label: "Quick Estimate", href: "/estimate" },
     { label: "Upload Statement", href: "/upload-statement" },
-    { label: "Get Started", href: "/get-started" },
+    { label: "Get Started", href: CALENDAR_URL, external: true },
   ];
 
   const solutionLinks = [
@@ -144,13 +145,25 @@ export function Footer() {
             <ul className="space-y-3">
               {quickLinks.map((link) => (
                 <li key={link.href}>
-                  <Link
-                    href={link.href}
-                    className="text-primary-foreground/70 text-sm hover:text-primary-foreground transition-colors"
-                    data-testid={`link-footer-${link.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
-                  >
-                    {link.label}
-                  </Link>
+                  {link.external ? (
+                    <a
+                      href={link.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary-foreground/70 text-sm hover:text-primary-foreground transition-colors"
+                      data-testid={`link-footer-${link.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                    >
+                      {link.label}
+                    </a>
+                  ) : (
+                    <Link
+                      href={link.href}
+                      className="text-primary-foreground/70 text-sm hover:text-primary-foreground transition-colors"
+                      data-testid={`link-footer-${link.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                    >
+                      {link.label}
+                    </Link>
+                  )}
                 </li>
               ))}
             </ul>
@@ -191,13 +204,25 @@ export function Footer() {
             <ul className="space-y-3">
               {quizLinks.map((link) => (
                 <li key={link.href}>
-                  <Link
-                    href={link.href}
-                    className="text-primary-foreground/70 text-sm hover:text-primary-foreground transition-colors"
-                    data-testid={`link-footer-quiz-${link.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
-                  >
-                    {link.label}
-                  </Link>
+                  {link.external ? (
+                    <a
+                      href={link.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary-foreground/70 text-sm hover:text-primary-foreground transition-colors"
+                      data-testid={`link-footer-quiz-${link.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                    >
+                      {link.label}
+                    </a>
+                  ) : (
+                    <Link
+                      href={link.href}
+                      className="text-primary-foreground/70 text-sm hover:text-primary-foreground transition-colors"
+                      data-testid={`link-footer-quiz-${link.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                    >
+                      {link.label}
+                    </Link>
+                  )}
                 </li>
               ))}
             </ul>
