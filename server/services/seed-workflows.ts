@@ -1,24 +1,11 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
 import { storage } from "../storage";
+import workflowsData from "../data/seeds/workflows.json";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const workflowsData = JSON.parse(
-  readFileSync(join(__dirname, "../data/seeds/workflows.json"), "utf-8"),
-) as {
-  PREBUILT_WORKFLOWS: any[];
-  DEFAULT_SLA_CONFIGS: any[];
-  DEFAULT_MESSAGE_TEMPLATES: any[];
-  DEFAULT_COLLATERAL_PACKETS: any[];
-  PILLAR_SDR_CAMPAIGNS: Array<{ campaign: any; steps: any[] }>;
-};
-
-const PREBUILT_WORKFLOWS = workflowsData.PREBUILT_WORKFLOWS;
-const DEFAULT_SLA_CONFIGS = workflowsData.DEFAULT_SLA_CONFIGS;
-const DEFAULT_MESSAGE_TEMPLATES = workflowsData.DEFAULT_MESSAGE_TEMPLATES;
-const DEFAULT_COLLATERAL_PACKETS = workflowsData.DEFAULT_COLLATERAL_PACKETS;
-const PILLAR_SDR_CAMPAIGNS = workflowsData.PILLAR_SDR_CAMPAIGNS;
+const PREBUILT_WORKFLOWS = (workflowsData as any).PREBUILT_WORKFLOWS as any[];
+const DEFAULT_SLA_CONFIGS = (workflowsData as any).DEFAULT_SLA_CONFIGS as any[];
+const DEFAULT_MESSAGE_TEMPLATES = (workflowsData as any).DEFAULT_MESSAGE_TEMPLATES as any[];
+const DEFAULT_COLLATERAL_PACKETS = (workflowsData as any).DEFAULT_COLLATERAL_PACKETS as any[];
+const PILLAR_SDR_CAMPAIGNS = (workflowsData as any).PILLAR_SDR_CAMPAIGNS as Array<{ campaign: any; steps: any[] }>;
 
 export async function seedDefaultData() {
   try {

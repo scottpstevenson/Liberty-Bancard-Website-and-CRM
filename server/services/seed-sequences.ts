@@ -1,7 +1,5 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
 import { storage } from "../storage";
+import sequencesData from "../data/seeds/sequences.json";
 
 interface SequenceSeed {
   name: string;
@@ -19,10 +17,7 @@ interface SequenceSeed {
   }>;
 }
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const SEQUENCES: SequenceSeed[] = JSON.parse(
-  readFileSync(join(__dirname, "../data/seeds/sequences.json"), "utf-8"),
-);
+const SEQUENCES: SequenceSeed[] = sequencesData as unknown as SequenceSeed[];
 
 export async function seedSequences() {
   try {
