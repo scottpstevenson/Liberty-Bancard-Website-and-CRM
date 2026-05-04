@@ -6,8 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Link } from "wouter";
 import { Calendar, Calculator, BarChart3, Send, CheckCircle, Clock, Phone, Users, ArrowRight, ShieldCheck, Star, MapPin, UtensilsCrossed, Store } from "lucide-react";
 import { trackCalendarBooking } from "@/lib/tracking";
-
-const CALENDAR_URL = import.meta.env.VITE_GHL_CALENDAR_URL || "https://api.leadconnectorhq.com/widget/booking/liberty-bancard";
+import { CALENDAR_URL } from "@/lib/constants";
 
 export default function ThanksStatement() {
 

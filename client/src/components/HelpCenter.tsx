@@ -11,7 +11,7 @@ import {
   MessageCircle, Calendar, Phone, Send, Loader2, Bot, User,
   X, CheckCircle, HelpCircle
 } from "lucide-react";
-import { Link } from "wouter";
+import { CALENDAR_URL } from "@/lib/constants";
 
 interface Message {
   role: "user" | "assistant";
@@ -295,12 +295,12 @@ export function HelpCenter({ context, department, className }: HelpCenterProps) 
                   </p>
                 </div>
                 <div className="space-y-2">
-                  <Link href="/dashboard/calendar">
+                  <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer">
                     <Button className="w-full max-w-xs gap-2" data-testid="help-book-calendar-btn">
                       <Calendar className="w-4 h-4" />
-                      Open Calendar & Book Appointment
+                      Book a Meeting
                     </Button>
-                  </Link>
+                  </a>
                   <a href="tel:9542668214">
                     <Button variant="outline" className="w-full max-w-xs gap-2 mt-2" data-testid="help-book-call-btn">
                       <Phone className="w-4 h-4" />

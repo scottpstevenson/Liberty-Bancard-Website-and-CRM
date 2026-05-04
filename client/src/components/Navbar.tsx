@@ -6,6 +6,7 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 import logoBlue from "@assets/logo-blue.png";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { CALENDAR_URL } from "@/lib/constants";
 
 const solutionLinks = [
   { name: "Liberty Zero™ — Pay $0 to Process", href: "/0-percent-processing", featured: true },
@@ -286,12 +287,12 @@ export function Navbar() {
 
             <div className="hidden lg:flex items-center gap-3">
               <ThemeToggle />
-              <Link href="/get-started" data-testid="link-book-call">
+              <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-book-call">
                 <Button variant="outline" className="gap-2">
                   <Calendar className="w-4 h-4" />
                   Book 10-Min Call
                 </Button>
-              </Link>
+              </a>
               <Link href="/upload-statement" data-testid="link-upload-statement">
                 <Button className="gap-2">
                   <Upload className="w-4 h-4" />
@@ -465,12 +466,12 @@ export function Navbar() {
               <div className="h-px bg-border my-2" />
 
               <div className="flex flex-col gap-2 px-3">
-                <Link href="/get-started" onClick={() => setIsOpen(false)} data-testid="link-mobile-book-call">
+                <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => setIsOpen(false)} data-testid="link-mobile-book-call">
                   <Button variant="outline" className="w-full gap-2">
                     <Calendar className="w-4 h-4" />
                     Book 10-Min Call
                   </Button>
-                </Link>
+                </a>
                 <Link
                   href="/upload-statement"
                   onClick={() => setIsOpen(false)}

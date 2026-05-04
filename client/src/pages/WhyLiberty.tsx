@@ -23,6 +23,7 @@ import {
 import heroTeam from "@assets/images/hero-team.jpg";
 import teamCollab from "@assets/images/team-collab.png";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
+import { CALENDAR_URL } from "@/lib/constants";
 
 const stats = [
   { value: "10+", label: "Years in Payments", icon: Clock },
@@ -224,12 +225,12 @@ export default function WhyLiberty() {
                     Free Statement Review
                   </Button>
                 </Link>
-                <Link href="/get-started" data-testid="link-why-book-call">
+                <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-why-book-call">
                   <Button variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
                     <Calendar className="w-4 h-4" />
                     Book a 10-Minute Call
                   </Button>
-                </Link>
+                </a>
               </div>
             </div>
           </div>

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useToast } from "@/hooks/use-toast";
 import { SEO, getServiceSchema } from "@/components/SEO";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
@@ -25,6 +26,7 @@ import {
   Link2,
 } from "lucide-react";
 
+import { CALENDAR_URL } from "@/lib/constants";
 import imgCloverFlex3 from "@assets/images/terminal-clover-flex-3.png";
 import imgPaxA920 from "@assets/images/terminal-pax-a920.png";
 
@@ -144,11 +146,11 @@ export default function BeatSquareStripe() {
                       <ArrowRight className="w-4 h-4" />
                     </Button>
                   </Link>
-                  <Link href="/get-started" data-testid="link-beat-secondary-cta">
+                  <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-beat-secondary-cta">
                     <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
                       Book a 10-Minute Call
                     </Button>
-                  </Link>
+                  </a>
                   <Button
                     size="lg"
                     variant="ghost"
@@ -542,11 +544,11 @@ export default function BeatSquareStripe() {
                   <ArrowRight className="w-4 h-4" />
                 </Button>
               </Link>
-              <Link href="/get-started" data-testid="link-beat-final-call">
+              <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-beat-final-call">
                 <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
                   Book a 10-Minute Call
                 </Button>
-              </Link>
+              </a>
             </div>
           </div>
         </section>

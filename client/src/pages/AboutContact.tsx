@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import heroTeam from "@assets/images/hero-team.jpg";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
+import { CALENDAR_URL } from "@/lib/constants";
 
 const steps = [
   {
@@ -81,12 +82,12 @@ export default function AboutContact() {
                     Upload Statement
                   </Button>
                 </Link>
-                <Link href="/get-started" data-testid="link-hero-book-call">
+                <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-hero-book-call">
                   <Button variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
                     <Calendar className="w-4 h-4" />
                     Book a 10-Minute Call
                   </Button>
-                </Link>
+                </a>
               </div>
             </div>
           </div>
@@ -208,24 +209,26 @@ export default function AboutContact() {
                       <Calendar className="w-6 h-6 text-sky-400" />
                     </div>
                     <h3 className="font-display font-bold text-foreground mb-2">Book</h3>
-                    <Link
-                      href="/get-started"
+                    <a
+                      href={CALENDAR_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
                       className="text-sm text-muted-foreground hover:text-foreground transition-colors"
                       data-testid="link-contact-book"
                     >
                       Schedule a 10-minute call →
-                    </Link>
+                    </a>
                   </CardContent>
                 </Card>
               </div>
 
               <div className="text-center reveal reveal-delay-4">
-                <Link href="/get-started" data-testid="link-contact-book-call">
+                <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-contact-book-call">
                   <Button className="gap-2">
                     <Calendar className="w-4 h-4" />
                     Book a 10-Minute Call
                   </Button>
-                </Link>
+                </a>
               </div>
             </div>
           </div>
