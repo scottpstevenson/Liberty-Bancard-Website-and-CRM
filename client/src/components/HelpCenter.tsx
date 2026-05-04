@@ -12,6 +12,7 @@ import {
   X, CheckCircle, HelpCircle
 } from "lucide-react";
 import { CALENDAR_URL } from "@/lib/constants";
+import { trackCalendarBooking } from "@/lib/tracking";
 
 interface Message {
   role: "user" | "assistant";
@@ -295,7 +296,7 @@ export function HelpCenter({ context, department, className }: HelpCenterProps) 
                   </p>
                 </div>
                 <div className="space-y-2">
-                  <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer">
+                  <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking(`help_center_${context || "default"}`)}>
                     <Button className="w-full max-w-xs gap-2" data-testid="help-book-calendar-btn">
                       <Calendar className="w-4 h-4" />
                       Book a Meeting

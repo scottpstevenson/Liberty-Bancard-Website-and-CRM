@@ -223,7 +223,7 @@ export default function ThanksApplication() {
                     href={CALENDAR_URL}
                     target="_blank"
                     rel="noopener noreferrer"
-                    onClick={() => trackCalendarBooking()}
+                    onClick={() => trackCalendarBooking("thanks_application")}
                     data-testid="link-thanks-application-book-call"
                   >
                     <Button size="sm" className="gap-2 w-full sm:w-auto">

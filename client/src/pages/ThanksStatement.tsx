@@ -27,7 +27,7 @@ export default function ThanksStatement() {
               We're reviewing your statement line-by-line right now. You'll get your breakdown during business hours - usually the same day.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center flex-wrap">
-              <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking()} data-testid="link-thanks-statement-book-call">
+              <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking("thanks_statement")} data-testid="link-thanks-statement-book-call">
                 <Button size="lg" variant="secondary" className="gap-2">
                   <Calendar className="w-4 h-4" />
                   Book a 10-Minute Walkthrough

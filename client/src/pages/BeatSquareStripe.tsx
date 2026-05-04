@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 
 import { CALENDAR_URL } from "@/lib/constants";
+import { trackCalendarBooking } from "@/lib/tracking";
 import imgCloverFlex3 from "@assets/images/terminal-clover-flex-3.png";
 import imgPaxA920 from "@assets/images/terminal-pax-a920.png";
 
@@ -146,7 +147,7 @@ export default function BeatSquareStripe() {
                       <ArrowRight className="w-4 h-4" />
                     </Button>
                   </Link>
-                  <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-beat-secondary-cta">
+                  <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking("beat_square_stripe_hero")} data-testid="link-beat-secondary-cta">
                     <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
                       Book a 10-Minute Call
                     </Button>
@@ -544,7 +545,7 @@ export default function BeatSquareStripe() {
                   <ArrowRight className="w-4 h-4" />
                 </Button>
               </Link>
-              <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-beat-final-call">
+              <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking("beat_square_stripe_final")} data-testid="link-beat-final-call">
                 <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
                   Book a 10-Minute Call
                 </Button>

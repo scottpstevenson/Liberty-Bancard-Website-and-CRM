@@ -152,16 +152,20 @@ export function trackFormSubmission(formName: string, value?: number) {
   }
 }
 
-export function trackCalendarBooking() {
+export function trackCalendarBooking(source?: string) {
+  const label = source ? `calendar_booking_${source}` : "calendar_booking";
   if (GA_ID) {
     gtagEvent("event", "calendar_booking", {
       event_category: "conversion",
-      event_label: "calendar_booking",
+      event_label: label,
+      source: source || "unknown",
+      page_path: typeof window !== "undefined" ? window.location.pathname : undefined,
     });
   }
   if (FB_PIXEL_ID) {
     fbqEvent("track", "Schedule", {
-      content_name: "calendar_booking",
+      content_name: label,
+      source: source || "unknown",
     });
   }
 }

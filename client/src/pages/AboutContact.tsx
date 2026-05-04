@@ -18,6 +18,7 @@ import {
 import heroTeam from "@assets/images/hero-team.jpg";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 import { CALENDAR_URL } from "@/lib/constants";
+import { trackCalendarBooking } from "@/lib/tracking";
 
 const steps = [
   {
@@ -82,7 +83,7 @@ export default function AboutContact() {
                     Upload Statement
                   </Button>
                 </Link>
-                <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-hero-book-call">
+                <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking("about_contact_hero")} data-testid="link-hero-book-call">
                   <Button variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
                     <Calendar className="w-4 h-4" />
                     Book a 10-Minute Call
@@ -213,6 +214,7 @@ export default function AboutContact() {
                       href={CALENDAR_URL}
                       target="_blank"
                       rel="noopener noreferrer"
+                      onClick={() => trackCalendarBooking("about_contact_card")}
                       className="text-sm text-muted-foreground hover:text-foreground transition-colors"
                       data-testid="link-contact-book"
                     >
@@ -223,7 +225,7 @@ export default function AboutContact() {
               </div>
 
               <div className="text-center reveal reveal-delay-4">
-                <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-contact-book-call">
+                <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking("about_contact_footer_cta")} data-testid="link-contact-book-call">
                   <Button className="gap-2">
                     <Calendar className="w-4 h-4" />
                     Book a 10-Minute Call

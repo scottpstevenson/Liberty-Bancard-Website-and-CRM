@@ -170,7 +170,7 @@ export default function ThanksCall() {
               No problem. Reschedule online or call us.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking()} data-testid="link-thanks-call-reschedule">
+              <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking("thanks_call_reschedule")} data-testid="link-thanks-call-reschedule">
                 <Button variant="outline" className="gap-2">
                   <Calendar className="w-4 h-4" />
                   Reschedule Online

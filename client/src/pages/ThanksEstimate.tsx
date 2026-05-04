@@ -100,7 +100,7 @@ export default function ThanksEstimate() {
                   Upload Statement for Full Breakdown
                 </Button>
               </Link>
-              <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking()} data-testid="link-thanks-estimate-book-call">
+              <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking("thanks_estimate")} data-testid="link-thanks-estimate-book-call">
                 <Button size="lg" variant="outline" className="gap-2">
                   <Calendar className="w-4 h-4" />
                   Book a 10-Minute Call
