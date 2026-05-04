@@ -48,6 +48,24 @@ The frontend uses React with Vite, TypeScript, Tailwind CSS, and shadcn/ui, with
 - **AI Advisors**: Seven specialized AI advisors covering Sales, Support, Onboarding, Marketing, Finance, Compliance, and Executive functions.
 - **Compliance Rules**: Adherence to regulatory guidelines, including explicit disclaimers and PCI compliance.
 
+## GHL Workflow Environment Variables
+The GHL Workflow ID Manager (`server/services/ghl-workflows.ts`) maintains a registry of all GHL workflow env vars. Each maps a business event to a GHL workflow ID. Key onboarding workflows:
+- `GHL_WORKFLOW_MERCHANT_APPROVED` — Triggered when a merchant profile is approved. Sends portal welcome email with MID and next steps. Uses a 3-tier delivery strategy: (1) GHL workflow if env var is set and GHL contact exists, (2) GHL direct email if contact has a ghlContactId, (3) SMTP fallback if SMTP is configured. If the contact has no `ghlContactId`, the system attempts to upsert a GHL contact via `upsertContact()` before falling back to SMTP.
+- `GHL_WORKFLOW_MERCHANT_APP` — Triggered on merchant application submission. Sends confirmation, triggers e-sign, begins onboarding.
+- `GHL_WORKFLOW_PARTNER_WELCOME` — Welcome sequence for approved partners with portal access and referral instructions.
+
+All workflow env vars can be managed via the admin GHL Workflow ID Manager UI at `/dashboard/integrations`.
+
+### SMTP Fallback Configuration
+When GHL is not configured or a contact has no GHL contact ID, the system can fall back to direct SMTP delivery. Configure with:
+- `SMTP_HOST` — SMTP server hostname (e.g., `smtp.gmail.com`)
+- `SMTP_PORT` — SMTP port (default: 587; use 465 for SSL)
+- `SMTP_USER` — SMTP username/email for authentication
+- `SMTP_PASS` — SMTP password or app-specific password
+- `SMTP_FROM` — (optional) From address; defaults to SMTP_USER
+
+The SMTP service is in `server/services/smtp-email.ts`.
+
 ## External Dependencies
 - **PostgreSQL**: Primary relational database.
 - **OpenAI API**: For AI functionalities.

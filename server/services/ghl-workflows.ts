@@ -33,6 +33,8 @@ export const GHL_WORKFLOW_REGISTRY: GhlWorkflowConfig[] = [
   { id: "sdr_cold_retail", name: "SDR Cold Outbound - Retail", category: "sdr_outbound", triggerType: "sdr_outreach", envKey: "GHL_WORKFLOW_SDR_RETAIL", description: "Cold outbound for retail vertical." },
   { id: "sdr_cold_default", name: "SDR Cold Outbound - Default", category: "sdr_outbound", triggerType: "sdr_outreach", envKey: "GHL_WORKFLOW_SDR_DEFAULT", description: "Default cold outbound for uncategorized verticals." },
   { id: "sdr_statement_audit", name: "SDR Statement Audit Follow-Up", category: "sdr_outbound", triggerType: "sdr_outreach", envKey: "GHL_WORKFLOW_SDR_STATEMENT", description: "Statement audit focused outreach sequence." },
+
+  { id: "merchant_approved", name: "Merchant Approved — Portal Welcome", category: "onboarding", triggerType: "merchant_approved", envKey: "GHL_WORKFLOW_MERCHANT_APPROVED", description: "Triggered when a merchant profile is approved. Sends portal access email with MID and next steps. Falls back to direct GHL email if workflow ID is not set." },
 ];
 
 export async function getWorkflowId(workflowKey: string): Promise<string | null> {
