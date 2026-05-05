@@ -10,10 +10,21 @@ export function serveStatic(app: Express) {
     );
   }
 
-  app.use(express.static(distPath));
+  // Hashed assets (e.g. /assets/index-abc123.js) — cache forever, immutable
+  app.use(
+    "/assets",
+    express.static(path.join(distPath, "assets"), {
+      maxAge: "1y",
+      immutable: true,
+    }),
+  );
 
-  // fall through to index.html if the file doesn't exist
+  // Everything else except index.html — short cache
+  app.use(express.static(distPath, { index: false }));
+
+  // index.html — never cache so users always get the latest shell
   app.use("/{*path}", (_req, res) => {
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
     res.sendFile(path.resolve(distPath, "index.html"));
   });
 }

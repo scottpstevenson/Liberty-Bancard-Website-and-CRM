@@ -81,9 +81,12 @@ const COMPETITOR_SLUGS = [
 ];
 
 const isDev = process.env.NODE_ENV !== "production";
-const SSR_CACHE = isDev ? "no-store, no-cache" : "public, s-maxage=3600, stale-while-revalidate=86400";
-const PAGE_CACHE = isDev ? "no-store, no-cache" : "public, max-age=86400";
-const CITY_CACHE = isDev ? "no-store, no-cache" : "public, max-age=43200";
+// Home page: CDN holds 5 min fresh, serves stale up to 1 hour while revalidating
+const SSR_CACHE = isDev ? "no-store, no-cache" : "public, s-maxage=300, stale-while-revalidate=3600";
+// Marketing/SSR pages: browser holds 5 min, CDN up to 1 hour with stale-while-revalidate
+const PAGE_CACHE = isDev ? "no-store, no-cache" : "public, max-age=300, s-maxage=3600, stale-while-revalidate=3600";
+// City pages: slightly longer — 15 min browser, 2 hour CDN
+const CITY_CACHE = isDev ? "no-store, no-cache" : "public, max-age=900, s-maxage=7200, stale-while-revalidate=3600";
 
 export function registerSsrRoutes(app: Express) {
   app.get("/", (_req, res) => {
@@ -156,31 +159,31 @@ export function registerSsrRoutes(app: Express) {
 
   app.get("/upload-statement", (_req, res) => {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.setHeader("Cache-Control", PAGE_CACHE);
     res.send(getUploadStatementHtml());
   });
 
   app.get("/free-analysis", (_req, res) => {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.setHeader("Cache-Control", PAGE_CACHE);
     res.send(getFreeAnalysisHtml());
   });
 
   app.get("/why-liberty-bancard", (_req, res) => {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.setHeader("Cache-Control", PAGE_CACHE);
     res.send(getWhyLibertyHtml());
   });
 
   app.get("/0-percent-processing", (_req, res) => {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.setHeader("Cache-Control", PAGE_CACHE);
     res.send(getZeroPercentHtml());
   });
 
   app.get("/case-studies", (_req, res) => {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.setHeader("Cache-Control", PAGE_CACHE);
     res.send(getCaseStudiesHtml());
   });
 
@@ -190,49 +193,49 @@ export function registerSsrRoutes(app: Express) {
 
   app.get("/estimate", (_req, res) => {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.setHeader("Cache-Control", PAGE_CACHE);
     res.send(getEstimateHtml());
   });
 
   app.get("/savings-calculator", (_req, res) => {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.setHeader("Cache-Control", PAGE_CACHE);
     res.send(getSavingsCalculatorHtml());
   });
 
   app.get("/compare-rates", (_req, res) => {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.setHeader("Cache-Control", PAGE_CACHE);
     res.send(getCompareRatesHtml());
   });
 
   app.get("/get-started", (_req, res) => {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.setHeader("Cache-Control", PAGE_CACHE);
     res.send(getGetStartedHtml());
   });
 
   app.get("/beat-square-stripe", (_req, res) => {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.setHeader("Cache-Control", PAGE_CACHE);
     res.send(getBeatSquareStripeHtml());
   });
 
   app.get("/affiliate", (_req, res) => {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.setHeader("Cache-Control", PAGE_CACHE);
     res.send(getAffiliateProgramHtml());
   });
 
   app.get("/faq", (_req, res) => {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.setHeader("Cache-Control", PAGE_CACHE);
     res.send(getFaqHtml());
   });
 
   app.get("/testimonials", (_req, res) => {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.setHeader("Cache-Control", PAGE_CACHE);
     res.send(getTestimonialsHtml());
   });
 
@@ -244,7 +247,7 @@ export function registerSsrRoutes(app: Express) {
 
   app.get("/integrations", (_req, res) => {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.setHeader("Cache-Control", PAGE_CACHE);
     res.send(getIntegrationsHtml());
   });
 
@@ -310,7 +313,7 @@ export function registerSsrRoutes(app: Express) {
     }
 
     const html = renderAlternativesHtml(competitor);
-    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.setHeader("Cache-Control", PAGE_CACHE);
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.send(html);
   });
@@ -326,7 +329,7 @@ export function registerSsrRoutes(app: Express) {
     }
 
     const html = renderSwitchFromHtml(competitor);
-    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.setHeader("Cache-Control", PAGE_CACHE);
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.send(html);
   });
