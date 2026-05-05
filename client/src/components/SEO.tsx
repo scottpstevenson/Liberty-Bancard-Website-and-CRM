@@ -95,7 +95,7 @@ function slugify(input: string): string {
 }
 
 function programmaticOgUrl(template: string, slugSource: string): string {
-  return `${BASE_URL}/og/${template}/${slugify(slugSource)}.svg`;
+  return `${BASE_URL}/og/${template}/${slugify(slugSource)}.png`;
 }
 
 export function getOrganizationSchema(): StructuredData {
@@ -252,7 +252,7 @@ export function getArticleSchema(input: ArticleSchemaInput): StructuredData {
     "@type": "Article",
     headline: input.title,
     description: input.description,
-    image: input.image || `${BASE_URL}/og/article/${slugify(input.slug)}.svg`,
+    image: input.image || `${BASE_URL}/og/article/${slugify(input.slug)}.png`,
     datePublished: input.publishedTime,
     dateModified: input.modifiedTime || input.publishedTime,
     author: {

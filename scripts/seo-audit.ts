@@ -82,8 +82,8 @@ async function auditRoute(spec: RouteSpec): Promise<AuditResult> {
     if (!titleRaw && titleRaw !== "") {
       errors.push("missing <title>");
     } else if (!isSpaShell) {
-      if (cleanTitle.length < TITLE_MIN) warnings.push(`title short (${cleanTitle.length}<${TITLE_MIN})`);
-      if (cleanTitle.length > TITLE_MAX) warnings.push(`title long (${cleanTitle.length}>${TITLE_MAX})`);
+      if (cleanTitle.length < TITLE_MIN) errors.push(`title short (${cleanTitle.length}<${TITLE_MIN})`);
+      if (cleanTitle.length > TITLE_MAX) errors.push(`title long (${cleanTitle.length}>${TITLE_MAX})`);
     }
 
     const desc = pickAttr(
@@ -93,8 +93,8 @@ async function auditRoute(spec: RouteSpec): Promise<AuditResult> {
     if (!desc) {
       if (!isSpaShell) errors.push("missing meta description");
     } else if (!isSpaShell) {
-      if (desc.length < DESC_MIN) warnings.push(`description short (${desc.length}<${DESC_MIN})`);
-      if (desc.length > DESC_MAX) warnings.push(`description long (${desc.length}>${DESC_MAX})`);
+      if (desc.length < DESC_MIN) errors.push(`description short (${desc.length}<${DESC_MIN})`);
+      if (desc.length > DESC_MAX) errors.push(`description long (${desc.length}>${DESC_MAX})`);
     }
 
     const canonical = pickAttr(html, /<link\s+rel=["']canonical["']\s+href=["']([^"']+)["']/i);

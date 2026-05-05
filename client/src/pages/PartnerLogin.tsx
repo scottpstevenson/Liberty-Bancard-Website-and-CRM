@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2, Mail, Lock, Shield, Handshake, CheckCircle } from "lucide-react";
 import logoBlue from "@assets/logo-blue.png";
+import { SEO } from "@/components/SEO";
 
 type PartnerLoginView = "login" | "forgot" | "reset" | "set-password";
 
@@ -158,6 +159,8 @@ export default function PartnerLogin() {
 
   if (view === "set-password") {
     return (
+      <>
+      <SEO title="Partner Sign In" description="Sign in to your Liberty Bancard partner portal." noindex />
       <div className="min-h-screen flex items-center justify-center bg-background p-4">
         <div className="w-full max-w-md space-y-6">
           <div className="flex flex-col items-center gap-3">
@@ -239,11 +242,14 @@ export default function PartnerLogin() {
           </Card>
         </div>
       </div>
+      </>
     );
   }
 
   if (view === "reset") {
     return (
+      <>
+      <SEO title="Partner Sign In" description="Sign in to your Liberty Bancard partner portal." noindex />
       <div className="min-h-screen flex items-center justify-center bg-background p-4">
         <div className="w-full max-w-md space-y-6">
           <div className="flex flex-col items-center gap-3">
@@ -328,11 +334,14 @@ export default function PartnerLogin() {
           </Card>
         </div>
       </div>
+      </>
     );
   }
 
   if (view === "forgot") {
     return (
+      <>
+      <SEO title="Partner Sign In" description="Sign in to your Liberty Bancard partner portal." noindex />
       <div className="min-h-screen flex items-center justify-center bg-background p-4">
         <div className="w-full max-w-md space-y-6">
           <div className="flex flex-col items-center gap-3">
@@ -400,10 +409,13 @@ export default function PartnerLogin() {
           </Card>
         </div>
       </div>
+      </>
     );
   }
 
   return (
+    <>
+    <SEO title="Partner Sign In" description="Sign in to your Liberty Bancard partner portal." noindex />
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <div className="w-full max-w-md space-y-6">
         <div className="flex flex-col items-center gap-3">
@@ -513,5 +525,6 @@ export default function PartnerLogin() {
         </p>
       </div>
     </div>
+    </>
   );
 }

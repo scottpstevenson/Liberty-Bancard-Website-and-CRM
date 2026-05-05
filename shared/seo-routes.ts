@@ -50,6 +50,7 @@ export const SEO_ROUTE_DEFAULTS: Record<string, SeoRouteDefault> = {
   "/help": { title: "Help Center & Knowledge Base", description: "Find answers on account setup, billing, terminals, compliance, and more. Searchable knowledge base for Liberty Bancard merchants.", ogTemplate: "default", inSitemap: true },
   "/sales-tools": { title: "Sales Tools Hub", description: "Internal sales tools and collateral hub.", noindex: true },
   // Auth — noindex
+  "/partner-login": { title: "Partner Sign In", description: "Sign in to your Liberty Bancard partner portal.", noindex: true },
   "/login": { title: "Sign In", description: "Sign in to your Liberty Bancard dashboard.", noindex: true },
   "/signup": { title: "Create Account", description: "Create a Liberty Bancard account.", noindex: true },
   "/forgot-password": { title: "Reset Your Password", description: "Reset your Liberty Bancard password.", noindex: true },
