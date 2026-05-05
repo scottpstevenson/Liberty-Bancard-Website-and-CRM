@@ -225,17 +225,23 @@ export default function RateComparison() {
         keywords="payment processor comparison, square vs stripe vs clover, credit card processing rates comparison"
         breadcrumbs={[{ name: "Compare Rates", path: "/compare-rates" }]}
         structuredData={[
-          getReviewSchema({
-            itemName: "Liberty Bancard Payment Processing",
-            itemPath: "/compare-rates",
-            ratingValue: 4.8,
-            reviewCount: 47,
-            reviews: [
+          (() => {
+            const reviews = [
               { author: "Maria G.", rating: 5, body: "Switched from Square and cut our processing costs by $400/month. The interchange-plus pricing is completely transparent.", date: "2024-11-15" },
               { author: "James R.", rating: 5, body: "Best decision we made for our auto shop. Saved $290 a month versus what we were paying Clover.", date: "2024-10-08" },
               { author: "Sandra M.", rating: 5, body: "They reviewed our statement and showed us exactly where we were overpaying. No pressure, just facts.", date: "2024-09-22" },
-            ],
-          }),
+            ];
+            const ratingValue = parseFloat(
+              (reviews.reduce((s, r) => s + r.rating, 0) / reviews.length).toFixed(1)
+            );
+            return getReviewSchema({
+              itemName: "Liberty Bancard Payment Processing",
+              itemPath: "/compare-rates",
+              ratingValue,
+              reviewCount: reviews.length,
+              reviews,
+            });
+          })(),
         ]}
       />
       <Navbar />

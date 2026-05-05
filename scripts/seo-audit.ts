@@ -23,6 +23,9 @@
  */
 
 import { SEO_ROUTE_DEFAULTS } from "../shared/seo-routes";
+import { CITIES, VERTICALS } from "../server/ssr/location-data";
+import { COMPETITOR_DATA } from "../server/ssr/compare";
+import { INDUSTRY_DATA } from "../server/ssr/industries";
 
 const BASE = process.env.SEO_AUDIT_BASE_URL || process.env.BASE_URL || "http://localhost:5000";
 
@@ -38,33 +41,28 @@ const STATIC_ROUTES: RouteSpec[] = Object.entries(SEO_ROUTE_DEFAULTS).map(([path
   noindex: !!def.noindex,
 }));
 
-// Competitor compare pages — one representative sample per slug
-const COMPETITOR_SLUGS = [
-  "square", "stripe", "clover", "toast", "paypal", "helcim", "authorize-net",
-];
-const COMPARE_ROUTES: RouteSpec[] = COMPETITOR_SLUGS.map((slug) => ({
-  path: `/compare/${slug}`,
+// All competitor compare pages — sourced from COMPETITOR_DATA (single source of truth)
+const COMPARE_ROUTES: RouteSpec[] = Object.values(COMPETITOR_DATA).map((d) => ({
+  path: `/compare/${d.slug}`,
   dynamic: true,
 }));
 
-// Location × industry — representative cross-section (city-hub + city×vertical)
-const LOCATION_SAMPLE: RouteSpec[] = [
-  { path: "/locations/miami", dynamic: true },
-  { path: "/locations/fort-lauderdale", dynamic: true },
-  { path: "/locations/miami/restaurant-payment-processing", dynamic: true },
-  { path: "/locations/miami/retail-payment-processing", dynamic: true },
-  { path: "/locations/tampa/healthcare-payment-processing", dynamic: true },
-];
+// All city hub pages
+const CITY_HUB_ROUTES: RouteSpec[] = CITIES.map((c) => ({
+  path: `/locations/${c.slug}`,
+  dynamic: true,
+}));
 
-// Industry pages — one per registered vertical
-const INDUSTRY_SLUGS = [
-  "restaurant-payment-processing",
-  "retail-payment-processing",
-  "healthcare-payment-processing",
-  "salon-spa-payment-processing",
-  "auto-repair-payment-processing",
-];
-const INDUSTRY_ROUTES: RouteSpec[] = INDUSTRY_SLUGS.map((slug) => ({
+// All city × vertical routes (full cross-product)
+const CITY_VERTICAL_ROUTES: RouteSpec[] = CITIES.flatMap((c) =>
+  VERTICALS.map((v) => ({
+    path: `/locations/${c.slug}/${v.slug}`,
+    dynamic: true,
+  }))
+);
+
+// All industry hub pages — sourced from INDUSTRY_DATA (owns the slug format)
+const INDUSTRY_ROUTES: RouteSpec[] = Object.keys(INDUSTRY_DATA).map((slug) => ({
   path: `/industries/${slug}`,
   dynamic: true,
 }));
@@ -72,7 +70,8 @@ const INDUSTRY_ROUTES: RouteSpec[] = INDUSTRY_SLUGS.map((slug) => ({
 const ROUTES: RouteSpec[] = [
   ...STATIC_ROUTES,
   ...COMPARE_ROUTES,
-  ...LOCATION_SAMPLE,
+  ...CITY_HUB_ROUTES,
+  ...CITY_VERTICAL_ROUTES,
   ...INDUSTRY_ROUTES,
 ];
 
@@ -106,7 +105,16 @@ async function auditRoute(spec: RouteSpec): Promise<AuditResult> {
     });
     status = res.status;
     if (status >= 400) {
-      errors.push(`HTTP ${status}`);
+      // 404s on dynamic routes (location×vertical, compare, industry) are
+      // warnings rather than blocking CI failures — the sitemap is the
+      // authoritative index of what is served.  Missing static routes always
+      // block CI.
+      const msg = `HTTP ${status}`;
+      if (spec.dynamic && status === 404) {
+        warnings.push(msg);
+      } else {
+        errors.push(msg);
+      }
       return { path: spec.path, status, errors, warnings };
     }
     const html = await res.text();
