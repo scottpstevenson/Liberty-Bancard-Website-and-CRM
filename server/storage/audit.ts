@@ -105,10 +105,11 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
     return await db.select().from(auditLogs).orderBy(desc(auditLogs.createdAt));
   }
 
-  async getAuditLogsByEntity(entityType: string, entityId: number) {
+  async getAuditLogsByEntity(entityType: string, entityId: number, limit: number = 20) {
     return await db.select().from(auditLogs)
       .where(and(eq(auditLogs.entityType, entityType), eq(auditLogs.entityId, entityId)))
-      .orderBy(desc(auditLogs.createdAt));
+      .orderBy(desc(auditLogs.createdAt))
+      .limit(limit);
   }
 
   async getLastAuditLogByAction(action: string, entityType: string, entityId: number) {

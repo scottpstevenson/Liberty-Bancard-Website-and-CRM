@@ -534,7 +534,7 @@ export function registerMerchantsRoutes(app: Express) {
       const profile = await storage.getMerchantProfile(id);
       if (!profile) return res.status(404).json({ message: "Merchant profile not found" });
 
-      const logs = await storage.getAuditLogsByEntity("merchant_profile", id);
+      const logs = await storage.getAuditLogsByEntity("merchant_profile", id, 20);
       const welcomeLogs = logs.filter(l => l.action === "merchant_portal_welcome_sent");
       res.json(welcomeLogs);
     } catch (err: any) {
