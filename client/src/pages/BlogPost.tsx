@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, ArrowRight, Clock, User, Calendar, Upload } from "lucide-react";
 import { ShareButtons } from "@/components/ShareButtons";
 import { allBlogPosts, type BlogPost as BlogPostType, type GeneratedBlogPostResponse, dbPostToBlogPost } from "@/lib/all-blog-data";
-import { getFAQSchema } from "@/components/SEO";
+import { getFAQSchema, getArticleSchema, getBreadcrumbSchema } from "@/components/SEO";
 import type { BlogSection } from "@/lib/all-blog-data";
 import { useQuery } from "@tanstack/react-query";
 
@@ -184,51 +184,20 @@ export default function BlogPost() {
           tags: post.keywords.split(", "),
         }}
         structuredData={[
-          {
-            "@context": "https://schema.org",
-            "@type": "Article",
-            headline: post.title,
+          getArticleSchema({
+            slug: post.slug,
+            title: post.title,
             description: post.metaDescription,
-            author: {
-              "@type": "Organization",
-              name: post.author,
-            },
-            publisher: {
-              "@type": "Organization",
-              name: "Liberty Bancard",
-              url: "https://libertybancard.com",
-            },
-            datePublished: post.publishedISO,
-            dateModified: post.modifiedISO,
-            mainEntityOfPage: {
-              "@type": "WebPage",
-              "@id": `https://libertybancard.com/blog/${post.slug}`,
-            },
-          },
-          {
-            "@context": "https://schema.org",
-            "@type": "BreadcrumbList",
-            itemListElement: [
-              {
-                "@type": "ListItem",
-                position: 1,
-                name: "Home",
-                item: "https://libertybancard.com",
-              },
-              {
-                "@type": "ListItem",
-                position: 2,
-                name: "Blog",
-                item: "https://libertybancard.com/blog",
-              },
-              {
-                "@type": "ListItem",
-                position: 3,
-                name: post.title,
-                item: `https://libertybancard.com/blog/${post.slug}`,
-              },
-            ],
-          },
+            author: post.author,
+            publishedTime: post.publishedISO,
+            modifiedTime: post.modifiedISO,
+            section: post.category,
+            tags: post.keywords.split(", "),
+          }),
+          getBreadcrumbSchema([
+            { name: "Blog", path: "/blog" },
+            { name: post.title, path: `/blog/${post.slug}` },
+          ]),
           getFAQSchema(post.faqs && post.faqs.length > 0 ? post.faqs : generateFaqsFromContent(post.content)),
         ]}
       />
