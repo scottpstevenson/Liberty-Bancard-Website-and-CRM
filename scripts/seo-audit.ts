@@ -29,12 +29,52 @@ const BASE = process.env.SEO_AUDIT_BASE_URL || process.env.BASE_URL || "http://l
 interface RouteSpec {
   path: string;
   noindex?: boolean;
+  dynamic?: true; // set for generated/dynamic routes not in SEO_ROUTE_DEFAULTS
 }
 
-const ROUTES: RouteSpec[] = Object.entries(SEO_ROUTE_DEFAULTS).map(([path, def]) => ({
+// Static routes from the central defaults map
+const STATIC_ROUTES: RouteSpec[] = Object.entries(SEO_ROUTE_DEFAULTS).map(([path, def]) => ({
   path,
   noindex: !!def.noindex,
 }));
+
+// Competitor compare pages — one representative sample per slug
+const COMPETITOR_SLUGS = [
+  "square", "stripe", "clover", "toast", "paypal", "helcim", "authorize-net",
+];
+const COMPARE_ROUTES: RouteSpec[] = COMPETITOR_SLUGS.map((slug) => ({
+  path: `/compare/${slug}`,
+  dynamic: true,
+}));
+
+// Location × industry — representative cross-section (city-hub + city×vertical)
+const LOCATION_SAMPLE: RouteSpec[] = [
+  { path: "/locations/miami", dynamic: true },
+  { path: "/locations/fort-lauderdale", dynamic: true },
+  { path: "/locations/miami/restaurant-payment-processing", dynamic: true },
+  { path: "/locations/miami/retail-payment-processing", dynamic: true },
+  { path: "/locations/tampa/healthcare-payment-processing", dynamic: true },
+];
+
+// Industry pages — one per registered vertical
+const INDUSTRY_SLUGS = [
+  "restaurant-payment-processing",
+  "retail-payment-processing",
+  "healthcare-payment-processing",
+  "salon-spa-payment-processing",
+  "auto-repair-payment-processing",
+];
+const INDUSTRY_ROUTES: RouteSpec[] = INDUSTRY_SLUGS.map((slug) => ({
+  path: `/industries/${slug}`,
+  dynamic: true,
+}));
+
+const ROUTES: RouteSpec[] = [
+  ...STATIC_ROUTES,
+  ...COMPARE_ROUTES,
+  ...LOCATION_SAMPLE,
+  ...INDUSTRY_ROUTES,
+];
 
 interface AuditResult {
   path: string;
@@ -81,8 +121,16 @@ async function auditRoute(spec: RouteSpec): Promise<AuditResult> {
 
     if (isSpaShell) {
       // For SPA routes, live HTML cannot be inspected for per-route meta.
-      // Deterministically validate that SEO_ROUTE_DEFAULTS has a compliant
-      // entry — this is the source-of-truth that react-helmet-async uses.
+      // Dynamic SSR routes (compare, location, industry) should NEVER be SPA
+      // shells — flag as error so regression is caught immediately.
+      if (spec.dynamic) {
+        errors.push(
+          "SSR route returned a bare SPA shell — server-side rendering is broken for this path"
+        );
+        return { path: spec.path, status, errors, warnings };
+      }
+      // For static SPA routes, deterministically validate that SEO_ROUTE_DEFAULTS
+      // has a compliant entry — this is the source-of-truth react-helmet-async uses.
       const def = SEO_ROUTE_DEFAULTS[spec.path];
       if (!def) {
         errors.push(
@@ -153,8 +201,8 @@ async function auditRoute(spec: RouteSpec): Promise<AuditResult> {
     } else if (robots && /noindex/i.test(robots)) {
       warnings.push("public route is noindex — verify intent");
     }
-  } catch (e: any) {
-    errors.push(`fetch failed: ${e?.message || e}`);
+  } catch (e: unknown) {
+    errors.push(`fetch failed: ${e instanceof Error ? e.message : String(e)}`);
   }
 
   return { path: spec.path, status, errors, warnings };

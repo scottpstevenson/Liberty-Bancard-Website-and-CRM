@@ -1,7 +1,8 @@
-import type { Express, Request, Response, NextFunction } from "express";
+import type { Express } from "express";
 import { storage } from "../storage";
-import { isAuthenticated, requireRole } from "../replit_integrations/auth";
+import { requireRole } from "../replit_integrations/auth";
 import { SEO_ROUTE_DEFAULTS, type SeoRouteDefault } from "@shared/seo-routes";
+import type { GeneratedBlogPost } from "@shared/schema";
 
 interface SeoCoverageRow {
   path: string;
@@ -50,15 +51,9 @@ function evaluateRow(path: string, def: SeoRouteDefault): SeoCoverageRow {
   };
 }
 
-function requireAdminOrManager(req: Request, res: Response, next: NextFunction) {
-  const role = (req.user as any)?.role;
-  if (role !== "admin" && role !== "manager") {
-    return res.status(403).json({ error: "Admin or manager role required" });
-  }
-  next();
-}
-
-const ROUTE_HTML_CHECKS_MAX = 25; // cap on real-fetch checks per request
+// Route-level probe limit: balance coverage vs request latency.
+// Probes run in parallel so 50 adds ~200-500 ms on a warm server.
+const ROUTE_HTML_CHECKS_MAX = 50;
 
 async function probeRouteHead(baseUrl: string, path: string): Promise<{
   statusCode: number;
@@ -100,22 +95,21 @@ export function registerSeoAdminRoutes(app: Express) {
         evaluateRow(path, def)
       );
 
-      // Add dynamic blog posts
+      // Add dynamic blog posts — typed via GeneratedBlogPost
       try {
-        const dbPosts = await storage.getGeneratedBlogPosts("published");
+        const dbPosts = (await storage.getGeneratedBlogPosts("published")) as GeneratedBlogPost[];
         for (const post of dbPosts) {
-          const path = `/blog/${(post as any).slug}`;
           rows.push(
-            evaluateRow(path, {
-              title: ((post as any).title || "").slice(0, 60),
-              description: ((post as any).excerpt || "").slice(0, 160),
+            evaluateRow(`/blog/${post.slug}`, {
+              title: (post.title || "").slice(0, 60),
+              description: (post.excerpt || "").slice(0, 160),
               ogTemplate: "article",
               inSitemap: true,
             })
           );
         }
       } catch {
-        // best effort
+        // best effort — DB may be empty or unavailable
       }
 
       // Real-fetch verification on the first N rows so the dashboard reflects
@@ -178,8 +172,9 @@ export function registerSeoAdminRoutes(app: Express) {
         totals,
         rows,
       });
-    } catch (e: any) {
-      res.status(500).json({ error: e?.message || "Failed to compute SEO coverage" });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Failed to compute SEO coverage";
+      res.status(500).json({ error: msg });
     }
   });
 }
