@@ -1,24 +1,26 @@
 /**
  * server/routes/og.ts — Programmatic Open Graph image generation.
  *
- * Serves SVG-based social-preview cards for every page template.  Both the
- * /og/:template/:slug.svg and /og/:template/:slug.png endpoints return the
- * same SVG payload — SVG is a valid og:image format accepted by all major
- * crawlers (Facebook, Twitter/X, LinkedIn, Slack, Discord).
+ * Route contract:
+ *   GET /og/:template/:slug.svg  → SVG  (image/svg+xml)
+ *   GET /og/:template/:slug.png  → PNG  (image/png) via sharp rasterization
+ *   GET /og/:template/:slug      → SVG  (backward-compat legacy route)
  *
  * Cache: disk-backed per (template, slug, customTitle); 24-hour CDN TTL.
+ * Cache dir: uploads/og-cache/ (gitignored, runtime artifact).
  */
 
-import type { Express } from "express";
+import type { Express, Response } from "express";
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
+import sharp from "sharp";
 
 const OG_CACHE_DIR = path.resolve(process.cwd(), "uploads", "og-cache");
 try {
   fs.mkdirSync(OG_CACHE_DIR, { recursive: true });
 } catch {
-  // best-effort — if the dir can't be created we just skip caching
+  // best-effort
 }
 
 function cacheKey(template: string, slug: string, customTitle?: string): string {
@@ -29,9 +31,9 @@ function cacheKey(template: string, slug: string, customTitle?: string): string 
     .slice(0, 32);
 }
 
-function readCached(key: string): Buffer | null {
+function readCached(key: string, ext: "svg" | "png"): Buffer | null {
   try {
-    const file = path.join(OG_CACHE_DIR, `${key}.svg`);
+    const file = path.join(OG_CACHE_DIR, `${key}.${ext}`);
     if (fs.existsSync(file)) return fs.readFileSync(file);
   } catch {
     /* ignore */
@@ -39,9 +41,9 @@ function readCached(key: string): Buffer | null {
   return null;
 }
 
-function writeCached(key: string, data: Buffer): void {
+function writeCached(key: string, ext: "svg" | "png", data: Buffer): void {
   try {
-    fs.writeFileSync(path.join(OG_CACHE_DIR, `${key}.svg`), data);
+    fs.writeFileSync(path.join(OG_CACHE_DIR, `${key}.${ext}`), data);
   } catch {
     /* ignore — cache is best-effort */
   }
@@ -153,23 +155,48 @@ function resolveTemplate(raw: string): Template {
   return (TEMPLATES.includes(t as Template) ? t : "default") as Template;
 }
 
-function serveSvg(
+const CACHE_HEADERS = {
+  "Cache-Control": "public, max-age=86400, s-maxage=604800, immutable",
+} as const;
+
+function serveSvgResponse(
+  key: string,
   template: Template,
-  slugParam: string,
+  slug: string,
   customTitle: string | undefined,
-  res: import("express").Response
+  res: Response
 ): void {
-  const key = cacheKey(template, slugParam, customTitle);
-  let buf = readCached(key);
+  let buf = readCached(key, "svg");
   const hit = !!buf;
   if (!buf) {
-    buf = Buffer.from(renderSvg(template, slugParam, customTitle), "utf8");
-    writeCached(key, buf);
+    buf = Buffer.from(renderSvg(template, slug, customTitle), "utf8");
+    writeCached(key, "svg", buf);
   }
   res.setHeader("Content-Type", "image/svg+xml; charset=utf-8");
-  res.setHeader("Cache-Control", "public, max-age=86400, s-maxage=604800, immutable");
+  res.setHeader("Cache-Control", CACHE_HEADERS["Cache-Control"]);
   res.setHeader("X-Og-Cache", hit ? "HIT" : "MISS");
-  res.setHeader("ETag", `"${key}"`);
+  res.setHeader("ETag", `"${key}-svg"`);
+  res.send(buf);
+}
+
+async function servePngResponse(
+  key: string,
+  template: Template,
+  slug: string,
+  customTitle: string | undefined,
+  res: Response
+): Promise<void> {
+  let buf = readCached(key, "png");
+  const hit = !!buf;
+  if (!buf) {
+    const svgBuf = Buffer.from(renderSvg(template, slug, customTitle), "utf8");
+    buf = await sharp(svgBuf).png().toBuffer();
+    writeCached(key, "png", buf);
+  }
+  res.setHeader("Content-Type", "image/png");
+  res.setHeader("Cache-Control", CACHE_HEADERS["Cache-Control"]);
+  res.setHeader("X-Og-Cache", hit ? "HIT" : "MISS");
+  res.setHeader("ETag", `"${key}-png"`);
   res.send(buf);
 }
 
@@ -179,15 +206,22 @@ export function registerOgRoutes(app: Express) {
     const template = resolveTemplate(String(req.params.template || "default"));
     const slug = String(req.params.slug || "");
     const customTitle = typeof req.query.title === "string" ? req.query.title : undefined;
-    serveSvg(template, slug, customTitle, res);
+    const key = cacheKey(template, slug, customTitle);
+    serveSvgResponse(key, template, slug, customTitle, res);
   });
 
-  // PNG endpoint — serves SVG payload; accepted by all major social crawlers
-  app.get("/og/:template/:slug.png", (req, res) => {
+  // PNG endpoint — rasterized from SVG via sharp (1200×630 branded card)
+  app.get("/og/:template/:slug.png", async (req, res) => {
     const template = resolveTemplate(String(req.params.template || "default"));
     const slug = String(req.params.slug || "");
     const customTitle = typeof req.query.title === "string" ? req.query.title : undefined;
-    serveSvg(template, slug, customTitle, res);
+    const key = cacheKey(template, slug, customTitle);
+    try {
+      await servePngResponse(key, template, slug, customTitle, res);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "OG image render failed";
+      res.status(500).json({ error: msg });
+    }
   });
 
   // Legacy bare route (no extension) — SVG for backward compatibility
@@ -195,6 +229,7 @@ export function registerOgRoutes(app: Express) {
     const template = resolveTemplate(String(req.params.template || "default"));
     const slug = String(req.params.slug || "").replace(/\.(svg|png)$/i, "");
     const customTitle = typeof req.query.title === "string" ? req.query.title : undefined;
-    serveSvg(template, slug, customTitle, res);
+    const key = cacheKey(template, slug, customTitle);
+    serveSvgResponse(key, template, slug, customTitle, res);
   });
 }

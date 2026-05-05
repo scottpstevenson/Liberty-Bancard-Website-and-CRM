@@ -14,7 +14,7 @@
   <rect width="1200" height="630" fill="url(#glow)"/>
   <rect x="0" y="0" width="1200" height="6" fill="#0ea5e9"/>
   <g font-family="Outfit, system-ui, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" fill="#ffffff">
-    <text x="80" y="100" font-size="22" font-weight="600" letter-spacing="6" opacity="0.65" text-transform="uppercase">COMPARISON</text>
+    <text x="80" y="100" font-size="22" font-weight="600" letter-spacing="6" opacity="0.65">COMPARISON</text>
     <text font-size="74" font-weight="800" letter-spacing="-1.5"><tspan x="80" y="240">Square</tspan></text>
     <text x="80" y="540" font-size="22" font-weight="500" opacity="0.85">libertybancard.com</text>
     <text x="80" y="572" font-size="18" font-weight="400" opacity="0.6">Transparent payment processing • Statement-based pricing</text>
