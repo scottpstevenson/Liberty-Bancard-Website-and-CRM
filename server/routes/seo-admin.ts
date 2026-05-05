@@ -112,14 +112,15 @@ export function registerSeoAdminRoutes(app: Express) {
         // best effort — DB may be empty or unavailable
       }
 
-      // Real-fetch verification: in default mode probe the first N rows so the
-      // dashboard loads quickly. Pass ?full=1 to probe every row — useful for
-      // pre-deploy audits when latency is acceptable.
+      // Real-fetch verification on all declared rows (full coverage by default).
+      // Pass ?sample=N to limit to the first N rows for faster dashboard loads.
       const proto = (req.headers["x-forwarded-proto"] as string) || req.protocol || "http";
       const host = req.get("host") || `localhost:${process.env.PORT || 5000}`;
       const baseUrl = `${proto}://${host}`;
-      const wantFull = req.query.full === "1";
-      const sampled = wantFull ? rows : rows.slice(0, ROUTE_HTML_CHECKS_MAX);
+      const sampleParam = typeof req.query.sample === "string" ? parseInt(req.query.sample, 10) : NaN;
+      const limit = !isNaN(sampleParam) && sampleParam > 0 ? sampleParam : ROUTE_HTML_CHECKS_MAX;
+      const wantSample = !isNaN(sampleParam) && sampleParam > 0;
+      const sampled = wantSample ? rows.slice(0, limit) : rows;
       const probes = await Promise.all(
         sampled.map((r) => probeRouteHead(baseUrl, r.path))
       );
@@ -149,11 +150,10 @@ export function registerSeoAdminRoutes(app: Express) {
         }
       });
 
-      // Mark rows that were not probed (beyond sample limit) so the dashboard
-      // distinguishes "not probed" from "probed and OK". In full mode all rows
-      // are probed so this loop is a no-op.
+      // Mark rows that were not probed (only set when ?sample=N is used).
+      // In default mode all rows are probed so this loop is a no-op.
       rows.slice(sampled.length).forEach((r) => {
-        r.warnings.push("OG/JSON-LD/links not probed (use ?full=1 for complete coverage)");
+        r.warnings.push("OG/JSON-LD/links not probed (remove ?sample to get full coverage)");
       });
 
       const indexable = rows.filter((r) => !r.noindex);
