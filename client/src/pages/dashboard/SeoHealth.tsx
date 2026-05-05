@@ -109,9 +109,9 @@ export default function SeoHealth() {
               ok={data.env.bingVerificationConfigured}
             />
             <p className="text-xs text-muted-foreground pt-2">
-              Set <code>GSC_VERIFICATION</code> and <code>BING_VERIFICATION</code> env vars (server-side, used in
-              SSR HTML head) and <code>VITE_GSC_VERIFICATION</code> / <code>VITE_BING_VERIFICATION</code> for the
-              SPA. Both surfaces inject verification meta when set.
+              Set <code>GSC_VERIFICATION</code> and <code>BING_VERIFICATION</code> as server-side env vars.
+              The server injects the verification <code>&lt;meta&gt;</code> tags into every SSR page shell and
+              the SPA index.html at startup — no separate <code>VITE_*</code> variables are needed.
             </p>
           </CardContent>
         </Card>

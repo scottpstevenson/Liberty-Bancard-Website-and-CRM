@@ -138,9 +138,8 @@ export async function registerRoutes(
     next();
   });
 
-  app.get("/thanks-application", (_req, res) => {
-    res.redirect(301, "/thanks/application");
-  });
+  // /thanks-application → /thanks/application (301) is registered inside
+  // registerSsrRoutes (server/routes/ssr-routes.ts) — do not duplicate here.
 
   registerSsrRoutes(app);
   registerGlossaryRoutes(app);
