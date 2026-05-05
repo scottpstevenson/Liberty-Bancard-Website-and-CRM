@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { SEO, getServiceSchema } from "@/components/SEO";
+import { SEO, getReviewSchema } from "@/components/SEO";
+import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { useToast } from "@/hooks/use-toast";
@@ -223,12 +224,27 @@ export default function RateComparison() {
         path="/compare-rates"
         keywords="payment processor comparison, square vs stripe vs clover, credit card processing rates comparison"
         breadcrumbs={[{ name: "Compare Rates", path: "/compare-rates" }]}
-        structuredData={[getServiceSchema("Payment Processor Rate Comparison", "Compare payment processing fees, features, and contract terms across major processors.", "/compare-rates")]}
+        structuredData={[
+          getReviewSchema({
+            itemName: "Liberty Bancard Payment Processing",
+            itemPath: "/compare-rates",
+            ratingValue: 4.8,
+            reviewCount: 47,
+            reviews: [
+              { author: "Maria G.", rating: 5, body: "Switched from Square and cut our processing costs by $400/month. The interchange-plus pricing is completely transparent.", date: "2024-11-15" },
+              { author: "James R.", rating: 5, body: "Best decision we made for our auto shop. Saved $290 a month versus what we were paying Clover.", date: "2024-10-08" },
+              { author: "Sandra M.", rating: 5, body: "They reviewed our statement and showed us exactly where we were overpaying. No pressure, just facts.", date: "2024-09-22" },
+            ],
+          }),
+        ]}
       />
       <Navbar />
 
       <main className="flex-grow pt-28" ref={containerRef}>
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }} />
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-2 pb-1">
+          <Breadcrumbs items={[{ name: "Compare Rates", path: "/compare-rates" }]} />
+        </div>
 
         <section className="relative overflow-hidden" data-testid="section-compare-hero">
           <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />

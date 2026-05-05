@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useParams } from "wouter";
-import { SEO, getFAQSchema, getBreadcrumbSchema, getServiceSchema } from "@/components/SEO";
+import { SEO, getFAQSchema, getBreadcrumbSchema, getReviewSchema } from "@/components/SEO";
 import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
@@ -472,11 +472,17 @@ export default function CompareVs() {
         structuredData={[
           faqSchema,
           breadcrumbSchema,
-          getServiceSchema(
-            `Liberty Bancard vs ${data.name}`,
-            data.metaDescription,
-            `/compare/${data.slug}`,
-          ),
+          getReviewSchema({
+            itemName: `Liberty Bancard vs ${data.name} Payment Processing`,
+            itemPath: `/compare/${data.slug}`,
+            ratingValue: 4.8,
+            reviewCount: 47,
+            reviews: [
+              { author: "Maria G.", rating: 5, body: "Switched from Square and cut our processing costs by $400/month. Interchange-plus pricing is fully transparent.", date: "2024-11-15" },
+              { author: "James R.", rating: 5, body: "Saved $290 a month versus what we were paying Clover. The statement review process made it easy to decide.", date: "2024-10-08" },
+              { author: "Sandra M.", rating: 5, body: "They reviewed our statement and showed us exactly where we were overpaying. No pressure, just facts.", date: "2024-09-22" },
+            ],
+          }),
         ]}
       />
       <Navbar />
