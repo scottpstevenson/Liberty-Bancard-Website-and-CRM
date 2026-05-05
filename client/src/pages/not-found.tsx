@@ -1,8 +1,8 @@
 import { Link } from "wouter";
-import { Helmet } from "react-helmet-async";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Home, ArrowLeft, Search, HelpCircle, MessageSquare } from "lucide-react";
+import { SEO } from "@/components/SEO";
 
 const popularLinks: { label: string; href: string }[] = [
   { label: "Home", href: "/" },
@@ -16,10 +16,11 @@ const popularLinks: { label: string; href: string }[] = [
 export default function NotFound() {
   return (
     <div className="min-h-screen w-full flex items-center justify-center bg-background p-4">
-      <Helmet>
-        <title>Page Not Found — Liberty Bancard</title>
-        <meta name="robots" content="noindex" />
-      </Helmet>
+      <SEO
+        title="Page Not Found"
+        description="The page you're looking for may have been moved, renamed, or no longer exists. Return to Liberty Bancard's homepage."
+        noindex
+      />
       <Card className="w-full max-w-xl" data-testid="page-not-found">
         <CardContent className="p-8 sm:p-10 text-center">
           <p className="text-sm font-semibold text-primary mb-2" data-testid="text-404-code">404</p>

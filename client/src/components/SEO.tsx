@@ -179,12 +179,7 @@ export function getServiceSchema(
   servicePath: string,
   options?: { ratingValue?: number; reviewCount?: number },
 ): StructuredData {
-  // Brand-wide AggregateRating derived from 5,000+ merchant base; safe
-  // defaults for comparison/service pages where per-page review data
-  // does not exist on the page itself.
-  const ratingValue = options?.ratingValue ?? 4.9;
-  const reviewCount = options?.reviewCount ?? 1247;
-  return {
+  const schema: StructuredData = {
     "@context": "https://schema.org",
     "@type": "Service",
     name,
@@ -199,14 +194,17 @@ export function getServiceSchema(
       "@type": "Country",
       name: "United States",
     },
-    aggregateRating: {
+  };
+  if (options?.ratingValue !== undefined && options?.reviewCount !== undefined) {
+    schema.aggregateRating = {
       "@type": "AggregateRating",
-      ratingValue,
-      reviewCount,
+      ratingValue: options.ratingValue,
+      reviewCount: options.reviewCount,
       bestRating: 5,
       worstRating: 1,
-    },
-  };
+    };
+  }
+  return schema;
 }
 
 export function getFAQSchema(faqs: { question: string; answer: string }[]): StructuredData {
