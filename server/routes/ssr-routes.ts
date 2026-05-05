@@ -89,6 +89,22 @@ const PAGE_CACHE = isDev ? "no-store, no-cache" : "public, max-age=300, s-maxage
 const CITY_CACHE = isDev ? "no-store, no-cache" : "public, max-age=900, s-maxage=7200, stale-while-revalidate=3600";
 
 export function registerSsrRoutes(app: Express) {
+  // Canonical trailing-slash redirect: /path/ → /path (301).
+  // Consolidates link equity to the canonical URL for every SSR-served path.
+  // Skips root `/` and any path starting with `/api/` (API routes handled upstream).
+  app.use((req, res, next) => {
+    if (
+      req.path.length > 1 &&
+      req.path.endsWith("/") &&
+      !req.path.startsWith("/api/")
+    ) {
+      const cleanPath = req.path.slice(0, -1);
+      const qs = req.url.slice(req.path.length); // preserve ?query string
+      return res.redirect(301, cleanPath + qs);
+    }
+    next();
+  });
+
   app.get("/", (_req, res) => {
     const html = getHomeHtml();
     res.setHeader("Content-Type", "text/html; charset=utf-8");
