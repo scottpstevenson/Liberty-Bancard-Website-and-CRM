@@ -112,13 +112,14 @@ export function registerSeoAdminRoutes(app: Express) {
         // best effort — DB may be empty or unavailable
       }
 
-      // Real-fetch verification on the first N rows so the dashboard reflects
-      // actual rendered HTML rather than declared defaults. Bounded to avoid
-      // amplifying load on the dev server.
+      // Real-fetch verification: in default mode probe the first N rows so the
+      // dashboard loads quickly. Pass ?full=1 to probe every row — useful for
+      // pre-deploy audits when latency is acceptable.
       const proto = (req.headers["x-forwarded-proto"] as string) || req.protocol || "http";
       const host = req.get("host") || `localhost:${process.env.PORT || 5000}`;
       const baseUrl = `${proto}://${host}`;
-      const sampled = rows.slice(0, ROUTE_HTML_CHECKS_MAX);
+      const wantFull = req.query.full === "1";
+      const sampled = wantFull ? rows : rows.slice(0, ROUTE_HTML_CHECKS_MAX);
       const probes = await Promise.all(
         sampled.map((r) => probeRouteHead(baseUrl, r.path))
       );
@@ -148,11 +149,11 @@ export function registerSeoAdminRoutes(app: Express) {
         }
       });
 
-      // Mark rows beyond the probe limit so the dashboard distinguishes
-      // "not probed" from "probed and OK". Avoids reporting hasOgImage: false
-      // as a definitive result for routes that were never fetched.
-      rows.slice(ROUTE_HTML_CHECKS_MAX).forEach((r) => {
-        r.warnings.push("OG/JSON-LD/links not probed (beyond per-request sample limit)");
+      // Mark rows that were not probed (beyond sample limit) so the dashboard
+      // distinguishes "not probed" from "probed and OK". In full mode all rows
+      // are probed so this loop is a no-op.
+      rows.slice(sampled.length).forEach((r) => {
+        r.warnings.push("OG/JSON-LD/links not probed (use ?full=1 for complete coverage)");
       });
 
       const indexable = rows.filter((r) => !r.noindex);

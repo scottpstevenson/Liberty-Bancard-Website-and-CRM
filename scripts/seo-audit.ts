@@ -105,12 +105,14 @@ async function auditRoute(spec: RouteSpec): Promise<AuditResult> {
     });
     status = res.status;
     if (status >= 400) {
-      // 404s on dynamic routes (location×vertical, compare, industry) are
-      // warnings rather than blocking CI failures — the sitemap is the
-      // authoritative index of what is served.  Missing static routes always
-      // block CI.
+      // In default mode, 404s on dynamic routes (location×vertical, compare,
+      // industry) are warnings — the sitemap is authoritative for what is
+      // indexed and not all permutations are guaranteed to be served.
+      // In strict mode (STRICT=1 env var), every 404 is a CI failure so the
+      // full public route surface is verified before any deploy.
+      const isStrict = process.env.STRICT === "1";
       const msg = `HTTP ${status}`;
-      if (spec.dynamic && status === 404) {
+      if (!isStrict && spec.dynamic && status === 404) {
         warnings.push(msg);
       } else {
         errors.push(msg);
