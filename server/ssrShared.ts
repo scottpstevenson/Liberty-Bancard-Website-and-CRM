@@ -87,7 +87,12 @@ export function ssrHtmlShell({
   body,
 }: SsrShellOptions): string {
   const fullCanonical = `${BASE_URL}${canonical}`;
-  const ogImageUrl = ogImage || `${BASE_URL}/favicon.png`;
+  // Derive a per-page OG image: callers pass an explicit URL, or we generate
+  // a programmatic card from the /og/:template/:slug.png route.  Falling back
+  // to favicon would produce a low-quality social preview, so we always emit
+  // a real card URL.
+  const slugFromCanonical = canonical.replace(/^\//, "").replace(/\//g, "-") || "home";
+  const ogImageUrl = ogImage || `${BASE_URL}/og/default/${encodeURIComponent(slugFromCanonical)}.png`;
   const safeTitle = escapeHtml(title);
   const safeDescription = escapeHtml(description);
 

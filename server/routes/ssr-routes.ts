@@ -105,6 +105,13 @@ export function registerSsrRoutes(app: Express) {
     next();
   });
 
+  // Legacy URL redirect: /thanks-application → /thanks/application (301).
+  // Both URLs would otherwise resolve to different React routes; consolidate
+  // to the canonical path so crawlers index only one version.
+  app.get("/thanks-application", (_req, res) => {
+    res.redirect(301, "/thanks/application");
+  });
+
   app.get("/", (_req, res) => {
     const html = getHomeHtml();
     res.setHeader("Content-Type", "text/html; charset=utf-8");
