@@ -123,10 +123,17 @@ async function login(email: string, password: string): Promise<string> {
     const body = await res.text();
     throw new Error(`Login failed for ${email}: ${res.status} ${body}`);
   }
-  const setCookie = res.headers.get("set-cookie");
-  if (!setCookie) throw new Error(`No session cookie returned for ${email}`);
-  const cookie = setCookie.split(",")[0].split(";")[0];
-  return cookie;
+  // Use getSetCookie() (Node 18+ / undici) which returns each Set-Cookie header
+  // as a separate array entry — no fragile comma-splitting needed.
+  const rawHeaders = res.headers as unknown as { getSetCookie?: () => string[] };
+  const setCookieArr: string[] = typeof rawHeaders.getSetCookie === "function"
+    ? rawHeaders.getSetCookie()
+    : [res.headers.get("set-cookie") ?? ""];
+  const cookies = setCookieArr
+    .map((c) => c.split(";")[0].trim())
+    .filter(Boolean);
+  if (cookies.length === 0) throw new Error(`No session cookie returned for ${email}`);
+  return cookies.join("; ");
 }
 
 async function call(c: GuardCase, cookie?: string): Promise<number> {

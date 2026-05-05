@@ -1,6 +1,7 @@
 import { SEO, getFAQSchema } from "@/components/SEO";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
+import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Link, useParams } from "wouter";
@@ -267,6 +268,14 @@ export default function LocationIndustryPage() {
         <section className="relative overflow-hidden" data-testid="section-location-hero">
           <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 md:py-28">
+            <Breadcrumbs
+              items={[
+                { name: `${data.industryName} Processing`, path: `/industries/${vertical?.industryPageSlug || ""}` },
+                { name: `${data.cityName}, FL`, path: `/locations/${data.citySlug}` },
+              ]}
+              variant="dark"
+              className="mb-4"
+            />
             <div className="flex items-center gap-2 text-sky-400 mb-4">
               <MapPin className="w-5 h-5" />
               <span className="text-sm font-medium" data-testid="text-location-badge">{data.cityName}, Florida</span>

@@ -3,6 +3,7 @@ import { Link } from "wouter";
 import { SEO, getFAQSchema, getBreadcrumbSchema } from "@/components/SEO";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
+import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -71,7 +72,12 @@ export default function HelpCenter() {
       <Navbar />
 
       <main className="flex-grow pt-28" ref={containerRef}>
-        <section className="bg-primary text-primary-foreground py-16" data-testid="section-help-hero">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
+          <Breadcrumbs
+            items={[{ name: "Help Center", path: "/help" }]}
+          />
+        </div>
+        <section className="bg-primary text-primary-foreground py-16 mt-4" data-testid="section-help-hero">
           <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center reveal">
             <BookOpen className="w-12 h-12 mx-auto mb-4 opacity-80" />
             <h1
