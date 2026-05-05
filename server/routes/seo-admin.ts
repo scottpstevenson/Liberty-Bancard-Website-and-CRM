@@ -15,6 +15,7 @@ interface SeoCoverageRow {
   noindex: boolean;
   ogTemplate: string;
   internalLinks: number; // count of <a href="/..."> internal links in rendered HTML
+  probed: boolean; // true if real-fetch HTML probe was performed for this row
   warnings: string[];
 }
 
@@ -44,6 +45,7 @@ function evaluateRow(path: string, def: SeoRouteDefault): SeoCoverageRow {
     noindex: !!def.noindex,
     ogTemplate: def.ogTemplate || "default",
     internalLinks: 0,
+    probed: false,
     warnings,
   };
 }
@@ -127,12 +129,17 @@ export function registerSeoAdminRoutes(app: Express) {
         sampled.map((r) => probeRouteHead(baseUrl, r.path))
       );
       probes.forEach((probe, i) => {
-        if (!probe) return;
         const r = sampled[i];
+        if (!probe) {
+          // Probe failed (network error) — mark row so dashboard can surface it
+          r.warnings.push("real-fetch probe failed (network error)");
+          return;
+        }
         // Trust real signals over declared defaults.
         r.hasOgImage = probe.hasOgImage;
         r.hasJsonLd = probe.hasJsonLd;
         r.internalLinks = probe.internalLinks;
+        r.probed = true;
         // For declared-noindex routes, escalate if server response doesn't honor it.
         if (r.noindex && !probe.noindex) {
           r.warnings.push("declared noindex but server response lacks noindex signal");
@@ -145,6 +152,13 @@ export function registerSeoAdminRoutes(app: Express) {
         if (!r.noindex && probe.internalLinks > 0 && probe.internalLinks < 5) {
           r.warnings.push(`only ${probe.internalLinks} internal link(s) — consider adding more`);
         }
+      });
+
+      // Mark rows beyond the probe limit so the dashboard distinguishes
+      // "not probed" from "probed and OK". Avoids reporting hasOgImage: false
+      // as a definitive result for routes that were never fetched.
+      rows.slice(ROUTE_HTML_CHECKS_MAX).forEach((r) => {
+        r.warnings.push("OG/JSON-LD/links not probed (beyond per-request sample limit)");
       });
 
       const indexable = rows.filter((r) => !r.noindex);

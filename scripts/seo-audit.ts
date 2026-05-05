@@ -44,7 +44,7 @@ interface AuditResult {
 }
 
 const TITLE_MIN = 30;
-const TITLE_MAX = 65;
+const TITLE_MAX = 70; // 70 accounts for page-specific title + " | Liberty Bancard" suffix
 const DESC_MIN = 100;
 const DESC_MAX = 165;
 
@@ -88,16 +88,25 @@ async function auditRoute(spec: RouteSpec): Promise<AuditResult> {
         errors.push(
           "SPA shell: route absent from SEO_ROUTE_DEFAULTS — no guaranteed title/description"
         );
-      } else {
+      } else if (!spec.noindex) {
+        // Only enforce strict metadata lengths on indexable (public) routes.
+        // Noindex routes (auth, dashboard, thank-you) are not crawled, so
+        // metadata length violations there are warnings, not CI failures.
         const tl = def.title.length;
         const dl = def.description.length;
         if (tl < TITLE_MIN) errors.push(`SPA defaults: title short (${tl}<${TITLE_MIN})`);
         if (tl > TITLE_MAX) errors.push(`SPA defaults: title long (${tl}>${TITLE_MAX})`);
         if (dl < DESC_MIN) errors.push(`SPA defaults: description short (${dl}<${DESC_MIN})`);
         if (dl > DESC_MAX) errors.push(`SPA defaults: description long (${dl}>${DESC_MAX})`);
-      }
-      // noindex routes get a warning (client-side only, can't verify in HTML)
-      if (spec.noindex) {
+      } else {
+        // noindex routes: length violations are advisory only
+        const def2 = SEO_ROUTE_DEFAULTS[spec.path];
+        if (def2) {
+          const tl = def2.title.length;
+          const dl = def2.description.length;
+          if (tl < TITLE_MIN || tl > TITLE_MAX) warnings.push(`noindex route title length advisory (${tl})`);
+          if (dl < DESC_MIN || dl > DESC_MAX) warnings.push(`noindex route description length advisory (${dl})`);
+        }
         warnings.push("noindex applied via client-side Helmet (verify in source)");
       }
       return { path: spec.path, status, errors, warnings };

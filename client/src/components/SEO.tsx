@@ -83,8 +83,9 @@ interface SEOProps {
 const BASE_URL = "https://libertybancard.com";
 const DEFAULT_OG_IMAGE = `${BASE_URL}/favicon.png`;
 
-const GSC_VERIFICATION = import.meta.env.VITE_GSC_VERIFICATION;
-const BING_VERIFICATION = import.meta.env.VITE_BING_VERIFICATION;
+// Webmaster verification tags (GSC_VERIFICATION / BING_VERIFICATION) are
+// injected server-side by ssrShared.ts for SSR-rendered pages. SPA-shell
+// pages don't need them here because search crawlers receive the SSR HTML.
 
 function slugify(input: string): string {
   return (input || "page")
@@ -388,9 +389,6 @@ export function SEO({
       <meta name="description" content={description} />
       {keywords && <meta name="keywords" content={keywords} />}
       {noindex && <meta name="robots" content="noindex, nofollow" />}
-
-      {GSC_VERIFICATION && <meta name="google-site-verification" content={GSC_VERIFICATION} />}
-      {BING_VERIFICATION && <meta name="msvalidate.01" content={BING_VERIFICATION} />}
 
       {canonicalUrl && <link rel="canonical" href={canonicalUrl} />}
 

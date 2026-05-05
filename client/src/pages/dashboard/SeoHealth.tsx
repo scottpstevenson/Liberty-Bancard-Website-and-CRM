@@ -19,6 +19,7 @@ interface SeoCoverageRow {
   noindex: boolean;
   ogTemplate: string;
   internalLinks: number;
+  probed: boolean;
   warnings: string[];
 }
 
