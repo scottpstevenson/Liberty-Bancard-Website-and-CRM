@@ -15,6 +15,7 @@ import { db } from "../../db";
 import { systemSettings } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { csrfProtection } from "../../middleware/csrf";
+import { merchantAuthRateLimit } from "../../middleware/public-rate-limit";
 
 export function getSession() {
   const sessionTtl = 7 * 24 * 60 * 60 * 1000;
@@ -70,21 +71,6 @@ async function seedAdminUser() {
   }
 }
 
-const loginRateLimit = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 5,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { message: "Too many login attempts, please try again later." },
-  // Allow loopback requests to bypass the limiter outside production so the
-  // role-guard smoke test (scripts/smoke-role-guards.ts) can authenticate
-  // repeatedly without tripping a 429. Production traffic is unaffected.
-  skip: (req) => {
-    if (process.env.NODE_ENV === "production") return false;
-    const ip = req.ip ?? "";
-    return ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
-  },
-});
 
 const signupRateLimit = rateLimit({
   windowMs: 60 * 60 * 1000,
@@ -178,7 +164,7 @@ export async function setupAuth(app: Express) {
     }
   });
 
-  app.post("/api/auth/login", loginRateLimit, (req, res, next) => {
+  app.post("/api/auth/login", merchantAuthRateLimit, (req, res, next) => {
     passport.authenticate("local", async (err: any, user: any, info: any) => {
       if (err) return res.status(500).json({ message: "Server error" });
       if (!user) return res.status(401).json({ message: info?.message || "Invalid credentials" });
