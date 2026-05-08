@@ -401,8 +401,15 @@ export function registerMerchantsRoutes(app: Express) {
         return res.status(403).json({ message: "Forbidden" });
       }
 
+      await esignEmailCooldown.hydrateFromAuditLog(appId, "merchant_application_esign_sent", "merchant_application");
+      const { retryAfter: cooldownRemaining, lastSentAt } = esignEmailCooldown.checkCooldown(appId);
+
       if (!application.esignDocumentId) {
-        return res.json({ status: application.esignStatus || "pending" });
+        return res.json({
+          status: application.esignStatus || "pending",
+          cooldownRemaining,
+          lastSentAt: lastSentAt?.toISOString() ?? null,
+        });
       }
 
       const docStatus = await getDocumentStatus(application.esignDocumentId);
@@ -416,6 +423,8 @@ export function registerMerchantsRoutes(app: Express) {
 
       res.json({
         status: docStatus.status === "completed" || docStatus.status === "signed" ? "signed" : application.esignStatus,
+        cooldownRemaining,
+        lastSentAt: lastSentAt?.toISOString() ?? null,
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });

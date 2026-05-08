@@ -198,6 +198,20 @@ function ApplicationDetailView({
     refetchOnWindowFocus: false,
   });
 
+  const { data: esignStatus } = useQuery<{
+    status: string;
+    cooldownRemaining: number;
+    lastSentAt: string | null;
+  }>({
+    queryKey: ["/api/merchant-applications", application.id, "esign-status"],
+    queryFn: async () => {
+      const res = await fetch(`/api/merchant-applications/${application.id}/esign-status`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch e-sign status");
+      return res.json();
+    },
+    refetchOnWindowFocus: false,
+  });
+
   const { data: welcomeEmailHistory, isLoading: isLoadingWelcomeHistory } = useQuery<Array<{
     id: number;
     action: string;
@@ -221,6 +235,12 @@ function ApplicationDetailView({
       setCooldownSeconds(welcomeStatus.cooldownRemaining);
     }
   }, [welcomeStatus]);
+
+  useEffect(() => {
+    if (esignStatus?.cooldownRemaining && esignStatus.cooldownRemaining > 0) {
+      setEsignCooldownSeconds(esignStatus.cooldownRemaining);
+    }
+  }, [esignStatus]);
 
   useEffect(() => {
     if (cooldownSeconds <= 0) return;
