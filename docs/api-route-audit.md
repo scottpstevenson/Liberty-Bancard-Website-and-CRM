@@ -148,3 +148,56 @@ These routes correctly use `isAuthenticated` because merchants need access, with
 1. **Rate limits added** to 13 public endpoints (was 0 before audit).
 2. **`isDashboardUser` guard** applied to 60+ CRM-internal routes across 8 files (previously used `isAuthenticated`, allowing merchants/partners to access CRM data).
 3. **`requireRole("admin","manager")` guard** applied to 18 sensitive mutation endpoints (pipeline config, stage rules, knowledge base, equipment orders, onboarding, commission tiers).
+
+---
+
+## 7. Task #229 Audit — Unauthenticated Email/GHL-Triggering Endpoints
+
+**Date:** 2026-05-08
+**Scope:** All unauthenticated routes that send emails, trigger GHL workflows, or write records; cross-checked against `server/routes/merchants.ts`, `server/routes/public.ts`, `server/routes/partners.ts`, `server/routes/lifecycle.ts`, and `server/replit_integrations/auth/replitAuth.ts`.
+
+### Gaps Found & Fixed
+
+| Route | File | Issue | Fix Applied |
+|---|---|---|---|
+| `POST /api/auth/reset-password` | replitAuth.ts | No rate limit — token brute-force risk | Added `resetPasswordRateLimit` (5 req / 15 min per IP) |
+| `GET /api/nps/:token` | lifecycle.ts | No rate limit — token enumeration risk | Added `publicLeadRateLimit` (10 req / 15 min per IP) |
+| `POST /api/nps/:token/submit` | lifecycle.ts | No rate limit — creates health alerts & review requests | Added `publicLeadRateLimit` |
+| `POST /api/review-requests/:id/track-click` | lifecycle.ts | No rate limit — unauthenticated write endpoint | Added `publicLeadRateLimit` |
+| `POST /api/merchant-referrals` | lifecycle.ts | No rate limit — creates referral DB records unauthenticated | Added `publicLeadRateLimit` |
+
+### Already-Protected Routes (Confirmed)
+
+| Route | File | Rate Limit |
+|---|---|---|
+| `POST /api/public/statement-upload` | public.ts | `publicLeadRateLimit` |
+| `POST /api/public/estimate` | public.ts | `publicLeadRateLimit` |
+| `POST /api/public/support` | public.ts | `publicLeadRateLimit` |
+| `POST /api/public/get-started` | public.ts | `publicLeadRateLimit` |
+| `POST /api/public/integration-request` | public.ts | `publicLeadRateLimit` |
+| `POST /api/public/callback` | public.ts | `publicLeadRateLimit` |
+| `POST /api/equipment-order` | public.ts | `publicLeadRateLimit` |
+| `POST /api/public/testimonial-submit` | public.ts | `publicLeadRateLimit` |
+| `POST /api/merchant-applications/request-esign` | merchants.ts | `publicLeadRateLimit` |
+| `POST /api/partner-apply` | partners.ts | `publicLeadRateLimit` |
+| `POST /api/partner/login` | partners.ts | `partnerLoginRateLimit` |
+| `POST /api/partners/login` | partners.ts | `partnerLoginRateLimit` |
+| `POST /api/partner/reset-password-request` | partners.ts | `partnerForgotPasswordRateLimit` |
+| `POST /api/partners/forgot-password` | partners.ts | `partnerForgotPasswordRateLimit` |
+| `POST /api/partner/reset-password` | partners.ts | `publicLeadRateLimit` |
+| `POST /api/partners/reset-password` | partners.ts | `publicLeadRateLimit` |
+| `POST /api/partners/set-password` | partners.ts | `publicLeadRateLimit` |
+| `GET  /api/partner/track/:code` | partners.ts | `publicLeadRateLimit` |
+| `POST /api/auth/forgot-password` | replitAuth.ts | `forgotPasswordRateLimit` (3 req / hr) |
+| `POST /api/auth/signup` | replitAuth.ts | `signupRateLimit` (3 req / hr) — sends GHL welcome email on success |
+| `POST /api/auth/login` | replitAuth.ts | `loginRateLimit` (5 req / 15 min) |
+| `GET /api/auth/verify-email` | replitAuth.ts | No rate limit — token is single-use and 24-hr expiry; no email send (safe) |
+
+### Non-Email Unauthenticated Routes (Confirmed Safe / No Action Needed)
+
+| Route | File | Notes |
+|---|---|---|
+| `POST /api/webhooks/ghl-document` | merchants.ts | Webhook; protected by signature verification |
+| `POST /api/partners/logout` | partners.ts | Logout; no email/write risk |
+| `POST /api/partner/logout` | partners.ts | Logout; no email/write risk |
+| `GET /api/public/testimonials/approved` | public.ts | Read-only, returns sanitized data |

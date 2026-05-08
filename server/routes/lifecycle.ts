@@ -3,6 +3,7 @@ import { isAuthenticated } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
 import { randomBytes } from "crypto";
+import { publicLeadRateLimit } from "../middleware/public-rate-limit";
 
 function generateReferralCode(): string {
   return randomBytes(4).toString("hex").toUpperCase();
@@ -21,7 +22,7 @@ export function registerLifecycleRoutes(app: Express) {
   });
 
   // ── NPS Survey (public — accessed via token) ────────────────────────────────
-  app.get("/api/nps/:token", async (req, res) => {
+  app.get("/api/nps/:token", publicLeadRateLimit, async (req, res) => {
     try {
       const survey = await storage.getNpsResponseByToken(req.params.token);
       if (!survey) return res.status(404).json({ message: "Survey not found or expired" });
@@ -32,7 +33,7 @@ export function registerLifecycleRoutes(app: Express) {
     }
   });
 
-  app.post("/api/nps/:token/submit", async (req, res) => {
+  app.post("/api/nps/:token/submit", publicLeadRateLimit, async (req, res) => {
     try {
       const survey = await storage.getNpsResponseByToken(req.params.token);
       if (!survey) return res.status(404).json({ message: "Survey not found" });
@@ -146,7 +147,7 @@ export function registerLifecycleRoutes(app: Express) {
     }
   });
 
-  app.post("/api/review-requests/:id/track-click", async (req, res) => {
+  app.post("/api/review-requests/:id/track-click", publicLeadRateLimit, async (req, res) => {
     try {
       const { platform } = req.body;
       const id = Number(req.params.id);
@@ -181,7 +182,7 @@ export function registerLifecycleRoutes(app: Express) {
     }
   });
 
-  app.post("/api/merchant-referrals", async (req, res) => {
+  app.post("/api/merchant-referrals", publicLeadRateLimit, async (req, res) => {
     try {
       const { referralCode, referredEmail, referredName, referredCompany } = req.body;
       if (!referralCode || !referredEmail) {

@@ -102,6 +102,14 @@ const forgotPasswordRateLimit = rateLimit({
   message: { message: "Too many password reset requests, please try again later." },
 });
 
+const resetPasswordRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many password reset attempts, please try again later." },
+});
+
 const totpRateLimit = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
@@ -544,7 +552,7 @@ export async function setupAuth(app: Express) {
     }
   });
 
-  app.post("/api/auth/reset-password", async (req, res) => {
+  app.post("/api/auth/reset-password", resetPasswordRateLimit, async (req, res) => {
     try {
       const { token, password } = req.body;
       if (!token || !password) {
