@@ -194,7 +194,7 @@ function ApplicationDetailView({
       if (!res.ok) throw new Error("Failed to fetch status");
       return res.json();
     },
-    enabled: !!merchantProfile && merchantProfile.accountStatus === "active",
+    enabled: !!merchantProfile?.id,
     refetchOnWindowFocus: false,
   });
 
