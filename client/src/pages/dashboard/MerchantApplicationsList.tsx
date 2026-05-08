@@ -214,6 +214,7 @@ function ApplicationDetailView({
   });
 
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
+  const [esignCooldownSeconds, setEsignCooldownSeconds] = useState(0);
 
   useEffect(() => {
     if (welcomeStatus?.cooldownRemaining && welcomeStatus.cooldownRemaining > 0) {
@@ -234,6 +235,20 @@ function ApplicationDetailView({
     }, 1000);
     return () => clearInterval(timer);
   }, [cooldownSeconds]);
+
+  useEffect(() => {
+    if (esignCooldownSeconds <= 0) return;
+    const timer = setInterval(() => {
+      setEsignCooldownSeconds((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [esignCooldownSeconds]);
 
   const formatCooldown = useCallback((seconds: number) => {
     const m = Math.floor(seconds / 60);
@@ -278,10 +293,23 @@ function ApplicationDetailView({
     mutationFn: () => apiRequest("POST", `/api/merchant-applications/${application.id}/send-esign`, {}),
     onSuccess: () => {
       toast({ title: "E-sign sent", description: "E-signature request sent to the merchant." });
+      setEsignCooldownSeconds(300);
       queryClient.invalidateQueries({ queryKey: ["/api/merchant-applications"] });
     },
     onError: (err: any) => {
-      toast({ title: "E-sign failed", description: err.message || "Could not send e-signature request.", variant: "destructive" });
+      const msg = err.message || "";
+      if (msg.startsWith("429:")) {
+        try {
+          const body = JSON.parse(msg.slice(4).trim());
+          if (body.retryAfter) {
+            setEsignCooldownSeconds(body.retryAfter);
+            toast({ title: "Cooldown active", description: body.message || "Please wait before resending.", variant: "destructive" });
+            return;
+          }
+        } catch {
+        }
+      }
+      toast({ title: "E-sign failed", description: msg || "Could not send e-signature request.", variant: "destructive" });
     },
   });
 
@@ -371,20 +399,29 @@ function ApplicationDetailView({
                 <MessageSquarePlus className="w-4 h-4 mr-2" />
                 Request Info
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => esignMutation.mutate()}
-                disabled={esignMutation.isPending}
-                data-testid="button-send-esign"
-              >
-                {esignMutation.isPending ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <SendHorizonal className="w-4 h-4 mr-2" />
+              <div className="flex flex-col items-start gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => esignMutation.mutate()}
+                  disabled={esignMutation.isPending || esignCooldownSeconds > 0}
+                  data-testid="button-send-esign"
+                >
+                  {esignMutation.isPending ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <SendHorizonal className="w-4 h-4 mr-2" />
+                  )}
+                  {esignCooldownSeconds > 0
+                    ? `Available in ${formatCooldown(esignCooldownSeconds)}`
+                    : "Send E-Sign"}
+                </Button>
+                {esignCooldownSeconds > 0 && (
+                  <span className="text-xs text-muted-foreground" data-testid="text-esign-cooldown">
+                    E-sign cooldown active
+                  </span>
                 )}
-                Send E-Sign
-              </Button>
+              </div>
               <Button
                 variant="destructive"
                 size="sm"
