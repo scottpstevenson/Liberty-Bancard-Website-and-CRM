@@ -12,8 +12,45 @@ import { sendApplicationApprovedEmail, sendApplicationDeclinedEmail } from "../s
 import { parse } from "csv-parse/sync";
 import path from "path";
 
-const WELCOME_EMAIL_COOLDOWN_MS = 5 * 60 * 1000;
-const welcomeEmailCooldowns = new Map<number, Date>();
+const EMAIL_COOLDOWN_MS = 5 * 60 * 1000;
+
+function createEmailCooldown(cooldownMs: number) {
+  const cooldowns = new Map<number, Date>();
+
+  function checkCooldown(key: number): { inCooldown: boolean; retryAfter: number; lastSentAt: Date | null } {
+    const lastSentAt = cooldowns.get(key) ?? null;
+    if (!lastSentAt) return { inCooldown: false, retryAfter: 0, lastSentAt: null };
+    const elapsed = Date.now() - lastSentAt.getTime();
+    if (elapsed < cooldownMs) {
+      const retryAfter = Math.ceil((cooldownMs - elapsed) / 1000);
+      return { inCooldown: true, retryAfter, lastSentAt };
+    }
+    return { inCooldown: false, retryAfter: 0, lastSentAt };
+  }
+
+  function recordSend(key: number): Date {
+    const sentAt = new Date();
+    cooldowns.set(key, sentAt);
+    return sentAt;
+  }
+
+  async function hydrateFromAuditLog(key: number, action: string, entityType: string): Promise<void> {
+    if (cooldowns.has(key)) return;
+    try {
+      const lastLog = await storage.getLastAuditLogByAction(action, entityType, key);
+      if (lastLog?.createdAt) {
+        cooldowns.set(key, new Date(lastLog.createdAt));
+      }
+    } catch {}
+  }
+
+  return { checkCooldown, recordSend, hydrateFromAuditLog };
+}
+
+const welcomeEmailCooldown = createEmailCooldown(EMAIL_COOLDOWN_MS);
+const esignEmailCooldown = createEmailCooldown(EMAIL_COOLDOWN_MS);
+const approvedEmailCooldown = createEmailCooldown(EMAIL_COOLDOWN_MS);
+const declinedEmailCooldown = createEmailCooldown(EMAIL_COOLDOWN_MS);
 
 const isAdminOrManager: RequestHandler = (req, res, next) => {
   const role = (req.user as any)?.role;
@@ -172,15 +209,31 @@ export function registerMerchantsRoutes(app: Express) {
       const wasDeclined = existing.status !== "declined" && updated.status === "declined";
 
       if (wasApproved) {
-        sendApplicationApprovedEmail(updated).catch((err) =>
-          console.error("[Application Approval] Approval email error:", err)
-        );
+        approvedEmailCooldown.hydrateFromAuditLog(appId, "merchant_application_approved_email_sent", "merchant_application").then(() => {
+          const { inCooldown } = approvedEmailCooldown.checkCooldown(appId);
+          if (inCooldown) {
+            console.warn(`[Application Approval] Skipping approval email for application #${appId} — cooldown active`);
+            return;
+          }
+          approvedEmailCooldown.recordSend(appId);
+          sendApplicationApprovedEmail(updated).catch((err) =>
+            console.error("[Application Approval] Approval email error:", err)
+          );
+        }).catch((err) => console.error("[Application Approval] Cooldown hydration error:", err));
       }
 
       if (wasDeclined) {
-        sendApplicationDeclinedEmail(updated).catch((err) =>
-          console.error("[Application Decline] Decline email error:", err)
-        );
+        declinedEmailCooldown.hydrateFromAuditLog(appId, "merchant_application_declined_email_sent", "merchant_application").then(() => {
+          const { inCooldown } = declinedEmailCooldown.checkCooldown(appId);
+          if (inCooldown) {
+            console.warn(`[Application Decline] Skipping decline email for application #${appId} — cooldown active`);
+            return;
+          }
+          declinedEmailCooldown.recordSend(appId);
+          sendApplicationDeclinedEmail(updated).catch((err) =>
+            console.error("[Application Decline] Decline email error:", err)
+          );
+        }).catch((err) => console.error("[Application Decline] Cooldown hydration error:", err));
       }
 
       if (wasApproved && updated.dealId) {
@@ -216,6 +269,16 @@ export function registerMerchantsRoutes(app: Express) {
       const application = await storage.getMerchantApplication(appId);
       if (!application) return res.status(404).json({ message: "Application not found" });
 
+      await esignEmailCooldown.hydrateFromAuditLog(appId, "merchant_application_esign_sent", "merchant_application");
+      const { inCooldown, retryAfter, lastSentAt } = esignEmailCooldown.checkCooldown(appId);
+      if (inCooldown) {
+        return res.status(429).json({
+          message: `Please wait ${Math.ceil(retryAfter / 60)} minute(s) before resending the e-signature document.`,
+          retryAfter,
+          lastSentAt: lastSentAt!.toISOString(),
+        });
+      }
+
       const templateId = process.env.GHL_MERCHANT_AGREEMENT_TEMPLATE_ID;
       if (!templateId) {
         return res.status(400).json({
@@ -247,6 +310,14 @@ export function registerMerchantsRoutes(app: Express) {
         esignSigningUrl: result.signingUrl || null,
       });
 
+      esignEmailCooldown.recordSend(appId);
+      await storage.createAuditLog({
+        action: "merchant_application_esign_sent",
+        entityType: "merchant_application",
+        entityId: appId,
+        details: { recipientEmail },
+      });
+
       res.json({
         success: true,
         message: "E-signature document sent via GoHighLevel",
@@ -262,7 +333,8 @@ export function registerMerchantsRoutes(app: Express) {
       if (!applicationId || !email) {
         return res.status(400).json({ message: "Application ID and email are required" });
       }
-      const application = await storage.getMerchantApplication(Number(applicationId));
+      const appId = Number(applicationId);
+      const application = await storage.getMerchantApplication(appId);
       if (!application) return res.status(404).json({ message: "Application not found" });
 
       if (application.businessEmail !== email && application.ownerEmail !== email) {
@@ -271,6 +343,15 @@ export function registerMerchantsRoutes(app: Express) {
 
       if (application.esignStatus === "sent" && application.esignDocumentId) {
         return res.json({ status: "sent", message: "E-signature document already sent to your email" });
+      }
+
+      await esignEmailCooldown.hydrateFromAuditLog(appId, "merchant_application_esign_sent", "merchant_application");
+      const { inCooldown, retryAfter } = esignEmailCooldown.checkCooldown(appId);
+      if (inCooldown) {
+        return res.status(429).json({
+          message: `Please wait ${Math.ceil(retryAfter / 60)} minute(s) before requesting another e-signature document.`,
+          retryAfter,
+        });
       }
 
       const templateId = process.env.GHL_MERCHANT_AGREEMENT_TEMPLATE_ID;
@@ -285,14 +366,21 @@ export function registerMerchantsRoutes(app: Express) {
         documentTemplateId: templateId,
         recipientName,
         recipientEmail,
-        applicationId: Number(applicationId),
+        applicationId: appId,
       });
 
       if (result.success) {
-        await storage.updateMerchantApplication(Number(applicationId), {
+        await storage.updateMerchantApplication(appId, {
           esignStatus: "sent",
           esignDocumentId: result.documentId || null,
           esignSigningUrl: result.signingUrl || null,
+        });
+        esignEmailCooldown.recordSend(appId);
+        await storage.createAuditLog({
+          action: "merchant_application_esign_sent",
+          entityType: "merchant_application",
+          entityId: appId,
+          details: { recipientEmail },
         });
         return res.json({ status: "sent", message: "E-signature document sent to your email" });
       }
@@ -426,9 +514,17 @@ export function registerMerchantsRoutes(app: Express) {
         existing.accountStatus !== "active" && updated.accountStatus === "active";
 
       if (wasActivated) {
-        sendMerchantPortalWelcomeEmail(updated).catch(err =>
-          console.error("[Merchant Profile] Portal welcome email error:", err)
-        );
+        welcomeEmailCooldown.hydrateFromAuditLog(id, "merchant_portal_welcome_sent", "merchant_profile").then(() => {
+          const { inCooldown } = welcomeEmailCooldown.checkCooldown(id);
+          if (inCooldown) {
+            console.warn(`[Merchant Profile] Skipping portal welcome email for profile #${id} — cooldown active`);
+            return;
+          }
+          welcomeEmailCooldown.recordSend(id);
+          sendMerchantPortalWelcomeEmail(updated).catch(err =>
+            console.error("[Merchant Profile] Portal welcome email error:", err)
+          );
+        }).catch(err => console.error("[Merchant Profile] Cooldown hydration error:", err));
       }
 
       res.json(updated);
@@ -443,20 +539,8 @@ export function registerMerchantsRoutes(app: Express) {
       const profile = await storage.getMerchantProfile(id);
       if (!profile) return res.status(404).json({ message: "Merchant profile not found" });
 
-      let lastSentAt: Date | null = welcomeEmailCooldowns.get(id) ?? null;
-
-      if (!lastSentAt) {
-        const lastLog = await storage.getLastAuditLogByAction("merchant_portal_welcome_sent", "merchant_profile", id);
-        if (lastLog?.createdAt) {
-          lastSentAt = new Date(lastLog.createdAt);
-          welcomeEmailCooldowns.set(id, lastSentAt);
-        }
-      }
-
-      const now = new Date();
-      const cooldownRemaining = lastSentAt
-        ? Math.max(0, Math.ceil((WELCOME_EMAIL_COOLDOWN_MS - (now.getTime() - lastSentAt.getTime())) / 1000))
-        : 0;
+      await welcomeEmailCooldown.hydrateFromAuditLog(id, "merchant_portal_welcome_sent", "merchant_profile");
+      const { retryAfter: cooldownRemaining, lastSentAt } = welcomeEmailCooldown.checkCooldown(id);
 
       res.json({
         lastSentAt: lastSentAt?.toISOString() ?? null,
@@ -477,31 +561,19 @@ export function registerMerchantsRoutes(app: Express) {
         return res.status(400).json({ message: "Welcome email can only be sent to active merchant accounts" });
       }
 
-      let lastSentAt: Date | null = welcomeEmailCooldowns.get(id) ?? null;
+      await welcomeEmailCooldown.hydrateFromAuditLog(id, "merchant_portal_welcome_sent", "merchant_profile");
+      const { inCooldown, retryAfter, lastSentAt } = welcomeEmailCooldown.checkCooldown(id);
 
-      if (!lastSentAt) {
-        const lastLog = await storage.getLastAuditLogByAction("merchant_portal_welcome_sent", "merchant_profile", id);
-        if (lastLog?.createdAt) {
-          lastSentAt = new Date(lastLog.createdAt);
-          welcomeEmailCooldowns.set(id, lastSentAt);
-        }
-      }
-
-      if (lastSentAt) {
-        const elapsed = Date.now() - lastSentAt.getTime();
-        if (elapsed < WELCOME_EMAIL_COOLDOWN_MS) {
-          const retryAfter = Math.ceil((WELCOME_EMAIL_COOLDOWN_MS - elapsed) / 1000);
-          return res.status(429).json({
-            message: `Please wait ${Math.ceil(retryAfter / 60)} minute(s) before resending the welcome email.`,
-            retryAfter,
-            lastSentAt: lastSentAt.toISOString(),
-          });
-        }
+      if (inCooldown) {
+        return res.status(429).json({
+          message: `Please wait ${Math.ceil(retryAfter / 60)} minute(s) before resending the welcome email.`,
+          retryAfter,
+          lastSentAt: lastSentAt!.toISOString(),
+        });
       }
 
       await sendMerchantPortalWelcomeEmail(profile);
-      const sentAt = new Date();
-      welcomeEmailCooldowns.set(id, sentAt);
+      const sentAt = welcomeEmailCooldown.recordSend(id);
       res.json({ success: true, message: "Welcome email has been resent", lastSentAt: sentAt.toISOString() });
     } catch (err: any) {
       console.error(`[Resend Welcome] Error for profile #${req.params.id}:`, err);
