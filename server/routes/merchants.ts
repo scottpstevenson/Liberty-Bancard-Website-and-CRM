@@ -11,6 +11,7 @@ import { sendMerchantWelcomeEmail, sendMerchantPortalWelcomeEmail } from "../ser
 import { sendApplicationApprovedEmail, sendApplicationDeclinedEmail } from "../services/merchant-application-status";
 import { parse } from "csv-parse/sync";
 import path from "path";
+import { publicLeadRateLimit } from "../middleware/public-rate-limit";
 
 const EMAIL_COOLDOWN_MS = 5 * 60 * 1000;
 
@@ -327,7 +328,7 @@ export function registerMerchantsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/merchant-applications/request-esign", async (req, res) => {
+  app.post("/api/merchant-applications/request-esign", publicLeadRateLimit, async (req, res) => {
     try {
       const { applicationId, email } = req.body;
       if (!applicationId || !email) {
