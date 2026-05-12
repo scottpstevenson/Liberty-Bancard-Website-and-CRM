@@ -77,6 +77,7 @@ export const contacts = pgTable("contacts", {
   updatedAt: timestamp("updated_at").defaultNow(),
   archivedAt: timestamp("archived_at"),
   partnerOrgId: integer("partner_org_id"),
+  lastSyncedAt: timestamp("last_synced_at"),
 }, (table) => [
   uniqueIndex("contacts_email_unique_idx").on(table.email).where(sql`archived_at IS NULL`),
   index("contacts_phone_idx").on(table.phone),
@@ -2924,6 +2925,31 @@ export const ghlSyncStatus = pgTable("ghl_sync_status", {
 ]);
 
 export type GhlSyncStatusRecord = typeof ghlSyncStatus.$inferSelect;
+
+export const syncConflicts = pgTable("sync_conflicts", {
+  id: serial("id").primaryKey(),
+  contactId: integer("contact_id").references(() => contacts.id).notNull(),
+  fieldName: text("field_name").notNull(),
+  internalValue: text("internal_value"),
+  ghlValue: text("ghl_value"),
+  internalUpdatedAt: timestamp("internal_updated_at"),
+  ghlUpdatedAt: timestamp("ghl_updated_at"),
+  resolution: text("resolution").default("pending").notNull(),
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("sync_conflicts_contact_id_idx").on(table.contactId),
+  index("sync_conflicts_resolution_idx").on(table.resolution),
+  index("sync_conflicts_created_at_idx").on(table.createdAt),
+]);
+
+export const insertSyncConflictSchema = createInsertSchema(syncConflicts).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type SyncConflict = typeof syncConflicts.$inferSelect;
+export type InsertSyncConflict = z.infer<typeof insertSyncConflictSchema>;
 
 export const ghlWorkflowMappings = pgTable("ghl_workflow_mappings", {
   id: serial("id").primaryKey(),

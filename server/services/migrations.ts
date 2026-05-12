@@ -219,6 +219,27 @@ export async function runStartupMigrations(): Promise<void> {
       CREATE INDEX IF NOT EXISTS background_jobs_job_name_idx ON background_jobs(job_name);
       CREATE INDEX IF NOT EXISTS background_jobs_status_idx ON background_jobs(status);
     `);
+
+    await client.query(`
+      ALTER TABLE contacts ADD COLUMN IF NOT EXISTS last_synced_at TIMESTAMP;
+
+      CREATE TABLE IF NOT EXISTS sync_conflicts (
+        id SERIAL PRIMARY KEY,
+        contact_id INTEGER NOT NULL REFERENCES contacts(id),
+        field_name TEXT NOT NULL,
+        internal_value TEXT,
+        ghl_value TEXT,
+        internal_updated_at TIMESTAMP,
+        ghl_updated_at TIMESTAMP,
+        resolution TEXT NOT NULL DEFAULT 'pending',
+        resolved_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS sync_conflicts_contact_id_idx ON sync_conflicts(contact_id);
+      CREATE INDEX IF NOT EXISTS sync_conflicts_resolution_idx ON sync_conflicts(resolution);
+      CREATE INDEX IF NOT EXISTS sync_conflicts_created_at_idx ON sync_conflicts(created_at);
+    `);
+
     console.log("[Migrations] Startup migrations applied successfully.");
   } catch (err: any) {
     console.error("[Migrations] Error applying startup migrations:", err.message);

@@ -141,6 +141,7 @@ export interface IStorage {
   getContactByEmail(email: string): Promise<typeof contacts.$inferSelect | undefined>;
   createContact(contact: InsertContact): Promise<typeof contacts.$inferSelect>;
   updateContact(id: number, contact: UpdateContactRequest): Promise<typeof contacts.$inferSelect | undefined>;
+  syncUpdateContact(id: number, contact: UpdateContactRequest): Promise<typeof contacts.$inferSelect | undefined>;
 
   getCompanies(): Promise<typeof companies.$inferSelect[]>;
   createCompany(company: InsertCompany): Promise<typeof companies.$inferSelect>;
@@ -613,6 +614,11 @@ export interface IStorage {
   createResidualImportRowsBulk(data: import("@shared/schema").InsertResidualImportRow[]): Promise<import("@shared/schema").ResidualImportRow[]>;
   updateResidualImportRow(id: number, updates: Partial<import("@shared/schema").InsertResidualImportRow>): Promise<import("@shared/schema").ResidualImportRow | undefined>;
   deleteResidualImportRows(importId: number): Promise<void>;
+
+  // Sync Conflicts
+  getSyncConflicts(resolution?: string): Promise<import("@shared/schema").SyncConflict[]>;
+  createSyncConflict(data: import("@shared/schema").InsertSyncConflict): Promise<import("@shared/schema").SyncConflict>;
+  resolveSyncConflict(id: number, resolution: "kept-internal" | "kept-ghl" | "manual"): Promise<import("@shared/schema").SyncConflict | undefined>;
 }
 
 const DEFAULT_LIMIT = 100;

@@ -6,6 +6,69 @@ import { upsertGhlContact, isGhlConfigured, sendGhlEmail } from "./ghl";
 import { getEmailSignatureHtml } from "./email-signatures";
 import { eq } from "drizzle-orm";
 
+const CONFLICT_FIELDS: Array<{ ghlKey: string; contactKey: keyof Contact }> = [
+  { ghlKey: "firstName", contactKey: "firstName" },
+  { ghlKey: "lastName", contactKey: "lastName" },
+  { ghlKey: "email", contactKey: "email" },
+  { ghlKey: "phone", contactKey: "phone" },
+  { ghlKey: "companyName", contactKey: "companyName" },
+];
+
+async function detectAndWriteConflicts(
+  existing: Contact,
+  ghlContact: any,
+): Promise<{ conflictFields: string[]; cleanPayload: UpdateContactRequest }> {
+  const conflictFields: string[] = [];
+  const cleanPayload: UpdateContactRequest = {};
+  const lastSynced = existing.lastSyncedAt;
+
+  for (const { ghlKey, contactKey } of CONFLICT_FIELDS) {
+    const ghlVal = ghlContact[ghlKey];
+    if (ghlVal === undefined) continue;
+
+    const normalizedGhl = ghlVal ?? "";
+    const normalizedInternal = (existing[contactKey] as string) ?? "";
+
+    if (normalizedGhl === normalizedInternal) {
+      continue;
+    }
+
+    const internalUpdatedAt = existing.updatedAt ?? existing.createdAt;
+    const wasModifiedSinceSync = lastSynced
+      ? internalUpdatedAt && new Date(internalUpdatedAt) > new Date(lastSynced)
+      : false;
+
+    if (wasModifiedSinceSync) {
+      conflictFields.push(contactKey as string);
+      try {
+        await storage.createSyncConflict({
+          contactId: existing.id,
+          fieldName: contactKey as string,
+          internalValue: normalizedInternal || null,
+          ghlValue: normalizedGhl || null,
+          internalUpdatedAt: internalUpdatedAt ? new Date(internalUpdatedAt) : null,
+          ghlUpdatedAt: null,
+          resolution: "pending",
+          resolvedAt: null,
+        });
+        console.log(`[GHL Sync] Conflict logged for contact #${existing.id} field '${contactKey as string}': internal='${normalizedInternal}' ghl='${normalizedGhl}'`);
+      } catch (err: any) {
+        console.error(`[GHL Sync] Failed to write conflict row for contact #${existing.id}:`, err.message);
+      }
+    } else {
+      switch (contactKey) {
+        case "firstName":    cleanPayload.firstName    = normalizedGhl; break;
+        case "lastName":     cleanPayload.lastName     = normalizedGhl; break;
+        case "email":        cleanPayload.email        = normalizedGhl; break;
+        case "phone":        cleanPayload.phone        = normalizedGhl; break;
+        case "companyName":  cleanPayload.companyName  = normalizedGhl; break;
+      }
+    }
+  }
+
+  return { conflictFields, cleanPayload };
+}
+
 const GHL_API_BASE = "https://services.leadconnectorhq.com";
 
 function getConfig() {
@@ -109,22 +172,28 @@ export async function syncContactFromGhl(ghlContact: any): Promise<{ contactId: 
       : null;
 
     if (existingByGhlId) {
-      const updatePayload: UpdateContactRequest = {};
-      // GHL is authoritative: apply all fields present in the webhook payload,
-      // including explicit clears (empty string / null). Only skip fields that
-      // are entirely absent from the GHL payload (undefined = not sent by GHL).
-      if (ghlContact.firstName !== undefined) updatePayload.firstName = ghlContact.firstName ?? "";
-      if (ghlContact.lastName !== undefined) updatePayload.lastName = ghlContact.lastName ?? "";
-      if (ghlContact.email !== undefined) updatePayload.email = ghlContact.email ?? "";
-      if (ghlContact.phone !== undefined) updatePayload.phone = ghlContact.phone ?? "";
-      if (ghlContact.companyName !== undefined) updatePayload.companyName = ghlContact.companyName ?? "";
-      // Tags: fully replace from GHL (not merged) — GHL array is authoritative
+      const { conflictFields, cleanPayload } = await detectAndWriteConflicts(existingByGhlId, ghlContact);
+
+      // Tags are always applied (no conflict model for array fields)
       if (Array.isArray(ghlContact.tags)) {
-        updatePayload.tags = ghlContact.tags;
+        cleanPayload.tags = ghlContact.tags;
       }
-      if (Object.keys(updatePayload).length > 0) {
-        await storage.updateContact(existingByGhlId.id, updatePayload);
+
+      if (conflictFields.length === 0) {
+        // Fully clean sync — apply field changes and advance the baseline.
+        // syncUpdateContact does NOT bump updatedAt, so updatedAt stays as the last
+        // genuine user-edit timestamp and future conflict detection stays accurate.
+        cleanPayload.lastSyncedAt = new Date();
+        await storage.syncUpdateContact(existingByGhlId.id, cleanPayload);
+      } else if (Object.keys(cleanPayload).length > 0) {
+        // Some fields were clean, some conflicted — apply only the clean ones, preserve baseline.
+        await storage.syncUpdateContact(existingByGhlId.id, cleanPayload);
+        console.log(`[GHL Sync] ${conflictFields.length} conflict(s) logged for contact #${existingByGhlId.id}: ${conflictFields.join(", ")}`);
+      } else {
+        // All changed fields were conflicted — don't touch anything; preserve lastSyncedAt.
+        console.log(`[GHL Sync] ${conflictFields.length} conflict(s) logged for contact #${existingByGhlId.id}: ${conflictFields.join(", ")} — no DB write`);
       }
+
       await updateSyncStatusRecord("contacts", "inbound", 1, 0);
       return { contactId: existingByGhlId.id, created: false };
     }
@@ -132,17 +201,17 @@ export async function syncContactFromGhl(ghlContact: any): Promise<{ contactId: 
     if (ghlContact.email) {
       const existingByEmail = (await storage.getContacts({ limit: 500 })).data.find(c => c.email?.toLowerCase() === ghlContact.email?.toLowerCase());
       if (existingByEmail) {
-        const updatePayload: UpdateContactRequest = { ghlContactId: ghlContact.id };
-        // GHL is authoritative for all fields present in the webhook payload
-        if (ghlContact.firstName !== undefined) updatePayload.firstName = ghlContact.firstName ?? "";
-        if (ghlContact.lastName !== undefined) updatePayload.lastName = ghlContact.lastName ?? "";
-        if (ghlContact.phone !== undefined) updatePayload.phone = ghlContact.phone ?? "";
-        if (ghlContact.companyName !== undefined) updatePayload.companyName = ghlContact.companyName ?? "";
-        // Tags: fully replace from GHL (not merged)
+        const { conflictFields: emailConflicts, cleanPayload } = await detectAndWriteConflicts(existingByEmail, ghlContact);
+        const mergedPayload: UpdateContactRequest = { ghlContactId: ghlContact.id, ...cleanPayload };
         if (Array.isArray(ghlContact.tags)) {
-          updatePayload.tags = ghlContact.tags;
+          mergedPayload.tags = ghlContact.tags;
         }
-        await storage.updateContact(existingByEmail.id, updatePayload);
+        // Only advance lastSyncedAt when no conflicts were detected.
+        // syncUpdateContact preserves updatedAt so conflict detection stays accurate.
+        if (emailConflicts.length === 0) {
+          mergedPayload.lastSyncedAt = new Date();
+        }
+        await storage.syncUpdateContact(existingByEmail.id, mergedPayload);
         await updateSyncStatusRecord("contacts", "inbound", 1, 0);
         return { contactId: existingByEmail.id, created: false };
       }
@@ -158,6 +227,7 @@ export async function syncContactFromGhl(ghlContact: any): Promise<{ contactId: 
       status: "New",
       tags: [...(ghlContact.tags || []), "ghl-import"],
       referralSource: "ghl_sync",
+      lastSyncedAt: new Date(),
     });
 
     await updateSyncStatusRecord("contacts", "inbound", 1, 0);

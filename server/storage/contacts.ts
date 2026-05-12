@@ -132,6 +132,13 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
     return updated;
   }
 
+  async syncUpdateContact(id: number, updates: UpdateContactRequest) {
+    // Intentionally does NOT bump updatedAt so that updatedAt stays as the last
+    // genuine user-edit timestamp and conflict detection remains accurate.
+    const [updated] = await db.update(contacts).set(updates).where(eq(contacts.id, id)).returning();
+    return updated;
+  }
+
 
   async getCompanies() {
     return await db.select().from(companies).orderBy(desc(companies.createdAt));

@@ -7,6 +7,8 @@ import {
   contacts, companies, deals, tickets, tasks, documents, auditLogs, notifications, workflowRuns, workflows, rfis, users,
   chargebacks,
   type Chargeback, type InsertChargeback, type UpdateChargebackRequest,
+  syncConflicts,
+  type SyncConflict, type InsertSyncConflict,
   messageTemplates, collateralPackets, ghlActivityLog, slaConfigs,
   prospects, prospectLists, enrichmentJobs, campaigns, campaignSteps, outboundMessages, notes,
   emailLogs, callLogs, stageAutomationRules, followUpSequences, sequenceSteps, sequenceEnrollments,
@@ -469,6 +471,28 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
     const thisMonthWinRate = thisMonthResolved.length > 0 ? Math.round((thisMonthWon.length / thisMonthResolved.length) * 100) : 0;
     const totalAtRiskAmount = open.reduce((sum, c) => sum + (c.amount || 0), 0);
     return { total: all.length, open: open.length, overdue: overdue.length, won: won.length, lost: lost.length, thisMonthWinRate, totalAtRiskAmount };
+  }
+
+  // ── Sync Conflicts ────────────────────────────────────────────────────────
+
+  async getSyncConflicts(resolution?: string): Promise<SyncConflict[]> {
+    if (resolution) {
+      return db.select().from(syncConflicts).where(eq(syncConflicts.resolution, resolution)).orderBy(desc(syncConflicts.createdAt));
+    }
+    return db.select().from(syncConflicts).orderBy(desc(syncConflicts.createdAt));
+  }
+
+  async createSyncConflict(data: InsertSyncConflict): Promise<SyncConflict> {
+    const [row] = await db.insert(syncConflicts).values(data).returning();
+    return row;
+  }
+
+  async resolveSyncConflict(id: number, resolution: "kept-internal" | "kept-ghl" | "manual"): Promise<SyncConflict | undefined> {
+    const [row] = await db.update(syncConflicts)
+      .set({ resolution, resolvedAt: new Date() })
+      .where(eq(syncConflicts.id, id))
+      .returning();
+    return row;
   }
 
   // ── NPS Responses ─────────────────────────────────────────────────────────

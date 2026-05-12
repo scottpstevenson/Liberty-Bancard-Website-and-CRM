@@ -1938,4 +1938,76 @@ export function registerSdrRoutes(app: Express) {
     }
   });
 
+  // ── Sync Conflicts ────────────────────────────────────────────────────────
+
+  app.get("/api/operator/sync-conflicts", isAdmin, async (req, res) => {
+    try {
+      const resolution = req.query.resolution as string | undefined;
+      const conflicts = await storage.getSyncConflicts(resolution);
+      res.json(conflicts);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.patch("/api/operator/sync-conflicts/:id/resolve", isAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const { resolution } = req.body as { resolution: "kept-internal" | "kept-ghl" | "manual" };
+      if (!["kept-internal", "kept-ghl", "manual"].includes(resolution)) {
+        return res.status(400).json({ message: "Invalid resolution value" });
+      }
+
+      const conflicts = await storage.getSyncConflicts();
+      const conflict = conflicts.find(c => c.id === id);
+      if (!conflict) return res.status(404).json({ message: "Conflict not found" });
+
+      const { upsertGhlContact } = await import("../services/ghl");
+
+      if (resolution === "kept-ghl") {
+        const ghlVal = conflict.ghlValue ?? "";
+        const updatePayload: import("@shared/schema").UpdateContactRequest = {};
+        switch (conflict.fieldName) {
+          case "firstName":   updatePayload.firstName   = ghlVal; break;
+          case "lastName":    updatePayload.lastName    = ghlVal; break;
+          case "email":       updatePayload.email       = ghlVal; break;
+          case "phone":       updatePayload.phone       = ghlVal; break;
+          case "companyName": updatePayload.companyName = ghlVal; break;
+          default:
+            return res.status(400).json({ message: `Field '${conflict.fieldName}' cannot be resolved via this endpoint` });
+        }
+        await storage.updateContact(conflict.contactId, updatePayload);
+        const contact = await storage.getContact(conflict.contactId);
+        if (contact?.ghlContactId) {
+          try {
+            await upsertGhlContact(contact);
+          } catch (ghlErr: unknown) {
+            const msg = ghlErr instanceof Error ? ghlErr.message : String(ghlErr);
+            console.error(`[Sync Conflict] GHL write failed for kept-ghl resolution #${id}: ${msg}`);
+            return res.status(502).json({ message: `DB updated but GHL sync failed: ${msg}` });
+          }
+        }
+      } else if (resolution === "kept-internal") {
+        const contact = await storage.getContact(conflict.contactId);
+        if (contact?.ghlContactId) {
+          try {
+            await upsertGhlContact(contact);
+          } catch (ghlErr: unknown) {
+            const msg = ghlErr instanceof Error ? ghlErr.message : String(ghlErr);
+            console.error(`[Sync Conflict] GHL write failed for kept-internal resolution #${id}: ${msg}`);
+            return res.status(502).json({ message: `GHL sync failed — conflict remains pending: ${msg}` });
+          }
+        }
+      }
+      // resolution === "manual" requires no system writes — admin has handled it externally
+
+      const updated = await storage.resolveSyncConflict(id, resolution);
+      res.json(updated);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
 }

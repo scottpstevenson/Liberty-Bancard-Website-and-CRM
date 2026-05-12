@@ -14,9 +14,194 @@ import { PageHeader } from "@/components/ui/page-header";
 import {
   Activity, AlertTriangle, ArrowUpRight, BarChart3, Calendar, CheckCircle2,
   Clock, Loader2, Mail, MessageSquare, Phone, RefreshCw, Send, Shield,
-  Target, TrendingUp, Users, XCircle, Zap, Eye, Filter, ChevronRight, Server,
+  Target, TrendingUp, Users, XCircle, Zap, Eye, Filter, ChevronRight, Server, GitMerge,
   Bot, DollarSign, Hash,
 } from "lucide-react";
+
+interface SyncConflict {
+  id: number;
+  contactId: number;
+  fieldName: string;
+  internalValue: string | null;
+  ghlValue: string | null;
+  internalUpdatedAt: string | null;
+  ghlUpdatedAt: string | null;
+  resolution: string;
+  resolvedAt: string | null;
+  createdAt: string | null;
+}
+
+function SyncConflictsPanel() {
+  const { toast } = useToast();
+  const [filter, setFilter] = useState("pending");
+
+  const { data: conflicts, isLoading, isError, refetch } = useQuery<SyncConflict[]>({
+    queryKey: ["/api/operator/sync-conflicts", filter],
+    queryFn: async () => {
+      const url = filter === "all"
+        ? "/api/operator/sync-conflicts"
+        : `/api/operator/sync-conflicts?resolution=${filter}`;
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch sync conflicts");
+      return res.json();
+    },
+    refetchInterval: 30000,
+  });
+
+  const resolveMutation = useMutation({
+    mutationFn: async ({ id, resolution }: { id: number; resolution: "kept-internal" | "kept-ghl" | "manual" }) => {
+      const res = await apiRequest("PATCH", `/api/operator/sync-conflicts/${id}/resolve`, { resolution });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Conflict resolved" });
+      queryClient.invalidateQueries({ queryKey: ["/api/operator/sync-conflicts"] });
+    },
+    onError: (err: any) => {
+      toast({ title: "Failed to resolve conflict", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const pendingCount = (conflicts || []).filter(c => c.resolution === "pending").length;
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 gap-3" data-testid="sync-conflicts-error">
+        <AlertTriangle className="w-8 h-8 text-red-500" />
+        <p className="text-sm text-muted-foreground">Failed to load sync conflicts</p>
+        <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="btn-retry-sync-conflicts">
+          <RefreshCw className="w-4 h-4 mr-1" /> Retry
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <h3 className="text-lg font-semibold">GHL Sync Conflicts</h3>
+          {pendingCount > 0 && (
+            <Badge variant="destructive" data-testid="badge-pending-conflicts">{pendingCount} pending</Badge>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <Select value={filter} onValueChange={setFilter}>
+            <SelectTrigger className="w-[140px]" data-testid="select-conflict-filter">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="kept-internal">Kept Ours</SelectItem>
+              <SelectItem value="kept-ghl">Kept GHL</SelectItem>
+              <SelectItem value="manual">Manual</SelectItem>
+              <SelectItem value="all">All</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="btn-refresh-conflicts">
+            <RefreshCw className="w-4 h-4" />
+          </Button>
+        </div>
+      </div>
+
+      {(!conflicts || conflicts.length === 0) && (
+        <div className="flex flex-col items-center justify-center py-16 gap-2 text-muted-foreground" data-testid="no-conflicts-message">
+          <CheckCircle2 className="w-10 h-10 text-green-500" />
+          <p className="text-sm font-medium">No conflicts found</p>
+          <p className="text-xs">GHL sync is clean — no unresolved field conflicts</p>
+        </div>
+      )}
+
+      <div className="space-y-3">
+        {conflicts?.map((conflict) => (
+          <Card key={conflict.id} data-testid={`conflict-card-${conflict.id}`} className={conflict.resolution === "pending" ? "border-yellow-300 dark:border-yellow-700" : ""}>
+            <CardContent className="p-4">
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                <div className="space-y-2 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge variant="outline" className="font-mono text-xs" data-testid={`conflict-field-${conflict.id}`}>
+                      {conflict.fieldName}
+                    </Badge>
+                    <Badge
+                      variant={conflict.resolution === "pending" ? "destructive" : conflict.resolution === "kept-internal" ? "default" : "secondary"}
+                      data-testid={`conflict-resolution-${conflict.id}`}
+                    >
+                      {conflict.resolution}
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">Contact #{conflict.contactId}</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+                    <div className="bg-blue-50 dark:bg-blue-950/30 rounded p-2">
+                      <div className="text-xs text-muted-foreground mb-1 font-medium">Internal (Ours)</div>
+                      <div className="font-mono text-xs break-all" data-testid={`conflict-internal-${conflict.id}`}>
+                        {conflict.internalValue || <span className="italic text-muted-foreground">(empty)</span>}
+                      </div>
+                      {conflict.internalUpdatedAt && (
+                        <div className="text-xs text-muted-foreground mt-1">
+                          {new Date(conflict.internalUpdatedAt).toLocaleString()}
+                        </div>
+                      )}
+                    </div>
+                    <div className="bg-orange-50 dark:bg-orange-950/30 rounded p-2">
+                      <div className="text-xs text-muted-foreground mb-1 font-medium">GHL Value</div>
+                      <div className="font-mono text-xs break-all" data-testid={`conflict-ghl-${conflict.id}`}>
+                        {conflict.ghlValue || <span className="italic text-muted-foreground">(empty)</span>}
+                      </div>
+                      {conflict.ghlUpdatedAt && (
+                        <div className="text-xs text-muted-foreground mt-1">
+                          {new Date(conflict.ghlUpdatedAt).toLocaleString()}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="text-xs text-muted-foreground">
+                    Detected: {conflict.createdAt ? new Date(conflict.createdAt).toLocaleString() : "—"}
+                    {conflict.resolvedAt && ` · Resolved: ${new Date(conflict.resolvedAt).toLocaleString()}`}
+                  </div>
+                </div>
+
+                {conflict.resolution === "pending" && (
+                  <div className="flex gap-2 sm:flex-col sm:items-end shrink-0">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-blue-300 text-blue-700 hover:bg-blue-50 dark:border-blue-700 dark:text-blue-400 dark:hover:bg-blue-950/30"
+                      onClick={() => resolveMutation.mutate({ id: conflict.id, resolution: "kept-internal" })}
+                      disabled={resolveMutation.isPending}
+                      data-testid={`btn-keep-ours-${conflict.id}`}
+                    >
+                      Keep Ours
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-orange-300 text-orange-700 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-400 dark:hover:bg-orange-950/30"
+                      onClick={() => resolveMutation.mutate({ id: conflict.id, resolution: "kept-ghl" })}
+                      disabled={resolveMutation.isPending}
+                      data-testid={`btn-keep-ghl-${conflict.id}`}
+                    >
+                      Keep GHL
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 interface OperatorKpis {
   range: string;
@@ -1091,6 +1276,9 @@ export default function OperatorDashboard() {
           <TabsTrigger value="webhook-events" data-testid="tab-webhook-events">Webhook Events</TabsTrigger>
           <TabsTrigger value="stuck-leads" data-testid="tab-stuck-leads">Stuck Leads</TabsTrigger>
           <TabsTrigger value="low-confidence" data-testid="tab-low-confidence">Low Confidence</TabsTrigger>
+          <TabsTrigger value="sync-conflicts" data-testid="tab-sync-conflicts" className="flex items-center gap-1">
+            <GitMerge className="w-3 h-3" /> Sync Conflicts
+          </TabsTrigger>
           <TabsTrigger value="content-organic" data-testid="tab-content-organic">Content & Organic</TabsTrigger>
           <TabsTrigger value="ai-activity" data-testid="tab-ai-activity">AI Activity</TabsTrigger>
         </TabsList>
@@ -1121,6 +1309,9 @@ export default function OperatorDashboard() {
         </TabsContent>
         <TabsContent value="low-confidence">
           <LowConfidencePanel />
+        </TabsContent>
+        <TabsContent value="sync-conflicts">
+          <SyncConflictsPanel />
         </TabsContent>
         <TabsContent value="content-organic">
           <ContentOrganicKpiPanel />
