@@ -4,7 +4,7 @@
 import {
   liveChats, liveChatMessages,
   type LiveChat, type InsertLiveChat, type LiveChatMessage, type InsertLiveChatMessage,
-  contacts, companies, deals, tickets, tasks, documents, auditLogs, notifications, workflowRuns, workflows, rfis, users,
+  contacts, companies, deals, tickets, tasks, documents, documentAccessLog, auditLogs, notifications, workflowRuns, workflows, rfis, users,
   chargebacks,
   type Chargeback, type InsertChargeback, type UpdateChargebackRequest,
   messageTemplates, collateralPackets, ghlActivityLog, slaConfigs,
@@ -36,7 +36,7 @@ import {
   type InsertDeal, type UpdateDealRequest,
   type InsertTicket, type UpdateTicketRequest,
   type InsertTask, type UpdateTaskRequest,
-  type InsertDocument,
+  type InsertDocument, type InsertDocumentAccessLog,
   type InsertAuditLog,
   type InsertNotification,
   type InsertWorkflow, type UpdateWorkflowRequest,
@@ -125,6 +125,11 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
 
   async deleteDocument(id: number) {
     await db.delete(documents).where(eq(documents.id, id));
+  }
+
+  async createDocumentAccessLog(entry: InsertDocumentAccessLog) {
+    const [row] = await db.insert(documentAccessLog).values(entry).returning();
+    return row;
   }
 
   }

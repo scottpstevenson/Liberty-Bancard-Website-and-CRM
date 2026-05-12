@@ -279,7 +279,16 @@ export default function DocumentVault() {
                       variant="ghost"
                       size="icon"
                       className="h-8 w-8"
-                      onClick={() => window.open(`/api/merchant-documents/${doc.id}/download`, "_blank")}
+                      onClick={async () => {
+                        try {
+                          const res = await fetch(`/api/merchant-documents/${doc.id}/access-token`, { credentials: "include" });
+                          if (!res.ok) throw new Error("Failed to get access token");
+                          const { url } = await res.json();
+                          window.open(url, "_blank");
+                        } catch {
+                          toast({ title: "Download failed", description: "Could not generate download link", variant: "destructive" });
+                        }
+                      }}
                       aria-label={`Download ${doc.fileName}`}
                       data-testid={`button-download-doc-${doc.id}`}
                     >

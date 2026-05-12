@@ -193,6 +193,16 @@ export async function runStartupMigrations(): Promise<void> {
         created_by INTEGER
       );
       CREATE INDEX IF NOT EXISTS social_posts_status_idx ON social_posts(status, scheduled_at);
+
+      CREATE TABLE IF NOT EXISTS document_access_log (
+        id SERIAL PRIMARY KEY,
+        document_id INTEGER NOT NULL REFERENCES documents(id),
+        user_id TEXT NOT NULL,
+        ip TEXT,
+        accessed_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS document_access_log_document_id_idx ON document_access_log(document_id);
+      CREATE INDEX IF NOT EXISTS document_access_log_accessed_at_idx ON document_access_log(accessed_at);
     `);
     console.log("[Migrations] Startup migrations applied successfully.");
   } catch (err: any) {

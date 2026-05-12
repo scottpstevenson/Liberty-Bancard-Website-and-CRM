@@ -2,7 +2,7 @@ import { db, pool } from "./db";
 import {
   liveChats, liveChatMessages,
   type LiveChat, type InsertLiveChat, type LiveChatMessage, type InsertLiveChatMessage,
-  contacts, companies, deals, tickets, tasks, documents, auditLogs, notifications, workflowRuns, workflows, rfis, users,
+  contacts, companies, deals, tickets, tasks, documents, documentAccessLog, auditLogs, notifications, workflowRuns, workflows, rfis, users,
   chargebacks,
   type Chargeback, type InsertChargeback, type UpdateChargebackRequest,
   messageTemplates, collateralPackets, ghlActivityLog, slaConfigs,
@@ -34,7 +34,7 @@ import {
   type InsertDeal, type UpdateDealRequest,
   type InsertTicket, type UpdateTicketRequest,
   type InsertTask, type UpdateTaskRequest,
-  type InsertDocument,
+  type InsertDocument, type InsertDocumentAccessLog,
   type InsertAuditLog,
   type InsertNotification,
   type InsertWorkflow, type UpdateWorkflowRequest,
@@ -166,6 +166,7 @@ export interface IStorage {
   getDocumentById(id: number): Promise<typeof documents.$inferSelect | undefined>;
   createDocument(doc: InsertDocument): Promise<typeof documents.$inferSelect>;
   deleteDocument(id: number): Promise<void>;
+  createDocumentAccessLog(entry: InsertDocumentAccessLog): Promise<typeof documentAccessLog.$inferSelect>;
 
   getAuditLogs(): Promise<typeof auditLogs.$inferSelect[]>;
   getAuditLogsByEntity(entityType: string, entityId: number, limit?: number): Promise<typeof auditLogs.$inferSelect[]>;

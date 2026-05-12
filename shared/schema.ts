@@ -251,6 +251,25 @@ export const insertDocumentSchema = createInsertSchema(documents).omit({
   createdAt: true,
 });
 
+export const documentAccessLog = pgTable("document_access_log", {
+  id: serial("id").primaryKey(),
+  documentId: integer("document_id").references(() => documents.id).notNull(),
+  userId: text("user_id").notNull(),
+  ip: text("ip"),
+  accessedAt: timestamp("accessed_at").defaultNow(),
+}, (table) => [
+  index("document_access_log_document_id_idx").on(table.documentId),
+  index("document_access_log_accessed_at_idx").on(table.accessedAt),
+]);
+
+export const insertDocumentAccessLogSchema = createInsertSchema(documentAccessLog).omit({
+  id: true,
+  accessedAt: true,
+});
+
+export type DocumentAccessLog = typeof documentAccessLog.$inferSelect;
+export type InsertDocumentAccessLog = z.infer<typeof insertDocumentAccessLogSchema>;
+
 export const tasks = pgTable("tasks", {
   id: serial("id").primaryKey(),
   dealId: integer("deal_id").references(() => deals.id),

@@ -6,6 +6,7 @@ import { insertCollateralPacketSchema, insertDocumentSchema, insertKnowledgeBase
 import { generateDealBlueprint } from "../services/deal-blueprint";
 import { advanceDealStage } from "../services/deal-stage-service";
 import { autoGenerateProposal } from "../services/proposal-engine";
+import { generateDocumentToken, verifyDocumentToken } from "../services/document-tokens";
 import path from "path";
 import fs from "fs";
 import { upload } from "./helpers";
@@ -13,8 +14,8 @@ import { upload } from "./helpers";
 export function registerDocumentsRoutes(app: Express) {
   // === MERCHANT DOCUMENT VAULT ===
 
-  // Helper: check if a user can access a contact's documents
-  // Admin and manager roles always have access; reps only if they own the contact.
+  // Helper: check if a user can access a contact's documents.
+  // Admin and manager: always. Agent: only assigned contacts. Merchant: own contact (email match).
   async function canAccessContactDocs(user: any, contactId: number | null): Promise<boolean> {
     const role = user?.role;
     if (!role) return false;
@@ -22,6 +23,9 @@ export function registerDocumentsRoutes(app: Express) {
     if (!contactId) return false;
     const contact = await storage.getContact(contactId);
     if (!contact) return false;
+    // Merchant self-access: user's email matches the contact's email
+    if (user.email && contact.email && user.email === contact.email) return true;
+    // Agent/rep: only if assigned to this contact
     const userDisplay = `${user.firstName || ''} ${user.lastName || ''}`.trim();
     return (
       contact.assignedTo === user.email ||
@@ -113,18 +117,27 @@ export function registerDocumentsRoutes(app: Express) {
     }
   });
 
-  // GET /api/merchant-documents/:id/download - download a document
-  app.get("/api/merchant-documents/:id/download", isAuthenticated, async (req, res) => {
+  // GET /api/merchant-documents/serve/:token - serve a file via signed token (no auth middleware — token IS the auth)
+  app.get("/api/merchant-documents/serve/:token", async (req, res) => {
     try {
-      const user = req.user as any;
-      const doc = await storage.getDocumentById(Number(req.params.id));
-      if (!doc) return res.status(404).json({ message: "Document not found" });
-      if (!await canAccessContactDocs(user, doc.contactId)) {
-        return res.status(403).json({ message: "Access denied" });
+      let payload;
+      try {
+        payload = verifyDocumentToken(req.params.token);
+      } catch (err: any) {
+        return res.status(401).json({ message: err.message || "Invalid or expired token" });
       }
 
+      const doc = await storage.getDocumentById(payload.documentId);
+      if (!doc) return res.status(404).json({ message: "Document not found" });
+
+      // Log the actual document view (file served successfully or not — log on token validation pass)
+      storage.createDocumentAccessLog({
+        documentId: doc.id,
+        userId: payload.userId,
+        ip: (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket.remoteAddress || null,
+      }).catch(err => console.error("[doc-access-log] failed to write:", err));
+
       if (doc.storageKey) {
-        // Try to find the file by storageKey
         const uploadsDir = path.join(process.cwd(), "uploads");
         const relativePath = doc.storageKey.replace(/^uploads\//, "");
         const filePath = path.join(uploadsDir, relativePath);
@@ -133,13 +146,11 @@ export function registerDocumentsRoutes(app: Express) {
           return res.download(filePath, doc.fileName);
         }
 
-        // Fallback: search in merchant_docs subdir
         const merchantDocPath = path.join(uploadsDir, "merchant_docs", path.basename(doc.storageKey));
         if (fs.existsSync(merchantDocPath)) {
           return res.download(merchantDocPath, doc.fileName);
         }
 
-        // Search entire uploads dir for matching file
         const allFiles = fs.readdirSync(uploadsDir);
         const match = allFiles.find(f => doc.storageKey?.includes(f) || f.includes(path.basename(doc.storageKey || "")));
         if (match) {
@@ -151,6 +162,29 @@ export function registerDocumentsRoutes(app: Express) {
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
+  });
+
+  // GET /api/merchant-documents/:id/access-token - issue a short-lived signed download URL
+  app.get("/api/merchant-documents/:id/access-token", isAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as any;
+      const doc = await storage.getDocumentById(Number(req.params.id));
+      if (!doc) return res.status(404).json({ message: "Document not found" });
+      if (!await canAccessContactDocs(user, doc.contactId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const token = generateDocumentToken(doc.id, user.id);
+      const serveUrl = `/api/merchant-documents/serve/${token}`;
+      res.json({ url: serveUrl, expiresInSeconds: 900 });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/merchant-documents/:id/download - blocked; use /access-token + /serve instead
+  app.get("/api/merchant-documents/:id/download", isAuthenticated, (_req, res) => {
+    res.status(401).json({ message: "Direct document downloads are not permitted. Use /api/merchant-documents/:id/access-token to obtain a short-lived signed URL." });
   });
 
   // DELETE /api/merchant-documents/:id - delete a document
