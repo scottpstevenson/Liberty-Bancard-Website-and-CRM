@@ -1,5 +1,25 @@
 import rateLimit from "express-rate-limit";
 
+export const webhookRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    message: "Too many webhook requests from this IP. Please slow down.",
+  },
+});
+
+export const verifyEmailRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    message: "Too many verification attempts from this IP. Please wait a few minutes and try again.",
+  },
+});
+
 export const publicLeadRateLimit = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,

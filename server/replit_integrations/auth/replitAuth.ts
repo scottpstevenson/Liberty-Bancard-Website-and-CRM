@@ -15,7 +15,7 @@ import { db } from "../../db";
 import { systemSettings } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { csrfProtection } from "../../middleware/csrf";
-import { merchantAuthRateLimit } from "../../middleware/public-rate-limit";
+import { merchantAuthRateLimit, verifyEmailRateLimit } from "../../middleware/public-rate-limit";
 
 export function getSession() {
   const sessionTtl = 7 * 24 * 60 * 60 * 1000;
@@ -498,7 +498,7 @@ export async function setupAuth(app: Express) {
     }
   });
 
-  app.get("/api/auth/verify-email", async (req, res) => {
+  app.get("/api/auth/verify-email", verifyEmailRateLimit, async (req, res) => {
     try {
       const { token } = req.query;
       if (!token || typeof token !== "string") {

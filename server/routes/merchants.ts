@@ -11,7 +11,7 @@ import { sendMerchantWelcomeEmail, sendMerchantPortalWelcomeEmail } from "../ser
 import { sendApplicationApprovedEmail, sendApplicationDeclinedEmail } from "../services/merchant-application-status";
 import { parse } from "csv-parse/sync";
 import path from "path";
-import { publicLeadRateLimit } from "../middleware/public-rate-limit";
+import { publicLeadRateLimit, webhookRateLimit } from "../middleware/public-rate-limit";
 
 const EMAIL_COOLDOWN_MS = 5 * 60 * 1000;
 
@@ -431,7 +431,7 @@ export function registerMerchantsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/webhooks/ghl-document", async (req, res) => {
+  app.post("/api/webhooks/ghl-document", webhookRateLimit, async (req, res) => {
     try {
       const webhookSecret = process.env.GHL_WEBHOOK_SECRET;
       if (webhookSecret) {

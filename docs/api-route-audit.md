@@ -191,13 +191,13 @@ These routes correctly use `isAuthenticated` because merchants need access, with
 | `POST /api/auth/forgot-password` | replitAuth.ts | `forgotPasswordRateLimit` (3 req / hr) |
 | `POST /api/auth/signup` | replitAuth.ts | `signupRateLimit` (3 req / hr) — sends GHL welcome email on success |
 | `POST /api/auth/login` | replitAuth.ts | `loginRateLimit` (5 req / 15 min) |
-| `GET /api/auth/verify-email` | replitAuth.ts | No rate limit — token is single-use and 24-hr expiry; no email send (safe) |
+| `GET /api/auth/verify-email` | replitAuth.ts | `verifyEmailRateLimit` (10 req / 15 min per IP) — added Task #239 |
+| `POST /api/webhooks/ghl-document` | merchants.ts | `webhookRateLimit` (30 req / min per IP) + signature verification — added Task #239 |
 
 ### Non-Email Unauthenticated Routes (Confirmed Safe / No Action Needed)
 
 | Route | File | Notes |
 |---|---|---|
-| `POST /api/webhooks/ghl-document` | merchants.ts | Webhook; protected by signature verification |
 | `POST /api/partners/logout` | partners.ts | Logout; no email/write risk |
 | `POST /api/partner/logout` | partners.ts | Logout; no email/write risk |
 | `GET /api/public/testimonials/approved` | public.ts | Read-only, returns sanitized data |
