@@ -5,7 +5,8 @@ import {
   liveChats, liveChatMessages,
   type LiveChat, type InsertLiveChat, type LiveChatMessage, type InsertLiveChatMessage,
   contacts, companies, deals, tickets, tasks, documents, auditLogs, notifications, workflowRuns, workflows, rfis, users,
-  chargebacks,
+  chargebacks, reviewQueue,
+  type ReviewQueueItem, type InsertReviewQueueItem,
   type Chargeback, type InsertChargeback, type UpdateChargebackRequest,
   messageTemplates, collateralPackets, ghlActivityLog, slaConfigs,
   prospects, prospectLists, enrichmentJobs, campaigns, campaignSteps, outboundMessages, notes,
@@ -181,6 +182,51 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
 
   async updateRfi(id: number, updates: UpdateRfiRequest) {
     const [updated] = await db.update(rfis).set({ ...updates, updatedAt: new Date() }).where(eq(rfis.id, id)).returning();
+    return updated;
+  }
+
+  async getReviewQueue(status?: string) {
+    const conditions = [];
+    if (status === "pending" || status === "approved") {
+      conditions.push(eq(reviewQueue.status, status));
+    }
+    if (conditions.length > 0) {
+      return await db.select().from(reviewQueue).where(and(...conditions)).orderBy(desc(reviewQueue.createdAt));
+    }
+    return await db.select().from(reviewQueue).orderBy(desc(reviewQueue.createdAt));
+  }
+
+  async getReviewQueuePendingCount() {
+    const result = await db.select({ count: count() }).from(reviewQueue).where(eq(reviewQueue.status, "pending"));
+    return result[0]?.count || 0;
+  }
+
+  async getReviewQueueAggregates(): Promise<{ pending: number; approved: number; total: number }> {
+    const result = await db
+      .select({ status: reviewQueue.status, cnt: count() })
+      .from(reviewQueue)
+      .groupBy(reviewQueue.status);
+    let pending = 0;
+    let approved = 0;
+    for (const row of result) {
+      if (row.status === "pending") pending = Number(row.cnt);
+      else if (row.status === "approved") approved = Number(row.cnt);
+    }
+    return { pending, approved, total: pending + approved };
+  }
+
+  async getReviewQueueItem(id: number) {
+    const [item] = await db.select().from(reviewQueue).where(eq(reviewQueue.id, id));
+    return item;
+  }
+
+  async createReviewQueueItem(data: InsertReviewQueueItem) {
+    const [item] = await db.insert(reviewQueue).values(data).returning();
+    return item;
+  }
+
+  async updateReviewQueueItem(id: number, updates: Partial<InsertReviewQueueItem>) {
+    const [updated] = await db.update(reviewQueue).set({ ...updates, updatedAt: new Date() }).where(eq(reviewQueue.id, id)).returning();
     return updated;
   }
 

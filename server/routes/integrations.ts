@@ -1,5 +1,5 @@
 import type { Express } from "express";
-import { isAuthenticated, isAdmin } from "../replit_integrations/auth";
+import { isAuthenticated, isAdmin, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { contacts } from "@shared/schema";
 import { and } from "drizzle-orm";
@@ -492,6 +492,23 @@ export function registerIntegrationsRoutes(app: Express) {
           description: w.description,
         })),
       });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/integrations/ghl-workflow-registry", isDashboardUser, requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const registry = await getWorkflowRegistryWithStatus();
+      res.json(registry.map(w => ({
+        id: w.id,
+        name: w.name,
+        category: w.category,
+        envKey: w.envKey,
+        value: w.value,
+        isSet: w.isSet,
+        description: w.description,
+      })));
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

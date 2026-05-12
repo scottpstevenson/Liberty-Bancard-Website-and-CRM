@@ -240,6 +240,25 @@ export async function runStartupMigrations(): Promise<void> {
       CREATE INDEX IF NOT EXISTS sync_conflicts_created_at_idx ON sync_conflicts(created_at);
     `);
 
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS review_queue (
+        id SERIAL PRIMARY KEY,
+        source_type TEXT NOT NULL,
+        source_id INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        checklist_state JSONB NOT NULL DEFAULT '{}',
+        metadata JSONB NOT NULL DEFAULT '{}',
+        approved_by TEXT,
+        approved_at TIMESTAMP,
+        ghl_workflow_id TEXT,
+        notes TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS review_queue_status_idx ON review_queue(status);
+      CREATE INDEX IF NOT EXISTS review_queue_source_idx ON review_queue(source_type, source_id);
+    `);
+
     console.log("[Migrations] Startup migrations applied successfully.");
   } catch (err: any) {
     console.error("[Migrations] Error applying startup migrations:", err.message);

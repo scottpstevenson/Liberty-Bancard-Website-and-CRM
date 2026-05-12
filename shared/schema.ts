@@ -3462,3 +3462,40 @@ export const insertAiAuditLogSchema = createInsertSchema(aiAuditLogs).omit({
 
 export type AiAuditLog = typeof aiAuditLogs.$inferSelect;
 export type InsertAiAuditLog = z.infer<typeof insertAiAuditLogSchema>;
+
+export const reviewQueue = pgTable("review_queue", {
+  id: serial("id").primaryKey(),
+  sourceType: text("source_type").notNull().$type<"rfi" | "quiz">(),
+  sourceId: integer("source_id").notNull(),
+  status: text("status").notNull().default("pending").$type<"pending" | "approved">(),
+  checklistState: jsonb("checklist_state").$type<Record<string, boolean>>().default({}),
+  approvedBy: text("approved_by"),
+  approvedAt: timestamp("approved_at"),
+  ghlWorkflowId: text("ghl_workflow_id"),
+  notes: text("notes"),
+  metadata: jsonb("metadata").$type<Record<string, any>>(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("review_queue_status_idx").on(table.status),
+  index("review_queue_source_type_idx").on(table.sourceType),
+  index("review_queue_created_at_idx").on(table.createdAt),
+]);
+
+export const insertReviewQueueSchema = createInsertSchema(reviewQueue).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type ReviewQueueItem = typeof reviewQueue.$inferSelect;
+export type InsertReviewQueueItem = z.infer<typeof insertReviewQueueSchema>;
+
+export const REVIEW_CHECKLIST_ITEMS = [
+  { key: "verify_identity", label: "Verify contact identity" },
+  { key: "confirm_business", label: "Confirm business type and volume" },
+  { key: "review_data", label: "Review submitted data for completeness" },
+  { key: "check_duplicate", label: "Check for duplicate contact" },
+  { key: "confirm_lead_source", label: "Confirm lead source / UTM" },
+  { key: "internal_notes", label: "Internal notes added" },
+] as const;

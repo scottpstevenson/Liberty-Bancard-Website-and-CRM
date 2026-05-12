@@ -40,6 +40,42 @@ export function registerWorkflowsRoutes(app: Express) {
         type: rfi.priority === "Urgent" ? "urgent" : "info",
         metadata: { rfiId: rfi.id, contactId: rfi.contactId || undefined, dealId: rfi.dealId || undefined, entityType: "rfi", entityId: rfi.id },
       });
+      (async () => {
+        let contactName: string | undefined;
+        let email: string | undefined;
+        let phone: string | undefined;
+        let ghlContactId: string | undefined;
+        if (rfi.contactId) {
+          const contact = await storage.getContact(rfi.contactId).catch(() => undefined);
+          if (contact) {
+            contactName = `${contact.firstName || ""} ${contact.lastName || ""}`.trim() || contact.email || undefined;
+            email = contact.email || undefined;
+            phone = contact.phone || undefined;
+            ghlContactId = contact.ghlContactId || undefined;
+          }
+        }
+        await storage.createReviewQueueItem({
+          sourceType: "rfi",
+          sourceId: rfi.id,
+          status: "pending",
+          checklistState: {},
+          metadata: {
+            subject: rfi.subject,
+            category: rfi.category,
+            priority: rfi.priority,
+            description: rfi.description,
+            requestedBy: rfi.requestedBy,
+            assignedTo: rfi.assignedTo,
+            source: "rfi",
+            contactId: rfi.contactId || undefined,
+            dealId: rfi.dealId || undefined,
+            contactName,
+            email,
+            phone,
+            ghlContactId,
+          },
+        });
+      })().catch((err: any) => console.error("[ReviewQueue] RFI enqueue failed:", err.message));
       res.status(201).json(rfi);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });

@@ -926,6 +926,33 @@ Guidelines:
         },
       }).catch(err => console.error("GHL form sync error:", err));
 
+      storage.createReviewQueueItem({
+        sourceType: "quiz",
+        sourceId: contact.id,
+        status: "pending",
+        checklistState: {},
+        metadata: {
+          contactName: `${firstName} ${lastName || ""}`.trim(),
+          firstName,
+          lastName: lastName || "",
+          email,
+          phone: phone || "",
+          companyName: companyName || undefined,
+          industry: normalizedIndustry,
+          vertical: normalizedIndustry,
+          monthlyVolume,
+          currentProcessor,
+          painPoints: resolvedPainPoints,
+          recommendedProgram,
+          estimatedSavings,
+          source: "free_analysis",
+          utmSource: utmSource || undefined,
+          utmCampaign: utmCampaign || undefined,
+          contactId: contact.id,
+          dealId: deal.id,
+        },
+      }).catch((err: any) => console.error("[ReviewQueue] Free-analysis enqueue failed:", err.message));
+
       res.status(201).json({
         success: true,
         contactId: contact.id,

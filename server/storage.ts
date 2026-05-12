@@ -204,6 +204,13 @@ export interface IStorage {
   createRfi(rfi: InsertRfi): Promise<typeof rfis.$inferSelect>;
   updateRfi(id: number, rfi: UpdateRfiRequest): Promise<typeof rfis.$inferSelect | undefined>;
 
+  getReviewQueue(status?: string): Promise<import("@shared/schema").ReviewQueueItem[]>;
+  getReviewQueuePendingCount(): Promise<number>;
+  getReviewQueueAggregates(): Promise<{ pending: number; approved: number; total: number }>;
+  getReviewQueueItem(id: number): Promise<import("@shared/schema").ReviewQueueItem | undefined>;
+  createReviewQueueItem(data: import("@shared/schema").InsertReviewQueueItem): Promise<import("@shared/schema").ReviewQueueItem>;
+  updateReviewQueueItem(id: number, updates: Partial<import("@shared/schema").InsertReviewQueueItem>): Promise<import("@shared/schema").ReviewQueueItem | undefined>;
+
   getMessageTemplates(): Promise<typeof messageTemplates.$inferSelect[]>;
   getMessageTemplate(id: number): Promise<typeof messageTemplates.$inferSelect | undefined>;
   getMessageTemplatesByCategory(category: string): Promise<typeof messageTemplates.$inferSelect[]>;

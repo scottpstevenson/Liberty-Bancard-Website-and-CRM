@@ -23,6 +23,7 @@ import {
   Rocket,
   Zap,
   FileQuestion,
+  ListChecks,
   Settings,
   BarChart3,
   BookOpen,
@@ -119,6 +120,7 @@ const menuItems: MenuItem[] = [
   { icon: MessageSquare, label: "AI Advisor", href: "/dashboard/chat", roles: ["admin", "manager", "agent"] },
   { icon: MessageCircle, label: "Live Chat", href: "/dashboard/live-chat", roles: ["admin", "manager", "agent"], badgeKey: "liveChatUnread" },
   { icon: FileQuestion, label: "RFIs", href: "/dashboard/rfis", roles: ["admin", "manager"] },
+  { icon: ListChecks, label: "Review Queue", href: "/dashboard/review-queue", roles: ["admin", "manager"], badgeKey: "reviewQueuePending" },
   { icon: PieChart, label: "Reporting", href: "/dashboard/reporting", roles: ["admin", "manager"] },
   { icon: Calendar, label: "My Calendar", href: "/dashboard/calendar", roles: ["agent"] },
   { icon: Calendar, label: "Calendar", href: "/dashboard/calendar", roles: ["admin", "manager"] },
@@ -319,12 +321,20 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     setLiveChatUnreadCount(countUnreadSessions(liveChatSessions));
   }, [liveChatSessions]);
 
+  const { data: reviewQueueCountData } = useQuery<{ count: number }>({
+    queryKey: ["/api/review-queue/pending-count"],
+    refetchInterval: 60000,
+    enabled: ["admin", "manager"].includes(role),
+  });
+  const reviewQueuePendingCount = reviewQueueCountData?.count || 0;
+
   const badges: Record<string, number> = {
     smsUnread: smsUnreadCount,
     notificationsUnread: notificationsUnreadCount,
     liveChatUnread: liveChatUnreadCount,
     pendingApplications: pendingApplicationsCount,
     jobAlerts: jobAlertsCount,
+    reviewQueuePending: reviewQueuePendingCount,
   };
 
   const filteredMenu = useMemo(() => filterByRole(menuItems, role), [role]);

@@ -71,6 +71,7 @@ import ReviewComplete from "@/pages/dashboard/ReviewComplete";
 import OnboardingKickoff from "@/pages/dashboard/OnboardingKickoff";
 import Workflows from "@/pages/dashboard/Workflows";
 import RFIs from "@/pages/dashboard/RFIs";
+import ReviewQueuePage from "@/pages/dashboard/ReviewQueue";
 import CaseStudyIntake from "@/pages/dashboard/CaseStudyIntake";
 import GhlSettings from "@/pages/dashboard/GhlSettings";
 import GhlWorkflowManager from "@/pages/dashboard/GhlWorkflowManager";
@@ -197,7 +198,7 @@ function AgentRoute({ component: Component }: { component: React.ComponentType }
   );
 }
 
-function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
+function ProtectedRoute({ component: Component, allowedRoles }: { component: React.ComponentType; allowedRoles?: string[] }) {
   const { user, isLoading } = useAuth();
   const [location, setLocation] = useLocation();
 
@@ -224,6 +225,10 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
   }
 
   if (user.role === "agent" && location === "/dashboard") return null;
+
+  if (allowedRoles && !allowedRoles.includes(user.role)) {
+    return <Redirect to="/dashboard" />;
+  }
 
   return (
     <DashboardLayout>
@@ -385,6 +390,9 @@ function Router() {
       </Route>
       <Route path="/dashboard/rfis">
         <ProtectedRoute component={RFIs} />
+      </Route>
+      <Route path="/dashboard/review-queue">
+        <ProtectedRoute component={ReviewQueuePage} allowedRoles={["admin", "manager"]} />
       </Route>
       <Route path="/dashboard/case-study-intake">
         <ProtectedRoute component={CaseStudyIntake} />

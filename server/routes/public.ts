@@ -483,6 +483,28 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       enrollInInboundConfirmation({ contactId: contact.id, formType: "get_started", dealId: deal.id }).catch(err => console.error("GHL inbound confirmation error:", err));
       if (!isGhlInboundActive() && consentSms && phone) sendConfirmationSms(contact.id, firstName, "get_started", deal.id).catch(err => console.error("Confirm SMS error:", err));
       syncFormSubmissionToGhl({ contactId: contact.id, dealId: deal.id, leadSource: "get_started", formData: { lb_quiz_goal: goal || "", lb_monthly_volume: monthlyVolume || "", lb_interested_0_percent: interestedIn0Percent ? "yes" : "no", lb_terminal_need: needTerminal ? "yes" : "no" } }).catch(err => console.error("GHL form sync error:", err));
+      storage.createReviewQueueItem({
+        sourceType: "quiz",
+        sourceId: contact.id,
+        status: "pending",
+        checklistState: {},
+        metadata: {
+          contactName: `${firstName} ${lastName}`.trim(),
+          firstName,
+          lastName,
+          email,
+          phone,
+          vertical,
+          monthlyVolume,
+          goal,
+          offerPath,
+          source: "get_started",
+          utmSource: utmSource || undefined,
+          utmCampaign: utmCampaign || undefined,
+          contactId: contact.id,
+          dealId: deal.id,
+        },
+      }).catch((err: any) => console.error("[ReviewQueue] Get-started enqueue failed:", err.message));
       res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id, offerPath });
     } catch (err: any) {
       res.status(400).json({ message: err.message || "Invalid submission" });
