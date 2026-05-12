@@ -191,5 +191,92 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
     return { totalCalls: rows.length, totalPromptTokens, totalCompletionTokens, totalCostCents, byTriggerType };
   }
 
+  async getAiCostDailyRollup(days: number = 30): Promise<Array<{ date: string; calls: number; costCents: number; promptTokens: number; completionTokens: number }>> {
+    const since = new Date();
+    since.setDate(since.getDate() - (days - 1));
+    since.setHours(0, 0, 0, 0);
+
+    const rows = await db.select().from(aiAuditLogs)
+      .where(gte(aiAuditLogs.createdAt, since))
+      .orderBy(asc(aiAuditLogs.createdAt));
+
+    const byDay: Record<string, { calls: number; costCents: number; promptTokens: number; completionTokens: number }> = {};
+
+    for (let i = 0; i < days; i++) {
+      const d = new Date(since);
+      d.setDate(d.getDate() + i);
+      const key = d.toISOString().slice(0, 10);
+      byDay[key] = { calls: 0, costCents: 0, promptTokens: 0, completionTokens: 0 };
+    }
+
+    for (const row of rows) {
+      const key = new Date(row.createdAt!).toISOString().slice(0, 10);
+      if (!byDay[key]) byDay[key] = { calls: 0, costCents: 0, promptTokens: 0, completionTokens: 0 };
+      byDay[key].calls++;
+      byDay[key].costCents += row.costCents || 0;
+      byDay[key].promptTokens += row.promptTokens || 0;
+      byDay[key].completionTokens += row.completionTokens || 0;
+    }
+
+    return Object.entries(byDay)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, stats]) => ({ date, ...stats }));
+  }
+
+  async getAiCostSummary(startDate?: Date, endDate?: Date): Promise<{
+    todayCostCents: number;
+    todayCalls: number;
+    monthCostCents: number;
+    monthCalls: number;
+    rangeCostCents: number;
+    rangeCalls: number;
+    byTriggerType: Record<string, { calls: number; costCents: number; promptTokens: number; completionTokens: number }>;
+  }> {
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const rangeStart = startDate ?? monthStart;
+    const rangeEnd = endDate ?? now;
+
+    // Query from the earliest of monthStart and rangeStart so custom ranges work correctly
+    const fetchFrom = rangeStart < monthStart ? rangeStart : monthStart;
+    const sinceMonth = await db.select().from(aiAuditLogs).where(gte(aiAuditLogs.createdAt, fetchFrom));
+
+    let todayCostCents = 0;
+    let todayCalls = 0;
+    let monthCostCents = 0;
+    let monthCalls = 0;
+    let rangeCostCents = 0;
+    let rangeCalls = 0;
+    const byTriggerType: Record<string, { calls: number; costCents: number; promptTokens: number; completionTokens: number }> = {};
+
+    for (const row of sinceMonth) {
+      const cost = row.costCents || 0;
+      const tt = row.triggerType;
+      const rowDate = new Date(row.createdAt!);
+
+      monthCostCents += cost;
+      monthCalls++;
+
+      if (!byTriggerType[tt]) byTriggerType[tt] = { calls: 0, costCents: 0, promptTokens: 0, completionTokens: 0 };
+      byTriggerType[tt].calls++;
+      byTriggerType[tt].costCents += cost;
+      byTriggerType[tt].promptTokens += row.promptTokens || 0;
+      byTriggerType[tt].completionTokens += row.completionTokens || 0;
+
+      if (rowDate >= todayStart) {
+        todayCostCents += cost;
+        todayCalls++;
+      }
+
+      if (rowDate >= rangeStart && rowDate <= rangeEnd) {
+        rangeCostCents += cost;
+        rangeCalls++;
+      }
+    }
+
+    return { todayCostCents, todayCalls, monthCostCents, monthCalls, rangeCostCents, rangeCalls, byTriggerType };
+  }
+
   }
   

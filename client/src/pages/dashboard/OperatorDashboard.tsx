@@ -17,6 +17,7 @@ import {
   Target, TrendingUp, Users, XCircle, Zap, Eye, Filter, ChevronRight, Server, GitMerge,
   Bot, DollarSign, Hash,
 } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 interface SyncConflict {
   id: number;
@@ -1339,6 +1340,163 @@ const AI_TRIGGER_LABELS: Record<string, string> = {
   "nightly-discovery": "Nightly Discovery",
 };
 
+interface AiCostSummary {
+  summary: {
+    todayCostCents: number;
+    todayCalls: number;
+    monthCostCents: number;
+    monthCalls: number;
+    rangeCostCents: number;
+    rangeCalls: number;
+    byTriggerType: Record<string, { calls: number; costCents: number; promptTokens: number; completionTokens: number }>;
+  };
+  dailyRollup: Array<{ date: string; calls: number; costCents: number; promptTokens: number; completionTokens: number }>;
+}
+
+function AiCostPanel() {
+  const { data, isLoading } = useQuery<AiCostSummary>({
+    queryKey: ["/api/operator/ai-cost-summary"],
+    queryFn: () => fetch("/api/operator/ai-cost-summary", { credentials: "include" }).then(r => r.json()),
+    refetchInterval: 60000,
+  });
+
+  const summary = data?.summary;
+  const dailyRollup = data?.dailyRollup || [];
+
+  const chartData = dailyRollup.map(d => ({
+    date: d.date.slice(5),
+    cost: parseFloat((d.costCents / 100).toFixed(4)),
+    calls: d.calls,
+  }));
+
+  return (
+    <div className="space-y-4 mb-6">
+      <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">AI Cost Overview</h3>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
+              <DollarSign className="w-3 h-3 text-green-600" /> Today's Spend
+            </div>
+            {isLoading ? (
+              <div className="h-8 bg-muted animate-pulse rounded" />
+            ) : (
+              <>
+                <div className="text-2xl font-bold text-green-700 dark:text-green-400" data-testid="text-today-ai-cost">
+                  ${((summary?.todayCostCents || 0) / 100).toFixed(4)}
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">{summary?.todayCalls || 0} calls today</div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
+              <DollarSign className="w-3 h-3 text-blue-600" /> This Month
+            </div>
+            {isLoading ? (
+              <div className="h-8 bg-muted animate-pulse rounded" />
+            ) : (
+              <>
+                <div className="text-2xl font-bold text-blue-700 dark:text-blue-400" data-testid="text-month-ai-cost">
+                  ${((summary?.monthCostCents || 0) / 100).toFixed(4)}
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">{summary?.monthCalls || 0} calls this month</div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <BarChart3 className="w-4 h-4 text-muted-foreground" />
+            Trigger Type Breakdown (this month)
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          {isLoading ? (
+            <div className="h-24 bg-muted animate-pulse rounded m-4" />
+          ) : Object.keys(summary?.byTriggerType || {}).length === 0 ? (
+            <div className="py-6 text-center text-muted-foreground text-sm">No AI calls recorded this month</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left px-4 py-2 font-medium text-muted-foreground">Trigger Type</th>
+                    <th className="text-right px-4 py-2 font-medium text-muted-foreground">Calls</th>
+                    <th className="text-right px-4 py-2 font-medium text-muted-foreground">Cost</th>
+                    <th className="text-right px-4 py-2 font-medium text-muted-foreground">Prompt Tokens</th>
+                    <th className="text-right px-4 py-2 font-medium text-muted-foreground">Completion Tokens</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(summary?.byTriggerType || {})
+                    .sort((a, b) => b[1].costCents - a[1].costCents)
+                    .map(([type, stats]) => (
+                      <tr key={type} className="border-b last:border-0 hover:bg-muted/40" data-testid={`row-cost-trigger-${type}`}>
+                        <td className="px-4 py-2 text-muted-foreground">{AI_TRIGGER_LABELS[type] || type}</td>
+                        <td className="px-4 py-2 text-right font-medium" data-testid={`text-calls-${type}`}>{stats.calls.toLocaleString()}</td>
+                        <td className="px-4 py-2 text-right font-medium text-green-700 dark:text-green-400" data-testid={`text-cost-${type}`}>${(stats.costCents / 100).toFixed(4)}</td>
+                        <td className="px-4 py-2 text-right text-muted-foreground">{stats.promptTokens.toLocaleString()}</td>
+                        <td className="px-4 py-2 text-right text-muted-foreground">{stats.completionTokens.toLocaleString()}</td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <BarChart3 className="w-4 h-4 text-muted-foreground" />
+            30-Day AI Spend Trend
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="h-48 bg-muted animate-pulse rounded" />
+          ) : chartData.length === 0 ? (
+            <div className="h-48 flex items-center justify-center text-muted-foreground text-sm">No data yet</div>
+          ) : (
+            <ResponsiveContainer width="100%" height={180} data-testid="chart-ai-spend-trend">
+              <BarChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                <XAxis
+                  dataKey="date"
+                  tick={{ fontSize: 10 }}
+                  tickLine={false}
+                  interval={Math.floor(chartData.length / 6)}
+                />
+                <YAxis
+                  tick={{ fontSize: 10 }}
+                  tickLine={false}
+                  tickFormatter={v => `$${v}`}
+                  width={48}
+                />
+                <Tooltip
+                  formatter={(value: number, name: string) => [
+                    name === "cost" ? `$${value.toFixed(4)}` : value,
+                    name === "cost" ? "Cost" : "Calls",
+                  ]}
+                  labelFormatter={label => `Date: ${label}`}
+                />
+                <Bar dataKey="cost" fill="#22c55e" radius={[2, 2, 0, 0]} name="cost" />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 function AiActivityPanel() {
   const [triggerType, setTriggerType] = useState("all");
   const [startDate, setStartDate] = useState("");
@@ -1384,6 +1542,7 @@ function AiActivityPanel() {
 
   return (
     <div className="space-y-4 mt-4">
+      <AiCostPanel />
       <div className="flex flex-wrap gap-3 items-end">
         <div className="flex flex-col gap-1">
           <label className="text-xs text-muted-foreground">Trigger Type</label>

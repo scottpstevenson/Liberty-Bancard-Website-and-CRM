@@ -851,6 +851,24 @@ Notes: ${deal.notes || "None"}`
   });
 
 
+  // === AI COST SUMMARY (today + month + daily rollup) ===
+  app.get("/api/operator/ai-cost-summary", isDashboardUser, async (req, res) => {
+    try {
+      const rawDays = parseInt(String(req.query.days ?? ""), 10);
+      const days = Number.isFinite(rawDays) && rawDays > 0 ? Math.min(rawDays, 90) : 30;
+      const startDate = req.query.startDate ? new Date(String(req.query.startDate)) : undefined;
+      const endDate = req.query.endDate ? new Date(String(req.query.endDate)) : undefined;
+      const [summary, dailyRollup] = await Promise.all([
+        storage.getAiCostSummary(startDate, endDate),
+        storage.getAiCostDailyRollup(days),
+      ]);
+      res.json({ summary, dailyRollup });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+
   // === AI AUDIT LOGS ===
   app.get("/api/operator/ai-audit", isDashboardUser, async (req, res) => {
     try {
