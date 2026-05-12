@@ -11,11 +11,89 @@ import QRCode from "qrcode";
 import { authStorage } from "./storage";
 import { storage } from "../../storage";
 import { isGhlConfigured, sendGhlEmailForMerchant as sendGhlEmail } from "../../services/ghl";
+import { sendSmtpEmail, isSmtpConfigured } from "../../services/smtp-email";
 import { db } from "../../db";
 import { systemSettings } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { csrfProtection } from "../../middleware/csrf";
 import { merchantAuthRateLimit, verifyEmailRateLimit } from "../../middleware/public-rate-limit";
+
+const APP_URL = process.env.APP_URL || "https://libertybancard.com";
+
+function buildPasswordResetEmail(firstName: string, resetUrl: string): string {
+  const displayName = firstName || "there";
+  return `
+<div style="font-family:Arial,sans-serif;font-size:14px;color:#333;max-width:600px;">
+  <div style="background-color:#1e3a5f;padding:20px 24px;border-radius:6px 6px 0 0;">
+    <span style="color:#ffffff;font-size:20px;font-weight:bold;letter-spacing:0.5px;">Liberty Bancard</span>
+  </div>
+  <div style="background-color:#f9fafb;padding:28px 24px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 6px 6px;">
+    <p style="margin:0 0 16px;">Hi ${displayName},</p>
+    <p style="margin:0 0 16px;">We received a request to reset the password for your Liberty Bancard account. Click the button below to set a new password. This link expires in <strong>1 hour</strong>.</p>
+    <div style="text-align:center;margin:28px 0;">
+      <a href="${resetUrl}" style="display:inline-block;background-color:#1e3a5f;color:#ffffff;padding:14px 28px;border-radius:5px;text-decoration:none;font-size:14px;font-weight:bold;">Reset My Password &rarr;</a>
+    </div>
+    <p style="margin:0 0 16px;">If the button above doesn't work, copy and paste this link into your browser:</p>
+    <p style="margin:0 0 16px;word-break:break-all;font-size:12px;color:#555;">${resetUrl}</p>
+    <p style="margin:0 0 8px;">If you did not request a password reset, you can safely ignore this email — your password will not be changed.</p>
+    <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;"/>
+    <p style="margin:0;font-size:12px;color:#6b7280;">Liberty Bancard &bull; <a href="https://libertybancard.com" style="color:#1e3a5f;">libertybancard.com</a> &bull; 954-266-8214</p>
+    <p style="margin:4px 0 0;font-size:11px;color:#9ca3af;">This communication is from Liberty Bancard. Eligibility, underwriting, card brand rules, and applicable laws apply.</p>
+  </div>
+</div>`;
+}
+
+function buildVerificationEmail(firstName: string, verifyUrl: string): string {
+  const displayName = firstName || "there";
+  return `
+<div style="font-family:Arial,sans-serif;font-size:14px;color:#333;max-width:600px;">
+  <div style="background-color:#1e3a5f;padding:20px 24px;border-radius:6px 6px 0 0;">
+    <span style="color:#ffffff;font-size:20px;font-weight:bold;letter-spacing:0.5px;">Liberty Bancard</span>
+  </div>
+  <div style="background-color:#f9fafb;padding:28px 24px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 6px 6px;">
+    <p style="margin:0 0 16px;">Hi ${displayName},</p>
+    <p style="margin:0 0 16px;">Thanks for signing up with Liberty Bancard! Please verify your email address to activate your merchant account. This link expires in <strong>24 hours</strong>.</p>
+    <div style="text-align:center;margin:28px 0;">
+      <a href="${verifyUrl}" style="display:inline-block;background-color:#1e3a5f;color:#ffffff;padding:14px 28px;border-radius:5px;text-decoration:none;font-size:14px;font-weight:bold;">Verify My Email &rarr;</a>
+    </div>
+    <p style="margin:0 0 16px;">If the button above doesn't work, copy and paste this link into your browser:</p>
+    <p style="margin:0 0 16px;word-break:break-all;font-size:12px;color:#555;">${verifyUrl}</p>
+    <p style="margin:0 0 8px;">If you did not sign up for a Liberty Bancard account, you can safely ignore this email.</p>
+    <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;"/>
+    <p style="margin:0;font-size:12px;color:#6b7280;">Liberty Bancard &bull; <a href="https://libertybancard.com" style="color:#1e3a5f;">libertybancard.com</a> &bull; 954-266-8214</p>
+    <p style="margin:4px 0 0;font-size:11px;color:#9ca3af;">This communication is from Liberty Bancard. Eligibility, underwriting, card brand rules, and applicable laws apply.</p>
+  </div>
+</div>`;
+}
+
+async function sendAuthEmail(params: {
+  to: string;
+  subject: string;
+  html: string;
+  label: string;
+}): Promise<void> {
+  if (isSmtpConfigured()) {
+    const result = await sendSmtpEmail({ to: params.to, subject: params.subject, html: params.html });
+    if (result.success) return;
+    console.error(`[Auth] SMTP send failed for ${params.label} to ${params.to}: ${result.error} — attempting GHL fallback`);
+    if (isGhlConfigured()) {
+      const ghlResult = await sendGhlEmail({ email: params.to, subject: params.subject, body: params.html });
+      if (ghlResult.success) return;
+      console.error(`[Auth] GHL fallback also failed for ${params.label} to ${params.to}: ${ghlResult.error}`);
+    }
+    return;
+  }
+
+  if (isGhlConfigured()) {
+    const result = await sendGhlEmail({ email: params.to, subject: params.subject, body: params.html });
+    if (!result.success) {
+      console.error(`[Auth] GHL send failed for ${params.label} to ${params.to}: ${result.error}`);
+    }
+    return;
+  }
+
+  console.warn(`[Auth] WARNING: No email transport configured (set SMTP_HOST/SMTP_USER/SMTP_PASS or GHL_API_KEY/GHL_LOCATION_ID). ${params.label} email NOT sent to ${params.to}`);
+}
 
 export function getSession() {
   const sessionTtl = 7 * 24 * 60 * 60 * 1000;
@@ -461,7 +539,14 @@ export async function setupAuth(app: Express) {
       const hashedToken = crypto.createHash("sha256").update(rawToken).digest("hex");
       const verificationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
       await authStorage.updateUserVerificationToken(user.id, hashedToken, verificationExpiresAt);
-      console.log("[Auth] Email verification URL: /verify-email?token=" + rawToken);
+      const verifyUrl = `${APP_URL}/verify-email?token=${rawToken}`;
+      const verifyHtml = buildVerificationEmail(firstName, verifyUrl);
+      sendAuthEmail({
+        to: email.toLowerCase(),
+        subject: "Verify your Liberty Bancard email address",
+        html: verifyHtml,
+        label: "email-verification",
+      }).catch(err => console.error("[Auth] Verification email error:", err));
       req.logIn(user, (err) => {
         if (err) return res.status(500).json({ message: "Signup succeeded but login failed" });
 
@@ -529,7 +614,14 @@ export async function setupAuth(app: Express) {
         const hashedToken = crypto.createHash("sha256").update(rawToken).digest("hex");
         const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
         await authStorage.updateUserResetToken(email.toLowerCase(), hashedToken, expiresAt);
-        console.log("[Auth] Password reset URL: /reset-password?token=" + rawToken);
+        const resetUrl = `${APP_URL}/reset-password?token=${rawToken}`;
+        const html = buildPasswordResetEmail(user.firstName || "", resetUrl);
+        sendAuthEmail({
+          to: user.email!,
+          subject: "Reset your Liberty Bancard password",
+          html,
+          label: "password-reset",
+        }).catch(err => console.error("[Auth] Password reset email error:", err));
       }
       return res.json({ message: "If an account with that email exists, a reset link has been sent." });
     } catch (error: any) {
