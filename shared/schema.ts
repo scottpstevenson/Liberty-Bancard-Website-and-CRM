@@ -3361,3 +3361,27 @@ export const insertTestimonialSubmissionSchema = createInsertSchema(testimonialS
 
 export type TestimonialSubmission = typeof testimonialSubmissions.$inferSelect;
 export type InsertTestimonialSubmission = z.infer<typeof insertTestimonialSubmissionSchema>;
+
+// ── Background Job Orchestration Ledger ──────────────────────────────────────
+export const backgroundJobs = pgTable("background_jobs", {
+  id: serial("id").primaryKey(),
+  jobName: text("job_name").notNull().unique(),
+  status: text("status").notNull().default("idle"),
+  lastStartedAt: timestamp("last_started_at"),
+  lastFinishedAt: timestamp("last_finished_at"),
+  lastError: text("last_error"),
+  runCount: integer("run_count").notNull().default(0),
+  consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("background_jobs_job_name_idx").on(table.jobName),
+  index("background_jobs_status_idx").on(table.status),
+]);
+
+export const insertBackgroundJobSchema = createInsertSchema(backgroundJobs).omit({
+  id: true,
+  updatedAt: true,
+});
+
+export type BackgroundJob = typeof backgroundJobs.$inferSelect;
+export type InsertBackgroundJob = z.infer<typeof insertBackgroundJobSchema>;

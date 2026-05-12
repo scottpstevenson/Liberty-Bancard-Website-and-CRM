@@ -583,15 +583,26 @@ export async function runDailyMaintenance(): Promise<{
   warmup: { transitioned: number; updated: number };
   health: { updated: number; paused: number };
 }> {
-  const countersReset = await resetDailySendCounts();
-  const warmup = await runWarmupManager();
-  const health = await calculateHealthScores();
+  const { acquireJobLock, releaseJobLock, JOB_NAMES } = await import("../job-registry");
+  const acquired = await acquireJobLock(JOB_NAMES.INBOX_ROTATION);
+  if (!acquired) return { countersReset: 0, warmup: { transitioned: 0, updated: 0 }, health: { updated: 0, paused: 0 } };
 
-  console.log(
-    `[Inbox Rotation] Daily maintenance: ${countersReset} counters reset, ${warmup.transitioned} warmed up, ${health.paused} paused`
-  );
+  try {
+    const countersReset = await resetDailySendCounts();
+    const warmup = await runWarmupManager();
+    const health = await calculateHealthScores();
 
-  return { countersReset, warmup, health };
+    console.log(
+      `[Inbox Rotation] Daily maintenance: ${countersReset} counters reset, ${warmup.transitioned} warmed up, ${health.paused} paused`
+    );
+
+    await releaseJobLock(JOB_NAMES.INBOX_ROTATION, true);
+    return { countersReset, warmup, health };
+  } catch (err: any) {
+    console.error("[Inbox Rotation] Daily maintenance error:", err);
+    await releaseJobLock(JOB_NAMES.INBOX_ROTATION, false, err?.message ?? String(err));
+    return { countersReset: 0, warmup: { transitioned: 0, updated: 0 }, health: { updated: 0, paused: 0 } };
+  }
 }
 
 let dailyMaintenanceInterval: ReturnType<typeof setInterval> | null = null;

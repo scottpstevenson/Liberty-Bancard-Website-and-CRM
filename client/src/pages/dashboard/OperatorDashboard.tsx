@@ -13,7 +13,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import {
   Activity, AlertTriangle, ArrowUpRight, BarChart3, Calendar, CheckCircle2,
   Clock, Loader2, Mail, MessageSquare, Phone, RefreshCw, Send, Shield,
-  Target, TrendingUp, Users, XCircle, Zap, Eye, Filter, ChevronRight,
+  Target, TrendingUp, Users, XCircle, Zap, Eye, Filter, ChevronRight, Server,
 } from "lucide-react";
 
 interface OperatorKpis {
@@ -864,6 +864,182 @@ function LowConfidencePanel() {
   );
 }
 
+interface JobStatus {
+  jobName: string;
+  status: string;
+  lastStartedAt: string | null;
+  lastFinishedAt: string | null;
+  lastError: string | null;
+  runCount: number;
+  consecutiveFailures: number;
+  updatedAt: string | null;
+  lastDurationMs: number | null;
+}
+
+const JOB_LABELS: Record<string, string> = {
+  "ghl-sync": "GHL Contact Sync",
+  "sla-worker": "SLA Worker",
+  "inbox-rotation": "Inbox Rotation",
+  "content-scheduler": "Content Scheduler",
+  "sequence-worker": "Sequence Worker",
+  "anomaly-detection": "Anomaly Detection",
+  "weekly-digest": "Weekly Digest",
+  "mid-ingestion": "MID Ingestion",
+};
+
+function formatRelativeTime(dateStr: string | null): string {
+  if (!dateStr) return "Never";
+  const diff = Date.now() - new Date(dateStr).getTime();
+  if (diff < 60000) return "Just now";
+  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+  return `${Math.floor(diff / 86400000)}d ago`;
+}
+
+function formatDuration(ms: number | null): string {
+  if (ms === null || ms < 0) return "—";
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${(ms / 60000).toFixed(1)}m`;
+}
+
+function JobHealthPanel() {
+  const { data, isLoading, isError, refetch } = useQuery<{ jobs: JobStatus[] }>({
+    queryKey: ["/api/operator/job-status"],
+    refetchInterval: 30000,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 gap-3" data-testid="job-health-error">
+        <AlertTriangle className="w-8 h-8 text-red-500" />
+        <p className="text-sm text-muted-foreground">Failed to load job health data</p>
+        <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="btn-retry-job-health">
+          <RefreshCw className="w-4 h-4 mr-1" /> Retry
+        </Button>
+      </div>
+    );
+  }
+
+  const jobs = data?.jobs ?? [];
+  const criticalJobs = jobs.filter(j => j.consecutiveFailures >= 3);
+
+  return (
+    <div className="space-y-4" data-testid="panel-job-health">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Server className="w-5 h-5 text-muted-foreground" />
+          <h3 className="text-lg font-semibold">Background Job Health</h3>
+          {criticalJobs.length > 0 && (
+            <Badge variant="destructive" data-testid="badge-job-failures">
+              {criticalJobs.length} failing
+            </Badge>
+          )}
+        </div>
+        <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="btn-refresh-job-health">
+          <RefreshCw className="w-4 h-4 mr-1" /> Refresh
+        </Button>
+      </div>
+
+      {criticalJobs.length > 0 && (
+        <div className="p-3 rounded-md bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 flex items-start gap-2" data-testid="alert-job-failures">
+          <AlertTriangle className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
+          <div className="text-sm text-red-800 dark:text-red-200">
+            <strong>{criticalJobs.length} job{criticalJobs.length > 1 ? "s" : ""}</strong> {criticalJobs.length > 1 ? "have" : "has"} 3 or more consecutive failures:{" "}
+            {criticalJobs.map(j => JOB_LABELS[j.jobName] || j.jobName).join(", ")}
+          </div>
+        </div>
+      )}
+
+      <div className="rounded-md border overflow-hidden">
+        <table className="w-full text-sm" data-testid="table-job-health">
+          <thead className="bg-muted/50">
+            <tr>
+              <th className="text-left px-4 py-3 font-medium text-muted-foreground">Job</th>
+              <th className="text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
+              <th className="text-left px-4 py-3 font-medium text-muted-foreground">Last Run</th>
+              <th className="text-left px-4 py-3 font-medium text-muted-foreground">Duration</th>
+              <th className="text-left px-4 py-3 font-medium text-muted-foreground">Runs</th>
+              <th className="text-left px-4 py-3 font-medium text-muted-foreground">Failures</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            {jobs.map((job) => {
+              const isCritical = job.consecutiveFailures >= 3;
+              const label = JOB_LABELS[job.jobName] || job.jobName;
+              return (
+                <tr
+                  key={job.jobName}
+                  className={isCritical ? "bg-red-50 dark:bg-red-950/30" : ""}
+                  data-testid={`row-job-${job.jobName}`}
+                >
+                  <td className="px-4 py-3 font-medium">
+                    <div className="flex items-center gap-2">
+                      {isCritical && <AlertTriangle className="w-3.5 h-3.5 text-red-500 shrink-0" />}
+                      {label}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <Badge
+                      variant={
+                        job.status === "running" ? "secondary"
+                          : job.status === "succeeded" ? "outline"
+                          : job.status === "failed" ? "destructive"
+                          : "secondary"
+                      }
+                      className={
+                        job.status === "succeeded"
+                          ? "border-green-500 text-green-700 dark:text-green-400"
+                          : ""
+                      }
+                      data-testid={`badge-job-status-${job.jobName}`}
+                    >
+                      {job.status === "running" && <Loader2 className="w-3 h-3 animate-spin mr-1" />}
+                      {job.status === "succeeded" && <CheckCircle2 className="w-3 h-3 mr-1" />}
+                      {job.status === "failed" && <XCircle className="w-3 h-3 mr-1" />}
+                      {job.status}
+                    </Badge>
+                  </td>
+                  <td className="px-4 py-3 text-muted-foreground text-xs" data-testid={`text-job-last-run-${job.jobName}`}>
+                    {formatRelativeTime(job.lastFinishedAt)}
+                    {job.lastError && (
+                      <div className="text-red-500 truncate max-w-[180px]" title={job.lastError}>
+                        {job.lastError}
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground">
+                    {formatDuration(job.lastDurationMs)}
+                  </td>
+                  <td className="px-4 py-3 text-xs">{job.runCount}</td>
+                  <td className="px-4 py-3">
+                    {job.consecutiveFailures > 0 ? (
+                      <span className={`text-xs font-medium ${isCritical ? "text-red-600 dark:text-red-400" : "text-yellow-600 dark:text-yellow-400"}`} data-testid={`text-job-failures-${job.jobName}`}>
+                        {job.consecutiveFailures}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">0</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-xs text-muted-foreground">Auto-refreshes every 30 seconds</p>
+    </div>
+  );
+}
+
 export default function OperatorDashboard() {
   const { toast } = useToast();
 
@@ -899,8 +1075,12 @@ export default function OperatorDashboard() {
         }
       />
 
-      <Tabs defaultValue="readiness" className="w-full">
+      <Tabs defaultValue="job-health" className="w-full">
         <TabsList className="w-full justify-start flex-wrap" data-testid="tabs-operator">
+          <TabsTrigger value="job-health" data-testid="tab-job-health" className="flex items-center gap-1">
+            <Server className="w-3.5 h-3.5" />
+            Job Health
+          </TabsTrigger>
           <TabsTrigger value="readiness" data-testid="tab-readiness">Readiness</TabsTrigger>
           <TabsTrigger value="kpis" data-testid="tab-kpis">KPIs</TabsTrigger>
           <TabsTrigger value="recent-sends" data-testid="tab-recent-sends">Recent Sends</TabsTrigger>
@@ -912,6 +1092,9 @@ export default function OperatorDashboard() {
           <TabsTrigger value="content-organic" data-testid="tab-content-organic">Content & Organic</TabsTrigger>
         </TabsList>
 
+        <TabsContent value="job-health">
+          <JobHealthPanel />
+        </TabsContent>
         <TabsContent value="readiness">
           <ReadinessChecklistWidget />
         </TabsContent>

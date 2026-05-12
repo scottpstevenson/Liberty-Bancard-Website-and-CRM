@@ -225,6 +225,10 @@ async function checkInboxDegradation(): Promise<AnomalyAlert[]> {
 }
 
 export async function runAnomalyDetection(): Promise<AnomalyAlert[]> {
+  const { acquireJobLock, releaseJobLock, JOB_NAMES } = await import("../job-registry");
+  const acquired = await acquireJobLock(JOB_NAMES.ANOMALY_DETECTION);
+  if (!acquired) return [];
+
   const allAlerts: AnomalyAlert[] = [];
 
   try {
@@ -240,8 +244,10 @@ export async function runAnomalyDetection(): Promise<AnomalyAlert[]> {
     if (allAlerts.length > 0) {
       console.log(`[AnomalyDetection] Found ${allAlerts.length} alerts: ${allAlerts.map(a => a.type).join(", ")}`);
     }
-  } catch (err) {
+    await releaseJobLock(JOB_NAMES.ANOMALY_DETECTION, true);
+  } catch (err: any) {
     console.error("[AnomalyDetection] Error running detection:", err);
+    await releaseJobLock(JOB_NAMES.ANOMALY_DETECTION, false, err?.message ?? String(err));
   }
 
   return allAlerts;

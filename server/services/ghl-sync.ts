@@ -931,6 +931,9 @@ export function startAutoSyncLoop(intervalMs: number = 45000): void {
   console.log(`[GHL Sync] Auto-sync loop started (every ${intervalMs / 1000}s)`);
   syncIntervalId = setInterval(async () => {
     if (!isGhlConfigured()) return;
+    const { acquireJobLock, releaseJobLock, JOB_NAMES } = await import("./job-registry");
+    const acquired = await acquireJobLock(JOB_NAMES.GHL_SYNC);
+    if (!acquired) return;
     try {
       const { data: contacts } = await storage.getContacts({ limit: 500 });
       const unsyncedContacts = contacts.filter(c => !c.ghlContactId && c.email);
@@ -1025,8 +1028,10 @@ export function startAutoSyncLoop(intervalMs: number = 45000): void {
       if (synced > 0 || dealsSynced > 0 || tasksSynced > 0 || companiesSynced > 0) {
         console.log(`[GHL Sync] Auto-sync batch: ${synced} contacts, ${dealsSynced} deals, ${tasksSynced} tasks, ${companiesSynced} companies`);
       }
+      await releaseJobLock(JOB_NAMES.GHL_SYNC, true);
     } catch (err: any) {
       console.error("[GHL Sync] Auto-sync loop error:", err.message);
+      await releaseJobLock(JOB_NAMES.GHL_SYNC, false, err.message);
     }
   }, intervalMs);
 }

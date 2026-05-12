@@ -281,6 +281,9 @@ async function checkTicketSla() {
 }
 
 async function runSlaCheck() {
+  const { acquireJobLock, releaseJobLock, JOB_NAMES } = await import("./job-registry");
+  const acquired = await acquireJobLock(JOB_NAMES.SLA_WORKER);
+  if (!acquired) return;
   try {
     const slaConfigs = await storage.getSlaConfigs();
     const rules = slaConfigs.length > 0
@@ -306,8 +309,10 @@ async function runSlaCheck() {
       }
     }
     await autoResolveClearedSlaTasks(activeStuckDealIds);
-  } catch (err) {
+    await releaseJobLock(JOB_NAMES.SLA_WORKER, true);
+  } catch (err: any) {
     console.error("SLA check error:", err);
+    await releaseJobLock(JOB_NAMES.SLA_WORKER, false, err?.message ?? String(err));
   }
 }
 
@@ -724,14 +729,19 @@ const MID_INGESTION_INTERVAL_MS = 24 * 60 * 60 * 1000;
 let midIngestionInterval: NodeJS.Timeout | null = null;
 
 async function runMidIngestion() {
+  const { acquireJobLock, releaseJobLock, JOB_NAMES } = await import("./job-registry");
+  const acquired = await acquireJobLock(JOB_NAMES.MID_INGESTION);
+  if (!acquired) return;
   try {
     const { ingestMidDataForActiveMids } = await import("./processor-api");
     const result = await ingestMidDataForActiveMids();
     if (result.processed > 0 || result.errors > 0) {
       console.log(`[MID Ingestion] Nightly run complete: ${result.processed} processed, ${result.errors} errors`);
     }
-  } catch (err) {
+    await releaseJobLock(JOB_NAMES.MID_INGESTION, true);
+  } catch (err: any) {
     console.error("[MID Ingestion] Nightly run error:", err);
+    await releaseJobLock(JOB_NAMES.MID_INGESTION, false, err?.message ?? String(err));
   }
 }
 

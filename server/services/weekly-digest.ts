@@ -4,13 +4,19 @@ import { isGhlConfigured, sendGhlEmailForMerchant } from "./ghl";
 let digestInterval: ReturnType<typeof setInterval> | null = null;
 
 export async function generateAndSendWeeklyDigest(): Promise<void> {
+  const { acquireJobLock, releaseJobLock, JOB_NAMES } = await import("./job-registry");
+  const acquired = await acquireJobLock(JOB_NAMES.WEEKLY_DIGEST);
+  if (!acquired) return;
+
   const adminEmail = process.env.ADMIN_DIGEST_EMAIL;
   if (!adminEmail) {
     console.log("[Weekly Digest] No ADMIN_DIGEST_EMAIL configured, skipping.");
+    await releaseJobLock(JOB_NAMES.WEEKLY_DIGEST, true);
     return;
   }
   if (!isGhlConfigured()) {
     console.log("[Weekly Digest] GHL not configured, skipping email send.");
+    await releaseJobLock(JOB_NAMES.WEEKLY_DIGEST, true);
     return;
   }
 
@@ -167,8 +173,10 @@ ${kpiSection}
 
     await sendGhlEmailForMerchant({ email: adminEmail, subject: "Weekly KPI Digest — Liberty Bancard", body: emailBody });
     console.log(`[Weekly Digest] Sent digest to ${adminEmail} for period ${period}`);
-  } catch (err) {
+    await releaseJobLock(JOB_NAMES.WEEKLY_DIGEST, true);
+  } catch (err: any) {
     console.error("[Weekly Digest] Error generating/sending digest:", err);
+    await releaseJobLock(JOB_NAMES.WEEKLY_DIGEST, false, err?.message ?? String(err));
   }
 }
 

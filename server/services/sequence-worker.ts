@@ -9,6 +9,10 @@ import type { AbTestConfig, AbTestResults } from "@shared/schema";
 const GHL_WORKFLOW_ONLY = process.env.GHL_WORKFLOW_ONLY_MODE === "true";
 
 export async function processSequenceEnrollments(): Promise<{ processed: number; errors: number }> {
+  const { acquireJobLock, releaseJobLock, JOB_NAMES } = await import("./job-registry");
+  const acquired = await acquireJobLock(JOB_NAMES.SEQUENCE_WORKER);
+  if (!acquired) return { processed: 0, errors: 0 };
+
   let processed = 0;
   let errors = 0;
 
@@ -636,8 +640,10 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
         } catch (_) {}
       }
     }
-  } catch (err) {
+    await releaseJobLock(JOB_NAMES.SEQUENCE_WORKER, true);
+  } catch (err: any) {
     console.error("Sequence worker error:", err);
+    await releaseJobLock(JOB_NAMES.SEQUENCE_WORKER, false, err?.message ?? String(err));
   }
 
   if (processed > 0 || errors > 0) {

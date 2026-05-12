@@ -1690,6 +1690,17 @@ export function registerSdrRoutes(app: Express) {
     }
   });
 
+  app.get("/api/operator/job-status", isAdmin, async (_req, res) => {
+    try {
+      const { getJobStatuses } = await import("../services/job-registry");
+      const jobs = await getJobStatuses();
+      res.json({ jobs });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
   app.get("/api/sdr/serper-enrichment/metrics", isAuthenticated, async (_req, res) => {
     try {
       const { getSerperEnrichmentMetrics } = await import("../services/sdr/serper-enrichment");

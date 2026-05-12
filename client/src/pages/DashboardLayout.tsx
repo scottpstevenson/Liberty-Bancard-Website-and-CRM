@@ -127,7 +127,7 @@ const menuItems: MenuItem[] = [
 const sdrItems: MenuItem[] = [
   { icon: RocketIcon, label: "Activation Panel", href: "/dashboard/activation", roles: ["admin"] },
   { icon: Bot, label: "AI SDR", href: "/dashboard/sdr", roles: ["admin", "manager"] },
-  { icon: Activity, label: "Operator Dashboard", href: "/dashboard/operator", roles: ["admin", "manager"] },
+  { icon: Activity, label: "Operator Dashboard", href: "/dashboard/operator", roles: ["admin", "manager"], badgeKey: "jobAlerts" },
   { icon: Mailbox, label: "Inbox Health", href: "/dashboard/inbox-health", roles: ["admin", "manager"] },
 ];
 
@@ -288,6 +288,13 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   });
   const pendingApplicationsCount = pendingAppsData?.count || 0;
 
+  const { data: jobStatusData } = useQuery<{ jobs: Array<{ consecutiveFailures: number }> }>({
+    queryKey: ["/api/operator/job-status"],
+    refetchInterval: 60000,
+    enabled: ["admin", "manager"].includes(role),
+  });
+  const jobAlertsCount = (jobStatusData?.jobs ?? []).filter(j => j.consecutiveFailures >= 3).length;
+
   const { data: notifCountData } = useQuery<{ unread: number }>({
     queryKey: ["/api/notifications/count"],
     refetchInterval: 30000,
@@ -317,6 +324,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     notificationsUnread: notificationsUnreadCount,
     liveChatUnread: liveChatUnreadCount,
     pendingApplications: pendingApplicationsCount,
+    jobAlerts: jobAlertsCount,
   };
 
   const filteredMenu = useMemo(() => filterByRole(menuItems, role), [role]);

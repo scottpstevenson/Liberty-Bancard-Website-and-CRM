@@ -203,6 +203,21 @@ export async function runStartupMigrations(): Promise<void> {
       );
       CREATE INDEX IF NOT EXISTS document_access_log_document_id_idx ON document_access_log(document_id);
       CREATE INDEX IF NOT EXISTS document_access_log_accessed_at_idx ON document_access_log(accessed_at);
+
+      -- Task #246: Background job health registry
+      CREATE TABLE IF NOT EXISTS background_jobs (
+        id SERIAL PRIMARY KEY,
+        job_name TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL DEFAULT 'idle',
+        last_started_at TIMESTAMP,
+        last_finished_at TIMESTAMP,
+        last_error TEXT,
+        run_count INTEGER NOT NULL DEFAULT 0,
+        consecutive_failures INTEGER NOT NULL DEFAULT 0,
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS background_jobs_job_name_idx ON background_jobs(job_name);
+      CREATE INDEX IF NOT EXISTS background_jobs_status_idx ON background_jobs(status);
     `);
     console.log("[Migrations] Startup migrations applied successfully.");
   } catch (err: any) {
