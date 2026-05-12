@@ -3,6 +3,7 @@ import { processorSignals, adSignals } from "@shared/schema";
 import { db } from "../../db";
 import { eq } from "drizzle-orm";
 import OpenAI from "openai";
+import { logAiCall } from "../ai-audit-logger";
 
 function getOpenAI() {
   return new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
@@ -564,7 +565,9 @@ export async function getLeadGrowthData(businessId: number | null | undefined, l
 export async function aiAssessWebsiteQuality(website: string): Promise<{ websiteQuality: string; businessMaturity: string }> {
   try {
     const openai = getOpenAI();
-    const response = await openai.chat.completions.create({
+    const response = await logAiCall(
+      { triggerType: "website-quality", actorType: "system" },
+      () => openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [{
         role: "user",
@@ -579,7 +582,7 @@ Return JSON: { "websiteQuality": "...", "businessMaturity": "..." }`
       response_format: { type: "json_object" },
       temperature: 0.3,
       max_tokens: 100,
-    });
+    }));
 
     const content = response.choices[0]?.message?.content;
     if (content) {

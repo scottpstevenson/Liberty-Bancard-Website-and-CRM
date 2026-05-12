@@ -3,6 +3,7 @@ import { isAuthenticated } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
 import { runContentSchedulerTick } from "../services/content-scheduler";
+import { logAiCall } from "../services/ai-audit-logger";
 
 const PILLARS = [
   "Cost & Pricing",
@@ -170,12 +171,15 @@ Guidelines:
 - Plain text only inside fields; no markdown
 - All ctaHref values must be relative paths starting with /`;
 
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4o",
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.7,
-        response_format: { type: "json_object" },
-      });
+      const completion = await logAiCall(
+        { triggerType: "content-generation", actorType: (req as any).user?.role || "agent", actorId: (req as any).user?.id?.toString() },
+        () => openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: [{ role: "user", content: prompt }],
+          temperature: 0.7,
+          response_format: { type: "json_object" },
+        })
+      );
 
       const content = completion.choices[0]?.message?.content;
       if (!content) return res.status(502).json({ error: "AI returned empty response" });

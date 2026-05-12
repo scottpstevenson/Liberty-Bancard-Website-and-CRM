@@ -5,6 +5,7 @@ import {
   liveChats, liveChatMessages,
   type LiveChat, type InsertLiveChat, type LiveChatMessage, type InsertLiveChatMessage,
   contacts, companies, deals, tickets, tasks, documents, auditLogs, notifications, workflowRuns, workflows, rfis, users,
+  aiAuditLogs, type AiAuditLog, type InsertAiAuditLog,
   chargebacks,
   type Chargeback, type InsertChargeback, type UpdateChargebackRequest,
   messageTemplates, collateralPackets, ghlActivityLog, slaConfigs,
@@ -131,6 +132,63 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   async createAuditLog(insertLog: InsertAuditLog) {
     const [log] = await db.insert(auditLogs).values(insertLog).returning();
     return log;
+  }
+
+  async getAiAuditLogs(filters?: {
+    triggerType?: string;
+    startDate?: Date;
+    endDate?: Date;
+    limit?: number;
+    offset?: number;
+  }): Promise<AiAuditLog[]> {
+    const conditions = [];
+    if (filters?.triggerType) conditions.push(eq(aiAuditLogs.triggerType, filters.triggerType));
+    if (filters?.startDate) conditions.push(gte(aiAuditLogs.createdAt, filters.startDate));
+    if (filters?.endDate) conditions.push(lte(aiAuditLogs.createdAt, filters.endDate));
+
+    return db.select().from(aiAuditLogs)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(aiAuditLogs.createdAt))
+      .limit(filters?.limit ?? 100)
+      .offset(filters?.offset ?? 0);
+  }
+
+  async getAiAuditLogTotals(filters?: { startDate?: Date; endDate?: Date }): Promise<{
+    totalCalls: number;
+    totalPromptTokens: number;
+    totalCompletionTokens: number;
+    totalCostCents: number;
+    byTriggerType: Record<string, { calls: number; promptTokens: number; completionTokens: number; costCents: number }>;
+  }> {
+    const conditions = [];
+    if (filters?.startDate) conditions.push(gte(aiAuditLogs.createdAt, filters.startDate));
+    if (filters?.endDate) conditions.push(lte(aiAuditLogs.createdAt, filters.endDate));
+
+    const rows = await db.select().from(aiAuditLogs)
+      .where(conditions.length > 0 ? and(...conditions) : undefined);
+
+    const byTriggerType: Record<string, { calls: number; promptTokens: number; completionTokens: number; costCents: number }> = {};
+    let totalPromptTokens = 0;
+    let totalCompletionTokens = 0;
+    let totalCostCents = 0;
+
+    for (const row of rows) {
+      const pt = row.promptTokens || 0;
+      const ct = row.completionTokens || 0;
+      const cost = row.costCents || 0;
+      totalPromptTokens += pt;
+      totalCompletionTokens += ct;
+      totalCostCents += cost;
+
+      const key = row.triggerType;
+      if (!byTriggerType[key]) byTriggerType[key] = { calls: 0, promptTokens: 0, completionTokens: 0, costCents: 0 };
+      byTriggerType[key].calls++;
+      byTriggerType[key].promptTokens += pt;
+      byTriggerType[key].completionTokens += ct;
+      byTriggerType[key].costCents += cost;
+    }
+
+    return { totalCalls: rows.length, totalPromptTokens, totalCompletionTokens, totalCostCents, byTriggerType };
   }
 
   }

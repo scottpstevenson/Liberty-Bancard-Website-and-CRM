@@ -172,6 +172,8 @@ export interface IStorage {
   getAuditLogsByEntity(entityType: string, entityId: number, limit?: number): Promise<typeof auditLogs.$inferSelect[]>;
   getLastAuditLogByAction(action: string, entityType: string, entityId: number): Promise<typeof auditLogs.$inferSelect | undefined>;
   createAuditLog(log: InsertAuditLog): Promise<typeof auditLogs.$inferSelect>;
+  getAiAuditLogs(filters?: { triggerType?: string; startDate?: Date; endDate?: Date; limit?: number; offset?: number }): Promise<import("@shared/schema").AiAuditLog[]>;
+  getAiAuditLogTotals(filters?: { startDate?: Date; endDate?: Date }): Promise<{ totalCalls: number; totalPromptTokens: number; totalCompletionTokens: number; totalCostCents: number; byTriggerType: Record<string, { calls: number; promptTokens: number; completionTokens: number; costCents: number }> }>;
 
   getNotifications(): Promise<typeof notifications.$inferSelect[]>;
   getNotificationsPaginated(params: { limit: number; offset: number; category?: string; userId?: string }): Promise<{ data: typeof notifications.$inferSelect[]; total: number }>;

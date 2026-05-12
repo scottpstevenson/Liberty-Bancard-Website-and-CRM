@@ -9,6 +9,7 @@ import { ingestBusinessFromContact } from "./sdr/dedupe";
 import { detectProcessors } from "./sdr/processor-detector";
 import { detectAds } from "./sdr/ad-detector";
 import { updateContactGhlFirst } from "./contact-writer";
+import { logAiCall } from "./ai-audit-logger";
 
 function getOpenAI() {
   return new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
@@ -87,12 +88,15 @@ Scoring criteria:
 - UNQUALIFIED: Non-profit, government, or business unlikely to need merchant services`;
 
   try {
-    const response = await getOpenAI().chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [{ role: "user", content: prompt }],
-      response_format: { type: "json_object" },
-      temperature: 0.3,
-    });
+    const response = await logAiCall(
+      { triggerType: "enrichment", actorType: "system" },
+      () => getOpenAI().chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [{ role: "user", content: prompt }],
+        response_format: { type: "json_object" },
+        temperature: 0.3,
+      })
+    );
 
     const content = response.choices[0]?.message?.content;
     if (!content) throw new Error("No AI response");

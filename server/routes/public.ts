@@ -57,32 +57,36 @@ export function registerPublicRoutes(app: Express) {
           const { OpenAI } = await import("openai");
           const openai = new OpenAI({ apiKey, baseURL });
 
-          const completion = await openai.chat.completions.create({
-            model: "gpt-4o",
-            messages: [
-              {
-                role: "system",
-                content: `You are Liberty Bancard's AI Pricing Strategist. Generate a brief, professional savings estimate email for a merchant who just uploaded their processing statement. Be concise and professional. Include a disclaimer that this is a preliminary estimate and actual savings depend on full statement review.
+          const { logAiCall: logAi } = await import("../services/ai-audit-logger");
+          const completion = await logAi(
+            { triggerType: "statement-analysis", actorType: "system" },
+            () => openai.chat.completions.create({
+              model: "gpt-4o",
+              messages: [
+                {
+                  role: "system",
+                  content: `You are Liberty Bancard's AI Pricing Strategist. Generate a brief, professional savings estimate email for a merchant who just uploaded their processing statement. Be concise and professional. Include a disclaimer that this is a preliminary estimate and actual savings depend on full statement review.
 
 Return JSON with:
 - subject: email subject line
 - body: plain text email body (use \\n for line breaks)
 - estimatedSavingsRange: string like "$200-$500/month"
 - recommendedProgram: one of ["Cash Discount", "Interchange Plus", "Dual Pricing"]`
-              },
-              {
-                role: "user",
-                content: `Merchant: ${meta.businessName || contact.companyName || meta.contactName || "Unknown"}
+                },
+                {
+                  role: "user",
+                  content: `Merchant: ${meta.businessName || contact.companyName || meta.contactName || "Unknown"}
 Industry: ${meta.vertical || contact.vertical || "General"}
 Estimated Monthly Volume: $${volume.toLocaleString()}
 Estimated Effective Rate: ${effectiveRate}%
 Current Monthly Fees: $${currentMonthlyFees.toFixed(2)}
 Average Ticket: $${avgTicket.toFixed(2)}
 Current Provider: ${contact.currentProvider || "Unknown"}`
-              }
-            ],
-            max_tokens: 800,
-          });
+                }
+              ],
+              max_tokens: 800,
+            })
+          );
 
           const raw = completion.choices[0]?.message?.content || "";
           const jsonMatch = raw.match(/\{[\s\S]*\}/);

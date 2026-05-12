@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import { isAuthenticated, isAdmin, isAffiliate } from "../replit_integrations/auth";
 import { storage } from "../storage";
+import { logAiCall } from "../services/ai-audit-logger";
 import { db, pool } from "../db";
 import { z } from "zod";
 import { authStorage } from "../replit_integrations/auth/storage";
@@ -197,12 +198,15 @@ Guidelines:
 - Do NOT use markdown formatting in text fields
 - Return ONLY valid JSON, no markdown code fences`;
 
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4o",
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.7,
-        response_format: { type: "json_object" },
-      });
+      const completion = await logAiCall(
+        { triggerType: "content-generation", actorType: (req as any).user?.role || "agent", actorId: (req as any).user?.id?.toString() },
+        () => openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: [{ role: "user", content: prompt }],
+          temperature: 0.7,
+          response_format: { type: "json_object" },
+        })
+      );
 
       const content = completion.choices[0]?.message?.content;
       if (!content) {

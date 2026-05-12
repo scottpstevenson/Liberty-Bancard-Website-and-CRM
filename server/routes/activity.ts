@@ -7,6 +7,7 @@ import { and } from "drizzle-orm";
 import { sendGhlEmail, sendGhlSms } from "../services/ghl";
 import { advanceDealStage } from "../services/deal-stage-service";
 import { parse } from "csv-parse/sync";
+import { logAiCall } from "../services/ai-audit-logger";
 
 export function registerActivityRoutes(app: Express) {
   // === ACTIVITY TIMELINE ===
@@ -275,7 +276,9 @@ export function registerActivityRoutes(app: Express) {
       const { OpenAI } = await import("openai");
       const openai = new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
 
-      const aiResponse = await openai.chat.completions.create({
+      const aiResponse = await logAiCall(
+        { triggerType: "auto-reply", actorType: (req as any).user?.role || "agent", actorId: (req as any).user?.id?.toString() },
+        () => openai.chat.completions.create({
         model: "gpt-4o-mini",
         temperature: 0.7,
         messages: [
@@ -318,7 +321,7 @@ Respond in this exact JSON format:
 }`
           }
         ],
-      });
+      }));
 
       let parsed;
       try {

@@ -3385,3 +3385,54 @@ export const insertBackgroundJobSchema = createInsertSchema(backgroundJobs).omit
 
 export type BackgroundJob = typeof backgroundJobs.$inferSelect;
 export type InsertBackgroundJob = z.infer<typeof insertBackgroundJobSchema>;
+
+export const AI_TRIGGER_TYPES = [
+  "enrichment",
+  "proposal",
+  "reply",
+  "reply-classify",
+  "advisor",
+  "advisor-chat",
+  "blueprint",
+  "outbound-copy",
+  "statement-analysis",
+  "ticket-classification",
+  "ticket-classify",
+  "website-quality",
+  "insights",
+  "email-compose",
+  "compose-email",
+  "nightly-discovery",
+  "content-generation",
+  "social-generation",
+  "training-generation",
+  "auto-reply",
+] as const;
+
+export type AiTriggerType = typeof AI_TRIGGER_TYPES[number];
+
+export const aiAuditLogs = pgTable("ai_audit_logs", {
+  id: serial("id").primaryKey(),
+  triggerType: text("trigger_type").notNull(),
+  actorType: text("actor_type").notNull().default("system"),
+  actorId: text("actor_id"),
+  model: text("model").notNull(),
+  promptTokens: integer("prompt_tokens").default(0),
+  completionTokens: integer("completion_tokens").default(0),
+  costCents: real("cost_cents").default(0),
+  responseSummary: text("response_summary"),
+  error: text("error"),
+  durationMs: integer("duration_ms"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("ai_audit_logs_trigger_type_idx").on(table.triggerType),
+  index("ai_audit_logs_created_at_idx").on(table.createdAt),
+]);
+
+export const insertAiAuditLogSchema = createInsertSchema(aiAuditLogs).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type AiAuditLog = typeof aiAuditLogs.$inferSelect;
+export type InsertAiAuditLog = z.infer<typeof insertAiAuditLogSchema>;

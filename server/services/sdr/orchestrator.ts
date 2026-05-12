@@ -13,6 +13,7 @@ import { tagContactForInboxOrganization } from "../ghl-workflow-enrollment";
 import { ingestBusiness } from "./dedupe";
 import { featureFlags } from "../feature-flags";
 import OpenAI from "openai";
+import { logAiCall } from "../ai-audit-logger";
 
 function getOpenAI() {
   return new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
@@ -294,7 +295,9 @@ function personalizeTemplate(template: string, lead: SdrLeadState): string {
 async function personalizeWithAI(template: string, lead: SdrLeadState, channel: string): Promise<string> {
   try {
     const openai = getOpenAI();
-    const response = await openai.chat.completions.create({
+    const response = await logAiCall(
+      { triggerType: "outbound-copy", actorType: "system" },
+      () => openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [{
         role: "user",
@@ -302,7 +305,7 @@ async function personalizeWithAI(template: string, lead: SdrLeadState, channel: 
       }],
       temperature: 0.7,
       max_tokens: channel === "sms" ? 100 : 300,
-    });
+    }));
     return response.choices[0]?.message?.content || template;
   } catch (err) {
     console.error("[SDR Orchestrator] AI personalization failed:", err);

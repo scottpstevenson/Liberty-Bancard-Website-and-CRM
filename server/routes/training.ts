@@ -1,5 +1,6 @@
 import type { Express, RequestHandler } from "express";
 import { isDashboardUser, isAuthenticated } from "../replit_integrations/auth";
+import { logAiCall } from "../services/ai-audit-logger";
 import { getTrainingHubStatus, createTrainingHub, appendGhlBlueprintsToDoc, syncGhlBlueprintsToMainDoc, LIBERTY_BANCARD_GHL_DOC_ID } from "../services/google-drive";
 import { storage } from "../storage";
 import { db } from "../db";
@@ -164,11 +165,14 @@ Stay in character as the merchant. Be realistic, not a pushover. Don't make it t
         { role: "user", content: repMessage },
       ];
 
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4o",
-        messages,
-        max_tokens: 600,
-      });
+      const completion = await logAiCall(
+        { triggerType: "training-generation", actorType: (req as any).user?.role || "agent", actorId: (req as any).user?.id?.toString() },
+        () => openai.chat.completions.create({
+          model: "gpt-4o",
+          messages,
+          max_tokens: 600,
+        })
+      );
 
       const raw = completion.choices[0]?.message?.content || "";
 
@@ -247,25 +251,28 @@ Stay in character as the merchant. Be realistic, not a pushover. Don't make it t
         baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
       });
 
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4o",
-        messages: [
-          {
-            role: "system",
-            content: `You are a Liberty Bancard sales coach. Analyze this roleplay session and provide a coaching summary.
+      const completion = await logAiCall(
+        { triggerType: "training-generation", actorType: (req as any).user?.role || "agent", actorId: (req as any).user?.id?.toString() },
+        () => openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: [
+            {
+              role: "system",
+              content: `You are a Liberty Bancard sales coach. Analyze this roleplay session and provide a coaching summary.
 Return valid JSON with:
 - summary: 2-3 sentence overall assessment
 - strengths: array of 2-3 specific strengths the rep demonstrated
 - gaps: array of 2-3 areas to improve
 - suggestedPhrasing: array of 2-3 specific phrases or lines the rep should use next time`,
-          },
-          {
-            role: "user",
-            content: `Scenario: ${session.scenario}\nPersona: ${session.persona}\nTotal turns: ${exchanges.length}\nAvg tone score: ${avgTone}/10\nAvg clarity score: ${avgClarity}/10\nObjection addressed rate: ${objectionRate}%\n\nExchange log:\n${exchangeSummary}`,
-          },
-        ],
-        max_tokens: 600,
-      });
+            },
+            {
+              role: "user",
+              content: `Scenario: ${session.scenario}\nPersona: ${session.persona}\nTotal turns: ${exchanges.length}\nAvg tone score: ${avgTone}/10\nAvg clarity score: ${avgClarity}/10\nObjection addressed rate: ${objectionRate}%\n\nExchange log:\n${exchangeSummary}`,
+            },
+          ],
+          max_tokens: 600,
+        })
+      );
 
       const raw = completion.choices[0]?.message?.content || "";
       let coachingResult = { summary: raw, strengths: [] as string[], gaps: [] as string[], suggestedPhrasing: [] as string[] };

@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { isAuthenticated } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
+import { logAiCall } from "../services/ai-audit-logger";
 
 const createSchema = z.object({
   platform: z.string().min(1).max(20).default("linkedin"),
@@ -134,12 +135,15 @@ Return ONLY JSON:
     { "body": "...full post text...", "hashtags": ["#payments", "#smallbusiness"] }
   ]
 }`;
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4o",
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.8,
-        response_format: { type: "json_object" },
-      });
+      const completion = await logAiCall(
+        { triggerType: "social-generation", actorType: (req as any).user?.role || "agent", actorId: (req as any).user?.id?.toString() },
+        () => openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: [{ role: "user", content: prompt }],
+          temperature: 0.8,
+          response_format: { type: "json_object" },
+        })
+      );
       const content = completion.choices[0]?.message?.content;
       if (!content) return res.status(502).json({ error: "Empty AI response" });
       const data = JSON.parse(content);

@@ -5,6 +5,7 @@ import OpenAI from "openai";
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
+import { logAiCall } from "./ai-audit-logger";
 
 interface ProposalPlan {
   name: string;
@@ -163,7 +164,9 @@ async function analyzeStatementData(deal: Deal, contact: Contact | null | undefi
     const statementContext = contextLines.join("\n");
 
     const openai = getOpenAI();
-    const completion = await openai.chat.completions.create({
+    const completion = await logAiCall(
+      { triggerType: "statement-analysis", actorType: "system" },
+      () => openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
         {
@@ -200,7 +203,7 @@ Return JSON with:
       max_tokens: 1000,
       response_format: { type: "json_object" },
       temperature: 0.3,
-    });
+    }));
 
     const raw = completion.choices[0]?.message?.content || "";
     const analysis = JSON.parse(raw);
@@ -272,7 +275,9 @@ export async function autoGenerateProposal(dealId: number, fileBuffer?: Buffer):
 
     const openai = getOpenAI();
 
-    const completion = await openai.chat.completions.create({
+    const completion = await logAiCall(
+      { triggerType: "proposal", actorType: "system" },
+      () => openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
         {
@@ -399,7 +404,7 @@ STATEMENT ANALYSIS RESULTS (use these findings):
       max_tokens: 2000,
       response_format: { type: "json_object" },
       temperature: 0.4,
-    });
+    }));
 
     const raw = completion.choices[0]?.message?.content || "";
     let proposal: any;

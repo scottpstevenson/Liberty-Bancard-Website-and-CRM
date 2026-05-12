@@ -3,6 +3,7 @@ import type { Prospect, Campaign } from "@shared/schema";
 import OpenAI from "openai";
 import { sendGhlEmail, isGhlConfigured } from "./ghl";
 import { getEmailSignatureHtml } from "./email-signatures";
+import { logAiCall } from "./ai-audit-logger";
 
 function getOpenAI() {
   return new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
@@ -63,12 +64,15 @@ Rules:
 
 Return JSON: { "subject": "...", "body": "..." }`;
 
-      const response = await getOpenAI().chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [{ role: "user", content: prompt }],
-        response_format: { type: "json_object" },
-        temperature: 0.7,
-      });
+      const response = await logAiCall(
+        { triggerType: "outbound-copy", actorType: "system" },
+        () => getOpenAI().chat.completions.create({
+          model: "gpt-4o-mini",
+          messages: [{ role: "user", content: prompt }],
+          response_format: { type: "json_object" },
+          temperature: 0.7,
+        })
+      );
 
       const content = response.choices[0]?.message?.content;
       if (content) {

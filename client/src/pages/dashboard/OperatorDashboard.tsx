@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -14,6 +15,7 @@ import {
   Activity, AlertTriangle, ArrowUpRight, BarChart3, Calendar, CheckCircle2,
   Clock, Loader2, Mail, MessageSquare, Phone, RefreshCw, Send, Shield,
   Target, TrendingUp, Users, XCircle, Zap, Eye, Filter, ChevronRight, Server,
+  Bot, DollarSign, Hash,
 } from "lucide-react";
 
 interface OperatorKpis {
@@ -1090,6 +1092,7 @@ export default function OperatorDashboard() {
           <TabsTrigger value="stuck-leads" data-testid="tab-stuck-leads">Stuck Leads</TabsTrigger>
           <TabsTrigger value="low-confidence" data-testid="tab-low-confidence">Low Confidence</TabsTrigger>
           <TabsTrigger value="content-organic" data-testid="tab-content-organic">Content & Organic</TabsTrigger>
+          <TabsTrigger value="ai-activity" data-testid="tab-ai-activity">AI Activity</TabsTrigger>
         </TabsList>
 
         <TabsContent value="job-health">
@@ -1122,7 +1125,211 @@ export default function OperatorDashboard() {
         <TabsContent value="content-organic">
           <ContentOrganicKpiPanel />
         </TabsContent>
+        <TabsContent value="ai-activity">
+          <AiActivityPanel />
+        </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+const AI_TRIGGER_LABELS: Record<string, string> = {
+  "advisor-chat": "Advisor Chat",
+  "insights": "Dashboard Insights",
+  "compose-email": "Email Composer",
+  "ticket-classify": "Ticket Classification",
+  "statement-analysis": "Statement Analysis",
+  "proposal": "Proposal Generator",
+  "blueprint": "Deal Blueprint",
+  "enrichment": "Lead Enrichment",
+  "reply-classify": "Reply Classification",
+  "outbound-copy": "Outbound Copy",
+  "website-quality": "Website Quality",
+  "nightly-discovery": "Nightly Discovery",
+};
+
+function AiActivityPanel() {
+  const [triggerType, setTriggerType] = useState("all");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [page, setPage] = useState(0);
+  const PAGE_SIZE = 50;
+
+  const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(page * PAGE_SIZE) });
+  if (triggerType !== "all") params.set("triggerType", triggerType);
+  if (startDate) params.set("startDate", startDate);
+  if (endDate) params.set("endDate", endDate);
+
+  const { data, isLoading, refetch } = useQuery<{
+    logs: Array<{
+      id: number;
+      triggerType: string;
+      actorType: string;
+      actorId: string | null;
+      model: string;
+      promptTokens: number;
+      completionTokens: number;
+      costCents: number;
+      responseSummary: string | null;
+      error: string | null;
+      durationMs: number | null;
+      createdAt: string;
+    }>;
+    totals: {
+      totalCalls: number;
+      totalPromptTokens: number;
+      totalCompletionTokens: number;
+      totalCostCents: number;
+      byTriggerType: Record<string, { calls: number; promptTokens: number; completionTokens: number; costCents: number }>;
+    };
+  }>({
+    queryKey: ["/api/operator/ai-audit", triggerType, startDate, endDate, page],
+    queryFn: () => fetch(`/api/operator/ai-audit?${params}`).then(r => r.json()),
+    refetchInterval: 30000,
+  });
+
+  const totals = data?.totals;
+  const logs = data?.logs || [];
+
+  return (
+    <div className="space-y-4 mt-4">
+      <div className="flex flex-wrap gap-3 items-end">
+        <div className="flex flex-col gap-1">
+          <label className="text-xs text-muted-foreground">Trigger Type</label>
+          <Select value={triggerType} onValueChange={v => { setTriggerType(v); setPage(0); }}>
+            <SelectTrigger className="w-48" data-testid="select-trigger-type">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Types</SelectItem>
+              {Object.entries(AI_TRIGGER_LABELS).map(([val, label]) => (
+                <SelectItem key={val} value={val}>{label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-xs text-muted-foreground">Start Date</label>
+          <Input type="date" value={startDate} onChange={e => { setStartDate(e.target.value); setPage(0); }} className="w-40" data-testid="input-start-date" />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-xs text-muted-foreground">End Date</label>
+          <Input type="date" value={endDate} onChange={e => { setEndDate(e.target.value); setPage(0); }} className="w-40" data-testid="input-end-date" />
+        </div>
+        <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="button-refresh-ai-audit">
+          <RefreshCw className="w-4 h-4 mr-1" /> Refresh
+        </Button>
+      </div>
+
+      {totals && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <Card>
+            <CardContent className="pt-4">
+              <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1"><Bot className="w-3 h-3" /> Total Calls</div>
+              <div className="text-2xl font-bold" data-testid="text-total-calls">{totals.totalCalls.toLocaleString()}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4">
+              <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1"><Hash className="w-3 h-3" /> Prompt Tokens</div>
+              <div className="text-2xl font-bold" data-testid="text-prompt-tokens">{totals.totalPromptTokens.toLocaleString()}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4">
+              <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1"><Hash className="w-3 h-3" /> Completion Tokens</div>
+              <div className="text-2xl font-bold" data-testid="text-completion-tokens">{totals.totalCompletionTokens.toLocaleString()}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4">
+              <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1"><DollarSign className="w-3 h-3" /> Est. Cost</div>
+              <div className="text-2xl font-bold text-green-600" data-testid="text-total-cost">${(totals.totalCostCents / 100).toFixed(4)}</div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {Object.keys(totals?.byTriggerType || {}).length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Cost by Trigger Type</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+              {Object.entries(totals!.byTriggerType).sort((a, b) => b[1].costCents - a[1].costCents).map(([type, stats]) => (
+                <div key={type} className="flex justify-between items-center py-1 border-b last:border-0 text-sm" data-testid={`row-trigger-${type}`}>
+                  <span className="text-muted-foreground">{AI_TRIGGER_LABELS[type] || type}</span>
+                  <div className="text-right">
+                    <div className="font-medium">{stats.calls} calls</div>
+                    <div className="text-xs text-muted-foreground">${(stats.costCents / 100).toFixed(4)}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Recent AI Calls</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          {isLoading ? (
+            <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+          ) : logs.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground text-sm">No AI calls recorded yet.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/30">
+                    <th className="text-left py-2 px-3 font-medium text-muted-foreground">Time</th>
+                    <th className="text-left py-2 px-3 font-medium text-muted-foreground">Trigger</th>
+                    <th className="text-left py-2 px-3 font-medium text-muted-foreground">Model</th>
+                    <th className="text-right py-2 px-3 font-medium text-muted-foreground">Tokens</th>
+                    <th className="text-right py-2 px-3 font-medium text-muted-foreground">Cost</th>
+                    <th className="text-right py-2 px-3 font-medium text-muted-foreground">Duration</th>
+                    <th className="text-left py-2 px-3 font-medium text-muted-foreground">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {logs.map(log => (
+                    <tr key={log.id} className="border-b last:border-0 hover:bg-muted/20" data-testid={`row-ai-log-${log.id}`}>
+                      <td className="py-2 px-3 text-muted-foreground whitespace-nowrap">
+                        {new Date(log.createdAt).toLocaleString()}
+                      </td>
+                      <td className="py-2 px-3">
+                        <Badge variant="outline" className="text-xs">{AI_TRIGGER_LABELS[log.triggerType] || log.triggerType}</Badge>
+                      </td>
+                      <td className="py-2 px-3 text-muted-foreground">{log.model}</td>
+                      <td className="py-2 px-3 text-right">
+                        <span className="text-xs">{(log.promptTokens + log.completionTokens).toLocaleString()}</span>
+                      </td>
+                      <td className="py-2 px-3 text-right text-xs">${(log.costCents / 100).toFixed(4)}</td>
+                      <td className="py-2 px-3 text-right text-xs text-muted-foreground">{log.durationMs ? `${log.durationMs}ms` : "—"}</td>
+                      <td className="py-2 px-3">
+                        {log.error ? (
+                          <Badge variant="destructive" className="text-xs">Error</Badge>
+                        ) : (
+                          <Badge variant="secondary" className="text-xs bg-green-100 text-green-700">OK</Badge>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {logs.length === PAGE_SIZE && (
+            <div className="flex justify-center gap-2 py-3 border-t">
+              <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)} data-testid="button-prev-page">Previous</Button>
+              <Button variant="outline" size="sm" onClick={() => setPage(p => p + 1)} data-testid="button-next-page">Next</Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
