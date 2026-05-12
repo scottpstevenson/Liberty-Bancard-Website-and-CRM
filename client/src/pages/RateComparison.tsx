@@ -219,8 +219,8 @@ export default function RateComparison() {
   return (
     <div className="min-h-screen flex flex-col font-body">
       <SEO
-        title="Compare Payment Processing Rates - Liberty Bancard vs Square vs Stripe"
-        description="Compare payment processing fees, features, and contract terms. See how Liberty Bancard's interchange-plus pricing stacks up against Square, Stripe, Clover, and Toast."
+        title="Compare Payment Processor Rates"
+        description="Compare payment processing fees and features. See how Liberty Bancard interchange-plus pricing stacks up against Square, Stripe, Clover, and Toast."
         path="/compare-rates"
         keywords="payment processor comparison, square vs stripe vs clover, credit card processing rates comparison"
         breadcrumbs={[{ name: "Compare Rates", path: "/compare-rates" }]}

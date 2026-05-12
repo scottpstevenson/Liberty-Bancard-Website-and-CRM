@@ -84,8 +84,8 @@ export function getUploadStatementHtml(): string {
   ${ctaSection("Ready to See Your Savings?", "Upload your statement now. Our team will have your analysis ready within 1 business day.")}`;
 
   return ssrHtmlShell({
-    title: "Free Merchant Statement Review | Upload Your Statement | Liberty Bancard",
-    description: "Upload your merchant processing statement for a free, no-obligation analysis. See exactly what you're paying in fees and how much you could save with Liberty Bancard.",
+    title: "Free Merchant Statement Review | Liberty Bancard",
+    description: "Upload your merchant processing statement for a free, no-obligation analysis. See exactly what you are paying in fees and how much you could save.",
     canonical: "/upload-statement",
     keywords: "free statement review, merchant statement analysis, processing fee review, credit card processing comparison, upload merchant statement",
     schemaJsons: [schema],
@@ -246,7 +246,7 @@ export function getWhyLibertyHtml(): string {
   ${ctaSection("Ready to Experience the Difference?", "See how Liberty Bancard compares to your current processor. Free statement review, no obligation.")}`;
 
   return ssrHtmlShell({
-    title: "Why Liberty Bancard | Transparent Payment Processing | Dedicated Support",
+    title: "Why Liberty Bancard | Transparent Processing & Support",
     description: "Learn why 5,000+ businesses trust Liberty Bancard. PCI certified, dedicated account reps, interchange-plus pricing, and 0% processing options. Free statement review.",
     canonical: "/why-liberty-bancard",
     keywords: "why liberty bancard, merchant services provider, transparent payment processing, interchange plus pricing, dedicated merchant support",
@@ -327,8 +327,8 @@ export function getZeroPercentHtml(): string {
   ${ctaSection("Ready to Go to 0%?", "Upload your statement and we'll show you whether 0% processing is the right fit for your business — and exactly how much you'd keep.")}`;
 
   return ssrHtmlShell({
-    title: "0% Credit Card Processing | Cash Discount & Surcharging Programs | Liberty Bancard",
-    description: "Eliminate credit card processing fees with compliant 0% processing programs. Cash discount and surcharging options reviewed and configured by Liberty Bancard experts.",
+    title: "0% Credit Card Processing | Liberty Bancard",
+    description: "Eliminate credit card processing fees with compliant 0% programs. Cash discount and surcharging options reviewed and configured by Liberty Bancard experts.",
     canonical: "/0-percent-processing",
     keywords: "0 percent processing, zero percent credit card processing, cash discount program, surcharging program, eliminate processing fees, no fee processing",
     schemaJsons: [faqSchema],
@@ -475,8 +475,8 @@ export function getEstimateHtml(): string {
   ${ctaSection("Get Your Exact Savings Number", "The estimate tool gives you a range. Your statement gives us the exact numbers. Upload it free — no obligation.")}`;
 
   return ssrHtmlShell({
-    title: "Payment Processing Cost Estimator | Get a Free Estimate | Liberty Bancard",
-    description: "Estimate your credit card processing costs and see your potential savings. Compare current fees vs interchange-plus pricing. Get exact savings with a free statement review.",
+    title: "Payment Processing Cost Estimator | Liberty Bancard",
+    description: "Estimate your credit card processing costs and potential savings. Compare current fees vs interchange-plus pricing. Get exact numbers with a free statement review.",
     canonical: "/estimate",
     keywords: "payment processing estimate, credit card processing cost calculator, processing fee estimator, merchant services estimate, interchange plus estimate",
     schemaJsons: [schema],
@@ -627,7 +627,7 @@ export function getCompareRatesHtml(): string {
   ${ctaSection("See How You Compare", "Upload your current statement and we'll show you side-by-side how your costs compare to interchange-plus pricing.")}`;
 
   return ssrHtmlShell({
-    title: "Compare Payment Processor Rates | Square vs Stripe vs Clover vs Liberty | Liberty Bancard",
+    title: "Compare Payment Processor Rates | Liberty Bancard",
     description: "Compare payment processing rates and features. Liberty Bancard vs Square, Stripe, Clover, Toast, PayPal, Helcim, and Authorize.Net. See who saves you more.",
     canonical: "/compare-rates",
     keywords: "compare payment processors, payment processing rates comparison, square vs stripe vs clover, best payment processor, interchange plus comparison",
@@ -771,8 +771,8 @@ export function getBeatSquareStripeHtml(): string {
   ${ctaSection("Switch from Square or Stripe Today", "Upload your Square or Stripe statement and we'll show you your exact savings. Free, fast, no obligation.")}`;
 
   return ssrHtmlShell({
-    title: "Beat Square & Stripe on Processing Fees | Interchange-Plus | Liberty Bancard",
-    description: "Save $2,000–$6,000/year by switching from Square or Stripe to Liberty Bancard's interchange-plus pricing. See how flat-rate fees cost you more.",
+    title: "Beat Square & Stripe on Processing Fees | Liberty Bancard",
+    description: "Save $2,000–$6,000/year by switching from Square or Stripe to Liberty Bancard interchange-plus pricing. See how flat-rate fees cost you more.",
     canonical: "/beat-square-stripe",
     keywords: "beat square pricing, beat stripe fees, square alternative, stripe alternative, interchange plus vs flat rate, switch from square, switch from stripe",
     schemaJsons: [schema],
@@ -827,8 +827,8 @@ export function getAffiliateProgramHtml(): string {
   ${ctaSection("Start Earning Today", "Join the Liberty Bancard affiliate program. Free to join, competitive commissions, real-time reporting.")}`;
 
   return ssrHtmlShell({
-    title: "Affiliate Program | Earn Residual Income Referring Merchants | Liberty Bancard",
-    description: "Join Liberty Bancard's affiliate program. Earn ongoing residual income for every merchant you refer. Free to join, competitive commissions, real-time tracking.",
+    title: "Affiliate Program | Earn Residuals | Liberty Bancard",
+    description: "Join the Liberty Bancard affiliate program. Earn ongoing residual income for every merchant you refer. Free to join, competitive commissions, real-time tracking.",
     canonical: "/affiliate",
     keywords: "payment processing affiliate program, merchant services affiliate, residual income payments, refer merchant services, ISO agent program",
     schemaJsons: [schema],
@@ -926,7 +926,7 @@ export function getTestimonialsHtml(): string {
 
   return ssrHtmlShell({
     title: "Merchant Video Testimonials — Real Results | Liberty Bancard",
-    description: "Watch merchant testimonials from restaurant owners, retailers, healthcare practices, and more who saved thousands per year by switching to Liberty Bancard. Filter by industry.",
+    description: "Watch merchant testimonials from restaurant owners, retailers, and healthcare practices who saved thousands switching to Liberty Bancard. Filter by industry.",
     canonical: "/testimonials",
     keywords: "merchant testimonials, payment processing reviews, Liberty Bancard reviews, merchant video testimonials, credit card processing success stories",
     schemaJsons: schemas,
@@ -1019,8 +1019,8 @@ export function getTestimonialsSubmitHtml(): string {
   </section>`;
 
   return ssrHtmlShell({
-    title: "Submit Your Merchant Story — Share Your Payment Processing Success | Liberty Bancard",
-    description: "Share your payment processing success story with Liberty Bancard. Submit a video link or written testimonial and we'll feature your business on our merchant testimonials page.",
+    title: "Submit Your Merchant Story | Liberty Bancard",
+    description: "Share your payment processing success story with Liberty Bancard. Submit a testimonial and we will feature your business on our merchant testimonials page.",
     canonical: "/testimonials/submit",
     keywords: "merchant testimonial submission, share payment processing story, Liberty Bancard merchant review",
     schemaJsons: [schema],
@@ -1183,7 +1183,7 @@ export function getIntegrationsHtml(): string {
   ${ctaSection("Check Compatibility With Your Software", "Tell us what you use during your free statement review. We'll confirm compatibility before you switch anything.")}`;
 
   return ssrHtmlShell({
-    title: "Software Integrations & Compatibility — Works With Your Existing Tools | Liberty Bancard",
+    title: "Software Integrations & Compatibility | Liberty Bancard",
     description: "Liberty Bancard works with Clover, Toast, QuickBooks, Shopify, Mindbody, Acuity, and 20+ more platforms. Keep your software, lower your processing costs.",
     canonical: "/integrations",
     keywords: "payment processing integrations, POS integrations, QuickBooks payment processing, Shopify payment processor, Clover payment processing, merchant software compatibility",

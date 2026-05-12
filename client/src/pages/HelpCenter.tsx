@@ -59,7 +59,7 @@ export default function HelpCenter() {
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <SEO
-        title="Help Center"
+        title="Help Center — Payment Processing"
         description="Find answers to your payment processing questions. Browse articles on account setup, billing, terminals, compliance, and more."
         path="/help"
         keywords="help center, knowledge base, support center, payment processing help, merchant support"

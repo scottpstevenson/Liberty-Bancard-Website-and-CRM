@@ -6,7 +6,7 @@ import { Mail, Phone } from "lucide-react";
 export default function RegulatoryNotices() {
   return (
     <div className="min-h-screen flex flex-col font-body">
-      <SEO title="Regulatory Notices - Do Not Call & DMCA" description="Liberty Bancard regulatory notices including Do Not Call policy and DMCA copyright notice." path="/regulatory-notices" />
+      <SEO title="Regulatory Notices - Do Not Call & DMCA" description="Liberty Bancard regulatory notices covering our Do Not Call policy, DMCA copyright procedures, and compliance with federal communications regulations." path="/regulatory-notices" />
       <Navbar />
       <main className="flex-grow pt-16">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-16">

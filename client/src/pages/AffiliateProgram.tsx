@@ -801,7 +801,7 @@ export default function AffiliateProgram() {
     <div className="min-h-screen flex flex-col font-body">
       <SEO
         title="Affiliate Program — Earn Commissions Referring Merchants"
-        description="Join the Liberty Bancard Affiliate Program. Earn generous commissions and monthly residuals by referring businesses to our payment processing solutions. Free to join, no quotas."
+        description="Join the Liberty Bancard Affiliate Program. Earn commissions and monthly residuals by referring businesses to our payment processing solutions. Free to join."
         path="/affiliate"
         keywords="affiliate program, referral program, payment processing affiliate, earn commissions, residual income, merchant referral"
       />

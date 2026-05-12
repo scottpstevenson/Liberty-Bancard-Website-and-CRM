@@ -36,7 +36,7 @@ export const COMPETITOR_DATA: Record<string, CompetitorData> = {
     fullName: "Square (Block, Inc.)",
     tagline: "Flat-Rate Simplicity vs. Wholesale Savings",
     metaTitle: "Liberty Bancard vs Square - Payment Processing Comparison",
-    metaDescription: "Compare Liberty Bancard vs Square side by side. See how interchange-plus pricing saves businesses $2,000-$6,000/year over Square's flat-rate processing fees.",
+    metaDescription: "Compare Liberty Bancard vs Square side by side. See how interchange-plus pricing saves businesses $2,000-$6,000/year over Square flat-rate processing fees.",
     metaKeywords: "square alternative, square vs liberty bancard, better than square, square payment processing fees, square competitor",
     heroDescription: "Square's 2.6% + $0.10 flat rate is simple but expensive for growing businesses. Liberty Bancard's interchange-plus pricing passes through actual card costs with a small markup, saving most merchants thousands per year.",
     comparison: [
@@ -100,7 +100,7 @@ export const COMPETITOR_DATA: Record<string, CompetitorData> = {
     fullName: "Stripe, Inc.",
     tagline: "Developer-First vs. Business-First Processing",
     metaTitle: "Liberty Bancard vs Stripe - Payment Processing Comparison",
-    metaDescription: "Compare Liberty Bancard vs Stripe side by side. See how businesses save $3,000-$8,000/year switching from Stripe's 2.9% + $0.30 to interchange-plus pricing.",
+    metaDescription: "Compare Liberty Bancard vs Stripe side by side. See how businesses save $3,000-$8,000/year switching from Stripe 2.9% + $0.30 to interchange-plus pricing.",
     metaKeywords: "stripe alternative, stripe vs liberty bancard, better than stripe, stripe processing fees, stripe competitor",
     heroDescription: "Stripe's 2.9% + $0.30 online rate is one of the most expensive flat-rate options available. Liberty Bancard's interchange-plus pricing delivers significant savings for businesses processing meaningful volume.",
     comparison: [
@@ -229,7 +229,7 @@ export const COMPETITOR_DATA: Record<string, CompetitorData> = {
     fullName: "Toast, Inc.",
     tagline: "Restaurant POS vs. Flexible Payment Processing",
     metaTitle: "Liberty Bancard vs Toast - Restaurant Payment Processing Comparison",
-    metaDescription: "Compare Liberty Bancard vs Toast for restaurant payment processing. See how restaurants save $3,000-$7,000/year by switching from Toast's bundled pricing.",
+    metaDescription: "Compare Liberty Bancard vs Toast for restaurant payment processing. See how restaurants save $3,000-$7,000/year by switching from Toast bundled pricing.",
     metaKeywords: "toast alternative, toast vs liberty bancard, better than toast, toast processing fees, toast competitor, restaurant payment processing",
     heroDescription: "Toast combines restaurant POS with payment processing, but their 2.49-3.69% rates and long-term contracts cost restaurants thousands more than necessary. Liberty Bancard offers restaurant-friendly pricing without the lock-in.",
     comparison: [
@@ -359,7 +359,7 @@ export const COMPETITOR_DATA: Record<string, CompetitorData> = {
     fullName: "Helcim Inc.",
     tagline: "Interchange-Plus vs. Interchange-Plus — The Details Matter",
     metaTitle: "Liberty Bancard vs Helcim - Payment Processing Comparison",
-    metaDescription: "Compare Liberty Bancard vs Helcim side by side. Both offer interchange-plus pricing — see where Liberty Bancard's dedicated support and local expertise give businesses an edge.",
+    metaDescription: "Compare Liberty Bancard vs Helcim. Both offer interchange-plus pricing — see where Liberty Bancard dedicated support and local expertise give businesses an edge.",
     metaKeywords: "helcim alternative, helcim vs liberty bancard, helcim payment processing fees, helcim competitor, helcim review",
     heroDescription: "Helcim and Liberty Bancard both offer interchange-plus pricing, but the details — support, local expertise, and program flexibility — matter for growing businesses.",
     comparison: [
@@ -398,7 +398,7 @@ export const COMPETITOR_DATA: Record<string, CompetitorData> = {
     fullName: "Authorize.Net (a Visa company)",
     tagline: "Legacy Gateway Fees vs. Modern Transparent Pricing",
     metaTitle: "Liberty Bancard vs Authorize.Net - Payment Processing Comparison",
-    metaDescription: "Compare Liberty Bancard vs Authorize.Net. See how Liberty Bancard eliminates Authorize.Net's $25/month gateway fees and provides interchange-plus transparency over bundled pricing.",
+    metaDescription: "Compare Liberty Bancard vs Authorize.Net. Eliminate the $25/month gateway fee and get interchange-plus pricing transparency instead of bundled rates.",
     metaKeywords: "authorize.net alternative, authorize.net vs liberty bancard, authorize.net fees, authorize.net review, payment gateway alternative",
     heroDescription: "Authorize.Net charges a $25/month gateway fee plus per-transaction fees on top of your processor's rates. Liberty Bancard offers transparent all-in pricing with no separate gateway fees for most programs.",
     comparison: [

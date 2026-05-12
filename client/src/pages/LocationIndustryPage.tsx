@@ -163,7 +163,7 @@ function generateLocationData(city: typeof cities[0], vertical: typeof topVertic
     industrySlug: vertical.slug,
     industryName: vertical.name,
     metaTitle: `${vertical.name} Payment Processing in ${city.name}, FL`,
-    metaDescription: `Transparent payment processing for ${vertical.name.toLowerCase()} businesses in ${city.name}, Florida. Reduce credit card fees with interchange-plus pricing. Free statement review for ${city.name} ${vertical.name.toLowerCase()} owners.`,
+    metaDescription: `${city.name} ${vertical.name.toLowerCase()} businesses save on processing fees with Liberty Bancard's interchange-plus pricing. Free statement review, no obligation.`,
     keywords: `${vertical.name.toLowerCase()} payment processing ${city.name}, ${city.name} ${vertical.name.toLowerCase()} credit card processing, ${vertical.name.toLowerCase()} merchant services ${city.name} FL, payment processing ${city.name} Florida`,
     heroTitle: `${vertical.name} Payment Processing in ${city.name}, FL`,
     heroSubtitle: `Serving ${pop.businesses} ${vertical.name.toLowerCase()} businesses in the greater ${city.name} metro area (population ${pop.metro}). Local support, transparent pricing, and real savings on every transaction.`,

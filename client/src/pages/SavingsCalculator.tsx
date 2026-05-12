@@ -178,7 +178,7 @@ export default function SavingsCalculator() {
     <div className="min-h-screen flex flex-col font-body">
       <SEO
         title="Credit Card Processing Savings Calculator"
-        description="Calculate how much you could save on credit card processing fees. Enter your monthly volume and current rate to see estimated savings with Liberty Bancard's interchange-plus pricing."
+        description="Calculate your credit card processing savings. Enter monthly volume and current rate to see estimated savings with Liberty Bancard's interchange-plus pricing."
         path="/savings-calculator"
         keywords="credit card processing savings calculator, payment processing cost calculator, merchant fee calculator"
         breadcrumbs={[{ name: "Savings Calculator", path: "/savings-calculator" }]}

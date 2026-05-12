@@ -8,7 +8,7 @@ export default function ADACompliance() {
   return (
     <div className="min-h-screen flex flex-col font-body">
       <SEO
-        title="ADA & WCAG Compliance Notice"
+        title="ADA & WCAG Compliance Notice | Liberty Bancard"
         description="Liberty Bancard ADA compliance and WCAG accessibility commitment. Our digital accessibility standards, accommodations, and how to request assistance."
         path="/ada-compliance"
         keywords="ADA compliance, WCAG, web accessibility, digital accessibility, Section 508, Liberty Bancard"

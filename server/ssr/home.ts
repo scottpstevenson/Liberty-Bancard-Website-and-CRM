@@ -208,8 +208,8 @@ export function getHomeHtml(): string {
   `;
 
   return ssrHtmlShell({
-    title: "Merchant Payment Processing | Interchange Plus Pricing | Liberty Bancard",
-    description: "Liberty Bancard offers transparent interchange-plus payment processing for businesses. Free statement review, 0% processing programs, and dedicated support. See how much you can save.",
+    title: "Merchant Payment Processing | Liberty Bancard",
+    description: "Liberty Bancard offers transparent interchange-plus payment processing. Free statement review, 0% processing programs, and dedicated merchant support.",
     canonical: "/",
     keywords: "merchant payment processing, interchange plus pricing, credit card processing, payment processor, merchant services, 0 percent processing, free statement review",
     schemaJsons: [orgSchema, localBusinessSchema, webSiteSchema],

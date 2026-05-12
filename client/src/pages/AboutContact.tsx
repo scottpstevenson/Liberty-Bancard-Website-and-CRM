@@ -51,7 +51,7 @@ export default function AboutContact() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <SEO title="About Us & Contact" description="Learn about Liberty Bancard's approach to merchant payment processing. Direct support, transparent pricing, no long-term contracts." path="/about-contact" breadcrumbs={[{ name: "About & Contact", path: "/about-contact" }]} />
+      <SEO title="About Us & Contact" description="Learn about Liberty Bancard approach to merchant payment processing. Direct support, transparent pricing, no long-term contracts." path="/about-contact" breadcrumbs={[{ name: "About & Contact", path: "/about-contact" }]} />
       <Navbar />
 
       <main className="flex-grow pt-28" ref={containerRef}>

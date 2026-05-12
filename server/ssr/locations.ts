@@ -16,8 +16,9 @@ function renderLocationHtml(citySlug: string, verticalSlug: string): string | nu
   if (!city || !vertical) return null;
 
   const canonical = `/locations/${city.slug}/${vertical.slug}`;
-  const title = `${vertical.name} Payment Processing in ${city.name}, ${city.state}`;
-  const description = `Transparent payment processing for ${vertical.name.toLowerCase()} businesses in ${city.name}, ${city.stateFullName}. Reduce credit card fees with interchange-plus pricing. Free statement review for ${city.name} ${vertical.name.toLowerCase()} owners.`;
+  const vName = vertical.name.replace(/\s*&\s*/g, " and ");
+  const title = `${vName} Payment Processing in ${city.name}, ${city.state}`;
+  const description = `${city.name} ${vName.toLowerCase()} businesses: reduce processing fees with Liberty Bancard interchange-plus pricing. Free statement review, no obligation.`;
   const keywords = `${vertical.name.toLowerCase()} payment processing ${city.name}, ${city.name} ${vertical.name.toLowerCase()} credit card processing, merchant services ${city.name} ${city.state}`;
 
   const faqSchema = {
@@ -207,7 +208,7 @@ export function getCityHubHtml(citySlug: string): string | null {
 
   const canonical = `/locations/${city.slug}`;
   const title = `Payment Processing in ${city.name}, ${city.state} | Liberty Bancard`;
-  const description = `Liberty Bancard serves ${city.name} businesses across all industries. Find industry-specific payment processing solutions for ${city.name}, ${city.stateFullName} merchants. Free statement review.`;
+  const description = `${city.name} businesses save on credit card processing with Liberty Bancard interchange-plus pricing. Free statement review for ${city.name}, ${city.state} merchants.`;
 
   const breadcrumbSchema = {
     "@context": "https://schema.org",

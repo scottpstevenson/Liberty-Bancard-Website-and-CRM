@@ -572,7 +572,7 @@ export default function MerchantApplication() {
   return (
     <div className="min-h-screen flex flex-col font-body">
       <SEO
-        title="Apply for Payment Processing"
+        title="Apply for Merchant Payment Processing"
         description="Complete your merchant application for payment processing with Liberty Bancard. Fast approval, competitive rates, modern terminals."
         path="/merchant-application"
       />

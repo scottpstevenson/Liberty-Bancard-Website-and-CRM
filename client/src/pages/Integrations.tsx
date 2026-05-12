@@ -331,7 +331,7 @@ export default function Integrations() {
   return (
     <>
       <SEO
-        title="Software Integrations & Compatibility — Works With Your Existing Tools | Liberty Bancard"
+        title="Software Integrations & Compatibility"
         description="Liberty Bancard works with Clover, Toast, QuickBooks, Shopify, Mindbody, Acuity, and 20+ more platforms. Keep your software, lower your processing costs."
         path="/integrations"
         keywords="payment processing integrations, POS integrations, QuickBooks payment processing, Shopify payment processor, Clover payment processing, merchant software compatibility"

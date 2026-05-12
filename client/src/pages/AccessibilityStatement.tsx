@@ -6,7 +6,7 @@ import { Mail, Phone } from "lucide-react";
 export default function AccessibilityStatement() {
   return (
     <div className="min-h-screen flex flex-col font-body">
-      <SEO title="Accessibility Statement" description="Liberty Bancard's commitment to digital accessibility and ADA/WCAG compliance." path="/accessibility" />
+      <SEO title="Accessibility Statement | Liberty Bancard" description="Liberty Bancard's commitment to digital accessibility. We follow ADA and WCAG 2.1 guidelines to ensure our website is usable by all visitors." path="/accessibility" />
       <Navbar />
       <main className="flex-grow pt-16">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-16">

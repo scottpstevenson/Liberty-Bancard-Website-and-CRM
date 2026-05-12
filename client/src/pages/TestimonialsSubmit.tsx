@@ -79,8 +79,8 @@ export default function TestimonialsSubmit() {
   return (
     <>
       <SEO
-        title="Submit Your Story — Liberty Bancard Merchant Testimonials"
-        description="Share your Liberty Bancard success story. Tell us about your savings and we'll feature your testimonial to help other merchants learn about transparent payment processing."
+        title="Submit Your Merchant Testimonial"
+        description="Share your Liberty Bancard success story. Tell us your savings and we will feature your testimonial to help other merchants learn about transparent payment processing."
         path="/testimonials/submit"
         keywords="submit testimonial, merchant story, payment processing review, Liberty Bancard feedback"
         breadcrumbs={[

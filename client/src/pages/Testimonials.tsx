@@ -228,8 +228,8 @@ export default function Testimonials() {
   return (
     <>
       <SEO
-        title="Merchant Video Testimonials — Real Results from Real Businesses | Liberty Bancard"
-        description="Watch merchant testimonials from restaurant owners, retailers, healthcare practices, and more who saved thousands per year by switching to Liberty Bancard. Filter by industry."
+        title="Merchant Video Testimonials | Real Results"
+        description="Watch testimonials from restaurant owners, retailers, healthcare practices, and more who saved thousands per year switching to Liberty Bancard. Filter by industry."
         path="/testimonials"
         keywords="merchant testimonials, payment processing reviews, credit card processing success stories, Liberty Bancard reviews, merchant video testimonials"
         breadcrumbs={[{ name: "Testimonials", path: "/testimonials" }]}

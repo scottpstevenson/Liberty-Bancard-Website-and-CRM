@@ -254,8 +254,8 @@ export default function ISOPartnerProgram() {
   return (
     <div className="min-h-screen flex flex-col font-body">
       <SEO
-        title="ISO & Partner Program — Earn Residuals Referring Merchants | Liberty Bancard"
-        description="Join Liberty Bancard's ISO and referral partner program. Earn residual income for every merchant you refer. Designed for ISOs, CPAs, bookkeepers, and business consultants."
+        title="ISO & Partner Program — Earn Residuals"
+        description="Join the Liberty Bancard ISO and referral partner program. Earn residual income for every merchant you refer. For ISOs, CPAs, bookkeepers, and consultants."
         path="/partners"
       />
       <Navbar />

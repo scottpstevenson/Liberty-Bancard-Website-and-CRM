@@ -277,7 +277,7 @@ export default function FAQ() {
     <div className="min-h-screen flex flex-col bg-background">
       <SEO
         title="Frequently Asked Questions - Payment Processing FAQ"
-        description="Get answers to 30+ common questions about credit card processing, interchange-plus pricing, cash discount programs, PCI compliance, and switching payment processors. Liberty Bancard FAQ."
+        description="Answers to 30+ questions about credit card processing, interchange-plus pricing, cash discount programs, PCI compliance, and switching payment processors."
         path="/faq"
         keywords="payment processing FAQ, credit card processing questions, interchange plus pricing, cash discount processing, PCI compliance, switch payment processors, best payment processor small business, Liberty Bancard FAQ"
         breadcrumbs={[{ name: "FAQ", path: "/faq" }]}

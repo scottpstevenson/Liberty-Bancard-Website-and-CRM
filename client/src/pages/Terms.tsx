@@ -7,7 +7,7 @@ import { Link } from "wouter";
 export default function Terms() {
   return (
     <div className="min-h-screen flex flex-col font-body">
-      <SEO title="Terms of Service" description="Liberty Bancard terms of service, advertising disclaimers, TCPA compliance, and conditions of use." path="/terms" />
+      <SEO title="Terms of Service | Liberty Bancard" description="Liberty Bancard terms of service. Covers advertising disclaimers, TCPA compliance, conditions of use, and your rights when using our website." path="/terms" />
       <Navbar />
       <main className="flex-grow pt-16">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-16">

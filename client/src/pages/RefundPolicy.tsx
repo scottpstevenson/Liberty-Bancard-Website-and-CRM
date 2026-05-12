@@ -8,7 +8,7 @@ export default function RefundPolicy() {
   return (
     <div className="min-h-screen flex flex-col font-body">
       <SEO
-        title="Refund & Cancellation Policy"
+        title="Refund & Cancellation Policy | Liberty Bancard"
         description="Liberty Bancard refund and cancellation policy. Understand our policies for account cancellation, early termination, equipment returns, and fee refunds."
         path="/refund-policy"
         keywords="refund policy, cancellation policy, early termination, equipment return, Liberty Bancard"

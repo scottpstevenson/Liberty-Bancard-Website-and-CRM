@@ -185,8 +185,8 @@ export default function WhyLiberty() {
   return (
     <div className="min-h-screen flex flex-col">
       <SEO
-        title="Why Liberty Bancard — About Us, Mission & Certifications"
-        description="Discover why 5,000+ merchants trust Liberty Bancard. PCI Level 1 certified, registered ISO, 10+ years in payments, $2B+ processed annually. Transparent pricing, real human support, and technology that saves you money."
+        title="Why Liberty Bancard — About Us & Mission"
+        description="5,000+ merchants trust Liberty Bancard. PCI Level 1 certified, registered ISO, 10+ years in payments. Transparent pricing, real support, free statement review."
         path="/why-liberty-bancard"
         keywords="Liberty Bancard reviews, best payment processor Florida, payment processing company near me, Liberty Bancard about us, merchant services Fort Lauderdale, transparent payment processing, PCI Level 1 payment processor"
         breadcrumbs={[{ name: "Why Liberty Bancard", path: "/why-liberty-bancard" }]}

@@ -115,7 +115,7 @@ export default function BeatSquareStripe() {
 
   return (
     <div className="min-h-screen flex flex-col font-body">
-      <SEO title="Beat Square & Stripe Pricing" description="Compare Liberty Bancard's statement-based pricing against Square and Stripe flat-rate processing. Real numbers, no guesswork." path="/beat-square-stripe" keywords="beat square pricing, beat stripe pricing, interchange plus vs flat rate, payment processing comparison" breadcrumbs={[{ name: "Beat Square & Stripe", path: "/beat-square-stripe" }]} structuredData={[getServiceSchema("Interchange-Plus Payment Processing", "Transparent interchange-plus pricing that beats Square and Stripe flat-rate processing for most businesses.", "/beat-square-stripe")]} />
+      <SEO title="Beat Square & Stripe Pricing" description="Compare Liberty Bancard statement-based pricing against Square and Stripe flat-rate processing. Real numbers, no guesswork." path="/beat-square-stripe" keywords="beat square pricing, beat stripe pricing, interchange plus vs flat rate, payment processing comparison" breadcrumbs={[{ name: "Beat Square & Stripe", path: "/beat-square-stripe" }]} structuredData={[getServiceSchema("Interchange-Plus Payment Processing", "Transparent interchange-plus pricing that beats Square and Stripe flat-rate processing for most businesses.", "/beat-square-stripe")]} />
       <Navbar />
 
       <main className="flex-grow pt-28" ref={containerRef}>

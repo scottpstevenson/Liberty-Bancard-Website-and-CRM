@@ -147,7 +147,7 @@ export default function Support() {
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      <SEO title="Support" description="Submit a support request to Liberty Bancard. We respond within 4 hours during business hours." path="/support" breadcrumbs={[{ name: "Support", path: "/support" }]} />
+      <SEO title="Contact Support" description="Submit a support request to Liberty Bancard. We respond within 4 hours during business hours. Emergency support available 24/7." path="/support" breadcrumbs={[{ name: "Support", path: "/support" }]} />
       <Navbar />
 
       <main className="flex-grow pt-28" ref={containerRef}>

@@ -302,8 +302,8 @@ export default function CaseStudies() {
   return (
     <>
       <SEO
-        title="Payment Processing Case Studies — Real Savings for Real Businesses"
-        description="See how restaurants, retail stores, healthcare practices, and more saved thousands per year by switching to Liberty Bancard. Real numbers from real statement reviews."
+        title="Payment Processing Case Studies"
+        description="See how restaurants, retail stores, and healthcare practices saved thousands by switching to Liberty Bancard. Real numbers from real statement reviews."
         path="/case-studies"
         keywords="payment processing case studies, credit card processing savings, merchant services savings, switch payment processor, reduce processing fees, cash discount savings, interchange plus savings"
         ogType="website"

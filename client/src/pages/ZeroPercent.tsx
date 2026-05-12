@@ -90,7 +90,7 @@ export default function ZeroPercent() {
     <div className="min-h-screen flex flex-col font-body">
       <SEO
         title="Liberty Zero — Pay $0 to Accept Credit Cards"
-        description="Liberty Zero is our compliant fee-offset program that eliminates credit card processing costs for qualifying merchants. Cash discount and surcharging done the right way."
+        description="Liberty Zero eliminates credit card processing costs for qualifying merchants. Compliant cash discount and surcharging programs handled the right way."
         path="/0-percent-processing"
         keywords="liberty zero, 0% processing, cash discount program, surcharging, zero cost processing, compliant surcharge, pay zero to accept cards"
         breadcrumbs={[{ name: "Liberty Zero", path: "/0-percent-processing" }]}
