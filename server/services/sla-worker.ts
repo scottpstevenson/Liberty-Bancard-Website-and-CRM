@@ -653,7 +653,7 @@ async function checkApplicationReminders() {
 
 async function checkNpsTriggers() {
   try {
-    const deals = await storage.getDeals();
+    const { data: deals } = await storage.getDeals();
     const now = Date.now();
     for (const deal of deals) {
       if (!deal.contactId) continue;

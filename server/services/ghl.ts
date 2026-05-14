@@ -249,10 +249,14 @@ export async function upsertGhlContact(contact: GhlContactInput): Promise<string
     payload.customFields = customFields;
   }
 
+  // GHL only accepts locationId on contact CREATE (POST), not UPDATE (PUT).
+  // Build a separate update payload without locationId to avoid 422 errors.
+  const { locationId: _loc, ...updatePayload } = payload;
+
   if (contact.ghlContactId) {
     await ghlFetch(`/contacts/${contact.ghlContactId}`, {
       method: "PUT",
-      body: JSON.stringify(payload),
+      body: JSON.stringify(updatePayload),
     });
     return contact.ghlContactId;
   }
@@ -278,7 +282,7 @@ export async function upsertGhlContact(contact: GhlContactInput): Promise<string
         try {
           await ghlFetch(`/contacts/${existingId}`, {
             method: "PUT",
-            body: JSON.stringify(payload),
+            body: JSON.stringify(updatePayload),
           });
           if (contact.id) {
             await storage.updateContact(contact.id, { ghlContactId: existingId });

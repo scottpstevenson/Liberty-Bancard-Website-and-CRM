@@ -143,7 +143,21 @@ async function call(c: GuardCase, cookie?: string): Promise<number> {
   return res.status;
 }
 
+async function waitForServer(url: string, maxMs = 30_000): Promise<void> {
+  const deadline = Date.now() + maxMs;
+  while (Date.now() < deadline) {
+    try {
+      await fetch(url, { signal: AbortSignal.timeout(2000) });
+      return;
+    } catch {
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+  throw new Error(`Server at ${url} did not become ready within ${maxMs / 1000}s`);
+}
+
 async function run(): Promise<void> {
+  await waitForServer(`${BASE_URL}/api/health`);
   await ensureMerchantUser();
 
   let adminCookie: string;
