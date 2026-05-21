@@ -15,22 +15,27 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
+  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell, ReferenceLine,
+} from "recharts";
+import {
   User, ClipboardList, FileText, Headphones,
   CheckCircle, Circle, Loader2, Plus, Upload,
   Calendar, Hash, CreditCard, Activity, ArrowRight,
   PlayCircle, BookOpen, ChevronDown, ChevronUp, Shield, Clock, Zap, Star,
   Phone, Mail, AlertCircle, FileCheck, CheckCircle2, Gift, Copy, ExternalLink,
+  TrendingUp, TrendingDown, DollarSign, BarChart2, PieChart, Target, Info,
 } from "lucide-react";
 import { Link } from "wouter";
 import type { MerchantProfile, OnboardingStep, Ticket, MerchantReferral } from "@shared/schema";
 import type { Document as DocType } from "@shared/schema";
 import { HelpCenter } from "@/components/HelpCenter";
 
-type TabKey = "guide" | "account" | "onboarding" | "documents" | "support" | "referrals";
+type TabKey = "guide" | "account" | "onboarding" | "documents" | "support" | "referrals" | "financial";
 
 const TABS: { key: TabKey; label: string; icon: typeof User }[] = [
   { key: "guide", label: "Getting Started", icon: BookOpen },
   { key: "account", label: "My Account", icon: User },
+  { key: "financial", label: "Financial", icon: BarChart2 },
   { key: "onboarding", label: "Onboarding Progress", icon: ClipboardList },
   { key: "documents", label: "My Documents", icon: FileText },
   { key: "support", label: "Support", icon: Headphones },
@@ -1167,6 +1172,433 @@ function ReferralTab({ profile }: { profile: MerchantProfile | null | undefined 
   );
 }
 
+type FinancialOverview = {
+  hasData: boolean;
+  mid: string | null;
+  overview: {
+    vol30: number; vol60: number; vol90: number;
+    netRevenue30: number; cbRatio30: number | null; cbRatioTrend: number | null;
+    approvalRate30: number | null; volTrend: number | null; avgDailyVol30: number; tx30: number;
+  };
+  monthlyCashFlow: { month: string; label: string; grossVolume: number; netPayout: number; fees: number }[];
+  feeBreakdown: {
+    interchange: number; processingFee: number; monthlyFee: number; chargebackFees: number;
+    totalFees: number; competitorEstimate: number; savingsVsCompetitor: number;
+    effectiveRate: number; competitorRate: number; programType: string;
+  };
+  declineCategories: { code: string; label: string; count: number; pct: number; color: string; tip: string }[];
+  revenueTrend: { month: string; volume: number; projected: boolean }[];
+  industryBenchmarking: {
+    vertical: string; merchantCbRatio: number | null; industryCbRatio: number;
+    merchantApprovalRate: number | null; industryApprovalRate: number;
+    merchantAvgTicket: number | null; industryAvgTicket: number;
+  };
+};
+
+function fmt$(n: number | null | undefined): string {
+  if (n == null) return "—";
+  return "$" + n.toLocaleString("en-US", { maximumFractionDigits: 0 });
+}
+
+function fmtPct(n: number | null | undefined, decimals = 1): string {
+  if (n == null) return "—";
+  return n.toFixed(decimals) + "%";
+}
+
+function TrendBadge({ value, label, invertColors = false }: { value: number | null; label?: string; invertColors?: boolean }) {
+  if (value === null || value === undefined) return null;
+  const isPositive = invertColors ? value < 0 : value > 0;
+  const isNeutral = Math.abs(value) < 0.05;
+  if (isNeutral) return <span className="text-xs text-muted-foreground">Flat</span>;
+  return (
+    <span className={`flex items-center gap-0.5 text-xs font-medium ${isPositive ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
+      {isPositive ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+      {Math.abs(value).toFixed(1)}{label || "%"}
+    </span>
+  );
+}
+
+function NoDataState({ mid }: { mid: string | null }) {
+  return (
+    <Card data-testid="card-no-financial-data">
+      <CardContent className="flex flex-col items-center justify-center py-16 gap-4">
+        <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
+          <BarChart2 className="w-8 h-8 text-primary" />
+        </div>
+        <div className="text-center space-y-2 max-w-sm">
+          <h3 className="text-lg font-semibold" data-testid="text-no-data-title">Financial Data Not Yet Available</h3>
+          <p className="text-sm text-muted-foreground">
+            {mid
+              ? `Your MID (${mid}) is active. Financial metrics will appear once processing data has been ingested — typically within 24–48 hours of your first batch.`
+              : "Your Merchant ID (MID) hasn't been assigned yet. Once you go live, your full financial dashboard will be available here."}
+          </p>
+        </div>
+        <div className="flex flex-col gap-2 w-full max-w-xs">
+          <a href="tel:9542668214">
+            <Button variant="outline" className="w-full" data-testid="button-call-support-financial">
+              <Phone className="w-4 h-4 mr-2" />
+              Call Support
+            </Button>
+          </a>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function FinancialTab() {
+  const { data, isLoading, error } = useQuery<FinancialOverview>({
+    queryKey: ["/api/merchant/financial-overview"],
+    queryFn: async () => {
+      const res = await fetch("/api/merchant/financial-overview", { credentials: "include" });
+      if (res.status === 404) return { hasData: false, mid: null, overview: { vol30:0,vol60:0,vol90:0,netRevenue30:0,cbRatio30:null,cbRatioTrend:null,approvalRate30:null,volTrend:null,avgDailyVol30:0,tx30:0 }, monthlyCashFlow:[], feeBreakdown:{interchange:0,processingFee:0,monthlyFee:0,chargebackFees:0,totalFees:0,competitorEstimate:0,savingsVsCompetitor:0,effectiveRate:0,competitorRate:2.85,programType:"Standard"}, declineCategories:[], revenueTrend:[], industryBenchmarking:{vertical:"Industry Average",merchantCbRatio:null,industryCbRatio:0.5,merchantApprovalRate:null,industryApprovalRate:97,merchantAvgTicket:null,industryAvgTicket:80} } as FinancialOverview;
+      if (!res.ok) throw new Error("Failed to load financial data");
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4" data-testid="financial-loading">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          {[1,2,3,4].map(i => <Skeleton key={i} className="h-24 w-full" />)}
+        </div>
+        <Skeleton className="h-64 w-full" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <Skeleton className="h-40 w-full" />
+          <Skeleton className="h-40 w-full" />
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <Card data-testid="card-financial-error">
+        <CardContent className="py-12 text-center">
+          <AlertCircle className="w-8 h-8 text-destructive mx-auto mb-3" />
+          <p className="text-sm text-muted-foreground">Unable to load financial data. Please try again later.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!data.hasData) {
+    return <NoDataState mid={data.mid} />;
+  }
+
+  const { overview, monthlyCashFlow, feeBreakdown, declineCategories, revenueTrend, industryBenchmarking } = data;
+
+  return (
+    <div className="space-y-6" data-testid="financial-tab">
+
+      {/* === FINANCIAL OVERVIEW KPIs === */}
+      <div>
+        <h2 className="text-base font-semibold mb-3 flex items-center gap-2" data-testid="section-overview">
+          <DollarSign className="w-4 h-4 text-primary" />
+          Financial Overview
+        </h2>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <Card data-testid="kpi-vol30">
+            <CardContent className="p-4">
+              <p className="text-xs text-muted-foreground mb-1">Volume (30d)</p>
+              <p className="text-xl font-bold text-foreground" data-testid="text-vol30">{fmt$(overview.vol30)}</p>
+              <div className="mt-1"><TrendBadge value={overview.volTrend} /></div>
+            </CardContent>
+          </Card>
+          <Card data-testid="kpi-net-revenue">
+            <CardContent className="p-4">
+              <p className="text-xs text-muted-foreground mb-1">Net Revenue (30d)</p>
+              <p className="text-xl font-bold text-foreground" data-testid="text-net-revenue">{fmt$(overview.netRevenue30)}</p>
+              <p className="text-xs text-muted-foreground mt-1">After fees</p>
+            </CardContent>
+          </Card>
+          <Card data-testid="kpi-cb-ratio">
+            <CardContent className="p-4">
+              <p className="text-xs text-muted-foreground mb-1">Chargeback Ratio</p>
+              <p className={`text-xl font-bold ${overview.cbRatio30 != null && overview.cbRatio30 > 1 ? "text-red-600 dark:text-red-400" : "text-foreground"}`} data-testid="text-cb-ratio">
+                {fmtPct(overview.cbRatio30, 2)}
+              </p>
+              <div className="mt-1"><TrendBadge value={overview.cbRatioTrend} invertColors label="pp" /></div>
+            </CardContent>
+          </Card>
+          <Card data-testid="kpi-approval-rate">
+            <CardContent className="p-4">
+              <p className="text-xs text-muted-foreground mb-1">Approval Rate</p>
+              <p className="text-xl font-bold text-foreground" data-testid="text-approval-rate">{fmtPct(overview.approvalRate30)}</p>
+              <p className="text-xs text-muted-foreground mt-1">Avg daily: {fmt$(overview.avgDailyVol30)}</p>
+            </CardContent>
+          </Card>
+        </div>
+        <div className="grid grid-cols-3 gap-3 mt-3">
+          {[
+            { label: "Volume (60d)", value: fmt$(overview.vol60), testid: "text-vol60" },
+            { label: "Volume (90d)", value: fmt$(overview.vol90), testid: "text-vol90" },
+            { label: "Transactions (30d)", value: overview.tx30.toLocaleString(), testid: "text-tx30" },
+          ].map(({ label, value, testid }) => (
+            <Card key={testid} data-testid={`kpi-${testid}`}>
+              <CardContent className="p-3">
+                <p className="text-xs text-muted-foreground">{label}</p>
+                <p className="text-base font-semibold mt-0.5" data-testid={testid}>{value}</p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+
+      {/* === CASH FLOW CHART === */}
+      {monthlyCashFlow.length > 0 && (
+        <Card data-testid="card-cash-flow">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <BarChart2 className="w-4 h-4 text-primary" />
+              Monthly Cash Flow
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">Gross volume vs. net payout after fees</p>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={240}>
+              <BarChart data={monthlyCashFlow} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                <YAxis tickFormatter={(v) => `$${(v/1000).toFixed(0)}k`} tick={{ fontSize: 11 }} width={48} />
+                <Tooltip
+                  formatter={(value: number, name: string) => [fmt$(value), name === "grossVolume" ? "Gross Volume" : name === "netPayout" ? "Net Payout" : "Fees"]}
+                  contentStyle={{ fontSize: 12 }}
+                />
+                <Legend formatter={(v) => v === "grossVolume" ? "Gross Volume" : v === "netPayout" ? "Net Payout" : "Fees"} wrapperStyle={{ fontSize: 12 }} />
+                <Bar dataKey="grossVolume" fill="hsl(var(--primary))" opacity={0.7} radius={[3,3,0,0]} />
+                <Bar dataKey="netPayout" fill="#10b981" radius={[3,3,0,0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* === FEES & COSTS BREAKDOWN === */}
+      <Card data-testid="card-fee-breakdown">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <PieChart className="w-4 h-4 text-primary" />
+            Fees & Cost Breakdown
+            <Badge variant="secondary" className="ml-auto text-xs" data-testid="badge-program-type">{feeBreakdown.programType}</Badge>
+          </CardTitle>
+          <p className="text-xs text-muted-foreground">Based on your last 30 days of processing volume</p>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            <div className="space-y-3">
+              <h4 className="text-sm font-medium text-muted-foreground">Your Fees</h4>
+              {[
+                { label: "Interchange", value: feeBreakdown.interchange, testid: "fee-interchange" },
+                { label: "Processing Markup", value: feeBreakdown.processingFee, testid: "fee-processing" },
+                { label: "Monthly Fee", value: feeBreakdown.monthlyFee, testid: "fee-monthly" },
+                { label: "Chargeback Fees", value: feeBreakdown.chargebackFees, testid: "fee-chargeback" },
+              ].map(({ label, value, testid }) => (
+                <div key={testid} className="flex items-center justify-between gap-2" data-testid={testid}>
+                  <span className="text-sm text-muted-foreground">{label}</span>
+                  <span className="text-sm font-medium tabular-nums">{fmt$(value)}</span>
+                </div>
+              ))}
+              <div className="border-t pt-2 flex items-center justify-between" data-testid="fee-total">
+                <span className="text-sm font-semibold">Total Monthly Fees</span>
+                <span className="text-sm font-bold text-foreground">{fmt$(feeBreakdown.totalFees)}</span>
+              </div>
+              <div className="text-xs text-muted-foreground">
+                Effective rate: <span className="font-medium">{fmtPct(feeBreakdown.effectiveRate)}</span>
+              </div>
+            </div>
+            <div className="space-y-3">
+              <h4 className="text-sm font-medium text-muted-foreground">vs. Typical Competitor</h4>
+              <div className="rounded-lg bg-muted/50 p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">Competitor Estimate</span>
+                  <span className="text-sm font-medium tabular-nums text-muted-foreground line-through">{fmt$(feeBreakdown.competitorEstimate)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">Competitor Rate</span>
+                  <span className="text-sm text-muted-foreground">{fmtPct(feeBreakdown.competitorRate)}</span>
+                </div>
+                <div className="border-t pt-2 flex items-center justify-between">
+                  <span className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">Your Savings</span>
+                  <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400" data-testid="text-savings">
+                    {feeBreakdown.savingsVsCompetitor > 0 ? fmt$(feeBreakdown.savingsVsCompetitor) + "/mo" : "—"}
+                  </span>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground flex items-start gap-1">
+                <Info className="w-3 h-3 mt-0.5 shrink-0" />
+                Competitor estimate uses industry-average blended rate of {fmtPct(feeBreakdown.competitorRate)}. Actual savings may vary.
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* === DECLINE ANALYSIS === */}
+      {declineCategories.length > 0 && (
+        <Card data-testid="card-decline-analysis">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-primary" />
+              Decline Analysis (30d)
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">Recent decline reasons with actionable tips</p>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {declineCategories.map((cat) => (
+              <div key={cat.code} className="space-y-1" data-testid={`decline-${cat.code}`}>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: cat.color }} />
+                    <span className="text-sm font-medium truncate">{cat.label}</span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs text-muted-foreground tabular-nums">{cat.count} declines</span>
+                    <Badge variant="outline" className="text-xs">{cat.pct}%</Badge>
+                  </div>
+                </div>
+                <Progress value={cat.pct} className="h-1.5" style={{ "--progress-bar-color": cat.color } as any} />
+                <p className="text-xs text-muted-foreground pl-4 leading-snug">{cat.tip}</p>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* === REVENUE TREND & PROJECTION === */}
+      {revenueTrend.length > 1 && (
+        <Card data-testid="card-revenue-trend">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-primary" />
+              Revenue Trend & Projection
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">
+              12-month processing volume · Dashed bar = trailing-average estimate
+            </p>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={240}>
+              <BarChart data={revenueTrend} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+                <YAxis tickFormatter={(v) => `$${(v/1000).toFixed(0)}k`} tick={{ fontSize: 11 }} width={48} />
+                <Tooltip
+                  formatter={(value: number, _: any, props: any) => [
+                    fmt$(value) + (props.payload?.projected ? " (est.)" : ""),
+                    "Volume",
+                  ]}
+                  contentStyle={{ fontSize: 12 }}
+                />
+                <Bar dataKey="volume" radius={[3,3,0,0]}>
+                  {revenueTrend.map((entry, index) => (
+                    <Cell
+                      key={index}
+                      fill={entry.projected ? "hsl(var(--muted-foreground))" : "hsl(var(--primary))"}
+                      opacity={entry.projected ? 0.5 : 0.85}
+                      stroke={entry.projected ? "hsl(var(--primary))" : "none"}
+                      strokeWidth={entry.projected ? 1 : 0}
+                      strokeDasharray={entry.projected ? "4 2" : "none"}
+                    />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+            <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
+              <Info className="w-3 h-3 shrink-0" />
+              Projected month uses a trailing 3-month average. For informational purposes only.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* === INDUSTRY BENCHMARKING === */}
+      <Card data-testid="card-benchmarking">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Target className="w-4 h-4 text-primary" />
+            Industry Benchmarking
+            <span className="text-xs font-normal text-muted-foreground ml-1">vs. {industryBenchmarking.vertical}</span>
+          </CardTitle>
+          <p className="text-xs text-muted-foreground">Anonymized averages for your industry segment</p>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {[
+              {
+                label: "Chargeback Ratio",
+                merchant: industryBenchmarking.merchantCbRatio,
+                industry: industryBenchmarking.industryCbRatio,
+                format: (v: number | null) => fmtPct(v, 2),
+                betterIfLower: true,
+                testid: "bench-cb-ratio",
+              },
+              {
+                label: "Approval Rate",
+                merchant: industryBenchmarking.merchantApprovalRate,
+                industry: industryBenchmarking.industryApprovalRate,
+                format: (v: number | null) => fmtPct(v),
+                betterIfLower: false,
+                testid: "bench-approval-rate",
+              },
+              {
+                label: "Avg Transaction",
+                merchant: industryBenchmarking.merchantAvgTicket,
+                industry: industryBenchmarking.industryAvgTicket,
+                format: (v: number | null) => v != null ? fmt$(v) : "—",
+                betterIfLower: false,
+                testid: "bench-avg-ticket",
+              },
+            ].map(({ label, merchant, industry, format, betterIfLower, testid }) => {
+              const isBetter = merchant != null && (betterIfLower ? merchant < industry : merchant > industry);
+              const isWorse = merchant != null && (betterIfLower ? merchant > industry : merchant < industry);
+              return (
+                <div key={testid} className="space-y-1" data-testid={testid}>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">{label}</span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-muted-foreground">Industry: {format(industry)}</span>
+                      <span className={`font-semibold ${isBetter ? "text-emerald-600 dark:text-emerald-400" : isWorse ? "text-red-600 dark:text-red-400" : "text-foreground"}`}>
+                        {merchant != null ? format(merchant) : "—"}
+                        {isBetter && <TrendingUp className="w-3 h-3 inline ml-1" />}
+                        {isWorse && <TrendingDown className="w-3 h-3 inline ml-1" />}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 items-center">
+                    <div className="h-2 rounded-full bg-muted flex-1 overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${isBetter ? "bg-emerald-500" : isWorse ? "bg-red-500" : "bg-primary"}`}
+                        style={{ width: merchant != null ? `${Math.min(100, (merchant / (industry * 2)) * 100)}%` : "0%" }}
+                      />
+                    </div>
+                    <div className="h-2 rounded-full bg-muted flex-1 overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-muted-foreground/40 transition-all"
+                        style={{ width: `${Math.min(100, (industry / (industry * 2)) * 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex gap-2 text-[10px] text-muted-foreground">
+                    <span className="flex items-center gap-1"><span className="w-2 h-1.5 rounded-sm bg-primary inline-block" />You</span>
+                    <span className="flex items-center gap-1"><span className="w-2 h-1.5 rounded-sm bg-muted-foreground/40 inline-block" />Industry Avg</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <p className="text-xs text-muted-foreground mt-4 flex items-start gap-1">
+            <Info className="w-3 h-3 mt-0.5 shrink-0" />
+            Benchmarks are anonymized industry averages and are for reference only. Your actual figures may vary based on business type and volume.
+          </p>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 function SupportTab({ contactId }: { contactId: number | null | undefined }) {
   const { toast } = useToast();
   const [createOpen, setCreateOpen] = useState(false);
@@ -1372,6 +1804,9 @@ export default function MerchantPortal() {
         )}
         {activeTab === "account" && (
           <AccountTab profile={profile} isLoading={profileLoading} isAdmin={user?.role === "admin" || user?.role === "manager"} />
+        )}
+        {activeTab === "financial" && (
+          <FinancialTab />
         )}
         {activeTab === "onboarding" && (
           <OnboardingTab dealId={profile?.dealId} profile={profile} />
