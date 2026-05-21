@@ -48,6 +48,7 @@ const STAGE_COLORS: Record<string, string> = {
   "Call Booked": "bg-cyan-500",
   "Proposal Sent": "bg-amber-500",
   "Negotiation / Follow-Up": "bg-orange-500",
+  "Verbal Commit": "bg-purple-500",
   "Nurture / Not Now": "bg-slate-500",
   "Closed Won": "bg-green-600",
   "Closed Lost": "bg-red-500",

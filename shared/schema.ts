@@ -480,9 +480,10 @@ export const SALES_STAGES = [
   "Call Booked",
   "Proposal Sent",
   "Negotiation / Follow-Up",
-  "Nurture / Not Now",
+  "Verbal Commit",
   "Closed Won",
   "Closed Lost",
+  "Nurture / Not Now",
 ] as const;
 
 export const ONBOARDING_STAGES = [
@@ -3023,6 +3024,7 @@ export const GHL_PIPELINE_STAGE_MAP: Record<string, string> = {
   "Call Booked": "call_booked",
   "Proposal Sent": "proposal_sent",
   "Negotiation / Follow-Up": "negotiation",
+  "Verbal Commit": "verbal_commit",
   "Nurture / Not Now": "nurture",
   "Closed Won": "won",
   "Closed Lost": "lost",
@@ -3055,6 +3057,7 @@ export const ACTIVE_DEAL_STAGES = [
   "Call Booked",
   "Proposal Sent",
   "Negotiation / Follow-Up",
+  "Verbal Commit",
   "Contract Sent",
   "Application Started",
   "Underwriting Submitted",

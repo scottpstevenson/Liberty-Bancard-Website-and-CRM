@@ -1,90 +1,97 @@
 {
-	"version": "7",
-	"dialect": "postgresql",
-	"entries": [
-		{
-			"idx": 0,
-			"version": "7",
-			"when": 1773427593891,
-			"tag": "0000_faulty_gwen_stacy",
-			"breakpoints": true
-		},
-		{
-			"idx": 1,
-			"version": "7",
-			"when": 1773677529872,
-			"tag": "0001_smooth_hellion",
-			"breakpoints": true
-		},
-		{
-			"idx": 2,
-			"version": "7",
-			"when": 1773686429334,
-			"tag": "0002_old_sentry",
-			"breakpoints": true
-		},
-		{
-			"idx": 3,
-			"version": "7",
-			"when": 1776210419954,
-			"tag": "0003_tough_mandarin",
-			"breakpoints": true
-		},
-		{
-			"idx": 4,
-			"version": "7",
-			"when": 1777739225248,
-			"tag": "0004_dusty_naoko",
-			"breakpoints": true
-		},
-		{
-			"idx": 5,
-			"version": "7",
-			"when": 1777739833710,
-			"tag": "0005_shallow_stepford_cuckoos",
-			"breakpoints": true
-		},
-		{
-			"idx": 6,
-			"version": "7",
-			"when": 1746229200000,
-			"tag": "0006_live_chat_tables",
-			"breakpoints": true
-		},
-		{
-			"idx": 7,
-			"version": "7",
-			"when": 1746489600000,
-			"tag": "0007_ab_testing_linkedin_enrichment",
-			"breakpoints": true
-		},
-		{
-			"idx": 8,
-			"version": "7",
-			"when": 1746489600001,
-			"tag": "0008_document_vault_columns",
-			"breakpoints": true
-		},
-		{
-			"idx": 9,
-			"version": "7",
-			"when": 1746576000000,
-			"tag": "0009_residual_reconciliation",
-			"breakpoints": true
-		},
-		{
-			"idx": 10,
-			"version": "7",
-			"when": 1746662400000,
-			"tag": "0010_processor_boarding_mid_stats",
-			"breakpoints": true
-		},
-		{
-			"idx": 11,
-			"version": "7",
-			"when": 1746748800000,
-			"tag": "0011_underwriting_notes_log",
-			"breakpoints": true
-		}
-	]
+        "version": "7",
+        "dialect": "postgresql",
+        "entries": [
+                {
+                        "idx": 0,
+                        "version": "7",
+                        "when": 1773427593891,
+                        "tag": "0000_faulty_gwen_stacy",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 1,
+                        "version": "7",
+                        "when": 1773677529872,
+                        "tag": "0001_smooth_hellion",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 2,
+                        "version": "7",
+                        "when": 1773686429334,
+                        "tag": "0002_old_sentry",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 3,
+                        "version": "7",
+                        "when": 1776210419954,
+                        "tag": "0003_tough_mandarin",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 4,
+                        "version": "7",
+                        "when": 1777739225248,
+                        "tag": "0004_dusty_naoko",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 5,
+                        "version": "7",
+                        "when": 1777739833710,
+                        "tag": "0005_shallow_stepford_cuckoos",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 6,
+                        "version": "7",
+                        "when": 1746229200000,
+                        "tag": "0006_live_chat_tables",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 7,
+                        "version": "7",
+                        "when": 1746489600000,
+                        "tag": "0007_ab_testing_linkedin_enrichment",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 8,
+                        "version": "7",
+                        "when": 1746489600001,
+                        "tag": "0008_document_vault_columns",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 9,
+                        "version": "7",
+                        "when": 1746576000000,
+                        "tag": "0009_residual_reconciliation",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 10,
+                        "version": "7",
+                        "when": 1746662400000,
+                        "tag": "0010_processor_boarding_mid_stats",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 11,
+                        "version": "7",
+                        "when": 1746748800000,
+                        "tag": "0011_underwriting_notes_log",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 12,
+                        "version": "7",
+                        "when": 1748390400000,
+                        "tag": "0012_verbal_commit_pipeline_stage",
+                        "breakpoints": true
+                }
+        ]
 }
