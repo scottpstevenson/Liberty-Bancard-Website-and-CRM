@@ -112,6 +112,22 @@ export function registerSsrRoutes(app: Express) {
     res.redirect(301, "/thanks/application");
   });
 
+  // Legal URL redirects: /legal/* → canonical legal page URLs (301).
+  // External links (GHL emails, partner docs, referrals) may use /legal/* format;
+  // these redirects prevent 404s and consolidate SEO equity to the canonical URLs.
+  app.get("/legal/privacy", (_req, res) => {
+    res.redirect(301, "/privacy-policy");
+  });
+  app.get("/legal/privacy-policy", (_req, res) => {
+    res.redirect(301, "/privacy-policy");
+  });
+  app.get("/legal/terms", (_req, res) => {
+    res.redirect(301, "/terms");
+  });
+  app.get("/legal/pci", (_req, res) => {
+    res.redirect(301, "/security-compliance");
+  });
+
   app.get("/", (_req, res) => {
     const html = getHomeHtml();
     res.setHeader("Content-Type", "text/html; charset=utf-8");
