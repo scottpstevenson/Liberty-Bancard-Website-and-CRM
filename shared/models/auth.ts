@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { boolean, index, jsonb, pgTable, timestamp, varchar } from "drizzle-orm/pg-core";
+import { boolean, index, jsonb, pgTable, timestamp, varchar, text } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -37,6 +37,26 @@ export const users = pgTable("users", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+export const userSessions = pgTable(
+  "user_sessions",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    sessionId: varchar("session_id").notNull(),
+    ip: varchar("ip"),
+    userAgent: text("user_agent"),
+    createdAt: timestamp("created_at").defaultNow(),
+    lastActiveAt: timestamp("last_active_at").defaultNow(),
+    isInvalidated: boolean("is_invalidated").default(false),
+    invalidatedAt: timestamp("invalidated_at"),
+  },
+  (table) => [
+    index("user_sessions_user_id_idx").on(table.userId),
+    index("user_sessions_session_id_idx").on(table.sessionId),
+    index("user_sessions_last_active_idx").on(table.lastActiveAt),
+  ]
+);
+
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
   createdAt: true,
@@ -57,3 +77,5 @@ export const signupSchema = z.object({
 
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
+export type UserSession = typeof userSessions.$inferSelect;
+export type InsertUserSession = typeof userSessions.$inferInsert;

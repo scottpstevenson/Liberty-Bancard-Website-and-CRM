@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import { isAuthenticated, requireRole } from "../replit_integrations/auth";
+import { authStorage } from "../replit_integrations/auth/storage";
 import { storage } from "../storage";
 import { db } from "../db";
 import { z } from "zod";
@@ -9,6 +10,34 @@ import { parse } from "csv-parse/sync";
 import path from "path";
 
 export function registerAdminRoutes(app: Express) {
+  // === ADMIN: SESSION MANAGEMENT ===
+  app.get("/api/admin/users/:id/sessions", requireRole('admin'), async (req, res) => {
+    try {
+      const sessions = await authStorage.getActiveSessionsForUser(String(req.params.id));
+      res.json(sessions);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/admin/sessions/:sessionRecordId", requireRole('admin'), async (req, res) => {
+    try {
+      await authStorage.revokeSessionById(String(req.params.sessionRecordId));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/admin/users/:id/sessions", requireRole('admin'), async (req, res) => {
+    try {
+      await authStorage.invalidateAllUserSessions(String(req.params.id));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // === ADMIN: USER MANAGEMENT ===
   app.get("/api/admin/users", requireRole('admin'), async (req, res) => {
     try {

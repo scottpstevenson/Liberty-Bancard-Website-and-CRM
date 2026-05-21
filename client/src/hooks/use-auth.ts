@@ -10,6 +10,16 @@ async function fetchUser(): Promise<SafeUser | null> {
   });
 
   if (response.status === 401) {
+    // Check for structured reason codes to show helpful messages
+    try {
+      const data = await response.json();
+      if (data.reason === "session_expired" || data.reason === "session_invalidated") {
+        // Store reason in sessionStorage so the login page can display it
+        sessionStorage.setItem("auth_logout_reason", data.reason);
+      }
+    } catch {
+      // Ignore parse errors
+    }
     return null;
   }
 

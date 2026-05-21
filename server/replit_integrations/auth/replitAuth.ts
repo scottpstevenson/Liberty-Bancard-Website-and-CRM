@@ -8,7 +8,7 @@ import crypto from "crypto";
 import rateLimit from "express-rate-limit";
 import { TOTP, generateSecret as totpGenerateSecret } from "otplib";
 import QRCode from "qrcode";
-import { authStorage } from "./storage";
+import { authStorage, getSessionLimitForRole, IDLE_TIMEOUT_MS, ABSOLUTE_TTL_MS } from "./storage";
 import { storage } from "../../storage";
 import { isGhlConfigured, sendGhlEmailForMerchant as sendGhlEmail } from "../../services/ghl";
 import { sendSmtpEmail, isSmtpConfigured } from "../../services/smtp-email";
@@ -149,6 +149,28 @@ async function seedAdminUser() {
   }
 }
 
+/** Helper to register a new session record after a successful login */
+async function registerLoginSession(req: any, userId: string, role: string): Promise<void> {
+  try {
+    const sessionId = req.sessionID;
+    if (!sessionId) return;
+
+    // Enforce concurrent session limit — remove oldest if over limit
+    const limit = getSessionLimitForRole(role);
+    await authStorage.invalidateOldestSessionsForUser(userId, limit - 1);
+
+    const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket?.remoteAddress || undefined;
+    const userAgent = req.headers["user-agent"] || undefined;
+
+    // Upsert: if a session record already exists for this sessionId, skip
+    const existing = await authStorage.getUserSession(sessionId);
+    if (!existing) {
+      await authStorage.createUserSession({ userId, sessionId, ip, userAgent });
+    }
+  } catch (err) {
+    console.error("[Auth] Failed to register login session:", err);
+  }
+}
 
 const signupRateLimit = rateLimit({
   windowMs: 60 * 60 * 1000,
@@ -258,8 +280,9 @@ export async function setupAuth(app: Express) {
             const now = new Date();
             const trustedDevice = devices.find(d => d.token === hashedCookieToken && new Date(d.expiresAt) > now);
             if (trustedDevice) {
-              return req.logIn(user, (loginErr) => {
+              return req.logIn(user, async (loginErr) => {
                 if (loginErr) return res.status(500).json({ message: "Login failed" });
+                await registerLoginSession(req, user.id, user.role || "merchant");
                 const { passwordHash, totpSecret, ...safeUser } = user;
                 return res.json(safeUser);
               });
@@ -270,16 +293,18 @@ export async function setupAuth(app: Express) {
         }
 
         if (globalMfaRequired && !user.totpEnabled) {
-          req.logIn(user, (loginErr) => {
+          req.logIn(user, async (loginErr) => {
             if (loginErr) return res.status(500).json({ message: "Login failed" });
+            await registerLoginSession(req, user.id, user.role || "merchant");
             const { passwordHash, totpSecret, ...safeUser } = user;
             return res.json({ ...safeUser, mfa_enrollment_required: true });
           });
           return;
         }
 
-        req.logIn(user, (loginErr) => {
+        req.logIn(user, async (loginErr) => {
           if (loginErr) return res.status(500).json({ message: "Login failed" });
+          await registerLoginSession(req, user.id, user.role || "merchant");
           const { passwordHash, totpSecret, ...safeUser } = user;
           return res.json(safeUser);
         });
@@ -335,6 +360,8 @@ export async function setupAuth(app: Express) {
 
       req.logIn(user, async (loginErr) => {
         if (loginErr) return res.status(500).json({ message: "Login failed" });
+
+        await registerLoginSession(req, user.id, user.role || "merchant");
 
         if (rememberDevice) {
           const rawToken = crypto.randomBytes(32).toString("hex");
@@ -513,6 +540,32 @@ export async function setupAuth(app: Express) {
     }
   });
 
+  // === CHANGE PASSWORD (authenticated user changing their own password) ===
+  app.post("/api/auth/change-password", isAuthenticated, async (req, res) => {
+    const user = req.user as any;
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: "Current and new passwords are required" });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ message: "New password must be at least 6 characters" });
+    }
+    try {
+      const fullUser = await authStorage.getUser(user.id);
+      if (!fullUser?.passwordHash) return res.status(400).json({ message: "Cannot change password for this account" });
+      const isValid = await bcrypt.compare(currentPassword, fullUser.passwordHash);
+      if (!isValid) return res.status(401).json({ message: "Current password is incorrect" });
+      const passwordHash = await bcrypt.hash(newPassword, 12);
+      await authStorage.updateUserPassword(user.id, passwordHash);
+      // Invalidate all other sessions
+      const currentSessionId = req.sessionID;
+      await authStorage.invalidateAllUserSessions(user.id, currentSessionId);
+      res.json({ message: "Password changed successfully. Other sessions have been logged out." });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/auth/signup", signupRateLimit, async (req, res) => {
     try {
       const { email, password, firstName, lastName } = req.body;
@@ -547,8 +600,10 @@ export async function setupAuth(app: Express) {
         html: verifyHtml,
         label: "email-verification",
       }).catch(err => console.error("[Auth] Verification email error:", err));
-      req.logIn(user, (err) => {
+      req.logIn(user, async (err) => {
         if (err) return res.status(500).json({ message: "Signup succeeded but login failed" });
+
+        await registerLoginSession(req, user.id, user.role || "merchant");
 
         storage.createNotification({
           channel: "internal",
@@ -646,6 +701,8 @@ export async function setupAuth(app: Express) {
       }
       const passwordHash = await bcrypt.hash(password, 12);
       await authStorage.updateUserPassword(user.id, passwordHash);
+      // Invalidate ALL sessions for this user (password was reset, security event)
+      await authStorage.invalidateAllUserSessions(user.id);
       return res.json({ message: "Password has been reset successfully" });
     } catch (error: any) {
       console.error("Reset password error:", error);
@@ -658,8 +715,12 @@ export async function setupAuth(app: Express) {
   });
 
   app.get("/api/logout", (req, res) => {
+    const sessionId = req.sessionID;
     req.logout(() => {
-      req.session.destroy(() => {
+      req.session.destroy(async () => {
+        if (sessionId) {
+          authStorage.invalidateUserSession(sessionId).catch(() => {});
+        }
         res.clearCookie("connect.sid");
         res.clearCookie("trusted_device_token");
         res.redirect("/login");
@@ -668,8 +729,12 @@ export async function setupAuth(app: Express) {
   });
 
   app.post("/api/auth/logout", (req, res) => {
+    const sessionId = req.sessionID;
     req.logout(() => {
-      req.session.destroy(() => {
+      req.session.destroy(async () => {
+        if (sessionId) {
+          authStorage.invalidateUserSession(sessionId).catch(() => {});
+        }
         res.clearCookie("connect.sid");
         res.clearCookie("trusted_device_token");
         res.json({ message: "Logged out" });
@@ -698,35 +763,123 @@ function getUserRole(req: Parameters<RequestHandler>[0]): string | undefined {
   return typeof user?.role === "string" ? user.role : undefined;
 }
 
-export const isAuthenticated: RoleAwareRequestHandler = tagRoles<RequestHandler>((req, res, next) => {
-  if (req.isAuthenticated()) {
-    return next();
+/**
+ * Checks session validity (idle timeout, absolute TTL, invalidation).
+ * Returns null if valid, or a reason string if the session should be rejected.
+ */
+async function checkSessionValidity(req: any): Promise<"session_expired" | "session_invalidated" | null> {
+  const sessionId = req.sessionID;
+  if (!sessionId) return null;
+
+  try {
+    const record = await authStorage.getUserSession(sessionId);
+
+    if (!record) {
+      // No record yet — create one for backward compatibility (pre-existing sessions)
+      const user = req.user as any;
+      if (user?.id) {
+        const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket?.remoteAddress || undefined;
+        const userAgent = req.headers["user-agent"] || undefined;
+        await authStorage.createUserSession({ userId: user.id, sessionId, ip, userAgent });
+      }
+      return null;
+    }
+
+    if (record.isInvalidated) {
+      return "session_invalidated";
+    }
+
+    const now = Date.now();
+    const lastActive = record.lastActiveAt ? new Date(record.lastActiveAt).getTime() : 0;
+    const createdAt = record.createdAt ? new Date(record.createdAt).getTime() : 0;
+
+    if (now - lastActive > IDLE_TIMEOUT_MS) {
+      await authStorage.invalidateUserSession(sessionId);
+      return "session_expired";
+    }
+
+    if (now - createdAt > ABSOLUTE_TTL_MS) {
+      await authStorage.invalidateUserSession(sessionId);
+      return "session_expired";
+    }
+
+    // Valid — update lastActiveAt in background (no await to avoid blocking requests)
+    authStorage.touchUserSession(sessionId).catch(() => {});
+
+    return null;
+  } catch (err) {
+    console.error("[Auth] Session validity check error:", err);
+    // On error, allow through (fail open to avoid breaking the app)
+    return null;
   }
-  return res.status(401).json({ message: "Unauthorized" });
+}
+
+export const isAuthenticated: RoleAwareRequestHandler = tagRoles<RequestHandler>(async (req, res, next) => {
+  if (!req.isAuthenticated()) {
+    return res.status(401).json({ message: "Unauthorized", reason: "not_authenticated" });
+  }
+
+  const invalidReason = await checkSessionValidity(req);
+  if (invalidReason) {
+    req.logout(() => {
+      req.session?.destroy(() => {
+        res.clearCookie("connect.sid");
+      });
+    });
+    return res.status(401).json({
+      message: invalidReason === "session_expired"
+        ? "Your session has expired. Please log in again."
+        : "Your session has been terminated. Please log in again.",
+      reason: invalidReason,
+    });
+  }
+
+  return next();
 }, ["any-authenticated"]);
 
-export const isAdmin: RoleAwareRequestHandler = tagRoles<RequestHandler>((req, res, next) => {
-  if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized" });
+export const isAdmin: RoleAwareRequestHandler = tagRoles<RequestHandler>(async (req, res, next) => {
+  if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized", reason: "not_authenticated" });
+  const invalidReason = await checkSessionValidity(req);
+  if (invalidReason) {
+    req.logout(() => req.session?.destroy(() => res.clearCookie("connect.sid")));
+    return res.status(401).json({ message: "Session expired. Please log in again.", reason: invalidReason });
+  }
   if (getUserRole(req) === "admin") return next();
   return res.status(403).json({ message: "Admin access required" });
 }, ["admin"]);
 
-export const isAffiliate: RoleAwareRequestHandler = tagRoles<RequestHandler>((req, res, next) => {
-  if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized" });
+export const isAffiliate: RoleAwareRequestHandler = tagRoles<RequestHandler>(async (req, res, next) => {
+  if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized", reason: "not_authenticated" });
+  const invalidReason = await checkSessionValidity(req);
+  if (invalidReason) {
+    req.logout(() => req.session?.destroy(() => res.clearCookie("connect.sid")));
+    return res.status(401).json({ message: "Session expired. Please log in again.", reason: invalidReason });
+  }
   const role = getUserRole(req);
   if (role === "affiliate" || role === "admin") return next();
   return res.status(403).json({ message: "Affiliate access required" });
 }, ["affiliate", "admin"]);
 
-export const isPartnerAuthenticated: RoleAwareRequestHandler = tagRoles<RequestHandler>((req, res, next) => {
-  if (req.isAuthenticated() && getUserRole(req) === "partner") {
-    return next();
+export const isPartnerAuthenticated: RoleAwareRequestHandler = tagRoles<RequestHandler>(async (req, res, next) => {
+  if (!req.isAuthenticated()) {
+    return res.status(401).json({ message: "Partner authentication required. Please log in to your partner portal.", reason: "not_authenticated" });
   }
+  const invalidReason = await checkSessionValidity(req);
+  if (invalidReason) {
+    req.logout(() => req.session?.destroy(() => res.clearCookie("connect.sid")));
+    return res.status(401).json({ message: "Session expired. Please log in again.", reason: invalidReason });
+  }
+  if (getUserRole(req) === "partner") return next();
   return res.status(401).json({ message: "Partner authentication required. Please log in to your partner portal." });
 }, ["partner"]);
 
-export const isDashboardUser: RoleAwareRequestHandler = tagRoles<RequestHandler>((req, res, next) => {
-  if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized" });
+export const isDashboardUser: RoleAwareRequestHandler = tagRoles<RequestHandler>(async (req, res, next) => {
+  if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized", reason: "not_authenticated" });
+  const invalidReason = await checkSessionValidity(req);
+  if (invalidReason) {
+    req.logout(() => req.session?.destroy(() => res.clearCookie("connect.sid")));
+    return res.status(401).json({ message: "Session expired. Please log in again.", reason: invalidReason });
+  }
   const role = getUserRole(req);
   if (role === "admin" || role === "manager" || role === "agent") return next();
   return res.status(403).json({ message: "Dashboard access required" });
@@ -739,9 +892,14 @@ export const isDashboardUser: RoleAwareRequestHandler = tagRoles<RequestHandler>
  * resorting to `any`.
  */
 export function requireRole(...roles: string[]): RoleAwareRequestHandler {
-  return tagRoles<RequestHandler>((req, res, next) => {
+  return tagRoles<RequestHandler>(async (req, res, next) => {
     if (!req.isAuthenticated()) {
-      return res.status(401).json({ message: "Unauthorized" });
+      return res.status(401).json({ message: "Unauthorized", reason: "not_authenticated" });
+    }
+    const invalidReason = await checkSessionValidity(req);
+    if (invalidReason) {
+      req.logout(() => req.session?.destroy(() => res.clearCookie("connect.sid")));
+      return res.status(401).json({ message: "Session expired. Please log in again.", reason: invalidReason });
     }
     const role = getUserRole(req);
     if (!role || !roles.includes(role)) {

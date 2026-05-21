@@ -25,6 +25,16 @@ export default function Login() {
     const params = new URLSearchParams(window.location.search);
     const urlError = params.get("error");
     if (urlError) setError(urlError);
+
+    // Show session-expired message if redirected due to session expiry
+    const logoutReason = sessionStorage.getItem("auth_logout_reason");
+    if (logoutReason === "session_expired") {
+      setError("Your session expired. Please sign in again.");
+      sessionStorage.removeItem("auth_logout_reason");
+    } else if (logoutReason === "session_invalidated") {
+      setError("Your session was terminated by an administrator. Please sign in again.");
+      sessionStorage.removeItem("auth_logout_reason");
+    }
   }, []);
 
   if (user) {

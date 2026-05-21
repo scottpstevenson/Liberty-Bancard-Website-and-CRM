@@ -1,6 +1,6 @@
-import { users, type User, type UpsertUser } from "@shared/models/auth";
+import { users, userSessions, sessions, type User, type UpsertUser, type UserSession } from "@shared/models/auth";
 import { db } from "../../db";
-import { eq, and, gt } from "drizzle-orm";
+import { eq, and, gt, lt, desc, ne } from "drizzle-orm";
 
 export interface ITrustedDevice {
   token: string;
@@ -33,7 +33,38 @@ export interface IAuthStorage {
   removeTrustedDevice(userId: string, token: string): Promise<void>;
   clearExpiredTrustedDevices(userId: string): Promise<void>;
   adminResetTotp(userId: string): Promise<void>;
+  // Session management
+  createUserSession(data: { userId: string; sessionId: string; ip?: string; userAgent?: string }): Promise<UserSession>;
+  getUserSession(sessionId: string): Promise<UserSession | undefined>;
+  touchUserSession(sessionId: string): Promise<void>;
+  invalidateUserSession(sessionId: string): Promise<void>;
+  invalidateAllUserSessions(userId: string, exceptSessionId?: string): Promise<void>;
+  getActiveSessionsForUser(userId: string): Promise<UserSession[]>;
+  countActiveSessionsForUser(userId: string): Promise<number>;
+  invalidateOldestSessionsForUser(userId: string, keepCount: number): Promise<void>;
+  revokeSessionById(sessionRecordId: string): Promise<void>;
+  cleanupExpiredSessions(): Promise<void>;
 }
+
+// Session expiry configuration
+const IDLE_TIMEOUT_MS = parseInt(process.env.SESSION_IDLE_TIMEOUT_HOURS || "8") * 60 * 60 * 1000;
+const ABSOLUTE_TTL_MS = parseInt(process.env.SESSION_ABSOLUTE_TTL_HOURS || "24") * 60 * 60 * 1000;
+
+// Concurrent session limits by role
+const SESSION_LIMITS: Record<string, number> = {
+  admin: 10,
+  manager: 5,
+  agent: 3,
+  merchant: 5,
+  partner: 3,
+  affiliate: 3,
+};
+
+export function getSessionLimitForRole(role: string): number {
+  return SESSION_LIMITS[role] ?? 3;
+}
+
+export { IDLE_TIMEOUT_MS, ABSOLUTE_TTL_MS };
 
 class AuthStorage implements IAuthStorage {
   async getUser(id: string): Promise<User | undefined> {
@@ -190,6 +221,156 @@ class AuthStorage implements IAuthStorage {
       .update(users)
       .set({ totpSecret: null, totpEnabled: false, totpBackupCodes: null, trustedDevices: null, updatedAt: new Date() })
       .where(eq(users.id, userId));
+  }
+
+  // === SESSION MANAGEMENT ===
+
+  async createUserSession(data: { userId: string; sessionId: string; ip?: string; userAgent?: string }): Promise<UserSession> {
+    const [record] = await db
+      .insert(userSessions)
+      .values({
+        userId: data.userId,
+        sessionId: data.sessionId,
+        ip: data.ip || null,
+        userAgent: data.userAgent || null,
+        createdAt: new Date(),
+        lastActiveAt: new Date(),
+        isInvalidated: false,
+      })
+      .returning();
+    return record;
+  }
+
+  async getUserSession(sessionId: string): Promise<UserSession | undefined> {
+    const [record] = await db
+      .select()
+      .from(userSessions)
+      .where(eq(userSessions.sessionId, sessionId));
+    return record;
+  }
+
+  async touchUserSession(sessionId: string): Promise<void> {
+    await db
+      .update(userSessions)
+      .set({ lastActiveAt: new Date() })
+      .where(and(eq(userSessions.sessionId, sessionId), eq(userSessions.isInvalidated, false)));
+  }
+
+  async invalidateUserSession(sessionId: string): Promise<void> {
+    const now = new Date();
+    await db
+      .update(userSessions)
+      .set({ isInvalidated: true, invalidatedAt: now })
+      .where(eq(userSessions.sessionId, sessionId));
+    // Also delete from the express-session store
+    try {
+      await db.delete(sessions).where(eq(sessions.sid, sessionId));
+    } catch {
+      // Ignore if already gone
+    }
+  }
+
+  async invalidateAllUserSessions(userId: string, exceptSessionId?: string): Promise<void> {
+    const now = new Date();
+    // Get all active session IDs for this user (except the current one)
+    const activeSessions = await db
+      .select({ sessionId: userSessions.sessionId })
+      .from(userSessions)
+      .where(and(
+        eq(userSessions.userId, userId),
+        eq(userSessions.isInvalidated, false),
+        exceptSessionId ? ne(userSessions.sessionId, exceptSessionId) : undefined as any,
+      ));
+
+    // Mark all as invalidated in our table
+    if (exceptSessionId) {
+      await db
+        .update(userSessions)
+        .set({ isInvalidated: true, invalidatedAt: now })
+        .where(and(
+          eq(userSessions.userId, userId),
+          eq(userSessions.isInvalidated, false),
+          ne(userSessions.sessionId, exceptSessionId),
+        ));
+    } else {
+      await db
+        .update(userSessions)
+        .set({ isInvalidated: true, invalidatedAt: now })
+        .where(and(
+          eq(userSessions.userId, userId),
+          eq(userSessions.isInvalidated, false),
+        ));
+    }
+
+    // Delete from express-session store for immediate effect
+    for (const { sessionId } of activeSessions) {
+      try {
+        await db.delete(sessions).where(eq(sessions.sid, sessionId));
+      } catch {
+        // Ignore
+      }
+    }
+  }
+
+  async getActiveSessionsForUser(userId: string): Promise<UserSession[]> {
+    const idleCutoff = new Date(Date.now() - IDLE_TIMEOUT_MS);
+    const absoluteCutoff = new Date(Date.now() - ABSOLUTE_TTL_MS);
+    return db
+      .select()
+      .from(userSessions)
+      .where(and(
+        eq(userSessions.userId, userId),
+        eq(userSessions.isInvalidated, false),
+        gt(userSessions.lastActiveAt, idleCutoff),
+        gt(userSessions.createdAt, absoluteCutoff),
+      ))
+      .orderBy(desc(userSessions.lastActiveAt));
+  }
+
+  async countActiveSessionsForUser(userId: string): Promise<number> {
+    const rows = await this.getActiveSessionsForUser(userId);
+    return rows.length;
+  }
+
+  async invalidateOldestSessionsForUser(userId: string, keepCount: number): Promise<void> {
+    const active = await this.getActiveSessionsForUser(userId);
+    if (active.length <= keepCount) return;
+    // Sessions are ordered by lastActiveAt DESC — oldest are at the end
+    const toInvalidate = active.slice(keepCount);
+    for (const s of toInvalidate) {
+      await this.invalidateUserSession(s.sessionId);
+    }
+  }
+
+  async revokeSessionById(sessionRecordId: string): Promise<void> {
+    const [record] = await db
+      .select()
+      .from(userSessions)
+      .where(eq(userSessions.id, sessionRecordId));
+    if (!record) return;
+    await this.invalidateUserSession(record.sessionId);
+  }
+
+  async cleanupExpiredSessions(): Promise<void> {
+    const idleCutoff = new Date(Date.now() - IDLE_TIMEOUT_MS);
+    const absoluteCutoff = new Date(Date.now() - ABSOLUTE_TTL_MS);
+    const now = new Date();
+    // Mark sessions expired by idle timeout
+    await db
+      .update(userSessions)
+      .set({ isInvalidated: true, invalidatedAt: now })
+      .where(and(
+        eq(userSessions.isInvalidated, false),
+        lt(userSessions.lastActiveAt, idleCutoff),
+      ));
+    // Mark sessions expired by absolute TTL
+    await db
+      .update(userSessions)
+      .set({ isInvalidated: true, invalidatedAt: now })
+      .where(and(
+        eq(userSessions.isInvalidated, false),
+        lt(userSessions.createdAt, absoluteCutoff),
+      ));
   }
 }
 
