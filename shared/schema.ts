@@ -2986,6 +2986,40 @@ export const chargebacks = pgTable("chargebacks", {
   respondedAt: timestamp("responded_at"),
   outcome: text("outcome"),
   notes: text("notes"),
+  aiEvidencePacket: jsonb("ai_evidence_packet").$type<{
+    rebuttalletter: string;
+    evidenceChecklist: { item: string; status: "included" | "missing" | "partial"; notes?: string }[];
+    winLikelihood: { estimate: string; rationale: string };
+    reasonCodeContext: string;
+    generatedAt: string;
+    finalizedAt?: string;
+    editedRebuttal?: string;
+    merchantProfile?: {
+      merchantName: string;
+      address?: string;
+      city?: string;
+      state?: string;
+      website?: string;
+      vertical?: string;
+      mid?: string;
+    };
+    auditTrail?: {
+      systemPrompt: string;
+      userPrompt: string;
+      rawModelOutput: string;
+      model: string;
+      promptTokens?: number;
+      completionTokens?: number;
+      generatedByUserId?: string;
+      generatedByRole?: string;
+    };
+    finalizationTrail?: {
+      finalizedByUserId?: string;
+      finalizedByRole?: string;
+      hadEdits: boolean;
+      finalizedAt: string;
+    };
+  } | null>().default(null),
   createdBy: text("created_by"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -3436,6 +3470,7 @@ export const AI_TRIGGER_TYPES = [
   "social-generation",
   "training-generation",
   "auto-reply",
+  "chargeback-copilot",
 ] as const;
 
 export type AiTriggerType = typeof AI_TRIGGER_TYPES[number];

@@ -869,6 +869,280 @@ Notes: ${deal.notes || "None"}`
   });
 
 
+  // === AI CHARGEBACK COPILOT ===
+  app.post("/api/ai/chargeback-copilot/:id", isDashboardUser, async (req, res) => {
+    try {
+      const chargebackId = Number(req.params.id);
+      const cb = await storage.getChargeback(chargebackId);
+      if (!cb) return res.status(404).json({ message: "Chargeback not found" });
+
+      const { db } = await import("../db");
+      const { midDailyStats } = await import("@shared/schema");
+      const { eq: eqOp, desc: descOp } = await import("drizzle-orm");
+
+      const [contact, deal, allKb] = await Promise.all([
+        cb.contactId ? storage.getContact(cb.contactId) : Promise.resolve(null),
+        cb.dealId ? storage.getDeal(cb.dealId) : Promise.resolve(null),
+        storage.getKnowledgeBaseArticles ? storage.getKnowledgeBaseArticles() : Promise.resolve([]),
+      ]);
+
+      let recentMidStats: any[] = [];
+      if (deal?.mid) {
+        recentMidStats = await db.select().from(midDailyStats)
+          .where(eqOp(midDailyStats.mid, deal.mid))
+          .orderBy(descOp(midDailyStats.date))
+          .limit(30);
+      } else if (cb.dealId) {
+        recentMidStats = await db.select().from(midDailyStats)
+          .where(eqOp(midDailyStats.dealId, cb.dealId))
+          .orderBy(descOp(midDailyStats.date))
+          .limit(30);
+      } else if (cb.contactId) {
+        recentMidStats = await db.select().from(midDailyStats)
+          .where(eqOp(midDailyStats.contactId, cb.contactId))
+          .orderBy(descOp(midDailyStats.date))
+          .limit(30);
+      }
+
+      const merchantHistory = contact ? [
+        `Merchant: ${contact.companyName || `${contact.firstName} ${contact.lastName}`}`,
+        `Vertical: ${contact.vertical || "N/A"}`,
+        `Monthly Volume: ${contact.monthlyVolume || "N/A"}`,
+        `Current Provider: ${contact.currentProvider || "N/A"}`,
+        `Status: ${contact.status}`,
+        `Business Age: ${contact.businessAge || "N/A"}`,
+      ].join("\n") : "No merchant profile available.";
+
+      const dealHistory = deal ? [
+        `Deal Stage: ${deal.stage}`,
+        `Effective Rate: ${deal.effectiveRate || "N/A"}`,
+        `Total Volume: ${deal.totalVolume || "N/A"}`,
+        `Health Score: ${deal.healthScore || "N/A"}`,
+        `Risk Tier: ${deal.riskTier || "N/A"}`,
+        `MID: ${deal.mid || "N/A"}`,
+      ].join("\n") : "No deal data available.";
+
+      const evidenceFilesList = ((cb.evidenceFiles as any[]) || [])
+        .map((f: any) => `- ${f.name} (uploaded ${f.uploadedAt || "N/A"})`).join("\n") || "None attached";
+
+      const reasonCodeMap: Record<string, { category: string; evidenceNeeded: string[]; rebuttalletter: string }> = {
+        "13.1": { category: "Item Not Received", evidenceNeeded: ["Proof of delivery", "Shipping tracking confirmation", "Carrier confirmation", "Customer communication logs", "Delivery address verification"], rebuttalletter: "Focus on delivery confirmation and tracking evidence. If digital goods, show access logs and download records." },
+        "13.2": { category: "Canceled Recurring", evidenceNeeded: ["Cancellation policy disclosure", "Subscription terms agreed at signup", "Proof cardholder did not cancel", "Last active usage date", "Renewal notification sent"], rebuttalletter: "Demonstrate the cancellation policy was clearly disclosed at signup, the cardholder did not follow the cancellation process, and/or the charge was for a period prior to any cancellation request." },
+        "13.3": { category: "Not as Described", evidenceNeeded: ["Product/service description at time of sale", "Customer acknowledgment of receipt", "Photos/documentation of item", "Customer communications", "Return policy disclosure"], rebuttalletter: "Document that the goods or services were delivered exactly as described. Include any communications showing the customer was satisfied or did not report issues within a reasonable timeframe." },
+        "13.4": { category: "Counterfeit/Fraud", evidenceNeeded: ["Original transaction receipt", "Customer signature or authorization", "AVS/CVV match data", "IP address and device fingerprint", "Prior purchase history with same card"], rebuttalletter: "Present evidence of authentic transaction authorization including card-present data, AVS match, and prior transaction history with the same cardholder." },
+        "13.5": { category: "Misrepresentation", evidenceNeeded: ["Marketing materials at time of sale", "Product/service terms", "Customer acknowledgment", "Communication logs"], rebuttalletter: "Provide documentation showing accurate representation was made at the time of sale, and the customer agreed to the terms." },
+        "13.6": { category: "Credit Not Processed", evidenceNeeded: ["Refund/credit confirmation", "Credit posting date", "Customer communication re: credit", "Processing records"], rebuttalletter: "Show proof that the credit was issued and provide the transaction ID and date it was processed." },
+        "13.7": { category: "Canceled Merchandise/Services", evidenceNeeded: ["Return/cancellation policy", "Evidence cancellation terms were disclosed", "Date of service/shipment vs. cancellation date", "Customer communication"], rebuttalletter: "Document the cancellation/return policy that was agreed to at purchase, and show the timeline of events." },
+        "4853": { category: "Cardholder Dispute", evidenceNeeded: ["Transaction receipt", "Customer communication", "Delivery/service confirmation", "Refund policy"], rebuttalletter: "Provide comprehensive transaction documentation showing goods/services were delivered as expected and the cardholder had an opportunity to resolve the dispute directly." },
+        "4855": { category: "Non-Receipt of Merchandise", evidenceNeeded: ["Shipping records", "Tracking number and carrier confirmation", "Delivery address", "Customer communication"], rebuttalletter: "Demonstrate delivery with carrier tracking, delivery confirmation, and any customer communications acknowledging receipt." },
+        "4831": { category: "Transaction Amount Differs", evidenceNeeded: ["Original transaction receipt", "Price quote or estimate", "Customer-authorized amount", "Invoice"], rebuttalletter: "Provide the original receipt or invoice showing the cardholder authorized the exact amount charged." },
+        "4834": { category: "Duplicate Processing", evidenceNeeded: ["Transaction records showing unique transactions", "Receipts for each charge", "Customer communications"], rebuttalletter: "Show that each charge represents a unique, separate transaction and was not a duplicate." },
+        "4863": { category: "Cardholder Does Not Recognize", evidenceNeeded: ["Transaction receipt", "Prior purchases from same card", "Customer communication history", "AVS/CVV data"], rebuttalletter: "Provide evidence of the transaction, prior relationship with the cardholder, and any contact information that can help the cardholder recognize the charge." },
+        "C08": { category: "Goods/Services Not Received", evidenceNeeded: ["Proof of delivery", "Tracking information", "Service logs", "Customer communication"], rebuttalletter: "Provide delivery confirmation, service completion documentation, and any customer communications acknowledging receipt." },
+        "C14": { category: "Paid by Other Means", evidenceNeeded: ["Payment ledger showing only one payment received", "Transaction records", "Customer communication"], rebuttalletter: "Demonstrate that no duplicate payment was received and only one transaction was processed." },
+        "C28": { category: "Canceled Recurring", evidenceNeeded: ["Cancellation policy", "Subscription terms", "Renewal notifications", "Usage logs"], rebuttalletter: "Document the cancellation terms disclosed at signup and evidence the cardholder did not follow the cancellation process." },
+        "C31": { category: "Goods/Services Not as Described", evidenceNeeded: ["Description at sale", "Customer agreement", "Photos or service record", "Communication logs"], rebuttalletter: "Provide evidence the goods or services matched the description provided at the time of sale." },
+      };
+
+      const reasonKey = Object.keys(reasonCodeMap).find(k => cb.reasonCode.includes(k)) || "";
+      const codeContext = reasonCodeMap[reasonKey] || {
+        category: "General Dispute",
+        evidenceNeeded: ["Transaction receipt", "Customer communication", "Proof of delivery or service", "Authorization records"],
+        rebuttalletter: "Provide comprehensive documentation of the transaction, authorization, and delivery/service completion.",
+      };
+
+      const kbRelevant = (allKb as any[]).filter((a: any) =>
+        (a.title || "").toLowerCase().includes("chargeback") ||
+        (a.content || "").toLowerCase().includes("dispute") ||
+        (a.category || "").toLowerCase().includes("compliance")
+      ).slice(0, 3).map((a: any) => `[${a.title}]: ${(a.content || "").slice(0, 200)}`).join("\n");
+
+      const systemPrompt = `You are Liberty Bancard's AI Chargeback Copilot — an expert in payment dispute representment.
+Your job is to analyze a chargeback case and produce a professional evidence packet.
+
+COMPLIANCE RULES:
+- Be factual and evidence-based only. Do not make claims without supporting evidence.
+- Never guarantee a win outcome — only provide a probability estimate with rationale.
+- Use professional, formal language appropriate for card brand arbitration.
+- Structure the rebuttal letter for the issuing bank's review panel.
+
+OUTPUT: Return ONLY valid JSON matching this exact structure:
+{
+  "rebuttalletter": "Full formal rebuttal letter text (3-6 paragraphs, professional tone, referencing specific evidence)",
+  "evidenceChecklist": [
+    { "item": "Evidence item name", "status": "included|missing|partial", "notes": "optional explanation" }
+  ],
+  "winLikelihood": {
+    "estimate": "High|Moderate|Low",
+    "rationale": "2-3 sentence explanation of win probability based on available evidence and reason code"
+  },
+  "reasonCodeContext": "1-2 sentence explanation of this dispute type and what card brands look for"
+}`;
+
+      const userPrompt = `CHARGEBACK CASE:
+Reason Code: ${cb.reasonCode}
+Dispute Category: ${codeContext.category}
+Card Brand: ${cb.cardBrand}
+Transaction Date: ${cb.transactionDate ? new Date(cb.transactionDate).toLocaleDateString() : "N/A"}
+Amount: $${cb.amount.toFixed(2)}
+Response Deadline: ${cb.responseDeadline ? new Date(cb.responseDeadline).toLocaleDateString() : "N/A"}
+Reason Description: ${cb.reasonDescription || "None provided"}
+Status: ${cb.status}
+Notes: ${cb.notes || "None"}
+
+MERCHANT PROFILE:
+${merchantHistory}
+
+DEAL / PROCESSING HISTORY:
+${dealHistory}
+
+EVIDENCE FILES ATTACHED:
+${evidenceFilesList}
+
+MID / TRANSACTION HISTORY (last 30 days):
+${recentMidStats.length > 0
+  ? recentMidStats.map(s =>
+      `${s.date}: Vol=$${(s.volume || 0).toFixed(2)}, Txns=${s.txCount || 0}, AvgTicket=$${(s.avgTicket || 0).toFixed(2)}, ChargebackCount=${s.chargebackCount || 0}, ChargebackAmt=$${(s.chargebackAmount || 0).toFixed(2)}`
+    ).join("\n")
+  : "No MID daily stats available for this merchant."}
+
+REBUTTAL STRATEGY FOR THIS REASON CODE:
+${codeContext.rebuttalletter}
+
+EVIDENCE RECOMMENDED FOR THIS DISPUTE TYPE:
+${codeContext.evidenceNeeded.map((e, i) => `${i + 1}. ${e}`).join("\n")}
+
+${kbRelevant ? `RELEVANT KNOWLEDGE BASE ENTRIES:\n${kbRelevant}` : ""}
+
+Based on the above, generate the evidence packet. For the evidenceChecklist, check each recommended evidence type against what's been attached. Mark as "included" if there's a matching evidence file, "missing" if not present, "partial" if partly addressed. Draft the rebuttal letter on behalf of ${contact?.companyName || "the merchant"}, addressing the ${cb.cardBrand} dispute panel.`;
+
+      const { OpenAI } = await import("openai");
+      const openai = new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
+
+      const completion = await logAiCall(
+        { triggerType: "chargeback-copilot", actorType: (req as any).user?.role || "agent", actorId: (req as any).user?.id?.toString() },
+        () => openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+          max_tokens: 2000,
+          response_format: { type: "json_object" },
+        })
+      );
+
+      const raw = completion.choices[0]?.message?.content || "{}";
+      let packet: any;
+      try {
+        packet = JSON.parse(raw);
+      } catch {
+        return res.status(500).json({ message: "AI returned malformed response. Please try again." });
+      }
+
+      const aiEvidencePacket = {
+        rebuttalletter: packet.rebuttalletter || "",
+        evidenceChecklist: packet.evidenceChecklist || [],
+        winLikelihood: packet.winLikelihood || { estimate: "Unknown", rationale: "" },
+        reasonCodeContext: packet.reasonCodeContext || "",
+        generatedAt: new Date().toISOString(),
+        merchantProfile: contact ? {
+          merchantName: contact.companyName || `${contact.firstName} ${contact.lastName}`,
+          address: contact.address || undefined,
+          city: contact.city || undefined,
+          state: contact.state || undefined,
+          website: contact.website || undefined,
+          vertical: contact.vertical || undefined,
+          mid: deal?.mid || undefined,
+        } : undefined,
+        auditTrail: {
+          systemPrompt,
+          userPrompt,
+          rawModelOutput: raw,
+          model: completion.model || "gpt-4o",
+          promptTokens: completion.usage?.prompt_tokens,
+          completionTokens: completion.usage?.completion_tokens,
+          generatedByUserId: (req as any).user?.id?.toString(),
+          generatedByRole: (req as any).user?.role,
+        },
+      };
+
+      const updated = await storage.updateChargeback(chargebackId, {
+        aiEvidencePacket: aiEvidencePacket as any,
+      });
+
+      await storage.createAuditLog({
+        action: "chargeback_ai_packet_generated",
+        entityType: "chargeback",
+        entityId: chargebackId,
+        details: {
+          reasonCode: cb.reasonCode,
+          cardBrand: cb.cardBrand,
+          winLikelihood: aiEvidencePacket.winLikelihood.estimate,
+          checkedItems: aiEvidencePacket.evidenceChecklist.length,
+          model: aiEvidencePacket.auditTrail.model,
+          promptTokens: aiEvidencePacket.auditTrail.promptTokens,
+          completionTokens: aiEvidencePacket.auditTrail.completionTokens,
+          generatedByUserId: aiEvidencePacket.auditTrail.generatedByUserId,
+          midStatsRecordsUsed: recentMidStats.length,
+          evidenceFilesCount: ((cb.evidenceFiles as any[]) || []).length,
+        },
+      });
+
+      res.json({ packet: aiEvidencePacket, chargeback: updated });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Chargeback copilot error" });
+    }
+  });
+
+  app.patch("/api/ai/chargeback-copilot/:id/finalize", isDashboardUser, async (req, res) => {
+    try {
+      const chargebackId = Number(req.params.id);
+      const { editedRebuttal, editedChecklist } = req.body;
+      const cb = await storage.getChargeback(chargebackId);
+      if (!cb) return res.status(404).json({ message: "Not found" });
+
+      const existing = cb.aiEvidencePacket as any;
+      if (!existing) return res.status(400).json({ message: "No AI packet exists for this chargeback. Generate one first." });
+
+      const now = new Date().toISOString();
+      const hadEdits = (!!editedRebuttal && editedRebuttal !== existing.rebuttalletter) ||
+        (Array.isArray(editedChecklist) && JSON.stringify(editedChecklist) !== JSON.stringify(existing.evidenceChecklist));
+
+      const updated = await storage.updateChargeback(chargebackId, {
+        aiEvidencePacket: {
+          ...existing,
+          editedRebuttal: editedRebuttal || existing.rebuttalletter,
+          evidenceChecklist: Array.isArray(editedChecklist) ? editedChecklist : existing.evidenceChecklist,
+          finalizedAt: now,
+          finalizationTrail: {
+            finalizedByUserId: (req as any).user?.id?.toString(),
+            finalizedByRole: (req as any).user?.role,
+            hadEdits,
+            finalizedAt: now,
+          },
+        } as any,
+      });
+
+      await storage.createAuditLog({
+        action: "chargeback_ai_packet_finalized",
+        entityType: "chargeback",
+        entityId: chargebackId,
+        details: {
+          finalizedAt: now,
+          hadEdits,
+          finalizedByUserId: (req as any).user?.id?.toString(),
+          finalizedByRole: (req as any).user?.role,
+        },
+      });
+
+      res.json({ chargeback: updated });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+
   // === AI AUDIT LOGS ===
   app.get("/api/operator/ai-audit", isDashboardUser, async (req, res) => {
     try {

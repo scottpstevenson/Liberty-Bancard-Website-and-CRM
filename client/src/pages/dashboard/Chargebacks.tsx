@@ -15,7 +15,8 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   AlertTriangle, Plus, DollarSign, Clock, CheckCircle, XCircle, TrendingDown,
-  ShieldAlert, FileText, ChevronRight, X, Loader2, ArrowUpRight,
+  ShieldAlert, FileText, ChevronRight, X, Loader2, ArrowUpRight, Sparkles,
+  ClipboardCopy, Download, Check, AlertCircle, HelpCircle, ChevronDown, ChevronUp,
 } from "lucide-react";
 
 const STATUS_CONFIG: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline"; className?: string }> = {
@@ -90,18 +91,461 @@ const DEFAULT_FORM: ChargebackFormState = {
   notes: "",
 };
 
+type ChecklistItem = { item: string; status: "included" | "missing" | "partial"; notes?: string };
+
+type AiPacket = {
+  rebuttalletter: string;
+  evidenceChecklist: ChecklistItem[];
+  winLikelihood: { estimate: string; rationale: string };
+  reasonCodeContext: string;
+  generatedAt: string;
+  finalizedAt?: string;
+  editedRebuttal?: string;
+  merchantProfile?: {
+    merchantName: string;
+    address?: string;
+    city?: string;
+    state?: string;
+    website?: string;
+    vertical?: string;
+    mid?: string;
+  };
+};
+
+function WinLikelihoodBadge({ estimate }: { estimate: string }) {
+  if (estimate === "High") return <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">High Win Likelihood</Badge>;
+  if (estimate === "Moderate") return <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200">Moderate Win Likelihood</Badge>;
+  if (estimate === "Low") return <Badge variant="destructive">Low Win Likelihood</Badge>;
+  return <Badge variant="outline">{estimate}</Badge>;
+}
+
+function ChecklistStatusIcon({ status }: { status: string }) {
+  if (status === "included") return <Check className="w-4 h-4 text-green-600 shrink-0" />;
+  if (status === "partial") return <HelpCircle className="w-4 h-4 text-amber-500 shrink-0" />;
+  return <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />;
+}
+
+function triggerPrint(cb: Chargeback, packet: AiPacket, editedRebuttal: string, editedChecklist: ChecklistItem[]) {
+  const finalLetter = editedRebuttal || packet.rebuttalletter;
+  const finalChecklist = editedChecklist.length ? editedChecklist : packet.evidenceChecklist;
+  const mp = packet.merchantProfile;
+  const win = window.open("", "_blank");
+  if (!win) return;
+
+  const doc = win.document;
+  doc.open();
+  doc.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Chargeback Evidence Packet</title><style>
+    body{font-family:Georgia,serif;margin:40px;color:#111;font-size:14px;line-height:1.6}
+    .letterhead{border-bottom:3px solid #1e3a5f;padding-bottom:16px;margin-bottom:20px}
+    .letterhead-name{font-size:22px;font-weight:bold;color:#1e3a5f}
+    .letterhead-meta{font-size:12px;color:#555;margin-top:4px}
+    h1{font-size:18px;margin-bottom:4px;color:#1e3a5f}
+    h2{font-size:15px;margin-top:28px;margin-bottom:8px;border-bottom:1px solid #ccc;padding-bottom:4px;color:#1e3a5f}
+    .dispute-meta{color:#555;font-size:12px;margin-bottom:20px;padding:10px 14px;background:#f9f9f9;border:1px solid #e5e5e5;border-radius:4px}
+    .dispute-meta-row{margin-bottom:3px}
+    .letter{white-space:pre-wrap;margin-top:8px}
+    table{width:100%;border-collapse:collapse;margin-top:8px;font-size:13px}
+    th{text-align:left;padding:6px 8px;background:#1e3a5f;color:#fff;border:1px solid #1e3a5f}
+    td{padding:6px 8px;border:1px solid #ddd;vertical-align:top}
+    .included{color:#15803d;font-weight:bold}
+    .missing{color:#dc2626;font-weight:bold}
+    .partial{color:#d97706;font-weight:bold}
+    .footer{margin-top:40px;font-size:11px;color:#777;border-top:1px solid #eee;padding-top:12px;text-align:center}
+    @media print{body{margin:20px}}
+  </style></head><body></body></html>`);
+  doc.close();
+
+  const body = doc.body;
+
+  // Merchant letterhead
+  const lh = doc.createElement("div");
+  lh.className = "letterhead";
+  const lhName = doc.createElement("div");
+  lhName.className = "letterhead-name";
+  lhName.textContent = mp?.merchantName || "Merchant";
+  lh.appendChild(lhName);
+  const lhDetails: string[] = [];
+  if (mp?.address) lhDetails.push(mp.address);
+  if (mp?.city || mp?.state) lhDetails.push([mp?.city, mp?.state].filter(Boolean).join(", "));
+  if (mp?.website) lhDetails.push(mp.website);
+  if (mp?.vertical) lhDetails.push(`Industry: ${mp.vertical}`);
+  if (mp?.mid) lhDetails.push(`MID: ${mp.mid}`);
+  if (lhDetails.length) {
+    const lhMeta = doc.createElement("div");
+    lhMeta.className = "letterhead-meta";
+    lhMeta.textContent = lhDetails.join("  ·  ");
+    lh.appendChild(lhMeta);
+  }
+  body.appendChild(lh);
+
+  const h1 = doc.createElement("h1");
+  h1.textContent = "Chargeback Evidence Packet & Rebuttal Letter";
+  body.appendChild(h1);
+
+  // Dispute metadata box
+  const meta = doc.createElement("div");
+  meta.className = "dispute-meta";
+  const metaRows = [
+    ["Reason Code", cb.reasonCode],
+    ["Card Brand", cb.cardBrand],
+    ["Dispute Amount", formatCurrency(cb.amount)],
+    ["Transaction Date", formatDate(cb.transactionDate)],
+    ["Response Deadline", formatDate(cb.responseDeadline)],
+    ["Win Likelihood", packet.winLikelihood.estimate],
+    ["Generated", new Date(packet.generatedAt).toLocaleString()],
+    packet.finalizedAt ? ["Finalized", new Date(packet.finalizedAt).toLocaleString()] : null,
+  ].filter(Boolean) as [string, string][];
+  metaRows.forEach(([label, value]) => {
+    const row = doc.createElement("div");
+    row.className = "dispute-meta-row";
+    const b = doc.createElement("strong");
+    b.textContent = `${label}: `;
+    row.appendChild(b);
+    row.appendChild(doc.createTextNode(value));
+    meta.appendChild(row);
+  });
+  body.appendChild(meta);
+
+  if (packet.reasonCodeContext) {
+    const h2ctx = doc.createElement("h2");
+    h2ctx.textContent = "Dispute Context";
+    body.appendChild(h2ctx);
+    const p = doc.createElement("p");
+    p.textContent = packet.reasonCodeContext;
+    body.appendChild(p);
+  }
+
+  const h2letter = doc.createElement("h2");
+  h2letter.textContent = "Rebuttal Letter";
+  body.appendChild(h2letter);
+  const letterDiv = doc.createElement("div");
+  letterDiv.className = "letter";
+  letterDiv.textContent = finalLetter;
+  body.appendChild(letterDiv);
+
+  const h2list = doc.createElement("h2");
+  h2list.textContent = "Evidence Checklist";
+  body.appendChild(h2list);
+  const table = doc.createElement("table");
+  const thead = doc.createElement("thead");
+  thead.innerHTML = "<tr><th>Evidence Item</th><th>Status</th><th>Notes</th></tr>";
+  table.appendChild(thead);
+  const tbody = doc.createElement("tbody");
+  finalChecklist.forEach(c => {
+    const tr = doc.createElement("tr");
+    const tdItem = doc.createElement("td");
+    tdItem.textContent = c.item;
+    const tdStatus = doc.createElement("td");
+    tdStatus.className = c.status;
+    tdStatus.textContent = c.status.charAt(0).toUpperCase() + c.status.slice(1);
+    const tdNotes = doc.createElement("td");
+    tdNotes.textContent = c.notes || "";
+    tr.appendChild(tdItem);
+    tr.appendChild(tdStatus);
+    tr.appendChild(tdNotes);
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  body.appendChild(table);
+
+  const h2win = doc.createElement("h2");
+  h2win.textContent = "Win Likelihood Assessment";
+  body.appendChild(h2win);
+  const pwin = doc.createElement("p");
+  const strong = doc.createElement("strong");
+  strong.textContent = packet.winLikelihood.estimate;
+  pwin.appendChild(strong);
+  pwin.appendChild(doc.createTextNode(` — ${packet.winLikelihood.rationale}`));
+  body.appendChild(pwin);
+
+  const footer = doc.createElement("div");
+  footer.className = "footer";
+  footer.textContent = "Generated by Liberty Bancard AI Chargeback Copilot  |  This packet is for internal use only. Verify all evidence before submission.";
+  body.appendChild(footer);
+
+  win.focus();
+  setTimeout(() => win.print(), 500);
+}
+
+interface CopilotPanelProps {
+  chargeback: Chargeback;
+  onClose: () => void;
+}
+
+function CopilotPanel({ chargeback: cb, onClose }: CopilotPanelProps) {
+  const { toast } = useToast();
+  const existing = cb.aiEvidencePacket as AiPacket | null;
+  const [packet, setPacket] = useState<AiPacket | null>(existing);
+  const [editedRebuttal, setEditedRebuttal] = useState(existing?.editedRebuttal || existing?.rebuttalletter || "");
+  const [editedChecklist, setEditedChecklist] = useState<ChecklistItem[]>(existing?.evidenceChecklist || []);
+  const [copied, setCopied] = useState(false);
+  const [checklistOpen, setChecklistOpen] = useState(true);
+
+  const syncState = (p: AiPacket) => {
+    setPacket(p);
+    setEditedRebuttal(p.editedRebuttal || p.rebuttalletter || "");
+    setEditedChecklist(p.evidenceChecklist || []);
+  };
+
+  const generateMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/ai/chargeback-copilot/${cb.id}`, {});
+      if (!res.ok) { const err = await res.json(); throw new Error(err.message || "Generation failed"); }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      syncState(data.packet as AiPacket);
+      queryClient.invalidateQueries({ queryKey: ["/api/chargebacks"] });
+      toast({ title: "Evidence packet generated", description: "Review and edit before finalizing." });
+    },
+    onError: (err: any) => toast({ title: "Generation failed", description: err.message, variant: "destructive" }),
+  });
+
+  const finalizeMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("PATCH", `/api/ai/chargeback-copilot/${cb.id}/finalize`, {
+        editedRebuttal,
+        editedChecklist,
+      });
+      if (!res.ok) { const err = await res.json(); throw new Error(err.message || "Finalization failed"); }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      const p = data.chargeback?.aiEvidencePacket as AiPacket;
+      if (p) syncState(p);
+      queryClient.invalidateQueries({ queryKey: ["/api/chargebacks"] });
+      toast({ title: "Packet finalized", description: "Changes saved. Ready to download." });
+    },
+    onError: (err: any) => toast({ title: "Finalization failed", description: err.message, variant: "destructive" }),
+  });
+
+  const updateChecklistItem = (i: number, changes: Partial<ChecklistItem>) => {
+    setEditedChecklist(prev => prev.map((c, idx) => idx === i ? { ...c, ...changes } : c));
+  };
+
+  const handleCopy = async () => {
+    if (!packet) return;
+    const cl = editedChecklist.length ? editedChecklist : packet.evidenceChecklist;
+    const text = [
+      "CHARGEBACK EVIDENCE PACKET",
+      "=".repeat(40),
+      `Merchant: ${packet.merchantProfile?.merchantName || ""}`,
+      `Reason Code: ${cb.reasonCode}`,
+      `Card Brand: ${cb.cardBrand}`,
+      `Amount: ${formatCurrency(cb.amount)}`,
+      `Transaction Date: ${formatDate(cb.transactionDate)}`,
+      "",
+      "REBUTTAL LETTER",
+      "=".repeat(40),
+      editedRebuttal || packet.rebuttalletter,
+      "",
+      "EVIDENCE CHECKLIST",
+      "=".repeat(40),
+      ...cl.map(c => `[${c.status.toUpperCase()}] ${c.item}${c.notes ? ` — ${c.notes}` : ""}`),
+      "",
+      `WIN LIKELIHOOD: ${packet.winLikelihood.estimate}`,
+      packet.winLikelihood.rationale,
+    ].join("\n");
+    await navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+    toast({ title: "Copied to clipboard" });
+  };
+
+  const included = editedChecklist.filter(c => c.status === "included").length;
+  const total = editedChecklist.length;
+
+  return (
+    <div className="flex flex-col h-full" data-testid="copilot-panel">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-4 pb-4 border-b shrink-0">
+        <div>
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-5 h-5 text-primary" />
+            <h2 className="text-lg font-bold">AI Chargeback Copilot</h2>
+          </div>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            {cb.reasonCode} &nbsp;·&nbsp; {cb.cardBrand} &nbsp;·&nbsp; {formatCurrency(cb.amount)}
+            {packet?.merchantProfile?.merchantName && (
+              <> &nbsp;·&nbsp; <span className="font-medium text-foreground">{packet.merchantProfile.merchantName}</span></>
+            )}
+          </p>
+        </div>
+        <Button variant="ghost" size="icon" aria-label="Close copilot" onClick={onClose} data-testid="button-close-copilot">
+          <X className="w-4 h-4" />
+        </Button>
+      </div>
+
+      {!packet ? (
+        <div className="flex-1 flex flex-col items-center justify-center gap-4 py-10">
+          <Sparkles className="w-12 h-12 text-muted-foreground" />
+          <div className="text-center">
+            <p className="font-semibold text-base">No evidence packet yet</p>
+            <p className="text-sm text-muted-foreground mt-1 max-w-md">
+              AI will analyze this chargeback, map the reason code strategy, draft a rebuttal letter,
+              and generate a complete evidence checklist based on your merchant's transaction history.
+            </p>
+          </div>
+          <Button
+            onClick={() => generateMutation.mutate()}
+            disabled={generateMutation.isPending}
+            size="lg"
+            data-testid="button-generate-packet"
+          >
+            {generateMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
+            {generateMutation.isPending ? "Analyzing chargeback…" : "Build Evidence Packet"}
+          </Button>
+        </div>
+      ) : (
+        <div className="flex-1 overflow-y-auto">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pt-4 pb-4 pr-1">
+
+            {/* LEFT COLUMN — context + checklist */}
+            <div className="space-y-5">
+              <div className="flex flex-wrap items-center gap-2">
+                <WinLikelihoodBadge estimate={packet.winLikelihood.estimate} />
+                <Badge variant="outline">{included}/{total} evidence ready</Badge>
+                {packet.finalizedAt && <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">Finalized</Badge>}
+                <span className="text-xs text-muted-foreground ml-auto">Generated {new Date(packet.generatedAt).toLocaleString()}</span>
+              </div>
+
+              {packet.reasonCodeContext && (
+                <div className="rounded-md bg-muted/60 px-4 py-3 text-sm border">
+                  <p className="font-medium text-xs text-muted-foreground uppercase tracking-wide mb-1">Dispute Context</p>
+                  <p>{packet.reasonCodeContext}</p>
+                </div>
+              )}
+
+              <div className="space-y-1">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Win Likelihood Rationale</p>
+                <p className="text-sm">{packet.winLikelihood.rationale}</p>
+              </div>
+
+              {/* Editable Evidence Checklist */}
+              <div className="space-y-2">
+                <div
+                  className="flex items-center justify-between cursor-pointer select-none"
+                  onClick={() => setChecklistOpen(v => !v)}
+                  data-testid="button-toggle-checklist"
+                >
+                  <p className="text-sm font-semibold">Evidence Checklist ({included}/{total} ready)</p>
+                  {checklistOpen ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+                </div>
+                {checklistOpen && (
+                  <div className="border rounded-md divide-y" data-testid="evidence-checklist">
+                    {editedChecklist.map((c, i) => (
+                      <div key={i} className="px-3 py-3 space-y-2" data-testid={`checklist-item-${i}`}>
+                        <div className="flex items-center gap-2">
+                          <ChecklistStatusIcon status={c.status} />
+                          <span className="text-sm font-medium flex-1">{c.item}</span>
+                          <Select
+                            value={c.status}
+                            onValueChange={(val) => updateChecklistItem(i, { status: val as ChecklistItem["status"] })}
+                          >
+                            <SelectTrigger
+                              className="h-6 w-24 text-xs px-2"
+                              data-testid={`select-checklist-status-${i}`}
+                            >
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="included">Included</SelectItem>
+                              <SelectItem value="partial">Partial</SelectItem>
+                              <SelectItem value="missing">Missing</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <Input
+                          value={c.notes || ""}
+                          onChange={e => updateChecklistItem(i, { notes: e.target.value })}
+                          placeholder="Add notes…"
+                          className="h-7 text-xs"
+                          data-testid={`input-checklist-notes-${i}`}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* RIGHT COLUMN — rebuttal letter */}
+            <div className="space-y-2 flex flex-col">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold">Rebuttal Letter</p>
+                <span className="text-xs text-muted-foreground">Edit before finalizing</span>
+              </div>
+              <Textarea
+                value={editedRebuttal}
+                onChange={e => setEditedRebuttal(e.target.value)}
+                className="font-mono text-sm resize-none flex-1 min-h-[420px]"
+                placeholder="Rebuttal letter will appear here…"
+                data-testid="textarea-rebuttal"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Action bar — always visible */}
+      {packet && (
+        <div className="flex flex-wrap gap-2 pt-3 border-t shrink-0">
+          <Button
+            onClick={() => generateMutation.mutate()}
+            disabled={generateMutation.isPending}
+            variant="outline"
+            size="sm"
+            data-testid="button-regenerate"
+          >
+            {generateMutation.isPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Sparkles className="w-3 h-3 mr-1" />}
+            Regenerate
+          </Button>
+
+          <Button
+            onClick={() => finalizeMutation.mutate()}
+            disabled={finalizeMutation.isPending}
+            size="sm"
+            data-testid="button-finalize"
+          >
+            {finalizeMutation.isPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Check className="w-3 h-3 mr-1" />}
+            Finalize & Save
+          </Button>
+
+          <Button
+            onClick={handleCopy}
+            variant="outline"
+            size="sm"
+            data-testid="button-copy-packet"
+          >
+            {copied ? <Check className="w-3 h-3 mr-1 text-green-600" /> : <ClipboardCopy className="w-3 h-3 mr-1" />}
+            Copy
+          </Button>
+
+          <Button
+            onClick={() => triggerPrint(cb, packet, editedRebuttal, editedChecklist)}
+            variant="outline"
+            size="sm"
+            data-testid="button-download-pdf"
+          >
+            <Download className="w-3 h-3 mr-1" />
+            Download PDF
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface DetailPanelProps {
   chargeback: Chargeback;
   onClose: () => void;
   onUpdated: () => void;
+  onOpenCopilot: () => void;
 }
 
-function ChargebackDetailPanel({ chargeback: cb, onClose, onUpdated }: DetailPanelProps) {
+function ChargebackDetailPanel({ chargeback: cb, onClose, onUpdated, onOpenCopilot }: DetailPanelProps) {
   const { toast } = useToast();
   const [notes, setNotes] = useState(cb.notes || "");
-  const [editingStatus, setEditingStatus] = useState(false);
-  const [newStatus, setNewStatus] = useState(cb.status);
-  const [outcome, setOutcome] = useState(cb.outcome || "");
   const [evidenceName, setEvidenceName] = useState("");
   const [evidenceUrl, setEvidenceUrl] = useState("");
 
@@ -138,6 +582,7 @@ function ChargebackDetailPanel({ chargeback: cb, onClose, onUpdated }: DetailPan
   const days = daysUntilDeadline(cb);
   const statusConfig = STATUS_CONFIG[cb.status] || STATUS_CONFIG["New"];
   const evidenceFiles = (cb.evidenceFiles as any[]) || [];
+  const aiPacket = cb.aiEvidencePacket as AiPacket | null;
 
   return (
     <div className="flex flex-col gap-6" data-testid="chargeback-detail-panel">
@@ -161,6 +606,21 @@ function ChargebackDetailPanel({ chargeback: cb, onClose, onUpdated }: DetailPan
           <X className="w-4 h-4" />
         </Button>
       </div>
+
+      <Button
+        onClick={onOpenCopilot}
+        className="w-full"
+        variant={aiPacket ? "outline" : "default"}
+        data-testid="button-open-copilot"
+      >
+        <Sparkles className="w-4 h-4 mr-2" />
+        {aiPacket ? "View / Edit Evidence Packet" : "Build Evidence Packet (AI)"}
+        {aiPacket && (
+          <Badge variant="secondary" className="ml-2 text-xs">
+            {(aiPacket as any).finalizedAt ? "Finalized" : "Draft"}
+          </Badge>
+        )}
+      </Button>
 
       <div className="grid grid-cols-2 gap-4 text-sm">
         <div>
@@ -302,6 +762,7 @@ export default function Chargebacks() {
   const [overdueFilter, setOverdueFilter] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [selectedCb, setSelectedCb] = useState<Chargeback | null>(null);
+  const [copilotCb, setCopilotCb] = useState<Chargeback | null>(null);
   const [form, setForm] = useState<ChargebackFormState>(DEFAULT_FORM);
 
   const queryParams = new URLSearchParams();
@@ -489,6 +950,7 @@ export default function Chargebacks() {
                 const overdue = isOverdue(cb);
                 const days = daysUntilDeadline(cb);
                 const statusConf = STATUS_CONFIG[cb.status] || STATUS_CONFIG["New"];
+                const aiPacket = cb.aiEvidencePacket as AiPacket | null;
                 return (
                   <div
                     key={cb.id}
@@ -512,6 +974,16 @@ export default function Chargebacks() {
                           {overdue && (
                             <Badge variant="destructive" data-testid={`badge-cb-overdue-${cb.id}`}>OVERDUE</Badge>
                           )}
+                          {aiPacket && (
+                            <Badge
+                              variant="outline"
+                              className="border-primary/40 text-primary text-xs"
+                              data-testid={`badge-cb-ai-${cb.id}`}
+                            >
+                              <Sparkles className="w-3 h-3 mr-1" />
+                              {aiPacket.finalizedAt ? "Finalized" : "AI Draft"}
+                            </Badge>
+                          )}
                         </div>
                         <p className="text-sm text-muted-foreground" data-testid={`text-cb-reason-${cb.id}`}>{cb.reasonCode}</p>
                         <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
@@ -527,7 +999,19 @@ export default function Chargebacks() {
                         </div>
                       </div>
                     </div>
-                    <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Button
+                        size="sm"
+                        variant={aiPacket ? "outline" : "ghost"}
+                        className="text-xs"
+                        onClick={e => { e.stopPropagation(); setCopilotCb(cb); }}
+                        data-testid={`button-copilot-${cb.id}`}
+                      >
+                        <Sparkles className="w-3 h-3 mr-1" />
+                        {aiPacket ? "View Packet" : "Build Packet"}
+                      </Button>
+                      <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                    </div>
                   </div>
                 );
               })}
@@ -657,7 +1141,7 @@ export default function Chargebacks() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!selectedCb} onOpenChange={open => !open && setSelectedCb(null)}>
+      <Dialog open={!!selectedCb && !copilotCb} onOpenChange={open => !open && setSelectedCb(null)}>
         <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto" data-testid="dialog-chargeback-detail">
           {selectedCb && (
             <ChargebackDetailPanel
@@ -667,6 +1151,21 @@ export default function Chargebacks() {
                 queryClient.invalidateQueries({ queryKey: ["/api/chargebacks"] });
                 setSelectedCb(null);
               }}
+              onOpenCopilot={() => {
+                setCopilotCb(selectedCb);
+                setSelectedCb(null);
+              }}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!copilotCb} onOpenChange={open => !open && setCopilotCb(null)}>
+        <DialogContent className="max-w-[95vw] w-full h-[95vh] flex flex-col p-6 gap-0 overflow-hidden" data-testid="dialog-copilot">
+          {copilotCb && (
+            <CopilotPanel
+              chargeback={copilotCb}
+              onClose={() => setCopilotCb(null)}
             />
           )}
         </DialogContent>

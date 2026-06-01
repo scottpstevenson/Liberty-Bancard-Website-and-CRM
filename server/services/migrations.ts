@@ -259,6 +259,10 @@ export async function runStartupMigrations(): Promise<void> {
       CREATE INDEX IF NOT EXISTS review_queue_source_idx ON review_queue(source_type, source_id);
     `);
 
+    await client.query(`
+      ALTER TABLE chargebacks ADD COLUMN IF NOT EXISTS ai_evidence_packet jsonb DEFAULT NULL;
+    `);
+
     console.log("[Migrations] Startup migrations applied successfully.");
   } catch (err: any) {
     console.error("[Migrations] Error applying startup migrations:", err.message);
