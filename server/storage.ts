@@ -122,6 +122,7 @@ import { BusinessesStorage } from "./storage/businesses";
 import { SdrStorage } from "./storage/sdr";
 import { PartnerOrgsStorage } from "./storage/partner-orgs";
 import { ContentStorage } from "./storage/content";
+import { ChurnStorage } from "./storage/churn";
 
 export interface PaginationParams {
   limit?: number;
@@ -628,6 +629,16 @@ export interface IStorage {
   getSyncConflicts(resolution?: string): Promise<import("@shared/schema").SyncConflict[]>;
   createSyncConflict(data: import("@shared/schema").InsertSyncConflict): Promise<import("@shared/schema").SyncConflict>;
   resolveSyncConflict(id: number, resolution: "kept-internal" | "kept-ghl" | "manual"): Promise<import("@shared/schema").SyncConflict | undefined>;
+
+  // Churn Scores
+  getMerchantHealthScores(filters?: { riskTier?: string; vertical?: string; agentOwner?: string }): Promise<import("@shared/schema").MerchantHealthScore[]>;
+  getMerchantHealthScoreByContact(contactId: number): Promise<import("@shared/schema").MerchantHealthScore | undefined>;
+  upsertMerchantHealthScore(data: import("@shared/schema").InsertMerchantHealthScore): Promise<import("@shared/schema").MerchantHealthScore>;
+  updateMerchantHealthScore(id: number, updates: Partial<import("@shared/schema").InsertMerchantHealthScore>): Promise<import("@shared/schema").MerchantHealthScore | undefined>;
+  getChurnScoreWeights(): Promise<import("@shared/schema").ChurnScoreWeight[]>;
+  upsertChurnScoreWeight(signalKey: string, weight: number, label?: string, description?: string): Promise<import("@shared/schema").ChurnScoreWeight>;
+  getMerchantHealthScoresByTier(tier: string): Promise<import("@shared/schema").MerchantHealthScore[]>;
+  getChurnRiskSummary(): Promise<{ tier: string; count: number }[]>;
 }
 
 const DEFAULT_LIMIT = 100;
@@ -657,10 +668,10 @@ function normalizePagination(params?: PaginationParams): { limit: number; offset
     }
   }
 
-export interface DatabaseStorage extends ContactsStorage, DealsStorage, TicketsStorage, TasksStorage, DocumentsStorage, AuditStorage, NotificationsStorage, WorkflowsStorage, TemplatesStorage, ProspectsStorage, CampaignsStorage, NotesStorage, CommLogsStorage, AutomationStorage, SunbizStorage, MerchantsStorage, ResidualsStorage, HealthStorage, PartnersStorage, ReviewsStorage, MiscStorage, BusinessesStorage, SdrStorage, PartnerOrgsStorage, ContentStorage {}
+export interface DatabaseStorage extends ContactsStorage, DealsStorage, TicketsStorage, TasksStorage, DocumentsStorage, AuditStorage, NotificationsStorage, WorkflowsStorage, TemplatesStorage, ProspectsStorage, CampaignsStorage, NotesStorage, CommLogsStorage, AutomationStorage, SunbizStorage, MerchantsStorage, ResidualsStorage, HealthStorage, PartnersStorage, ReviewsStorage, MiscStorage, BusinessesStorage, SdrStorage, PartnerOrgsStorage, ContentStorage, ChurnStorage {}
 
 export class DatabaseStorage implements IStorage {}
 
-applyMixins(DatabaseStorage, [ContactsStorage, DealsStorage, TicketsStorage, TasksStorage, DocumentsStorage, AuditStorage, NotificationsStorage, WorkflowsStorage, TemplatesStorage, ProspectsStorage, CampaignsStorage, NotesStorage, CommLogsStorage, AutomationStorage, SunbizStorage, MerchantsStorage, ResidualsStorage, HealthStorage, PartnersStorage, ReviewsStorage, MiscStorage, BusinessesStorage, SdrStorage, PartnerOrgsStorage, ContentStorage]);
+applyMixins(DatabaseStorage, [ContactsStorage, DealsStorage, TicketsStorage, TasksStorage, DocumentsStorage, AuditStorage, NotificationsStorage, WorkflowsStorage, TemplatesStorage, ProspectsStorage, CampaignsStorage, NotesStorage, CommLogsStorage, AutomationStorage, SunbizStorage, MerchantsStorage, ResidualsStorage, HealthStorage, PartnersStorage, ReviewsStorage, MiscStorage, BusinessesStorage, SdrStorage, PartnerOrgsStorage, ContentStorage, ChurnStorage]);
 
 export const storage = new DatabaseStorage();

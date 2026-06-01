@@ -21,7 +21,7 @@ import {
   Ticket, Mail, Phone, Building2,
   Activity, Link2, Trash2, Star,
   RefreshCw, CheckCircle2, AlertCircle, Linkedin, FolderOpen, Info,
-  ChevronDown, ChevronUp,
+  ChevronDown, ChevronUp, Brain, AlertOctagon, ShieldCheck,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import Comments from "@/components/Comments";
@@ -43,7 +43,318 @@ import { ActivityTimelineFull } from "./contact-detail-tabs/ActivityTab";
 import { LinkedinEnrichmentSection } from "./contact-detail-tabs/LinkedinEnrichmentSection";
   import { CreateDialogs } from "./contact-detail-tabs/CreateDialogs";
 import { GhlSyncStatus } from "./contact-detail-tabs/GhlSyncStatus";
-  
+
+// ── Churn Risk Panel ──────────────────────────────────────────────────────────
+type MerchantHealthScore = {
+  id: number;
+  contactId: number;
+  churnScore: number;
+  riskTier: string;
+  volumeTrendScore: number | null;
+  chargebackTrendScore: number | null;
+  ticketVelocityScore: number | null;
+  npsScore: number | null;
+  portalActivityScore: number | null;
+  outreachResponseScore: number | null;
+  overrideScore: number | null;
+  overrideNote: string | null;
+  overriddenAt: string | null;
+  overriddenBy: string | null;
+  retentionCampaignTriggered: boolean | null;
+  agentNotified: boolean | null;
+  computedAt: string | null;
+};
+
+const TIER_CFG: Record<string, { textClass: string; bgClass: string; label: string }> = {
+  Critical: { textClass: "text-red-700 dark:text-red-400", bgClass: "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-900", label: "Critical Risk" },
+  High: { textClass: "text-orange-600 dark:text-orange-400", bgClass: "bg-orange-50 dark:bg-orange-950/30 border-orange-200 dark:border-orange-900", label: "High Risk" },
+  Medium: { textClass: "text-amber-600 dark:text-amber-400", bgClass: "bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-900", label: "Medium Risk" },
+  Low: { textClass: "text-green-700 dark:text-green-400", bgClass: "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-900", label: "Low Risk" },
+};
+
+function tierFromScore(s: number) {
+  return s > 85 ? "Critical" : s > 70 ? "High" : s >= 40 ? "Medium" : "Low";
+}
+
+function ScoreBar({ value, max = 30 }: { value: number; max?: number }) {
+  const pct = Math.min(100, Math.round((value / max) * 100));
+  const color = pct > 80 ? "bg-red-500" : pct > 50 ? "bg-amber-400" : "bg-green-500";
+  return (
+    <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+      <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
+    </div>
+  );
+}
+
+function ChurnRiskPanel({ contactId, isManagerOrAdmin }: { contactId: number; isManagerOrAdmin: boolean }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [showOverrideForm, setShowOverrideForm] = useState(false);
+  const [overrideScore, setOverrideScore] = useState<string>("");
+  const [overrideNote, setOverrideNote] = useState<string>("");
+
+  const { data: score, isLoading, refetch } = useQuery<MerchantHealthScore | null>({
+    queryKey: ["/api/churn-scores/contact", contactId],
+    queryFn: async () => {
+      const res = await fetch(`/api/churn-scores/contact/${contactId}`, { credentials: "include" });
+      if (!res.ok) return null;
+      return res.json();
+    },
+    enabled: !!contactId,
+  });
+
+  const { data: churnWeights = [] } = useQuery<{ signalKey: string; weight: number; label: string }[]>({
+    queryKey: ["/api/churn-score-weights"],
+  });
+  const weightsMap = Object.fromEntries(churnWeights.map(w => [w.signalKey, w.weight]));
+
+  const computeMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/churn-scores/contact/${contactId}/compute`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Computation failed");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/churn-scores/contact", contactId] });
+      toast({ title: "Churn score recomputed successfully" });
+    },
+    onError: () => toast({ title: "Failed to compute churn score", variant: "destructive" }),
+  });
+
+  const overrideMutation = useMutation({
+    mutationFn: async () => {
+      const val = Number(overrideScore);
+      if (isNaN(val) || val < 0 || val > 100) throw new Error("Score must be 0–100");
+      if (!overrideNote.trim()) throw new Error("Justification is required");
+      const res = await fetch(`/api/churn-scores/contact/${contactId}/override`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ overrideScore: val, overrideNote: overrideNote.trim() }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || "Override failed");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/churn-scores/contact", contactId] });
+      setShowOverrideForm(false);
+      setOverrideScore("");
+      setOverrideNote("");
+      toast({ title: "Churn score override saved" });
+    },
+    onError: (err: Error) => toast({ title: err.message, variant: "destructive" }),
+  });
+
+  const clearOverrideMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/churn-scores/contact/${contactId}/override`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Clear override failed");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/churn-scores/contact", contactId] });
+      toast({ title: "Override cleared — reverted to computed score" });
+    },
+    onError: () => toast({ title: "Failed to clear override", variant: "destructive" }),
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-16" data-testid="churn-panel-loading">
+        <div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full" />
+      </div>
+    );
+  }
+
+  if (!score) {
+    return (
+      <Card data-testid="churn-panel-empty">
+        <CardContent className="pt-8 pb-8 text-center space-y-4">
+          <Brain className="h-12 w-12 mx-auto text-muted-foreground opacity-30" />
+          <div>
+            <p className="font-medium text-muted-foreground">No churn score yet</p>
+            <p className="text-sm text-muted-foreground mt-1">Scores are computed nightly. You can trigger a manual computation now.</p>
+          </div>
+          <Button onClick={() => computeMutation.mutate()} disabled={computeMutation.isPending} data-testid="button-compute-churn">
+            {computeMutation.isPending ? <span className="animate-spin mr-1 h-4 w-4 border-2 border-white border-t-transparent rounded-full inline-block" /> : <Brain className="h-4 w-4 mr-1" />}
+            Compute Now
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const effectiveScore = score.overrideScore !== null ? score.overrideScore : score.churnScore;
+  const effectiveTier = tierFromScore(effectiveScore);
+  const tierCfg = TIER_CFG[effectiveTier] || TIER_CFG.Low;
+
+  const components = [
+    { key: "volume_trend", label: "Processing Volume Trend", value: score.volumeTrendScore ?? 0 },
+    { key: "chargeback_trend", label: "Chargeback Ratio Trend", value: score.chargebackTrendScore ?? 0 },
+    { key: "ticket_velocity", label: "Support Ticket Velocity", value: score.ticketVelocityScore ?? 0 },
+    { key: "nps_score", label: "NPS Score", value: score.npsScore ?? 0 },
+    { key: "portal_activity", label: "Portal Activity", value: score.portalActivityScore ?? 0 },
+    { key: "outreach_response", label: "Outreach Response Rate", value: score.outreachResponseScore ?? 0 },
+  ];
+
+  return (
+    <div className="space-y-4" data-testid="churn-risk-panel">
+      {/* Main score card */}
+      <Card className={`border-2 ${tierCfg.bgClass}`} data-testid="card-churn-score">
+        <CardContent className="pt-5 pb-5">
+          <div className="flex items-center justify-between flex-wrap gap-4">
+            <div className="flex items-center gap-4">
+              <div className="text-center">
+                <div className={`text-4xl font-bold ${tierCfg.textClass}`} data-testid="text-churn-score">
+                  {Math.round(effectiveScore)}
+                </div>
+                <div className="text-xs text-muted-foreground mt-0.5">/ 100</div>
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className={`text-lg font-semibold ${tierCfg.textClass}`} data-testid="text-churn-tier">{tierCfg.label}</span>
+                  {score.overrideScore !== null && (
+                    <Badge variant="outline" className="text-xs border-amber-400 text-amber-600" data-testid="badge-override-active">
+                      Manual Override
+                    </Badge>
+                  )}
+                  {score.retentionCampaignTriggered && (
+                    <Badge variant="secondary" className="text-xs" data-testid="badge-retention-triggered">
+                      <ShieldCheck className="h-3 w-3 mr-1" />
+                      Retention Active
+                    </Badge>
+                  )}
+                </div>
+                {score.computedAt && (
+                  <p className="text-xs text-muted-foreground mt-0.5" data-testid="text-computed-at">
+                    Last computed {new Date(score.computedAt).toLocaleDateString()} at {new Date(score.computedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  </p>
+                )}
+                {score.overrideScore !== null && score.overrideNote && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5" data-testid="text-override-note">
+                    Override by {score.overriddenBy}: "{score.overrideNote}"
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              <Button variant="outline" size="sm" onClick={() => computeMutation.mutate()} disabled={computeMutation.isPending} data-testid="button-recompute-churn">
+                <RefreshCw className={`h-4 w-4 mr-1 ${computeMutation.isPending ? "animate-spin" : ""}`} />
+                Recompute
+              </Button>
+              {isManagerOrAdmin && (
+                <>
+                  {score.overrideScore !== null ? (
+                    <Button variant="outline" size="sm" onClick={() => clearOverrideMutation.mutate()} disabled={clearOverrideMutation.isPending} data-testid="button-clear-override">
+                      <X className="h-4 w-4 mr-1" />
+                      Clear Override
+                    </Button>
+                  ) : (
+                    <Button variant="outline" size="sm" onClick={() => setShowOverrideForm(true)} data-testid="button-set-override">
+                      <AlertOctagon className="h-4 w-4 mr-1" />
+                      Override Score
+                    </Button>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Override form */}
+      {showOverrideForm && isManagerOrAdmin && (
+        <Card className="border-amber-200 dark:border-amber-800" data-testid="card-override-form">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm flex items-center gap-2 text-amber-700 dark:text-amber-400">
+              <AlertOctagon className="h-4 w-4" />
+              Manual Score Override
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">New Score (0–100)</label>
+              <Input
+                type="number"
+                min="0"
+                max="100"
+                value={overrideScore}
+                onChange={e => setOverrideScore(e.target.value)}
+                placeholder="e.g. 25"
+                className="mt-1"
+                data-testid="input-override-score"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Justification (required)</label>
+              <Textarea
+                value={overrideNote}
+                onChange={e => setOverrideNote(e.target.value)}
+                placeholder="Reason for overriding the computed score..."
+                className="mt-1 min-h-[80px]"
+                data-testid="input-override-note"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" onClick={() => overrideMutation.mutate()} disabled={overrideMutation.isPending} data-testid="button-save-override">
+                {overrideMutation.isPending ? "Saving…" : "Save Override"}
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setShowOverrideForm(false)} data-testid="button-cancel-override">
+                Cancel
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Score breakdown */}
+      <Card data-testid="card-churn-breakdown">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Brain className="h-4 w-4 text-primary" />
+            Signal Breakdown
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {/* Column headers */}
+          <div className="grid grid-cols-3 text-xs text-muted-foreground font-medium pb-1 border-b">
+            <span>Signal</span>
+            <span className="text-center">Raw</span>
+            <span className="text-right">Weight</span>
+          </div>
+          {components.map(c => {
+            const weight = weightsMap[c.key] ?? 1.0;
+            return (
+              <div key={c.key} data-testid={`row-signal-${c.key}`}>
+                <div className="grid grid-cols-3 items-center text-sm mb-1">
+                  <span className="text-muted-foreground text-xs">{c.label}</span>
+                  <span className="font-medium text-center">{Math.round(c.value)}</span>
+                  <span className="text-right text-xs text-muted-foreground">×{weight.toFixed(2)}</span>
+                </div>
+                <ScoreBar value={c.value} />
+              </div>
+            );
+          })}
+          {score.overrideScore !== null && (
+            <p className="text-xs text-muted-foreground pt-1 italic">
+              Computed score: {Math.round(score.churnScore)} · Override applied: {Math.round(score.overrideScore)}
+            </p>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 export default function ContactDetail() {
   const params = useParams<{ id: string }>();
   const contactId = Number(params.id);
@@ -679,6 +990,10 @@ export default function ContactDetail() {
           <TabsTrigger value="chargebacks" data-testid="tab-chargebacks">Chargebacks</TabsTrigger>
           <TabsTrigger value="activity" data-testid="tab-activity">Activity</TabsTrigger>
           <TabsTrigger value="comments" data-testid="tab-comments">Comments</TabsTrigger>
+          <TabsTrigger value="churn-risk" data-testid="tab-churn-risk">
+            <Brain className="h-3.5 w-3.5 mr-1" />
+            Churn Risk
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" data-testid="tab-content-overview">
@@ -739,6 +1054,10 @@ export default function ContactDetail() {
               <Comments entityType="contact" entityId={contactId} />
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="churn-risk" data-testid="tab-content-churn-risk">
+          <ChurnRiskPanel contactId={contactId} isManagerOrAdmin={isManagerOrAdmin} />
         </TabsContent>
       </Tabs>
 

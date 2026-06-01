@@ -11,6 +11,7 @@ import { scoreContact } from "./lead-scoring";
 import { checkCompliance } from "./smart-router";
 import { checkAndSendDigests, sendCriticalEmailNotification, createPreferenceAwareNotification } from "./digest-service";
 import { checkAbTestWinners } from "./ab-test-worker";
+import { runNightlyChurnScoring } from "./churn-score";
 
 const SLA_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -805,6 +806,11 @@ export function startSlaWorker() {
     await checkRetentionCampaigns().catch(err => console.error("Retention campaign check error:", err));
     await checkAbTestWinners().catch(err => console.error("A/B test winner check error:", err));
     cycleCount++;
+    // Nightly churn scoring — runs once every 288 cycles (~24h at 5-min intervals)
+    const CHURN_SCORE_EVERY_N_CYCLES = 288;
+    if (cycleCount % CHURN_SCORE_EVERY_N_CYCLES === 1) {
+      runNightlyChurnScoring().catch(err => console.error("Churn scoring error:", err));
+    }
     if (cycleCount % AI_OPS_EVERY_N_CYCLES === 0) {
       await runScheduledAiOps();
     }

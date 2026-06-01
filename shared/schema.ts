@@ -78,6 +78,7 @@ export const contacts = pgTable("contacts", {
   archivedAt: timestamp("archived_at"),
   partnerOrgId: integer("partner_org_id"),
   lastSyncedAt: timestamp("last_synced_at"),
+  churnRiskTier: text("churn_risk_tier"),
 }, (table) => [
   uniqueIndex("contacts_email_unique_idx").on(table.email).where(sql`archived_at IS NULL`),
   index("contacts_phone_idx").on(table.phone),
@@ -3537,3 +3538,58 @@ export const REVIEW_CHECKLIST_ITEMS = [
   { key: "confirm_lead_source", label: "Confirm lead source / UTM" },
   { key: "internal_notes", label: "Internal notes added" },
 ] as const;
+
+// ── Churn Risk & Health Scoring ───────────────────────────────────────────────
+
+export const CHURN_RISK_TIERS = ["Low", "Medium", "High", "Critical"] as const;
+export type ChurnRiskTier = typeof CHURN_RISK_TIERS[number];
+
+export const churnScoreWeights = pgTable("churn_score_weights", {
+  id: serial("id").primaryKey(),
+  signalKey: text("signal_key").notNull().unique(),
+  label: text("label").notNull(),
+  weight: real("weight").notNull().default(1.0),
+  description: text("description"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertChurnScoreWeightsSchema = createInsertSchema(churnScoreWeights).omit({
+  id: true,
+  updatedAt: true,
+});
+
+export type ChurnScoreWeight = typeof churnScoreWeights.$inferSelect;
+export type InsertChurnScoreWeight = z.infer<typeof insertChurnScoreWeightsSchema>;
+
+export const merchantHealthScores = pgTable("merchant_health_scores", {
+  id: serial("id").primaryKey(),
+  contactId: integer("contact_id").references(() => contacts.id).notNull(),
+  churnScore: real("churn_score").notNull().default(0),
+  riskTier: text("risk_tier").notNull().default("Low"),
+  volumeTrendScore: real("volume_trend_score").default(0),
+  chargebackTrendScore: real("chargeback_trend_score").default(0),
+  ticketVelocityScore: real("ticket_velocity_score").default(0),
+  npsScore: real("nps_score").default(0),
+  portalActivityScore: real("portal_activity_score").default(0),
+  outreachResponseScore: real("outreach_response_score").default(0),
+  overrideScore: real("override_score"),
+  overrideNote: text("override_note"),
+  overriddenAt: timestamp("overridden_at"),
+  overriddenBy: text("overridden_by"),
+  retentionCampaignTriggered: boolean("retention_campaign_triggered").default(false),
+  agentNotified: boolean("agent_notified").default(false),
+  computedAt: timestamp("computed_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("merchant_health_scores_contact_id_idx").on(table.contactId),
+  index("merchant_health_scores_risk_tier_idx").on(table.riskTier),
+  index("merchant_health_scores_computed_at_idx").on(table.computedAt),
+]);
+
+export const insertMerchantHealthScoreSchema = createInsertSchema(merchantHealthScores).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type MerchantHealthScore = typeof merchantHealthScores.$inferSelect;
+export type InsertMerchantHealthScore = z.infer<typeof insertMerchantHealthScoreSchema>;
