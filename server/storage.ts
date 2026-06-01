@@ -98,6 +98,7 @@ import {
 import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, count } from "drizzle-orm";
 
 import { ContactsStorage } from "./storage/contacts";
+import { RelationshipsStorage } from "./storage/relationships";
 import { DealsStorage } from "./storage/deals";
 import { TicketsStorage } from "./storage/tickets";
 import { TasksStorage } from "./storage/tasks";
@@ -145,7 +146,9 @@ export interface IStorage {
   syncUpdateContact(id: number, contact: UpdateContactRequest): Promise<typeof contacts.$inferSelect | undefined>;
 
   getCompanies(): Promise<typeof companies.$inferSelect[]>;
+  getCompany(id: number): Promise<typeof companies.$inferSelect | undefined>;
   createCompany(company: InsertCompany): Promise<typeof companies.$inferSelect>;
+  updateCompany(id: number, updates: Partial<InsertCompany>): Promise<typeof companies.$inferSelect | undefined>;
 
   getDeals(params?: PaginationParams): Promise<PaginatedResult<typeof deals.$inferSelect>>;
   getDeal(id: number): Promise<typeof deals.$inferSelect | undefined>;
@@ -493,6 +496,7 @@ export interface IStorage {
   createTicketComment(comment: InsertTicketComment): Promise<TicketComment>;
 
   getContactCompanies(contactId: number): Promise<ContactCompany[]>;
+  getContactCompaniesByCompany(companyId: number): Promise<ContactCompany[]>;
   addContactCompany(link: InsertContactCompany): Promise<ContactCompany>;
   removeContactCompany(id: number): Promise<void>;
 
@@ -668,10 +672,10 @@ function normalizePagination(params?: PaginationParams): { limit: number; offset
     }
   }
 
-export interface DatabaseStorage extends ContactsStorage, DealsStorage, TicketsStorage, TasksStorage, DocumentsStorage, AuditStorage, NotificationsStorage, WorkflowsStorage, TemplatesStorage, ProspectsStorage, CampaignsStorage, NotesStorage, CommLogsStorage, AutomationStorage, SunbizStorage, MerchantsStorage, ResidualsStorage, HealthStorage, PartnersStorage, ReviewsStorage, MiscStorage, BusinessesStorage, SdrStorage, PartnerOrgsStorage, ContentStorage, ChurnStorage {}
+export interface DatabaseStorage extends ContactsStorage, DealsStorage, TicketsStorage, TasksStorage, DocumentsStorage, AuditStorage, NotificationsStorage, WorkflowsStorage, TemplatesStorage, ProspectsStorage, CampaignsStorage, NotesStorage, CommLogsStorage, AutomationStorage, SunbizStorage, MerchantsStorage, ResidualsStorage, HealthStorage, PartnersStorage, ReviewsStorage, MiscStorage, BusinessesStorage, SdrStorage, PartnerOrgsStorage, ContentStorage, ChurnStorage, RelationshipsStorage {}
 
 export class DatabaseStorage implements IStorage {}
 
-applyMixins(DatabaseStorage, [ContactsStorage, DealsStorage, TicketsStorage, TasksStorage, DocumentsStorage, AuditStorage, NotificationsStorage, WorkflowsStorage, TemplatesStorage, ProspectsStorage, CampaignsStorage, NotesStorage, CommLogsStorage, AutomationStorage, SunbizStorage, MerchantsStorage, ResidualsStorage, HealthStorage, PartnersStorage, ReviewsStorage, MiscStorage, BusinessesStorage, SdrStorage, PartnerOrgsStorage, ContentStorage, ChurnStorage]);
+applyMixins(DatabaseStorage, [ContactsStorage, DealsStorage, TicketsStorage, TasksStorage, DocumentsStorage, AuditStorage, NotificationsStorage, WorkflowsStorage, TemplatesStorage, ProspectsStorage, CampaignsStorage, NotesStorage, CommLogsStorage, AutomationStorage, SunbizStorage, MerchantsStorage, ResidualsStorage, HealthStorage, PartnersStorage, ReviewsStorage, MiscStorage, BusinessesStorage, SdrStorage, PartnerOrgsStorage, ContentStorage, ChurnStorage, RelationshipsStorage]);
 
 export const storage = new DatabaseStorage();

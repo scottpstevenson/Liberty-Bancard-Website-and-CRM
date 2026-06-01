@@ -9,6 +9,7 @@ import { syncMerchantApplicationToGhl } from "../services/ghl-form-sync";
 import { createContactGhlFirst } from "../services/contact-writer";
 import { sendMerchantWelcomeEmail, sendMerchantPortalWelcomeEmail } from "../services/merchant-welcome";
 import { sendApplicationApprovedEmail, sendApplicationDeclinedEmail } from "../services/merchant-application-status";
+import { scanApplicationRisk } from "../services/relationship-extractor";
 import { parse } from "csv-parse/sync";
 import path from "path";
 import { publicLeadRateLimit, webhookRateLimit } from "../middleware/public-rate-limit";
@@ -94,6 +95,13 @@ export function registerMerchantsRoutes(app: Express) {
           syncMerchantApplicationToGhl(application.id, contact.id).catch(err =>
             console.error("GHL merchant app sync error:", err)
           );
+          scanApplicationRisk(contact.id, application.id).then((result) => {
+            if (result.hasRisk) {
+              console.warn(
+                `[Relationships] Application risk detected for contact ${contact.id}: ${result.relationships.length} flagged relationship(s) — persisted to app #${application.id}`,
+              );
+            }
+          }).catch(err => console.warn("[Relationships] Application risk scan failed:", err));
         }
       }
 

@@ -151,6 +151,23 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   }
 
 
+  async getCompany(id: number) {
+    const [company] = await db.select().from(companies).where(eq(companies.id, id));
+    return company ?? undefined;
+  }
+
+
+  async updateCompany(id: number, updates: Partial<InsertCompany>) {
+    const [updated] = await db.update(companies).set(updates).where(eq(companies.id, id)).returning();
+    return updated ?? undefined;
+  }
+
+
+  async getContactCompaniesByCompany(companyId: number): Promise<ContactCompany[]> {
+    return db.select().from(contactCompanies).where(eq(contactCompanies.companyId, companyId));
+  }
+
+
   async getContactCompanies(contactId: number): Promise<ContactCompany[]> {
     return db.select().from(contactCompanies).where(eq(contactCompanies.contactId, contactId)).orderBy(desc(contactCompanies.createdAt));
   }

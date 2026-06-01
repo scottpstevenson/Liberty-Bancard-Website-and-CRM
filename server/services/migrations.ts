@@ -291,6 +291,31 @@ export async function runStartupMigrations(): Promise<void> {
       CREATE INDEX IF NOT EXISTS co_branded_proposals_token_idx ON co_branded_proposals(token);
     `);
 
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS entity_relationships (
+        id SERIAL PRIMARY KEY,
+        source_entity_type TEXT NOT NULL,
+        source_entity_id INTEGER NOT NULL,
+        target_entity_type TEXT NOT NULL,
+        target_entity_id INTEGER NOT NULL,
+        relationship_type TEXT NOT NULL,
+        confidence REAL NOT NULL DEFAULT 1.0,
+        source TEXT NOT NULL DEFAULT 'system',
+        risk_flag BOOLEAN DEFAULT FALSE,
+        risk_reason TEXT,
+        note TEXT,
+        dismissed_at TIMESTAMP,
+        dismissed_by TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS entity_relationships_source_idx ON entity_relationships(source_entity_type, source_entity_id);
+      CREATE INDEX IF NOT EXISTS entity_relationships_target_idx ON entity_relationships(target_entity_type, target_entity_id);
+      CREATE INDEX IF NOT EXISTS entity_relationships_type_idx ON entity_relationships(relationship_type);
+      CREATE INDEX IF NOT EXISTS entity_relationships_risk_flag_idx ON entity_relationships(risk_flag);
+      CREATE UNIQUE INDEX IF NOT EXISTS entity_relationships_unique_idx ON entity_relationships(source_entity_type, source_entity_id, target_entity_type, target_entity_id, relationship_type);
+    `);
+
     console.log("[Migrations] Startup migrations applied successfully.");
   } catch (err: any) {
     console.error("[Migrations] Error applying startup migrations:", err.message);

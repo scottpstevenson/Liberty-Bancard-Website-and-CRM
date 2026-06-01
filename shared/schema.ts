@@ -3631,3 +3631,69 @@ export const insertMerchantHealthScoreSchema = createInsertSchema(merchantHealth
 
 export type MerchantHealthScore = typeof merchantHealthScores.$inferSelect;
 export type InsertMerchantHealthScore = z.infer<typeof insertMerchantHealthScoreSchema>;
+
+// ── Entity Relationship Knowledge Graph ───────────────────────────────────────
+
+export const ENTITY_RELATIONSHIP_TYPES = [
+  "same_ein",
+  "same_bank",
+  "same_phone",
+  "same_owner",
+  "same_address",
+  "iso_agent",
+  "company_member",
+  "manual",
+] as const;
+
+export type EntityRelationshipType = typeof ENTITY_RELATIONSHIP_TYPES[number];
+
+export const ENTITY_TYPES = [
+  "contact",
+  "company",
+  "deal",
+  "mid",
+  "iso_partner",
+  "user",
+  "partner",
+] as const;
+
+export type EntityType = typeof ENTITY_TYPES[number];
+
+export const entityRelationships = pgTable("entity_relationships", {
+  id: serial("id").primaryKey(),
+  sourceEntityType: text("source_entity_type").notNull().$type<EntityType>(),
+  sourceEntityId: integer("source_entity_id").notNull(),
+  targetEntityType: text("target_entity_type").notNull().$type<EntityType>(),
+  targetEntityId: integer("target_entity_id").notNull(),
+  relationshipType: text("relationship_type").notNull().$type<EntityRelationshipType>(),
+  confidence: real("confidence").notNull().default(1.0),
+  source: text("source").notNull().default("system"),
+  riskFlag: boolean("risk_flag").default(false),
+  riskReason: text("risk_reason"),
+  note: text("note"),
+  dismissedAt: timestamp("dismissed_at"),
+  dismissedBy: text("dismissed_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("entity_relationships_source_idx").on(table.sourceEntityType, table.sourceEntityId),
+  index("entity_relationships_target_idx").on(table.targetEntityType, table.targetEntityId),
+  index("entity_relationships_type_idx").on(table.relationshipType),
+  index("entity_relationships_risk_flag_idx").on(table.riskFlag),
+  uniqueIndex("entity_relationships_unique_idx").on(
+    table.sourceEntityType,
+    table.sourceEntityId,
+    table.targetEntityType,
+    table.targetEntityId,
+    table.relationshipType,
+  ),
+]);
+
+export const insertEntityRelationshipSchema = createInsertSchema(entityRelationships).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type EntityRelationship = typeof entityRelationships.$inferSelect;
+export type InsertEntityRelationship = z.infer<typeof insertEntityRelationshipSchema>;

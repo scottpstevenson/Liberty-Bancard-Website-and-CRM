@@ -16,6 +16,7 @@ import {
   CheckCircle2, XCircle, SendHorizonal, MessageSquarePlus,
   ChevronLeft, Loader2, User, CreditCard,
   MapPin, Landmark, ClipboardCheck, Paperclip, ExternalLink, History, MailCheck,
+  AlertTriangle, GitFork,
 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import type { MerchantApplication, MerchantProfile, Document as DocType, UnderwritingNoteEntry } from "@shared/schema";
@@ -165,6 +166,23 @@ function ApplicationDetailView({
   const [showRequestInfo, setShowRequestInfo] = useState(false);
   const [declineReason, setDeclineReason] = useState("");
   const [showDecline, setShowDecline] = useState(false);
+
+  const { data: riskRelationships } = useQuery<Array<{
+    id: number;
+    relationshipType: string;
+    confidence: number;
+    riskFlag: boolean;
+    riskReason: string | null;
+    counterpartyType: string;
+    counterpartyId: number;
+    counterpartyName: string;
+    source: string;
+    note: string | null;
+  }>>({
+    queryKey: ["/api/contacts", application.contactId, "relationships"],
+    enabled: !!application.contactId,
+    select: (data) => data.filter((r) => r.riskFlag),
+  });
 
   const { data: allDocuments } = useQuery<DocType[]>({
     queryKey: ["/api/documents"],
@@ -590,6 +608,32 @@ function ApplicationDetailView({
           <DetailField label="Bank Name" value={application.bankName} />
           <DetailField label="Account Type" value={application.bankAccountType} />
         </DetailSection>
+
+        {riskRelationships && riskRelationships.length > 0 && (
+          <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 space-y-3" data-testid="section-risk-relationships">
+            <div className="flex items-center gap-2 text-sm font-semibold text-destructive">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              Risk Relationships Detected ({riskRelationships.length})
+            </div>
+            <div className="space-y-2">
+              {riskRelationships.map((rel) => (
+                <div key={rel.id} className="rounded-md border border-destructive/20 bg-background px-3 py-2 space-y-0.5" data-testid={`risk-rel-${rel.id}`}>
+                  <div className="flex items-center gap-2">
+                    <GitFork className="w-3 h-3 text-destructive shrink-0" />
+                    <span className="text-xs font-semibold text-foreground capitalize">
+                      {rel.relationshipType.replace(/_/g, " ")}
+                    </span>
+                    <span className="text-xs text-muted-foreground">→ {rel.counterpartyName}</span>
+                    <Badge variant="destructive" className="text-xs ml-auto">{Math.round(rel.confidence * 100)}%</Badge>
+                  </div>
+                  {rel.riskReason && (
+                    <p className="text-xs text-muted-foreground pl-5">{rel.riskReason}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <DetailSection title="E-Signature & Underwriting" icon={ClipboardCheck}>
           <DetailField label="E-Sign Status" value={application.esignStatus} />

@@ -19,6 +19,7 @@ import { assignNextRep } from "./toolkit";
 import { parse } from "csv-parse/sync";
 import path from "path";
 import { sendPushToAllReps } from "../services/push-service";
+import { extractRelationshipsForContact, propagateRiskFlagToRelatedEntities } from "../services/relationship-extractor";
 
 function isUniqueEmailViolation(err: any): boolean {
   return err?.code === "23505" && (err?.constraint?.includes("email") || err?.message?.includes("contacts_email_unique_idx"));
@@ -49,6 +50,7 @@ export function registerContactsRoutes(app: Express) {
       triggerWorkflowsByEvent("contact_created", { entityType: "contact", entityId: contact.id, contactId: contact.id }).catch(err => console.error("Workflow trigger error:", err));
       ingestBusinessFromContact(contact.id, "manual_upload", "crm_contact_create").catch(err => console.warn("[CRM] Business ingest failed:", err));
       scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
+      extractRelationshipsForContact(contact.id).catch(err => console.warn("[Relationships] Extraction failed:", err));
       autoEnrollFromTrigger("contact_created", { contactId: contact.id }).catch(err => console.error("Auto-enroll error:", err));
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
       assignNextRep(contact.id, `${contact.firstName} ${contact.lastName}`.trim()).catch(err => console.error("Round-robin assignment error:", err));
@@ -93,8 +95,47 @@ export function registerContactsRoutes(app: Express) {
   app.put("/api/contacts/:id", isDashboardUser, async (req, res) => {
     try {
       const contactId = Number(req.params.id);
+      const existing = await storage.getContact(contactId);
       const updated = await updateContactGhlFirst(contactId, req.body);
       if (!updated) return res.status(404).json({ message: "Not found" });
+
+      // Re-extract relationships when key identifiers change
+      const phoneChanged = req.body?.phone !== undefined && req.body.phone !== existing?.phone;
+      const addressChanged = req.body?.address !== undefined && req.body.address !== existing?.address;
+      if (phoneChanged || addressChanged) {
+        extractRelationshipsForContact(contactId).catch((err) =>
+          console.warn("[Relationships] Re-extraction on update failed:", err),
+        );
+      }
+
+      const newStatus = req.body?.status as string | undefined;
+      const newTags = req.body?.tags as string[] | undefined;
+      const isTerminatedStatus =
+        newStatus &&
+        (newStatus.toLowerCase().includes("terminated") ||
+          newStatus.toLowerCase().includes("closed lost") ||
+          newStatus.toLowerCase().includes("declined"));
+      const hasRiskTag =
+        newTags &&
+        newTags.some(
+          (t) =>
+            t.toLowerCase().includes("terminated") ||
+            t.toLowerCase().includes("high-chargeback") ||
+            t.toLowerCase().includes("fraud"),
+        );
+      const wasAlreadyTerminated =
+        existing?.status?.toLowerCase().includes("terminated") ||
+        existing?.status?.toLowerCase().includes("closed lost");
+
+      if ((isTerminatedStatus && !wasAlreadyTerminated) || hasRiskTag) {
+        const reason = isTerminatedStatus
+          ? `Contact marked as ${newStatus}`
+          : `Risk tag added: ${(newTags ?? []).filter((t) => t.toLowerCase().includes("terminated") || t.toLowerCase().includes("high-chargeback") || t.toLowerCase().includes("fraud")).join(", ")}`;
+        propagateRiskFlagToRelatedEntities(contactId, reason).catch((err) =>
+          console.warn("[Relationships] Risk propagation failed:", err),
+        );
+      }
+
       const statusCode = updated._ghlSyncFailed ? 202 : 200;
       res.status(statusCode).json(updated);
     } catch (err: any) {
@@ -240,6 +281,28 @@ export function registerContactsRoutes(app: Express) {
       const input = insertCompanySchema.parse(req.body);
       const company = await storage.createCompany(input);
       res.status(201).json(company);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/companies/:id", isDashboardUser, async (req, res) => {
+    try {
+      const companyId = Number(req.params.id);
+      const input = insertCompanySchema.partial().parse(req.body);
+      const company = await storage.updateCompany(companyId, input);
+      if (!company) return res.status(404).json({ message: "Not found" });
+      // Re-extract relationships for all contacts linked to this company
+      const links = await storage.getContactCompaniesByCompany(companyId).catch(() => []);
+      for (const link of links) {
+        if (link.contactId) {
+          extractRelationshipsForContact(link.contactId).catch((err) =>
+            console.warn("[Relationships] Re-extraction after company update failed:", err),
+          );
+        }
+      }
+      res.json(company);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       res.status(500).json({ message: err.message });

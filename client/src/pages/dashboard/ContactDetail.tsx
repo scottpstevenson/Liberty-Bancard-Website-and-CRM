@@ -21,7 +21,7 @@ import {
   Ticket, Mail, Phone, Building2,
   Activity, Link2, Trash2, Star,
   RefreshCw, CheckCircle2, AlertCircle, Linkedin, FolderOpen, Info,
-  ChevronDown, ChevronUp, Brain, AlertOctagon, ShieldCheck,
+  ChevronDown, ChevronUp, Brain, AlertOctagon, ShieldCheck, GitFork,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import Comments from "@/components/Comments";
@@ -43,6 +43,7 @@ import { ActivityTimelineFull } from "./contact-detail-tabs/ActivityTab";
 import { LinkedinEnrichmentSection } from "./contact-detail-tabs/LinkedinEnrichmentSection";
   import { CreateDialogs } from "./contact-detail-tabs/CreateDialogs";
 import { GhlSyncStatus } from "./contact-detail-tabs/GhlSyncStatus";
+import { RelationshipsTab } from "./contact-detail-tabs/RelationshipsTab";
 
 // ── Churn Risk Panel ──────────────────────────────────────────────────────────
 type MerchantHealthScore = {
@@ -989,6 +990,10 @@ export default function ContactDetail() {
           </TabsTrigger>
           <TabsTrigger value="chargebacks" data-testid="tab-chargebacks">Chargebacks</TabsTrigger>
           <TabsTrigger value="activity" data-testid="tab-activity">Activity</TabsTrigger>
+          <TabsTrigger value="relationships" data-testid="tab-relationships">
+            <GitFork className="h-3.5 w-3.5 mr-1" />
+            Relationships
+          </TabsTrigger>
           <TabsTrigger value="comments" data-testid="tab-comments">Comments</TabsTrigger>
           <TabsTrigger value="churn-risk" data-testid="tab-churn-risk">
             <Brain className="h-3.5 w-3.5 mr-1" />
@@ -1046,6 +1051,10 @@ export default function ContactDetail() {
 
         <TabsContent value="activity" data-testid="tab-content-activity">
           <ActivityTimelineFull events={activityEvents ?? []} />
+        </TabsContent>
+
+        <TabsContent value="relationships" data-testid="tab-content-relationships">
+          <RelationshipsTab contactId={contactId} />
         </TabsContent>
 
         <TabsContent value="comments" data-testid="tab-content-comments">

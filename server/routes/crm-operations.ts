@@ -7,6 +7,7 @@ import { and } from "drizzle-orm";
 import { parse } from "csv-parse/sync";
 import { isGhlConfigured, upsertGhlContact } from "../services/ghl";
 import { syncContactToGhl, syncDealToGhl } from "../services/ghl-sync";
+import { extractRelationshipsForContact } from "../services/relationship-extractor";
 
 export function registerCrmOperationsRoutes(app: Express) {
   // === CONTACT DETAIL AGGREGATE ===
@@ -122,6 +123,10 @@ export function registerCrmOperationsRoutes(app: Express) {
         contactId: Number(req.params.id),
       });
       const link = await storage.addContactCompany(input);
+      // Re-extract relationships now that company membership is established
+      extractRelationshipsForContact(input.contactId!).catch((err) =>
+        console.warn("[Relationships] Re-extraction after company link failed:", err),
+      );
       res.status(201).json(link);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
