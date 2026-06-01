@@ -334,7 +334,7 @@ export async function ingestMidDataForActiveMids(): Promise<{ processed: number;
   return { processed, errors };
 }
 
-async function checkAndUpdateMerchantHealthFromMidData(dealId: number, mid: string) {
+export async function checkAndUpdateMerchantHealthFromMidData(dealId: number, mid: string) {
   try {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);

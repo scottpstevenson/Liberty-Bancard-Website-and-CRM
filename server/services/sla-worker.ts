@@ -734,7 +734,7 @@ async function runMidIngestion() {
   const acquired = await acquireJobLock(JOB_NAMES.MID_INGESTION);
   if (!acquired) return;
   try {
-    const { ingestMidDataForActiveMids } = await import("./processor-api");
+    const { ingestMidDataForActiveMids } = await import("./processors/registry");
     const result = await ingestMidDataForActiveMids();
     if (result.processed > 0 || result.errors > 0) {
       console.log(`[MID Ingestion] Nightly run complete: ${result.processed} processed, ${result.errors} errors`);

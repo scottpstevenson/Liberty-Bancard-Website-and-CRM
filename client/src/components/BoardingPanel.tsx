@@ -5,6 +5,8 @@ import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import {
   Send, RefreshCw, CheckCircle2, Clock, AlertCircle, XCircle,
   ChevronDown, ChevronUp, CreditCard, Info,
@@ -45,6 +47,11 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; icon: typeof
   declined: { label: "Declined", color: "bg-red-100 text-red-700 border-red-200 dark:bg-red-900/20 dark:text-red-300", icon: XCircle },
 };
 
+const PROCESSOR_DISPLAY_NAMES: Record<string, string> = {
+  nmi: "NMI (Network Merchants, Inc.)",
+  mock: "Mock / Sandbox",
+};
+
 function formatTs(ts: string) {
   return new Date(ts).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
@@ -53,6 +60,7 @@ export default function BoardingPanel({ dealId, dealStage, dealPipeline, onStatu
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [showLog, setShowLog] = useState(false);
+  const [selectedProcessor, setSelectedProcessor] = useState<string>("");
 
   const isUnderwriting = dealPipeline === "onboarding" || dealStage?.toLowerCase().includes("underwriting") || dealStage?.toLowerCase().includes("approved");
 
@@ -70,6 +78,11 @@ export default function BoardingPanel({ dealId, dealStage, dealPipeline, onStatu
     },
   });
 
+  const { data: enabledProcessors } = useQuery<{ processors: string[] }>({
+    queryKey: ["/api/boarding/enabled-processors"],
+    enabled: isUnderwriting,
+  });
+
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["/api/deals", dealId, "boarding-status"] });
     onStatusChange?.();
@@ -77,7 +90,9 @@ export default function BoardingPanel({ dealId, dealStage, dealPipeline, onStatu
 
   const submitMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/deals/${dealId}/submit-to-processor`);
+      const body: Record<string, string> = {};
+      if (selectedProcessor && selectedProcessor !== "__default") body.processorName = selectedProcessor;
+      const res = await apiRequest("POST", `/api/deals/${dealId}/submit-to-processor`, body);
       return res.json();
     },
     onSuccess: (data: any) => {
@@ -122,6 +137,7 @@ export default function BoardingPanel({ dealId, dealStage, dealPipeline, onStatu
   const canSubmit = s.boardingStatus === "not_submitted" || s.boardingStatus === "declined";
   const canRefresh = s.boardingStatus === "submitted" || s.boardingStatus === "under_review" || s.boardingStatus === "more_info_needed";
   const lastLog = s.boardingLog?.length > 0 ? s.boardingLog[s.boardingLog.length - 1] : null;
+  const processors = enabledProcessors?.processors ?? [];
 
   return (
     <div className="border rounded-lg bg-muted/20 p-3 space-y-2" data-testid="boarding-panel">
@@ -135,6 +151,24 @@ export default function BoardingPanel({ dealId, dealStage, dealPipeline, onStatu
           </Badge>
         </div>
         <div className="flex items-center gap-1.5">
+          {canSubmit && processors.length > 1 && (
+            <div className="flex items-center gap-1.5">
+              <Label className="text-xs text-muted-foreground whitespace-nowrap">Via:</Label>
+              <Select value={selectedProcessor} onValueChange={setSelectedProcessor} data-testid="select-processor">
+                <SelectTrigger className="h-7 text-xs w-44" data-testid="trigger-processor-select">
+                  <SelectValue placeholder="Default processor" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__default">Default</SelectItem>
+                  {processors.map(p => (
+                    <SelectItem key={p} value={p} data-testid={`option-processor-${p}`}>
+                      {PROCESSOR_DISPLAY_NAMES[p] || p}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           {canSubmit && (
             <Button
               size="sm"

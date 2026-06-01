@@ -1,12 +1,7 @@
 import type { Express } from "express";
 import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
-import {
-  submitMerchantToProcessor,
-  checkBoardingStatus,
-  fetchMidDailyStats,
-  ingestMidDataForActiveMids,
-} from "../services/processor-api";
+import { getProcessor, getDefaultProcessor, getEnabledAdapterNames, ingestMidDataForActiveMids } from "../services/processors/registry";
 
 export function registerBoardingRoutes(app: Express) {
   app.post("/api/deals/:id/submit-to-processor", isDashboardUser, async (req, res) => {
@@ -75,7 +70,9 @@ export function registerBoardingRoutes(app: Express) {
         offerPath: deal.offerPath || undefined,
       };
 
-      const result = await submitMerchantToProcessor(payload);
+      const processorName = (req.body.processorName as string | undefined) || undefined;
+      const processor = processorName ? getProcessor(processorName) : getDefaultProcessor();
+      const result = await processor.boardMerchant(payload);
 
       if (!result.success) {
         return res.status(500).json({ message: result.error || "Failed to submit to processor" });
@@ -84,6 +81,7 @@ export function registerBoardingRoutes(app: Express) {
       const logEntry = {
         timestamp: new Date().toISOString(),
         event: "submitted",
+        processor: processor.name,
         processorApplicationId: result.processorApplicationId,
         message: result.message,
         estimatedDecisionDate: result.estimatedDecisionDate,
@@ -140,7 +138,11 @@ export function registerBoardingRoutes(app: Express) {
         return res.status(400).json({ message: "No processor application ID on this deal. Submit first." });
       }
 
-      const result = await checkBoardingStatus(deal.processorApplicationId);
+      const dealLog = (deal.boardingLog as any[]) || [];
+      const submittedEntry = [...dealLog].reverse().find((e: any) => e.event === "submitted");
+      const dealProcessorName = submittedEntry?.processor || undefined;
+      const processor = dealProcessorName ? getProcessor(dealProcessorName) : getDefaultProcessor();
+      const result = await processor.getMerchantStatus(deal.processorApplicationId);
 
       if (!result.success) {
         return res.status(500).json({ message: result.error || "Failed to check boarding status" });
@@ -280,7 +282,11 @@ export function registerBoardingRoutes(app: Express) {
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - 30);
 
-      const stats = await fetchMidDailyStats(
+      const midLog = (deal.boardingLog as any[]) || [];
+      const midSubmittedEntry = [...midLog].reverse().find((e: any) => e.event === "submitted");
+      const midProcessorName = midSubmittedEntry?.processor || undefined;
+      const midProcessor = midProcessorName ? getProcessor(midProcessorName) : getDefaultProcessor();
+      const stats = await midProcessor.getDailyStats(
         deal.mid,
         startDate.toISOString().split("T")[0],
         endDate.toISOString().split("T")[0]
@@ -316,6 +322,15 @@ export function registerBoardingRoutes(app: Express) {
       res.json({ success: true, rowsUpserted: upserted, stats: freshStats, mid: deal.mid, fetchedAt: new Date().toISOString() });
     } catch (err: any) {
       console.error("[MID Stats] Refresh error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/boarding/enabled-processors", isDashboardUser, async (_req, res) => {
+    try {
+      const names = getEnabledAdapterNames();
+      res.json({ processors: names });
+    } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
   });

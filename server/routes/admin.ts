@@ -618,4 +618,25 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  app.get("/api/admin/processor-adapters", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const { getAllAdapterStatuses } = await import("../services/processors/registry");
+      const statuses = getAllAdapterStatuses();
+      res.json({ adapters: statuses });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/admin/processor-adapters/ping", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const { pingAllAdapters, getAllAdapterStatuses } = await import("../services/processors/registry");
+      const pingResults = await pingAllAdapters();
+      const statuses = getAllAdapterStatuses();
+      res.json({ ping: pingResults, adapters: statuses });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
 }

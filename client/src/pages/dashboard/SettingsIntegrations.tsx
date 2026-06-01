@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { CheckCircle2, XCircle, Plus, Trash2, Settings, Workflow, Mail, Edit2, Save, X, Loader2, ShieldCheck, Linkedin, Info } from "lucide-react";
+import { CheckCircle2, XCircle, Plus, Trash2, Settings, Workflow, Mail, Edit2, Save, X, Loader2, ShieldCheck, Linkedin, Info, Cpu, RefreshCw, AlertTriangle, Activity } from "lucide-react";
 
 interface WorkflowEnvEntry {
   id: string;
@@ -460,6 +460,150 @@ function GhlWorkflowEnvTab() {
   );
 }
 
+interface AdapterStatus {
+  name: string;
+  enabled: boolean;
+  configured: boolean;
+  lastSuccessAt: string | null;
+  lastErrorAt: string | null;
+  lastError: string | null;
+  callCount: number;
+  errorCount: number;
+  errorRate: number;
+}
+
+interface ProcessorAdaptersResponse {
+  adapters: AdapterStatus[];
+}
+
+function ProcessorAdaptersTab() {
+  const { toast } = useToast();
+
+  const { data, isLoading, refetch } = useQuery<ProcessorAdaptersResponse>({
+    queryKey: ["/api/admin/processor-adapters"],
+  });
+
+  const pingMutation = useMutation({
+    mutationFn: async () => apiRequest("POST", "/api/admin/processor-adapters/ping", {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/processor-adapters"] });
+      toast({ title: "Ping complete", description: "Adapter connectivity check finished." });
+      refetch();
+    },
+    onError: (err: any) => {
+      toast({ title: "Ping failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const adapters = data?.adapters ?? [];
+
+  function formatTimeAgo(dateStr: string | null): string {
+    if (!dateStr) return "Never";
+    const diff = Date.now() - new Date(dateStr).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return "Just now";
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    return `${Math.floor(hours / 24)}d ago`;
+  }
+
+  return (
+    <div className="space-y-4" data-testid="section-processor-adapters">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground flex-1">
+          All registered processor adapters and their live connectivity status. Add new processors by creating an adapter file and registering it — no changes to the boarding flow required.
+        </p>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={pingMutation.isPending}
+          onClick={() => pingMutation.mutate()}
+          data-testid="button-ping-adapters"
+        >
+          {pingMutation.isPending
+            ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+            : <RefreshCw className="w-4 h-4 mr-1.5" />
+          }
+          Ping All
+        </Button>
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : (
+        <div className="rounded-md border overflow-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Adapter</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Configured</TableHead>
+                <TableHead>Last Success</TableHead>
+                <TableHead>Last Error</TableHead>
+                <TableHead>Calls</TableHead>
+                <TableHead>Error Rate</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {adapters.map((adapter) => (
+                <TableRow key={adapter.name} data-testid={`row-adapter-${adapter.name.replace(/\s+/g, "-").toLowerCase()}`}>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <Cpu className="w-4 h-4 text-muted-foreground" />
+                      <span className="font-medium text-sm">{adapter.name}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    {adapter.enabled
+                      ? <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 gap-1"><Activity className="w-3 h-3" />Enabled</Badge>
+                      : <Badge variant="outline" className="text-muted-foreground gap-1"><XCircle className="w-3 h-3" />Disabled</Badge>
+                    }
+                  </TableCell>
+                  <TableCell>
+                    {adapter.configured
+                      ? <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 gap-1"><CheckCircle2 className="w-3 h-3" />Configured</Badge>
+                      : <Badge variant="outline" className="text-amber-600 border-amber-300 gap-1"><AlertTriangle className="w-3 h-3" />Not set</Badge>
+                    }
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{formatTimeAgo(adapter.lastSuccessAt)}</TableCell>
+                  <TableCell>
+                    {adapter.lastError ? (
+                      <span className="text-xs text-red-600 dark:text-red-400 truncate max-w-[200px] block" title={adapter.lastError}>
+                        {adapter.lastError.slice(0, 60)}{adapter.lastError.length > 60 ? "…" : ""}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground italic">None</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-sm">{adapter.callCount}</TableCell>
+                  <TableCell>
+                    <span className={`text-sm font-medium ${adapter.errorRate === 0 ? "text-green-600" : adapter.errorRate < 10 ? "text-yellow-600" : "text-red-600"}`}>
+                      {adapter.errorRate}%
+                    </span>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+
+      <div className="rounded-md border p-4 space-y-3 bg-card">
+        <h3 className="text-sm font-semibold flex items-center gap-2"><Cpu className="w-4 h-4" />Adding a New Processor</h3>
+        <ol className="space-y-1.5 text-sm text-muted-foreground list-decimal list-inside">
+          <li>Create <code className="font-mono bg-muted px-1 rounded text-xs">server/services/processors/yourprocessor.adapter.ts</code> implementing <code className="font-mono bg-muted px-1 rounded text-xs">IProcessorAdapter</code>.</li>
+          <li>Register the adapter in <code className="font-mono bg-muted px-1 rounded text-xs">server/services/processors/registry.ts</code> with its env var flag.</li>
+          <li>Set <code className="font-mono bg-muted px-1 rounded text-xs">ENABLED_PROCESSORS=nmi,yourprocessor</code> in your environment secrets.</li>
+          <li>The boarding flow picks up the adapter automatically via <code className="font-mono bg-muted px-1 rounded text-xs">getDefaultProcessor()</code> — no further changes needed.</li>
+        </ol>
+      </div>
+    </div>
+  );
+}
+
 function ProxycurlTab() {
   const { data: status, isLoading } = useQuery<{ configured: boolean }>({
     queryKey: ["/api/proxycurl/status"],
@@ -535,6 +679,9 @@ export default function SettingsIntegrations() {
           <TabsTrigger value="sending-identities" data-testid="tab-sending-identities">
             <Mail className="w-4 h-4 mr-1.5" />Sending Identities
           </TabsTrigger>
+          <TabsTrigger value="processor-adapters" data-testid="tab-processor-adapters">
+            <Cpu className="w-4 h-4 mr-1.5" />Processor Adapters
+          </TabsTrigger>
           <TabsTrigger value="linkedin" data-testid="tab-linkedin-enrichment">
             <Linkedin className="w-4 h-4 mr-1.5" />LinkedIn Enrichment
           </TabsTrigger>
@@ -566,6 +713,23 @@ export default function SettingsIntegrations() {
             </CardHeader>
             <CardContent>
               <SendingIdentitiesTab />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="processor-adapters" className="pt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Cpu className="w-4 h-4" />
+                Processor Adapters
+              </CardTitle>
+              <CardDescription>
+                Universal processor abstraction layer. Each adapter implements the same interface so new processors can be added without changing the boarding flow.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ProcessorAdaptersTab />
             </CardContent>
           </Card>
         </TabsContent>
