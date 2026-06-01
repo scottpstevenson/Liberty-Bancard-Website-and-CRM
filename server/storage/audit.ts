@@ -102,13 +102,39 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   import { type PaginationParams, type PaginatedResult, normalizePagination } from "./_shared";
 
   export class AuditStorage {
-    async getAuditLogs() {
-    return await db.select().from(auditLogs).orderBy(desc(auditLogs.createdAt));
+    async getAuditLogs(filters?: {
+    entityType?: string;
+    entityId?: number;
+    actorType?: string;
+    actorId?: string;
+    userId?: string;
+    startDate?: Date;
+    endDate?: Date;
+    limit?: number;
+    offset?: number;
+  }) {
+    const conditions = [];
+    if (filters?.entityType) conditions.push(eq(auditLogs.entityType, filters.entityType));
+    if (filters?.entityId != null) conditions.push(eq(auditLogs.entityId, filters.entityId));
+    if (filters?.actorType) conditions.push(eq(auditLogs.actorType, filters.actorType));
+    if (filters?.actorId) conditions.push(eq(auditLogs.actorId, filters.actorId));
+    if (filters?.userId) conditions.push(eq(auditLogs.userId, filters.userId));
+    if (filters?.startDate) conditions.push(gte(auditLogs.createdAt, filters.startDate));
+    if (filters?.endDate) conditions.push(lte(auditLogs.createdAt, filters.endDate));
+
+    return await db.select().from(auditLogs)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(auditLogs.createdAt))
+      .limit(filters?.limit ?? 200)
+      .offset(filters?.offset ?? 0);
   }
 
-  async getAuditLogsByEntity(entityType: string, entityId: number, limit: number = 20) {
+  async getAuditLogsByEntity(entityType: string, entityId: number | string, limit: number = 50) {
+    const condition = typeof entityId === 'string'
+      ? and(eq(auditLogs.entityType, entityType), eq(auditLogs.entityKey, entityId))
+      : and(eq(auditLogs.entityType, entityType), eq(auditLogs.entityId, entityId as number));
     return await db.select().from(auditLogs)
-      .where(and(eq(auditLogs.entityType, entityType), eq(auditLogs.entityId, entityId)))
+      .where(condition)
       .orderBy(desc(auditLogs.createdAt))
       .limit(limit);
   }

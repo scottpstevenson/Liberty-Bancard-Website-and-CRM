@@ -128,20 +128,49 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   }
 
 
-  async createDeal(insertDeal: InsertDeal) {
+  async createDeal(insertDeal: InsertDeal, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }) {
+    const { auditChange } = await import("../services/audit-change");
     let payload = { ...insertDeal };
     if (payload.contactId && !payload.partnerOrgId) {
       const [contact] = await db.select({ partnerOrgId: contacts.partnerOrgId }).from(contacts).where(eq(contacts.id, payload.contactId));
       if (contact?.partnerOrgId) payload.partnerOrgId = contact.partnerOrgId;
     }
-    const [deal] = await db.insert(deals).values(payload).returning();
-    return deal;
+    return await db.transaction(async (tx) => {
+      const [deal] = await tx.insert(deals).values(payload).returning();
+      await auditChange({
+        userId: auditCtx?.userId ?? null,
+        actorType: (auditCtx?.actorType as any) ?? "user",
+        actorId: auditCtx?.actorId ?? null,
+        action: "deal_created",
+        entityType: "deal",
+        entityId: deal.id,
+        before: null,
+        after: deal as unknown as Record<string, unknown>,
+      }, tx);
+      return deal;
+    });
   }
 
 
-  async updateDeal(id: number, updates: UpdateDealRequest) {
-    const [updated] = await db.update(deals).set({ ...updates, updatedAt: new Date() }).where(eq(deals.id, id)).returning();
-    return updated;
+  async updateDeal(id: number, updates: UpdateDealRequest, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }) {
+    const { auditChange } = await import("../services/audit-change");
+    const [before] = await db.select().from(deals).where(eq(deals.id, id));
+    return await db.transaction(async (tx) => {
+      const [updated] = await tx.update(deals).set({ ...updates, updatedAt: new Date() }).where(eq(deals.id, id)).returning();
+      if (updated) {
+        await auditChange({
+          userId: auditCtx?.userId ?? null,
+          actorType: (auditCtx?.actorType as any) ?? "user",
+          actorId: auditCtx?.actorId ?? null,
+          action: "deal_updated",
+          entityType: "deal",
+          entityId: id,
+          before: before as unknown as Record<string, unknown>,
+          after: updated as unknown as Record<string, unknown>,
+        }, tx);
+      }
+      return updated;
+    });
   }
 
 
@@ -156,20 +185,49 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   }
 
 
-  async archiveDeal(id: number) {
-    const [updated] = await db.update(deals).set({ archivedAt: new Date() }).where(eq(deals.id, id)).returning();
-    return updated;
+  async archiveDeal(id: number, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }) {
+    const { auditChange } = await import("../services/audit-change");
+    const [before] = await db.select().from(deals).where(eq(deals.id, id));
+    return await db.transaction(async (tx) => {
+      const [updated] = await tx.update(deals).set({ archivedAt: new Date() }).where(eq(deals.id, id)).returning();
+      if (updated) {
+        await auditChange({ userId: auditCtx?.userId ?? null, actorType: (auditCtx?.actorType as any) ?? "user", actorId: auditCtx?.actorId ?? null,
+          action: "deal_archived", entityType: "deal", entityId: id,
+          before: before as unknown as Record<string, unknown>, after: updated as unknown as Record<string, unknown> }, tx);
+      }
+      return updated;
+    });
   }
 
 
-  async restoreDeal(id: number) {
-    const [updated] = await db.update(deals).set({ archivedAt: null }).where(eq(deals.id, id)).returning();
-    return updated;
+  async restoreDeal(id: number, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }) {
+    const { auditChange } = await import("../services/audit-change");
+    const [before] = await db.select().from(deals).where(eq(deals.id, id));
+    return await db.transaction(async (tx) => {
+      const [updated] = await tx.update(deals).set({ archivedAt: null }).where(eq(deals.id, id)).returning();
+      if (updated) {
+        await auditChange({ userId: auditCtx?.userId ?? null, actorType: (auditCtx?.actorType as any) ?? "user", actorId: auditCtx?.actorId ?? null,
+          action: "deal_restored", entityType: "deal", entityId: id,
+          before: before as unknown as Record<string, unknown>, after: updated as unknown as Record<string, unknown> }, tx);
+      }
+      return updated;
+    });
   }
 
 
-  async bulkUpdateDealStage(dealIds: number[], stage: string): Promise<void> {
+  async bulkUpdateDealStage(dealIds: number[], stage: string, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }): Promise<void> {
+    if (dealIds.length === 0) return;
+    const { auditChange } = await import("../services/audit-change");
+    const beforeRows = await db.select().from(deals).where(inArray(deals.id, dealIds));
+    const beforeMap = new Map(beforeRows.map(d => [d.id, d]));
     await db.update(deals).set({ stage, updatedAt: new Date() }).where(inArray(deals.id, dealIds));
+    const afterRows = await db.select().from(deals).where(inArray(deals.id, dealIds));
+    for (const after of afterRows) {
+      await auditChange({ userId: auditCtx?.userId ?? null, actorType: (auditCtx?.actorType as any) ?? "user", actorId: auditCtx?.actorId ?? null,
+        action: "deal_stage_changed", entityType: "deal", entityId: after.id,
+        before: (beforeMap.get(after.id) ?? null) as unknown as Record<string, unknown>,
+        after: after as unknown as Record<string, unknown> });
+    }
   }
 
 

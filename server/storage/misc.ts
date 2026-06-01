@@ -127,15 +127,44 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   }
 
 
-  async createOnboardingStep(step: InsertOnboardingStep) {
-    const [created] = await db.insert(onboardingSteps).values(step).returning();
-    return created;
+  async createOnboardingStep(step: InsertOnboardingStep, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }) {
+    const { auditChange } = await import("../services/audit-change");
+    return await db.transaction(async (tx) => {
+      const [created] = await tx.insert(onboardingSteps).values(step).returning();
+      await auditChange({
+        userId: auditCtx?.userId ?? null,
+        actorType: (auditCtx?.actorType as any) ?? "user",
+        actorId: auditCtx?.actorId ?? null,
+        action: "onboarding_step_created",
+        entityType: "onboarding_step",
+        entityId: created.id,
+        before: null,
+        after: created as unknown as Record<string, unknown>,
+      }, tx);
+      return created;
+    });
   }
 
 
-  async updateOnboardingStep(id: number, updates: Partial<InsertOnboardingStep>) {
-    const [updated] = await db.update(onboardingSteps).set(updates).where(eq(onboardingSteps.id, id)).returning();
-    return updated;
+  async updateOnboardingStep(id: number, updates: Partial<InsertOnboardingStep>, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }) {
+    const { auditChange } = await import("../services/audit-change");
+    const [before] = await db.select().from(onboardingSteps).where(eq(onboardingSteps.id, id));
+    return await db.transaction(async (tx) => {
+      const [updated] = await tx.update(onboardingSteps).set(updates).where(eq(onboardingSteps.id, id)).returning();
+      if (updated) {
+        await auditChange({
+          userId: auditCtx?.userId ?? null,
+          actorType: (auditCtx?.actorType as any) ?? "user",
+          actorId: auditCtx?.actorId ?? null,
+          action: "onboarding_step_updated",
+          entityType: "onboarding_step",
+          entityId: id,
+          before: before as unknown as Record<string, unknown>,
+          after: updated as unknown as Record<string, unknown>,
+        }, tx);
+      }
+      return updated;
+    });
   }
 
 

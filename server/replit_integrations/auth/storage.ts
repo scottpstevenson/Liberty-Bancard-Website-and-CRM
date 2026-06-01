@@ -79,6 +79,11 @@ class AuthStorage implements IAuthStorage {
 
   async upsertUser(userData: UpsertUser): Promise<User> {
     try {
+      const [existing] = userData.id
+        ? await db.select().from(users).where(eq(users.id, userData.id))
+        : userData.email
+          ? await db.select().from(users).where(eq(users.email, userData.email.toLowerCase()))
+          : [undefined];
       const [user] = await db
         .insert(users)
         .values(userData)
@@ -90,6 +95,11 @@ class AuthStorage implements IAuthStorage {
           },
         })
         .returning();
+      const { auditChange } = await import("../../services/audit-change");
+      const { passwordHash: _bph, ...safeBefore } = (existing ?? {}) as any;
+      const { passwordHash: _aph, ...safeAfter } = user as any;
+      await auditChange({ actorType: "system", action: existing ? "user_updated" : "user_created",
+        entityType: "user", entityKey: user.id, before: existing ? safeBefore : null, after: safeAfter });
       return user;
     } catch (error: any) {
       if (error?.constraint === 'users_email_unique' || error?.message?.includes('users_email_unique')) {
@@ -106,6 +116,11 @@ class AuthStorage implements IAuthStorage {
       .set({ resetToken: token, resetExpiresAt: expiresAt, updatedAt: new Date() })
       .where(eq(users.email, email.toLowerCase()))
       .returning();
+    if (result.length > 0) {
+      const { auditChange } = await import("../../services/audit-change");
+      await auditChange({ actorType: "system", action: "user_password_reset_requested", entityType: "user",
+        entityKey: result[0].id, before: null, after: { email, resetExpiresAt: expiresAt } });
+    }
     return result.length > 0;
   }
 
@@ -122,6 +137,8 @@ class AuthStorage implements IAuthStorage {
       .update(users)
       .set({ passwordHash, resetToken: null, resetExpiresAt: null, updatedAt: new Date() })
       .where(eq(users.id, userId));
+    const { auditChange } = await import("../../services/audit-change");
+    await auditChange({ actorType: "user", userId, action: "user_password_changed", entityType: "user", entityKey: userId, before: null, after: { passwordChangedAt: new Date().toISOString() } });
   }
 
   async updateUserVerificationToken(userId: string, token: string, expiresAt: Date): Promise<void> {
@@ -129,6 +146,9 @@ class AuthStorage implements IAuthStorage {
       .update(users)
       .set({ verificationToken: token, verificationExpiresAt: expiresAt, updatedAt: new Date() })
       .where(eq(users.id, userId));
+    const { auditChange } = await import("../../services/audit-change");
+    await auditChange({ actorType: "system", action: "user_verification_token_issued", entityType: "user",
+      entityKey: userId, before: null, after: { verificationExpiresAt: expiresAt } });
   }
 
   async getUserByVerificationToken(tokenHash: string): Promise<User | undefined> {
@@ -144,6 +164,8 @@ class AuthStorage implements IAuthStorage {
       .update(users)
       .set({ emailVerified: new Date(), verificationToken: null, verificationExpiresAt: null, updatedAt: new Date() })
       .where(eq(users.id, userId));
+    const { auditChange } = await import("../../services/audit-change");
+    await auditChange({ actorType: "user", userId, action: "user_email_verified", entityType: "user", entityKey: userId, before: { emailVerified: null }, after: { emailVerified: new Date().toISOString() } });
   }
 
   async saveTotpSecret(userId: string, secret: string): Promise<void> {
@@ -151,6 +173,8 @@ class AuthStorage implements IAuthStorage {
       .update(users)
       .set({ totpSecret: secret, updatedAt: new Date() })
       .where(eq(users.id, userId));
+    const { auditChange } = await import("../../services/audit-change");
+    await auditChange({ actorType: "user", userId, action: "user_totp_secret_saved", entityType: "user", entityKey: userId, before: null, after: { totpSecretSet: true } });
   }
 
   async enableTotp(userId: string, backupCodes: IBackupCode[]): Promise<void> {
@@ -158,6 +182,8 @@ class AuthStorage implements IAuthStorage {
       .update(users)
       .set({ totpEnabled: true, totpBackupCodes: backupCodes as any, updatedAt: new Date() })
       .where(eq(users.id, userId));
+    const { auditChange } = await import("../../services/audit-change");
+    await auditChange({ actorType: "user", userId, action: "user_totp_enabled", entityType: "user", entityKey: userId, before: { totpEnabled: false }, after: { totpEnabled: true } });
   }
 
   async disableTotp(userId: string): Promise<void> {
@@ -165,6 +191,8 @@ class AuthStorage implements IAuthStorage {
       .update(users)
       .set({ totpSecret: null, totpEnabled: false, totpBackupCodes: null, trustedDevices: null, updatedAt: new Date() })
       .where(eq(users.id, userId));
+    const { auditChange } = await import("../../services/audit-change");
+    await auditChange({ actorType: "user", userId, action: "user_totp_disabled", entityType: "user", entityKey: userId, before: { totpEnabled: true }, after: { totpEnabled: false } });
   }
 
   async getTotpData(userId: string): Promise<{ secret: string | null; enabled: boolean; backupCodes: IBackupCode[] | null }> {
@@ -187,6 +215,9 @@ class AuthStorage implements IAuthStorage {
     const updated = [...data.backupCodes];
     updated[index] = { ...updated[index], used: true };
     await db.update(users).set({ totpBackupCodes: updated as any, updatedAt: new Date() }).where(eq(users.id, userId));
+    const { auditChange } = await import("../../services/audit-change");
+    await auditChange({ actorType: "user", userId, action: "user_backup_code_used", entityType: "user", entityKey: userId,
+      before: { backupCodeIndex: index, used: false }, after: { backupCodeIndex: index, used: true } });
   }
 
   async getTrustedDevices(userId: string): Promise<ITrustedDevice[]> {
@@ -199,14 +230,21 @@ class AuthStorage implements IAuthStorage {
     const devices = await this.getTrustedDevices(userId);
     const now = new Date();
     const valid = devices.filter(d => new Date(d.expiresAt) > now);
+    const before = { trustedDeviceCount: valid.length };
     valid.push(device);
     await db.update(users).set({ trustedDevices: valid as any, updatedAt: new Date() }).where(eq(users.id, userId));
+    const { auditChange } = await import("../../services/audit-change");
+    await auditChange({ actorType: "user", userId, action: "user_trusted_device_added", entityType: "user", entityKey: userId,
+      before, after: { trustedDeviceCount: valid.length, deviceUserAgent: device.userAgent ?? null, expiresAt: device.expiresAt } });
   }
 
   async removeTrustedDevice(userId: string, token: string): Promise<void> {
     const devices = await this.getTrustedDevices(userId);
     const updated = devices.filter(d => d.token !== token);
     await db.update(users).set({ trustedDevices: updated as any, updatedAt: new Date() }).where(eq(users.id, userId));
+    const { auditChange } = await import("../../services/audit-change");
+    await auditChange({ actorType: "user", userId, action: "user_trusted_device_removed", entityType: "user", entityKey: userId,
+      before: { trustedDeviceCount: devices.length }, after: { trustedDeviceCount: updated.length } });
   }
 
   async clearExpiredTrustedDevices(userId: string): Promise<void> {
@@ -217,10 +255,15 @@ class AuthStorage implements IAuthStorage {
   }
 
   async adminResetTotp(userId: string): Promise<void> {
+    const before = await this.getTotpData(userId);
     await db
       .update(users)
       .set({ totpSecret: null, totpEnabled: false, totpBackupCodes: null, trustedDevices: null, updatedAt: new Date() })
       .where(eq(users.id, userId));
+    const { auditChange } = await import("../../services/audit-change");
+    await auditChange({ actorType: "system", action: "user_totp_admin_reset", entityType: "user", entityKey: userId,
+      before: { totpEnabled: before.enabled, backupCodeCount: before.backupCodes?.length ?? 0 },
+      after: { totpEnabled: false, backupCodeCount: 0 } });
   }
 
   // === SESSION MANAGEMENT ===

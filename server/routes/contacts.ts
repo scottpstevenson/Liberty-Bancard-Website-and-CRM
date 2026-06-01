@@ -42,9 +42,7 @@ export function registerContactsRoutes(app: Express) {
   app.post("/api/contacts", isDashboardUser, async (req, res) => {
     try {
       const input = insertContactSchema.parse(req.body);
-      const contact = await createContactGhlFirst(input);
-
-      await storage.createAuditLog({ action: "contact_created", entityType: "contact", entityId: contact.id, details: { name: `${contact.firstName} ${contact.lastName}` } });
+      const contact = await createContactGhlFirst(input, { actorType: "user", userId: (req.user as any)?.id ?? null });
       await createPreferenceAwareNotification({ channel: "internal", title: "New Contact Created", message: `${contact.firstName} ${contact.lastName}${contact.companyName ? ` — ${contact.companyName}` : ""} has been added as a new contact.`, type: "info", metadata: { contactId: contact.id, eventType: "contact_created" } }, "contact_created");
       sendPushToAllReps({ title: "New Lead Assigned", body: `${contact.firstName} ${contact.lastName}${contact.companyName ? ` — ${contact.companyName}` : ""} added to CRM`, url: "/mobile/contacts" }).catch(() => {});
       triggerWorkflowsByEvent("contact_created", { entityType: "contact", entityId: contact.id, contactId: contact.id }).catch(err => console.error("Workflow trigger error:", err));
@@ -96,7 +94,7 @@ export function registerContactsRoutes(app: Express) {
     try {
       const contactId = Number(req.params.id);
       const existing = await storage.getContact(contactId);
-      const updated = await updateContactGhlFirst(contactId, req.body);
+      const updated = await updateContactGhlFirst(contactId, req.body, { actorType: "user", userId: (req.user as any)?.id ?? null });
       if (!updated) return res.status(404).json({ message: "Not found" });
 
       // Re-extract relationships when key identifiers change

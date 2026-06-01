@@ -121,21 +121,56 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   }
 
 
-  async createContact(insertContact: InsertContact) {
-    const [contact] = await db.insert(contacts).values(insertContact).returning();
-    return contact;
+  async createContact(insertContact: InsertContact, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }) {
+    const { auditChange } = await import("../services/audit-change");
+    return await db.transaction(async (tx) => {
+      const [contact] = await tx.insert(contacts).values(insertContact).returning();
+      await auditChange({
+        userId: auditCtx?.userId ?? null,
+        actorType: (auditCtx?.actorType as any) ?? "user",
+        actorId: auditCtx?.actorId ?? null,
+        action: "contact_created",
+        entityType: "contact",
+        entityId: contact.id,
+        before: null,
+        after: contact as unknown as Record<string, unknown>,
+      }, tx);
+      return contact;
+    });
   }
 
 
-  async updateContact(id: number, updates: UpdateContactRequest) {
-    const [updated] = await db.update(contacts).set({ ...updates, updatedAt: new Date() }).where(eq(contacts.id, id)).returning();
-    return updated;
+  async updateContact(id: number, updates: UpdateContactRequest, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }) {
+    const { auditChange } = await import("../services/audit-change");
+    const [before] = await db.select().from(contacts).where(eq(contacts.id, id));
+    return await db.transaction(async (tx) => {
+      const [updated] = await tx.update(contacts).set({ ...updates, updatedAt: new Date() }).where(eq(contacts.id, id)).returning();
+      if (updated) {
+        await auditChange({
+          userId: auditCtx?.userId ?? null,
+          actorType: (auditCtx?.actorType as any) ?? "user",
+          actorId: auditCtx?.actorId ?? null,
+          action: "contact_updated",
+          entityType: "contact",
+          entityId: id,
+          before: before as unknown as Record<string, unknown>,
+          after: updated as unknown as Record<string, unknown>,
+        }, tx);
+      }
+      return updated;
+    });
   }
 
   async syncUpdateContact(id: number, updates: UpdateContactRequest) {
     // Intentionally does NOT bump updatedAt so that updatedAt stays as the last
     // genuine user-edit timestamp and conflict detection remains accurate.
+    const [before] = await db.select().from(contacts).where(eq(contacts.id, id));
     const [updated] = await db.update(contacts).set(updates).where(eq(contacts.id, id)).returning();
+    if (updated) {
+      const { auditChange } = await import("../services/audit-change");
+      auditChange({ actorType: "system", action: "contact_sync_updated", entityType: "contact", entityId: id,
+        before: before as unknown as Record<string, unknown>, after: updated as unknown as Record<string, unknown> }).catch(() => {});
+    }
     return updated;
   }
 
@@ -184,15 +219,33 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   }
 
 
-  async archiveContact(id: number) {
-    const [updated] = await db.update(contacts).set({ archivedAt: new Date() }).where(eq(contacts.id, id)).returning();
-    return updated;
+  async archiveContact(id: number, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }) {
+    const { auditChange } = await import("../services/audit-change");
+    const [before] = await db.select().from(contacts).where(eq(contacts.id, id));
+    return await db.transaction(async (tx) => {
+      const [updated] = await tx.update(contacts).set({ archivedAt: new Date() }).where(eq(contacts.id, id)).returning();
+      if (updated) {
+        await auditChange({ userId: auditCtx?.userId ?? null, actorType: (auditCtx?.actorType as any) ?? "user", actorId: auditCtx?.actorId ?? null,
+          action: "contact_archived", entityType: "contact", entityId: id,
+          before: before as unknown as Record<string, unknown>, after: updated as unknown as Record<string, unknown> }, tx);
+      }
+      return updated;
+    });
   }
 
 
-  async restoreContact(id: number) {
-    const [updated] = await db.update(contacts).set({ archivedAt: null }).where(eq(contacts.id, id)).returning();
-    return updated;
+  async restoreContact(id: number, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }) {
+    const { auditChange } = await import("../services/audit-change");
+    const [before] = await db.select().from(contacts).where(eq(contacts.id, id));
+    return await db.transaction(async (tx) => {
+      const [updated] = await tx.update(contacts).set({ archivedAt: null }).where(eq(contacts.id, id)).returning();
+      if (updated) {
+        await auditChange({ userId: auditCtx?.userId ?? null, actorType: (auditCtx?.actorType as any) ?? "user", actorId: auditCtx?.actorId ?? null,
+          action: "contact_restored", entityType: "contact", entityId: id,
+          before: before as unknown as Record<string, unknown>, after: updated as unknown as Record<string, unknown> }, tx);
+      }
+      return updated;
+    });
   }
 
 
@@ -234,15 +287,22 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   }
 
 
-  async mergeContacts(primaryId: number, duplicateId: number) {
+  async mergeContacts(primaryId: number, duplicateId: number, auditCtx?: { userId?: string | null; actorType?: string }) {
     const primary = await this.getContact(primaryId);
     const duplicate = await this.getContact(duplicateId);
     if (!primary || !duplicate) return undefined;
-    await db.update(deals).set({ contactId: primaryId }).where(eq(deals.contactId, duplicateId));
-    await db.update(tickets).set({ contactId: primaryId }).where(eq(tickets.contactId, duplicateId));
-    await db.update(tasks).set({ contactId: primaryId }).where(eq(tasks.contactId, duplicateId));
-    await db.update(documents).set({ contactId: primaryId }).where(eq(documents.contactId, duplicateId));
-    await db.update(contacts).set({ archivedAt: new Date(), notes: `[Merged into Contact #${primaryId}] ${duplicate.notes || ''}` }).where(eq(contacts.id, duplicateId));
+    const { auditChange } = await import("../services/audit-change");
+    await db.transaction(async (tx) => {
+      await tx.update(deals).set({ contactId: primaryId }).where(eq(deals.contactId, duplicateId));
+      await tx.update(tickets).set({ contactId: primaryId }).where(eq(tickets.contactId, duplicateId));
+      await tx.update(tasks).set({ contactId: primaryId }).where(eq(tasks.contactId, duplicateId));
+      await tx.update(documents).set({ contactId: primaryId }).where(eq(documents.contactId, duplicateId));
+      await tx.update(contacts).set({ archivedAt: new Date(), notes: `[Merged into Contact #${primaryId}] ${duplicate.notes || ''}` }).where(eq(contacts.id, duplicateId));
+      await auditChange({ userId: auditCtx?.userId ?? null, actorType: (auditCtx?.actorType as any) ?? "user",
+        action: "contact_merged", entityType: "contact", entityId: duplicateId,
+        before: duplicate as unknown as Record<string, unknown>,
+        after: { mergedIntoContactId: primaryId, archivedAt: new Date() } }, tx);
+    });
     return primary;
   }
 

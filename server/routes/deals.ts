@@ -37,8 +37,8 @@ export function registerDealsRoutes(app: Express) {
   app.post("/api/deals", isDashboardUser, async (req, res) => {
     try {
       const input = insertDealSchema.parse(req.body);
-      const deal = await storage.createDeal(input);
-      await storage.createAuditLog({ action: "deal_created", entityType: "deal", entityId: deal.id, details: { pipeline: deal.pipeline, stage: deal.stage } });
+      const deal = await storage.createDeal(input, { userId: (req.user as any)?.id ?? null });
+      await storage.createAuditLog({ action: "deal_created", entityType: "deal", entityId: deal.id, userId: (req.user as any)?.id ?? null, details: { pipeline: deal.pipeline, stage: deal.stage } });
       if (deal.contactId) {
         scoreContact(deal.contactId).catch(err => console.error("Lead scoring error:", err));
       }
@@ -63,7 +63,7 @@ export function registerDealsRoutes(app: Express) {
   app.put("/api/deals/:id", isDashboardUser, async (req, res) => {
     try {
       const old = await storage.getDeal(Number(req.params.id));
-      const updated = await storage.updateDeal(Number(req.params.id), req.body);
+      const updated = await storage.updateDeal(Number(req.params.id), req.body, { userId: (req.user as any)?.id ?? null });
       if (!updated) return res.status(404).json({ message: "Not found" });
       if (old && old.stage !== updated.stage) {
         await storage.createAuditLog({ action: "deal_stage_changed", entityType: "deal", entityId: updated.id, details: { from: old.stage, to: updated.stage } });

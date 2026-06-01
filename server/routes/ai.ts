@@ -401,13 +401,15 @@ Return JSON with:
         await storage.updateDeal(Number(dealId), {
           effectiveRate: analysis.effectiveRate,
           recommendedPath: analysis.recommendedPath,
-        });
+        }, { actorType: "ai", actorId: "statement-analyzer", userId: null });
       }
 
       await storage.createAuditLog({
         action: "statement_analyzed",
         entityType: dealId ? "deal" : "contact",
         entityId: dealId ? Number(dealId) : (contactId ? Number(contactId) : undefined),
+        actorType: "ai",
+        actorId: "statement-analyzer",
         details: analysis,
       });
 
@@ -604,12 +606,14 @@ Notes: ${deal.notes || "None"}`
         estimatedGrossProfitBps: bestPlan?.libertyMarginBps || deal.estimatedGrossProfitBps,
         estimatedGrossProfitMonthly: bestPlan?.libertyMonthlyRevenue ? `$${bestPlan.libertyMonthlyRevenue.toFixed(2)}` : deal.estimatedGrossProfitMonthly,
         lastStatementReviewDate: new Date(),
-      });
+      }, { actorType: "ai", actorId: "proposal-generator", userId: null });
 
       await storage.createAuditLog({
         action: "proposal_generated",
         entityType: "deal",
         entityId: deal.id,
+        actorType: "ai",
+        actorId: "proposal-generator",
         details: {
           recommendedPlan: proposal.recommendedPlan,
           plans: proposal.plans?.map((p: any) => ({ name: p.name, annualSavings: p.annualSavings, savingsPercent: p.savingsPercent })),
@@ -722,11 +726,13 @@ Notes: ${deal.notes || "None"}`
       existing.lastEditedAt = new Date().toISOString();
       existing.editedBy = userEmail;
 
-      await storage.updateDeal(dealId, { savingsProposal: existing });
+      await storage.updateDeal(dealId, { savingsProposal: existing }, { actorType: "user", userId: (req.user as any)?.id ?? null });
       await storage.createAuditLog({
         action: "proposal_edited",
         entityType: "deal",
         entityId: dealId,
+        actorType: "user",
+        userId: (req.user as any)?.id ?? null,
         details: { editedBy: userEmail },
       });
 

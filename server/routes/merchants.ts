@@ -76,7 +76,7 @@ export function registerMerchantsRoutes(app: Express) {
   app.post("/api/merchant-applications", isAuthenticated, async (req, res) => {
     try {
       const input = insertMerchantApplicationSchema.parse(req.body);
-      const application = await storage.createMerchantApplication(input);
+      const application = await storage.createMerchantApplication(input, { actorType: "user", userId: (req.user as any)?.id ?? null });
 
       const contactEmail = application.ownerEmail || application.businessEmail;
       if (contactEmail) {
@@ -211,7 +211,7 @@ export function registerMerchantsRoutes(app: Express) {
         delete updates.underwritingNotes;
       }
 
-      const updated = await storage.updateMerchantApplication(appId, updates);
+      const updated = await storage.updateMerchantApplication(appId, updates, { userId: (req.user as any)?.id ?? null });
       if (!updated) return res.status(404).json({ message: "Not found" });
 
       const wasApproved = existing.status !== "approved" && updated.status === "approved";
@@ -951,7 +951,7 @@ export function registerMerchantsRoutes(app: Express) {
   app.post("/api/onboarding-steps", requireRole("admin", "manager"), async (req, res) => {
     try {
       const input = insertOnboardingStepSchema.parse(req.body);
-      const step = await storage.createOnboardingStep(input);
+      const step = await storage.createOnboardingStep(input, { actorType: "user", userId: (req.user as any)?.id ?? null });
       res.status(201).json(step);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
@@ -961,7 +961,7 @@ export function registerMerchantsRoutes(app: Express) {
 
   app.patch("/api/onboarding-steps/:id", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const updated = await storage.updateOnboardingStep(Number(req.params.id), req.body);
+      const updated = await storage.updateOnboardingStep(Number(req.params.id), req.body, { userId: (req.user as any)?.id ?? null });
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {

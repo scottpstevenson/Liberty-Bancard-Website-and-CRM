@@ -316,6 +316,43 @@ export async function runStartupMigrations(): Promise<void> {
       CREATE UNIQUE INDEX IF NOT EXISTS entity_relationships_unique_idx ON entity_relationships(source_entity_type, source_entity_id, target_entity_type, target_entity_id, relationship_type);
     `);
 
+    await client.query(`
+      -- Task #268: Full Entity Change Audit Trail
+      -- Add before/after state columns + entity_key for string-ID entities + append-only enforcement
+
+      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS before_state JSONB;
+      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS after_state JSONB;
+      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS actor_type TEXT NOT NULL DEFAULT 'user';
+      ALTER TABLE audit_logs DROP CONSTRAINT IF EXISTS audit_logs_actor_type_check;
+      ALTER TABLE audit_logs ADD CONSTRAINT audit_logs_actor_type_check CHECK (actor_type IN ('user', 'ai', 'system'));
+      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS actor_id TEXT;
+      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS entity_key TEXT;
+
+      CREATE INDEX IF NOT EXISTS audit_logs_entity_key_idx ON audit_logs(entity_key);
+      CREATE INDEX IF NOT EXISTS audit_logs_actor_type_idx ON audit_logs(actor_type);
+      CREATE INDEX IF NOT EXISTS audit_logs_user_id_idx ON audit_logs(user_id);
+      CREATE INDEX IF NOT EXISTS audit_logs_entity_type_entity_id_idx ON audit_logs(entity_type, entity_id);
+      CREATE INDEX IF NOT EXISTS audit_logs_created_at_idx ON audit_logs(created_at);
+
+      -- Append-only enforcement: block UPDATE and DELETE on audit_logs
+      CREATE OR REPLACE FUNCTION audit_logs_append_only()
+      RETURNS TRIGGER AS $$
+      BEGIN
+        RAISE EXCEPTION 'audit_logs is append-only: UPDATE and DELETE are not permitted';
+      END;
+      $$ LANGUAGE plpgsql;
+
+      DROP TRIGGER IF EXISTS trg_audit_logs_no_update ON audit_logs;
+      CREATE TRIGGER trg_audit_logs_no_update
+        BEFORE UPDATE ON audit_logs
+        FOR EACH ROW EXECUTE FUNCTION audit_logs_append_only();
+
+      DROP TRIGGER IF EXISTS trg_audit_logs_no_delete ON audit_logs;
+      CREATE TRIGGER trg_audit_logs_no_delete
+        BEFORE DELETE ON audit_logs
+        FOR EACH ROW EXECUTE FUNCTION audit_logs_append_only();
+    `);
+
     console.log("[Migrations] Startup migrations applied successfully.");
   } catch (err: any) {
     console.error("[Migrations] Error applying startup migrations:", err.message);

@@ -1,5 +1,5 @@
 import type { Express } from "express";
-import { isAuthenticated, requireRole } from "../replit_integrations/auth";
+import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { isGhlConfigured, sendGhlEmailForMerchant } from "../services/ghl";
 import { buildDailyDigest } from "../services/digest-service";
@@ -116,10 +116,40 @@ export function registerNotificationsRoutes(app: Express) {
   // === AUDIT LOGS === (admin-only — sensitive system-wide log)
   app.get("/api/audit-logs", requireRole('admin'), async (req, res) => {
     try {
-      const logs = await storage.getAuditLogs();
+      const { entityType, entityId, actorType, actorId, userId, startDate, endDate, limit, offset } = req.query;
+      const filters: Parameters<typeof storage.getAuditLogs>[0] = {};
+      if (entityType && typeof entityType === 'string') filters.entityType = entityType;
+      if (entityId) filters.entityId = Number(entityId);
+      if (actorType && typeof actorType === 'string') filters.actorType = actorType;
+      if (actorId && typeof actorId === 'string') filters.actorId = actorId;
+      if (userId && typeof userId === 'string') filters.userId = userId;
+      if (startDate && typeof startDate === 'string') filters.startDate = new Date(startDate);
+      if (endDate && typeof endDate === 'string') filters.endDate = new Date(endDate);
+      if (limit) filters.limit = Number(limit);
+      if (offset) filters.offset = Number(offset);
+      const logs = await storage.getAuditLogs(Object.keys(filters).length > 0 ? filters : undefined);
       res.json(logs);
     } catch (err: any) {
       console.error("Get audit logs error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Contact and deal history visible to any CRM user; all other entity types require admin.
+  const OPEN_HISTORY_TYPES = new Set(["contact", "deal"]);
+  app.get("/api/audit-logs/entity/:entityType/:entityId", isDashboardUser, async (req, res) => {
+    try {
+      const { entityType, entityId } = req.params;
+      const user = req.user as any;
+      if (!OPEN_HISTORY_TYPES.has(entityType) && user?.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required to view audit history for this entity type." });
+      }
+      const limit = req.query.limit ? Number(req.query.limit) : 50;
+      const resolvedId = /^\d+$/.test(entityId) ? Number(entityId) : entityId;
+      const logs = await storage.getAuditLogsByEntity(entityType, resolvedId, limit);
+      res.json(logs);
+    } catch (err: any) {
+      console.error("Get entity audit logs error:", err.message);
       res.status(500).json({ message: err.message });
     }
   });

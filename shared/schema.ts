@@ -298,11 +298,19 @@ export const auditLogs = pgTable("audit_logs", {
   action: text("action").notNull(),
   entityType: text("entity_type").notNull(),
   entityId: integer("entity_id"),
+  entityKey: text("entity_key"),
   details: jsonb("details"),
+  beforeState: jsonb("before_state"),
+  afterState: jsonb("after_state"),
+  actorType: text("actor_type").default("user"),
+  actorId: text("actor_id"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("audit_logs_created_at_idx").on(table.createdAt),
   index("audit_logs_entity_type_entity_id_idx").on(table.entityType, table.entityId),
+  index("audit_logs_entity_key_idx").on(table.entityKey),
+  index("audit_logs_actor_type_idx").on(table.actorType),
+  index("audit_logs_user_id_idx").on(table.userId),
 ]);
 
 export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({

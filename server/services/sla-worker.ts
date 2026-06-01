@@ -101,28 +101,23 @@ async function collapseBreachIfRecent(
   const prevDetails = (recent.details as Record<string, unknown>) || {};
   const prevCount = typeof prevDetails.collapsedCount === "number" ? prevDetails.collapsedCount : 1;
   const nextCount = prevCount + 1;
+  const firstBreachAt = prevDetails.firstBreachAt || (recent.createdAt ? new Date(recent.createdAt).toISOString() : new Date().toISOString());
 
-  // Update the existing audit row in place rather than emitting a new
-  // *_collapsed audit per cycle. This keeps audit volume flat across the
-  // throttle window so collapse truly silences the alert storm for any
-  // downstream metrics/alerting that watch the audit_logs table.
-  const { auditLogs } = await import("@shared/schema");
-  const { eq } = await import("drizzle-orm");
-  const { db } = await import("../db");
-  // Slide the audit row's createdAt forward so the 6h throttle window
-  // anchors on the latest occurrence — long-running breaches keep
-  // incrementing the counter indefinitely instead of stopping after 6h.
-  const nowIso = new Date();
-  await db.update(auditLogs).set({
-    createdAt: nowIso,
+  // Append a new collapsed-breach audit row (audit log is append-only).
+  // The throttle window check in findRecentBreachAudit ensures this still
+  // silences alert storms — we emit at most one collapse row per throttle window.
+  await storage.createAuditLog({
+    action: `${action}_collapsed`,
+    entityType,
+    entityId,
     details: {
-      ...prevDetails,
       sla_breach_collapsed: true,
       collapsedCount: nextCount,
-      collapsedAt: nowIso.toISOString(),
-      firstBreachAt: prevDetails.firstBreachAt || (recent.createdAt ? new Date(recent.createdAt).toISOString() : nowIso.toISOString()),
+      collapsedAt: new Date().toISOString(),
+      firstBreachAt,
+      originalAuditId: recent.id,
     },
-  }).where(eq(auditLogs.id, recent.id));
+  });
 
   if (existingTaskId) {
     const tasks = await storage.getTasks();

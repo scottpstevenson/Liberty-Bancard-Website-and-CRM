@@ -182,8 +182,14 @@ export function registerVirtualTerminalRoutes(app: Express) {
       const { permissions } = req.body;
       if (!Array.isArray(permissions)) return res.status(400).json({ message: "permissions must be an array" });
       const { users } = await import("@shared/schema");
+      const [existing] = await db.select().from(users).where(eq(users.id, String(req.params.id)));
       const [updated] = await db.update(users).set({ permissions, updatedAt: new Date() }).where(eq(users.id, String(req.params.id))).returning();
       if (!updated) return res.status(404).json({ message: "User not found" });
+      const { auditChange } = await import("../services/audit-change");
+      auditChange({ actorType: "user", userId: (req.user as any)?.id ?? null, action: "user_permissions_changed",
+        entityType: "user", entityKey: updated.id,
+        before: existing ? { permissions: existing.permissions } : null,
+        after: { permissions: updated.permissions } }).catch(() => {});
       const { passwordHash, ...safeUser } = updated;
       res.json(safeUser);
     } catch (err: any) {

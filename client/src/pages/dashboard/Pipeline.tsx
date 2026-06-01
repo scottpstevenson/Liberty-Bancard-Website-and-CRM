@@ -17,7 +17,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Calendar, Sparkles, Loader2, Download, ChevronDown, Archive, Settings, ArrowUp, ArrowDown, Pencil, Trash2, RotateCcw, MoreVertical, TrendingUp, TrendingDown, UserRound, AlertTriangle, Activity, ArrowUpDown, FileText, Copy, ExternalLink, Send, CheckCircle2 } from "lucide-react";
+import { Plus, Calendar, Sparkles, Loader2, Download, ChevronDown, ChevronUp, Archive, Settings, ArrowUp, ArrowDown, Pencil, Trash2, RotateCcw, MoreVertical, TrendingUp, TrendingDown, UserRound, AlertTriangle, Activity, ArrowUpDown, FileText, Copy, ExternalLink, Send, CheckCircle2, History, User, Bot } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
@@ -334,6 +334,94 @@ function DroppableColumn({
           )}
         </div>
       </SortableContext>
+    </div>
+  );
+}
+
+function DealChangeHistory({ dealId }: { dealId: number }) {
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const { data: logs, isLoading } = useQuery<Array<{
+    id: number; action: string; beforeState: Record<string, unknown> | null;
+    afterState: Record<string, unknown> | null; actorType: string | null;
+    actorId: string | null; userId: string | null; createdAt: string;
+  }>>({
+    queryKey: ["/api/audit-logs/entity", "deal", dealId],
+    queryFn: async () => {
+      const res = await fetch(`/api/audit-logs/entity/deal/${dealId}?limit=50`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!dealId,
+    staleTime: 30000,
+  });
+
+  const HIDDEN = new Set(["updatedAt","createdAt","archivedAt","scoreBreakdown","dealBlueprint","savingsProposal","boardingLog","linkedinEnrichmentLog"]);
+  function fmtVal(v: unknown): string {
+    if (v === null || v === undefined || v === "") return "—";
+    if (typeof v === "boolean") return v ? "Yes" : "No";
+    if (typeof v === "object") return JSON.stringify(v).slice(0, 80);
+    return String(v);
+  }
+  function getDiff(before: Record<string, unknown> | null, after: Record<string, unknown> | null) {
+    if (!after) return [];
+    const keys = new Set([...Object.keys(before ?? {}), ...Object.keys(after)]);
+    const changes: Array<{ field: string; from: string; to: string }> = [];
+    for (const k of keys) {
+      if (HIDDEN.has(k)) continue;
+      const a = fmtVal(before?.[k] ?? null), b = fmtVal(after[k] ?? null);
+      if (a !== b) changes.push({ field: k.replace(/([A-Z])/g, " $1").replace(/^./, s => s.toUpperCase()), from: a, to: b });
+    }
+    return changes;
+  }
+
+  if (isLoading) return <div className="py-4 text-sm text-muted-foreground">Loading history...</div>;
+  if (!logs || logs.length === 0) return <div className="py-4 text-sm text-muted-foreground italic">No change history recorded yet.</div>;
+
+  return (
+    <div className="space-y-2 max-h-80 overflow-y-auto pr-1" data-testid="deal-change-history">
+      {logs.map((entry) => {
+        const isCreate = entry.action.endsWith("_created") || entry.beforeState === null;
+        const diff = getDiff(entry.beforeState, entry.afterState);
+        const isExpanded = expandedId === entry.id;
+        return (
+          <div key={entry.id} className="border rounded-md p-3 text-xs space-y-1" data-testid={`deal-history-entry-${entry.id}`}>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 font-medium">
+                {entry.actorType === "ai" ? <Bot className="h-3 w-3 text-purple-500" /> : entry.actorType === "system" ? null : <User className="h-3 w-3" />}
+                <span>{entry.action.replace(/_/g, " ").replace(/^./, s => s.toUpperCase())}</span>
+              </div>
+              <span className="text-muted-foreground shrink-0">
+                {new Date(entry.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+              </span>
+            </div>
+            <div className="text-muted-foreground">
+              {entry.actorType === "ai" ? `AI${entry.actorId ? `: ${entry.actorId}` : ""}` : entry.actorType === "system" ? "System" : entry.userId ? `User ${entry.userId.slice(0,8)}` : "Unknown"}
+            </div>
+            {isCreate && <div className="italic text-muted-foreground">Record created</div>}
+            {!isCreate && diff.length > 0 && (
+              <>
+                <button className="flex items-center gap-1 text-muted-foreground hover:text-foreground" onClick={() => setExpandedId(isExpanded ? null : entry.id)} data-testid={`deal-history-toggle-${entry.id}`}>
+                  {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                  {diff.length} field{diff.length !== 1 ? "s" : ""} changed
+                </button>
+                {isExpanded && (
+                  <div className="rounded border p-2 bg-muted/30 space-y-1" data-testid={`deal-history-diff-${entry.id}`}>
+                    {diff.map((d, i) => (
+                      <div key={i} className="grid grid-cols-[auto_1fr] gap-x-2">
+                        <span className="font-medium text-muted-foreground whitespace-nowrap">{d.field}:</span>
+                        <span className="break-all">
+                          {d.from !== "—" && <span className="line-through text-red-500 mr-1">{d.from}</span>}
+                          <span className="text-green-700 dark:text-green-400">{d.to}</span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1418,6 +1506,13 @@ export default function Pipeline() {
 
               <div className="border-t pt-4">
                 <Comments entityType="deal" entityId={selectedDeal.id} />
+              </div>
+
+              <div className="border-t pt-4" data-testid="deal-history-section">
+                <p className="text-sm font-medium mb-3 flex items-center gap-2">
+                  <History className="h-4 w-4" /> Change History
+                </p>
+                <DealChangeHistory dealId={selectedDeal.id} />
               </div>
             </div>
           )}

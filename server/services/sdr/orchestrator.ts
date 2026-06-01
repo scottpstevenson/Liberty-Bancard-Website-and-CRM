@@ -1055,9 +1055,15 @@ export async function bridgeContactsToSdr(options?: { limit?: number; contactIds
               contactId: contact.id,
             });
             resolvedBusinessId = bizResult.businessId;
-            await db.update(contacts)
+            const [updatedContact] = await db.update(contacts)
               .set({ businessId: resolvedBusinessId })
-              .where(eq(contacts.id, contact.id));
+              .where(eq(contacts.id, contact.id))
+              .returning();
+            const { auditChange } = await import("../../services/audit-change");
+            auditChange({ actorType: "system", action: "contact_business_linked",
+              entityType: "contact", entityId: contact.id,
+              before: contact as unknown as Record<string, unknown>,
+              after: (updatedContact ?? contact) as unknown as Record<string, unknown> }).catch(() => {});
             if (existingBusinessIds.has(resolvedBusinessId!)) {
               skipped++;
               continue;

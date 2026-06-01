@@ -221,20 +221,64 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   }
 
 
-  async createCommissionTier(tier: InsertCommissionTier) {
-    const [created] = await db.insert(commissionTiers).values(tier).returning();
-    return created;
+  async createCommissionTier(tier: InsertCommissionTier, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }) {
+    const { auditChange } = await import("../services/audit-change");
+    return await db.transaction(async (tx) => {
+      const [created] = await tx.insert(commissionTiers).values(tier).returning();
+      await auditChange({
+        userId: auditCtx?.userId ?? null,
+        actorType: (auditCtx?.actorType as any) ?? "user",
+        actorId: auditCtx?.actorId ?? null,
+        action: "commission_tier_created",
+        entityType: "commission_tier",
+        entityId: created.id,
+        before: null,
+        after: created as unknown as Record<string, unknown>,
+      }, tx);
+      return created;
+    });
   }
 
 
-  async updateCommissionTier(id: number, updates: Partial<InsertCommissionTier>) {
-    const [updated] = await db.update(commissionTiers).set(updates).where(eq(commissionTiers.id, id)).returning();
-    return updated;
+  async updateCommissionTier(id: number, updates: Partial<InsertCommissionTier>, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }) {
+    const { auditChange } = await import("../services/audit-change");
+    const [before] = await db.select().from(commissionTiers).where(eq(commissionTiers.id, id));
+    return await db.transaction(async (tx) => {
+      const [updated] = await tx.update(commissionTiers).set(updates).where(eq(commissionTiers.id, id)).returning();
+      if (updated) {
+        await auditChange({
+          userId: auditCtx?.userId ?? null,
+          actorType: (auditCtx?.actorType as any) ?? "user",
+          actorId: auditCtx?.actorId ?? null,
+          action: "commission_tier_updated",
+          entityType: "commission_tier",
+          entityId: id,
+          before: before as unknown as Record<string, unknown>,
+          after: updated as unknown as Record<string, unknown>,
+        }, tx);
+      }
+      return updated;
+    });
   }
 
 
-  async deleteCommissionTier(id: number) {
-    await db.delete(commissionTiers).where(eq(commissionTiers.id, id));
+  async deleteCommissionTier(id: number, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }) {
+    const { auditChange } = await import("../services/audit-change");
+    const [before] = await db.select().from(commissionTiers).where(eq(commissionTiers.id, id));
+    await db.transaction(async (tx) => {
+      await tx.delete(commissionTiers).where(eq(commissionTiers.id, id));
+      if (before) {
+        await auditChange({
+          userId: auditCtx?.userId ?? null,
+          actorType: (auditCtx?.actorType as any) ?? "user",
+          action: "commission_tier_deleted",
+          entityType: "commission_tier",
+          entityId: id,
+          before: before as unknown as Record<string, unknown>,
+          after: null,
+        }, tx);
+      }
+    });
   }
 
 

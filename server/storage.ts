@@ -141,8 +141,8 @@ export interface IStorage {
   getContacts(params?: PaginationParams): Promise<PaginatedResult<typeof contacts.$inferSelect>>;
   getContact(id: number): Promise<typeof contacts.$inferSelect | undefined>;
   getContactByEmail(email: string): Promise<typeof contacts.$inferSelect | undefined>;
-  createContact(contact: InsertContact): Promise<typeof contacts.$inferSelect>;
-  updateContact(id: number, contact: UpdateContactRequest): Promise<typeof contacts.$inferSelect | undefined>;
+  createContact(contact: InsertContact, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }): Promise<typeof contacts.$inferSelect>;
+  updateContact(id: number, contact: UpdateContactRequest, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }): Promise<typeof contacts.$inferSelect | undefined>;
   syncUpdateContact(id: number, contact: UpdateContactRequest): Promise<typeof contacts.$inferSelect | undefined>;
 
   getCompanies(): Promise<typeof companies.$inferSelect[]>;
@@ -154,8 +154,8 @@ export interface IStorage {
   getDeal(id: number): Promise<typeof deals.$inferSelect | undefined>;
   getDealsByPipeline(pipeline: string, params?: PaginationParams): Promise<PaginatedResult<typeof deals.$inferSelect>>;
   getDealsByContact(contactId: number): Promise<typeof deals.$inferSelect[]>;
-  createDeal(deal: InsertDeal): Promise<typeof deals.$inferSelect>;
-  updateDeal(id: number, deal: UpdateDealRequest): Promise<typeof deals.$inferSelect | undefined>;
+  createDeal(deal: InsertDeal, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }): Promise<typeof deals.$inferSelect>;
+  updateDeal(id: number, deal: UpdateDealRequest, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }): Promise<typeof deals.$inferSelect | undefined>;
 
   getTickets(params?: PaginationParams): Promise<PaginatedResult<typeof tickets.$inferSelect>>;
   getTicket(id: number): Promise<typeof tickets.$inferSelect | undefined>;
@@ -173,8 +173,8 @@ export interface IStorage {
   deleteDocument(id: number): Promise<void>;
   createDocumentAccessLog(entry: InsertDocumentAccessLog): Promise<typeof documentAccessLog.$inferSelect>;
 
-  getAuditLogs(): Promise<typeof auditLogs.$inferSelect[]>;
-  getAuditLogsByEntity(entityType: string, entityId: number, limit?: number): Promise<typeof auditLogs.$inferSelect[]>;
+  getAuditLogs(filters?: { entityType?: string; entityId?: number; actorType?: string; actorId?: string; userId?: string; startDate?: Date; endDate?: Date; limit?: number; offset?: number }): Promise<typeof auditLogs.$inferSelect[]>;
+  getAuditLogsByEntity(entityType: string, entityId: number | string, limit?: number): Promise<typeof auditLogs.$inferSelect[]>;
   getLastAuditLogByAction(action: string, entityType: string, entityId: number): Promise<typeof auditLogs.$inferSelect | undefined>;
   createAuditLog(log: InsertAuditLog): Promise<typeof auditLogs.$inferSelect>;
   getAiAuditLogs(filters?: { triggerType?: string; startDate?: Date; endDate?: Date; limit?: number; offset?: number }): Promise<import("@shared/schema").AiAuditLog[]>;
@@ -337,8 +337,8 @@ export interface IStorage {
   getMerchantApplications(): Promise<MerchantApplication[]>;
   getMerchantApplication(id: number): Promise<MerchantApplication | undefined>;
   getMerchantApplicationByUser(userId: string): Promise<MerchantApplication | undefined>;
-  createMerchantApplication(app: InsertMerchantApplication): Promise<MerchantApplication>;
-  updateMerchantApplication(id: number, updates: Partial<InsertMerchantApplication>): Promise<MerchantApplication | undefined>;
+  createMerchantApplication(app: InsertMerchantApplication, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }): Promise<MerchantApplication>;
+  updateMerchantApplication(id: number, updates: Partial<InsertMerchantApplication>, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }): Promise<MerchantApplication | undefined>;
 
   getMerchantProfiles(): Promise<MerchantProfile[]>;
   getMerchantProfile(id: number): Promise<MerchantProfile | undefined>;
@@ -367,7 +367,7 @@ export interface IStorage {
   getResidualReports(): Promise<ResidualReport[]>;
   getResidualReport(id: number): Promise<ResidualReport | undefined>;
   getResidualReportsByMonth(month: string): Promise<ResidualReport[]>;
-  createResidualReport(report: InsertResidualReport): Promise<ResidualReport>;
+  createResidualReport(report: InsertResidualReport, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }): Promise<ResidualReport>;
 
   getMerchantResiduals(reportId?: number): Promise<MerchantResidual[]>;
   getMerchantResidual(id: number): Promise<MerchantResidual | undefined>;
@@ -409,9 +409,9 @@ export interface IStorage {
   updateReferral(id: number, updates: Partial<InsertReferral>): Promise<Referral | undefined>;
 
   getCommissionTiers(): Promise<CommissionTier[]>;
-  createCommissionTier(tier: InsertCommissionTier): Promise<CommissionTier>;
-  updateCommissionTier(id: number, updates: Partial<InsertCommissionTier>): Promise<CommissionTier | undefined>;
-  deleteCommissionTier(id: number): Promise<void>;
+  createCommissionTier(tier: InsertCommissionTier, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }): Promise<CommissionTier>;
+  updateCommissionTier(id: number, updates: Partial<InsertCommissionTier>, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }): Promise<CommissionTier | undefined>;
+  deleteCommissionTier(id: number, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }): Promise<void>;
   getAffiliateLeaderboard(): Promise<Partner[]>;
 
   getKnowledgeBaseArticles(): Promise<KnowledgeBaseArticle[]>;
@@ -465,8 +465,8 @@ export interface IStorage {
   getOnboardingStep(id: number): Promise<OnboardingStep | undefined>;
   getOnboardingStepsByDeal(dealId: number): Promise<OnboardingStep[]>;
   getOnboardingStepsByApplication(applicationId: number): Promise<OnboardingStep[]>;
-  createOnboardingStep(step: InsertOnboardingStep): Promise<OnboardingStep>;
-  updateOnboardingStep(id: number, updates: Partial<InsertOnboardingStep>): Promise<OnboardingStep | undefined>;
+  createOnboardingStep(step: InsertOnboardingStep, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }): Promise<OnboardingStep>;
+  updateOnboardingStep(id: number, updates: Partial<InsertOnboardingStep>, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }): Promise<OnboardingStep | undefined>;
 
   getConsentAuditLogs(): Promise<ConsentAuditLog[]>;
   getConsentAuditLogsByContact(contactId: number): Promise<ConsentAuditLog[]>;
@@ -514,19 +514,19 @@ export interface IStorage {
   createSavedFilter(filter: InsertSavedFilter): Promise<SavedFilter>;
   deleteSavedFilter(id: number): Promise<void>;
 
-  archiveContact(id: number): Promise<typeof contacts.$inferSelect | undefined>;
-  restoreContact(id: number): Promise<typeof contacts.$inferSelect | undefined>;
-  archiveDeal(id: number): Promise<typeof deals.$inferSelect | undefined>;
-  restoreDeal(id: number): Promise<typeof deals.$inferSelect | undefined>;
+  archiveContact(id: number, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }): Promise<typeof contacts.$inferSelect | undefined>;
+  restoreContact(id: number, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }): Promise<typeof contacts.$inferSelect | undefined>;
+  archiveDeal(id: number, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }): Promise<typeof deals.$inferSelect | undefined>;
+  restoreDeal(id: number, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }): Promise<typeof deals.$inferSelect | undefined>;
 
   markAllNotificationsRead(userId?: string): Promise<void>;
   clearAllNotifications(userId?: string): Promise<void>;
-  bulkUpdateDealStage(dealIds: number[], stage: string): Promise<void>;
+  bulkUpdateDealStage(dealIds: number[], stage: string, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }): Promise<void>;
   bulkAssignTasks(taskIds: number[], assignedTo: string): Promise<void>;
   deleteTask(id: number): Promise<void>;
 
   findDuplicateContacts(): Promise<{ email: string; phone: string; contacts: typeof contacts.$inferSelect[] }[]>;
-  mergeContacts(primaryId: number, duplicateId: number): Promise<typeof contacts.$inferSelect | undefined>;
+  mergeContacts(primaryId: number, duplicateId: number, auditCtx?: { userId?: string | null; actorType?: string }): Promise<typeof contacts.$inferSelect | undefined>;
 
   getCsvImports(): Promise<CsvImport[]>;
   getCsvImport(id: number): Promise<CsvImport | undefined>;

@@ -117,9 +117,22 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   }
 
 
-  async createResidualReport(report: InsertResidualReport) {
-    const [created] = await db.insert(residualReports).values(report).returning();
-    return created;
+  async createResidualReport(report: InsertResidualReport, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }) {
+    const { auditChange } = await import("../services/audit-change");
+    return await db.transaction(async (tx) => {
+      const [created] = await tx.insert(residualReports).values(report).returning();
+      await auditChange({
+        userId: auditCtx?.userId ?? null,
+        actorType: (auditCtx?.actorType as any) ?? "user",
+        actorId: auditCtx?.actorId ?? null,
+        action: "residual_report_created",
+        entityType: "residual_report",
+        entityId: created.id,
+        before: null,
+        after: created as unknown as Record<string, unknown>,
+      }, tx);
+      return created;
+    });
   }
 
 

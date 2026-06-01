@@ -1203,7 +1203,7 @@ Guidelines:
 
           const primary = sorted[0];
           for (let i = 1; i < sorted.length; i++) {
-            await storage.mergeContacts(primary.id, sorted[i].id);
+            await storage.mergeContacts(primary.id, sorted[i].id, { actorType: "system" });
             merged++;
           }
         } catch (err) {
@@ -1365,7 +1365,7 @@ Guidelines:
         maxReferrals: max,
         commissionAmount: amount.toString(),
         label: label || null,
-      });
+      }, { actorType: "user", userId: (req.user as any)?.id ?? null });
       res.status(201).json(tier);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -1374,7 +1374,7 @@ Guidelines:
 
   app.put("/api/commission-tiers/:id", isAdmin, async (req, res) => {
     try {
-      const updated = await storage.updateCommissionTier(Number(req.params.id), req.body);
+      const updated = await storage.updateCommissionTier(Number(req.params.id), req.body, { userId: (req.user as any)?.id ?? null });
       if (!updated) return res.status(404).json({ message: "Tier not found" });
       res.json(updated);
     } catch (err: any) {
@@ -1384,7 +1384,7 @@ Guidelines:
 
   app.delete("/api/commission-tiers/:id", isAdmin, async (req, res) => {
     try {
-      await storage.deleteCommissionTier(Number(req.params.id));
+      await storage.deleteCommissionTier(Number(req.params.id), { actorType: "user", userId: (req.user as any)?.id ?? null });
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -1629,9 +1629,13 @@ Guidelines:
       for (let i = 0; i < contactInserts.length; i += batchSize) {
         const batch = contactInserts.slice(i, i + batchSize);
         try {
-          const result = await db.insert(contacts).values(batch).onConflictDoNothing().returning({ id: contacts.id, vertical: contacts.vertical });
+          const result = await db.insert(contacts).values(batch).onConflictDoNothing().returning();
           inserted += result.length;
-          for (const r of result) insertedContactIds.push(r.id);
+          for (const r of result) {
+            insertedContactIds.push(r.id);
+            const { auditChange } = await import("../services/audit-change");
+            auditChange({ actorType: "system", action: "contact_created", entityType: "contact", entityId: r.id, before: null, after: r as unknown as Record<string, unknown> }).catch(() => {});
+          }
 
           for (const r of result) {
             try {
@@ -1661,10 +1665,12 @@ Guidelines:
         } catch (batchErr: any) {
           for (const single of batch) {
             try {
-              const [result] = await db.insert(contacts).values(single).onConflictDoNothing().returning({ id: contacts.id });
+              const [result] = await db.insert(contacts).values(single).onConflictDoNothing().returning();
               if (result) {
                 inserted++;
                 insertedContactIds.push(result.id);
+                const { auditChange } = await import("../services/audit-change");
+                auditChange({ actorType: "system", action: "contact_created", entityType: "contact", entityId: result.id, before: null, after: result as unknown as Record<string, unknown> }).catch(() => {});
                 try {
                   await scoreContact(result.id);
                 } catch {}
@@ -1703,6 +1709,8 @@ Guidelines:
             await db.update(contacts)
               .set({ businessId: bizResult.businessId })
               .where(eq(contacts.id, rc.id));
+            const { auditChange } = await import("../services/audit-change");
+            auditChange({ actorType: "system", action: "contact_business_linked", entityType: "contact", entityId: rc.id, before: null, after: { businessId: bizResult.businessId } }).catch(() => {});
             businessesLinked++;
           } catch (bizErr) {
             console.warn(`[CSV Import] Business ingest failed for ${rc.companyName}:`, bizErr);

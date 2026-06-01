@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { isAuthenticated } from "../replit_integrations/auth";
 import { db } from "../db";
+import { storage } from "../storage";
 import { agents, agentMerchants, agentQuotas, deals, contacts, tasks, callLogs, SALES_STAGES } from "@shared/schema";
 import { eq, and, lte, gte, isNull, or, desc, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -260,14 +261,21 @@ export function registerMyDayRoutes(app: Express) {
         return res.status(403).json({ message: "Contact not assigned to you" });
       }
 
-      await db
+      const [contactBefore] = await db.select().from(contacts).where(eq(contacts.id, contactId));
+      const [contactAfter] = await db
         .update(contacts)
         .set({
           lastContactedAt: new Date(),
           lastContactChannel: type,
           contactAttempts: sql`${contacts.contactAttempts} + 1`,
         })
-        .where(eq(contacts.id, contactId));
+        .where(eq(contacts.id, contactId))
+        .returning();
+      const { auditChange } = await import("../services/audit-change");
+      await auditChange({ actorType: "user", userId: user.id ?? null, action: "contact_activity_logged",
+        entityType: "contact", entityId: contactId,
+        before: (contactBefore ?? null) as unknown as Record<string, unknown>,
+        after: (contactAfter ?? null) as unknown as Record<string, unknown> });
 
       const relatedDeal = await db
         .select({ id: deals.id })
@@ -321,15 +329,12 @@ export function registerMyDayRoutes(app: Express) {
         return res.status(403).json({ message: "Deal not assigned to you" });
       }
 
-      const updatePayload: Record<string, unknown> = {
-        stage,
-        updatedAt: new Date(),
-      };
+      const updatePayload: Record<string, unknown> = { stage };
       if (stage === "Closed Won") {
         updatePayload.closedAt = new Date();
       }
 
-      await db.update(deals).set(updatePayload).where(eq(deals.id, dealId));
+      await storage.updateDeal(dealId, updatePayload as any, { actorType: "user", userId: user.id ?? null });
       res.json({ success: true });
     } catch (err) {
       console.error("my-day move-stage error:", err);

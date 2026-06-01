@@ -3,6 +3,7 @@ import { isAuthenticated, requireRole } from "../replit_integrations/auth";
 import { authStorage } from "../replit_integrations/auth/storage";
 import { storage } from "../storage";
 import { db } from "../db";
+import { auditChange } from "../services/audit-change";
 import { z } from "zod";
 import { insertAgentMerchantSchema, insertAgentQuotaSchema, insertAgentSchema, insertConsentAuditLogSchema, insertDataDeleteRequestSchema, insertHealthAlertSchema, insertResidualReportSchema, insertReviewRequestSchema, users } from "@shared/schema";
 import { desc, eq } from "drizzle-orm";
@@ -89,9 +90,15 @@ export function registerAdminRoutes(app: Express) {
   app.post("/api/admin/users/:id/reset-2fa", requireRole('admin'), async (req, res) => {
     try {
       const { authStorage } = await import("../replit_integrations/auth/storage");
-      await authStorage.adminResetTotp(String(req.params.id));
-      const [updated] = await db.update(users).set({ updatedAt: new Date() }).where(eq(users.id, String(req.params.id))).returning();
+      const userId = String(req.params.id);
+      const [before] = await db.select().from(users).where(eq(users.id, userId));
+      await authStorage.adminResetTotp(userId);
+      const [updated] = await db.update(users).set({ updatedAt: new Date() }).where(eq(users.id, userId)).returning();
       if (!updated) return res.status(404).json({ message: "User not found" });
+      auditChange({ actorType: "user", userId: (req.user as any)?.id ?? null, action: "user_2fa_admin_reset",
+        entityType: "user", entityKey: userId,
+        before: before ? { totpEnabled: before.totpEnabled } : null,
+        after: { totpEnabled: false, totpSecret: null } });
       const { passwordHash, ...safeUser } = updated;
       res.json(safeUser);
     } catch (err: any) {
@@ -105,8 +112,19 @@ export function registerAdminRoutes(app: Express) {
       if (!['admin', 'manager', 'agent', 'merchant'].includes(role)) {
         return res.status(400).json({ message: "Invalid role" });
       }
+      const [existing] = await db.select().from(users).where(eq(users.id, String(req.params.id)));
       const [updated] = await db.update(users).set({ role, updatedAt: new Date() }).where(eq(users.id, String(req.params.id))).returning();
       if (!updated) return res.status(404).json({ message: "User not found" });
+      auditChange({
+        action: "user_role_changed",
+        entityType: "user",
+        entityId: null,
+        entityKey: updated.id,
+        before: existing ? { userId: existing.id, role: existing.role } : null,
+        after: { userId: updated.id, role: updated.role },
+        userId: (req.user as any)?.id ?? null,
+        actorType: "user",
+      }).catch(() => {});
       const { passwordHash, ...safeUser } = updated;
       res.json(safeUser);
     } catch (err: any) {
@@ -388,7 +406,7 @@ export function registerAdminRoutes(app: Express) {
   app.post("/api/residual-reports", isAuthenticated, async (req, res) => {
     try {
       const input = insertResidualReportSchema.parse(req.body);
-      const report = await storage.createResidualReport(input);
+      const report = await storage.createResidualReport(input, { actorType: "user", userId: (req.user as any)?.id ?? null });
       res.status(201).json(report);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });

@@ -149,9 +149,9 @@ export function registerCrmOperationsRoutes(app: Express) {
   // === ARCHIVE / RESTORE ===
   app.post("/api/contacts/:id/archive", isAuthenticated, async (req, res) => {
     try {
-      const result = await storage.archiveContact(Number(req.params.id));
+      const auditCtx = { actorType: "user" as const, userId: (req.user as any)?.id ?? null };
+      const result = await storage.archiveContact(Number(req.params.id), auditCtx);
       if (!result) return res.status(404).json({ message: "Not found" });
-      await storage.createAuditLog({ action: "contact_archived", entityType: "contact", entityId: result.id, userId: (req.user as any)?.id });
       res.json(result);
     } catch (err: any) {
       console.error("Archive contact error:", err.message);
@@ -161,7 +161,8 @@ export function registerCrmOperationsRoutes(app: Express) {
 
   app.post("/api/contacts/:id/restore", isAuthenticated, async (req, res) => {
     try {
-      const result = await storage.restoreContact(Number(req.params.id));
+      const auditCtx = { actorType: "user" as const, userId: (req.user as any)?.id ?? null };
+      const result = await storage.restoreContact(Number(req.params.id), auditCtx);
       if (!result) return res.status(404).json({ message: "Not found" });
       res.json(result);
     } catch (err: any) {
@@ -172,9 +173,9 @@ export function registerCrmOperationsRoutes(app: Express) {
 
   app.post("/api/deals/:id/archive", isAuthenticated, async (req, res) => {
     try {
-      const result = await storage.archiveDeal(Number(req.params.id));
+      const auditCtx = { actorType: "user" as const, userId: (req.user as any)?.id ?? null };
+      const result = await storage.archiveDeal(Number(req.params.id), auditCtx);
       if (!result) return res.status(404).json({ message: "Not found" });
-      await storage.createAuditLog({ action: "deal_archived", entityType: "deal", entityId: result.id, userId: (req.user as any)?.id });
       res.json(result);
     } catch (err: any) {
       console.error("Archive deal error:", err.message);
@@ -184,7 +185,8 @@ export function registerCrmOperationsRoutes(app: Express) {
 
   app.post("/api/deals/:id/restore", isAuthenticated, async (req, res) => {
     try {
-      const result = await storage.restoreDeal(Number(req.params.id));
+      const auditCtx = { actorType: "user" as const, userId: (req.user as any)?.id ?? null };
+      const result = await storage.restoreDeal(Number(req.params.id), auditCtx);
       if (!result) return res.status(404).json({ message: "Not found" });
       res.json(result);
     } catch (err: any) {
@@ -199,8 +201,8 @@ export function registerCrmOperationsRoutes(app: Express) {
     try {
       const { dealIds, stage } = req.body;
       if (!Array.isArray(dealIds) || !stage) return res.status(400).json({ message: "dealIds array and stage required" });
-      await storage.bulkUpdateDealStage(dealIds, stage);
-      await storage.createAuditLog({ action: "bulk_stage_update", entityType: "deal", details: { dealIds, stage }, userId: (req.user as any)?.id });
+      const auditCtx = { actorType: "user" as const, userId: (req.user as any)?.id ?? null };
+      await storage.bulkUpdateDealStage(dealIds, stage, auditCtx);
       if (isGhlConfigured()) {
         for (const dealId of dealIds) {
           syncDealToGhl(dealId).catch((err: Error) => {
@@ -253,9 +255,9 @@ export function registerCrmOperationsRoutes(app: Express) {
     try {
       const { primaryId, duplicateId } = req.body;
       if (!primaryId || !duplicateId) return res.status(400).json({ message: "primaryId and duplicateId required" });
-      const result = await storage.mergeContacts(Number(primaryId), Number(duplicateId));
+      const auditCtx = { actorType: "user" as const, userId: (req.user as any)?.id ?? null };
+      const result = await storage.mergeContacts(Number(primaryId), Number(duplicateId), auditCtx);
       if (!result) return res.status(404).json({ message: "Contact not found" });
-      await storage.createAuditLog({ action: "contacts_merged", entityType: "contact", entityId: result.id, details: { mergedFrom: duplicateId }, userId: (req.user as any)?.id });
       res.json(result);
     } catch (err: any) {
       console.error("Merge contacts error:", err.message);

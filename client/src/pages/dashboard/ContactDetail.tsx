@@ -41,6 +41,7 @@ import { ContactDocumentsTab } from "./contact-detail-tabs/DocumentsTab";
 import { ContactChargebacksTab } from "./contact-detail-tabs/ChargebacksTab";
 import { ActivityTimelineFull } from "./contact-detail-tabs/ActivityTab";
 import { LinkedinEnrichmentSection } from "./contact-detail-tabs/LinkedinEnrichmentSection";
+import { ChangeHistoryTab } from "./contact-detail-tabs/ChangeHistoryTab";
   import { CreateDialogs } from "./contact-detail-tabs/CreateDialogs";
 import { GhlSyncStatus } from "./contact-detail-tabs/GhlSyncStatus";
 import { RelationshipsTab } from "./contact-detail-tabs/RelationshipsTab";
@@ -994,6 +995,7 @@ export default function ContactDetail() {
             <GitFork className="h-3.5 w-3.5 mr-1" />
             Relationships
           </TabsTrigger>
+          <TabsTrigger value="history" data-testid="tab-history">History</TabsTrigger>
           <TabsTrigger value="comments" data-testid="tab-comments">Comments</TabsTrigger>
           <TabsTrigger value="churn-risk" data-testid="tab-churn-risk">
             <Brain className="h-3.5 w-3.5 mr-1" />
@@ -1055,6 +1057,10 @@ export default function ContactDetail() {
 
         <TabsContent value="relationships" data-testid="tab-content-relationships">
           <RelationshipsTab contactId={contactId} />
+        </TabsContent>
+
+        <TabsContent value="history" data-testid="tab-content-history">
+          <ChangeHistoryTab entityType="contact" entityId={contactId} />
         </TabsContent>
 
         <TabsContent value="comments" data-testid="tab-content-comments">

@@ -207,6 +207,9 @@ export function registerPartnersRoutes(app: Express) {
 
       if (existingAuthUser) {
         await db.update(users).set({ passwordHash, updatedAt: new Date() }).where(eq(users.email, email.toLowerCase()));
+        const { auditChange } = await import("../services/audit-change");
+        auditChange({ actorType: "user", userId: (req.user as any)?.id ?? null, action: "user_password_set",
+          entityType: "user", entityKey: existingAuthUser.id, before: null, after: null }).catch(() => {});
       } else {
         await authStorage.upsertUser({
           email: email.toLowerCase(),
@@ -734,7 +737,7 @@ export function registerPartnersRoutes(app: Express) {
 
   app.delete("/api/commission-tiers/:id", requireRole("admin"), async (req, res) => {
     try {
-      await storage.deleteCommissionTier(Number(req.params.id));
+      await storage.deleteCommissionTier(Number(req.params.id), { actorType: "user", userId: (req.user as any)?.id ?? null });
       res.json({ message: "Deleted" });
     } catch (err: any) {
       res.status(400).json({ message: err.message });

@@ -15,7 +15,8 @@ import { syncContactToGhl } from "./ghl-sync";
  * GHL sync succeeded at creation time.
  */
 export async function createContactGhlFirst(
-  input: InsertContact
+  input: InsertContact,
+  auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }
 ): Promise<Contact & { _ghlSyncPending: boolean }> {
   let ghlContactId: string | undefined;
   let ghlSyncPending = false;
@@ -59,7 +60,7 @@ export async function createContactGhlFirst(
   const contact = await storage.createContact({
     ...input,
     ...(ghlContactId ? { ghlContactId } : {}),
-  });
+  }, auditCtx);
 
   if (ghlSyncPending) {
     await storage.createAuditLog({
@@ -98,7 +99,8 @@ export async function createContactGhlFirst(
  */
 export async function updateContactGhlFirst(
   contactId: number,
-  updates: UpdateContactRequest
+  updates: UpdateContactRequest,
+  auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }
 ): Promise<(Contact & { _ghlSyncFailed: boolean }) | null> {
   let ghlSyncFailed = false;
 
@@ -126,7 +128,7 @@ export async function updateContactGhlFirst(
     }
   }
 
-  const updated = await storage.updateContact(contactId, updates);
+  const updated = await storage.updateContact(contactId, updates, auditCtx);
   if (!updated) return null;
 
   if (ghlSyncFailed) {

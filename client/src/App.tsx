@@ -117,6 +117,7 @@ import Calendar from "@/pages/dashboard/Calendar";
 import Forecasting from "@/pages/dashboard/Forecasting";
 import PciAssessment from "@/pages/dashboard/PciAssessment";
 import DataRequests from "@/pages/dashboard/DataRequests";
+import AuditLogs from "@/pages/dashboard/AuditLogs";
 import BlogGenerator from "@/pages/dashboard/BlogGenerator";
 import ContentEditor from "@/pages/dashboard/ContentEditor";
 import SocialComposer from "@/pages/dashboard/SocialComposer";
@@ -523,6 +524,9 @@ function Router() {
       </Route>
       <Route path="/dashboard/data-requests">
         <ProtectedRoute component={DataRequests} />
+      </Route>
+      <Route path="/dashboard/audit-logs">
+        <ProtectedRoute component={AuditLogs} />
       </Route>
       <Route path="/dashboard/blog-generator">
         <ProtectedRoute component={BlogGenerator} />

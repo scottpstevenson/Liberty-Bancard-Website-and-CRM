@@ -198,6 +198,7 @@ const adminItems: MenuItem[] = [
   { icon: ShieldCheck, label: "Permissions Audit", href: "/dashboard/permissions", roles: ["admin"] },
   { icon: ArrowRightLeft, label: "Round-Robin", href: "/dashboard/round-robin", roles: ["admin", "manager"] },
   { icon: ShieldCheck, label: "Security Settings", href: "/dashboard/security", roles: ["admin", "manager", "agent", "merchant"] },
+  { icon: ClipboardList, label: "Audit Log", href: "/dashboard/audit-logs", roles: ["admin"] },
   { icon: Pencil, label: "Blog Generator", href: "/dashboard/blog-generator", roles: ["admin"] },
   { icon: FileText, label: "Content Engine", href: "/dashboard/content", roles: ["admin", "manager"] },
   { icon: Linkedin, label: "LinkedIn Composer", href: "/dashboard/social", roles: ["admin", "manager"] },
