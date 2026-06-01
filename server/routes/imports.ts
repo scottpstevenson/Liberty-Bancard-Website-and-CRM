@@ -202,11 +202,12 @@ Guidelines:
 - Do NOT use markdown formatting in text fields
 - Return ONLY valid JSON, no markdown code fences`;
 
-      const completion = await logAiCall(
-        { triggerType: "content-generation", actorType: (req as any).user?.role || "agent", actorId: (req as any).user?.id?.toString() },
+      const importGenMessages = [{ role: "user" as const, content: prompt }];
+      const { completion } = await logAiCall(
+        { triggerType: "content-generation", actorType: (req as any).user?.role || "agent", actorId: (req as any).user?.id?.toString(), rawPrompt: JSON.stringify(importGenMessages) },
         () => openai.chat.completions.create({
           model: "gpt-4o",
-          messages: [{ role: "user", content: prompt }],
+          messages: importGenMessages,
           temperature: 0.7,
           response_format: { type: "json_object" },
         })

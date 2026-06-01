@@ -276,15 +276,10 @@ export function registerActivityRoutes(app: Express) {
       const { OpenAI } = await import("openai");
       const openai = new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
 
-      const aiResponse = await logAiCall(
-        { triggerType: "auto-reply", actorType: (req as any).user?.role || "agent", actorId: (req as any).user?.id?.toString() },
-        () => openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        temperature: 0.7,
-        messages: [
-          {
-            role: "system",
-            content: `You are a sales follow-up writer for Liberty Bancard, a merchant payment processing company. You write follow-up emails and texts that sound like they're from a real person — not a template, not a bot.
+      const autoReplyMessages = [
+        {
+          role: "system" as const,
+          content: `You are a sales follow-up writer for Liberty Bancard, a merchant payment processing company. You write follow-up emails and texts that sound like they're from a real person — not a template, not a bot.
 
 Rules:
 - Use the merchant's first name naturally
@@ -297,10 +292,10 @@ Rules:
 - For SMS, end with "- Liberty Bancard" and "Reply STOP to opt out"
 - Never promise specific savings percentages or make unsubstantiated claims
 - Always include: "Reply STOP to opt out" in SMS messages`
-          },
-          {
-            role: "user",
-            content: `Generate a follow-up email AND SMS for this sales call:
+        },
+        {
+          role: "user" as const,
+          content: `Generate a follow-up email AND SMS for this sales call:
 
 MERCHANT: ${contactName}${companyName ? ` (${companyName})` : ""}
 INDUSTRY: ${vertical || "Not specified"}
@@ -319,9 +314,15 @@ Respond in this exact JSON format:
   "nextSteps": "What should happen next with this lead",
   "sentiment": "positive/neutral/negative"
 }`
-          }
-        ],
-      }));
+        },
+      ];
+      const { completion: aiResponse, flagged: autoReplyFlagged, reviewQueueId: autoReplyReviewId } = await logAiCall(
+        { triggerType: "auto-reply", actorType: (req as any).user?.role || "agent", actorId: (req as any).user?.id?.toString(), rawPrompt: JSON.stringify(autoReplyMessages) },
+        () => openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          temperature: 0.7,
+          messages: autoReplyMessages,
+        }));
 
       let parsed;
       try {
@@ -352,6 +353,8 @@ Respond in this exact JSON format:
         sentiment: parsed.sentiment || "neutral",
         contactName,
         companyName,
+        _flagged: autoReplyFlagged,
+        _reviewQueueId: autoReplyReviewId,
       });
     } catch (err: any) {
       console.error("Follow-up generation error:", err);

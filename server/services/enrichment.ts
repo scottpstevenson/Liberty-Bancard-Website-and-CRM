@@ -87,16 +87,22 @@ Scoring criteria:
 - COLD: Low volume or unclear needs but could be a fit
 - UNQUALIFIED: Non-profit, government, or business unlikely to need merchant services`;
 
+  const enrichMessages = [{ role: "user" as const, content: prompt }];
   try {
-    const response = await logAiCall(
-      { triggerType: "enrichment", actorType: "system" },
+    const { completion: response, flagged: enrichFlagged, reviewQueueId: enrichReviewId } = await logAiCall(
+      { triggerType: "enrichment", actorType: "system", rawPrompt: JSON.stringify(enrichMessages) },
       () => getOpenAI().chat.completions.create({
         model: "gpt-4o-mini",
-        messages: [{ role: "user", content: prompt }],
+        messages: enrichMessages,
         response_format: { type: "json_object" },
         temperature: 0.3,
       })
     );
+
+    if (enrichFlagged) {
+      console.warn(`[AI Governance] Enrichment classification flagged (reviewQueueId=${enrichReviewId}) — deferring AI-derived data persistence pending review`);
+      return { score: "cold", scoreReason: `AI classification deferred for review (reviewQueueId=${enrichReviewId})` };
+    }
 
     const content = response.choices[0]?.message?.content;
     if (!content) throw new Error("No AI response");

@@ -135,11 +135,12 @@ Return ONLY JSON:
     { "body": "...full post text...", "hashtags": ["#payments", "#smallbusiness"] }
   ]
 }`;
-      const completion = await logAiCall(
-        { triggerType: "social-generation", actorType: (req as any).user?.role || "agent", actorId: (req as any).user?.id?.toString() },
+      const socialMessages = [{ role: "user" as const, content: prompt }];
+      const { completion } = await logAiCall(
+        { triggerType: "social-generation", actorType: (req as any).user?.role || "agent", actorId: (req as any).user?.id?.toString(), rawPrompt: JSON.stringify(socialMessages) },
         () => openai.chat.completions.create({
           model: "gpt-4o",
-          messages: [{ role: "user", content: prompt }],
+          messages: socialMessages,
           temperature: 0.8,
           response_format: { type: "json_object" },
         })

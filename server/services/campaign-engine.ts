@@ -64,15 +64,21 @@ Rules:
 
 Return JSON: { "subject": "...", "body": "..." }`;
 
-      const response = await logAiCall(
-        { triggerType: "outbound-copy", actorType: "system" },
+      const campaignMessages = [{ role: "user" as const, content: prompt }];
+      const { completion: response, flagged: campFlagged, reviewQueueId: campReviewId } = await logAiCall(
+        { triggerType: "outbound-copy", actorType: "system", rawPrompt: JSON.stringify(campaignMessages) },
         () => getOpenAI().chat.completions.create({
           model: "gpt-4o-mini",
-          messages: [{ role: "user", content: prompt }],
+          messages: campaignMessages,
           response_format: { type: "json_object" },
           temperature: 0.7,
         })
       );
+
+      if (campFlagged) {
+        console.warn(`[AI Governance] Campaign personalization flagged (reviewQueueId=${campReviewId}) — using unmodified template to prevent low-confidence outbound send`);
+        return { subject, body };
+      }
 
       const content = response.choices[0]?.message?.content;
       if (content) {

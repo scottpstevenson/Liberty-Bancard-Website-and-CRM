@@ -565,24 +565,25 @@ export async function getLeadGrowthData(businessId: number | null | undefined, l
 export async function aiAssessWebsiteQuality(website: string): Promise<{ websiteQuality: string; businessMaturity: string }> {
   try {
     const openai = getOpenAI();
-    const response = await logAiCall(
-      { triggerType: "website-quality", actorType: "system" },
-      () => openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [{
-        role: "user",
-        content: `Analyze this business website URL and assess:
+    const websiteMessages = [{
+      role: "user" as const,
+      content: `Analyze this business website URL and assess:
 1. Website quality: excellent/good/basic/poor
 2. Business maturity: established/mature/growing/new/startup
 
 Website: ${website}
 
-Return JSON: { "websiteQuality": "...", "businessMaturity": "..." }`
-      }],
-      response_format: { type: "json_object" },
-      temperature: 0.3,
-      max_tokens: 100,
-    }));
+Return JSON: { "websiteQuality": "...", "businessMaturity": "..." }`,
+    }];
+    const { completion: response } = await logAiCall(
+      { triggerType: "website-quality", actorType: "system", rawPrompt: JSON.stringify(websiteMessages) },
+      () => openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: websiteMessages,
+        response_format: { type: "json_object" },
+        temperature: 0.3,
+        max_tokens: 100,
+      }));
 
     const content = response.choices[0]?.message?.content;
     if (content) {

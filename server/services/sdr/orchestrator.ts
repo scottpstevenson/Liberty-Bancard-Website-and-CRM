@@ -295,17 +295,24 @@ function personalizeTemplate(template: string, lead: SdrLeadState): string {
 async function personalizeWithAI(template: string, lead: SdrLeadState, channel: string): Promise<string> {
   try {
     const openai = getOpenAI();
-    const response = await logAiCall(
-      { triggerType: "outbound-copy", actorType: "system" },
+    const orchMessages = [{
+      role: "user" as const,
+      content: `Personalize this ${channel} template for a ${lead.vertical || "business"} called "${lead.companyName || "the business"}" in ${lead.city || "their area"}. Keep compliance line intact. Keep it under ${channel === "sms" ? 160 : 200} ${channel === "sms" ? "characters" : "words"}. Do not use emojis.\n\nTemplate:\n${template}\n\nReturn only the personalized text, nothing else.`,
+    }];
+    const { completion: response, flagged: orchFlagged, reviewQueueId: orchReviewId } = await logAiCall(
+      { triggerType: "outbound-copy", actorType: "system", rawPrompt: JSON.stringify(orchMessages) },
       () => openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [{
-        role: "user",
-        content: `Personalize this ${channel} template for a ${lead.vertical || "business"} called "${lead.companyName || "the business"}" in ${lead.city || "their area"}. Keep compliance line intact. Keep it under ${channel === "sms" ? 160 : 200} ${channel === "sms" ? "characters" : "words"}. Do not use emojis.\n\nTemplate:\n${template}\n\nReturn only the personalized text, nothing else.`,
-      }],
-      temperature: 0.7,
-      max_tokens: channel === "sms" ? 100 : 300,
-    }));
+        model: "gpt-4o-mini",
+        messages: orchMessages,
+        temperature: 0.7,
+        max_tokens: channel === "sms" ? 100 : 300,
+      }));
+
+    if (orchFlagged) {
+      console.warn(`[AI Governance] SDR outbound personalization flagged (reviewQueueId=${orchReviewId}) — using unmodified template to prevent low-confidence outbound send`);
+      return template;
+    }
+
     return response.choices[0]?.message?.content || template;
   } catch (err) {
     console.error("[SDR Orchestrator] AI personalization failed:", err);

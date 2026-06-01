@@ -3534,10 +3534,16 @@ export const aiAuditLogs = pgTable("ai_audit_logs", {
   responseSummary: text("response_summary"),
   error: text("error"),
   durationMs: integer("duration_ms"),
+  promptHash: text("prompt_hash"),
+  confidenceScore: real("confidence_score"),
+  flagged: boolean("flagged").default(false),
+  rawPrompt: text("raw_prompt"),
+  rawResponse: text("raw_response"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("ai_audit_logs_trigger_type_idx").on(table.triggerType),
   index("ai_audit_logs_created_at_idx").on(table.createdAt),
+  index("ai_audit_logs_flagged_idx").on(table.flagged),
 ]);
 
 export const insertAiAuditLogSchema = createInsertSchema(aiAuditLogs).omit({
@@ -3550,7 +3556,7 @@ export type InsertAiAuditLog = z.infer<typeof insertAiAuditLogSchema>;
 
 export const reviewQueue = pgTable("review_queue", {
   id: serial("id").primaryKey(),
-  sourceType: text("source_type").notNull().$type<"rfi" | "quiz" | "dead_letter_job">(),
+  sourceType: text("source_type").notNull().$type<"rfi" | "quiz" | "dead_letter_job" | "ai_output">(),
   sourceId: integer("source_id").notNull(),
   status: text("status").notNull().default("pending").$type<"pending" | "approved">(),
   checklistState: jsonb("checklist_state").$type<Record<string, boolean>>().default({}),

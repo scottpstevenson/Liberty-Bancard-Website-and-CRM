@@ -91,12 +91,13 @@ COMPLIANCE RULES:
 - Include "Eligibility, underwriting, card brand rules, and applicable laws apply" context where relevant
 - No PCI data references`;
 
+  const blueprintMessages = [{ role: "user" as const, content: prompt }];
   try {
-    const response = await logAiCall(
-      { triggerType: "blueprint", actorType: "system" },
+    const { completion: response } = await logAiCall(
+      { triggerType: "blueprint", actorType: "system", rawPrompt: JSON.stringify(blueprintMessages) },
       () => getOpenAI().chat.completions.create({
         model: "gpt-4o-mini",
-        messages: [{ role: "user", content: prompt }],
+        messages: blueprintMessages,
         response_format: { type: "json_object" },
         temperature: 0.4,
       })

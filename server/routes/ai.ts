@@ -1,6 +1,5 @@
 import type { Express } from "express";
-import { isAuthenticated } from "../replit_integrations/auth";
-import { isDashboardUser } from "../replit_integrations/auth";
+import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { contacts } from "@shared/schema";
 import { and } from "drizzle-orm";
@@ -45,14 +44,20 @@ OUTPUT FORMAT:
       const { OpenAI } = await import("openai");
       const openai = new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
 
-      const completion = await logAiCall(
-        { triggerType: "advisor-chat", actorType: (req as any).user?.role || "agent", actorId: (req as any).user?.id?.toString() },
+      const msgArray = [
+        { role: "system", content: systemPrompt },
+        ...(messages || []).map((m: any) => ({ role: m.role, content: m.content })),
+      ];
+      const { completion } = await logAiCall(
+        {
+          triggerType: "advisor-chat",
+          actorType: (req as any).user?.role || "agent",
+          actorId: (req as any).user?.id?.toString(),
+          rawPrompt: JSON.stringify(msgArray),
+        },
         () => openai.chat.completions.create({
           model: "gpt-4o",
-          messages: [
-            { role: "system", content: systemPrompt },
-            ...(messages || []).map((m: any) => ({ role: m.role, content: m.content })),
-          ],
+          messages: msgArray,
           max_tokens: 1500,
         })
       );
@@ -103,14 +108,10 @@ OUTPUT FORMAT:
       const { OpenAI } = await import("openai");
       const openai = new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
 
-      const completion = await logAiCall(
-        { triggerType: "insights", actorType: (req as any).user?.role || "agent", actorId: (req as any).user?.id?.toString() },
-        () => openai.chat.completions.create({
-          model: "gpt-4o",
-          messages: [
-            {
-              role: "system",
-              content: `You are the Liberty Bancard AI Operations Copilot. Analyze the current business metrics and provide actionable insights.
+      const insightMessages = [
+        {
+          role: "system" as const,
+          content: `You are the Liberty Bancard AI Operations Copilot. Analyze the current business metrics and provide actionable insights.
 RULES:
 - Be specific and data-driven. Reference actual numbers.
 - Prioritize urgent items (SLA breaches, stalling deals, overdue tasks).
@@ -119,14 +120,25 @@ RULES:
 - Never promise savings or make compliance-unsafe claims.
 - Format each insight as: **Title** followed by 1-2 sentences with action.
 - End with a single "Priority Action" that is the most important thing to do right now.`
-            },
-            { role: "user", content: dataContext }
-          ],
+        },
+        { role: "user" as const, content: dataContext }
+      ];
+      const { completion } = await logAiCall(
+        {
+          triggerType: "insights",
+          actorType: (req as any).user?.role || "agent",
+          actorId: (req as any).user?.id?.toString(),
+          rawPrompt: JSON.stringify(insightMessages),
+        },
+        () => openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: insightMessages,
           max_tokens: 800,
         })
       );
 
-      res.json({ insights: completion.choices[0]?.message?.content || "No insights available." });
+      const insightsContent = completion.choices[0]?.message?.content || "No insights available.";
+      res.json({ insights: insightsContent });
     } catch (err: any) {
       res.status(500).json({ message: err.message || "AI insights error" });
     }
@@ -150,14 +162,10 @@ RULES:
       const { OpenAI } = await import("openai");
       const openai = new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
 
-      const completion = await logAiCall(
-        { triggerType: "compose-email", actorType: (req as any).user?.role || "agent", actorId: (req as any).user?.id?.toString() },
-        () => openai.chat.completions.create({
-          model: "gpt-4o",
-          messages: [
-            {
-              role: "system",
-              content: `You are Liberty Bancard's AI Email Composer. Draft a professional outreach email.
+      const emailMessages = [
+        {
+          role: "system" as const,
+          content: `You are Liberty Bancard's AI Email Composer. Draft a professional outreach email.
 RULES:
 - Tone: ${tone || "consultative and professional"}
 - Never promise savings without statement review
@@ -167,9 +175,19 @@ RULES:
 - Be value-first: lead with what you can do for them
 - End with a clear call-to-action (book a call or reply)
 FORMAT your response as JSON: {"subject": "...", "body": "..."}`
-            },
-            { role: "user", content: `${recipientData}\n\nAdditional context: ${context || "General outreach for payment processing services."}` }
-          ],
+        },
+        { role: "user" as const, content: `${recipientData}\n\nAdditional context: ${context || "General outreach for payment processing services."}` }
+      ];
+      const { completion, flagged: composeFlagged, reviewQueueId: composeReviewId } = await logAiCall(
+        {
+          triggerType: "compose-email",
+          actorType: (req as any).user?.role || "agent",
+          actorId: (req as any).user?.id?.toString(),
+          rawPrompt: JSON.stringify(emailMessages),
+        },
+        () => openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: emailMessages,
           max_tokens: 800,
         })
       );
@@ -178,9 +196,9 @@ FORMAT your response as JSON: {"subject": "...", "body": "..."}`
       try {
         const jsonMatch = raw.match(/\{[\s\S]*\}/);
         const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : { subject: "Liberty Bancard - Let's Talk Processing", body: raw };
-        res.json(parsed);
+        res.json({ ...parsed, _flagged: composeFlagged, _reviewQueueId: composeReviewId });
       } catch {
-        res.json({ subject: "Liberty Bancard - Let's Talk Processing", body: raw });
+        res.json({ subject: "Liberty Bancard - Let's Talk Processing", body: raw, _flagged: composeFlagged, _reviewQueueId: composeReviewId });
       }
     } catch (err: any) {
       res.status(500).json({ message: err.message || "Email compose error" });
@@ -266,14 +284,10 @@ FORMAT your response as JSON: {"subject": "...", "body": "..."}`
       const { OpenAI } = await import("openai");
       const openai = new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
 
-      const completion = await logAiCall(
-        { triggerType: "ticket-classify", actorType: (req as any).user?.role || "agent", actorId: (req as any).user?.id?.toString() },
-        () => openai.chat.completions.create({
-          model: "gpt-4o",
-          messages: [
-            {
-              role: "system",
-              content: `You are a support ticket classifier for Liberty Bancard, a merchant payment processing company.
+      const classifyMessages = [
+        {
+          role: "system" as const,
+          content: `You are a support ticket classifier for Liberty Bancard, a merchant payment processing company.
 Analyze the ticket and return JSON with these fields:
 - category: one of ["Billing & Fees", "Terminal / Equipment", "Deposits & Funding", "Chargebacks & Disputes", "Compliance / PCI", "Onboarding", "Account Changes", "Other"]
 - priority: one of ["Low", "Normal", "High", "Urgent"]
@@ -281,12 +295,22 @@ Analyze the ticket and return JSON with these fields:
 - tags: array of 2-4 relevant tags
 - estimatedResolutionHours: number estimate
 Respond ONLY with valid JSON.`
-            },
-            {
-              role: "user",
-              content: `Subject: ${ticket.subject}\nDescription: ${ticket.description}\nCurrent Category: ${ticket.category}\nCurrent Priority: ${ticket.priority}`
-            }
-          ],
+        },
+        {
+          role: "user" as const,
+          content: `Subject: ${ticket.subject}\nDescription: ${ticket.description}\nCurrent Category: ${ticket.category}\nCurrent Priority: ${ticket.priority}`
+        }
+      ];
+      const { completion } = await logAiCall(
+        {
+          triggerType: "ticket-classify",
+          actorType: (req as any).user?.role || "agent",
+          actorId: (req as any).user?.id?.toString(),
+          rawPrompt: JSON.stringify(classifyMessages),
+        },
+        () => openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: classifyMessages,
           max_tokens: 600,
         })
       );
@@ -363,14 +387,10 @@ Respond ONLY with valid JSON.`
       const { OpenAI } = await import("openai");
       const openai = new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
 
-      const completion = await logAiCall(
-        { triggerType: "statement-analysis", actorType: (req as any).user?.role || "agent", actorId: (req as any).user?.id?.toString() },
-        () => openai.chat.completions.create({
-          model: "gpt-4o",
-          messages: [
-            {
-              role: "system",
-              content: `You are Liberty Bancard's AI Statement Analyst. Analyze merchant processing statement data and provide a detailed fee analysis.
+      const stmtMessages = [
+        {
+          role: "system" as const,
+          content: `You are Liberty Bancard's AI Statement Analyst. Analyze merchant processing statement data and provide a detailed fee analysis.
 RULES:
 - Never promise specific savings without full statement review
 - Include disclaimer: "Eligibility, underwriting, card brand rules, and applicable laws apply."
@@ -386,9 +406,19 @@ Return JSON with:
 - riskFlags: array of any concerning items (high rates, non-compliant fees, etc.)
 - nextSteps: array of recommended next steps
 - overallAssessment: 2-3 sentence summary`
-            },
-            { role: "user", content: `Statement Data:\n${typeof statementData === 'string' ? statementData : JSON.stringify(statementData)}` }
-          ],
+        },
+        { role: "user" as const, content: `Statement Data:\n${typeof statementData === 'string' ? statementData : JSON.stringify(statementData)}` }
+      ];
+      const { completion, flagged: stmtFlagged, reviewQueueId: stmtReviewId } = await logAiCall(
+        {
+          triggerType: "statement-analysis",
+          actorType: (req as any).user?.role || "agent",
+          actorId: (req as any).user?.id?.toString(),
+          rawPrompt: JSON.stringify(stmtMessages),
+        },
+        () => openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: stmtMessages,
           max_tokens: 1000,
         })
       );
@@ -397,11 +427,13 @@ Return JSON with:
       const jsonMatch = raw.match(/\{[\s\S]*\}/);
       const analysis = jsonMatch ? JSON.parse(jsonMatch[0]) : { overallAssessment: raw };
 
-      if (dealId) {
+      if (dealId && !stmtFlagged) {
         await storage.updateDeal(Number(dealId), {
           effectiveRate: analysis.effectiveRate,
           recommendedPath: analysis.recommendedPath,
         }, { actorType: "ai", actorId: "statement-analyzer", userId: null });
+      } else if (dealId && stmtFlagged) {
+        console.warn(`[AI Governance] Statement analysis flagged (reviewQueueId=${stmtReviewId}) — skipping deal auto-update for deal ${dealId} pending review`);
       }
 
       await storage.createAuditLog({
@@ -413,7 +445,7 @@ Return JSON with:
         details: analysis,
       });
 
-      res.json(analysis);
+      res.json({ ...analysis, _flagged: stmtFlagged, _reviewQueueId: stmtReviewId });
     } catch (err: any) {
       res.status(500).json({ message: err.message || "Analysis error" });
     }
@@ -437,14 +469,10 @@ Return JSON with:
       const { OpenAI } = await import("openai");
       const openai = new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
 
-      const completion = await logAiCall(
-        { triggerType: "proposal", actorType: (req as any).user?.role || "agent", actorId: (req as any).user?.id?.toString() },
-        () => openai.chat.completions.create({
-        model: "gpt-4o",
-        messages: [
-          {
-            role: "system",
-            content: `You are Liberty Bancard's AI Pricing Strategist. Generate a competitive savings proposal for a merchant.
+      const proposalMessages = [
+        {
+          role: "system" as const,
+          content: `You are Liberty Bancard's AI Pricing Strategist. Generate a competitive savings proposal for a merchant.
 
 BUSINESS CONTEXT:
 - Liberty Bancard is a merchant payment processor offering better rates
@@ -538,10 +566,10 @@ Return valid JSON with this exact structure:
     "hiddenFees": ["string array of fees they're overpaying"]
   }
 }`
-          },
-          {
-            role: "user",
-            content: `Generate a savings proposal for this merchant:
+        },
+        {
+          role: "user" as const,
+          content: `Generate a savings proposal for this merchant:
 Merchant: ${contact?.companyName || contact?.firstName + " " + contact?.lastName || "Unknown Business"}
 Industry: ${contact?.vertical || "General Retail"}
 Monthly Volume: $${volume.toLocaleString()}
@@ -551,10 +579,20 @@ Average Ticket: $${avgTicket.toFixed(2)}
 Current Provider: ${contact?.currentProvider || "Unknown"}
 Additional Statement Data: ${statementData ? JSON.stringify(statementData) : "None provided"}
 Notes: ${deal.notes || "None"}`
-          }
-        ],
-        max_tokens: 2000,
-      }));
+        }
+      ];
+      const { completion, flagged: proposalFlagged, reviewQueueId: proposalReviewId } = await logAiCall(
+        {
+          triggerType: "proposal",
+          actorType: (req as any).user?.role || "agent",
+          actorId: (req as any).user?.id?.toString(),
+          rawPrompt: JSON.stringify(proposalMessages),
+        },
+        () => openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: proposalMessages,
+          max_tokens: 2000,
+        }));
 
       const raw = completion.choices[0]?.message?.content || "";
       const jsonMatch = raw.match(/\{[\s\S]*\}/);
@@ -628,7 +666,7 @@ Notes: ${deal.notes || "None"}`
         metadata: { dealId: deal.id, contactId: deal.contactId },
       });
 
-      res.json(proposal);
+      res.json({ ...proposal, _flagged: proposalFlagged, _reviewQueueId: proposalReviewId });
     } catch (err: any) {
       console.error("Proposal generation error:", err);
       res.status(500).json({ message: err.message || "Proposal generation error" });
@@ -1025,14 +1063,15 @@ Based on the above, generate the evidence packet. For the evidenceChecklist, che
       const { OpenAI } = await import("openai");
       const openai = new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
 
-      const completion = await logAiCall(
-        { triggerType: "chargeback-copilot", actorType: (req as any).user?.role || "agent", actorId: (req as any).user?.id?.toString() },
+      const chargebackMessages = [
+        { role: "system" as const, content: systemPrompt },
+        { role: "user" as const, content: userPrompt },
+      ];
+      const { completion, flagged: cbFlagged, reviewQueueId: cbReviewId } = await logAiCall(
+        { triggerType: "chargeback-copilot", actorType: (req as any).user?.role || "agent", actorId: (req as any).user?.id?.toString(), rawPrompt: JSON.stringify(chargebackMessages) },
         () => openai.chat.completions.create({
           model: "gpt-4o",
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt },
-          ],
+          messages: chargebackMessages,
           max_tokens: 2000,
           response_format: { type: "json_object" },
         })
@@ -1095,7 +1134,7 @@ Based on the above, generate the evidence packet. For the evidenceChecklist, che
         },
       });
 
-      res.json({ packet: aiEvidencePacket, chargeback: updated });
+      res.json({ packet: aiEvidencePacket, chargeback: updated, _flagged: cbFlagged, _reviewQueueId: cbReviewId });
     } catch (err: any) {
       res.status(500).json({ message: err.message || "Chargeback copilot error" });
     }
@@ -1152,7 +1191,7 @@ Based on the above, generate the evidence packet. For the evidenceChecklist, che
   // === AI AUDIT LOGS ===
   app.get("/api/operator/ai-audit", isDashboardUser, async (req, res) => {
     try {
-      const { triggerType, startDate, endDate, limit, offset } = req.query;
+      const { triggerType, startDate, endDate, limit, offset, flaggedOnly } = req.query;
       const filters: Parameters<typeof storage.getAiAuditLogs>[0] = {
         limit: limit ? Math.min(Number(limit), 200) : 50,
         offset: offset ? Number(offset) : 0,
@@ -1160,6 +1199,7 @@ Based on the above, generate the evidence packet. For the evidenceChecklist, che
       if (triggerType && triggerType !== "all") filters.triggerType = String(triggerType);
       if (startDate) filters.startDate = new Date(String(startDate));
       if (endDate) filters.endDate = new Date(String(endDate));
+      if (flaggedOnly === "true") filters.flaggedOnly = true;
 
       const totalsFilters: Parameters<typeof storage.getAiAuditLogTotals>[0] = {};
       if (startDate) totalsFilters.startDate = new Date(String(startDate));
@@ -1172,6 +1212,109 @@ Based on the above, generate the evidence packet. For the evidenceChecklist, che
       res.json({ logs, totals });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
+    }
+  });
+
+
+  // === AI HEALTH METRICS ===
+  app.get("/api/operator/ai-health", isDashboardUser, async (req, res) => {
+    try {
+      const { startDate, endDate, range } = req.query;
+      let start: Date | undefined;
+      let end: Date | undefined;
+
+      if (range) {
+        const now = new Date();
+        if (range === "24h") {
+          start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        } else if (range === "7d") {
+          start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        } else if (range === "30d") {
+          start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        } else if (range === "today") {
+          start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        }
+      } else {
+        if (startDate) start = new Date(String(startDate));
+        if (endDate) end = new Date(String(endDate));
+      }
+
+      const metrics = await storage.getAiHealthMetrics(start, end);
+      res.json(metrics);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+
+  // === AI AUDIT LOG DETAIL ===
+  app.get("/api/operator/ai-audit/:id", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const log = await storage.getAiAuditLog(Number(req.params.id));
+      if (!log) return res.status(404).json({ message: "Log not found" });
+      res.json(log);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+
+  // === AI PROMPT REPLAY ===
+  app.post("/api/operator/ai-audit/:id/replay", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const log = await storage.getAiAuditLog(Number(req.params.id));
+      if (!log) return res.status(404).json({ message: "Log not found" });
+      if (!log.rawPrompt) return res.status(400).json({ message: "No raw prompt stored for this log entry. Replay requires prompt storage." });
+
+      const { OpenAI } = await import("openai");
+      const openai = new OpenAI({
+        apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+        baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      });
+
+      const model = log.model || "gpt-4o";
+      const start = Date.now();
+
+      let messages: Array<{ role: "system" | "user" | "assistant"; content: string }>;
+      try {
+        const parsed = JSON.parse(log.rawPrompt);
+        if (Array.isArray(parsed)) {
+          messages = parsed;
+        } else {
+          messages = [{ role: "user", content: log.rawPrompt }];
+        }
+      } catch {
+        messages = [{ role: "user", content: log.rawPrompt }];
+      }
+
+      const completion = await openai.chat.completions.create({
+        model,
+        messages,
+        max_tokens: 1500,
+      });
+
+      const durationMs = Date.now() - start;
+      const newResponse = completion.choices?.[0]?.message?.content || "";
+      const usage = completion.usage;
+
+      res.json({
+        originalResponse: log.rawResponse,
+        newResponse,
+        originalLogId: log.id,
+        model,
+        durationMs,
+        usage: {
+          promptTokens: usage?.prompt_tokens || 0,
+          completionTokens: usage?.completion_tokens || 0,
+        },
+        diff: {
+          changed: newResponse !== log.rawResponse,
+          originalLength: (log.rawResponse || "").length,
+          newLength: newResponse.length,
+        },
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Replay failed" });
     }
   });
 

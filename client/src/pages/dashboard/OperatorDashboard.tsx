@@ -11,13 +11,15 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { ContentOrganicKpiPanel } from "@/components/ContentOrganicKpiPanel";
 import { PageHeader } from "@/components/ui/page-header";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Activity, AlertTriangle, ArrowUpRight, BarChart3, Calendar, CheckCircle2,
   Clock, Loader2, Mail, MessageSquare, Phone, RefreshCw, Send, Shield,
   Target, TrendingUp, Users, XCircle, Zap, Eye, Filter, ChevronRight, Server, GitMerge,
-  Bot, DollarSign, Hash,
+  Bot, DollarSign, Hash, Play, Flag, ShieldCheck,
 } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell, Legend, LineChart, Line } from "recharts";
 
 interface SyncConflict {
   id: number;
@@ -1600,6 +1602,9 @@ export default function OperatorDashboard() {
             <GitMerge className="w-3 h-3" /> Sync Conflicts
           </TabsTrigger>
           <TabsTrigger value="content-organic" data-testid="tab-content-organic">Content & Organic</TabsTrigger>
+          <TabsTrigger value="ai-health" data-testid="tab-ai-health" className="flex items-center gap-1">
+            <ShieldCheck className="w-3.5 h-3.5" /> AI Health
+          </TabsTrigger>
           <TabsTrigger value="ai-activity" data-testid="tab-ai-activity">AI Activity</TabsTrigger>
         </TabsList>
 
@@ -1639,6 +1644,9 @@ export default function OperatorDashboard() {
         <TabsContent value="content-organic">
           <ContentOrganicKpiPanel />
         </TabsContent>
+        <TabsContent value="ai-health">
+          <AiHealthPanel />
+        </TabsContent>
         <TabsContent value="ai-activity">
           <AiActivityPanel />
         </TabsContent>
@@ -1660,7 +1668,504 @@ const AI_TRIGGER_LABELS: Record<string, string> = {
   "outbound-copy": "Outbound Copy",
   "website-quality": "Website Quality",
   "nightly-discovery": "Nightly Discovery",
+  "chargeback-copilot": "Chargeback Copilot",
+  "auto-reply": "Auto Reply",
+  "content-generation": "Content Generation",
+  "social-generation": "Social Generation",
+  "training-generation": "Training Generation",
 };
+
+interface AiHealthMetrics {
+  totalCalls: number;
+  successCalls: number;
+  errorCalls: number;
+  completionRate: number;
+  avgLatencyMs: number;
+  avgConfidenceScore: number;
+  flaggedCount: number;
+  flaggedRate: number;
+  topErrors: Array<{ error: string; count: number }>;
+  byTriggerType: Record<string, {
+    calls: number; errors: number; avgConfidence: number; avgLatencyMs: number; flagged: number;
+  }>;
+  confidenceDistribution: { high: number; medium: number; low: number };
+  totalCostCents: number;
+  todayCostCents: number;
+  monthCostCents: number;
+  dailyRollup: Array<{ date: string; calls: number; costCents: number; promptTokens: number; completionTokens: number }>;
+  confidenceThreshold: number;
+}
+
+function ConfidenceBadge({ score }: { score: number | null | undefined }) {
+  if (score == null) return <span className="text-xs text-muted-foreground">—</span>;
+  const pct = Math.round(score * 100);
+  if (pct >= 75) return <Badge variant="secondary" className="text-xs bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">{pct}%</Badge>;
+  if (pct >= 50) return <Badge variant="secondary" className="text-xs bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">{pct}%</Badge>;
+  return <Badge variant="destructive" className="text-xs">{pct}%</Badge>;
+}
+
+interface ReplayResult {
+  originalResponse: string | null;
+  newResponse: string;
+  originalLogId: number;
+  model: string;
+  durationMs: number;
+  diff: { changed: boolean; originalLength: number; newLength: number };
+}
+
+interface AiLogDetail {
+  id: number;
+  triggerType: string;
+  actorType: string;
+  actorId: string | null;
+  model: string;
+  promptTokens: number;
+  completionTokens: number;
+  costCents: number;
+  responseSummary: string | null;
+  error: string | null;
+  durationMs: number | null;
+  promptHash: string | null;
+  confidenceScore: number | null;
+  flagged: boolean | null;
+  rawPrompt: string | null;
+  rawResponse: string | null;
+  createdAt: string;
+}
+
+function AiLogDetailModal({ logId, open, onClose }: { logId: number | null; open: boolean; onClose: () => void }) {
+  const { toast } = useToast();
+  const [replayResult, setReplayResult] = useState<ReplayResult | null>(null);
+  const [replaying, setReplaying] = useState(false);
+
+  const { data: log, isLoading } = useQuery<AiLogDetail>({
+    queryKey: ["/api/operator/ai-audit", logId],
+    queryFn: () => fetch(`/api/operator/ai-audit/${logId}`, { credentials: "include" }).then(r => r.json()),
+    enabled: open && logId != null,
+  });
+
+  async function handleReplay() {
+    if (!logId) return;
+    setReplaying(true);
+    setReplayResult(null);
+    try {
+      const res = await apiRequest("POST", `/api/operator/ai-audit/${logId}/replay`, {});
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Replay failed");
+      setReplayResult(data);
+      toast({ title: "Replay complete", description: data.diff.changed ? "Response differs from original." : "Response matches original." });
+    } catch (err: any) {
+      toast({ title: "Replay failed", description: err.message, variant: "destructive" });
+    } finally {
+      setReplaying(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={v => { if (!v) { onClose(); setReplayResult(null); } }}>
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto" data-testid="dialog-ai-log-detail">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Bot className="w-4 h-4" />
+            AI Audit Log #{logId}
+          </DialogTitle>
+        </DialogHeader>
+
+        {isLoading ? (
+          <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+        ) : !log ? (
+          <div className="text-center py-8 text-muted-foreground">Log not found</div>
+        ) : (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+              <div>
+                <div className="text-xs text-muted-foreground">Trigger</div>
+                <div className="font-medium">{AI_TRIGGER_LABELS[log.triggerType] || log.triggerType}</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Model</div>
+                <div className="font-medium">{log.model}</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Confidence</div>
+                <div><ConfidenceBadge score={log.confidenceScore} /></div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Duration</div>
+                <div className="font-medium">{log.durationMs ? `${log.durationMs}ms` : "—"}</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Tokens</div>
+                <div className="font-medium">{(log.promptTokens + log.completionTokens).toLocaleString()}</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Cost</div>
+                <div className="font-medium">${(log.costCents / 100).toFixed(4)}</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Prompt Hash</div>
+                <div className="font-mono text-xs">{log.promptHash || "—"}</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Flagged</div>
+                <div>
+                  {log.flagged
+                    ? <Badge variant="destructive" className="text-xs"><Flag className="w-3 h-3 mr-1" />Flagged</Badge>
+                    : <Badge variant="secondary" className="text-xs bg-green-100 text-green-700">OK</Badge>}
+                </div>
+              </div>
+            </div>
+
+            {log.error && (
+              <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded p-3">
+                <div className="text-xs text-red-600 dark:text-red-400 font-medium mb-1">Error</div>
+                <div className="text-sm text-red-700 dark:text-red-300 font-mono">{log.error}</div>
+              </div>
+            )}
+
+            {log.rawPrompt && (
+              <div>
+                <div className="text-xs font-medium text-muted-foreground mb-1">Raw Prompt</div>
+                <Textarea
+                  readOnly
+                  value={log.rawPrompt}
+                  className="font-mono text-xs h-32 resize-none"
+                  data-testid="textarea-raw-prompt"
+                />
+              </div>
+            )}
+
+            {log.rawResponse && (
+              <div>
+                <div className="text-xs font-medium text-muted-foreground mb-1">Original Response</div>
+                <Textarea
+                  readOnly
+                  value={log.rawResponse}
+                  className="font-mono text-xs h-32 resize-none"
+                  data-testid="textarea-raw-response"
+                />
+              </div>
+            )}
+
+            <div className="flex justify-end">
+              <Button
+                onClick={handleReplay}
+                disabled={replaying || !log.rawPrompt}
+                variant="outline"
+                size="sm"
+                data-testid="button-replay-prompt"
+                title={!log.rawPrompt ? "No prompt stored for this log entry" : "Re-run this exact prompt"}
+              >
+                {replaying
+                  ? <><Loader2 className="w-4 h-4 animate-spin mr-2" /> Replaying…</>
+                  : <><Play className="w-4 h-4 mr-2" /> Replay Prompt</>}
+              </Button>
+            </div>
+
+            {replayResult && (
+              <div className="space-y-3 border-t pt-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-semibold">Replay Result</div>
+                  <div className="flex items-center gap-2">
+                    {replayResult.diff.changed
+                      ? <Badge variant="destructive" className="text-xs">Response Changed</Badge>
+                      : <Badge variant="secondary" className="text-xs bg-green-100 text-green-700">Matches Original</Badge>}
+                    <span className="text-xs text-muted-foreground">{replayResult.durationMs}ms</span>
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-muted-foreground mb-1">New Response</div>
+                  <Textarea
+                    readOnly
+                    value={replayResult.newResponse}
+                    className="font-mono text-xs h-32 resize-none"
+                    data-testid="textarea-replay-response"
+                  />
+                </div>
+                {replayResult.diff.changed && (
+                  <div className="text-xs text-muted-foreground">
+                    Original: {replayResult.diff.originalLength} chars → New: {replayResult.diff.newLength} chars
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AiHealthPanel() {
+  const [range, setRange] = useState("7d");
+
+  const { data: metrics, isLoading, isError, refetch } = useQuery<AiHealthMetrics>({
+    queryKey: ["/api/operator/ai-health", range],
+    queryFn: () => fetch(`/api/operator/ai-health?range=${range}`, { credentials: "include" }).then(r => r.json()),
+    refetchInterval: 30000,
+  });
+
+  const pieData = metrics ? [
+    { name: "High (≥75%)", value: metrics.confidenceDistribution.high, color: "#22c55e" },
+    { name: "Medium (50-74%)", value: metrics.confidenceDistribution.medium, color: "#f59e0b" },
+    { name: "Low (<50%)", value: metrics.confidenceDistribution.low, color: "#ef4444" },
+  ].filter(d => d.value > 0) : [];
+
+  const triggerRows = metrics
+    ? Object.entries(metrics.byTriggerType)
+        .sort((a, b) => b[1].calls - a[1].calls)
+        .slice(0, 10)
+    : [];
+
+  return (
+    <div className="space-y-6 mt-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-semibold flex items-center gap-2">
+          <ShieldCheck className="w-5 h-5 text-blue-500" /> AI Health Monitor
+        </h3>
+        <div className="flex items-center gap-2">
+          <Select value={range} onValueChange={setRange}>
+            <SelectTrigger className="w-[140px]" data-testid="select-health-range">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="today">Today</SelectItem>
+              <SelectItem value="24h">Last 24h</SelectItem>
+              <SelectItem value="7d">Last 7 Days</SelectItem>
+              <SelectItem value="30d">Last 30 Days</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="btn-refresh-ai-health">
+            <RefreshCw className="w-4 h-4" />
+          </Button>
+        </div>
+      </div>
+
+      {isLoading && (
+        <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+      )}
+
+      {isError && (
+        <div className="flex flex-col items-center justify-center py-12 gap-3">
+          <AlertTriangle className="w-8 h-8 text-red-500" />
+          <p className="text-sm text-muted-foreground">Failed to load AI health metrics</p>
+          <Button variant="outline" size="sm" onClick={() => refetch()}>Retry</Button>
+        </div>
+      )}
+
+      {metrics && (
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <Card data-testid="card-completion-rate">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+                  <CheckCircle2 className="w-3 h-3 text-green-500" /> Completion Rate
+                </div>
+                <div className="text-2xl font-bold text-green-600" data-testid="text-completion-rate">
+                  {metrics.completionRate}%
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  {metrics.successCalls} / {metrics.totalCalls} calls
+                </div>
+              </CardContent>
+            </Card>
+            <Card data-testid="card-avg-latency">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+                  <Clock className="w-3 h-3 text-blue-500" /> Avg Latency
+                </div>
+                <div className="text-2xl font-bold" data-testid="text-avg-latency">
+                  {metrics.avgLatencyMs > 0 ? `${metrics.avgLatencyMs}ms` : "—"}
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">per call</div>
+              </CardContent>
+            </Card>
+            <Card data-testid="card-avg-confidence">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+                  <TrendingUp className="w-3 h-3 text-purple-500" /> Avg Confidence
+                </div>
+                <div className="text-2xl font-bold" data-testid="text-avg-confidence">
+                  {metrics.avgConfidenceScore > 0 ? `${Math.round(metrics.avgConfidenceScore * 100)}%` : "—"}
+                </div>
+                <Progress
+                  value={metrics.avgConfidenceScore * 100}
+                  className="h-1 mt-2"
+                />
+              </CardContent>
+            </Card>
+            <Card data-testid="card-flagged-count">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+                  <Flag className="w-3 h-3 text-red-500" /> Flagged for Review
+                </div>
+                <div className="text-2xl font-bold text-red-600" data-testid="text-flagged-count">
+                  {metrics.flaggedCount}
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">{metrics.flaggedRate}% of calls</div>
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Confidence Distribution</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {pieData.length === 0 ? (
+                  <div className="h-48 flex items-center justify-center text-sm text-muted-foreground">No confidence data yet</div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={180} data-testid="chart-confidence-dist">
+                    <PieChart>
+                      <Pie data={pieData} dataKey="value" cx="50%" cy="50%" outerRadius={70} label={({ name, value }) => `${name}: ${value}`} labelLine={false}>
+                        {pieData.map((entry, i) => (
+                          <Cell key={i} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(val: number) => [val, "calls"]} />
+                      <Legend />
+                    </PieChart>
+                  </ResponsiveContainer>
+                )}
+              </CardContent>
+            </Card>
+
+            {metrics.topErrors.length > 0 && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">Top Error Types</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    {metrics.topErrors.map((e, i) => (
+                      <div key={i} className="flex items-start justify-between gap-2 text-sm" data-testid={`error-row-${i}`}>
+                        <span className="text-muted-foreground text-xs flex-1 truncate" title={e.error}>{e.error}</span>
+                        <Badge variant="destructive" className="text-xs shrink-0">{e.count}</Badge>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <Card data-testid="card-cost-today">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+                  <DollarSign className="w-3 h-3 text-green-500" /> Cost Today
+                </div>
+                <div className="text-2xl font-bold" data-testid="text-cost-today">
+                  ${((metrics.todayCostCents ?? 0) / 100).toFixed(4)}
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">USD</div>
+              </CardContent>
+            </Card>
+            <Card data-testid="card-cost-month">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+                  <DollarSign className="w-3 h-3 text-blue-500" /> Cost This Month
+                </div>
+                <div className="text-2xl font-bold" data-testid="text-cost-month">
+                  ${((metrics.monthCostCents ?? 0) / 100).toFixed(4)}
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">USD</div>
+              </CardContent>
+            </Card>
+            <Card data-testid="card-confidence-threshold">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+                  <ShieldCheck className="w-3 h-3 text-purple-500" /> Flag Threshold
+                </div>
+                <div className="text-2xl font-bold" data-testid="text-confidence-threshold">
+                  {Math.round((metrics.confidenceThreshold ?? 0.5) * 100)}%
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">min confidence to pass</div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {metrics.dailyRollup && metrics.dailyRollup.some(d => d.calls > 0) && (
+            <Card data-testid="card-completions-over-time">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">AI Completions Over Time (Last 30 Days)</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={180}>
+                  <LineChart data={metrics.dailyRollup.slice(-30)} margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <XAxis
+                      dataKey="date"
+                      tick={{ fontSize: 10 }}
+                      tickFormatter={(v: string) => v.slice(5)}
+                      interval="preserveStartEnd"
+                    />
+                    <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                    <Tooltip
+                      formatter={(val: number, name: string) => [val, name === "calls" ? "Completions" : "Cost ($)"]}
+                      labelFormatter={(label: string) => `Date: ${label}`}
+                    />
+                    <Legend />
+                    <Line type="monotone" dataKey="calls" name="Completions" stroke="#3b82f6" strokeWidth={2} dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          )}
+
+          {triggerRows.length > 0 && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Per-Trigger Health Breakdown</CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b bg-muted/30">
+                        <th className="text-left px-4 py-2 font-medium text-muted-foreground">Trigger</th>
+                        <th className="text-right px-4 py-2 font-medium text-muted-foreground">Calls</th>
+                        <th className="text-right px-4 py-2 font-medium text-muted-foreground">Errors</th>
+                        <th className="text-right px-4 py-2 font-medium text-muted-foreground">Avg Confidence</th>
+                        <th className="text-right px-4 py-2 font-medium text-muted-foreground">Avg Latency</th>
+                        <th className="text-right px-4 py-2 font-medium text-muted-foreground">Flagged</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {triggerRows.map(([tt, stats]) => (
+                        <tr key={tt} className="border-b last:border-0 hover:bg-muted/20" data-testid={`health-row-${tt}`}>
+                          <td className="px-4 py-2 text-muted-foreground">{AI_TRIGGER_LABELS[tt] || tt}</td>
+                          <td className="px-4 py-2 text-right font-medium">{stats.calls}</td>
+                          <td className="px-4 py-2 text-right">
+                            {stats.errors > 0
+                              ? <span className="text-red-600">{stats.errors}</span>
+                              : <span className="text-green-600">0</span>}
+                          </td>
+                          <td className="px-4 py-2 text-right">
+                            <ConfidenceBadge score={stats.avgConfidence} />
+                          </td>
+                          <td className="px-4 py-2 text-right text-muted-foreground">
+                            {stats.avgLatencyMs > 0 ? `${stats.avgLatencyMs}ms` : "—"}
+                          </td>
+                          <td className="px-4 py-2 text-right">
+                            {stats.flagged > 0
+                              ? <Badge variant="destructive" className="text-xs">{stats.flagged}</Badge>
+                              : <span className="text-muted-foreground">—</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
 
 interface AiCostSummary {
   summary: {
@@ -1823,13 +2328,16 @@ function AiActivityPanel() {
   const [triggerType, setTriggerType] = useState("all");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [flaggedOnly, setFlaggedOnly] = useState(false);
   const [page, setPage] = useState(0);
+  const [selectedLogId, setSelectedLogId] = useState<number | null>(null);
   const PAGE_SIZE = 50;
 
   const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(page * PAGE_SIZE) });
   if (triggerType !== "all") params.set("triggerType", triggerType);
   if (startDate) params.set("startDate", startDate);
   if (endDate) params.set("endDate", endDate);
+  if (flaggedOnly) params.set("flaggedOnly", "true");
 
   const { data, isLoading, refetch } = useQuery<{
     logs: Array<{
@@ -1844,6 +2352,8 @@ function AiActivityPanel() {
       responseSummary: string | null;
       error: string | null;
       durationMs: number | null;
+      confidenceScore: number | null;
+      flagged: boolean | null;
       createdAt: string;
     }>;
     totals: {
@@ -1854,8 +2364,8 @@ function AiActivityPanel() {
       byTriggerType: Record<string, { calls: number; promptTokens: number; completionTokens: number; costCents: number }>;
     };
   }>({
-    queryKey: ["/api/operator/ai-audit", triggerType, startDate, endDate, page],
-    queryFn: () => fetch(`/api/operator/ai-audit?${params}`).then(r => r.json()),
+    queryKey: ["/api/operator/ai-audit", triggerType, startDate, endDate, page, flaggedOnly],
+    queryFn: () => fetch(`/api/operator/ai-audit?${params}`, { credentials: "include" }).then(r => r.json()),
     refetchInterval: 30000,
   });
 
@@ -1864,6 +2374,11 @@ function AiActivityPanel() {
 
   return (
     <div className="space-y-4 mt-4">
+      <AiLogDetailModal
+        logId={selectedLogId}
+        open={selectedLogId !== null}
+        onClose={() => setSelectedLogId(null)}
+      />
       <AiCostPanel />
       <div className="flex flex-wrap gap-3 items-end">
         <div className="flex flex-col gap-1">
@@ -1887,6 +2402,19 @@ function AiActivityPanel() {
         <div className="flex flex-col gap-1">
           <label className="text-xs text-muted-foreground">End Date</label>
           <Input type="date" value={endDate} onChange={e => { setEndDate(e.target.value); setPage(0); }} className="w-40" data-testid="input-end-date" />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-xs text-muted-foreground">Filter</label>
+          <Button
+            variant={flaggedOnly ? "default" : "outline"}
+            size="sm"
+            onClick={() => { setFlaggedOnly(v => !v); setPage(0); }}
+            data-testid="button-toggle-flagged"
+            className="flex items-center gap-1"
+          >
+            <Flag className="w-3.5 h-3.5" />
+            {flaggedOnly ? "Flagged Only" : "All Calls"}
+          </Button>
         </div>
         <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="button-refresh-ai-audit">
           <RefreshCw className="w-4 h-4 mr-1" /> Refresh
@@ -1945,13 +2473,18 @@ function AiActivityPanel() {
 
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm">Recent AI Calls</CardTitle>
+          <CardTitle className="text-sm flex items-center gap-2">
+            Recent AI Calls
+            {flaggedOnly && <Badge variant="destructive" className="text-xs">Flagged Only</Badge>}
+          </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           {isLoading ? (
             <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
           ) : logs.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground text-sm">No AI calls recorded yet.</div>
+            <div className="text-center py-8 text-muted-foreground text-sm">
+              {flaggedOnly ? "No flagged AI calls found." : "No AI calls recorded yet."}
+            </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -1963,30 +2496,54 @@ function AiActivityPanel() {
                     <th className="text-right py-2 px-3 font-medium text-muted-foreground">Tokens</th>
                     <th className="text-right py-2 px-3 font-medium text-muted-foreground">Cost</th>
                     <th className="text-right py-2 px-3 font-medium text-muted-foreground">Duration</th>
+                    <th className="text-center py-2 px-3 font-medium text-muted-foreground">Confidence</th>
                     <th className="text-left py-2 px-3 font-medium text-muted-foreground">Status</th>
+                    <th className="text-center py-2 px-3 font-medium text-muted-foreground">Detail</th>
                   </tr>
                 </thead>
                 <tbody>
                   {logs.map(log => (
-                    <tr key={log.id} className="border-b last:border-0 hover:bg-muted/20" data-testid={`row-ai-log-${log.id}`}>
-                      <td className="py-2 px-3 text-muted-foreground whitespace-nowrap">
+                    <tr
+                      key={log.id}
+                      className={`border-b last:border-0 hover:bg-muted/20 ${log.flagged ? "bg-red-50/50 dark:bg-red-950/10" : ""}`}
+                      data-testid={`row-ai-log-${log.id}`}
+                    >
+                      <td className="py-2 px-3 text-muted-foreground whitespace-nowrap text-xs">
                         {new Date(log.createdAt).toLocaleString()}
                       </td>
                       <td className="py-2 px-3">
-                        <Badge variant="outline" className="text-xs">{AI_TRIGGER_LABELS[log.triggerType] || log.triggerType}</Badge>
+                        <div className="flex items-center gap-1">
+                          {log.flagged && <Flag className="w-3 h-3 text-red-500 shrink-0" />}
+                          <Badge variant="outline" className="text-xs">{AI_TRIGGER_LABELS[log.triggerType] || log.triggerType}</Badge>
+                        </div>
                       </td>
-                      <td className="py-2 px-3 text-muted-foreground">{log.model}</td>
+                      <td className="py-2 px-3 text-muted-foreground text-xs">{log.model}</td>
                       <td className="py-2 px-3 text-right">
                         <span className="text-xs">{(log.promptTokens + log.completionTokens).toLocaleString()}</span>
                       </td>
                       <td className="py-2 px-3 text-right text-xs">${(log.costCents / 100).toFixed(4)}</td>
                       <td className="py-2 px-3 text-right text-xs text-muted-foreground">{log.durationMs ? `${log.durationMs}ms` : "—"}</td>
+                      <td className="py-2 px-3 text-center">
+                        <ConfidenceBadge score={log.confidenceScore} />
+                      </td>
                       <td className="py-2 px-3">
                         {log.error ? (
                           <Badge variant="destructive" className="text-xs">Error</Badge>
                         ) : (
-                          <Badge variant="secondary" className="text-xs bg-green-100 text-green-700">OK</Badge>
+                          <Badge variant="secondary" className="text-xs bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">OK</Badge>
                         )}
+                      </td>
+                      <td className="py-2 px-3 text-center">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 w-6 p-0"
+                          onClick={() => setSelectedLogId(log.id)}
+                          data-testid={`button-view-log-${log.id}`}
+                          aria-label="View log details"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                        </Button>
                       </td>
                     </tr>
                   ))}

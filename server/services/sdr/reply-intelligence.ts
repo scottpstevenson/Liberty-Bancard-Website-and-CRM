@@ -59,6 +59,10 @@ export async function classifyIntent(
   context: IntentContext = {}
 ): Promise<IntentClassification> {
   const userPrompt = buildClassificationPrompt(messageText, context);
+  const classifyMessages = [
+    { role: "system" as const, content: INTENT_SYSTEM_PROMPT },
+    { role: "user" as const, content: userPrompt },
+  ];
 
   try {
     const openaiApiKey = process.env.OPENAI_API_KEY || process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
@@ -67,62 +71,33 @@ export async function classifyIntent(
       return ruleBasedClassify(messageText);
     }
 
-    const startMs = Date.now();
-    let responseData: { choices?: Array<{ message?: { content?: string } }>; usage?: { prompt_tokens?: number; completion_tokens?: number }; model?: string } | null = null;
-    let httpError: string | null = null;
+    const OpenAI = (await import("openai")).default;
+    const openai = new OpenAI({
+      apiKey: openaiApiKey,
+      baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+    });
 
-    const httpResponse = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${openaiApiKey}`,
-        "Content-Type": "application/json",
+    const { completion, flagged } = await logAiCall(
+      {
+        triggerType: "reply-classify",
+        actorType: "system",
+        rawPrompt: JSON.stringify(classifyMessages),
       },
-      body: JSON.stringify({
+      () => openai.chat.completions.create({
         model: "gpt-4o-mini",
-        messages: [
-          { role: "system", content: INTENT_SYSTEM_PROMPT },
-          { role: "user", content: userPrompt },
-        ],
+        messages: classifyMessages,
         temperature: 0.1,
         max_tokens: 200,
         response_format: { type: "json_object" },
-      }),
-    });
+      })
+    );
 
-    if (!httpResponse.ok) {
-      const errText = await httpResponse.text().catch(() => "");
-      httpError = `OpenAI API error ${httpResponse.status}: ${errText}`;
-      console.error(`[Reply Intelligence] ${httpError}`);
-    } else {
-      responseData = await httpResponse.json() as typeof responseData;
+    if (flagged) {
+      console.warn("[Reply Intelligence] Low-confidence classification flagged for review");
     }
 
-    const durationMs = Date.now() - startMs;
-    const promptTokens = responseData?.usage?.prompt_tokens ?? 0;
-    const completionTokens = responseData?.usage?.completion_tokens ?? 0;
-    const MODEL_COST_PER_1K = { "gpt-4o-mini": { prompt: 0.015, completion: 0.06 } } as Record<string, { prompt: number; completion: number }>;
-    const modelKey = "gpt-4o-mini";
-    const costConfig = MODEL_COST_PER_1K[modelKey] || { prompt: 0.015, completion: 0.06 };
-    const costCents = Math.round(((promptTokens / 1000) * costConfig.prompt + (completionTokens / 1000) * costConfig.completion) * 100);
-    const content = responseData?.choices?.[0]?.message?.content;
-    import("../../db").then(({ db: dbMod }) => {
-      import("@shared/schema").then(({ aiAuditLogs }) => {
-        dbMod.insert(aiAuditLogs).values({
-          triggerType: "reply-classify",
-          actorType: "system",
-          actorId: null,
-          model: modelKey,
-          promptTokens,
-          completionTokens,
-          costCents,
-          responseSummary: content?.slice(0, 500) || null,
-          error: httpError,
-          durationMs,
-        }).catch(() => {});
-      });
-    });
-
-    if (httpError || !content) {
+    const content = completion.choices[0]?.message?.content;
+    if (!content) {
       return ruleBasedClassify(messageText);
     }
 

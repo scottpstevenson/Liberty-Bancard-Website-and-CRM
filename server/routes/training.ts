@@ -165,8 +165,8 @@ Stay in character as the merchant. Be realistic, not a pushover. Don't make it t
         { role: "user", content: repMessage },
       ];
 
-      const completion = await logAiCall(
-        { triggerType: "training-generation", actorType: (req as any).user?.role || "agent", actorId: (req as any).user?.id?.toString() },
+      const { completion } = await logAiCall(
+        { triggerType: "training-generation", actorType: (req as any).user?.role || "agent", actorId: (req as any).user?.id?.toString(), rawPrompt: JSON.stringify(messages) },
         () => openai.chat.completions.create({
           model: "gpt-4o",
           messages,
@@ -251,25 +251,26 @@ Stay in character as the merchant. Be realistic, not a pushover. Don't make it t
         baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
       });
 
-      const completion = await logAiCall(
-        { triggerType: "training-generation", actorType: (req as any).user?.role || "agent", actorId: (req as any).user?.id?.toString() },
-        () => openai.chat.completions.create({
-          model: "gpt-4o",
-          messages: [
-            {
-              role: "system",
-              content: `You are a Liberty Bancard sales coach. Analyze this roleplay session and provide a coaching summary.
+      const coachMessages = [
+        {
+          role: "system" as const,
+          content: `You are a Liberty Bancard sales coach. Analyze this roleplay session and provide a coaching summary.
 Return valid JSON with:
 - summary: 2-3 sentence overall assessment
 - strengths: array of 2-3 specific strengths the rep demonstrated
 - gaps: array of 2-3 areas to improve
 - suggestedPhrasing: array of 2-3 specific phrases or lines the rep should use next time`,
-            },
-            {
-              role: "user",
-              content: `Scenario: ${session.scenario}\nPersona: ${session.persona}\nTotal turns: ${exchanges.length}\nAvg tone score: ${avgTone}/10\nAvg clarity score: ${avgClarity}/10\nObjection addressed rate: ${objectionRate}%\n\nExchange log:\n${exchangeSummary}`,
-            },
-          ],
+        },
+        {
+          role: "user" as const,
+          content: `Scenario: ${session.scenario}\nPersona: ${session.persona}\nTotal turns: ${exchanges.length}\nAvg tone score: ${avgTone}/10\nAvg clarity score: ${avgClarity}/10\nObjection addressed rate: ${objectionRate}%\n\nExchange log:\n${exchangeSummary}`,
+        },
+      ];
+      const { completion } = await logAiCall(
+        { triggerType: "training-generation", actorType: (req as any).user?.role || "agent", actorId: (req as any).user?.id?.toString(), rawPrompt: JSON.stringify(coachMessages) },
+        () => openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: coachMessages,
           max_tokens: 600,
         })
       );

@@ -160,10 +160,16 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
     return log;
   }
 
+  async getAiAuditLog(id: number): Promise<AiAuditLog | undefined> {
+    const [row] = await db.select().from(aiAuditLogs).where(eq(aiAuditLogs.id, id)).limit(1);
+    return row;
+  }
+
   async getAiAuditLogs(filters?: {
     triggerType?: string;
     startDate?: Date;
     endDate?: Date;
+    flaggedOnly?: boolean;
     limit?: number;
     offset?: number;
   }): Promise<AiAuditLog[]> {
@@ -171,12 +177,138 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
     if (filters?.triggerType) conditions.push(eq(aiAuditLogs.triggerType, filters.triggerType));
     if (filters?.startDate) conditions.push(gte(aiAuditLogs.createdAt, filters.startDate));
     if (filters?.endDate) conditions.push(lte(aiAuditLogs.createdAt, filters.endDate));
+    if (filters?.flaggedOnly) conditions.push(eq(aiAuditLogs.flagged, true));
 
     return db.select().from(aiAuditLogs)
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(desc(aiAuditLogs.createdAt))
       .limit(filters?.limit ?? 100)
       .offset(filters?.offset ?? 0);
+  }
+
+  async getAiHealthMetrics(startDate?: Date, endDate?: Date): Promise<{
+    totalCalls: number;
+    successCalls: number;
+    errorCalls: number;
+    completionRate: number;
+    avgLatencyMs: number;
+    avgConfidenceScore: number;
+    flaggedCount: number;
+    flaggedRate: number;
+    topErrors: Array<{ error: string; count: number }>;
+    byTriggerType: Record<string, {
+      calls: number; errors: number; avgConfidence: number; avgLatencyMs: number; flagged: number;
+    }>;
+    confidenceDistribution: { high: number; medium: number; low: number };
+    totalCostCents: number;
+    todayCostCents: number;
+    monthCostCents: number;
+    dailyRollup: Array<{ date: string; calls: number; costCents: number; promptTokens: number; completionTokens: number }>;
+    confidenceThreshold: number;
+  }> {
+    const conditions = [];
+    if (startDate) conditions.push(gte(aiAuditLogs.createdAt, startDate));
+    if (endDate) conditions.push(lte(aiAuditLogs.createdAt, endDate));
+
+    const rows = await db.select().from(aiAuditLogs)
+      .where(conditions.length > 0 ? and(...conditions) : undefined);
+
+    const totalCalls = rows.length;
+    const errorCalls = rows.filter(r => r.error).length;
+    const successCalls = totalCalls - errorCalls;
+    const completionRate = totalCalls > 0 ? parseFloat(((successCalls / totalCalls) * 100).toFixed(1)) : 0;
+
+    const latencies = rows.filter(r => r.durationMs != null).map(r => r.durationMs!);
+    const avgLatencyMs = latencies.length > 0
+      ? Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length)
+      : 0;
+
+    const confidences = rows.filter(r => r.confidenceScore != null).map(r => r.confidenceScore!);
+    const avgConfidenceScore = confidences.length > 0
+      ? parseFloat((confidences.reduce((a, b) => a + b, 0) / confidences.length).toFixed(3))
+      : 0;
+
+    const flaggedCount = rows.filter(r => r.flagged).length;
+    const flaggedRate = totalCalls > 0 ? parseFloat(((flaggedCount / totalCalls) * 100).toFixed(1)) : 0;
+
+    const errorCounts: Record<string, number> = {};
+    for (const row of rows) {
+      if (row.error) {
+        const key = row.error.slice(0, 80);
+        errorCounts[key] = (errorCounts[key] || 0) + 1;
+      }
+    }
+    const topErrors = Object.entries(errorCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([error, count]) => ({ error, count }));
+
+    const byTriggerType: Record<string, { calls: number; errors: number; avgConfidence: number; avgLatencyMs: number; flagged: number }> = {};
+    for (const row of rows) {
+      const tt = row.triggerType;
+      if (!byTriggerType[tt]) byTriggerType[tt] = { calls: 0, errors: 0, avgConfidence: 0, avgLatencyMs: 0, flagged: 0 };
+      byTriggerType[tt].calls++;
+      if (row.error) byTriggerType[tt].errors++;
+      if (row.flagged) byTriggerType[tt].flagged++;
+    }
+    for (const [tt, stats] of Object.entries(byTriggerType)) {
+      const ttRows = rows.filter(r => r.triggerType === tt);
+      const confValues = ttRows.filter(r => r.confidenceScore != null).map(r => r.confidenceScore!);
+      const latValues = ttRows.filter(r => r.durationMs != null).map(r => r.durationMs!);
+      stats.avgConfidence = confValues.length > 0
+        ? parseFloat((confValues.reduce((a, b) => a + b, 0) / confValues.length).toFixed(3))
+        : 0;
+      stats.avgLatencyMs = latValues.length > 0
+        ? Math.round(latValues.reduce((a, b) => a + b, 0) / latValues.length)
+        : 0;
+    }
+
+    const confidenceDistribution = { high: 0, medium: 0, low: 0 };
+    for (const score of confidences) {
+      if (score >= 0.75) confidenceDistribution.high++;
+      else if (score >= 0.5) confidenceDistribution.medium++;
+      else confidenceDistribution.low++;
+    }
+
+    const totalCostCents = rows.reduce((sum, r) => sum + (r.costCents || 0), 0);
+    const now2 = new Date();
+    const todayStart = new Date(now2.getFullYear(), now2.getMonth(), now2.getDate());
+    const monthStart = new Date(now2.getFullYear(), now2.getMonth(), 1);
+    const todayCostCents = rows.filter(r => r.createdAt && new Date(r.createdAt) >= todayStart).reduce((sum, r) => sum + (r.costCents || 0), 0);
+    const monthCostCents = rows.filter(r => r.createdAt && new Date(r.createdAt) >= monthStart).reduce((sum, r) => sum + (r.costCents || 0), 0);
+
+    const days = 30;
+    const rollupSince = new Date();
+    rollupSince.setDate(rollupSince.getDate() - (days - 1));
+    rollupSince.setHours(0, 0, 0, 0);
+    const byDay: Record<string, { calls: number; costCents: number; promptTokens: number; completionTokens: number }> = {};
+    for (let i = 0; i < days; i++) {
+      const d = new Date(rollupSince);
+      d.setDate(d.getDate() + i);
+      byDay[d.toISOString().slice(0, 10)] = { calls: 0, costCents: 0, promptTokens: 0, completionTokens: 0 };
+    }
+    const allRecent = await db.select().from(aiAuditLogs).where(gte(aiAuditLogs.createdAt, rollupSince));
+    for (const row of allRecent) {
+      const key = new Date(row.createdAt!).toISOString().slice(0, 10);
+      if (byDay[key]) {
+        byDay[key].calls++;
+        byDay[key].costCents += row.costCents || 0;
+        byDay[key].promptTokens += row.promptTokens || 0;
+        byDay[key].completionTokens += row.completionTokens || 0;
+      }
+    }
+    const dailyRollup = Object.entries(byDay)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, stats]) => ({ date, ...stats }));
+
+    const confidenceThreshold = parseFloat(process.env.AI_CONFIDENCE_THRESHOLD || "0.5");
+
+    return {
+      totalCalls, successCalls, errorCalls, completionRate,
+      avgLatencyMs, avgConfidenceScore, flaggedCount, flaggedRate,
+      topErrors, byTriggerType, confidenceDistribution,
+      totalCostCents, todayCostCents, monthCostCents, dailyRollup, confidenceThreshold,
+    };
   }
 
   async getAiAuditLogTotals(filters?: { startDate?: Date; endDate?: Date }): Promise<{

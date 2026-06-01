@@ -164,14 +164,10 @@ async function analyzeStatementData(deal: Deal, contact: Contact | null | undefi
     const statementContext = contextLines.join("\n");
 
     const openai = getOpenAI();
-    const completion = await logAiCall(
-      { triggerType: "statement-analysis", actorType: "system" },
-      () => openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [
-        {
-          role: "system",
-          content: `You are Liberty Bancard's AI Statement Analyst. Analyze merchant processing statement data and provide a detailed fee analysis.
+    const stmtEngineMessages = [
+      {
+        role: "system" as const,
+        content: `You are Liberty Bancard's AI Statement Analyst. Analyze merchant processing statement data and provide a detailed fee analysis.
 When raw statement text is provided, parse it carefully to extract:
 - Monthly processing volume and transaction counts
 - Interchange fees, assessment fees, processor markup
@@ -197,13 +193,18 @@ Return JSON with:
 - riskFlags: array of any concerning items (high rates, non-compliant fees, etc.)
 - nextSteps: array of recommended next steps
 - overallAssessment: 2-3 sentence summary`,
-        },
-        { role: "user", content: `Statement Data:\n${statementContext}` },
-      ],
-      max_tokens: 1000,
-      response_format: { type: "json_object" },
-      temperature: 0.3,
-    }));
+      },
+      { role: "user" as const, content: `Statement Data:\n${statementContext}` },
+    ];
+    const { completion } = await logAiCall(
+      { triggerType: "statement-analysis", actorType: "system", rawPrompt: JSON.stringify(stmtEngineMessages) },
+      () => openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: stmtEngineMessages,
+        max_tokens: 1000,
+        response_format: { type: "json_object" },
+        temperature: 0.3,
+      }));
 
     const raw = completion.choices[0]?.message?.content || "";
     const analysis = JSON.parse(raw);
@@ -275,14 +276,10 @@ export async function autoGenerateProposal(dealId: number, fileBuffer?: Buffer):
 
     const openai = getOpenAI();
 
-    const completion = await logAiCall(
-      { triggerType: "proposal", actorType: "system" },
-      () => openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [
-        {
-          role: "system",
-          content: `You are Liberty Bancard's AI Pricing Strategist. Generate a competitive savings proposal for a merchant.
+    const propEngineMessages = [
+      {
+        role: "system" as const,
+        content: `You are Liberty Bancard's AI Pricing Strategist. Generate a competitive savings proposal for a merchant.
 
 BUSINESS CONTEXT:
 - Liberty Bancard is a merchant payment processor offering better rates
@@ -376,10 +373,10 @@ Return valid JSON with this structure:
     "hiddenFees": ["string array of fees they're overpaying"]
   }
 }`,
-        },
-        {
-          role: "user",
-          content: `Generate a savings proposal for this merchant:
+      },
+      {
+        role: "user" as const,
+        content: `Generate a savings proposal for this merchant:
 Merchant: ${contact?.companyName || (contact ? `${contact.firstName} ${contact.lastName}` : "Unknown Business")}
 Industry: ${contact?.vertical || "General Retail"}
 Monthly Volume: $${volume.toLocaleString()}
@@ -399,12 +396,17 @@ STATEMENT ANALYSIS RESULTS (use these findings):
 - Risk Flags: ${analysis.riskFlags?.join("; ") || "None"}
 - Fee Breakdown: ${JSON.stringify(analysis.currentFees || {})}
 ` : ""}`,
-        },
-      ],
-      max_tokens: 2000,
-      response_format: { type: "json_object" },
-      temperature: 0.4,
-    }));
+      },
+    ];
+    const { completion } = await logAiCall(
+      { triggerType: "proposal", actorType: "system", rawPrompt: JSON.stringify(propEngineMessages) },
+      () => openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: propEngineMessages,
+        max_tokens: 2000,
+        response_format: { type: "json_object" },
+        temperature: 0.4,
+      }));
 
     const raw = completion.choices[0]?.message?.content || "";
     let proposal: any;
