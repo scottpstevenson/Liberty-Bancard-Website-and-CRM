@@ -48,6 +48,11 @@ The frontend uses React with Vite, TypeScript, Tailwind CSS, and shadcn/ui, with
 - **AI Advisors**: Seven specialized AI advisors covering Sales, Support, Onboarding, Marketing, Finance, Compliance, and Executive functions.
 - **Compliance Rules**: Adherence to regulatory guidelines, including explicit disclaimers and PCI compliance.
 
+## Job Queue (BullMQ)
+The platform uses BullMQ for durable, Redis-backed job queues. Seven named queues manage all background work: `ghl-sync` (45s), `sla-checks` (5m), `sequences` (30s), `enrichment` (10m), `discovery` (daily), `digests` (1h), and `mid-ingestion` (nightly). Failed jobs are retried up to 3 times with exponential backoff; after all retries the job is moved to a dead-letter queue and an audit log entry is written. Graceful shutdown drains all workers on SIGTERM/SIGINT.
+
+When `REDIS_URL` is not set (local dev), the system automatically falls back to `ioredis-mock` (in-memory, non-persistent). Set `REDIS_URL` to a real Redis connection string for production durability. The Operator Dashboard → "Job Queue" tab provides real-time queue metrics, pause/resume controls, and dead-letter job management (retry / discard).
+
 ## GHL Workflow Environment Variables
 The GHL Workflow ID Manager (`server/services/ghl-workflows.ts`) maintains a registry of all GHL workflow env vars. Each maps a business event to a GHL workflow ID. Key onboarding workflows:
 - `GHL_WORKFLOW_MERCHANT_APPROVED` — Triggered when a merchant profile is approved. Sends portal welcome email with MID and next steps. Uses a 3-tier delivery strategy: (1) GHL workflow if env var is set and GHL contact exists, (2) GHL direct email if contact has a ghlContactId, (3) SMTP fallback if SMTP is configured. If the contact has no `ghlContactId`, the system attempts to upsert a GHL contact via `upsertContact()` before falling back to SMTP.

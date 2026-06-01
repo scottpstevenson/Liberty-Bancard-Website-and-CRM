@@ -3504,7 +3504,7 @@ export type InsertAiAuditLog = z.infer<typeof insertAiAuditLogSchema>;
 
 export const reviewQueue = pgTable("review_queue", {
   id: serial("id").primaryKey(),
-  sourceType: text("source_type").notNull().$type<"rfi" | "quiz">(),
+  sourceType: text("source_type").notNull().$type<"rfi" | "quiz" | "dead_letter_job">(),
   sourceId: integer("source_id").notNull(),
   status: text("status").notNull().default("pending").$type<"pending" | "approved">(),
   checklistState: jsonb("checklist_state").$type<Record<string, boolean>>().default({}),

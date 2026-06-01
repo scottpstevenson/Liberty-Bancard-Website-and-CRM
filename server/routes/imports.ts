@@ -78,6 +78,10 @@ export function registerImportsRoutes(app: Express) {
 
   app.post("/api/outreach/start-worker", isAuthenticated, async (req, res) => {
     if ((req.user as any)?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+    const { isUsingMockRedis } = await import("../services/queue-connection");
+    if (!isUsingMockRedis() || process.env.REDIS_URL) {
+      return res.status(409).json({ message: "BullMQ queue scheduler is active. Use the Job Queue panel in the Operator Dashboard to manage queues. Legacy setInterval worker disabled to prevent duplicate execution." });
+    }
     const intervalMinutes = Number(req.body.intervalMinutes) || 60;
     startDailyOutreachWorker(intervalMinutes);
     res.json({ message: `Outreach worker started (runs every ${intervalMinutes} minutes)`, started: true });

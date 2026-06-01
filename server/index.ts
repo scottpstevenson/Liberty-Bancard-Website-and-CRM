@@ -6,6 +6,7 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import { startSlaWorker } from "./services/sla-worker";
 import { startAutoSyncLoop } from "./services/ghl-sync";
+import { getQueueManager, shutdownQueueManager } from "./services/queue-manager";
 import { seedDefaultData } from "./services/seed-workflows";
 import { seedSequences } from "./services/seed-sequences";
 import { seedVerticalCampaigns } from "./services/seed-vertical-campaigns";
@@ -52,6 +53,23 @@ process.on("uncaughtException", (err: Error) => {
   console.error("[Process] Uncaught exception:", err);
   process.exit(1);
 });
+
+let isShuttingDown = false;
+async function gracefulShutdown(signal: string): Promise<void> {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  console.log(`[Process] ${signal} received — starting graceful shutdown`);
+  try {
+    await shutdownQueueManager();
+  } catch (err: any) {
+    console.error("[Process] Error shutting down queue manager:", err.message);
+  }
+  console.log("[Process] Graceful shutdown complete");
+  process.exit(0);
+}
+
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
 const app = express();
 const httpServer = createServer(app);
@@ -222,8 +240,20 @@ app.use((req, res, next) => {
       seedVerticalCampaigns();
       seedStageRules();
       seedDemoProspects();
-      startSlaWorker();
-      startAutoSyncLoop();
+
+      // BullMQ durable job queue — replaces setInterval workers for GHL sync,
+      // SLA checks, sequence processing, enrichment, discovery, and digests.
+      // Uses ioredis-mock automatically when REDIS_URL is not set (dev mode).
+      getQueueManager().then(qm => {
+        log("[Queue] BullMQ job queues initialized");
+      }).catch(err => {
+        console.error("[Queue] Failed to initialize BullMQ — falling back to setInterval workers:", err.message);
+        startSlaWorker();
+        startAutoSyncLoop();
+        if (featureFlags.LEGACY_OUTREACH_ENABLED) {
+          startDailyOutreachWorker();
+        }
+      });
 
       // Hydrate GHL workflow IDs from DB into process.env so they behave as env vars
       hydrateWorkflowEnvFromDb().then(n => {
@@ -234,13 +264,6 @@ app.use((req, res, next) => {
       seedScottSendingIdentity().catch(err => {
         console.error("[Seed] Failed to seed Scott sending identity:", err);
       });
-
-      if (featureFlags.LEGACY_OUTREACH_ENABLED) {
-        log("LEGACY_OUTREACH_ENABLED=true — starting legacy outreach workers");
-        startDailyOutreachWorker();
-      } else {
-        log("LEGACY_OUTREACH_ENABLED=false — legacy outreach workers disabled");
-      }
 
       startDailyMaintenanceScheduler();
 

@@ -46,6 +46,7 @@ import { registerPermissionsAuditRoutes } from "./routes/permissions-audit";
 import { registerContentRoutes } from "./routes/content";
 import { registerSocialRoutes } from "./routes/social";
 import { registerReviewQueueRoutes } from "./routes/review-queue";
+import { registerQueueMetricsRoutes } from "./routes/queue-metrics";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -99,6 +100,7 @@ export async function registerRoutes(
   registerImportsRoutes(app);
   registerSdrRoutes(app);
   registerActivationRoutes(app);
+  registerQueueMetricsRoutes(app);
 
   // SEO #178 — programmatic OG image route + admin coverage endpoint.
   // Registered BEFORE registerSsrRoutes so the 301 redirect for the

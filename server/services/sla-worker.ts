@@ -281,6 +281,55 @@ async function checkTicketSla() {
   }
 }
 
+export async function runSlaCheckDirect() {
+  return runSlaCheck();
+}
+
+let fullLoopCycleCount = 0;
+const FULL_LOOP_AI_OPS_EVERY_N = 2;
+const FULL_LOOP_STAGE_PROGRESSION_EVERY_N = 12;
+
+/**
+ * Full SLA worker loop — intended for BullMQ sla-checks queue processor.
+ * Runs every check the legacy setInterval did EXCEPT those that have their
+ * own dedicated BullMQ queues (enrichment, sequences, digests, mid-ingestion).
+ */
+export async function runFullSlaLoop(): Promise<void> {
+  await runSlaCheck();
+  await storage.setSystemSetting("sla_worker_last_tick", {
+    at: new Date().toISOString(),
+    cycle: fullLoopCycleCount + 1,
+    driver: "bullmq",
+  }).catch(() => {});
+
+  await checkWaitingWorkflows().catch(err => console.error("[SlaLoop] checkWaitingWorkflows error:", err));
+  await checkDocumentReadiness().catch(err => console.error("[SlaLoop] checkDocumentReadiness error:", err));
+  await periodicLeadScoring().catch(err => console.error("[SlaLoop] periodicLeadScoring error:", err));
+  await checkApplicationReminders().catch(err => console.error("[SlaLoop] checkApplicationReminders error:", err));
+  await checkChargebackDeadlines().catch(err => console.error("[SlaLoop] checkChargebackDeadlines error:", err));
+  await checkNpsTriggers().catch(err => console.error("[SlaLoop] checkNpsTriggers error:", err));
+  await checkRetentionCampaigns().catch(err => console.error("[SlaLoop] checkRetentionCampaigns error:", err));
+  await checkAbTestWinners().catch(err => console.error("[SlaLoop] checkAbTestWinners error:", err));
+
+  if (fullLoopCycleCount % FULL_LOOP_STAGE_PROGRESSION_EVERY_N === 0) {
+    try {
+      const { runStageProgressionSweep } = await import("./stage-progression");
+      const result = await runStageProgressionSweep({ limit: 1000 });
+      if (result.progressed > 0) {
+        console.log(`[SlaLoop:StageProgression] Auto-advanced ${result.progressed}/${result.evaluated} deals`);
+      }
+    } catch (err) {
+      console.error("[SlaLoop] runStageProgressionSweep error:", err);
+    }
+  }
+
+  fullLoopCycleCount++;
+
+  if (fullLoopCycleCount % FULL_LOOP_AI_OPS_EVERY_N === 0) {
+    await runScheduledAiOps().catch(err => console.error("[SlaLoop] runScheduledAiOps error:", err));
+  }
+}
+
 async function runSlaCheck() {
   const { acquireJobLock, releaseJobLock, JOB_NAMES } = await import("./job-registry");
   const acquired = await acquireJobLock(JOB_NAMES.SLA_WORKER);

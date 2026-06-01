@@ -1228,6 +1228,321 @@ function JobHealthPanel() {
   );
 }
 
+interface QueueMetric {
+  name: string;
+  waiting: number;
+  active: number;
+  completed: number;
+  failed: number;
+  delayed: number;
+  paused: boolean;
+  repeatEveryMs: number;
+  lastCompletedAt: string | null;
+  lastFailedAt: string | null;
+  avgDurationMs: number | null;
+  throughputPerHour: number | null;
+}
+
+interface DlqItem {
+  id: string;
+  queueName: string;
+  jobName: string;
+  failedReason: string;
+  attemptsMade: number;
+  stacktrace: string[];
+  timestamp: number;
+  processedOn: number | null;
+  finishedOn: number | null;
+  data: any;
+}
+
+interface QueueMetricsData {
+  queues: QueueMetric[];
+  usingMock: boolean;
+}
+
+function formatRepeatInterval(ms: number): string {
+  if (ms < 60000) return `${ms / 1000}s`;
+  if (ms < 3600000) return `${ms / 60000}m`;
+  return `${ms / 3600000}h`;
+}
+
+function formatDurationMs(ms: number | null): string {
+  if (ms === null) return "—";
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function QueueMetricsPanel() {
+  const { toast } = useToast();
+  const [selectedQueue, setSelectedQueue] = useState<string | null>(null);
+
+  const { data: metrics, isLoading: metricsLoading, refetch: refetchMetrics } = useQuery<QueueMetricsData>({
+    queryKey: ["/api/operator/queue-metrics"],
+    refetchInterval: 15000,
+  });
+
+  const { data: historyData } = useQuery<Record<string, Array<{ label: string; completed: number; failed: number }>>>({
+    queryKey: ["/api/operator/queue-history"],
+    refetchInterval: 60000,
+  });
+
+  const { data: dlqItems, isLoading: dlqLoading, refetch: refetchDlq } = useQuery<DlqItem[]>({
+    queryKey: ["/api/operator/queue-dlq"],
+    refetchInterval: 30000,
+  });
+
+  const retryMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("POST", `/api/operator/queue-dlq/${encodeURIComponent(id)}/retry`);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Job requeued for retry" });
+      queryClient.invalidateQueries({ queryKey: ["/api/operator/queue-dlq"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/operator/queue-metrics"] });
+    },
+    onError: (err: any) => toast({ title: "Retry failed", description: err.message, variant: "destructive" }),
+  });
+
+  const discardMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("DELETE", `/api/operator/queue-dlq/${encodeURIComponent(id)}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Job discarded" });
+      queryClient.invalidateQueries({ queryKey: ["/api/operator/queue-dlq"] });
+    },
+    onError: (err: any) => toast({ title: "Discard failed", description: err.message, variant: "destructive" }),
+  });
+
+  const pauseMutation = useMutation({
+    mutationFn: async (name: string) => {
+      const res = await apiRequest("POST", `/api/operator/queue/${name}/pause`);
+      return res.json();
+    },
+    onSuccess: (_data, name) => {
+      toast({ title: `Queue ${name} paused` });
+      queryClient.invalidateQueries({ queryKey: ["/api/operator/queue-metrics"] });
+    },
+    onError: (err: any) => toast({ title: "Failed to pause queue", description: err.message, variant: "destructive" }),
+  });
+
+  const resumeMutation = useMutation({
+    mutationFn: async (name: string) => {
+      const res = await apiRequest("POST", `/api/operator/queue/${name}/resume`);
+      return res.json();
+    },
+    onSuccess: (_data, name) => {
+      toast({ title: `Queue ${name} resumed` });
+      queryClient.invalidateQueries({ queryKey: ["/api/operator/queue-metrics"] });
+    },
+    onError: (err: any) => toast({ title: "Failed to resume queue", description: err.message, variant: "destructive" }),
+  });
+
+  const totalActive = metrics?.queues.reduce((s, q) => s + q.active, 0) ?? 0;
+  const totalWaiting = metrics?.queues.reduce((s, q) => s + q.waiting, 0) ?? 0;
+  const totalFailed = metrics?.queues.reduce((s, q) => s + q.failed, 0) ?? 0;
+
+  return (
+    <div className="space-y-6">
+      {metrics?.usingMock && (
+        <div className="flex items-center gap-2 p-3 bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-800 rounded-md text-sm text-yellow-800 dark:text-yellow-300" data-testid="banner-mock-redis">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          <span>Running in dev mode with in-memory queue (no Redis). Set <code className="font-mono bg-yellow-100 dark:bg-yellow-900 px-1 rounded">REDIS_URL</code> for production durability.</span>
+        </div>
+      )}
+
+      <div className="grid grid-cols-3 gap-4">
+        <Card data-testid="card-queue-active">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Zap className="w-4 h-4 text-blue-500" />
+              <span className="text-xs text-muted-foreground">Active Jobs</span>
+            </div>
+            <div className="text-2xl font-bold">{totalActive}</div>
+          </CardContent>
+        </Card>
+        <Card data-testid="card-queue-waiting">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Clock className="w-4 h-4 text-orange-500" />
+              <span className="text-xs text-muted-foreground">Waiting</span>
+            </div>
+            <div className="text-2xl font-bold">{totalWaiting}</div>
+          </CardContent>
+        </Card>
+        <Card data-testid="card-queue-failed">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <XCircle className="w-4 h-4 text-red-500" />
+              <span className="text-xs text-muted-foreground">Failed (DLQ)</span>
+            </div>
+            <div className="text-2xl font-bold text-red-600">{totalFailed}</div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm">Queue Health</CardTitle>
+            <Button variant="ghost" size="sm" onClick={() => refetchMetrics()} data-testid="btn-refresh-queues">
+              <RefreshCw className="w-3.5 h-3.5" />
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {metricsLoading ? (
+            <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/30">
+                    <th className="text-left py-2 px-4 font-medium text-muted-foreground">Queue</th>
+                    <th className="text-right py-2 px-3 font-medium text-muted-foreground">Active</th>
+                    <th className="text-right py-2 px-3 font-medium text-muted-foreground">Waiting</th>
+                    <th className="text-right py-2 px-3 font-medium text-muted-foreground">Failed</th>
+                    <th className="text-right py-2 px-3 font-medium text-muted-foreground">Completed</th>
+                    <th className="text-right py-2 px-3 font-medium text-muted-foreground">Avg Duration</th>
+                    <th className="text-right py-2 px-3 font-medium text-muted-foreground">Rate/hr</th>
+                    <th className="text-center py-2 px-3 font-medium text-muted-foreground">Repeats</th>
+                    <th className="text-center py-2 px-3 font-medium text-muted-foreground">Status</th>
+                    <th className="text-center py-2 px-3 font-medium text-muted-foreground">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(metrics?.queues || []).map(q => (
+                    <tr key={q.name} className={`border-b last:border-0 hover:bg-muted/20 cursor-pointer ${selectedQueue === q.name ? "bg-muted/40" : ""}`} onClick={() => setSelectedQueue(selectedQueue === q.name ? null : q.name)} data-testid={`row-queue-${q.name}`}>
+                      <td className="py-2 px-4 font-mono text-xs font-medium">{q.name}</td>
+                      <td className="py-2 px-3 text-right">
+                        {q.active > 0 ? <Badge variant="default" className="text-xs">{q.active}</Badge> : <span className="text-muted-foreground text-xs">0</span>}
+                      </td>
+                      <td className="py-2 px-3 text-right text-xs text-muted-foreground">{q.waiting}</td>
+                      <td className="py-2 px-3 text-right">
+                        {q.failed > 0 ? <span className="text-red-600 text-xs font-medium">{q.failed}</span> : <span className="text-muted-foreground text-xs">0</span>}
+                      </td>
+                      <td className="py-2 px-3 text-right text-xs text-muted-foreground">{q.completed}</td>
+                      <td className="py-2 px-3 text-right text-xs text-muted-foreground">{formatDurationMs(q.avgDurationMs)}</td>
+                      <td className="py-2 px-3 text-right text-xs text-muted-foreground">
+                        {q.throughputPerHour !== null ? `${q.throughputPerHour}/hr` : "—"}
+                      </td>
+                      <td className="py-2 px-3 text-center text-xs text-muted-foreground">every {formatRepeatInterval(q.repeatEveryMs)}</td>
+                      <td className="py-2 px-3 text-center">
+                        {q.paused ? (
+                          <Badge variant="secondary" className="text-xs">Paused</Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">Active</Badge>
+                        )}
+                      </td>
+                      <td className="py-2 px-3 text-center">
+                        {q.paused ? (
+                          <Button size="sm" variant="outline" className="h-6 text-xs" onClick={() => resumeMutation.mutate(q.name)} data-testid={`btn-resume-queue-${q.name}`}>
+                            Resume
+                          </Button>
+                        ) : (
+                          <Button size="sm" variant="outline" className="h-6 text-xs" onClick={() => pauseMutation.mutate(q.name)} data-testid={`btn-pause-queue-${q.name}`}>
+                            Pause
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {selectedQueue && historyData && historyData[selectedQueue] && (
+        <Card data-testid={`card-queue-history-${selectedQueue}`}>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm">Job History — <span className="font-mono">{selectedQueue}</span> (last 24h)</CardTitle>
+              <Button variant="ghost" size="sm" onClick={() => setSelectedQueue(null)} aria-label="Close job history chart">
+                <XCircle className="w-3.5 h-3.5" />
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="pb-4">
+            <ResponsiveContainer width="100%" height={160}>
+              <BarChart data={historyData[selectedQueue]} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                <XAxis dataKey="label" tick={{ fontSize: 10 }} interval={3} />
+                <YAxis tick={{ fontSize: 10 }} allowDecimals={false} width={28} />
+                <Tooltip contentStyle={{ fontSize: 12 }} />
+                <Bar dataKey="completed" fill="#22c55e" name="Completed" radius={[2, 2, 0, 0]} />
+                <Bar dataKey="failed" fill="#ef4444" name="Failed" radius={[2, 2, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+            <p className="text-xs text-muted-foreground mt-2">Hourly event counts since process start. Resets on server restart.</p>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-sm">Dead-Letter Queue</CardTitle>
+              {(dlqItems?.length ?? 0) > 0 && (
+                <Badge variant="destructive" data-testid="badge-dlq-count">{dlqItems!.length}</Badge>
+              )}
+            </div>
+            <Button variant="ghost" size="sm" onClick={() => refetchDlq()} data-testid="btn-refresh-dlq">
+              <RefreshCw className="w-3.5 h-3.5" />
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {dlqLoading ? (
+            <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
+          ) : !dlqItems || dlqItems.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 gap-2 text-muted-foreground" data-testid="no-dlq-message">
+              <CheckCircle2 className="w-8 h-8 text-green-500" />
+              <p className="text-sm">No dead-letter jobs — all queues healthy</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {dlqItems.map(item => (
+                <Card key={item.id} className="border-red-200 dark:border-red-900" data-testid={`dlq-item-${item.id}`}>
+                  <CardContent className="p-4">
+                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                      <div className="space-y-1 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Badge variant="outline" className="font-mono text-xs">{item.queueName}</Badge>
+                          <Badge variant="destructive" className="text-xs">{item.attemptsMade} attempts</Badge>
+                          <span className="text-xs text-muted-foreground">{new Date(item.timestamp).toLocaleString()}</span>
+                        </div>
+                        <p className="text-sm font-medium text-red-700 dark:text-red-400">{item.failedReason}</p>
+                        {item.stacktrace[0] && (
+                          <p className="text-xs font-mono text-muted-foreground truncate max-w-lg">{item.stacktrace[0]}</p>
+                        )}
+                      </div>
+                      <div className="flex gap-2 shrink-0">
+                        <Button size="sm" variant="outline" onClick={() => retryMutation.mutate(item.id)} disabled={retryMutation.isPending} data-testid={`btn-retry-dlq-${item.id}`}>
+                          Retry
+                        </Button>
+                        <Button size="sm" variant="ghost" className="text-red-600 hover:text-red-700" onClick={() => discardMutation.mutate(item.id)} disabled={discardMutation.isPending} data-testid={`btn-discard-dlq-${item.id}`}>
+                          Discard
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      <p className="text-xs text-muted-foreground">Queue metrics refresh every 15 seconds</p>
+    </div>
+  );
+}
+
 export default function OperatorDashboard() {
   const { toast } = useToast();
 
@@ -1269,6 +1584,10 @@ export default function OperatorDashboard() {
             <Server className="w-3.5 h-3.5" />
             Job Health
           </TabsTrigger>
+          <TabsTrigger value="queue-metrics" data-testid="tab-queue-metrics" className="flex items-center gap-1">
+            <Zap className="w-3.5 h-3.5" />
+            Job Queue
+          </TabsTrigger>
           <TabsTrigger value="readiness" data-testid="tab-readiness">Readiness</TabsTrigger>
           <TabsTrigger value="kpis" data-testid="tab-kpis">KPIs</TabsTrigger>
           <TabsTrigger value="recent-sends" data-testid="tab-recent-sends">Recent Sends</TabsTrigger>
@@ -1286,6 +1605,9 @@ export default function OperatorDashboard() {
 
         <TabsContent value="job-health">
           <JobHealthPanel />
+        </TabsContent>
+        <TabsContent value="queue-metrics">
+          <QueueMetricsPanel />
         </TabsContent>
         <TabsContent value="readiness">
           <ReadinessChecklistWidget />

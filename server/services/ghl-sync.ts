@@ -1113,3 +1113,112 @@ export function stopAutoSyncLoop(): void {
     console.log("[GHL Sync] Auto-sync loop stopped");
   }
 }
+
+/**
+ * Full GHL sync tick — mirrors the complete body of startAutoSyncLoop's
+ * setInterval callback (contacts, failed-contact retry, deals, recent tasks,
+ * unsynced companies), sharing the same module-level tracking sets so state
+ * is preserved across BullMQ repeatable job invocations within the same process.
+ */
+export async function runGhlFullSyncTick(): Promise<void> {
+  if (!isGhlConfigured()) return;
+  const { acquireJobLock, releaseJobLock, JOB_NAMES } = await import("./job-registry");
+  const acquired = await acquireJobLock(JOB_NAMES.GHL_SYNC);
+  if (!acquired) return;
+  try {
+    const { data: contacts } = await storage.getContacts({ limit: 500 });
+    const unsyncedContacts = contacts.filter(c => !c.ghlContactId && c.email);
+    let synced = 0;
+    for (const contact of unsyncedContacts.slice(0, 10)) {
+      try {
+        const result = await syncContactToGhl(contact.id);
+        if (result.success) synced++;
+        await new Promise(r => setTimeout(r, 300));
+      } catch (e: any) {
+        console.error(`[Queue:ghl-sync] Contact ${contact.id} sync error:`, e.message);
+      }
+    }
+
+    try {
+      const auditLogs = await storage.getAuditLogs();
+      const oneHourAgo = Date.now() - 60 * 60 * 1000;
+      const failedContactIds = [...new Set(
+        auditLogs
+          .filter(l => l.action === "ghl_sync_failed" && l.entityType === "contact" && l.createdAt && new Date(l.createdAt).getTime() > oneHourAgo)
+          .map(l => l.entityId)
+          .filter((id): id is number => typeof id === "number")
+      )].slice(0, 5);
+      for (const contactId of failedContactIds) {
+        try {
+          const result = await syncContactToGhl(contactId);
+          if (result.success) {
+            synced++;
+            console.log(`[Queue:ghl-sync] Retry succeeded for failed contact ${contactId}`);
+          }
+          await new Promise(r => setTimeout(r, 300));
+        } catch (e: any) {
+          console.warn(`[Queue:ghl-sync] Retry failed for contact ${contactId}:`, e.message);
+        }
+      }
+    } catch (auditErr: any) {
+      console.warn(`[Queue:ghl-sync] Could not check audit log for retry candidates:`, auditErr.message);
+    }
+
+    const { data: deals } = await storage.getDeals({ limit: 500 });
+    const unsyncedDeals = deals.filter(d => !d.ghlOpportunityId && d.contactId);
+    let dealsSynced = 0;
+    for (const deal of unsyncedDeals.slice(0, 5)) {
+      try {
+        const result = await syncDealToGhl(deal.id);
+        if (result.success) dealsSynced++;
+        await new Promise(r => setTimeout(r, 300));
+      } catch (e: any) {
+        console.error(`[Queue:ghl-sync] Deal ${deal.id} sync error:`, e.message);
+      }
+    }
+
+    const allTasks = await storage.getTasks({ limit: 100 });
+    const recentTasks = allTasks.filter(t => {
+      if (!t.contactId || syncedTaskIds.has(t.id)) return false;
+      const created = t.createdAt ? new Date(t.createdAt).getTime() : 0;
+      return Date.now() - created < 120000;
+    });
+    let tasksSynced = 0;
+    for (const task of recentTasks.slice(0, 5)) {
+      try {
+        const result = await syncTaskToGhl(task.id);
+        if (result.success) {
+          tasksSynced++;
+          syncedTaskIds.add(task.id);
+        }
+        await new Promise(r => setTimeout(r, 300));
+      } catch (e: any) {
+        console.error(`[Queue:ghl-sync] Task ${task.id} sync error:`, e.message);
+      }
+    }
+
+    const companies = await storage.getCompanies();
+    const unsyncedCompanies = companies.filter(c => !syncedCompanyIds.has(c.id));
+    let companiesSynced = 0;
+    for (const company of unsyncedCompanies.slice(0, 5)) {
+      try {
+        const result = await syncCompanyToGhl(company.id);
+        if (result.success) {
+          companiesSynced++;
+          syncedCompanyIds.add(company.id);
+        }
+        await new Promise(r => setTimeout(r, 300));
+      } catch (e: any) {
+        console.error(`[Queue:ghl-sync] Company ${company.id} sync error:`, e.message);
+      }
+    }
+
+    if (synced > 0 || dealsSynced > 0 || tasksSynced > 0 || companiesSynced > 0) {
+      console.log(`[Queue:ghl-sync] Batch: ${synced} contacts, ${dealsSynced} deals, ${tasksSynced} tasks, ${companiesSynced} companies`);
+    }
+    await releaseJobLock(JOB_NAMES.GHL_SYNC, true);
+  } catch (err: any) {
+    await releaseJobLock(JOB_NAMES.GHL_SYNC, false, err.message);
+    throw err;
+  }
+}
