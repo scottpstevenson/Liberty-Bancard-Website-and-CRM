@@ -188,5 +188,52 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   }
 
   // ── Deals / Contacts by Partner Org ──────────────────────────────────────
+
+  // ── Co-Branded Proposals ──────────────────────────────────────────────────
+
+  async getCoBrandedProposals(partnerOrgId: number) {
+    const { coBrandedProposals } = await import("@shared/schema");
+    return await db.select().from(coBrandedProposals)
+      .where(eq(coBrandedProposals.partnerOrgId, partnerOrgId))
+      .orderBy(desc(coBrandedProposals.createdAt));
+  }
+
+  async getAllCoBrandedProposals() {
+    const { coBrandedProposals } = await import("@shared/schema");
+    return await db.select().from(coBrandedProposals)
+      .orderBy(desc(coBrandedProposals.createdAt));
+  }
+
+  async getCoBrandedProposal(id: number) {
+    const { coBrandedProposals } = await import("@shared/schema");
+    const [p] = await db.select().from(coBrandedProposals).where(eq(coBrandedProposals.id, id));
+    return p || null;
+  }
+
+  async getCoBrandedProposalByToken(token: string) {
+    const { coBrandedProposals } = await import("@shared/schema");
+    const [p] = await db.select().from(coBrandedProposals).where(eq(coBrandedProposals.token, token));
+    return p || null;
+  }
+
+  async createCoBrandedProposal(data: import("@shared/schema").InsertCoBrandedProposal) {
+    const { coBrandedProposals } = await import("@shared/schema");
+    const [p] = await db.insert(coBrandedProposals).values(data).returning();
+    return p;
+  }
+
+  async updateCoBrandedProposal(id: number, updates: Partial<import("@shared/schema").InsertCoBrandedProposal>) {
+    const { coBrandedProposals } = await import("@shared/schema");
+    const [p] = await db.update(coBrandedProposals)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(coBrandedProposals.id, id))
+      .returning();
+    return p || null;
+  }
+
+  async deleteCoBrandedProposal(id: number) {
+    const { coBrandedProposals } = await import("@shared/schema");
+    await db.delete(coBrandedProposals).where(eq(coBrandedProposals.id, id));
+  }
   }
   

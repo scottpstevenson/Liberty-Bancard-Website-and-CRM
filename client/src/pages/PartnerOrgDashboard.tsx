@@ -7,12 +7,15 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import {
   Loader2, Users, DollarSign, TrendingUp, CheckCircle,
   LogIn, LogOut, BarChart3, Building2, UserPlus, X,
+  FileText, Send, Copy, Plus, Eye, CheckCircle2, Clock,
+  ExternalLink, Trash2,
 } from "lucide-react";
 
 interface OrgSession {
@@ -50,6 +53,23 @@ interface TeamMember {
   createdAt: string | null;
 }
 
+interface Proposal {
+  id: number;
+  merchantName: string;
+  merchantEmail: string | null;
+  merchantMonthlyVolume: string | null;
+  merchantEffectiveRate: string | null;
+  pricingPlan: string | null;
+  status: string;
+  viewCount: number;
+  viewedAt: string | null;
+  acceptedAt: string | null;
+  deliveredAt: string | null;
+  createdAt: string | null;
+  token: string;
+  viewerUrl: string;
+}
+
 export default function PartnerOrgDashboard() {
   const { slug } = useParams<{ slug: string }>();
   const { toast } = useToast();
@@ -66,6 +86,21 @@ export default function PartnerOrgDashboard() {
   const [showInviteForm, setShowInviteForm] = useState(false);
   const [inviteForm, setInviteForm] = useState({ firstName: "", lastName: "", email: "", password: "", role: "member" });
   const [inviting, setInviting] = useState(false);
+
+  // Proposals state
+  const [proposals, setProposals] = useState<Proposal[]>([]);
+  const [proposalsLoading, setProposalsLoading] = useState(false);
+  const [showNewProposalForm, setShowNewProposalForm] = useState(false);
+  const [proposalForm, setProposalForm] = useState({
+    merchantName: "",
+    merchantEmail: "",
+    merchantMonthlyVolume: "",
+    merchantEffectiveRate: "",
+    pricingPlan: "interchangePlus",
+    customMessage: "",
+  });
+  const [creatingProposal, setCreatingProposal] = useState(false);
+  const [sendingProposalId, setSendingProposalId] = useState<number | null>(null);
 
   useEffect(() => {
     fetch("/api/partner-org/session", { credentials: "include" })
@@ -137,6 +172,94 @@ export default function PartnerOrgDashboard() {
     await fetch("/api/partner-org/logout", { method: "POST", credentials: "include" });
     setSession(null);
     setDashboardData(null);
+  };
+
+  const loadProposals = async () => {
+    setProposalsLoading(true);
+    try {
+      const res = await fetch("/api/partner-org/proposals", { credentials: "include" });
+      if (res.ok) setProposals(await res.json());
+    } catch {}
+    finally { setProposalsLoading(false); }
+  };
+
+  const handleCreateProposal = async () => {
+    if (!proposalForm.merchantName.trim()) {
+      toast({ title: "Merchant name is required", variant: "destructive" });
+      return;
+    }
+    setCreatingProposal(true);
+    try {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      const csrf = getCsrfToken();
+      if (csrf) headers["X-CSRF-Token"] = csrf;
+      const res = await fetch("/api/partner-org/proposals", {
+        method: "POST",
+        headers,
+        credentials: "include",
+        body: JSON.stringify(proposalForm),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast({ title: data.message || "Failed to create proposal", variant: "destructive" });
+        return;
+      }
+      toast({ title: "Proposal created!", description: "Copy the link below to share it." });
+      setProposalForm({ merchantName: "", merchantEmail: "", merchantMonthlyVolume: "", merchantEffectiveRate: "", pricingPlan: "interchangePlus", customMessage: "" });
+      setShowNewProposalForm(false);
+      loadProposals();
+    } catch {
+      toast({ title: "Network error — please try again", variant: "destructive" });
+    } finally {
+      setCreatingProposal(false);
+    }
+  };
+
+  const handleSendProposal = async (proposal: Proposal) => {
+    if (!proposal.merchantEmail) {
+      toast({ title: "No email on file for this merchant", description: "Edit the proposal to add an email first.", variant: "destructive" });
+      return;
+    }
+    setSendingProposalId(proposal.id);
+    try {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      const csrf = getCsrfToken();
+      if (csrf) headers["X-CSRF-Token"] = csrf;
+      const res = await fetch(`/api/partner-org/proposals/${proposal.id}/send`, {
+        method: "POST", headers, credentials: "include",
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast({ title: data.message || "Failed to send", variant: "destructive" });
+        return;
+      }
+      toast({ title: "Proposal sent!", description: `Delivered to ${proposal.merchantEmail}` });
+      loadProposals();
+    } catch {
+      toast({ title: "Network error — please try again", variant: "destructive" });
+    } finally {
+      setSendingProposalId(null);
+    }
+  };
+
+  const handleDeleteProposal = async (id: number) => {
+    if (!confirm("Delete this proposal? This cannot be undone.")) return;
+    try {
+      const headers: Record<string, string> = {};
+      const csrf = getCsrfToken();
+      if (csrf) headers["X-CSRF-Token"] = csrf;
+      await fetch(`/api/partner-org/proposals/${id}`, { method: "DELETE", headers, credentials: "include" });
+      loadProposals();
+      toast({ title: "Proposal deleted." });
+    } catch {}
+  };
+
+  const proposalStatusBadge = (p: Proposal) => {
+    if (p.acceptedAt) return <Badge className="bg-green-100 text-green-800 border-green-200 gap-1"><CheckCircle2 className="w-3 h-3" />Accepted</Badge>;
+    if (p.viewCount > 0) return <Badge className="bg-blue-100 text-blue-800 border-blue-200 gap-1"><Eye className="w-3 h-3" />Viewed</Badge>;
+    if (p.deliveredAt) return <Badge className="bg-sky-100 text-sky-800 border-sky-200 gap-1"><Send className="w-3 h-3" />Sent</Badge>;
+    return <Badge variant="secondary" className="gap-1"><Clock className="w-3 h-3" />Draft</Badge>;
   };
 
   const handleInvite = async () => {
@@ -337,10 +460,16 @@ export default function PartnerOrgDashboard() {
             </div>
 
             {/* Tabs */}
-            <Tabs defaultValue="pipeline" className="space-y-4" onValueChange={v => { if (v === "team") loadTeam(); }}>
+            <Tabs defaultValue="pipeline" className="space-y-4" onValueChange={v => {
+              if (v === "team") loadTeam();
+              if (v === "proposals") loadProposals();
+            }}>
               <TabsList>
                 <TabsTrigger value="pipeline" data-testid="tab-pipeline">Pipeline</TabsTrigger>
                 <TabsTrigger value="contacts" data-testid="tab-contacts">Leads</TabsTrigger>
+                <TabsTrigger value="proposals" data-testid="tab-proposals">
+                  <FileText className="w-3.5 h-3.5 mr-1.5" />Proposals
+                </TabsTrigger>
                 {isAdmin && <TabsTrigger value="team" data-testid="tab-team">Team</TabsTrigger>}
               </TabsList>
 
@@ -445,6 +574,222 @@ export default function PartnerOrgDashboard() {
                             ))}
                           </tbody>
                         </table>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              {/* ── Proposals Tab ─────────────────────────────────────────── */}
+              <TabsContent value="proposals">
+                <Card className="border-0 shadow-sm">
+                  <CardHeader className="pb-3 flex flex-row items-center justify-between">
+                    <CardTitle className="text-base">Co-Branded Proposals ({proposals.length})</CardTitle>
+                    {!showNewProposalForm && (
+                      <Button
+                        size="sm"
+                        className="gap-2"
+                        style={{ backgroundColor: primaryColor }}
+                        onClick={() => setShowNewProposalForm(true)}
+                        data-testid="button-new-proposal"
+                      >
+                        <Plus className="w-4 h-4" /> New Proposal
+                      </Button>
+                    )}
+                  </CardHeader>
+                  <CardContent>
+                    {/* New proposal form */}
+                    {showNewProposalForm && (
+                      <div className="border border-gray-200 rounded-lg p-5 mb-6 bg-gray-50">
+                        <div className="flex items-center justify-between mb-4">
+                          <h3 className="font-semibold text-gray-900 text-sm">Create New Proposal</h3>
+                          <button
+                            onClick={() => setShowNewProposalForm(false)}
+                            className="text-gray-400 hover:text-gray-600"
+                            data-testid="button-cancel-proposal"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div className="sm:col-span-2">
+                            <Label htmlFor="prop-merchant">Merchant / Business Name *</Label>
+                            <Input
+                              id="prop-merchant"
+                              value={proposalForm.merchantName}
+                              onChange={e => setProposalForm(f => ({ ...f, merchantName: e.target.value }))}
+                              placeholder="Acme Restaurant LLC"
+                              data-testid="input-proposal-merchant"
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="prop-email">Merchant Email</Label>
+                            <Input
+                              id="prop-email"
+                              type="email"
+                              value={proposalForm.merchantEmail}
+                              onChange={e => setProposalForm(f => ({ ...f, merchantEmail: e.target.value }))}
+                              placeholder="owner@restaurant.com"
+                              data-testid="input-proposal-email"
+                            />
+                          </div>
+                          <div>
+                            <Label>Pricing Plan</Label>
+                            <Select value={proposalForm.pricingPlan} onValueChange={v => setProposalForm(f => ({ ...f, pricingPlan: v }))}>
+                              <SelectTrigger data-testid="select-proposal-plan">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="interchangePlus">Interchange Plus (Most Transparent)</SelectItem>
+                                <SelectItem value="cashDiscount">Cash Discount (0% for Business)</SelectItem>
+                                <SelectItem value="flatRate">Flat Rate (Predictable)</SelectItem>
+                                <SelectItem value="tieredReduction">Tiered Reduction (Gradual Savings)</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            <Label htmlFor="prop-volume">Monthly Processing Volume ($)</Label>
+                            <Input
+                              id="prop-volume"
+                              value={proposalForm.merchantMonthlyVolume}
+                              onChange={e => setProposalForm(f => ({ ...f, merchantMonthlyVolume: e.target.value }))}
+                              placeholder="50000"
+                              data-testid="input-proposal-volume"
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="prop-rate">Current Effective Rate (%)</Label>
+                            <Input
+                              id="prop-rate"
+                              value={proposalForm.merchantEffectiveRate}
+                              onChange={e => setProposalForm(f => ({ ...f, merchantEffectiveRate: e.target.value }))}
+                              placeholder="3.2"
+                              data-testid="input-proposal-rate"
+                            />
+                          </div>
+                          <div className="sm:col-span-2">
+                            <Label htmlFor="prop-message">Personal Message (optional)</Label>
+                            <Textarea
+                              id="prop-message"
+                              value={proposalForm.customMessage}
+                              onChange={e => setProposalForm(f => ({ ...f, customMessage: e.target.value }))}
+                              placeholder="Hi John, based on our conversation I've put together a few options that could save you significantly on processing..."
+                              rows={3}
+                              data-testid="input-proposal-message"
+                            />
+                          </div>
+                        </div>
+                        <div className="flex gap-3 mt-4">
+                          <Button
+                            size="sm"
+                            className="gap-2"
+                            style={{ backgroundColor: primaryColor }}
+                            onClick={handleCreateProposal}
+                            disabled={creatingProposal}
+                            data-testid="button-create-proposal"
+                          >
+                            {creatingProposal ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Plus className="w-4 h-4" /> Create Proposal</>}
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => setShowNewProposalForm(false)}>
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Proposals list */}
+                    {proposalsLoading ? (
+                      <div className="flex items-center gap-2 py-10 justify-center text-gray-500">
+                        <Loader2 className="w-5 h-5 animate-spin" /> Loading proposals...
+                      </div>
+                    ) : proposals.length === 0 ? (
+                      <div className="text-center py-14 text-gray-400">
+                        <FileText className="w-10 h-10 mx-auto mb-3 opacity-40" />
+                        <p className="font-medium mb-1">No proposals yet</p>
+                        <p className="text-xs max-w-sm mx-auto">
+                          Create a co-branded proposal for any merchant. It will include your logo, contact details, and a personalized savings analysis.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {proposals.map(proposal => (
+                          <div
+                            key={proposal.id}
+                            className="border border-gray-200 rounded-lg p-4 bg-white hover:border-gray-300 transition-colors"
+                            data-testid={`card-proposal-${proposal.id}`}
+                          >
+                            <div className="flex items-start justify-between gap-3 flex-wrap">
+                              <div>
+                                <div className="flex items-center gap-2 flex-wrap mb-1">
+                                  <span className="font-semibold text-gray-900 text-sm" data-testid={`text-proposal-merchant-${proposal.id}`}>
+                                    {proposal.merchantName}
+                                  </span>
+                                  {proposalStatusBadge(proposal)}
+                                </div>
+                                <div className="text-xs text-gray-500 space-y-0.5">
+                                  {proposal.merchantEmail && <div>Email: {proposal.merchantEmail}</div>}
+                                  {proposal.merchantMonthlyVolume && <div>Volume: ${parseFloat(proposal.merchantMonthlyVolume || "0").toLocaleString()}/mo</div>}
+                                  {proposal.merchantEffectiveRate && <div>Current Rate: {proposal.merchantEffectiveRate}%</div>}
+                                  <div>Created: {proposal.createdAt ? new Date(proposal.createdAt).toLocaleDateString() : "—"}</div>
+                                  {proposal.viewCount > 0 && (
+                                    <div className="text-blue-600 font-medium">
+                                      Viewed {proposal.viewCount}× {proposal.viewedAt ? `— last ${new Date(proposal.viewedAt).toLocaleDateString()}` : ""}
+                                    </div>
+                                  )}
+                                  {proposal.acceptedAt && (
+                                    <div className="text-green-600 font-medium">
+                                      Accepted {new Date(proposal.acceptedAt).toLocaleDateString()}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="gap-1.5 text-xs h-8"
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(proposal.viewerUrl);
+                                    toast({ title: "Proposal link copied!" });
+                                  }}
+                                  data-testid={`button-copy-proposal-${proposal.id}`}
+                                >
+                                  <Copy className="w-3 h-3" /> Copy Link
+                                </Button>
+                                <a href={proposal.viewerUrl} target="_blank" rel="noopener noreferrer">
+                                  <Button size="sm" variant="outline" className="gap-1.5 text-xs h-8" data-testid={`button-view-proposal-${proposal.id}`}>
+                                    <ExternalLink className="w-3 h-3" /> Preview
+                                  </Button>
+                                </a>
+                                {proposal.merchantEmail && (
+                                  <Button
+                                    size="sm"
+                                    className="gap-1.5 text-xs h-8"
+                                    style={{ backgroundColor: primaryColor }}
+                                    onClick={() => handleSendProposal(proposal)}
+                                    disabled={sendingProposalId === proposal.id}
+                                    data-testid={`button-send-proposal-${proposal.id}`}
+                                  >
+                                    {sendingProposalId === proposal.id ? (
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                    ) : (
+                                      <><Send className="w-3 h-3" /> Send Email</>
+                                    )}
+                                  </Button>
+                                )}
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="gap-1.5 text-xs h-8 text-red-600 hover:text-red-700"
+                                  onClick={() => handleDeleteProposal(proposal.id)}
+                                  data-testid={`button-delete-proposal-${proposal.id}`}
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     )}
                   </CardContent>

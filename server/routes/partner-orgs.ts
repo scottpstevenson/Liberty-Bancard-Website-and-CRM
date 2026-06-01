@@ -1,5 +1,5 @@
 import type { Express } from "express";
-import { isAuthenticated } from "../replit_integrations/auth";
+import { isAuthenticated, isDashboardUser } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
 import { insertPartnerOrgSchema, insertPartnerOrgUserSchema } from "@shared/schema";
@@ -12,6 +12,13 @@ import { scoreContact } from "../services/lead-scoring";
 import { autoEnrollFromTrigger } from "../services/sequence-worker";
 import { triggerWorkflowsByEvent } from "../services/workflow-executor";
 import { routeContact } from "../services/smart-router";
+import {
+  createCoBrandedProposal,
+  sendCoBrandedProposalEmail,
+  trackProposalView,
+  generateCoBrandedProposalHtml,
+  generateCoBrandedProposalPdf,
+} from "../services/co-branded-proposal";
 
 function isPartnerOrgAdmin(req: any) {
   return req.session?.partnerOrgUserId && req.session?.partnerOrgId;
@@ -547,6 +554,310 @@ export function registerPartnerOrgsRoutes(app: Express) {
         })
       );
       res.json(performance);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // ── CO-BRANDED PROPOSALS ──────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  function getBaseUrl(req: any): string {
+    const replitDomain = process.env.REPLIT_DOMAINS?.split(",")[0]?.trim();
+    return process.env.APP_URL ||
+      (replitDomain ? `https://${replitDomain}` : `${req.protocol}://${req.get("host")}`);
+  }
+
+  // ── Partner org: create a co-branded proposal (partner session) ────────────
+  app.post("/api/partner-org/proposals", async (req, res) => {
+    if (!isPartnerOrgAdmin(req)) {
+      return res.status(401).json({ message: "Please log in to your partner portal." });
+    }
+    const partnerOrgId = (req.session as any).partnerOrgId as number;
+    try {
+      const {
+        merchantName, merchantEmail, merchantMonthlyVolume, merchantEffectiveRate,
+        pricingPlan, customMessage, contactId, dealId,
+      } = req.body;
+
+      if (!merchantName || typeof merchantName !== "string") {
+        return res.status(400).json({ message: "Merchant name is required." });
+      }
+
+      const user = await storage.getPartnerOrgUser((req.session as any).partnerOrgUserId);
+
+      const proposal = await createCoBrandedProposal({
+        partnerOrgId,
+        dealId: dealId ? Number(dealId) : undefined,
+        contactId: contactId ? Number(contactId) : undefined,
+        merchantName: String(merchantName).slice(0, 300),
+        merchantEmail: merchantEmail ? String(merchantEmail).slice(0, 300) : undefined,
+        merchantMonthlyVolume: merchantMonthlyVolume ? String(merchantMonthlyVolume) : undefined,
+        merchantEffectiveRate: merchantEffectiveRate ? String(merchantEffectiveRate) : undefined,
+        pricingPlan: pricingPlan || "interchangePlus",
+        customMessage: customMessage ? String(customMessage).slice(0, 2000) : undefined,
+        createdBy: user ? `${user.firstName} ${user.lastName}`.trim() : "Partner",
+      });
+
+      res.status(201).json(proposal);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Partner org: list proposals ────────────────────────────────────────────
+  app.get("/api/partner-org/proposals", async (req, res) => {
+    if (!isPartnerOrgAdmin(req)) {
+      return res.status(401).json({ message: "Please log in to your partner portal." });
+    }
+    const partnerOrgId = (req.session as any).partnerOrgId as number;
+    try {
+      const proposals = await storage.getCoBrandedProposals(partnerOrgId);
+      const baseUrl = getBaseUrl(req);
+      const enriched = proposals.map(p => ({
+        ...p,
+        viewerUrl: `${baseUrl}/co-branded-proposal/${p.token}`,
+      }));
+      res.json(enriched);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Partner org: send a proposal via email ─────────────────────────────────
+  app.post("/api/partner-org/proposals/:id/send", async (req, res) => {
+    if (!isPartnerOrgAdmin(req)) {
+      return res.status(401).json({ message: "Please log in to your partner portal." });
+    }
+    const partnerOrgId = (req.session as any).partnerOrgId as number;
+    try {
+      const proposal = await storage.getCoBrandedProposal(Number(req.params.id));
+      if (!proposal || proposal.partnerOrgId !== partnerOrgId) {
+        return res.status(404).json({ message: "Proposal not found." });
+      }
+      const baseUrl = getBaseUrl(req);
+
+      const { merchantEmail } = req.body;
+      if (merchantEmail) {
+        if (proposal.contactId) {
+          await storage.updateContact(proposal.contactId, { email: merchantEmail });
+        }
+      }
+
+      const sent = await sendCoBrandedProposalEmail(proposal.id, baseUrl);
+      if (!sent) {
+        return res.status(500).json({ message: "Failed to deliver email. Please configure GHL or SMTP." });
+      }
+      res.json({ message: "Proposal sent successfully." });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Partner org: delete a proposal ────────────────────────────────────────
+  app.delete("/api/partner-org/proposals/:id", async (req, res) => {
+    if (!isPartnerOrgAdmin(req)) {
+      return res.status(401).json({ message: "Please log in to your partner portal." });
+    }
+    const partnerOrgId = (req.session as any).partnerOrgId as number;
+    try {
+      const proposal = await storage.getCoBrandedProposal(Number(req.params.id));
+      if (!proposal || proposal.partnerOrgId !== partnerOrgId) {
+        return res.status(404).json({ message: "Proposal not found." });
+      }
+      await storage.deleteCoBrandedProposal(proposal.id);
+      res.json({ message: "Deleted." });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Public: view co-branded proposal (tracking) ────────────────────────────
+  app.get("/api/public/co-branded-proposal/:token", async (req, res) => {
+    try {
+      const proposal = await storage.getCoBrandedProposalByToken(req.params.token);
+      if (!proposal) return res.status(404).json({ message: "Proposal not found." });
+
+      const org = await storage.getPartnerOrg(proposal.partnerOrgId!);
+      if (!org) return res.status(404).json({ message: "Partner not found." });
+
+      await trackProposalView(req.params.token);
+
+      res.json({
+        id: proposal.id,
+        merchantName: proposal.merchantName,
+        merchantMonthlyVolume: proposal.merchantMonthlyVolume,
+        merchantEffectiveRate: proposal.merchantEffectiveRate,
+        pricingPlan: proposal.pricingPlan,
+        proposalData: proposal.proposalData,
+        customMessage: proposal.customMessage,
+        status: proposal.status,
+        partner: {
+          name: org.name,
+          logoUrl: org.logoUrl,
+          primaryColor: org.primaryColor,
+          tagline: org.tagline,
+          contactName: org.contactName,
+          email: org.email,
+          phone: org.phone,
+        },
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Public: accept a proposal ─────────────────────────────────────────────
+  app.post("/api/public/co-branded-proposal/:token/accept", async (req, res) => {
+    try {
+      const proposal = await storage.getCoBrandedProposalByToken(req.params.token);
+      if (!proposal) return res.status(404).json({ message: "Proposal not found." });
+      if (!proposal.acceptedAt) {
+        await storage.updateCoBrandedProposal(proposal.id, {
+          status: "accepted",
+          acceptedAt: new Date(),
+        });
+      }
+      res.json({ message: "Proposal accepted." });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Public: tracking pixel for email open tracking ─────────────────────────
+  app.get("/api/public/co-branded-proposal/:token/viewed", async (req, res) => {
+    try {
+      await trackProposalView(req.params.token);
+    } catch {
+    }
+    const pixel = Buffer.from(
+      "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
+      "base64"
+    );
+    res.set({
+      "Content-Type": "image/gif",
+      "Content-Length": String(pixel.length),
+      "Cache-Control": "no-store, no-cache, must-revalidate",
+    });
+    res.end(pixel);
+  });
+
+  // ── Admin: generate co-branded proposal for a deal ─────────────────────────
+  app.post("/api/deals/:dealId/co-branded-proposal", isDashboardUser, async (req, res) => {
+    try {
+      const dealId = Number(req.params.dealId);
+      const deal = await storage.getDeal(dealId);
+      if (!deal) return res.status(404).json({ message: "Deal not found." });
+
+      const partnerOrgId = req.body.partnerOrgId || deal.partnerOrgId;
+      if (!partnerOrgId) {
+        return res.status(400).json({ message: "This deal is not linked to a partner organization." });
+      }
+
+      const contact = deal.contactId ? await storage.getContact(deal.contactId) : null;
+      const merchantName = contact?.companyName ||
+        (contact ? `${contact.firstName} ${contact.lastName}`.trim() : req.body.merchantName || "Unknown Merchant");
+
+      const user = req.user as any;
+      const proposal = await createCoBrandedProposal({
+        partnerOrgId: Number(partnerOrgId),
+        dealId,
+        contactId: deal.contactId ?? undefined,
+        merchantName,
+        merchantMonthlyVolume: deal.totalVolume || contact?.monthlyVolume || req.body.merchantMonthlyVolume,
+        merchantEffectiveRate: deal.effectiveRate || req.body.merchantEffectiveRate,
+        pricingPlan: req.body.pricingPlan || deal.recommendedPath?.toLowerCase().replace(/\s+/g, "") || "interchangePlus",
+        customMessage: req.body.customMessage,
+        proposalData: deal.savingsProposal as any,
+        createdBy: user?.firstName ? `${user.firstName} ${user.lastName || ""}`.trim() : "Admin",
+      });
+
+      const baseUrl = getBaseUrl(req);
+      res.status(201).json({
+        ...proposal,
+        viewerUrl: `${baseUrl}/co-branded-proposal/${proposal.token}`,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Admin: list co-branded proposals for a deal ────────────────────────────
+  app.get("/api/deals/:dealId/co-branded-proposals", isDashboardUser, async (req, res) => {
+    try {
+      const dealId = Number(req.params.dealId);
+      const allProposals = await storage.getAllCoBrandedProposals();
+      const dealProposals = allProposals.filter(p => p.dealId === dealId);
+      const baseUrl = getBaseUrl(req);
+      res.json(dealProposals.map(p => ({
+        ...p,
+        viewerUrl: `${baseUrl}/co-branded-proposal/${p.token}`,
+      })));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Admin: send any co-branded proposal ───────────────────────────────────
+  app.post("/api/co-branded-proposals/:id/send", isDashboardUser, async (req, res) => {
+    try {
+      const proposal = await storage.getCoBrandedProposal(Number(req.params.id));
+      if (!proposal) return res.status(404).json({ message: "Proposal not found." });
+      const baseUrl = getBaseUrl(req);
+      const sent = await sendCoBrandedProposalEmail(proposal.id, baseUrl);
+      if (!sent) {
+        return res.status(500).json({ message: "Failed to deliver email. Please configure GHL or SMTP." });
+      }
+      res.json({ message: "Proposal sent successfully." });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Admin: list all co-branded proposals ──────────────────────────────────
+  app.get("/api/co-branded-proposals", isDashboardUser, async (req, res) => {
+    try {
+      const proposals = await storage.getAllCoBrandedProposals();
+      const baseUrl = getBaseUrl(req);
+      res.json(proposals.map(p => ({ ...p, viewerUrl: `${baseUrl}/co-branded-proposal/${p.token}` })));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Public: download proposal as printable HTML document ──────────────────
+  app.get("/api/public/co-branded-proposal/:token/download", async (req, res) => {
+    try {
+      const proposal = await storage.getCoBrandedProposalByToken(req.params.token);
+      if (!proposal) return res.status(404).json({ message: "Proposal not found." });
+
+      const org = await storage.getPartnerOrg(proposal.partnerOrgId!);
+      if (!org) return res.status(404).json({ message: "Partner not found." });
+
+      const baseUrl = getBaseUrl(req);
+      const pdfBuffer = await generateCoBrandedProposalPdf({
+        org,
+        merchantName: proposal.merchantName || "Merchant",
+        merchantMonthlyVolume: proposal.merchantMonthlyVolume ?? undefined,
+        merchantEffectiveRate: proposal.merchantEffectiveRate ?? undefined,
+        pricingPlan: proposal.pricingPlan ?? undefined,
+        customMessage: proposal.customMessage ?? undefined,
+        proposalData: proposal.proposalData,
+        token: proposal.token,
+        baseUrl,
+      });
+
+      const slug = (proposal.merchantName || "merchant").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      const fileName = `savings-proposal-${slug}.pdf`;
+
+      res.set({
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `attachment; filename="${fileName}"`,
+        "Content-Length": String(pdfBuffer.length),
+        "Cache-Control": "no-store",
+      });
+      res.send(pdfBuffer);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

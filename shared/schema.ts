@@ -3349,6 +3349,7 @@ export const partnerOrganizations = pgTable("partner_organizations", {
   slug: text("slug").notNull().unique(),
   logoUrl: text("logo_url"),
   primaryColor: text("primary_color").default("#2563eb"),
+  tagline: text("tagline"),
   commissionRate: real("commission_rate").default(10),
   status: text("status").default("active"),
   contactName: text("contact_name"),
@@ -3369,6 +3370,43 @@ export const insertPartnerOrgSchema = createInsertSchema(partnerOrganizations).o
 
 export type PartnerOrganization = typeof partnerOrganizations.$inferSelect;
 export type InsertPartnerOrganization = z.infer<typeof insertPartnerOrgSchema>;
+
+// ── Co-Branded Proposals ───────────────────────────────────────────────────────
+export const coBrandedProposals = pgTable("co_branded_proposals", {
+  id: serial("id").primaryKey(),
+  dealId: integer("deal_id").references(() => deals.id),
+  contactId: integer("contact_id").references(() => contacts.id),
+  partnerOrgId: integer("partner_org_id").references(() => partnerOrganizations.id),
+  token: text("token").notNull().unique(),
+  status: text("status").default("draft"),
+  pricingPlan: text("pricing_plan"),
+  proposalData: jsonb("proposal_data"),
+  merchantName: text("merchant_name"),
+  merchantMonthlyVolume: text("merchant_monthly_volume"),
+  merchantEffectiveRate: text("merchant_effective_rate"),
+  merchantEmail: text("merchant_email"),
+  customMessage: text("custom_message"),
+  deliveredAt: timestamp("delivered_at"),
+  viewedAt: timestamp("viewed_at"),
+  viewCount: integer("view_count").default(0),
+  acceptedAt: timestamp("accepted_at"),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("co_branded_proposals_partner_org_id_idx").on(table.partnerOrgId),
+  index("co_branded_proposals_deal_id_idx").on(table.dealId),
+  index("co_branded_proposals_token_idx").on(table.token),
+]);
+
+export const insertCoBrandedProposalSchema = createInsertSchema(coBrandedProposals).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type CoBrandedProposal = typeof coBrandedProposals.$inferSelect;
+export type InsertCoBrandedProposal = z.infer<typeof insertCoBrandedProposalSchema>;
 
 export const partnerOrgUsers = pgTable("partner_org_users", {
   id: serial("id").primaryKey(),

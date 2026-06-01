@@ -261,6 +261,34 @@ export async function runStartupMigrations(): Promise<void> {
 
     await client.query(`
       ALTER TABLE chargebacks ADD COLUMN IF NOT EXISTS ai_evidence_packet jsonb DEFAULT NULL;
+
+      ALTER TABLE partner_organizations ADD COLUMN IF NOT EXISTS tagline TEXT;
+
+      CREATE TABLE IF NOT EXISTS co_branded_proposals (
+        id SERIAL PRIMARY KEY,
+        deal_id INTEGER REFERENCES deals(id),
+        contact_id INTEGER REFERENCES contacts(id),
+        partner_org_id INTEGER REFERENCES partner_organizations(id),
+        token TEXT NOT NULL UNIQUE,
+        status TEXT DEFAULT 'draft',
+        pricing_plan TEXT,
+        proposal_data JSONB,
+        merchant_name TEXT,
+        merchant_monthly_volume TEXT,
+        merchant_effective_rate TEXT,
+        merchant_email TEXT,
+        custom_message TEXT,
+        delivered_at TIMESTAMP,
+        viewed_at TIMESTAMP,
+        view_count INTEGER DEFAULT 0,
+        accepted_at TIMESTAMP,
+        created_by TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS co_branded_proposals_partner_org_id_idx ON co_branded_proposals(partner_org_id);
+      CREATE INDEX IF NOT EXISTS co_branded_proposals_deal_id_idx ON co_branded_proposals(deal_id);
+      CREATE INDEX IF NOT EXISTS co_branded_proposals_token_idx ON co_branded_proposals(token);
     `);
 
     console.log("[Migrations] Startup migrations applied successfully.");

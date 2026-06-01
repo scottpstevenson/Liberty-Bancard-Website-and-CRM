@@ -27,6 +27,7 @@ const orgFormSchema = z.object({
   slug: z.string().min(1, "URL slug is required").regex(/^[a-z0-9-]+$/, "Slug must be lowercase letters, numbers, and hyphens only"),
   logoUrl: z.string().url("Must be a valid URL").optional().or(z.literal("")),
   primaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/, "Must be a valid hex color").default("#2563eb"),
+  tagline: z.string().optional(),
   commissionRate: z.coerce.number().min(0).max(100).default(10),
   contactName: z.string().optional(),
   email: z.string().email().optional().or(z.literal("")),
@@ -358,6 +359,13 @@ export default function PartnerOrgs() {
           <FormItem>
             <FormLabel>Logo URL (optional)</FormLabel>
             <FormControl><Input {...field} placeholder="https://yoursite.com/logo.png" data-testid="input-org-logo" /></FormControl>
+            <FormMessage />
+          </FormItem>
+        )} />
+        <FormField control={form.control} name="tagline" render={({ field }) => (
+          <FormItem>
+            <FormLabel>Tagline (optional)</FormLabel>
+            <FormControl><Input {...field} placeholder="e.g. Helping businesses save on processing" data-testid="input-org-tagline" /></FormControl>
             <FormMessage />
           </FormItem>
         )} />

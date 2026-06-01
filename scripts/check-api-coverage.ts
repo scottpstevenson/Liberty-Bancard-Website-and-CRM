@@ -75,6 +75,7 @@ function pathMatches(clientPath: string, serverPaths: Set<string>): boolean {
 const KNOWN_MISMATCHES = new Set<string>([
   "/api/lead-intelligence/full",
   "/api/public/proposal",
+  "/api/public/co-branded-proposal", // parameterised paths like /api/public/co-branded-proposal/:token are matched dynamically — static prefix is caught by coverage script but routes exist
   "/api/sdr/discovery/nightly/${start",
   "/api/sdr/merchants",
   "/api/sms-inbox/thread",

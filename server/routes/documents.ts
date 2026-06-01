@@ -7,6 +7,7 @@ import { generateDealBlueprint } from "../services/deal-blueprint";
 import { advanceDealStage } from "../services/deal-stage-service";
 import { autoGenerateProposal } from "../services/proposal-engine";
 import { generateDocumentToken, verifyDocumentToken } from "../services/document-tokens";
+import { generateCoBrandedProposalPdf } from "../services/co-branded-proposal";
 import path from "path";
 import fs from "fs";
 import { upload } from "./helpers";
@@ -271,6 +272,36 @@ export function registerDocumentsRoutes(app: Express) {
       const docs = await storage.getDocuments();
       const doc = docs.find(d => d.id === Number(req.params.id));
       if (!doc) return res.status(404).json({ message: "Document not found" });
+
+      // ── Co-branded proposal: generate PDF on the fly from the token ──────────
+      if (doc.storageKey?.startsWith("co-branded-proposal:")) {
+        const token = doc.storageKey.replace("co-branded-proposal:", "");
+        const proposal = await storage.getCoBrandedProposalByToken(token);
+        if (!proposal) return res.status(404).json({ message: "Proposal not found." });
+        const org = await storage.getPartnerOrg(proposal.partnerOrgId!);
+        if (!org) return res.status(404).json({ message: "Partner org not found." });
+        const replitDomain = process.env.REPLIT_DOMAINS?.split(",")[0]?.trim();
+        const baseUrl = process.env.APP_URL || (replitDomain ? `https://${replitDomain}` : `${req.protocol}://${req.get("host")}`);
+        const pdfBuffer = await generateCoBrandedProposalPdf({
+          org,
+          merchantName: proposal.merchantName || "Merchant",
+          merchantMonthlyVolume: proposal.merchantMonthlyVolume,
+          merchantEffectiveRate: proposal.merchantEffectiveRate,
+          pricingPlan: proposal.pricingPlan,
+          customMessage: proposal.customMessage,
+          proposalData: proposal.proposalData,
+          token: proposal.token,
+          baseUrl,
+        });
+        const slug = (proposal.merchantName || "merchant").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+        res.set({
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `attachment; filename="savings-proposal-${slug}.pdf"`,
+          "Content-Length": String(pdfBuffer.length),
+          "Cache-Control": "no-store",
+        });
+        return res.send(pdfBuffer);
+      }
 
       const uploadsDir = path.join(process.cwd(), "uploads");
       const files = fs.readdirSync(uploadsDir);

@@ -17,7 +17,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Calendar, Sparkles, Loader2, Download, ChevronDown, Archive, Settings, ArrowUp, ArrowDown, Pencil, Trash2, RotateCcw, MoreVertical, TrendingUp, TrendingDown, UserRound, AlertTriangle, Activity, ArrowUpDown } from "lucide-react";
+import { Plus, Calendar, Sparkles, Loader2, Download, ChevronDown, Archive, Settings, ArrowUp, ArrowDown, Pencil, Trash2, RotateCcw, MoreVertical, TrendingUp, TrendingDown, UserRound, AlertTriangle, Activity, ArrowUpDown, FileText, Copy, ExternalLink, Send, CheckCircle2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
@@ -371,6 +371,15 @@ export default function Pipeline() {
     offerPath: "",
     notes: "",
   });
+
+  // Co-branded proposal state
+  const [generatingProposal, setGeneratingProposal] = useState(false);
+  const [dealProposals, setDealProposals] = useState<Array<{
+    id: number; merchantName: string; status: string; viewCount: number;
+    acceptedAt: string | null; deliveredAt: string | null; token: string; viewerUrl: string;
+  }>>([]);
+  const [dealProposalsLoading, setDealProposalsLoading] = useState(false);
+  const [proposalPlan, setProposalPlan] = useState("interchangePlus");
 
   const [selectedDealIds, setSelectedDealIds] = useState<Set<number>>(new Set());
   const [showArchived, setShowArchived] = useState(false);
@@ -781,6 +790,45 @@ export default function Pipeline() {
     setEditAgentId("none");
     setEditMid(deal.mid || "");
     setDetailOpen(true);
+    if ((deal as any).partnerOrgId) {
+      loadDealProposals(deal.id);
+    } else {
+      setDealProposals([]);
+    }
+  };
+
+  const loadDealProposals = async (dealId: number) => {
+    setDealProposalsLoading(true);
+    try {
+      const res = await fetch(`/api/deals/${dealId}/co-branded-proposals`, { credentials: "include" });
+      if (res.ok) setDealProposals(await res.json());
+    } catch {}
+    finally { setDealProposalsLoading(false); }
+  };
+
+  const handleGenerateCoBrandedProposal = async () => {
+    if (!selectedDeal) return;
+    if (!(selectedDeal as any).partnerOrgId) {
+      toast({ title: "No partner org linked to this deal", description: "Assign a partner organization to this deal first.", variant: "destructive" });
+      return;
+    }
+    setGeneratingProposal(true);
+    try {
+      const res = await apiRequest("POST", `/api/deals/${selectedDeal.id}/co-branded-proposal`, { pricingPlan: proposalPlan });
+      if (!res.ok) {
+        const data = await res.json();
+        toast({ title: data.message || "Failed to generate proposal", variant: "destructive" });
+        return;
+      }
+      const data = await res.json();
+      toast({ title: "Co-branded proposal created!", description: "Copy the link to share it with the merchant." });
+      navigator.clipboard.writeText(data.viewerUrl).catch(() => {});
+      loadDealProposals(selectedDeal.id);
+    } catch {
+      toast({ title: "Network error — please try again", variant: "destructive" });
+    } finally {
+      setGeneratingProposal(false);
+    }
   };
 
   useEffect(() => {
@@ -1268,6 +1316,105 @@ export default function Pipeline() {
                   {updateDealMutation.isPending ? "Saving..." : "Save Changes"}
                 </Button>
               </div>
+
+              {/* Co-branded proposal section — only shows when deal has a partner org */}
+              {(selectedDeal as any).partnerOrgId && (
+                <div className="border-t pt-4 space-y-3" data-testid="section-co-branded-proposals">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div>
+                      <h4 className="text-sm font-semibold flex items-center gap-1.5">
+                        <FileText className="w-4 h-4 text-blue-600" />
+                        Co-Branded Proposals
+                      </h4>
+                      <p className="text-xs text-muted-foreground mt-0.5">Generate a white-labeled proposal for this merchant.</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Select value={proposalPlan} onValueChange={setProposalPlan}>
+                        <SelectTrigger className="h-8 text-xs w-[180px]" data-testid="select-proposal-plan">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="interchangePlus">Interchange Plus</SelectItem>
+                          <SelectItem value="cashDiscount">Cash Discount</SelectItem>
+                          <SelectItem value="flatRate">Flat Rate</SelectItem>
+                          <SelectItem value="tieredReduction">Tiered Reduction</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        size="sm"
+                        className="h-8 gap-1.5 text-xs"
+                        onClick={handleGenerateCoBrandedProposal}
+                        disabled={generatingProposal}
+                        data-testid="button-generate-co-branded-proposal"
+                      >
+                        {generatingProposal ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <><Plus className="w-3.5 h-3.5" /> Generate</>
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+
+                  {dealProposalsLoading ? (
+                    <div className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
+                      <Loader2 className="w-4 h-4 animate-spin" /> Loading...
+                    </div>
+                  ) : dealProposals.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">No proposals yet. Click "Generate" to create one.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {dealProposals.map(p => (
+                        <div
+                          key={p.id}
+                          className="flex items-center justify-between gap-2 p-2.5 border rounded-md bg-muted/30 text-sm"
+                          data-testid={`row-deal-proposal-${p.id}`}
+                        >
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-medium text-xs truncate">{p.merchantName}</span>
+                              {p.acceptedAt ? (
+                                <span className="inline-flex items-center gap-1 text-xs text-green-700 bg-green-50 px-1.5 py-0.5 rounded-full border border-green-200">
+                                  <CheckCircle2 className="w-3 h-3" />Accepted
+                                </span>
+                              ) : p.viewCount > 0 ? (
+                                <span className="inline-flex items-center gap-1 text-xs text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded-full border border-blue-200">
+                                  Viewed {p.viewCount}×
+                                </span>
+                              ) : p.deliveredAt ? (
+                                <span className="inline-flex items-center gap-1 text-xs text-sky-700 bg-sky-50 px-1.5 py-0.5 rounded-full border border-sky-200">
+                                  <Send className="w-3 h-3" />Sent
+                                </span>
+                              ) : (
+                                <span className="inline-flex text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full border">Draft</span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+                              onClick={() => { navigator.clipboard.writeText(p.viewerUrl); toast({ title: "Link copied!" }); }}
+                              title="Copy link"
+                              data-testid={`button-copy-deal-proposal-${p.id}`}
+                            >
+                              <Copy className="w-3.5 h-3.5" />
+                            </button>
+                            <a href={p.viewerUrl} target="_blank" rel="noopener noreferrer">
+                              <button
+                                className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+                                title="Open proposal"
+                                data-testid={`button-view-deal-proposal-${p.id}`}
+                              >
+                                <ExternalLink className="w-3.5 h-3.5" />
+                              </button>
+                            </a>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="border-t pt-4">
                 <Comments entityType="deal" entityId={selectedDeal.id} />
