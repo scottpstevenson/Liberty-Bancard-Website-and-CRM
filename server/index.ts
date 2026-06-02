@@ -243,7 +243,8 @@ app.use((req, res, next) => {
 
       // BullMQ durable job queue — replaces setInterval workers for GHL sync,
       // SLA checks, sequence processing, enrichment, discovery, and digests.
-      // Uses ioredis-mock automatically when REDIS_URL is not set (dev mode).
+      // Requires a real Redis connection (REDIS_URL). Without it, falls back
+      // to lightweight setInterval workers so the server still functions.
       getQueueManager().then(qm => {
         log("[Queue] BullMQ job queues initialized");
       }).catch(err => {

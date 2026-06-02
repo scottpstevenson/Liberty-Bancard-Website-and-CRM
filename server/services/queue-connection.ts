@@ -24,14 +24,10 @@ export async function getRedisConnection(): Promise<ConnectionOptions> {
     };
     _usingMock = false;
   } else {
-    console.warn(
-      "[WARN] REDIS_URL not set — using ioredis-mock (jobs are ephemeral and will be lost on restart). " +
-      "Set REDIS_URL to a real Redis connection string for production durability."
+    throw new Error(
+      "REDIS_URL is not set. BullMQ requires a real Redis connection. " +
+      "Falling back to setInterval workers. Set REDIS_URL for durable job queues."
     );
-    const { default: RedisMock } = await import("ioredis-mock");
-    const mockClient = new RedisMock();
-    _connection = mockClient as unknown as ConnectionOptions;
-    _usingMock = true;
   }
 
   return _connection;
