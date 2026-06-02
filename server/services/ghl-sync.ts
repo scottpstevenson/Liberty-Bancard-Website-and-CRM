@@ -339,13 +339,26 @@ export async function fullSyncFromGhl(): Promise<{ created: number; updated: num
 
 let cachedPipelineId: string | null = null;
 let cachedStageIdMap: Record<string, string> = {};
+// Timestamp of when the pipeline/stage cache was last populated.
+// A 5-minute TTL ensures stale stage IDs are refreshed without hammering GHL on every job.
+let cachedPipelineAt: number | null = null;
+const PIPELINE_CACHE_TTL_MS = 5 * 60 * 1000;
+
+function isPipelineCacheValid(): boolean {
+  return (
+    cachedPipelineId !== null &&
+    Object.keys(cachedStageIdMap).length > 0 &&
+    cachedPipelineAt !== null &&
+    Date.now() - cachedPipelineAt < PIPELINE_CACHE_TTL_MS
+  );
+}
 
 async function ensurePipeline(): Promise<string> {
   const envPipelineId = process.env.GHL_PIPELINE_ID;
-  if (envPipelineId && envPipelineId !== "default" && Object.keys(cachedStageIdMap).length > 0) {
+  if (envPipelineId && envPipelineId !== "default" && isPipelineCacheValid()) {
     return envPipelineId;
   }
-  if (cachedPipelineId && Object.keys(cachedStageIdMap).length > 0) return cachedPipelineId;
+  if (isPipelineCacheValid()) return cachedPipelineId!;
 
   const config = getConfig();
   if (!config) throw new Error("GHL not configured");
@@ -372,6 +385,7 @@ async function ensurePipeline(): Promise<string> {
           cachedStageIdMap[stage.name] = stage.id;
         }
       }
+      cachedPipelineAt = Date.now();
       console.log(`[GHL Sync] Using pipeline: "${chosenPipeline.name}" (${chosenPipeline.id}) with ${stages.length} stages`);
       return chosenPipeline.id;
     }
@@ -399,6 +413,7 @@ async function ensurePipeline(): Promise<string> {
         }
       }
       cachedStageIdMap = stageIdMap;
+      cachedPipelineAt = Date.now();
       console.log(`[GHL Sync] Captured ${Object.keys(stageIdMap).length} stage IDs from new pipeline`);
     }
 

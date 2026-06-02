@@ -23,10 +23,17 @@ interface QueueConfig {
   jobName: string;
 }
 
+// Alert threshold: how many consecutive failures before an operator alert is written.
+const WORKER_FAILURE_ALERT_THRESHOLD = parseInt(
+  process.env.WORKER_FAILURE_ALERT_THRESHOLD ?? "10"
+);
+
 const QUEUE_CONFIGS: QueueConfig[] = [
   {
     name: QUEUE_NAMES.GHL_SYNC,
-    concurrency: 1,
+    // concurrency=3: each tick is a GHL API call; 3 lets slow timeouts drain in parallel
+    // without saturating GHL's rate limit (100 req/10s per location).
+    concurrency: 3,
     attempts: 3,
     backoffDelay: 5000,
     repeatEveryMs: 45000,
@@ -34,6 +41,7 @@ const QUEUE_CONFIGS: QueueConfig[] = [
   },
   {
     name: QUEUE_NAMES.SLA_CHECKS,
+    // concurrency=1: correctness-sensitive; concurrent SLA passes could double-fire alerts.
     concurrency: 1,
     attempts: 3,
     backoffDelay: 10000,
@@ -42,7 +50,9 @@ const QUEUE_CONFIGS: QueueConfig[] = [
   },
   {
     name: QUEUE_NAMES.SEQUENCES,
-    concurrency: 1,
+    // concurrency=3: each enrollment step is I/O-bound (DB + GHL email/SMS); 3 lets
+    // independent contact sequences advance in parallel without overwhelming GHL.
+    concurrency: 3,
     attempts: 3,
     backoffDelay: 10000,
     repeatEveryMs: 30 * 1000,
@@ -50,7 +60,9 @@ const QUEUE_CONFIGS: QueueConfig[] = [
   },
   {
     name: QUEUE_NAMES.ENRICHMENT,
-    concurrency: 1,
+    // concurrency=5: enrichment calls Serper/Apify/Apollo which are independent per
+    // contact; higher parallelism is safe and reduces the 10-min backlog window.
+    concurrency: 5,
     attempts: 3,
     backoffDelay: 15000,
     repeatEveryMs: 10 * 60 * 1000,
@@ -58,6 +70,7 @@ const QUEUE_CONFIGS: QueueConfig[] = [
   },
   {
     name: QUEUE_NAMES.DISCOVERY,
+    // concurrency=1: runs once daily; a single sequential pass is sufficient.
     concurrency: 1,
     attempts: 3,
     backoffDelay: 30000,
@@ -66,6 +79,7 @@ const QUEUE_CONFIGS: QueueConfig[] = [
   },
   {
     name: QUEUE_NAMES.DIGESTS,
+    // concurrency=1: low-frequency (hourly); correctness requires a single pass.
     concurrency: 1,
     attempts: 3,
     backoffDelay: 10000,
@@ -74,6 +88,7 @@ const QUEUE_CONFIGS: QueueConfig[] = [
   },
   {
     name: QUEUE_NAMES.MID_INGESTION,
+    // concurrency=1: nightly batch; single-pass DB write avoids row-level conflicts.
     concurrency: 1,
     attempts: 3,
     backoffDelay: 60000,
@@ -189,6 +204,13 @@ class QueueManager {
           console.log(`[Queue:${config.name}] Job ${job.id} completed in ${duration}ms`);
         }
         this.recordHistoryEvent(config.name, "completed");
+        // Reset consecutive failure count in background_jobs so the health dashboard
+        // reflects a clean run without needing to wait for a separate read.
+        import("./job-registry").then(({ recordWorkerSuccess }) =>
+          recordWorkerSuccess(config.name).catch(e =>
+            console.error(`[QueueManager] recordWorkerSuccess failed for ${config.name}:`, e)
+          )
+        );
       });
 
       worker.on("failed", async (job: Job | undefined, err: Error) => {
@@ -196,6 +218,30 @@ class QueueManager {
         const attemptsRemaining = (job.opts.attempts ?? 1) - job.attemptsMade;
         console.error(`[Queue:${config.name}] Job ${job.id} failed (${job.attemptsMade}/${job.opts.attempts ?? 1} attempts): ${err.message}`);
         this.recordHistoryEvent(config.name, "failed");
+
+        // Persist the failure to background_jobs and get the durable consecutive count.
+        // This keeps health monitoring accurate across restarts and surfaced on the
+        // Operator Dashboard (which reads background_jobs via getJobStatuses()).
+        const { recordWorkerFailure } = await import("./job-registry");
+        const consecutiveCount = await recordWorkerFailure(config.name, err.message).catch(() => 0);
+
+        if (consecutiveCount >= WORKER_FAILURE_ALERT_THRESHOLD) {
+          const alertMsg = `Worker alert: queue="${config.name}" has ${consecutiveCount} consecutive failures. Last error: ${err.message}`;
+          console.error(`[QueueManager] ${alertMsg}`);
+          storage.createReviewQueueItem({
+            sourceType: "dead_letter_job" as any,
+            sourceId: 0,
+            status: "pending",
+            notes: alertMsg,
+            metadata: {
+              alertType: "consecutive_failure_threshold",
+              queueName: config.name,
+              consecutiveFailures: consecutiveCount,
+              threshold: WORKER_FAILURE_ALERT_THRESHOLD,
+              lastError: err.message,
+            },
+          }).catch(e => console.error("[QueueManager] Failed to write consecutive-failure alert:", e));
+        }
 
         if (attemptsRemaining <= 0) {
           await this.createReviewQueueItem(config.name, job, err).catch(e =>
@@ -495,7 +541,7 @@ class QueueManager {
     await queue.resume();
   }
 
-  async shutdown(timeoutMs = 30000): Promise<void> {
+  async shutdown(timeoutMs = parseInt(process.env.QUEUE_SHUTDOWN_TIMEOUT_MS ?? "30000")): Promise<void> {
     console.log("[QueueManager] Graceful shutdown — waiting for in-flight jobs...");
 
     const workerCloses = Array.from(this.workers.values()).map(w =>

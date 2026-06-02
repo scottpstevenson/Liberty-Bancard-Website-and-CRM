@@ -24,7 +24,10 @@ export async function getRedisConnection(): Promise<ConnectionOptions> {
     };
     _usingMock = false;
   } else {
-    console.log("[Queue] REDIS_URL not set — using in-memory ioredis-mock (dev mode)");
+    console.warn(
+      "[WARN] REDIS_URL not set — using ioredis-mock (jobs are ephemeral and will be lost on restart). " +
+      "Set REDIS_URL to a real Redis connection string for production durability."
+    );
     const { default: RedisMock } = await import("ioredis-mock");
     const mockClient = new RedisMock();
     _connection = mockClient as unknown as ConnectionOptions;

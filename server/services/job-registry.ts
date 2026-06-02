@@ -151,3 +151,58 @@ export async function hasJobAlerts(): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * Record a single worker job failure in background_jobs, incrementing
+ * consecutive_failures atomically.  Returns the new consecutive failure count
+ * so callers can threshold-check without a separate read.
+ *
+ * Used by QueueManager to persist failure health for any queue name, not just
+ * the named jobs in JOB_NAMES (those are tracked by acquireJobLock/releaseJobLock).
+ */
+export async function recordWorkerFailure(
+  queueName: string,
+  error: string
+): Promise<number> {
+  try {
+    const result = await pool.query<{ consecutive_failures: number }>(
+      `INSERT INTO background_jobs
+         (job_name, status, last_finished_at, run_count, consecutive_failures, last_error, updated_at)
+       VALUES ($1, 'failed', NOW(), 0, 1, $2, NOW())
+       ON CONFLICT (job_name) DO UPDATE
+         SET status              = 'failed',
+             consecutive_failures = background_jobs.consecutive_failures + 1,
+             last_error          = $2,
+             last_finished_at    = NOW(),
+             updated_at          = NOW()
+       RETURNING consecutive_failures`,
+      [queueName, error.slice(0, 1000)]
+    );
+    return result.rows[0]?.consecutive_failures ?? 1;
+  } catch (err) {
+    console.error(`[JobRegistry] recordWorkerFailure failed for ${queueName}:`, err);
+    return 0;
+  }
+}
+
+/**
+ * Record a successful worker job run — resets consecutive_failures to 0.
+ */
+export async function recordWorkerSuccess(queueName: string): Promise<void> {
+  try {
+    await pool.query(
+      `INSERT INTO background_jobs
+         (job_name, status, last_finished_at, run_count, consecutive_failures, updated_at)
+       VALUES ($1, 'succeeded', NOW(), 1, 0, NOW())
+       ON CONFLICT (job_name) DO UPDATE
+         SET status              = 'succeeded',
+             consecutive_failures = 0,
+             run_count           = background_jobs.run_count + 1,
+             last_finished_at    = NOW(),
+             updated_at          = NOW()`,
+      [queueName]
+    );
+  } catch (err) {
+    console.error(`[JobRegistry] recordWorkerSuccess failed for ${queueName}:`, err);
+  }
+}
