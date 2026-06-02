@@ -61,3 +61,26 @@ CREATE INDEX IF NOT EXISTS idx_notifications_recipient_created_at
 -- notification_preferences: speed up disabled-event subquery filter
 CREATE INDEX IF NOT EXISTS idx_notif_prefs_user_disabled
   ON notification_preferences(user_id, event_type) WHERE enabled = false;
+
+-- deals: company_id FK — joins with companies table on deal lookups
+CREATE INDEX IF NOT EXISTS idx_deals_company_id ON deals(company_id);
+
+-- tasks: ticket_id FK — unindexed despite being a FK and common filter
+CREATE INDEX IF NOT EXISTS idx_tasks_ticket_id ON tasks(ticket_id);
+
+-- workflow_runs: workflow_id FK — queried constantly by the workflow engine
+CREATE INDEX IF NOT EXISTS idx_workflow_runs_workflow_id ON workflow_runs(workflow_id);
+
+-- notes: polymorphic entity lookup — all note queries filter by (entity_type, entity_id)
+CREATE INDEX IF NOT EXISTS idx_notes_entity_type_entity_id ON notes(entity_type, entity_id);
+
+-- comments: polymorphic entity lookup — all comment queries filter by (entity_type, entity_id)
+CREATE INDEX IF NOT EXISTS idx_comments_entity_type_entity_id ON comments(entity_type, entity_id);
+
+-- sdr_lead_events: lead_state_id FK — queried by orchestrator on every SDR tick
+-- CONCURRENTLY: avoids exclusive lock on a high-write table during index build
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sdr_lead_events_lead_state_id ON sdr_lead_events(lead_state_id);
+
+-- sdr_channel_attempts: lead_state_id FK — queried alongside lead events per lead
+-- CONCURRENTLY: avoids exclusive lock on a high-write table during index build
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sdr_channel_attempts_lead_state_id ON sdr_channel_attempts(lead_state_id);
