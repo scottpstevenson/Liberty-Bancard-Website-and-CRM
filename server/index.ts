@@ -16,7 +16,7 @@ import { startDailyMaintenanceScheduler, seedScottSendingIdentity } from "./serv
 import { startContentScheduler } from "./services/content-scheduler";
 import { seedContentEngine } from "./services/seed-content-engine";
 import { featureFlags } from "./services/feature-flags";
-import { runStartupMigrations } from "./services/migrations";
+import { runDrizzleMigrations } from "./db-migrate";
 import { hydrateWorkflowEnvFromDb } from "./services/ghl-workflows";
 
 if (!process.env.SESSION_SECRET) {
@@ -193,7 +193,7 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  await runStartupMigrations();
+  await runDrizzleMigrations();
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
