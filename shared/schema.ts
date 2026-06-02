@@ -84,6 +84,8 @@ export const contacts = pgTable("contacts", {
   index("contacts_phone_idx").on(table.phone),
   index("contacts_ghl_contact_id_idx").on(table.ghlContactId),
   index("contacts_created_at_idx").on(table.createdAt),
+  index("contacts_email_archived_at_idx").on(table.email, table.archivedAt),
+  index("contacts_phone_archived_at_idx").on(table.phone, table.archivedAt),
 ]);
 
 export const insertContactSchema = createInsertSchema(contacts).omit({
@@ -2580,6 +2582,8 @@ export const sdrLeadState = pgTable("sdr_lead_state", {
   index("sdr_lead_state_merchant_id_idx").on(table.merchantId),
   index("sdr_lead_state_contact_id_idx").on(table.contactId),
   index("sdr_lead_state_next_action_at_idx").on(table.nextActionAt),
+  index("sdr_lead_state_stage_updated_at_idx").on(table.stage, table.updatedAt),
+  index("sdr_lead_state_current_stage_updated_at_idx").on(table.currentStage, table.updatedAt),
 ]);
 
 export const insertSdrLeadStateSchema = createInsertSchema(sdrLeadState).omit({
@@ -2611,7 +2615,10 @@ export const sdrLeadEvents = pgTable("sdr_lead_events", {
   complianceResult: text("compliance_result"),
   ghlRefId: text("ghl_ref_id"),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => [
+  index("sdr_lead_events_event_type_created_at_idx").on(table.eventType, table.createdAt),
+  index("sdr_lead_events_created_at_idx").on(table.createdAt),
+]);
 
 export const insertSdrLeadEventSchema = createInsertSchema(sdrLeadEvents).omit({
   id: true,
