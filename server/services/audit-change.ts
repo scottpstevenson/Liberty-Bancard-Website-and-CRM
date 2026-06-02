@@ -32,7 +32,11 @@ export async function auditChange(params: AuditChangeParams, tx?: any): Promise<
   });
 }
 
-export async function auditChangeBatch(entries: AuditChangeParams[], tx?: any): Promise<void> {
+/**
+ * Insert multiple audit log entries in a single SQL statement.
+ * Use instead of calling auditChange() in a loop to avoid N round-trips.
+ */
+export async function bulkAuditChange(entries: AuditChangeParams[], tx?: any): Promise<void> {
   if (entries.length === 0) return;
   const client: typeof db = tx ?? db;
   await client.insert(auditLogs).values(
@@ -50,6 +54,8 @@ export async function auditChangeBatch(entries: AuditChangeParams[], tx?: any): 
     }))
   );
 }
+
+export { bulkAuditChange as auditChangeBatch };
 
 export interface AuditContext {
   userId?: string | null;

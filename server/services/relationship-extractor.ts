@@ -9,7 +9,7 @@ import {
   type EntityRelationship,
   type InsertEntityRelationship,
 } from "@shared/schema";
-import { eq, and, ne, isNull, or, isNotNull } from "drizzle-orm";
+import { eq, and, ne, isNull, or, isNotNull, inArray } from "drizzle-orm";
 
 function normalizePhone(phone: string | null | undefined): string {
   if (!phone) return "";
@@ -207,6 +207,220 @@ export async function extractRelationshipsForContact(contactId: number): Promise
         confidence: 0.85,
         source: "system",
       });
+    }
+  }
+}
+
+/**
+ * Batch version of extractRelationshipsForContact.
+ * Pre-fetches all required data in 6 queries total (independent of N),
+ * then processes each contact in memory — avoiding N*5 round-trips.
+ */
+export async function extractRelationshipsForContactsBatch(contactIds: number[]): Promise<void> {
+  if (contactIds.length === 0) return;
+
+  // 1. Fetch the target contacts in one IN (...) query
+  const targetContacts = await db
+    .select()
+    .from(contacts)
+    .where(inArray(contacts.id, contactIds));
+  if (targetContacts.length === 0) return;
+
+  // 2. Fetch all other (non-target) contacts for phone/address matching — one query
+  const allOtherContacts = await db
+    .select()
+    .from(contacts)
+    .where(and(isNull(contacts.archivedAt)));
+
+  // 3. Batch-fetch all contactCompany links for the target contacts — one query
+  const allMemberships = await db
+    .select()
+    .from(contactCompanies)
+    .where(inArray(contactCompanies.contactId, contactIds));
+
+  // 4. Batch-fetch all deals with MIDs for the target contacts — one query
+  const allContactDeals = await db
+    .select()
+    .from(deals)
+    .where(and(inArray(deals.contactId, contactIds), isNotNull(deals.mid)));
+
+  // 5. Batch-fetch merchant applications for the target contacts — one query
+  const targetApps = await db
+    .select()
+    .from(merchantApplications)
+    .where(inArray(merchantApplications.contactId, contactIds));
+
+  // 6. Fetch all other merchant applications for EIN/routing/name matching — one query
+  const allOtherApps = await db
+    .select()
+    .from(merchantApplications)
+    .where(
+      contactIds.length > 0
+        ? and(isNotNull(merchantApplications.contactId))
+        : isNotNull(merchantApplications.contactId)
+    );
+
+  // Build lookup maps for O(1) access
+  const membershipsByContact = new Map<number, typeof allMemberships>();
+  for (const m of allMemberships) {
+    if (!m.contactId) continue;
+    if (!membershipsByContact.has(m.contactId)) membershipsByContact.set(m.contactId, []);
+    membershipsByContact.get(m.contactId)!.push(m);
+  }
+
+  const dealsByContact = new Map<number, typeof allContactDeals>();
+  for (const d of allContactDeals) {
+    if (!d.contactId) continue;
+    if (!dealsByContact.has(d.contactId)) dealsByContact.set(d.contactId, []);
+    dealsByContact.get(d.contactId)!.push(d);
+  }
+
+  const appByContact = new Map<number, typeof targetApps[number]>();
+  for (const a of targetApps) {
+    if (a.contactId && contactIds.includes(a.contactId)) {
+      appByContact.set(a.contactId, a);
+    }
+  }
+
+  // Process each contact using pre-fetched data.
+  // NOTE: allOtherApps includes every contact's app (including other batch members).
+  // We exclude only the *current* contact per-iteration so intra-batch matches
+  // (e.g. two contacts in the same batch sharing an EIN) are still produced —
+  // matching the original per-contact semantics of ne(contactId).
+  for (const contact of targetContacts) {
+    const contactId = contact.id;
+    const phone = normalizePhone(contact.phone);
+
+    // Contact ↔ Contact matches (phone, address)
+    for (const other of allOtherContacts) {
+      if (other.id === contactId) continue;
+      const otherPhone = normalizePhone(other.phone);
+      if (phone && otherPhone && phone === otherPhone && phone.length >= 10) {
+        await upsertRelationship({
+          sourceEntityType: "contact",
+          sourceEntityId: contactId,
+          targetEntityType: "contact",
+          targetEntityId: other.id,
+          relationshipType: "same_phone",
+          confidence: 0.95,
+          source: "system",
+        });
+      }
+      if (
+        contact.address &&
+        other.address &&
+        contact.address.toLowerCase().trim() === other.address.toLowerCase().trim()
+      ) {
+        await upsertRelationship({
+          sourceEntityType: "contact",
+          sourceEntityId: contactId,
+          targetEntityType: "contact",
+          targetEntityId: other.id,
+          relationshipType: "same_address",
+          confidence: 0.8,
+          source: "system",
+        });
+      }
+    }
+
+    // Contact ↔ Company membership
+    for (const m of membershipsByContact.get(contactId) ?? []) {
+      if (!m.companyId) continue;
+      await upsertRelationship({
+        sourceEntityType: "contact",
+        sourceEntityId: contactId,
+        targetEntityType: "company",
+        targetEntityId: m.companyId,
+        relationshipType: "company_member",
+        confidence: 1.0,
+        source: "system",
+      });
+    }
+
+    // Contact → MID (via deals)
+    for (const deal of dealsByContact.get(contactId) ?? []) {
+      if (!deal.mid) continue;
+      await upsertRelationship({
+        sourceEntityType: "contact",
+        sourceEntityId: contactId,
+        targetEntityType: "mid",
+        targetEntityId: deal.id,
+        relationshipType: "same_owner",
+        confidence: 1.0,
+        source: "system",
+        note: `MID: ${deal.mid}`,
+      });
+      if (deal.partnerOrgId) {
+        await upsertRelationship({
+          sourceEntityType: "contact",
+          sourceEntityId: contactId,
+          targetEntityType: "iso_partner",
+          targetEntityId: deal.partnerOrgId,
+          relationshipType: "iso_agent",
+          confidence: 1.0,
+          source: "system",
+        });
+      }
+    }
+
+    // Application-level matches (EIN, bank routing, owner name).
+    // Iterate over allOtherApps and skip only the current contact — this
+    // preserves matches between contacts that are both in the current batch.
+    const contactApp = appByContact.get(contactId);
+    if (!contactApp) continue;
+
+    for (const otherApp of allOtherApps) {
+      if (!otherApp.contactId || otherApp.contactId === contactId) continue;
+
+      if (
+        contactApp.ein &&
+        otherApp.ein &&
+        contactApp.ein.replace(/\D/g, "") === otherApp.ein.replace(/\D/g, "") &&
+        contactApp.ein.length >= 9
+      ) {
+        await upsertRelationship({
+          sourceEntityType: "contact",
+          sourceEntityId: contactId,
+          targetEntityType: "contact",
+          targetEntityId: otherApp.contactId,
+          relationshipType: "same_ein",
+          confidence: 0.99,
+          source: "system",
+        });
+      }
+
+      const srcRouting = normalizeRoutingNumber(contactApp.bankRoutingNumber);
+      const tgtRouting = normalizeRoutingNumber(otherApp.bankRoutingNumber);
+      if (srcRouting && tgtRouting && srcRouting === tgtRouting && srcRouting.length >= 9) {
+        await upsertRelationship({
+          sourceEntityType: "contact",
+          sourceEntityId: contactId,
+          targetEntityType: "contact",
+          targetEntityId: otherApp.contactId,
+          relationshipType: "same_bank",
+          confidence: 0.9,
+          source: "system",
+        });
+      }
+
+      if (
+        contactApp.ownerFirstName &&
+        contactApp.ownerLastName &&
+        otherApp.ownerFirstName &&
+        otherApp.ownerLastName &&
+        contactApp.ownerFirstName.toLowerCase() === otherApp.ownerFirstName.toLowerCase() &&
+        contactApp.ownerLastName.toLowerCase() === otherApp.ownerLastName.toLowerCase()
+      ) {
+        await upsertRelationship({
+          sourceEntityType: "contact",
+          sourceEntityId: contactId,
+          targetEntityType: "contact",
+          targetEntityId: otherApp.contactId,
+          relationshipType: "same_owner",
+          confidence: 0.85,
+          source: "system",
+        });
+      }
     }
   }
 }

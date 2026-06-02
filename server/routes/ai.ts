@@ -254,17 +254,18 @@ FORMAT your response as JSON: {"subject": "...", "body": "..."}`
         }
       }
 
-      const created = [];
-      for (const task of newTasks.slice(0, 10)) {
-        const result = await storage.createTask({
-          title: task.title,
-          description: task.description,
-          priority: task.priority,
-          status: "pending",
-          dueDate: task.dueDate,
-        });
-        created.push(result);
-      }
+      // Create all tasks concurrently instead of sequentially to avoid N round-trips
+      const created = await Promise.all(
+        newTasks.slice(0, 10).map(task =>
+          storage.createTask({
+            title: task.title,
+            description: task.description,
+            priority: task.priority,
+            status: "pending",
+            dueDate: task.dueDate,
+          })
+        )
+      );
 
       res.json({ generated: created.length, tasks: created });
     } catch (err: any) {
@@ -828,9 +829,18 @@ Notes: ${deal.notes || "None"}`
   // === AI ONBOARDING STATUS ===
   app.get("/api/ai/onboarding-status", isAuthenticated, async (req, res) => {
     try {
-      const { data: allDeals } = await storage.getDeals({ limit: 500 });
+      const [{ data: allDeals }, allTasks] = await Promise.all([
+        storage.getDeals({ limit: 500 }),
+        storage.getTasks(),
+      ]);
       const onboardingDeals = allDeals.filter(d => d.pipeline === "onboarding" && d.stage !== "Cancelled");
-      const allTasks = await storage.getTasks();
+
+      // Batch-fetch all related contacts in a single IN (...) query instead of N individual lookups
+      const dealContactIds = onboardingDeals
+        .map(d => d.contactId)
+        .filter((id): id is number => id != null);
+      const contactRows = await storage.getContactsByIds(dealContactIds);
+      const contactMap = new Map(contactRows.map(c => [c.id, c]));
 
       const stageOrder = [
         "Contract Sent", "Application Started", "Underwriting Submitted",
@@ -872,9 +882,15 @@ Notes: ${deal.notes || "None"}`
           score: deal.docReadinessScore || 0,
         };
 
+        // Contact name resolved from the pre-fetched batch map — no extra queries
+        const contact = deal.contactId != null ? contactMap.get(deal.contactId) : null;
+
         return {
           dealId: deal.id,
           contactId: deal.contactId,
+          contactName: contact
+            ? (contact.companyName || `${contact.firstName} ${contact.lastName}`.trim() || null)
+            : null,
           stage: deal.stage,
           progress,
           milestones,

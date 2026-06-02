@@ -19,7 +19,7 @@ import { assignNextRep } from "./toolkit";
 import { parse } from "csv-parse/sync";
 import path from "path";
 import { sendPushToAllReps } from "../services/push-service";
-import { extractRelationshipsForContact, propagateRiskFlagToRelatedEntities } from "../services/relationship-extractor";
+import { extractRelationshipsForContact, extractRelationshipsForContactsBatch, propagateRiskFlagToRelatedEntities } from "../services/relationship-extractor";
 
 function isUniqueEmailViolation(err: any): boolean {
   return err?.code === "23505" && (err?.constraint?.includes("email") || err?.message?.includes("contacts_email_unique_idx"));
@@ -291,14 +291,15 @@ export function registerContactsRoutes(app: Express) {
       const input = insertCompanySchema.partial().parse(req.body);
       const company = await storage.updateCompany(companyId, input);
       if (!company) return res.status(404).json({ message: "Not found" });
-      // Re-extract relationships for all contacts linked to this company
+      // Re-extract relationships for all contacts linked to this company.
+      // Uses the batched extractor: 6 total queries regardless of N linked contacts,
+      // instead of N*5 queries from calling extractRelationshipsForContact per contact.
       const links = await storage.getContactCompaniesByCompany(companyId).catch(() => []);
-      for (const link of links) {
-        if (link.contactId) {
-          extractRelationshipsForContact(link.contactId).catch((err) =>
-            console.warn("[Relationships] Re-extraction after company update failed:", err),
-          );
-        }
+      const linkedContactIds = links.map(l => l.contactId).filter((id): id is number => id != null);
+      if (linkedContactIds.length > 0) {
+        extractRelationshipsForContactsBatch(linkedContactIds).catch((err) =>
+          console.warn("[Relationships] Batch re-extraction after company update failed:", err),
+        );
       }
       res.json(company);
     } catch (err: any) {

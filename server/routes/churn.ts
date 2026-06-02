@@ -15,29 +15,27 @@ export function registerChurnRoutes(app: Express) {
         agentOwner: agentOwner && agentOwner !== "all" ? agentOwner : undefined,
       });
 
-      // Enrich with contact info
-      const enriched = await Promise.all(
-        scores.map(async s => {
-          try {
-            const contact = await storage.getContact(s.contactId);
-            return {
-              ...s,
-              contact: contact
-                ? {
-                    id: contact.id,
-                    firstName: contact.firstName,
-                    lastName: contact.lastName,
-                    companyName: contact.companyName,
-                    vertical: contact.vertical,
-                    email: contact.email,
-                  }
-                : null,
-            };
-          } catch {
-            return { ...s, contact: null };
-          }
-        })
-      );
+      // Batch-fetch all contacts in a single IN (...) query instead of N individual lookups
+      const contactIds = scores.map(s => s.contactId).filter((id): id is number => id != null);
+      const contactRows = await storage.getContactsByIds(contactIds);
+      const contactMap = new Map(contactRows.map(c => [c.id, c]));
+
+      const enriched = scores.map(s => {
+        const contact = s.contactId != null ? contactMap.get(s.contactId) ?? null : null;
+        return {
+          ...s,
+          contact: contact
+            ? {
+                id: contact.id,
+                firstName: contact.firstName,
+                lastName: contact.lastName,
+                companyName: contact.companyName,
+                vertical: contact.vertical,
+                email: contact.email,
+              }
+            : null,
+        };
+      });
 
       res.json(enriched);
     } catch (err: any) {

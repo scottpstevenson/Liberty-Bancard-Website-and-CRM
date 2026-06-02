@@ -141,6 +141,7 @@ export interface IStorage {
   getContacts(params?: PaginationParams): Promise<PaginatedResult<typeof contacts.$inferSelect>>;
   getContact(id: number): Promise<typeof contacts.$inferSelect | undefined>;
   getContactByEmail(email: string): Promise<typeof contacts.$inferSelect | undefined>;
+  getContactsByIds(ids: number[]): Promise<typeof contacts.$inferSelect[]>;
   createContact(contact: InsertContact, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }): Promise<typeof contacts.$inferSelect>;
   updateContact(id: number, contact: UpdateContactRequest, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }): Promise<typeof contacts.$inferSelect | undefined>;
   syncUpdateContact(id: number, contact: UpdateContactRequest): Promise<typeof contacts.$inferSelect | undefined>;
@@ -152,6 +153,7 @@ export interface IStorage {
 
   getDeals(params?: PaginationParams): Promise<PaginatedResult<typeof deals.$inferSelect>>;
   getDeal(id: number): Promise<typeof deals.$inferSelect | undefined>;
+  getDealsByIds(ids: number[]): Promise<typeof deals.$inferSelect[]>;
   getDealsByPipeline(pipeline: string, params?: PaginationParams): Promise<PaginatedResult<typeof deals.$inferSelect>>;
   getDealsByContact(contactId: number): Promise<typeof deals.$inferSelect[]>;
   createDeal(deal: InsertDeal, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }): Promise<typeof deals.$inferSelect>;

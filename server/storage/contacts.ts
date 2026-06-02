@@ -341,6 +341,11 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   }
 
 
+  async getContactsByIds(ids: number[]) {
+    if (ids.length === 0) return [];
+    return await db.select().from(contacts).where(inArray(contacts.id, ids));
+  }
+
   async getContactsByPartnerOrg(partnerOrgId: number) {
     return await db.select().from(contacts).where(eq(contacts.partnerOrgId, partnerOrgId)).orderBy(desc(contacts.createdAt));
   }

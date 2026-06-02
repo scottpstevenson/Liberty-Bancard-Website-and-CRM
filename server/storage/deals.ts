@@ -217,12 +217,16 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
 
   async bulkUpdateDealStage(dealIds: number[], stage: string, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }): Promise<void> {
     if (dealIds.length === 0) return;
-    const { auditChangeBatch } = await import("../services/audit-change");
+    const { bulkAuditChange } = await import("../services/audit-change");
+    // 1 query: fetch before states
     const beforeRows = await db.select().from(deals).where(inArray(deals.id, dealIds));
     const beforeMap = new Map(beforeRows.map(d => [d.id, d]));
+    // 1 query: bulk update
     await db.update(deals).set({ stage, updatedAt: new Date() }).where(inArray(deals.id, dealIds));
+    // 1 query: fetch after states
     const afterRows = await db.select().from(deals).where(inArray(deals.id, dealIds));
-    await auditChangeBatch(
+    // 1 query: single bulk INSERT for all audit entries instead of N individual inserts
+    await bulkAuditChange(
       afterRows.map(after => ({
         userId: auditCtx?.userId ?? null,
         actorType: (auditCtx?.actorType as any) ?? "user",
@@ -236,6 +240,11 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
     );
   }
 
+
+  async getDealsByIds(ids: number[]) {
+    if (ids.length === 0) return [];
+    return await db.select().from(deals).where(inArray(deals.id, ids));
+  }
 
   async getDealsByPartnerOrg(partnerOrgId: number) {
     return await db.select().from(deals).where(eq(deals.partnerOrgId, partnerOrgId)).orderBy(desc(deals.createdAt));
