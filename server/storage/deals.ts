@@ -217,17 +217,23 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
 
   async bulkUpdateDealStage(dealIds: number[], stage: string, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }): Promise<void> {
     if (dealIds.length === 0) return;
-    const { auditChange } = await import("../services/audit-change");
+    const { auditChangeBatch } = await import("../services/audit-change");
     const beforeRows = await db.select().from(deals).where(inArray(deals.id, dealIds));
     const beforeMap = new Map(beforeRows.map(d => [d.id, d]));
     await db.update(deals).set({ stage, updatedAt: new Date() }).where(inArray(deals.id, dealIds));
     const afterRows = await db.select().from(deals).where(inArray(deals.id, dealIds));
-    for (const after of afterRows) {
-      await auditChange({ userId: auditCtx?.userId ?? null, actorType: (auditCtx?.actorType as any) ?? "user", actorId: auditCtx?.actorId ?? null,
-        action: "deal_stage_changed", entityType: "deal", entityId: after.id,
+    await auditChangeBatch(
+      afterRows.map(after => ({
+        userId: auditCtx?.userId ?? null,
+        actorType: (auditCtx?.actorType as any) ?? "user",
+        actorId: auditCtx?.actorId ?? null,
+        action: "deal_stage_changed",
+        entityType: "deal",
+        entityId: after.id,
         before: (beforeMap.get(after.id) ?? null) as unknown as Record<string, unknown>,
-        after: after as unknown as Record<string, unknown> });
-    }
+        after: after as unknown as Record<string, unknown>,
+      }))
+    );
   }
 
 

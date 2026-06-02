@@ -32,6 +32,25 @@ export async function auditChange(params: AuditChangeParams, tx?: any): Promise<
   });
 }
 
+export async function auditChangeBatch(entries: AuditChangeParams[], tx?: any): Promise<void> {
+  if (entries.length === 0) return;
+  const client: typeof db = tx ?? db;
+  await client.insert(auditLogs).values(
+    entries.map(params => ({
+      userId: params.userId ?? null,
+      action: params.action,
+      entityType: params.entityType,
+      entityId: params.entityId ?? null,
+      entityKey: params.entityKey ?? null,
+      details: params.details ?? null,
+      beforeState: params.before ?? null,
+      afterState: params.after ?? null,
+      actorType: params.actorType ?? "user",
+      actorId: params.actorId ?? null,
+    }))
+  );
+}
+
 export interface AuditContext {
   userId?: string | null;
   actorType?: ActorType;

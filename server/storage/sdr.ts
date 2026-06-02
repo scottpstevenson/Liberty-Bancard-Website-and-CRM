@@ -270,36 +270,66 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
 
 
   async getSdrDashboardSummary() {
+    const t0 = Date.now();
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const allStates = await db.select().from(sdrLeadState);
-    const todayEvents = await db.select().from(sdrLeadEvents).where(gte(sdrLeadEvents.createdAt, today));
+    // Single SQL aggregation over sdrLeadState — no full-table fetch
+    const [stateCounts] = await db.select({
+      qualifiedToday: sql<number>`SUM(CASE WHEN (${sdrLeadState.stage} = 'QUALIFIED' OR ${sdrLeadState.currentStage} = 'QUALIFIED') AND ${sdrLeadState.updatedAt} >= ${today} THEN 1 ELSE 0 END)`,
+      meetingSetToday: sql<number>`SUM(CASE WHEN ${sdrLeadState.stage} = 'MEETING_SET' AND ${sdrLeadState.updatedAt} >= ${today} THEN 1 ELSE 0 END)`,
+      statementsToday: sql<number>`SUM(CASE WHEN (${sdrLeadState.stage} = 'STATEMENT_RECEIVED' OR ${sdrLeadState.currentStage} = 'STATEMENT_RECEIVED') AND ${sdrLeadState.updatedAt} >= ${today} THEN 1 ELSE 0 END)`,
+      proposalsToday: sql<number>`SUM(CASE WHEN (${sdrLeadState.stage} = 'PROPOSAL_SENT' OR ${sdrLeadState.currentStage} = 'PROPOSAL_SENT') AND ${sdrLeadState.updatedAt} >= ${today} THEN 1 ELSE 0 END)`,
+      closedWonToday: sql<number>`SUM(CASE WHEN ${sdrLeadState.stage} IN ('CLOSED_WON', 'BOARDED') AND ${sdrLeadState.updatedAt} >= ${today} THEN 1 ELSE 0 END)`,
+      newDiscoveredToday: sql<number>`SUM(CASE WHEN ${sdrLeadState.stage} = 'DISCOVERED' AND ${sdrLeadState.createdAt} >= ${today} THEN 1 ELSE 0 END)`,
+      humanOwnedCount: sql<number>`SUM(CASE WHEN ${sdrLeadState.assignedOwnerType} = 'human' OR ${sdrLeadState.ownerType} = 'human' THEN 1 ELSE 0 END)`,
+    }).from(sdrLeadState);
 
-    interface StageChangePayload { from?: string; to?: string; }
-    const newToday = todayEvents.filter(e => e.eventType === "stage_change" && (e.payloadJson as StageChangePayload | null)?.to === "DISCOVERED").length
-      || allStates.filter(s => s.stage === "DISCOVERED" && s.createdAt && s.createdAt >= today).length;
-    const qualifiedToday = allStates.filter(s => (s.stage === "QUALIFIED" || s.currentStage === "QUALIFIED") && s.updatedAt && s.updatedAt >= today).length;
-    const contactedToday = todayEvents.filter(e => ["message_sent", "call_made", "email_sent", "action_executed", "call_scheduled"].includes(e.eventType)).length;
-    const repliedToday = todayEvents.filter(e => ["message_received", "reply_received", "sms_reply_received"].includes(e.eventType)).length;
-    const meetingsToday = todayEvents.filter(e => ["appointment_booked", "call_booked"].includes(e.eventType)).length
-      || allStates.filter(s => s.stage === "MEETING_SET" && s.updatedAt && s.updatedAt >= today).length;
-    const statementsToday = allStates.filter(s => (s.stage === "STATEMENT_RECEIVED" || s.currentStage === "STATEMENT_RECEIVED") && s.updatedAt && s.updatedAt >= today).length;
-    const proposalsToday = allStates.filter(s => (s.stage === "PROPOSAL_SENT" || s.currentStage === "PROPOSAL_SENT") && s.updatedAt && s.updatedAt >= today).length;
-    const closedWonToday = allStates.filter(s => (s.stage === "CLOSED_WON" || s.stage === "BOARDED") && s.updatedAt && s.updatedAt >= today).length;
-    const humanOwnedCount = allStates.filter(s => s.assignedOwnerType === "human" || s.ownerType === "human").length;
+    // Single SQL aggregation over today's events by event_type
+    const eventCounts = await db.select({
+      eventType: sdrLeadEvents.eventType,
+      cnt: sql<number>`count(*)`,
+    })
+      .from(sdrLeadEvents)
+      .where(gte(sdrLeadEvents.createdAt, today))
+      .groupBy(sdrLeadEvents.eventType);
 
+    const eventMap = new Map(eventCounts.map(e => [e.eventType, Number(e.cnt)]));
+    const getEvent = (types: string[]) => types.reduce((sum, t) => sum + (eventMap.get(t) ?? 0), 0);
+
+    // Count "new today" from stage_change events whose payloadJson.to === "DISCOVERED"
+    // (matching original semantics — eventType is "stage_change", not a fabricated type)
+    const [{ newFromStageChange }] = await db.select({
+      newFromStageChange: sql<number>`count(*)`,
+    })
+      .from(sdrLeadEvents)
+      .where(and(
+        gte(sdrLeadEvents.createdAt, today),
+        eq(sdrLeadEvents.eventType, "stage_change"),
+        sql`${sdrLeadEvents.payloadJson}->>'to' = 'DISCOVERED'`,
+      ));
+
+    const contactedToday = getEvent(["message_sent", "call_made", "email_sent", "action_executed", "call_scheduled"]);
+    const repliedToday = getEvent(["message_received", "reply_received", "sms_reply_received"]);
+    const meetingsFromEvents = getEvent(["appointment_booked", "call_booked"]);
+
+    const newToday = Number(newFromStageChange ?? 0) || Number(stateCounts?.newDiscoveredToday ?? 0);
+    const meetingsToday = meetingsFromEvents || Number(stateCounts?.meetingSetToday ?? 0);
+
+    const [{ total: totalMerchants }] = await db.select({ total: count() }).from(sdrMerchants);
+
+    console.log(`[getSdrDashboardSummary] completed in ${Date.now() - t0}ms`);
     return {
       newToday,
-      qualifiedToday,
+      qualifiedToday: Number(stateCounts?.qualifiedToday ?? 0),
       contactedToday,
       repliedToday,
       meetingsToday,
-      statementsToday,
-      proposalsToday,
-      closedWonToday,
-      humanOwnedCount,
-      totalMerchants: (await db.select({ count: sql<number>`count(*)` }).from(sdrMerchants))[0]?.count || 0,
+      statementsToday: Number(stateCounts?.statementsToday ?? 0),
+      proposalsToday: Number(stateCounts?.proposalsToday ?? 0),
+      closedWonToday: Number(stateCounts?.closedWonToday ?? 0),
+      humanOwnedCount: Number(stateCounts?.humanOwnedCount ?? 0),
+      totalMerchants,
     };
   }
 

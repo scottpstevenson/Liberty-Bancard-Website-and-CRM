@@ -250,39 +250,73 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
 
 
   async findDuplicateContacts() {
-    const allContacts = await db.select().from(contacts).where(isNull(contacts.archivedAt)).orderBy(desc(contacts.createdAt));
-    const emailMap = new Map<string, typeof allContacts>();
-    const phoneMap = new Map<string, typeof allContacts>();
-    for (const c of allContacts) {
-      const email = c.email?.toLowerCase().trim();
-      if (email) {
-        if (!emailMap.has(email)) emailMap.set(email, []);
-        emailMap.get(email)!.push(c);
-      }
-      const phone = c.phone?.replace(/\D/g, '');
-      if (phone && phone.length >= 10) {
-        if (!phoneMap.has(phone)) phoneMap.set(phone, []);
-        phoneMap.get(phone)!.push(c);
-      }
-    }
-    const duplicates: { email: string; phone: string; contacts: typeof allContacts }[] = [];
+    const t0 = Date.now();
+
+    // Find duplicate emails via SQL GROUP BY on normalized email — no full-table fetch
+    const emailDupGroups = await db
+      .select({
+        normalizedEmail: sql<string>`lower(trim(${contacts.email}))`,
+        ids: sql<string>`array_agg(${contacts.id} ORDER BY ${contacts.createdAt} DESC)`,
+      })
+      .from(contacts)
+      .where(and(isNull(contacts.archivedAt), sql`${contacts.email} IS NOT NULL AND trim(${contacts.email}) != ''`))
+      .groupBy(sql`lower(trim(${contacts.email}))`)
+      .having(sql`count(*) > 1`);
+
+    // Find duplicate phones via SQL GROUP BY on normalized phone
+    const phoneDupGroups = await db
+      .select({
+        normalizedPhone: sql<string>`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g')`,
+        ids: sql<string>`array_agg(${contacts.id} ORDER BY ${contacts.createdAt} DESC)`,
+      })
+      .from(contacts)
+      .where(and(
+        isNull(contacts.archivedAt),
+        sql`${contacts.phone} IS NOT NULL`,
+        sql`length(regexp_replace(${contacts.phone}, '[^0-9]', '', 'g')) >= 10`,
+      ))
+      .groupBy(sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g')`)
+      .having(sql`count(*) > 1`);
+
+    // Collect all duplicate contact IDs in one set
+    const allDupIds: number[] = [];
     const seen = new Set<number>();
-    for (const [email, group] of Array.from(emailMap.entries())) {
-      if (group.length > 1) {
-        const ids = group.map((c: typeof allContacts[number]) => c.id);
-        if (ids.some((id: number) => seen.has(id))) continue;
-        ids.forEach((id: number) => seen.add(id));
-        duplicates.push({ email, phone: '', contacts: group });
-      }
+
+    for (const row of emailDupGroups) {
+      const ids: number[] = Array.isArray(row.ids) ? row.ids : (row.ids as unknown as string).replace(/[{}]/g, '').split(',').map(Number);
+      for (const id of ids) allDupIds.push(id);
     }
-    for (const [phone, group] of Array.from(phoneMap.entries())) {
-      if (group.length > 1) {
-        const ids = group.map((c: typeof allContacts[number]) => c.id);
-        if (ids.some((id: number) => seen.has(id))) continue;
-        ids.forEach((id: number) => seen.add(id));
-        duplicates.push({ email: '', phone, contacts: group });
-      }
+    for (const row of phoneDupGroups) {
+      const ids: number[] = Array.isArray(row.ids) ? row.ids : (row.ids as unknown as string).replace(/[{}]/g, '').split(',').map(Number);
+      for (const id of ids) allDupIds.push(id);
     }
+
+    // Fetch only the duplicate contacts in a single query
+    const uniqueDupIds = [...new Set(allDupIds)];
+    const dupContacts = uniqueDupIds.length > 0
+      ? await db.select().from(contacts).where(inArray(contacts.id, uniqueDupIds))
+      : [];
+    const contactById = new Map(dupContacts.map(c => [c.id, c]));
+
+    const duplicates: { email: string; phone: string; contacts: typeof dupContacts }[] = [];
+
+    for (const row of emailDupGroups) {
+      const ids: number[] = Array.isArray(row.ids) ? row.ids : (row.ids as unknown as string).replace(/[{}]/g, '').split(',').map(Number);
+      if (ids.some(id => seen.has(id))) continue;
+      ids.forEach(id => seen.add(id));
+      const group = ids.map(id => contactById.get(id)).filter(Boolean) as typeof dupContacts;
+      duplicates.push({ email: row.normalizedEmail ?? '', phone: '', contacts: group });
+    }
+
+    for (const row of phoneDupGroups) {
+      const ids: number[] = Array.isArray(row.ids) ? row.ids : (row.ids as unknown as string).replace(/[{}]/g, '').split(',').map(Number);
+      if (ids.some(id => seen.has(id))) continue;
+      ids.forEach(id => seen.add(id));
+      const group = ids.map(id => contactById.get(id)).filter(Boolean) as typeof dupContacts;
+      duplicates.push({ email: '', phone: row.normalizedPhone ?? '', contacts: group });
+    }
+
+    console.log(`[findDuplicateContacts] ${duplicates.length} groups in ${Date.now() - t0}ms`);
     return duplicates;
   }
 
