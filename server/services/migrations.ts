@@ -354,6 +354,28 @@ export async function runStartupMigrations(): Promise<void> {
     `);
 
     await client.query(`
+      CREATE TABLE IF NOT EXISTS ai_audit_logs (
+        id SERIAL PRIMARY KEY,
+        trigger_type TEXT NOT NULL,
+        actor_type TEXT NOT NULL DEFAULT 'system',
+        actor_id TEXT,
+        model TEXT NOT NULL,
+        prompt_tokens INTEGER DEFAULT 0,
+        completion_tokens INTEGER DEFAULT 0,
+        cost_cents REAL DEFAULT 0,
+        response_summary TEXT,
+        error TEXT,
+        duration_ms INTEGER,
+        prompt_hash TEXT,
+        confidence_score REAL DEFAULT 0,
+        flagged BOOLEAN DEFAULT false,
+        raw_prompt TEXT,
+        raw_response TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS ai_audit_logs_trigger_type_idx ON ai_audit_logs(trigger_type);
+      CREATE INDEX IF NOT EXISTS ai_audit_logs_created_at_idx ON ai_audit_logs(created_at);
+
       ALTER TABLE ai_audit_logs ADD COLUMN IF NOT EXISTS prompt_hash text;
       ALTER TABLE ai_audit_logs ADD COLUMN IF NOT EXISTS confidence_score real DEFAULT 0;
       ALTER TABLE ai_audit_logs ADD COLUMN IF NOT EXISTS flagged boolean DEFAULT false;
