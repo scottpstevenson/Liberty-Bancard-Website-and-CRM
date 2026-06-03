@@ -115,6 +115,7 @@ export function ssrHtmlShell({
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
   <meta name="theme-color" content="#1e3a5f" />
+  <meta name="robots" content="index, follow" />
   <title>${safeTitle}</title>
   <meta name="description" content="${safeDescription}" />
   ${keywords ? `<meta name="keywords" content="${escapeHtml(keywords)}" />` : ""}
