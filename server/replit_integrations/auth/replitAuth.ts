@@ -132,8 +132,16 @@ async function isMfaRequiredGlobally(): Promise<boolean> {
 }
 
 async function seedAdminUser() {
-  const adminEmail = process.env.ADMIN_SEED_EMAIL || "scott@libertybancard.com";
-  const adminPassword = process.env.ADMIN_SEED_PASSWORD || "miami33137!";
+  const adminEmail = process.env.ADMIN_SEED_EMAIL;
+  const adminPassword = process.env.ADMIN_SEED_PASSWORD;
+
+  if (!adminEmail || !adminPassword) {
+    throw new Error(
+      "[Auth] ADMIN_SEED_EMAIL and ADMIN_SEED_PASSWORD must both be set to seed the admin account. " +
+        "Set these environment variables and restart the server."
+    );
+  }
+
   const existing = await authStorage.getUserByEmail(adminEmail);
   if (!existing) {
     const passwordHash = await bcrypt.hash(adminPassword, 12);
@@ -742,7 +750,14 @@ export async function setupAuth(app: Express) {
     });
   });
 
-  await seedAdminUser();
+  try {
+    await seedAdminUser();
+  } catch (err: any) {
+    // Log clearly but do not crash the server — the admin may already exist
+    // from a prior seed, or will be managed manually. The env vars should be
+    // set before the first deployment to ensure the account is created.
+    console.error("[Auth] Admin seed error:", err.message);
+  }
 }
 
 /**

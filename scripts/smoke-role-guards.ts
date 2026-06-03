@@ -30,8 +30,17 @@ interface GuardCase {
 }
 
 const BASE_URL = process.env.BASE_URL ?? "http://localhost:5000";
-const ADMIN_EMAIL = process.env.ADMIN_SEED_EMAIL ?? "scott@libertybancard.com";
-const ADMIN_PASSWORD = process.env.ADMIN_SEED_PASSWORD ?? "miami33137!";
+
+if (!process.env.ADMIN_SEED_EMAIL || !process.env.ADMIN_SEED_PASSWORD) {
+  console.error(
+    "✗ ADMIN_SEED_EMAIL and ADMIN_SEED_PASSWORD must be set as environment variables.\n" +
+      "  Example: ADMIN_SEED_EMAIL=admin@example.com ADMIN_SEED_PASSWORD=secret npx tsx scripts/smoke-role-guards.ts"
+  );
+  process.exit(1);
+}
+
+const ADMIN_EMAIL = process.env.ADMIN_SEED_EMAIL;
+const ADMIN_PASSWORD = process.env.ADMIN_SEED_PASSWORD;
 const MERCHANT_EMAIL = "smoke-test-merchant@libertybancard.test";
 const MERCHANT_PASSWORD = "smoke-test-pw-Aa1!";
 

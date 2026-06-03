@@ -1,6 +1,8 @@
 import express, { type Request, Response, NextFunction } from "express";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
+import cors from "cors";
+import * as Sentry from "@sentry/node";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
@@ -18,19 +20,35 @@ import { seedContentEngine } from "./services/seed-content-engine";
 import { featureFlags } from "./services/feature-flags";
 import { runDrizzleMigrations } from "./db-migrate";
 import { hydrateWorkflowEnvFromDb } from "./services/ghl-workflows";
+import { validateEnv } from "./lib/validate-env";
 
-if (!process.env.SESSION_SECRET) {
-  if (process.env.NODE_ENV === "production") {
-    console.error("[FATAL] SESSION_SECRET environment variable is not set. Exiting.");
-    process.exit(1);
-  } else {
-    console.warn("[WARN] SESSION_SECRET is not set. This is insecure and must be set before going to production.");
-  }
+// Validate required environment variables before anything else starts.
+validateEnv();
+
+// Initialize Sentry error monitoring as early as possible so it captures all
+// subsequent errors including those that occur during startup.
+if (process.env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.NODE_ENV || "development",
+    tracesSampleRate: 0.1,
+  });
+  console.log("[Sentry] Error monitoring initialized");
+} else {
+  console.warn("[Sentry] SENTRY_DSN not set — error monitoring is disabled");
 }
+
+// Build CORS origin allowlist from ALLOWED_ORIGINS env var (comma-separated).
+// Falls back to the production domain so the app is safe out of the box.
+const _allowedOrigins: string[] = (
+  process.env.ALLOWED_ORIGINS || process.env.APP_URL || "https://libertybancard.com"
+)
+  .split(",")
+  .map((o) => o.trim())
+  .filter(Boolean);
 
 function validateCriticalEnvVars() {
   const criticalVars = [
-    "SESSION_SECRET",
     "GHL_LOCATION_ID",
     "GHL_PRIVATE_INTEGRATION_TOKEN",
     "APP_URL",
@@ -47,10 +65,16 @@ validateCriticalEnvVars();
 
 process.on("unhandledRejection", (reason: any) => {
   console.error("[Process] Unhandled promise rejection:", reason);
+  if (process.env.SENTRY_DSN) {
+    Sentry.captureException(reason instanceof Error ? reason : new Error(String(reason)));
+  }
 });
 
 process.on("uncaughtException", (err: Error) => {
   console.error("[Process] Uncaught exception:", err);
+  if (process.env.SENTRY_DSN) {
+    Sentry.captureException(err);
+  }
   process.exit(1);
 });
 
@@ -80,6 +104,35 @@ declare module "http" {
   }
 }
 
+// CORS — restrict credentialed API calls to the configured origin allowlist.
+// In development Vite serves on the same origin, so the list is also permissive
+// for localhost. Set ALLOWED_ORIGINS in production to lock this down.
+const _isDev = process.env.NODE_ENV !== "production";
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Allow requests with no origin (server-to-server, curl, mobile apps).
+      if (!origin) return callback(null, true);
+      // In development only: permit localhost and Replit preview origins so
+      // the dev workflow is not broken. These bypasses are NOT active in prod.
+      if (_isDev) {
+        if (
+          origin.startsWith("http://localhost") ||
+          origin.startsWith("http://127.0.0.1") ||
+          origin.includes(".replit.dev") ||
+          origin.includes(".repl.co")
+        ) {
+          return callback(null, true);
+        }
+      }
+      if (_allowedOrigins.includes(origin)) return callback(null, true);
+      callback(new Error(`CORS: origin '${origin}' is not allowed`));
+    },
+    credentials: true,
+  })
+);
+
 app.use(
   helmet({
     contentSecurityPolicy: {
@@ -87,8 +140,17 @@ app.use(
         defaultSrc: ["'self'"],
         scriptSrc: [
           "'self'",
+          // 'unsafe-inline' is required because Vite injects inline scripts during
+          // development (HMR bootstrap) and the React bundle uses inline event
+          // handlers. Removing it without a nonce-based build pipeline would break
+          // the app. Track https://vitejs.dev/guide/features.html#content-security-policy
+          // for nonce support progress.
           "'unsafe-inline'",
-          "'unsafe-eval'",
+          // NOTE: 'unsafe-eval' has been intentionally removed. Vite's production
+          // build does NOT require eval(). It was only needed in legacy bundler
+          // configurations. If a runtime error like "unsafe-eval is not allowed"
+          // appears after this change, identify the specific library causing it and
+          // add a targeted allowlist entry rather than re-enabling the directive.
           "*.leadconnectorhq.com",
           "*.ghl.io",
           "*.googletagmanager.com",
@@ -195,6 +257,13 @@ app.use((req, res, next) => {
 (async () => {
   await runDrizzleMigrations();
   await registerRoutes(httpServer, app);
+
+  // Sentry error-handler must be registered AFTER all routes so it can capture
+  // errors propagated via next(err). It must also come BEFORE the generic error
+  // handler below so Sentry receives the full error object.
+  if (process.env.SENTRY_DSN) {
+    Sentry.setupExpressErrorHandler(app);
+  }
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
