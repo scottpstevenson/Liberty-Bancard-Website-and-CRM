@@ -203,6 +203,12 @@ app.use(
         frameAncestors: ["'self'"],
       },
     },
+    // strict-origin-when-cross-origin preserves the referrer for same-origin
+    // requests and sends origin-only for cross-origin HTTPS→HTTPS. This allows
+    // Google Analytics, GA4, and other analytics tools to receive referrer data.
+    // helmet's default 'no-referrer' strips all referrer headers, breaking
+    // attribution tracking.
+    referrerPolicy: { policy: "strict-origin-when-cross-origin" },
   })
 );
 
