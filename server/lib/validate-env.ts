@@ -5,10 +5,12 @@
  */
 
 // Variables required in every environment (development and production alike).
+// NOTE: NODE_ENV is intentionally excluded — esbuild bakes it as "production"
+// in the compiled bundle, but the dynamic process.env["NODE_ENV"] lookup used
+// here would not find it as a real Cloud Run env var, causing a false fatal.
 const REQUIRED_ALL: string[] = [
   "DATABASE_URL",
   "SESSION_SECRET",
-  "NODE_ENV",
 ];
 
 // Variables that are not strictly required but should be warned about when absent.
