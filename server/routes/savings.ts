@@ -37,6 +37,7 @@ export function registerSavingsRoutes(app: Express) {
           merchantName: proposal.merchantName || "Your Business",
           generatedAt: new Date().toISOString(),
           dealId,
+          monthlyVolume: current?.monthlyVolume ?? 0,
           current: {
             effectiveRate: current?.effectiveRate ?? "N/A",
             monthlyFees: current?.monthlyFees ?? 0,
@@ -82,9 +83,11 @@ export function registerSavingsRoutes(app: Express) {
       if (!shareData) return res.status(404).json({ message: "Results page not found" });
 
       let affiliateCode: string | null = null;
+      let contactEmail: string | null = null;
       if (deal.contactId) {
         const [contact] = await db.select().from(contacts).where(eq(contacts.id, deal.contactId));
         if (contact?.email) {
+          contactEmail = contact.email;
           const [partner] = await db.select().from(partners).where(eq(partners.email, contact.email.toLowerCase()));
           if (partner?.affiliateCode && partner.status === "approved") {
             affiliateCode = partner.affiliateCode;
@@ -103,6 +106,7 @@ export function registerSavingsRoutes(app: Express) {
       res.json({
         ...shareData,
         affiliateCode,
+        contactEmail,
         referralLink,
         shareUrl: `${baseUrl}/savings/${token}`,
       });

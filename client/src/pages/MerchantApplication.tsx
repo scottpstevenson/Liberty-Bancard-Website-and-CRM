@@ -34,7 +34,7 @@ import {
   Save,
   Info,
 } from "lucide-react";
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 
 const DRAFT_KEY = "merchant_app_draft";
 
@@ -95,10 +95,13 @@ export default function MerchantApplication() {
   const [draftDismissed, setDraftDismissed] = useState(false);
   const [draftSavedAt, setDraftSavedAt] = useState<Date | null>(null);
   const [showDraftSaved, setShowDraftSaved] = useState(false);
+  const [prefillApplied, setPrefillApplied] = useState(false);
+  const [shareToken, setShareToken] = useState<string | null>(null);
   const stepHeadingRef = useRef<HTMLHeadingElement>(null);
   const draftSavedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+  const search = useSearch();
 
   const [legalBusinessName, setLegalBusinessName] = useState("");
   const [dba, setDba] = useState("");
@@ -162,6 +165,33 @@ export default function MerchantApplication() {
       }
     }
   }, []);
+
+  useEffect(() => {
+    if (prefillApplied) return;
+    const params = new URLSearchParams(search);
+    const nameParam = params.get("name");
+    const emailParam = params.get("email");
+    const volumeParam = params.get("volume");
+    const tokenParam = params.get("token");
+
+    if (nameParam) setLegalBusinessName(nameParam);
+    if (emailParam) {
+      setBusinessEmail(emailParam);
+      setOwnerEmail(emailParam);
+    }
+    if (volumeParam) setEstimatedMonthlyVolume(volumeParam);
+    if (tokenParam) setShareToken(tokenParam);
+
+    if (nameParam || emailParam || volumeParam || tokenParam) {
+      setPrefillApplied(true);
+      if (nameParam || emailParam || volumeParam) {
+        toast({
+          title: "Form pre-filled",
+          description: "We've filled in some details from your savings analysis.",
+        });
+      }
+    }
+  }, [search, prefillApplied, toast]);
 
   useEffect(() => {
     if (submitted) return;
@@ -398,6 +428,7 @@ export default function MerchantApplication() {
         ecommerceNeeded: ecommerceNeeded === true,
         preferredProgram,
         esignStatus: "pending",
+        ...(shareToken ? { _shareToken: shareToken } : {}),
         ...getStoredUTMParams(),
       });
       const data = await res.json();

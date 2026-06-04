@@ -2,8 +2,9 @@ import type { Express, RequestHandler } from "express";
 import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
-import { and } from "drizzle-orm";
-import { insertEquipmentOrderSchema, insertMerchantApplicationSchema, insertMerchantProfileSchema, insertOnboardingStepSchema } from "@shared/schema";
+import { and, eq } from "drizzle-orm";
+import { insertEquipmentOrderSchema, insertMerchantApplicationSchema, insertMerchantProfileSchema, insertOnboardingStepSchema, deals } from "@shared/schema";
+import { db } from "../db";
 import { getDocumentStatus, sendDocumentForEsign } from "../services/ghl";
 import { syncMerchantApplicationToGhl } from "../services/ghl-form-sync";
 import { createContactGhlFirst } from "../services/contact-writer";
@@ -75,8 +76,19 @@ export function registerMerchantsRoutes(app: Express) {
   // === MERCHANT APPLICATIONS ===
   app.post("/api/merchant-applications", isAuthenticated, async (req, res) => {
     try {
-      const input = insertMerchantApplicationSchema.parse(req.body);
-      const application = await storage.createMerchantApplication(input, { actorType: "user", userId: (req.user as any)?.id ?? null });
+      const { _shareToken, ...bodyWithoutToken } = req.body;
+      const input = insertMerchantApplicationSchema.parse(bodyWithoutToken);
+
+      let resolvedDealId: number | undefined;
+      if (_shareToken && typeof _shareToken === "string" && !input.dealId) {
+        const [matchedDeal] = await db.select({ id: deals.id }).from(deals).where(eq(deals.shareToken, _shareToken));
+        if (matchedDeal) resolvedDealId = matchedDeal.id;
+      }
+
+      const application = await storage.createMerchantApplication(
+        resolvedDealId ? { ...input, dealId: resolvedDealId } : input,
+        { actorType: "user", userId: (req.user as any)?.id ?? null },
+      );
 
       const contactEmail = application.ownerEmail || application.businessEmail;
       if (contactEmail) {

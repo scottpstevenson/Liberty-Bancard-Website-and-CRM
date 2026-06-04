@@ -13,15 +13,20 @@ import {
   CheckCircle2,
   AlertTriangle,
   ExternalLink,
+  Phone,
+  Rocket,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
+import { CALENDAR_URL } from "@/lib/constants";
 
 interface ShareData {
   merchantName: string;
   generatedAt: string;
   dealId: number;
+  monthlyVolume: number;
+  contactEmail: string | null;
   current: { effectiveRate: string; monthlyFees: number };
   liberty: { effectiveRate: string; monthlyFees: number };
   monthlySavings: number;
@@ -310,18 +315,46 @@ export default function SavingsPage() {
             )}
           </section>
 
-          {/* ── CTA ── */}
-          <div className="text-center space-y-3 pt-2">
+          {/* ── Apply / Book CTAs ── */}
+          <section
+            className="bg-gradient-to-br from-blue-900/60 to-slate-900/60 border border-blue-500/20 rounded-2xl p-8 text-center space-y-5"
+            data-testid="section-apply-cta"
+          >
+            <div className="space-y-2">
+              <h2 className="text-2xl font-bold text-white">Ready to Start Saving?</h2>
+              <p className="text-slate-300 text-sm max-w-sm mx-auto">
+                Lock in these rates today — your application takes about 10 minutes and there's no obligation.
+              </p>
+            </div>
+
             <a
-              href="/upload-statement"
-              className="inline-flex items-center gap-2 px-8 py-4 bg-blue-600 hover:bg-blue-500 rounded-xl font-bold text-lg transition-colors"
-              data-testid="link-main-cta"
+              href={`/merchant-application?name=${encodeURIComponent(data.merchantName !== "Your Business" ? data.merchantName : "")}&email=${encodeURIComponent(data.contactEmail ?? "")}&volume=${encodeURIComponent(data.monthlyVolume > 0 ? String(Math.round(data.monthlyVolume)) : "")}&token=${encodeURIComponent(token || "")}`}
+              className="inline-flex items-center gap-2 px-8 py-4 bg-emerald-500 hover:bg-emerald-400 rounded-xl font-bold text-lg text-white transition-colors shadow-lg shadow-emerald-900/40"
+              data-testid="link-apply-now"
             >
-              Get My Free Analysis
-              <ArrowRight className="w-5 h-5" />
+              <Rocket className="w-5 h-5" />
+              Get Started — Apply Now
             </a>
-            <p className="text-xs text-slate-500">Free, no obligation, results within 24 hours.</p>
-          </div>
+
+            <div className="flex items-center gap-3">
+              <div className="flex-1 h-px bg-white/10" />
+              <span className="text-slate-500 text-xs uppercase tracking-wider">or</span>
+              <div className="flex-1 h-px bg-white/10" />
+            </div>
+
+            <a
+              href={CALENDAR_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-6 py-3 border border-white/20 hover:bg-white/10 rounded-xl font-semibold text-sm text-white transition-colors"
+              data-testid="link-book-call"
+            >
+              <Phone className="w-4 h-4" />
+              Book a 15-Minute Call First
+            </a>
+
+            <p className="text-xs text-slate-500">No credit card required. Cancel anytime.</p>
+          </section>
         </main>
 
         {/* ── Footer ── */}
