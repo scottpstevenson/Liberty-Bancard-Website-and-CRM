@@ -148,6 +148,32 @@ These are optional but disable specific outreach and enrichment features if unse
 
 ---
 
+## Pre-Deploy Smoke Tests
+
+Run these automated checks before every production deployment to catch regressions:
+
+```bash
+# API coverage — verifies every client /api/ path has a matching server handler
+npx tsx scripts/check-api-coverage.ts
+
+# Role-guard smoke test — verifies auth boundaries across anon / merchant / admin roles
+ADMIN_SEED_EMAIL=<admin-email> ADMIN_SEED_PASSWORD=<admin-password> \
+  BASE_URL=http://localhost:5000 npx tsx scripts/smoke-role-guards.ts
+```
+
+Both checks are also registered as named validation steps (`api-coverage` and `role-guards`) and run automatically as part of the project's validation suite.
+
+### Required env vars for role-guard smoke tests
+
+| Variable | Description |
+|---|---|
+| `ADMIN_SEED_EMAIL` | Email of the seeded admin account (same value used in §Authentication above). The smoke test logs in as this user to verify admin routes return 200. |
+| `ADMIN_SEED_PASSWORD` | Password for the seeded admin account. The smoke test performs a real login via `/api/auth/login`. |
+
+If either variable is absent the script skips cleanly (exit 0) rather than failing the deploy gate — but the role-guard checks will **not** run. Always set both vars in CI/CD for full coverage.
+
+---
+
 ## Pre-Launch Verification Steps
 
 1. **Confirm `SESSION_SECRET` is set** — any random 32+ char string works; generate with `openssl rand -hex 32`.
