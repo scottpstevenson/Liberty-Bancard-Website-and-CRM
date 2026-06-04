@@ -1,5 +1,6 @@
 import type { Express } from "express";
-import { isAuthenticated, isAdmin, isAffiliate } from "../replit_integrations/auth";
+import { isAuthenticated, isAdmin, isAffiliate, isDashboardUser } from "../replit_integrations/auth";
+import rateLimit from "express-rate-limit";
 import { storage } from "../storage";
 import { logAiCall } from "../services/ai-audit-logger";
 import { db, pool } from "../db";
@@ -563,7 +564,8 @@ Guidelines:
     }
   });
 
-  app.post("/api/affiliate/login", async (req, res) => {
+  const affiliateLoginRateLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false, message: { message: "Too many login attempts, please try again later." } });
+  app.post("/api/affiliate/login", affiliateLoginRateLimit, async (req, res) => {
     try {
       const { email, password } = req.body;
       if (!email || !password) {
@@ -691,7 +693,7 @@ Guidelines:
     }
   });
 
-  app.post("/api/affiliate/track-click", async (req, res) => {
+  app.post("/api/affiliate/track-click", publicLeadRateLimit, async (req, res) => {
     try {
       const { code } = req.body;
       if (!code) return res.status(400).json({ message: "Code required" });
@@ -975,7 +977,7 @@ Guidelines:
     }
   });
 
-  app.post("/api/affiliate/referral", async (req, res) => {
+  app.post("/api/affiliate/referral", publicLeadRateLimit, async (req, res) => {
     try {
       const { affiliateCode, name, email, phone, company, source } = req.body;
       if (!affiliateCode || !name || !email) {
@@ -1002,7 +1004,7 @@ Guidelines:
 
 
   // === MASS SCORING ===
-  app.post("/api/contacts/mass-score", async (req, res) => {
+  app.post("/api/contacts/mass-score", isDashboardUser, async (req, res) => {
     const batchSize = 500;
     let totalScored = 0;
     const tierCounts = { hot: 0, warm: 0, cold: 0, unqualified: 0 };
@@ -1096,7 +1098,7 @@ Guidelines:
 
 
   // === MASS DEAL CREATION ===
-  app.post("/api/contacts/mass-create-deals", async (req, res) => {
+  app.post("/api/contacts/mass-create-deals", isDashboardUser, async (req, res) => {
     const batchSize = 500;
     let dealsCreated = 0;
     let skipped = 0;

@@ -8,11 +8,12 @@ import { buildWeeklyDigest } from "../services/digest-service";
 import { db } from "../db";
 import { agents, deals, leaderboardSettings } from "@shared/schema";
 import { eq, and, gte, desc, sql, count } from "drizzle-orm";
+import { publicLeadRateLimit } from "../middleware/public-rate-limit";
 
 export function registerAnalyticsRoutes(app: Express) {
 
   // === SALES TOOL CLICK TRACKING ===
-  app.post("/api/analytics/tool-click", async (req, res) => {
+  app.post("/api/analytics/tool-click", publicLeadRateLimit, async (req, res) => {
     try {
       const { toolId, toolTitle, source, sessionId } = req.body;
       if (!toolId) return res.status(400).json({ message: "toolId is required" });
@@ -25,8 +26,8 @@ export function registerAnalyticsRoutes(app: Express) {
         sessionId: sessionId ?? null,
       });
       res.json({ ok: true });
-    } catch (err: any) {
-      res.status(500).json({ message: err.message });
+    } catch {
+      res.status(500).json({ message: "Internal server error" });
     }
   });
 

@@ -32,9 +32,13 @@ function initRegistry() {
     errorCount: 0,
   });
 
+  const mockEnabled = enabledProcessors.includes("mock") || process.env.NODE_ENV === "development" || !process.env.NMI_SECURITY_KEY;
+  if (mockEnabled && process.env.NODE_ENV === "production") {
+    console.warn("[Processor Registry] WARNING: Mock processor is ENABLED in production. Set NMI_SECURITY_KEY to activate the real NMI adapter and disable mock mode.");
+  }
   adapters.set("mock", {
     adapter: mock,
-    enabled: enabledProcessors.includes("mock") || process.env.NODE_ENV === "development" || !process.env.NMI_SECURITY_KEY,
+    enabled: mockEnabled,
     lastSuccessAt: null,
     lastErrorAt: null,
     lastError: null,

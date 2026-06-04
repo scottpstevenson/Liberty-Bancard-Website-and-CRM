@@ -347,7 +347,8 @@ export function registerPartnersRoutes(app: Express) {
           (replitDomain ? `https://${replitDomain}` : "https://libertybancard.com");
         const resetUrl = `${baseUrl}/partner-portal?reset=${rawToken}`;
 
-        console.log(`[Partner Auth] Password reset URL: ${resetUrl}`);
+        // Reset URL logged only in development to aid local testing
+        if (process.env.NODE_ENV !== "production") console.log(`[Partner Auth] Password reset URL: ${resetUrl}`);
 
         if (partner.email) {
           const displayName = partner.contactName || "there";
@@ -495,7 +496,7 @@ export function registerPartnersRoutes(app: Express) {
           (replitDomain ? `https://${replitDomain}` : "https://libertybancard.com");
         const resetUrl = `${baseUrl}/partner-login?reset=${rawToken}`;
 
-        console.log(`[Partner Auth] Password reset URL (canonical): ${resetUrl}`);
+        if (process.env.NODE_ENV !== "production") console.log(`[Partner Auth] Password reset URL (canonical): ${resetUrl}`);
 
         if (partner.email) {
           const displayName = partner.contactName || "there";
