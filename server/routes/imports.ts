@@ -339,6 +339,7 @@ Guidelines:
       { url: "/get-started", priority: "0.9", changefreq: "monthly" },
       { url: "/upload-statement", priority: "0.9", changefreq: "monthly" },
       { url: "/free-analysis", priority: "0.9", changefreq: "monthly" },
+      { url: "/free-analysis-guaranteed", priority: "0.9", changefreq: "monthly" },
       { url: "/0-percent-processing", priority: "0.9", changefreq: "monthly" },
       { url: "/beat-square-stripe", priority: "0.8", changefreq: "monthly" },
       { url: "/about-contact", priority: "0.7", changefreq: "monthly" },

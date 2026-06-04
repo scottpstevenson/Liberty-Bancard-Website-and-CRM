@@ -1240,3 +1240,163 @@ export function getFaqHtml(): string {
     body,
   });
 }
+
+export function getFreeAnalysisGuaranteedHtml(): string {
+  const faqItems = [
+    { q: "What exactly is the $50 guarantee?", a: "If we review your statement and cannot identify at least one verifiable savings opportunity, we'll send you a $50 Amazon gift card — no questions asked. We've reviewed 3,200+ statements and have only paid out a handful of gift cards. Most merchants save significantly more." },
+    { q: "Is there any obligation to switch processors?", a: "None. You get the full written analysis and benchmark report regardless of what you decide. We show you the numbers — you decide what to do with them. We earn your business by proving value, not by locking you in." },
+    { q: "Do I need to schedule a sales call?", a: "No sales call required. Upload your statement, we analyze it, and we send you the written report. If you want to talk through the numbers, we're available — but it's never a requirement." },
+    { q: "What information do you need from my statement?", a: "We only need the fee and volume totals — not your merchant account number or banking info. You can redact any sensitive numbers before uploading. A PDF or photo of your statement works perfectly." },
+    { q: "How long does the analysis take?", a: "We deliver your written savings summary within 24 business hours. Most analyses are completed the same day during business hours (Monday–Friday, 9am–6pm ET)." },
+  ];
+
+  const faqSchema = {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: faqItems.map((item) => ({
+      "@type": "Question",
+      name: item.q,
+      acceptedAnswer: { "@type": "Answer", text: item.a },
+    })),
+  };
+
+  const serviceSchema = {
+    "@context": "https://schema.org",
+    "@type": "Service",
+    name: "Free Merchant Statement Analysis — Guaranteed Savings",
+    description: "Upload your merchant processing statement and we'll find your hidden fees, benchmark you against 3,200+ statements, and show you exactly what you should be paying. If we can't find you savings, we send you a $50 gift card.",
+    provider: { "@type": "Organization", name: "Liberty Bancard", url: BASE_URL },
+    offers: { "@type": "Offer", price: "0", priceCurrency: "USD", description: "Free statement analysis — $50 gift card guarantee if no savings found" },
+  };
+
+  const faqHtml = faqItems
+    .map(
+      (item) => `
+    <div class="ssr-faq-item">
+      <div class="ssr-faq-q">✅ ${item.q}</div>
+      <div class="ssr-faq-a">${item.a}</div>
+    </div>`
+    )
+    .join("");
+
+  const body = `
+  <div class="ssr-hero">
+    <div class="ssr-hero-inner">
+      <div class="ssr-breadcrumb"><a href="/">Home</a><span>/</span><span>Guarantee Analysis</span></div>
+      <div class="ssr-hero-badge">🎁 100% Risk-Free Guarantee</div>
+      <h1>If We Can't Save You Money, We'll Pay You $50</h1>
+      <p class="ssr-hero-subtitle">Upload your processing statement and we'll find your hidden fees, benchmark you against 3,200+ real merchant statements, and deliver a written savings report within 24 hours. No sales call required. No obligation.</p>
+      <div class="ssr-hero-buttons">
+        <a href="/upload-statement" class="ssr-btn-primary">📤 Get My Free Analysis</a>
+        <a href="tel:9542668214" class="ssr-btn-outline">📞 Call 954-266-8214</a>
+      </div>
+    </div>
+  </div>
+
+  <section class="ssr-section ssr-section-muted">
+    <div class="ssr-section-inner">
+      <div style="max-width:48rem;margin:0 auto;border:2px solid #10b981;border-radius:0.75rem;background:#f0fdf4;padding:2rem;">
+        <div style="display:flex;align-items:flex-start;gap:1.25rem;">
+          <div style="width:3.5rem;height:3.5rem;border-radius:50%;background:#10b981;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:1.5rem;">🎁</div>
+          <div>
+            <h2 style="font-family:'Outfit',system-ui,sans-serif;font-size:1.25rem;font-weight:700;color:#0f172a;margin-bottom:0.5rem;">Our Savings Guarantee</h2>
+            <p style="font-size:0.875rem;color:#475569;line-height:1.7;margin-bottom:1rem;">We've reviewed over 3,200 merchant statements. Every single one had at least one identifiable savings opportunity. But if we review yours and genuinely cannot find a way to save you money, we'll send you a <strong>$50 Amazon gift card</strong> — just for your time.</p>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;">
+              <div style="display:flex;align-items:center;gap:0.5rem;font-size:0.875rem;color:#0f172a;">✅ Find savings in 24 hours or $50 gift card</div>
+              <div style="display:flex;align-items:center;gap:0.5rem;font-size:0.875rem;color:#0f172a;">✅ No sales call required</div>
+              <div style="display:flex;align-items:center;gap:0.5rem;font-size:0.875rem;color:#0f172a;">✅ No obligation to switch</div>
+              <div style="display:flex;align-items:center;gap:0.5rem;font-size:0.875rem;color:#0f172a;">✅ No credit card needed</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="ssr-section ssr-section-dark">
+    <div class="ssr-section-inner" style="text-align:center;">
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2rem;max-width:36rem;margin:0 auto;">
+        <div><div class="ssr-stat-value" style="color:#34d399;font-size:2.5rem;">3,200+</div><div class="ssr-stat-label" style="color:rgba(255,255,255,0.65);">Statements Reviewed</div></div>
+        <div><div class="ssr-stat-value" style="color:#34d399;font-size:2.5rem;">$2,847</div><div class="ssr-stat-label" style="color:rgba(255,255,255,0.65);">Avg. Monthly Savings</div></div>
+        <div><div class="ssr-stat-value" style="color:#34d399;font-size:2.5rem;">4.9/5</div><div class="ssr-stat-label" style="color:rgba(255,255,255,0.65);">Merchant Rating</div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="ssr-section">
+    <div class="ssr-section-inner">
+      <h2 class="ssr-section-heading">What You Get</h2>
+      <p class="ssr-section-subheading">Not a vague consultation — a real deliverable you keep, regardless of what you decide.</p>
+      <div class="ssr-grid-3">
+        <div class="ssr-card">
+          <div class="ssr-card-title">📋 Full Statement Breakdown in Plain English</div>
+          <div class="ssr-card-text">We decode every line: interchange costs, processor markup, assessment fees, and any junk fees you're being charged. Written so your accountant can read it.</div>
+        </div>
+        <div class="ssr-card">
+          <div class="ssr-card-title">📊 Benchmark Against 3,200+ Statements</div>
+          <div class="ssr-card-text">We compare your effective rate and fee structure against businesses in your industry and volume tier. See exactly where you stand versus the best-in-class merchants in your category.</div>
+        </div>
+        <div class="ssr-card">
+          <div class="ssr-card-title">📈 Written Savings Summary You Can Share</div>
+          <div class="ssr-card-text">A clear, one-page savings summary with your current rate, your target rate, and estimated annual savings — formatted so you can share with your accountant, business partner, or board.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="ssr-section ssr-section-muted">
+    <div class="ssr-section-inner">
+      <h2 class="ssr-section-heading">How It Works</h2>
+      <p class="ssr-section-subheading">Three steps. Under 5 minutes on your end.</p>
+      <div class="ssr-grid-3">
+        <div class="ssr-card" style="text-align:center;">
+          <div style="font-size:2.5rem;margin-bottom:0.75rem;">1️⃣</div>
+          <div class="ssr-card-title">Upload Your Statement</div>
+          <div class="ssr-card-text">Securely upload your most recent processing statement — PDF or photo. Redact account numbers if you prefer. We only need the fee and volume totals.</div>
+        </div>
+        <div class="ssr-card" style="text-align:center;">
+          <div style="font-size:2.5rem;margin-bottom:0.75rem;">2️⃣</div>
+          <div class="ssr-card-title">We Analyze in 24 Hours</div>
+          <div class="ssr-card-text">Our team reviews every line item, benchmarks your costs against industry peers, and builds your personalized written savings report.</div>
+        </div>
+        <div class="ssr-card" style="text-align:center;">
+          <div style="font-size:2.5rem;margin-bottom:0.75rem;">3️⃣</div>
+          <div class="ssr-card-title">Receive Your Report</div>
+          <div class="ssr-card-text">You receive a written savings summary via email — with your current rate, your target rate, and estimated annual savings. No strings attached.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="ssr-section">
+    <div class="ssr-section-inner">
+      <h2 class="ssr-section-heading">Industry Standards We Uphold</h2>
+      <div class="ssr-grid-2" style="max-width:40rem;margin:0 auto;">
+        <div class="ssr-card" style="text-align:center;"><div style="font-size:1.5rem;margin-bottom:0.5rem;">🛡️</div><div class="ssr-card-title">PCI DSS Compliant</div><div class="ssr-card-text">Level 1 certified</div></div>
+        <div class="ssr-card" style="text-align:center;"><div style="font-size:1.5rem;margin-bottom:0.5rem;">🔒</div><div class="ssr-card-title">SSL Encrypted</div><div class="ssr-card-text">256-bit encryption</div></div>
+        <div class="ssr-card" style="text-align:center;"><div style="font-size:1.5rem;margin-bottom:0.5rem;">🏅</div><div class="ssr-card-title">BBB Accredited</div><div class="ssr-card-text">A+ rating</div></div>
+        <div class="ssr-card" style="text-align:center;"><div style="font-size:1.5rem;margin-bottom:0.5rem;">⚡</div><div class="ssr-card-title">No Contract Required</div><div class="ssr-card-text">Month-to-month</div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="ssr-section ssr-section-muted">
+    <div class="ssr-section-inner">
+      <h2 class="ssr-section-heading">Frequently Asked Questions</h2>
+      <div class="ssr-faq-wrapper">
+        ${faqHtml}
+      </div>
+    </div>
+  </section>
+
+  ${ctaSection("Not Signing Up Feels Irrational", "Either we find you savings — or we pay you $50. There is no scenario where you lose.")}`;
+
+  return ssrHtmlShell({
+    title: "Free Merchant Statement Analysis — Guaranteed Savings or We Pay You | Liberty Bancard",
+    description: "Upload your statement and we'll find your hidden fees, benchmark you against 3,200+ statements, and show you exactly what you should be paying. If we can't find savings, we'll send you a $50 gift card.",
+    canonical: "/free-analysis-guaranteed",
+    keywords: "free merchant statement analysis, guaranteed savings, payment processing review, hidden fees, merchant services benchmark",
+    schemaJsons: [faqSchema, serviceSchema],
+    body,
+  });
+}

@@ -46,6 +46,7 @@ const ISOPartnerProgram = lazy(() => import("@/pages/ISOPartnerProgram"));
 const SavingsCalculator = lazy(() => import("@/pages/SavingsCalculator"));
 const RateComparison = lazy(() => import("@/pages/RateComparison"));
 const FreeAnalysis = lazy(() => import("@/pages/FreeAnalysis"));
+const FreeAnalysisGuaranteed = lazy(() => import("@/pages/FreeAnalysisGuaranteed"));
 const SalesToolsHub = lazy(() => import("@/pages/SalesToolsHub"));
 const CompareVs = lazy(() => import("@/pages/CompareVs"));
 const AssetPage = lazy(() => import("@/pages/AssetPage"));
@@ -352,6 +353,9 @@ function Router() {
 
         {/* Free Analysis Landing Page */}
         <Route path="/free-analysis" component={FreeAnalysis} />
+
+        {/* Guarantee Landing Page */}
+        <Route path="/free-analysis-guaranteed" component={FreeAnalysisGuaranteed} />
 
         {/* Sales Landing Pages (hidden, noindex) */}
         <Route path="/quiz/processing-cost" component={CostQuiz} />

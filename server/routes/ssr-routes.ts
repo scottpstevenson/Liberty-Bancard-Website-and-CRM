@@ -6,6 +6,7 @@ import { getHomeHtml } from "../ssr/home";
 import {
   getUploadStatementHtml,
   getFreeAnalysisHtml,
+  getFreeAnalysisGuaranteedHtml,
   getWhyLibertyHtml,
   getZeroPercentHtml,
   getCaseStudiesHtml,
@@ -206,6 +207,12 @@ export function registerSsrRoutes(app: Express) {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Cache-Control", PAGE_CACHE);
     res.send(getFreeAnalysisHtml());
+  });
+
+  app.get("/free-analysis-guaranteed", (_req, res) => {
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Cache-Control", PAGE_CACHE);
+    res.send(getFreeAnalysisGuaranteedHtml());
   });
 
   app.get("/why-liberty-bancard", (_req, res) => {
