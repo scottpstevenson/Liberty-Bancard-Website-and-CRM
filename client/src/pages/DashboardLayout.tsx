@@ -145,6 +145,7 @@ const automationItems: MenuItem[] = [
   { icon: Workflow, label: "GHL Workflow IDs", href: "/dashboard/ghl-workflows", roles: ["admin"] },
   { icon: BookOpen, label: "GHL Sequence Guide", href: "/dashboard/ghl-sequence-guide", roles: ["admin", "manager"] },
   { icon: TrendingUp, label: "Growth Playbook", href: "/dashboard/growth-playbook", roles: ["admin", "manager"] },
+  { icon: BarChart3, label: "Growth KPI", href: "/dashboard/growth-kpi", roles: ["admin", "manager"] },
   { icon: Settings, label: "Settings → Integrations", href: "/dashboard/settings/integrations", roles: ["admin"] },
 ];
 

@@ -287,6 +287,204 @@ export function registerAnalyticsRoutes(app: Express) {
     }
   });
 
+  // === GROWTH KPI — weekly channel breakdown ===
+  app.get("/api/analytics/growth-kpi", isAuthenticated, async (req, res) => {
+    const role = (req.user as any)?.role;
+    if (!["admin", "manager"].includes(role)) {
+      return res.status(403).json({ message: "Admin/Manager only" });
+    }
+    try {
+      const displayWeeksParam = parseInt((req.query.weeks as string) || "12", 10);
+      const displayWeeks = Math.min(Math.max(displayWeeksParam, 1), 24);
+
+      // We must fetch enough history for:
+      //   1. Two full displayWeeks periods (current + previous) for period comparison
+      //   2. Always at least 8 weeks for sparklines
+      //   3. Always at least 2 weeks for WoW on the arc cards
+      const SPARKLINE_WEEKS = 8;
+      const fetchWeeks = Math.max(displayWeeks * 2, SPARKLINE_WEEKS, 2);
+
+      const now = new Date();
+
+      // Monday-anchored ISO week start
+      const getWeekStart = (date: Date): Date => {
+        const d = new Date(date);
+        const day = d.getDay();
+        d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
+        d.setHours(0, 0, 0, 0);
+        return d;
+      };
+
+      const currentWeekStart = getWeekStart(now);
+
+      // Build week-start array for fetchWeeks (oldest → newest)
+      const weekStarts: Date[] = [];
+      for (let i = fetchWeeks - 1; i >= 0; i--) {
+        const ws = new Date(currentWeekStart);
+        ws.setDate(ws.getDate() - i * 7);
+        weekStarts.push(ws);
+      }
+
+      const windowStart = weekStarts[0];
+
+      const CHANNELS = ["linkedin", "reddit", "partner", "gbp", "affiliate", "newsletter", "haro", "youtube", "direct", "other"];
+
+      // Normalise utm_source / lead_source to a canonical channel name
+      const normalizeSource = (src: string | null | undefined): string => {
+        if (!src) return "direct";
+        const s = src.toLowerCase().trim().replace(/^utm:/, "");
+        if (s.includes("linkedin")) return "linkedin";
+        if (s.includes("reddit")) return "reddit";
+        if (s.includes("partner") || s.includes("referral") || s.includes("iso")) return "partner";
+        if (s.includes("gbp") || s.includes("google business") || s.includes("google_business")) return "gbp";
+        if (s.includes("affiliate")) return "affiliate";
+        if (s.includes("newsletter") || s.includes("email")) return "newsletter";
+        if (s.includes("haro")) return "haro";
+        if (s.includes("youtube") || s.includes("video")) return "youtube";
+        if (s === "direct" || s === "" || s === "none") return "direct";
+        return "other";
+      };
+
+      // ── Raw-SQL: contacts by week bucket (windowed) ────────────────────────
+      const [contactRows, dealRows, allTimeContactRows] = await Promise.all([
+        pool.query<{ week_start: Date; utm_source: string | null; lead_source: string | null; count: string }>(`
+          SELECT
+            date_trunc('week', created_at) AS week_start,
+            utm_source,
+            lead_source,
+            COUNT(*)::text AS count
+          FROM contacts
+          WHERE archived_at IS NULL
+            AND created_at >= $1
+          GROUP BY week_start, utm_source, lead_source
+          ORDER BY week_start
+        `, [windowStart]),
+
+        // All-time deals/won by lead_source for conversion rate denominator
+        pool.query<{ lead_source: string | null; stage: string; count: string }>(`
+          SELECT lead_source, stage, COUNT(*)::text AS count
+          FROM deals
+          WHERE archived_at IS NULL AND pipeline = 'sales'
+          GROUP BY lead_source, stage
+        `),
+
+        // All-time contacts by channel (same scope as all-time deals, for consistent conv rate)
+        pool.query<{ utm_source: string | null; lead_source: string | null; count: string }>(`
+          SELECT utm_source, lead_source, COUNT(*)::text AS count
+          FROM contacts
+          WHERE archived_at IS NULL
+          GROUP BY utm_source, lead_source
+        `),
+      ]);
+
+      // ── Build weeklyByChannel: [fetchWeeks] arrays ────────────────────────
+      const weeklyByChannel: Record<string, number[]> = {};
+      CHANNELS.forEach(ch => { weeklyByChannel[ch] = new Array(fetchWeeks).fill(0); });
+
+      contactRows.rows.forEach(row => {
+        const ch = normalizeSource(row.utm_source || row.lead_source);
+        const canonCh = CHANNELS.includes(ch) ? ch : "other";
+        const rowWeek = new Date(row.week_start);
+        for (let i = 0; i < weekStarts.length; i++) {
+          if (rowWeek.getTime() === weekStarts[i].getTime()) {
+            weeklyByChannel[canonCh][i] += parseInt(row.count, 10);
+            break;
+          }
+        }
+      });
+
+      // ── All-time leads/deals/won by channel (consistent scope for conv rate) ──
+      const allTimeLeads: Record<string, number> = {};
+      CHANNELS.forEach(ch => { allTimeLeads[ch] = 0; });
+      allTimeContactRows.rows.forEach(row => {
+        const ch = normalizeSource(row.utm_source || row.lead_source);
+        const canonCh = CHANNELS.includes(ch) ? ch : "other";
+        allTimeLeads[canonCh] += parseInt(row.count, 10);
+      });
+
+      const dealsByChannel: Record<string, { deals: number; won: number }> = {};
+      CHANNELS.forEach(ch => { dealsByChannel[ch] = { deals: 0, won: 0 }; });
+      dealRows.rows.forEach(row => {
+        const ch = normalizeSource(row.lead_source);
+        const canonCh = CHANNELS.includes(ch) ? ch : "other";
+        const n = parseInt(row.count, 10);
+        dealsByChannel[canonCh].deals += n;
+        if (row.stage === "Closed Won") dealsByChannel[canonCh].won += n;
+      });
+
+      // ── Key indices ────────────────────────────────────────────────────────
+      // Current display period: last displayWeeks weeks
+      // Previous display period: the displayWeeks weeks before that
+      const currentPeriodStart = fetchWeeks - displayWeeks;   // inclusive
+      const prevPeriodStart    = fetchWeeks - displayWeeks * 2; // inclusive (always >= 0 because fetchWeeks >= displayWeeks*2)
+      const prevPeriodEnd      = currentPeriodStart;            // exclusive
+
+      // Arc / WoW cards always show current vs previous single week
+      const currentWeekIdx = fetchWeeks - 1;
+      const prevWeekIdx    = fetchWeeks - 2; // always >= 0 (fetchWeeks >= 2)
+
+      let thisWeekTotal = 0;
+      let prevWeekTotal = 0;
+      CHANNELS.forEach(ch => {
+        thisWeekTotal += weeklyByChannel[ch][currentWeekIdx] || 0;
+        prevWeekTotal += weeklyByChannel[ch][prevWeekIdx]    || 0;
+      });
+
+      const weekOverWeekChange = prevWeekTotal > 0
+        ? Math.round(((thisWeekTotal - prevWeekTotal) / prevWeekTotal) * 100)
+        : (thisWeekTotal > 0 ? 100 : 0);
+
+      // ── Sparkline: always last SPARKLINE_WEEKS weeks (min 8), independent of toggle ──
+      const sparklineStart = Math.max(fetchWeeks - SPARKLINE_WEEKS, 0);
+
+      const channels = CHANNELS.map(ch => {
+        const full = weeklyByChannel[ch];
+
+        // Period-aggregated counts for the table columns (change with toggle)
+        const periodCount = full.slice(currentPeriodStart).reduce((s, n) => s + n, 0);
+        const prevPeriodCount = full.slice(prevPeriodStart, prevPeriodEnd).reduce((s, n) => s + n, 0);
+
+        // Sparkline always last 8 weeks
+        const sparkline = weekStarts.slice(sparklineStart).map((ws, i) => ({
+          week:  ws.toISOString().split("T")[0],
+          count: full[sparklineStart + i] || 0,
+        }));
+
+        // Conversion rate: lead → deal (all-time deals / all-time contacts, consistent scope)
+        const atLeads = allTimeLeads[ch] || 0;
+        const { deals, won } = dealsByChannel[ch];
+        const conversionRate = atLeads > 0 ? Math.round((deals / atLeads) * 100) : 0;
+
+        return {
+          channel: ch,
+          // period data for table (changes with time range toggle)
+          periodCount,
+          prevPeriodCount,
+          // always-current-week for backward compat with arc cards
+          thisWeek: full[currentWeekIdx] || 0,
+          lastWeek: full[prevWeekIdx]    || 0,
+          conversionRate,
+          sparkline,
+          won,
+        };
+      });
+
+      const weekLabels = weekStarts.slice(currentPeriodStart).map(ws => ws.toISOString().split("T")[0]);
+
+      res.json({
+        thisWeekTotal,
+        prevWeekTotal,
+        weekOverWeekChange,
+        target: 1000,
+        displayWeeks,
+        channels,
+        weekLabels,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/analytics/conversion-funnel", isAuthenticated, async (req, res) => {
     try {
       const { data: allDeals } = await storage.getDeals({ limit: 500 });
