@@ -963,6 +963,14 @@ function ReferralTab({ profile }: { profile: MerchantProfile | null | undefined 
   const referralCount = referralData?.profile?.referralCount || 0;
   const referrals = referralData?.referrals || [];
 
+  const creditedReferrals = referrals.filter(r => r.status === "credited");
+  const pendingReferrals = referrals.filter(r => r.status === "pending" || r.status === "signed_up" || r.status === "activated");
+  const creditedAmount = creditedReferrals.reduce((sum, r) => sum + parseFloat(r.creditAmount || "0"), 0);
+  const pendingAmount = pendingReferrals.reduce((sum, r) => {
+    const stored = parseFloat(r.creditAmount || "0");
+    return sum + (stored > 0 ? stored : 50);
+  }, 0);
+
   const referralLink = referralCode ? `${window.location.origin}/refer/${referralCode}` : null;
 
   const copyToClipboard = (text: string) => {
@@ -1047,6 +1055,83 @@ function ReferralTab({ profile }: { profile: MerchantProfile | null | undefined 
           </CardContent>
         </Card>
       </div>
+
+      <Card data-testid="card-your-earnings">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <DollarSign className="w-4 h-4 text-primary" />
+              Your Earnings
+            </CardTitle>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              onClick={() => window.open("mailto:support@libertybancard.com?subject=Referral%20Payout%20Request&body=Hi%2C%20I%27d%20like%20to%20request%20a%20payout%20for%20my%20referral%20credits.%20My%20referral%20code%20is%3A%20" + encodeURIComponent(referralCode || ""), "_blank")}
+              data-testid="button-request-payout"
+            >
+              <DollarSign className="w-3.5 h-3.5" />
+              Request Payout
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 p-4">
+              <p className="text-xs text-emerald-700 dark:text-emerald-400 font-medium mb-1">Credited</p>
+              <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400" data-testid="text-credited-amount">
+                ${creditedAmount.toFixed(2)}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">{creditedReferrals.length} conversion{creditedReferrals.length !== 1 ? "s" : ""}</p>
+            </div>
+            <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 p-4">
+              <p className="text-xs text-amber-700 dark:text-amber-400 font-medium mb-1">Pending</p>
+              <p className="text-2xl font-bold text-amber-600 dark:text-amber-400" data-testid="text-pending-amount">
+                ${pendingAmount.toFixed(2)}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">{pendingReferrals.length} referral{pendingReferrals.length !== 1 ? "s" : ""} in progress</p>
+            </div>
+          </div>
+
+          {creditedReferrals.length > 0 ? (
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Earnings Timeline</p>
+              <div>
+                {[...creditedReferrals]
+                  .sort((a, b) => new Date(b.creditPaidAt || b.createdAt!).getTime() - new Date(a.creditPaidAt || a.createdAt!).getTime())
+                  .map((r, idx, arr) => {
+                    const firstName = (r.referredName || r.referredEmail.split("@")[0]).split(" ")[0];
+                    const eventDate = r.creditPaidAt || r.createdAt;
+                    return (
+                      <div key={r.id} className="flex items-start gap-3" data-testid={`timeline-event-${r.id}`}>
+                        <div className="flex flex-col items-center">
+                          <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 mt-1 shrink-0" />
+                          {idx < arr.length - 1 && <div className="w-px flex-1 bg-border min-h-[28px]" />}
+                        </div>
+                        <div className="flex-1 pb-4">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-sm font-medium">{firstName} activated</span>
+                            <span className="text-sm font-semibold text-emerald-600 dark:text-emerald-400" data-testid={`timeline-amount-${r.id}`}>
+                              +${parseFloat(r.creditAmount || "50").toFixed(2)}
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted-foreground" data-testid={`timeline-date-${r.id}`}>
+                            {eventDate ? new Date(eventDate).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "—"}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-4 text-muted-foreground" data-testid="earnings-empty-state">
+              <DollarSign className="w-8 h-8 mx-auto mb-2 opacity-30" />
+              <p className="text-sm">No credited earnings yet. Share your referral link to start earning!</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card data-testid="card-your-code">
         <CardHeader>
