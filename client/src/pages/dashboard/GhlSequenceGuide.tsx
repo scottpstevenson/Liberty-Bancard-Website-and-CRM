@@ -789,6 +789,7 @@ export default function GhlSequenceGuide() {
           <TabsTrigger value="wf3" data-testid="tab-wf3">WF3 — Reply Engaged</TabsTrigger>
           <TabsTrigger value="wf4" data-testid="tab-wf4">WF4 — Statement Chase</TabsTrigger>
           <TabsTrigger value="wf5" data-testid="tab-wf5">WF5 — Proposal</TabsTrigger>
+          <TabsTrigger value="reengage" data-testid="tab-reengage">Re-engagement</TabsTrigger>
           <TabsTrigger value="tags" data-testid="tab-tags">Tag Reference</TabsTrigger>
           <TabsTrigger value="global" data-testid="tab-global">Global Setup</TabsTrigger>
         </TabsList>
@@ -806,6 +807,301 @@ export default function GhlSequenceGuide() {
             </Card>
           </TabsContent>
         ))}
+
+        {/* Re-engagement Sequences */}
+        <TabsContent value="reengage" className="mt-4">
+          <div className="space-y-4">
+            {/* Overview callout */}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Users className="h-4 w-4 text-orange-500" />
+                  Re-engagement Sequence — Cold Lead Revival
+                </CardTitle>
+                <CardDescription>
+                  For contacts who submitted a form but never converted. Triggers at 60, 90, and 120 days of dormancy.
+                  Run from the <strong>Cold Lead Re-engagement</strong> dashboard at{" "}
+                  <Link href="/dashboard/cold-leads" className="underline text-primary">
+                    /dashboard/cold-leads
+                  </Link>.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex gap-3 p-3 rounded-lg border border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-900/20">
+                  <Info className="h-4 w-4 text-orange-600 dark:text-orange-400 shrink-0 mt-0.5" />
+                  <div className="text-sm text-orange-700 dark:text-orange-300">
+                    <strong>How it works:</strong> An admin reviews the Cold Lead Re-engagement dashboard, selects dormant contacts,
+                    and clicks "Re-engage." The platform applies the tag{" "}
+                    <code className="text-xs bg-orange-100 dark:bg-orange-900/40 px-1 rounded">COLD-NO-DEAL</code> and enrolls the
+                    contact in GHL sequence <em>"19. Reactivation — Cold Lead Revival"</em>. No automatic enrollment — v1 is manual-trigger only.
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Touchpoint 1 — Day 60 */}
+            <Card className="border-l-4 border-blue-500">
+              <CardHeader className="pb-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <CardTitle className="text-sm">Day 60 Touchpoint</CardTitle>
+                  <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 gap-1 text-xs">
+                    <Mail className="h-3 w-3" /> Email
+                  </Badge>
+                  <Badge className="bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300 gap-1 text-xs">
+                    <MessageSquare className="h-3 w-3" /> SMS
+                  </Badge>
+                </div>
+                <CardDescription>
+                  Trigger tag: <code className="text-xs bg-muted px-1 rounded">RE-ENGAGE-60</code> — fires 60 days after
+                  the original form submission date. "We updated our analysis" hook — low friction, high relevance.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <CopyBlock
+                  label="Email Subject"
+                  text="Still thinking about it? We updated our analysis for {{contact.companyName}}."
+                />
+                <CopyBlock
+                  label="Email Body"
+                  text={`Hi {{contact.firstName}},
+
+A few months ago you reached out about your merchant processing. We don't know if the timing was off, or if you found another solution — but we've been running more analyses lately and wanted to share what we're seeing.
+
+The average merchant on legacy pricing is now paying 0.45–0.90% more than the current floor. On $80,000/month, that's $360–$720 going to your processor that should stay in your pocket.
+
+If you're still open to a quick look, all we need is one statement. Takes us 24 hours to run it.
+
+[Statement Upload Link]
+
+No pressure — just didn't want you to miss the window.
+
+— Scott Allen, Liberty Bancard
+📞 (888) 555-0100 | www.libertybancard.com
+
+Eligibility, underwriting, and card brand rules apply.`}
+                />
+                <CopyBlock
+                  label="SMS (send same day as email, 2 hrs after)"
+                  text={`Hi {{contact.firstName}} — Liberty Bancard checking in. We updated our statement analysis for merchants in your area. If you want a free look at your processing costs, reply YES and I'll send the link. Reply STOP to opt out.`}
+                />
+                <div className="flex gap-2 p-3 rounded-md bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+                  <Settings className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-xs font-semibold text-blue-700 dark:text-blue-300 mb-0.5">GHL Configuration — Day 60</p>
+                    <p className="text-xs text-blue-700 dark:text-blue-400">
+                      Trigger: Contact Tag Added = COLD-NO-DEAL. Wait 0 days (fire immediately on enrollment — the enrollment itself happens at the 60-day mark).
+                      Send Email → use branded template. Then wait 2 hours → Send SMS. Enable reply detection on both → if reply received, stop sequence and tag RE-ENGAGE-REPLIED → enroll in Workflow 3 (Reply Engaged).
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Touchpoint 2 — Day 90 */}
+            <Card className="border-l-4 border-purple-500">
+              <CardHeader className="pb-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <CardTitle className="text-sm">Day 90 Touchpoint</CardTitle>
+                  <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 gap-1 text-xs">
+                    <Mail className="h-3 w-3" /> Email
+                  </Badge>
+                </div>
+                <CardDescription>
+                  Trigger tag: <code className="text-xs bg-muted px-1 rounded">RE-ENGAGE-90</code> — fires 30 days after
+                  Day 60. Industry-specific case study with personalization tokens. Demonstrate social proof relevant to their vertical.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <CopyBlock
+                  label="Email Subject"
+                  text="How a {{contact.vertical}} business saved ${{savings}}/month on processing (case study)"
+                />
+                <CopyBlock
+                  label="Email Body (personalize with vertical before sending)"
+                  text={`Hi {{contact.firstName}},
+
+I wanted to share a quick story from one of our recent clients — I think it applies to what you're dealing with too.
+
+They run a {{contact.vertical}} business similar to {{contact.companyName}}. Their monthly volume was around $120,000. Their processor had them on a tiered pricing plan with a 2.9% + $0.30 flat rate. Sounds fine — until we ran the statement.
+
+What we found: the actual cost for most of their card types was 1.65% interchange + 0.40% markup. They were paying 0.85% extra on every dollar — about $1,020/month in excess fees.
+
+We switched them to interchange-plus. First full month: $840 back in their pocket.
+
+If you process credit cards, there's a good chance something similar is hiding in your statement. The only way to know is to look.
+
+[Statement Upload Link] — 2 minutes to upload, 24 hours for your full breakdown.
+
+— Scott Allen, Liberty Bancard
+
+Eligibility, underwriting, and card brand rules apply. Individual results vary.`}
+                />
+                <div className="flex gap-2 p-3 rounded-md bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+                  <Settings className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-xs font-semibold text-blue-700 dark:text-blue-300 mb-0.5">GHL Configuration — Day 90</p>
+                    <p className="text-xs text-blue-700 dark:text-blue-400">
+                      In GHL workflow: after Day 60 step completes with no reply, wait 30 days → apply tag RE-ENGAGE-90 → Send Email.
+                      Personalization: use the contact's vertical field for the industry reference. If vertical is blank, use "retail" as the default.
+                      Add reply detection → stop sequence → tag RE-ENGAGE-REPLIED → enroll in Workflow 3.
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Touchpoint 3 — Day 120 */}
+            <Card className="border-l-4 border-orange-500">
+              <CardHeader className="pb-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <CardTitle className="text-sm">Day 120 Touchpoint</CardTitle>
+                  <Badge className="bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300 gap-1 text-xs">
+                    <MessageSquare className="h-3 w-3" /> SMS
+                  </Badge>
+                </div>
+                <CardDescription>
+                  Final touchpoint — 30 days after Day 90. New offer or seasonal hook via SMS. Short, punchy, low pressure.
+                  After this, tag <code className="text-xs bg-muted px-1 rounded">RE-ENGAGE-EXHAUSTED</code> and move to long-term nurture.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <CopyBlock
+                  label="SMS (seasonal variant — swap hook as needed)"
+                  text={`{{contact.firstName}} — one last check-in from Liberty Bancard. End-of-year is a great time to review processing costs before the busy season hits. Free analysis, no commitment: www.libertybancard.com/upload-statement — Takes 2 min. Reply STOP to opt out.`}
+                />
+                <CopyBlock
+                  label="Alternative SMS (non-seasonal)"
+                  text={`Hi {{contact.firstName}}, Scott at Liberty Bancard. We haven't connected yet — if you ever want a free look at your processing rates, just reply YES or visit www.libertybancard.com/upload-statement. No pressure, no spam after this. Reply STOP to opt out.`}
+                />
+                <div className="flex gap-2 p-3 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                  <ArrowRight className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-xs font-semibold text-amber-700 dark:text-amber-300 mb-0.5">After Day 120 — Exit Logic</p>
+                    <p className="text-xs text-amber-700 dark:text-amber-400">
+                      If no reply after Day 120 SMS: apply tag RE-ENGAGE-EXHAUSTED. Remove RE-ENGAGE-60 / RE-ENGAGE-90 tags.
+                      Enroll in Long-Term Nurture (quarterly educational content — no hard sales pitch). Do not re-run the re-engagement sequence for at least 180 days.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-2 p-3 rounded-md bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+                  <Settings className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-xs font-semibold text-blue-700 dark:text-blue-300 mb-0.5">GHL Configuration — Day 120</p>
+                    <p className="text-xs text-blue-700 dark:text-blue-400">
+                      After Day 90 step with no reply, wait 30 days → Send SMS (use seasonal variant if Q4, otherwise non-seasonal).
+                      After SMS: wait 7 days → If/Else: reply received? Yes → stop + tag RE-ENGAGE-REPLIED. No → apply RE-ENGAGE-EXHAUSTED → Remove Trigger Tag → Enroll in Long-Term Nurture workflow.
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* GHL Build Instructions */}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <ListChecks className="h-4 w-4 text-green-500" /> GHL Automation Setup — Re-engagement Workflow
+                </CardTitle>
+                <CardDescription>How to configure this sequence in GoHighLevel from scratch.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ol className="space-y-3 text-xs text-muted-foreground list-none">
+                  {[
+                    "Go to GHL → Automations → Create New Workflow → Name it: \"Liberty Bancard — Cold Lead Re-engagement\"",
+                    "Trigger: Contact Tag Added → Tag = COLD-NO-DEAL. This fires when the platform applies the tag via the Re-engagement dashboard.",
+                    "Step 1 (immediate): Send Email → Day 60 template (subject + body from above). Use branded Liberty Bancard email template.",
+                    "Step 2 (2 hours later): Send SMS → Day 60 SMS copy from above. Ensure SMS opt-in compliance.",
+                    "Add Reply Detection on both email and SMS steps: If reply received → Remove from workflow → Apply tag RE-ENGAGE-REPLIED → Enroll in Workflow 3 (Reply Engaged).",
+                    "Wait 30 days → Apply tag RE-ENGAGE-90 → Step 3: Send Email → Day 90 case study email. Personalize {{contact.vertical}} before activating.",
+                    "Add Reply Detection on Day 90 email → If reply → stop + RE-ENGAGE-REPLIED → Workflow 3.",
+                    "Wait 30 days → Step 4: Send SMS → Day 120 SMS copy. Use seasonal variant if month is Oct/Nov/Dec, otherwise non-seasonal.",
+                    "Wait 7 days → If/Else: Tag = RE-ENGAGE-REPLIED? No → Apply RE-ENGAGE-EXHAUSTED → Remove COLD-NO-DEAL tag → Enroll in Long-Term Nurture workflow.",
+                    "Register the GHL Workflow ID in the platform at /dashboard/ghl-workflows under the sequence name \"19. Reactivation — Cold Lead Revival\".",
+                  ].map((step, i) => (
+                    <li key={i} className="flex items-start gap-2.5">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-muted-foreground/30 text-[10px] font-bold mt-0.5">
+                        {i + 1}
+                      </span>
+                      <span>{step}</span>
+                    </li>
+                  ))}
+                </ol>
+              </CardContent>
+            </Card>
+
+            {/* Tag Reference for Re-engagement */}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Tag className="h-4 w-4" /> Re-engagement Tag Reference
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left py-2 pr-4 font-semibold text-muted-foreground">Tag</th>
+                        <th className="text-left py-2 pr-4 font-semibold text-muted-foreground">When Applied</th>
+                        <th className="text-left py-2 font-semibold text-muted-foreground">Effect</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[
+                        { tag: "COLD-NO-DEAL", when: "Admin clicks Re-engage on Cold Lead dashboard", effect: "Triggers the re-engagement GHL workflow immediately" },
+                        { tag: "RE-ENGAGE-60", when: "Applied at enrollment (Day 60 touchpoint fires)", effect: "Marks contact as in active re-engagement" },
+                        { tag: "RE-ENGAGE-90", when: "Applied 30 days after Day 60 step", effect: "Day 90 case study email fires" },
+                        { tag: "RE-ENGAGE-REPLIED", when: "Any reply received on any touchpoint", effect: "Stop re-engagement sequence → enroll in Workflow 3 (Reply Engaged)" },
+                        { tag: "RE-ENGAGE-EXHAUSTED", when: "No response after Day 120 + 7-day wait", effect: "Remove from sequence → enroll in Long-Term Nurture" },
+                      ].map((row, i) => (
+                        <tr key={i} className="border-b last:border-0 hover:bg-muted/30">
+                          <td className="py-2.5 pr-4 font-mono font-medium">{row.tag}</td>
+                          <td className="py-2.5 pr-4 text-muted-foreground">{row.when}</td>
+                          <td className="py-2.5 text-muted-foreground">{row.effect}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="mt-4 flex items-start gap-2 p-3 rounded-md bg-muted/40 border text-xs text-muted-foreground">
+                  <Info className="h-4 w-4 shrink-0 mt-0.5" />
+                  <div>
+                    <strong>COLD-NO-DEAL tag automation (optional):</strong> To auto-tag contacts without manual review,
+                    create a GHL Smart List filter: Contact has form submission tag (LB-INBOUND-NEW or LB-COLD-OUTBOUND) AND
+                    does NOT have tag LB-ACTIVE-PIPELINE AND contact created date is older than 60 days.
+                    Then create a workflow that fires on Smart List entry → applies COLD-NO-DEAL. This enables hands-off detection,
+                    while the Re-engagement dashboard remains the human review layer before outreach begins.
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Platform link */}
+            <Card className="border-dashed">
+              <CardContent className="pt-4 flex items-center justify-between gap-4 flex-wrap">
+                <div className="flex items-center gap-3">
+                  <Users className="h-8 w-8 text-muted-foreground" />
+                  <div>
+                    <p className="text-sm font-medium">Cold Lead Re-engagement Dashboard</p>
+                    <p className="text-xs text-muted-foreground">Review and manually trigger re-engagement for dormant leads.</p>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <Button asChild size="sm" data-testid="btn-cold-leads-link">
+                    <Link href="/dashboard/cold-leads">
+                      <ArrowRight className="h-4 w-4 mr-1.5" /> Open Cold Leads
+                    </Link>
+                  </Button>
+                  <Button asChild size="sm" variant="outline" data-testid="btn-ghl-external-reengage">
+                    <a href="https://app.gohighlevel.com" target="_blank" rel="noopener noreferrer">
+                      <ExternalLink className="h-4 w-4 mr-1.5" /> Open GHL
+                    </a>
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
 
         {/* Tag Reference */}
         <TabsContent value="tags" className="mt-4">

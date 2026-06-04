@@ -159,6 +159,7 @@ const leadGenItems: MenuItem[] = [
   { icon: Sparkles, label: "Lead Intelligence", href: "/dashboard/lead-intelligence", roles: ["admin", "manager"] },
   { icon: FileBarChart, label: "Statement Review", href: "/dashboard/statement-review", roles: ["admin", "manager"] },
   { icon: BarChart2, label: "Outreach Analytics", href: "/dashboard/outreach-analytics", roles: ["admin", "manager"] },
+  { icon: RefreshCw, label: "Cold Lead Re-engagement", href: "/dashboard/cold-leads", roles: ["admin", "manager"] },
   { icon: CreditCard, label: "BIN Lookup", href: "/dashboard/bin-lookup", roles: ["admin", "manager", "agent"] },
 ];
 

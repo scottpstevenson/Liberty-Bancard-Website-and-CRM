@@ -199,6 +199,7 @@ const GrowthPlaybook = lazy(() => import("@/pages/dashboard/GrowthPlaybook"));
 const GrowthKPI = lazy(() => import("@/pages/dashboard/GrowthKPI"));
 const WidgetGenerator = lazy(() => import("@/pages/dashboard/WidgetGenerator"));
 const PartnerEmbedWidget = lazy(() => import("@/pages/PartnerEmbedWidget"));
+const ColdLeads = lazy(() => import("@/pages/dashboard/ColdLeads"));
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -634,6 +635,10 @@ function Router() {
         </Route>
 
         <Route path="/partners/embed-widget" component={PartnerEmbedWidget} />
+
+        <Route path="/dashboard/cold-leads">
+          <ProtectedRoute component={ColdLeads} />
+        </Route>
 
         <Route component={NotFound} />
       </Switch>

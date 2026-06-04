@@ -2,6 +2,8 @@ import type { Express } from "express";
 import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
+import { pool } from "../db";
+import { enrollContactInGhlWorkflow } from "../services/ghl-workflow-enrollment";
 import { insertCompanySchema, insertContactSchema } from "@shared/schema";
 import { enrichContactBatch, isContactEnrichRunning } from "../services/enrichment";
 import { enrichContactFromLinkedIn, bulkEnrichFromLinkedIn } from "../services/linkedin-enrichment";
@@ -67,6 +69,72 @@ export function registerContactsRoutes(app: Express) {
           existingContactId: existing?.id ?? null,
         });
       }
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === COLD LEADS (Re-engagement segment) ===
+  app.get("/api/contacts/cold-leads", isDashboardUser, async (req, res) => {
+    try {
+      const page = req.query.page ? Number(req.query.page) : 0;
+      const pageSize = 100;
+
+      // Single efficient query: all cold leads across full dataset.
+      // Uses NOT EXISTS to exclude contacts with any active (non-closed) deal.
+      // Bypasses storage pagination cap (500 rows) by querying DB directly.
+      const result = await pool.query(`
+        SELECT
+          c.id,
+          c.first_name AS "firstName",
+          c.last_name  AS "lastName",
+          c.email,
+          c.phone,
+          c.company_name  AS "companyName",
+          c.lead_source   AS "leadSource",
+          c.utm_source    AS "utmSource",
+          c.referral_source AS "referralSource",
+          c.vertical,
+          c.status,
+          c.tags,
+          c.ghl_contact_id AS "ghlContactId",
+          c.assigned_to    AS "assignedTo",
+          COALESCE(c.last_contacted_at, c.created_at) AS "lastActivityDate",
+          EXTRACT(DAY FROM NOW() - COALESCE(c.last_contacted_at, c.created_at))::int AS "daysDormant"
+        FROM contacts c
+        WHERE c.archived_at IS NULL
+          AND (c.do_not_contact IS NULL OR c.do_not_contact = FALSE)
+          AND c.status IS DISTINCT FROM 'Won'
+          AND (
+            c.lead_source   IS NOT NULL OR
+            c.utm_source    IS NOT NULL OR
+            c.referral_source IS NOT NULL
+          )
+          AND COALESCE(c.last_contacted_at, c.created_at) < NOW() - INTERVAL '45 days'
+          AND NOT EXISTS (
+            SELECT 1 FROM deals d
+            WHERE d.contact_id = c.id
+              AND d.archived_at IS NULL
+              AND d.stage NOT IN ('Closed Lost', 'Nurture / Not Now')
+          )
+        ORDER BY COALESCE(c.last_contacted_at, c.created_at) ASC
+      `);
+
+      const allColdLeads = result.rows;
+      const total = allColdLeads.length;
+      const avgDaysDormant = total > 0
+        ? Math.round(allColdLeads.reduce((s: number, c: any) => s + (Number(c.daysDormant) || 0), 0) / total)
+        : 0;
+      const estimatedValue = total * 15000;
+
+      res.json({
+        data: allColdLeads.slice(page * pageSize, (page + 1) * pageSize),
+        total,
+        avgDaysDormant,
+        estimatedValue,
+        page,
+        pageSize,
+      });
+    } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
   });
@@ -144,6 +212,77 @@ export function registerContactsRoutes(app: Express) {
           existingContactId: existing?.id ?? null,
         });
       }
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === RE-ENGAGE (Cold Lead Re-engagement) ===
+  app.post("/api/contacts/bulk-re-engage", isDashboardUser, async (req, res) => {
+    try {
+      const schema = z.object({
+        contactIds: z.array(z.number().int().positive()).min(1).max(200),
+      });
+      const { contactIds } = schema.parse(req.body);
+      const sequenceName = "19. Reactivation — Cold Lead Revival";
+
+      let enrolled = 0;
+      let skipped = 0;
+      let errors = 0;
+
+      for (const contactId of contactIds) {
+        try {
+          const contact = await storage.getContact(contactId);
+          if (!contact) { skipped++; continue; }
+          const existingTags = contact.tags || [];
+          const newTags = [...new Set([...existingTags, "COLD-NO-DEAL", "RE-ENGAGE-60"])];
+          await storage.updateContact(contactId, { tags: newTags });
+          const result = await enrollContactInGhlWorkflow({
+            contactId,
+            sequenceName,
+            sequenceId: 0,
+            vertical: contact.vertical || undefined,
+          });
+          if (result.enrolled || result.method === "replit_direct") enrolled++;
+          else skipped++;
+        } catch {
+          errors++;
+        }
+      }
+
+      res.json({ enrolled, skipped, errors, total: contactIds.length });
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/contacts/:id/re-engage", isDashboardUser, async (req, res) => {
+    try {
+      const contactId = Number(req.params.id);
+      const contact = await storage.getContact(contactId);
+      if (!contact) return res.status(404).json({ message: "Contact not found" });
+
+      const existingTags = contact.tags || [];
+      const newTags = [...new Set([...existingTags, "COLD-NO-DEAL", "RE-ENGAGE-60"])];
+      await storage.updateContact(contactId, { tags: newTags });
+
+      const sequenceName = "19. Reactivation — Cold Lead Revival";
+      const result = await enrollContactInGhlWorkflow({
+        contactId,
+        sequenceName,
+        sequenceId: 0,
+        vertical: contact.vertical || undefined,
+      });
+
+      await storage.createAuditLog({
+        action: "re_engage_enrolled",
+        entityType: "contact",
+        entityId: contactId,
+        details: { sequenceName, enrolled: result.enrolled, method: result.method },
+      });
+
+      res.json({ success: true, enrolled: result.enrolled, method: result.method, reason: result.reason });
+    } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
   });
