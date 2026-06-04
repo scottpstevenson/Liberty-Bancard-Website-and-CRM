@@ -208,8 +208,8 @@ export default function PartnerInsurance() {
   return (
     <div className="min-h-screen flex flex-col font-body">
       <SEO
-        title="Insurance Agent Partner Program — Earn Residuals on Business Referrals | Liberty Bancard"
-        description="Business insurance agents: you talk to every small business. Introduce them to cash discount payment processing and earn 30% lifetime residuals. Zero payments expertise required."
+        title="Insurance Agent Partner Program — Earn Residuals | Liberty Bancard"
+        description="Business insurance agents: you talk to every small business. Introduce them to cash discount processing and earn 30% lifetime residuals. Zero payments expertise required."
         path="/partners/insurance"
       />
       <Navbar />

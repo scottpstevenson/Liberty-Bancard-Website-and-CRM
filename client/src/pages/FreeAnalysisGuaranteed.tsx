@@ -143,8 +143,8 @@ export default function FreeAnalysisGuaranteed() {
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <SEO
-        title="Free Merchant Statement Analysis — Guaranteed Savings or We Pay You"
-        description="Upload your statement and we'll find your hidden fees, benchmark you against 3,200+ statements, and show you exactly what you should be paying. If we can't find savings, we'll send you a $50 gift card."
+        title="Free Statement Analysis — Guaranteed Savings | Liberty Bancard"
+        description="Upload your statement and we'll find hidden fees, benchmark you against 3,200+ statements, and show exactly what you should pay. No savings? We'll send you a $50 gift card."
         path="/free-analysis-guaranteed"
         keywords="free merchant statement analysis, guaranteed savings, payment processing review, hidden fees, merchant services benchmark"
         structuredData={[faqJsonLd, serviceJsonLd]}

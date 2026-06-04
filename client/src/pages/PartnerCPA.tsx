@@ -190,8 +190,8 @@ export default function PartnerCPA() {
   return (
     <div className="min-h-screen flex flex-col font-body">
       <SEO
-        title="CPA Partner Program — Earn Residuals on Client Referrals | Liberty Bancard"
-        description="CPAs: your clients are overpaying on processing fees. Refer them to Liberty Bancard and earn 30% lifetime residual income. No sales effort required — just a referral."
+        title="CPA Partner Program — Earn Residuals | Liberty Bancard"
+        description="CPAs: your clients are overpaying on processing fees. Refer them to Liberty Bancard and earn 30% lifetime residual income. No sales effort — just a referral."
         path="/partners/cpa"
       />
       <Navbar />

@@ -189,8 +189,8 @@ export default function PartnerBookkeeper() {
   return (
     <div className="min-h-screen flex flex-col font-body">
       <SEO
-        title="Bookkeeper Partner Program — Earn Residuals Referring Clients | Liberty Bancard"
-        description="Bookkeepers: you reconcile statements monthly and see the fees firsthand. Refer clients to Liberty Bancard and earn 30% lifetime residual income with zero ongoing effort."
+        title="Bookkeeper Partner Program — Earn Residuals | Liberty Bancard"
+        description="Bookkeepers: you reconcile statements monthly and see the fees firsthand. Refer clients to Liberty Bancard and earn 30% lifetime residuals with zero ongoing effort."
         path="/partners/bookkeeper"
       />
       <Navbar />
