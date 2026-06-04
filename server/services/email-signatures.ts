@@ -17,7 +17,7 @@ export interface PromoOffer {
 
 const BASE_URL = "https://libertybancard.com";
 const QUIZ_PATH = "/free-analysis";
-const SHOP_PATH = "/terminals";
+const SHOP_PATH = "/shop";
 
 const DEFAULT_PROMO: PromoOffer = {
   headline: "Free Terminal with Signup",
@@ -26,23 +26,23 @@ const DEFAULT_PROMO: PromoOffer = {
 
 const DEFAULT_SIGNATURES: Record<string, EmailSignature> = {
   sales: {
-    name: "Liberty Bancard Sales Team",
+    name: "Scott Stevenson",
     title: "Business Development",
-    phone: "(888) 555-0100",
-    email: "sales@libertybancard.com",
-    calendlyLink: "https://libertybancard.com/schedule",
+    phone: "954-266-8214",
+    email: "scott@libertybancard.com",
+    calendlyLink: "https://api.leadconnectorhq.com/widget/booking/liberty-bancard",
   },
   support: {
     name: "Liberty Bancard Support",
     title: "Merchant Support",
-    phone: "(888) 555-0101",
+    phone: "954-266-8214",
     email: "support@libertybancard.com",
   },
   onboarding: {
-    name: "Liberty Bancard Onboarding",
+    name: "Scott Stevenson",
     title: "New Merchant Activation",
-    phone: "(888) 555-0102",
-    email: "onboarding@libertybancard.com",
+    phone: "954-266-8214",
+    email: "scott@libertybancard.com",
   },
 };
 

@@ -80,7 +80,7 @@ function buildShareLinkEmailHtml(params: {
     </p>
     <p style="font-size: 14px; color: #475569; margin: 4px 0;">
       📞 <a href="tel:9542668214" style="color: #0ea5e9;">954-266-8214</a> |
-      📧 <a href="mailto:sales@libertybancard.com" style="color: #0ea5e9;">sales@libertybancard.com</a>
+      📧 <a href="mailto:scott@libertybancard.com" style="color: #0ea5e9;">scott@libertybancard.com</a>
     </p>
   </div>
 </div>

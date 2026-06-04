@@ -16,6 +16,7 @@ import { createContactGhlFirst } from "../services/contact-writer";
 import { syncFormSubmissionToGhl, syncAffiliateSignupToGhl } from "../services/ghl-form-sync";
 import { sendPartnerWelcomeEmail } from "../services/partner-welcome";
 import { isGhlConfigured, sendGhlEmailForMerchant } from "../services/ghl";
+import { sendSmtpEmail, isSmtpConfigured } from "../services/smtp-email";
 
 const partnerForgotPasswordRateLimit = rateLimit({
   windowMs: 60 * 60 * 1000,
@@ -106,9 +107,9 @@ export function registerPartnersRoutes(app: Express) {
   <p><a href="${inviteUrl}" style="display:inline-block;background-color:#1e3a5f;color:#ffffff;padding:10px 20px;border-radius:4px;text-decoration:none;font-size:13px;font-weight:bold;">Set Your Password &amp; Access Your Portal &rarr;</a></p>
   <p>Or copy and paste this link:<br/><span style="font-family:monospace;font-size:12px;color:#555;">${inviteUrl}</span></p>
   <p>This link expires in 72 hours. Once you set your password, you'll have full access to your partner dashboard with referral tracking, commission reports, and marketing materials.</p>
-  <p>Questions? Reply to this email or call 954-266-8214.</p>
+  <p>Questions? Reply to this email, call us at <a href="tel:9542668214" style="color:#1e3a5f;">954-266-8214</a>, or email <a href="mailto:scott@libertybancard.com" style="color:#1e3a5f;">scott@libertybancard.com</a>.</p>
   <p>Welcome aboard!</p>
-  <p>— The Liberty Bancard Partner Team</p>
+  <p style="margin:0;">— Scott Stevenson<br/><span style="color:#666;font-size:13px;">Liberty Bancard | 954-266-8214 | scott@libertybancard.com</span></p>
 </div>`;
                 await sendGhlEmailForMerchant({
                   email: updated.email,
@@ -348,8 +349,9 @@ export function registerPartnersRoutes(app: Express) {
 
         console.log(`[Partner Auth] Password reset URL: ${resetUrl}`);
 
-        if (partner.email && isGhlConfigured()) {
+        if (partner.email) {
           const displayName = partner.contactName || "there";
+          const subject = "Reset your Liberty Bancard partner password";
           const html = `
 <div style="font-family:Arial,sans-serif;font-size:14px;color:#333;max-width:600px;">
   <p>Hi ${displayName},</p>
@@ -357,13 +359,18 @@ export function registerPartnersRoutes(app: Express) {
   <p><a href="${resetUrl}" style="display:inline-block;background-color:#1e3a5f;color:#ffffff;padding:10px 20px;border-radius:4px;text-decoration:none;font-size:13px;font-weight:bold;">Reset Your Password</a></p>
   <p>Or copy and paste this link into your browser:<br/><span style="font-family:monospace;font-size:12px;color:#555;">${resetUrl}</span></p>
   <p>This link will expire in 1 hour. If you didn't request a password reset, you can safely ignore this email.</p>
-  <p>— The Liberty Bancard Partner Team</p>
+  <p>Questions? Call us at <a href="tel:9542668214" style="color:#1e3a5f;">954-266-8214</a> or email <a href="mailto:support@libertybancard.com" style="color:#1e3a5f;">support@libertybancard.com</a>.</p>
+  <p style="margin:0;">— Scott Stevenson<br/><span style="color:#666;font-size:13px;">Liberty Bancard | 954-266-8214 | support@libertybancard.com</span></p>
 </div>`;
-          sendGhlEmailForMerchant({
-            email: partner.email,
-            subject: "Reset your Liberty Bancard partner password",
-            body: html,
-          }).catch(err => console.error("[Partner Auth] Reset email error:", err));
+          if (isGhlConfigured()) {
+            sendGhlEmailForMerchant({ email: partner.email, subject, body: html })
+              .catch(err => console.error("[Partner Auth] Reset email (GHL) error:", err));
+          } else if (isSmtpConfigured()) {
+            sendSmtpEmail({ to: partner.email, subject, html })
+              .catch(err => console.error("[Partner Auth] Reset email (SMTP) error:", err));
+          } else {
+            console.warn(`[Partner Auth] No email provider configured — reset link for partner #${partner.id}: ${resetUrl}`);
+          }
         }
       }
       return res.json({ message: "If an account with that email exists, a reset link has been sent." });
@@ -490,8 +497,9 @@ export function registerPartnersRoutes(app: Express) {
 
         console.log(`[Partner Auth] Password reset URL (canonical): ${resetUrl}`);
 
-        if (partner.email && isGhlConfigured()) {
+        if (partner.email) {
           const displayName = partner.contactName || "there";
+          const subject = "Reset your Liberty Bancard partner password";
           const html = `
 <div style="font-family:Arial,sans-serif;font-size:14px;color:#333;max-width:600px;">
   <p>Hi ${displayName},</p>
@@ -499,13 +507,18 @@ export function registerPartnersRoutes(app: Express) {
   <p><a href="${resetUrl}" style="display:inline-block;background-color:#1e3a5f;color:#ffffff;padding:10px 20px;border-radius:4px;text-decoration:none;font-size:13px;font-weight:bold;">Reset Your Password</a></p>
   <p>Or copy and paste this link into your browser:<br/><span style="font-family:monospace;font-size:12px;color:#555;">${resetUrl}</span></p>
   <p>This link will expire in 1 hour. If you didn't request a password reset, you can safely ignore this email.</p>
-  <p>— The Liberty Bancard Partner Team</p>
+  <p>Questions? Call us at <a href="tel:9542668214" style="color:#1e3a5f;">954-266-8214</a> or email <a href="mailto:support@libertybancard.com" style="color:#1e3a5f;">support@libertybancard.com</a>.</p>
+  <p style="margin:0;">— Scott Stevenson<br/><span style="color:#666;font-size:13px;">Liberty Bancard | 954-266-8214 | support@libertybancard.com</span></p>
 </div>`;
-          sendGhlEmailForMerchant({
-            email: partner.email,
-            subject: "Reset your Liberty Bancard partner password",
-            body: html,
-          }).catch(err => console.error("[Partner Auth] Reset email error:", err));
+          if (isGhlConfigured()) {
+            sendGhlEmailForMerchant({ email: partner.email, subject, body: html })
+              .catch(err => console.error("[Partner Auth] Reset email (GHL) error:", err));
+          } else if (isSmtpConfigured()) {
+            sendSmtpEmail({ to: partner.email, subject, html })
+              .catch(err => console.error("[Partner Auth] Reset email (SMTP) error:", err));
+          } else {
+            console.warn(`[Partner Auth] No email provider configured — reset link for partner #${partner.id}: ${resetUrl}`);
+          }
         }
       }
       return res.json({ message: "If an account with that email exists, a reset link has been sent." });

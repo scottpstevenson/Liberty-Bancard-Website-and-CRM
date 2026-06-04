@@ -39,7 +39,7 @@ export async function sendSmtpEmail(params: {
     return { success: false, error: "SMTP not configured (set SMTP_HOST, SMTP_USER, SMTP_PASS)" };
   }
 
-  const fromAddress = params.from || process.env.SMTP_FROM || process.env.SMTP_USER || "noreply@libertybancard.com";
+  const fromAddress = params.from || process.env.SMTP_FROM || process.env.SMTP_USER || "support@libertybancard.com";
 
   try {
     const info = await transport.sendMail({
