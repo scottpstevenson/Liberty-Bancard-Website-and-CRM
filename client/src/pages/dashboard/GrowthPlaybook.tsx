@@ -1,7 +1,10 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
@@ -12,6 +15,8 @@ import {
   Phone, BarChart2, ArrowRight, Info, Rocket, DollarSign, Video, Radio,
   Building, Coffee, Award, ChevronDown, ChevronRight, Megaphone, Share2,
   Calculator, FileText, Gift, Linkedin, Instagram,
+  Wrench, PlusCircle, Trash2, Download, LayoutGrid, ClipboardCheck,
+  BarChart3, RefreshCw, PenLine, ListChecks, Repeat2,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -585,6 +590,1023 @@ const TIMELINE = [
   { milestone: "1,000 signups/week", when: "Month 5–7", drivers: "All channels firing + viral share features + partner network at 50+ + YouTube ranking" },
 ];
 
+// ─────────────────────────────────────────────────────────────────────────────
+// TAB: TOOLS
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface ToolCard {
+  name: string;
+  description: string;
+  href: string;
+  external?: boolean;
+  icon: React.ComponentType<{ className?: string }>;
+  badge?: string;
+}
+
+const INTERNAL_TOOLS: ToolCard[] = [
+  { name: "Content Editor", description: "Write, draft with AI, schedule, and publish blog posts that rank for high-value keywords.", href: "/dashboard/content", icon: FileText, badge: "Blog" },
+  { name: "SEO Health", description: "Monitor keyword rankings, crawl issues, and on-page optimization scores across all public pages.", href: "/dashboard/seo-health", icon: Search, badge: "SEO" },
+  { name: "Reporting & Analytics", description: "Lead source performance, conversion funnels, and revenue attribution across all growth channels.", href: "/dashboard/reporting", icon: BarChart2, badge: "Analytics" },
+  { name: "Affiliate Dashboard", description: "Track affiliate signups, referral codes, commission payouts, and top performers.", href: "/dashboard/affiliates", icon: Gift, badge: "Referrals" },
+  { name: "GHL Workflows", description: "Map sequence names to GHL workflow IDs. Manage active/inactive sequences from one place.", href: "/dashboard/integrations", icon: Zap, badge: "GHL" },
+  { name: "Sequences", description: "Build and manage multi-step outreach sequences for cold, warm, and nurture leads.", href: "/dashboard/sequences", icon: Mail, badge: "Outreach" },
+  { name: "Contacts", description: "Full contact list with enrichment status, pipeline stage, tags, and last activity.", href: "/dashboard/contacts", icon: Users, badge: "CRM" },
+  { name: "Partner Portal", description: "View partner accounts, referred merchant lists, commission tiers, and co-branded assets.", href: "/partners/portal", icon: Handshake, badge: "Partners" },
+  { name: "GHL Sequence Guide", description: "Step-by-step reference for building all 6 GHL sequences: inbound, cold, reply, statement, proposal, and nurture.", href: "/dashboard/ghl-sequence-guide", icon: BookOpen, badge: "Reference" },
+  { name: "Outreach Command Center", description: "Manage AI SDR pipeline: entity imports, enrichment, processor detection, and tech stack intelligence.", href: "/dashboard/outreach", icon: Megaphone, badge: "SDR" },
+  { name: "Retention Campaigns", description: "Launch targeted retention sequences for at-risk merchants based on NPS and health scores.", href: "/dashboard/retention-campaigns", icon: Target, badge: "Retention" },
+  { name: "Operator Dashboard", description: "Real-time KPIs, send monitoring, webhook event logs, stuck lead alerts, and anomaly detection.", href: "/dashboard/operator", icon: BarChart3, badge: "Ops" },
+];
+
+const EXTERNAL_TOOLS: ToolCard[] = [
+  { name: "Hotjar", description: "Free heatmaps and session recordings. Install on /upload-statement, /free-analysis, and homepage. Review after 500 sessions.", href: "https://www.hotjar.com", external: true, icon: BarChart2, badge: "CRO" },
+  { name: "Google Business Profile", description: "Claim and optimize your GBP listing. 'Merchant services near me' converts at 15–25%. Most important free lead channel.", href: "https://business.google.com", external: true, icon: Globe, badge: "Local SEO" },
+  { name: "Trustpilot (Free)", description: "Set up your free business profile to collect and display reviews. Sync review requests via GHL.", href: "https://business.trustpilot.com", external: true, icon: Star, badge: "Reviews" },
+  { name: "HARO / Connectively", description: "Get quoted in journalist stories as a payment processing expert. Sends 3 emails/day with query opportunities.", href: "https://www.connectively.us", external: true, icon: Mic, badge: "PR" },
+  { name: "Canva (Free)", description: "Create LinkedIn graphics, YouTube thumbnails, one-pagers, and social proof assets without a designer.", href: "https://www.canva.com", external: true, icon: PenLine, badge: "Design" },
+];
+
+function ToolsTab() {
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-base font-semibold flex items-center gap-2"><Wrench className="h-4 w-4 text-primary" /> Platform Tools</h2>
+        <p className="text-xs text-muted-foreground mt-0.5">Every internal tool that supports growth execution — direct links, no hunting.</p>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {INTERNAL_TOOLS.map(tool => {
+          const Icon = tool.icon;
+          return (
+            <Link key={tool.name} href={tool.href}>
+              <div className="border rounded-lg p-4 hover:bg-muted/40 hover:border-primary/40 transition-colors cursor-pointer h-full flex flex-col gap-2" data-testid={`tool-card-${tool.name.toLowerCase().replace(/\s+/g, '-')}`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Icon className="h-4 w-4 text-primary shrink-0" />
+                    <span className="font-semibold text-sm">{tool.name}</span>
+                  </div>
+                  {tool.badge && <Badge variant="secondary" className="text-[10px]">{tool.badge}</Badge>}
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed flex-1">{tool.description}</p>
+                <div className="flex items-center gap-1 text-xs text-primary font-medium">
+                  Open <ArrowRight className="h-3 w-3" />
+                </div>
+              </div>
+            </Link>
+          );
+        })}
+      </div>
+
+      <div>
+        <h2 className="text-base font-semibold flex items-center gap-2"><ExternalLink className="h-4 w-4 text-orange-500" /> External Tools</h2>
+        <p className="text-xs text-muted-foreground mt-0.5">Free third-party tools that directly support execution of this playbook.</p>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {EXTERNAL_TOOLS.map(tool => {
+          const Icon = tool.icon;
+          return (
+            <a key={tool.name} href={tool.href} target="_blank" rel="noopener noreferrer">
+              <div className="border rounded-lg p-4 hover:bg-muted/40 hover:border-orange-400/40 transition-colors cursor-pointer h-full flex flex-col gap-2" data-testid={`tool-card-ext-${tool.name.toLowerCase().replace(/\s+/g, '-')}`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Icon className="h-4 w-4 text-orange-500 shrink-0" />
+                    <span className="font-semibold text-sm">{tool.name}</span>
+                  </div>
+                  {tool.badge && <Badge variant="outline" className="text-[10px]">{tool.badge}</Badge>}
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed flex-1">{tool.description}</p>
+                <div className="flex items-center gap-1 text-xs text-orange-500 font-medium">
+                  Open in new tab <ExternalLink className="h-3 w-3" />
+                </div>
+              </div>
+            </a>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TAB: PARTNER PIPELINE
+// ─────────────────────────────────────────────────────────────────────────────
+
+type PartnerStatus = "Not Contacted" | "Sent" | "Connected" | "Call Booked" | "Active Partner" | "Passed";
+type PartnerType = "CPA" | "Bookkeeper" | "Insurance" | "Lender" | "Other";
+
+interface PartnerRow {
+  id: string;
+  name: string;
+  company: string;
+  type: PartnerType;
+  dateContacted: string;
+  status: PartnerStatus;
+  notes: string;
+  nextAction: string;
+}
+
+const PARTNER_STATUSES: PartnerStatus[] = ["Not Contacted", "Sent", "Connected", "Call Booked", "Active Partner", "Passed"];
+const PARTNER_TYPES: PartnerType[] = ["CPA", "Bookkeeper", "Insurance", "Lender", "Other"];
+
+const STATUS_COLORS: Record<PartnerStatus, string> = {
+  "Not Contacted": "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400",
+  "Sent": "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
+  "Connected": "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300",
+  "Call Booked": "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300",
+  "Active Partner": "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
+  "Passed": "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400",
+};
+
+const LS_PARTNERS = "gp_partner_pipeline_v1";
+
+function generateId() { return Math.random().toString(36).slice(2, 10); }
+
+function PartnerPipelineTab() {
+  const { toast } = useToast();
+  const [rows, setRows] = useState<PartnerRow[]>(() => {
+    try { return JSON.parse(localStorage.getItem(LS_PARTNERS) || "[]"); } catch { return []; }
+  });
+  const [editing, setEditing] = useState<string | null>(null);
+  const [draft, setDraft] = useState<Partial<PartnerRow>>({});
+  const [adding, setAdding] = useState(false);
+
+  useEffect(() => { localStorage.setItem(LS_PARTNERS, JSON.stringify(rows)); }, [rows]);
+
+  const summary = useMemo(() => ({
+    active: rows.filter(r => r.status === "Active Partner").length,
+    pipeline: rows.filter(r => !["Not Contacted", "Active Partner", "Passed"].includes(r.status)).length,
+    notContacted: rows.filter(r => r.status === "Not Contacted").length,
+  }), [rows]);
+
+  function startAdd() {
+    setDraft({ status: "Not Contacted", type: "CPA", dateContacted: new Date().toISOString().slice(0, 10) });
+    setAdding(true);
+    setEditing(null);
+  }
+
+  function saveAdd() {
+    if (!draft.name?.trim()) { toast({ title: "Name is required", variant: "destructive" }); return; }
+    const row: PartnerRow = {
+      id: generateId(), name: draft.name || "", company: draft.company || "",
+      type: (draft.type as PartnerType) || "CPA", dateContacted: draft.dateContacted || "",
+      status: (draft.status as PartnerStatus) || "Not Contacted",
+      notes: draft.notes || "", nextAction: draft.nextAction || "",
+    };
+    setRows(prev => [row, ...prev]);
+    setAdding(false);
+    setDraft({});
+    toast({ title: "Partner added" });
+  }
+
+  function startEdit(row: PartnerRow) { setEditing(row.id); setDraft({ ...row }); setAdding(false); }
+
+  function saveEdit() {
+    setRows(prev => prev.map(r => r.id === editing ? { ...r, ...draft } as PartnerRow : r));
+    setEditing(null); setDraft({});
+    toast({ title: "Partner updated" });
+  }
+
+  function deleteRow(id: string) {
+    setRows(prev => prev.filter(r => r.id !== id));
+    if (editing === id) { setEditing(null); setDraft({}); }
+  }
+
+  function exportCSV() {
+    const header = ["Name", "Company", "Type", "Date Contacted", "Status", "Notes", "Next Action"];
+    const lines = rows.map(r => [r.name, r.company, r.type, r.dateContacted, r.status, r.notes, r.nextAction].map(v => `"${(v || "").replace(/"/g, '""')}"`).join(","));
+    const blob = new Blob([[header.join(","), ...lines].join("\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "partner-pipeline.csv"; a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  const EditableRow = ({ row }: { row: PartnerRow }) => {
+    const isEditing = editing === row.id;
+    if (isEditing) {
+      return (
+        <tr className="bg-muted/30">
+          {["name", "company"].map(f => (
+            <td key={f} className="px-2 py-1.5">
+              <Input className="h-7 text-xs" value={(draft as any)[f] || ""} onChange={e => setDraft(p => ({ ...p, [f]: e.target.value }))} data-testid={`input-partner-${f}`} />
+            </td>
+          ))}
+          <td className="px-2 py-1.5">
+            <Select value={draft.type || "CPA"} onValueChange={v => setDraft(p => ({ ...p, type: v as PartnerType }))}>
+              <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>{PARTNER_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+            </Select>
+          </td>
+          <td className="px-2 py-1.5">
+            <Input type="date" className="h-7 text-xs" value={draft.dateContacted || ""} onChange={e => setDraft(p => ({ ...p, dateContacted: e.target.value }))} data-testid="input-partner-date" />
+          </td>
+          <td className="px-2 py-1.5">
+            <Select value={draft.status || "Not Contacted"} onValueChange={v => setDraft(p => ({ ...p, status: v as PartnerStatus }))}>
+              <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>{PARTNER_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+            </Select>
+          </td>
+          <td className="px-2 py-1.5">
+            <Input className="h-7 text-xs" value={draft.notes || ""} onChange={e => setDraft(p => ({ ...p, notes: e.target.value }))} placeholder="Notes" data-testid="input-partner-notes" />
+          </td>
+          <td className="px-2 py-1.5">
+            <Input className="h-7 text-xs" value={draft.nextAction || ""} onChange={e => setDraft(p => ({ ...p, nextAction: e.target.value }))} placeholder="Next action" data-testid="input-partner-next" />
+          </td>
+          <td className="px-2 py-1.5">
+            <div className="flex gap-1">
+              <Button size="sm" className="h-7 text-xs px-2" onClick={saveEdit} data-testid="button-partner-save">Save</Button>
+              <Button size="sm" variant="ghost" className="h-7 text-xs px-2" onClick={() => { setEditing(null); setDraft({}); }}>Cancel</Button>
+            </div>
+          </td>
+        </tr>
+      );
+    }
+    return (
+      <tr className="border-b hover:bg-muted/20 last:border-0" data-testid={`row-partner-${row.id}`}>
+        <td className="px-2 py-2 text-xs font-medium">{row.name}</td>
+        <td className="px-2 py-2 text-xs text-muted-foreground">{row.company}</td>
+        <td className="px-2 py-2"><Badge variant="outline" className="text-[10px]">{row.type}</Badge></td>
+        <td className="px-2 py-2 text-xs text-muted-foreground">{row.dateContacted}</td>
+        <td className="px-2 py-2"><Badge className={`text-[10px] ${STATUS_COLORS[row.status]}`}>{row.status}</Badge></td>
+        <td className="px-2 py-2 text-xs text-muted-foreground max-w-[140px] truncate" title={row.notes}>{row.notes}</td>
+        <td className="px-2 py-2 text-xs text-muted-foreground max-w-[120px] truncate" title={row.nextAction}>{row.nextAction}</td>
+        <td className="px-2 py-2">
+          <div className="flex gap-1">
+            <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => startEdit(row)} aria-label="Edit partner" data-testid={`button-partner-edit-${row.id}`}><PenLine className="h-3 w-3" /></Button>
+            <Button size="icon" variant="ghost" className="h-6 w-6 text-destructive" onClick={() => deleteRow(row.id)} aria-label="Delete partner" data-testid={`button-partner-delete-${row.id}`}><Trash2 className="h-3 w-3" /></Button>
+          </div>
+        </td>
+      </tr>
+    );
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <h2 className="text-base font-semibold flex items-center gap-2"><Handshake className="h-4 w-4 text-primary" /> Partner Outreach Pipeline</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">Track every CPA, bookkeeper, insurance, and lender partner prospect. Data saves in your browser.</p>
+        </div>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={exportCSV} className="gap-1.5 text-xs" data-testid="button-partner-export"><Download className="h-3.5 w-3.5" /> Export CSV</Button>
+          <Button size="sm" onClick={startAdd} className="gap-1.5 text-xs" data-testid="button-partner-add"><PlusCircle className="h-3.5 w-3.5" /> Add Partner</Button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        {[
+          { label: "Active Partners", value: summary.active, color: "text-green-600 dark:text-green-400" },
+          { label: "In Pipeline", value: summary.pipeline, color: "text-blue-600 dark:text-blue-400" },
+          { label: "Not Contacted", value: summary.notContacted, color: "text-muted-foreground" },
+        ].map(stat => (
+          <Card key={stat.label}><CardContent className="pt-4 pb-3 text-center">
+            <div className={`text-2xl font-bold ${stat.color}`}>{stat.value}</div>
+            <div className="text-xs text-muted-foreground">{stat.label}</div>
+          </CardContent></Card>
+        ))}
+      </div>
+
+      <Card>
+        <CardContent className="pt-4 overflow-x-auto">
+          <table className="w-full text-xs min-w-[700px]">
+            <thead>
+              <tr className="border-b">
+                {["Partner Name", "Company", "Type", "Date Contacted", "Status", "Notes", "Next Action", ""].map(h => (
+                  <th key={h} className="text-left px-2 py-2 font-semibold text-muted-foreground">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {adding && (
+                <tr className="bg-muted/30 border-b">
+                  {["name", "company"].map(f => (
+                    <td key={f} className="px-2 py-1.5">
+                      <Input className="h-7 text-xs" placeholder={f === "name" ? "Partner name*" : "Company"} value={(draft as any)[f] || ""} onChange={e => setDraft(p => ({ ...p, [f]: e.target.value }))} data-testid={`input-new-partner-${f}`} />
+                    </td>
+                  ))}
+                  <td className="px-2 py-1.5">
+                    <Select value={draft.type || "CPA"} onValueChange={v => setDraft(p => ({ ...p, type: v as PartnerType }))}>
+                      <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>{PARTNER_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </td>
+                  <td className="px-2 py-1.5">
+                    <Input type="date" className="h-7 text-xs" value={draft.dateContacted || ""} onChange={e => setDraft(p => ({ ...p, dateContacted: e.target.value }))} data-testid="input-new-partner-date" />
+                  </td>
+                  <td className="px-2 py-1.5">
+                    <Select value={draft.status || "Not Contacted"} onValueChange={v => setDraft(p => ({ ...p, status: v as PartnerStatus }))}>
+                      <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>{PARTNER_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </td>
+                  <td className="px-2 py-1.5"><Input className="h-7 text-xs" placeholder="Notes" value={draft.notes || ""} onChange={e => setDraft(p => ({ ...p, notes: e.target.value }))} /></td>
+                  <td className="px-2 py-1.5"><Input className="h-7 text-xs" placeholder="Next action" value={draft.nextAction || ""} onChange={e => setDraft(p => ({ ...p, nextAction: e.target.value }))} /></td>
+                  <td className="px-2 py-1.5">
+                    <div className="flex gap-1">
+                      <Button size="sm" className="h-7 text-xs px-2" onClick={saveAdd} data-testid="button-new-partner-save">Add</Button>
+                      <Button size="sm" variant="ghost" className="h-7 text-xs px-2" onClick={() => { setAdding(false); setDraft({}); }}>Cancel</Button>
+                    </div>
+                  </td>
+                </tr>
+              )}
+              {rows.length === 0 && !adding ? (
+                <tr><td colSpan={8} className="px-2 py-8 text-center text-muted-foreground text-xs">No partners yet. Click "Add Partner" to start tracking your outreach pipeline.</td></tr>
+              ) : (
+                rows.map(row => <EditableRow key={row.id} row={row} />)
+              )}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TAB: CONTENT REPURPOSING
+// ─────────────────────────────────────────────────────────────────────────────
+
+const LS_REPURPOSE_WEEK = "gp_repurpose_week_v1";
+
+interface ContentOutput {
+  id: string;
+  label: string;
+  format: string;
+  template: string;
+}
+
+const CONTENT_OUTPUTS: ContentOutput[] = [
+  {
+    id: "linkedin", label: "LinkedIn Post", format: "300–500 words",
+    template: `📊 Statement Teardown — [MERCHANT TYPE]
+
+I reviewed a [MERCHANT TYPE]'s merchant statement today.
+
+Here's what I found:
+• Total processing volume: $[VOLUME]
+• Interchange (base cost): $[INTERCHANGE]
+• Processor markup: $[MARKUP] ← This is the problem
+• Effective rate: [RATE]%
+• What they should be paying: [TARGET_RATE]%
+
+That's $[MONTHLY_SAVINGS]/month in unnecessary fees.
+$[ANNUAL_SAVINGS]/year.
+
+And they had no idea.
+
+If you accept credit cards and haven't reviewed your statement in the last 12 months — when was the last time you looked at what your processor is actually making off you?
+
+[Upload link in first comment]`,
+  },
+  {
+    id: "blog", label: "Blog Post", format: "1,500–2,500 words",
+    template: `Title: How We Helped a [MERCHANT TYPE] Save $[MONTHLY_SAVINGS]/Month on Payment Processing
+
+Introduction:
+When [MERCHANT_NAME] came to us, they were paying [OLD_RATE]% on $[VOLUME]/month in credit card volume. They assumed their rates were "standard" — their processor had told them so.
+
+They were wrong.
+
+[SECTION 1: What we found on the statement]
+The first thing we look at is the effective rate — total fees divided by total volume. [MERCHANT_NAME]'s was [OLD_RATE]%. For a [MERCHANT TYPE], industry average is [INDUSTRY_AVG]%.
+
+[SECTION 2: Breaking down where the money went]
+Interchange: $[INTERCHANGE] (this is fixed — set by Visa/Mastercard)
+Processor markup: $[MARKUP] ← 100% negotiable
+
+[SECTION 3: What changed]
+We moved them to interchange-plus pricing...
+
+[SECTION 4: Results]
+New effective rate: [NEW_RATE]%
+Monthly savings: $[MONTHLY_SAVINGS]
+Annual savings: $[ANNUAL_SAVINGS]
+
+[CTA]
+Want to see what you're actually paying? Upload your statement for a free 24-hour analysis → [LINK]`,
+  },
+  {
+    id: "youtube", label: "YouTube Video Script", format: "5–10 min video",
+    template: `TITLE: I Reviewed a [MERCHANT TYPE]'s Merchant Statement — Here's What I Found
+
+HOOK (0:00–0:20):
+"This [MERCHANT TYPE] was paying $[MONTHLY_SAVINGS] more per month than they needed to. They had no idea. Today I'm going to show you exactly what I found and how we fixed it."
+
+INTRO (0:20–1:00):
+"Hey everyone — [NAME] from Liberty Bancard. We do free merchant statement reviews, and today I'm walking through a real example — I've anonymized the details. Let's get into it."
+
+[SCREEN SHARE: Statement PDF]
+
+BREAKDOWN (1:00–5:00):
+• Show the statement header
+• Circle the total fees line
+• Calculate the effective rate live: [TOTAL_FEES] / [VOLUME] = [RATE]%
+• Compare to industry benchmark
+• Highlight the markup section
+
+WHAT WE DID (5:00–7:00):
+• Moved to interchange-plus pricing
+• Renegotiated the per-transaction fee
+• Removed the monthly "service fee"
+
+RESULTS (7:00–8:30):
+• Before: $[OLD_MONTHLY_FEES]/month
+• After: $[NEW_MONTHLY_FEES]/month
+• Savings: $[MONTHLY_SAVINGS]/month
+
+OUTRO / CTA (8:30–9:00):
+"If you want to see what you're paying, drop your statement at the link below. It's free, takes 2 minutes, and we'll have your analysis back within 24 hours. See you in the next one."`,
+  },
+  {
+    id: "short1", label: "Short-Form Clip #1 (Hook)", format: "30–60 sec",
+    template: `HOOK CLIP — "The Number on Your Statement Nobody Talks About"
+
+[Open on statement screenshot or talking head]
+
+"There's a number on your merchant statement that your processor hopes you never look at.
+
+It's called the processor markup — and it's the difference between what Visa charges and what you actually pay.
+
+For this [MERCHANT TYPE], that number was [MARKUP_PCT]%.
+
+On $[VOLUME]/month, that's $[MARKUP_DOLLARS].
+
+Every. Single. Month.
+
+We got them to [NEW_MARKUP_PCT]% — saving them $[MONTHLY_SAVINGS]/month.
+
+Link in bio to get your statement reviewed free."
+
+[END CARD with link]`,
+  },
+  {
+    id: "short2", label: "Short-Form Clip #2 (Results)", format: "30–60 sec",
+    template: `RESULTS CLIP — "Before and After"
+
+[Split screen or text animation]
+
+"Before Liberty Bancard: $[OLD_MONTHLY_FEES]/month
+After Liberty Bancard: $[NEW_MONTHLY_FEES]/month
+
+That's $[MONTHLY_SAVINGS] back in their pocket. Every month. Forever.
+
+[MERCHANT TYPE]. $[VOLUME]/month in volume.
+
+They switched in [SWITCH_TIME] days.
+
+Free analysis at [LINK]. Takes 2 minutes."`,
+  },
+  {
+    id: "short3", label: "Short-Form Clip #3 (Education)", format: "30–60 sec",
+    template: `EDUCATION CLIP — "What Is Your Effective Rate?"
+
+"Most merchants have no idea what their effective rate is. Here's how to calculate it in 10 seconds.
+
+Take your total processing fees for the month. Divide by your total processing volume.
+
+Example: $2,400 in fees ÷ $85,000 in volume = 2.82% effective rate.
+
+Here's what it should be for your industry:
+• Restaurant: 2.2–2.5%
+• Retail: 1.9–2.4%
+• Medical: 2.0–2.6%
+
+If you're above those numbers, you're overpaying.
+
+Upload your statement at [LINK] — we'll tell you in plain English exactly where you stand."`,
+  },
+  {
+    id: "reddit", label: "Reddit Answer", format: "200–400 words",
+    template: `[In response to: "Are my credit card processing fees too high?"]
+
+Hard to say without seeing the statement, but here's how to check yourself in about 30 seconds:
+
+Take your total processing fees for the month and divide by your total volume. That's your effective rate.
+
+Example: $2,100 in fees ÷ $78,000 in volume = 2.69%
+
+Industry benchmarks:
+• Restaurant: 2.2–2.8%
+• Retail: 1.9–2.5%  
+• Medical: 2.0–2.6%
+• E-commerce: 2.5–3.2%
+
+If you're above those numbers, there's room to improve.
+
+The key thing to look at is your "processor markup" — it's the line on your statement that shows what your processor is charging on top of interchange (the base rate set by Visa/Mastercard). The markup is 100% negotiable. The interchange is not.
+
+For context, I reviewed a [MERCHANT TYPE] recently paying [OLD_RATE]% effective rate. We got them to [NEW_RATE]%. That's $[MONTHLY_SAVINGS]/month they're now keeping.
+
+Happy to look at your statement if you want a real breakdown — link in my profile. No cost, no obligation, results in 24 hours.`,
+  },
+  {
+    id: "newsletter", label: "Newsletter Section", format: "150–250 words",
+    template: `📊 CASE STUDY OF THE WEEK
+
+This week we reviewed a [MERCHANT TYPE] processing $[VOLUME]/month.
+
+What we found:
+Their effective rate was [OLD_RATE]% — about [DELTA_PCT]% above industry average for their category.
+
+The culprit: a "non-qualified surcharge" of [NQ_RATE]% applied to most of their card volume, plus a monthly "service fee" of $[SERVICE_FEE] that wasn't providing any visible value.
+
+What we did:
+→ Moved them to interchange-plus pricing
+→ Eliminated the NQ surcharge
+→ Renegotiated the per-transaction fee from $[OLD_PER_TRANS] to $[NEW_PER_TRANS]
+
+The result:
+New effective rate: [NEW_RATE]%
+Monthly savings: $[MONTHLY_SAVINGS]
+Annual savings: $[ANNUAL_SAVINGS]
+
+Time to switch: [SWITCH_TIME] business days.
+
+If you haven't had your statement reviewed in the last 12 months, upload it here for a free analysis → [LINK]`,
+  },
+];
+
+function ContentRepurposingTab() {
+  const { toast } = useToast();
+  const [completed, setCompleted] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(LS_REPURPOSE_WEEK) || "{}");
+      const weekKey = getWeekKey();
+      return saved.week === weekKey ? saved.items : {};
+    } catch { return {}; }
+  });
+
+  function getWeekKey() {
+    const d = new Date();
+    const jan1 = new Date(d.getFullYear(), 0, 1);
+    const week = Math.ceil(((d.getTime() - jan1.getTime()) / 86400000 + jan1.getDay() + 1) / 7);
+    return `${d.getFullYear()}-W${week}`;
+  }
+
+  function toggle(id: string) {
+    const next = { ...completed, [id]: !completed[id] };
+    setCompleted(next);
+    localStorage.setItem(LS_REPURPOSE_WEEK, JSON.stringify({ week: getWeekKey(), items: next }));
+  }
+
+  function resetAll() {
+    setCompleted({});
+    localStorage.setItem(LS_REPURPOSE_WEEK, JSON.stringify({ week: getWeekKey(), items: {} }));
+    toast({ title: "Checklist reset for this week" });
+  }
+
+  const doneCount = Object.values(completed).filter(Boolean).length;
+  const total = CONTENT_OUTPUTS.length;
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-start justify-between flex-wrap gap-2">
+        <div>
+          <h2 className="text-base font-semibold flex items-center gap-2"><Repeat2 className="h-4 w-4 text-primary" /> Content Repurposing Workflow</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">One merchant statement review → 8 content outputs. Work through this list each week.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <Badge variant={doneCount === total ? "default" : "secondary"} className="text-xs">{doneCount}/{total} done this week</Badge>
+          <Button size="sm" variant="outline" onClick={resetAll} className="gap-1.5 text-xs" data-testid="button-repurpose-reset"><RefreshCw className="h-3.5 w-3.5" /> Reset Week</Button>
+        </div>
+      </div>
+
+      <div className="flex gap-3 p-4 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20">
+        <Info className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+        <p className="text-xs text-blue-700 dark:text-blue-400">
+          <strong>The workflow:</strong> Start with one real merchant statement review (anonymize the numbers). Use the real savings figure — e.g. "$640/month". Fill in the <code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">[PLACEHOLDERS]</code> in each template, then tick it off as you create the asset.
+        </p>
+      </div>
+
+      <Progress value={Math.round((doneCount / total) * 100)} className="h-2" />
+
+      <div className="space-y-3">
+        {CONTENT_OUTPUTS.map((output, i) => {
+          const done = !!completed[output.id];
+          return (
+            <div key={output.id} className={`border rounded-lg overflow-hidden transition-colors ${done ? "opacity-70" : ""}`} data-testid={`repurpose-item-${output.id}`}>
+              <div className="flex items-center gap-3 p-3 hover:bg-muted/20">
+                <button
+                  className={`h-5 w-5 rounded border flex items-center justify-center shrink-0 transition-colors ${done ? "bg-green-500 border-green-500" : "border-muted-foreground/40 hover:border-green-400"}`}
+                  onClick={() => toggle(output.id)}
+                  aria-label={`Mark ${output.label} as done`}
+                  data-testid={`check-repurpose-${output.id}`}
+                >
+                  {done && <CheckCircle2 className="h-3.5 w-3.5 text-white" />}
+                </button>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-muted-foreground w-5">{i + 1}.</span>
+                    <span className={`text-sm font-medium ${done ? "line-through text-muted-foreground" : ""}`}>{output.label}</span>
+                    <Badge variant="outline" className="text-[10px]">{output.format}</Badge>
+                  </div>
+                </div>
+              </div>
+              <div className="border-t bg-muted/10 px-3 pb-3 pt-2">
+                <CopyBlock text={output.template} label="Template — fill in [PLACEHOLDERS] then copy" />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TAB: WEEKLY REVIEW
+// ─────────────────────────────────────────────────────────────────────────────
+
+const LS_WEEKLY_REVIEW = "gp_weekly_review_v1";
+
+const REVIEW_CHECKLIST = [
+  { id: "pull-report", label: "Pull lead source report", link: "/dashboard/reporting", linkLabel: "Open Reporting" },
+  { id: "channel-check", label: "Review which channels fired vs. missed this week" },
+  { id: "signup-log", label: "Log this week's actual signups vs. target" },
+  { id: "top-channel", label: "Pick next week's #1 focus channel" },
+  { id: "follow-ups", label: "Assign any follow-up tasks in the CRM", link: "/dashboard/tasks", linkLabel: "Open Tasks" },
+  { id: "partner-update", label: "Update at least 3 rows in the Partner Pipeline tab" },
+  { id: "content-check", label: "Verify content repurposing checklist is on track" },
+  { id: "review-request", label: "Send at least 1 personal review request to a happy merchant" },
+  { id: "scorecard-update", label: "Fill in This Week Actual numbers in the Scorecard tab" },
+];
+
+interface WeekReview {
+  weekKey: string;
+  weekLabel: string;
+  checklistDone: Record<string, boolean>;
+  signupsActual: string;
+  signupsTarget: string;
+  focusChannel: string;
+  notes: string;
+  completedAt?: string;
+}
+
+function getWeekReviewKey() {
+  const d = new Date();
+  const jan1 = new Date(d.getFullYear(), 0, 1);
+  const week = Math.ceil(((d.getTime() - jan1.getTime()) / 86400000 + jan1.getDay() + 1) / 7);
+  return `${d.getFullYear()}-W${week}`;
+}
+
+function getWeekLabel(key: string) {
+  const [year, weekStr] = key.split("-W");
+  const jan1 = new Date(Number(year), 0, 1);
+  const dayOfYear = (Number(weekStr) - 1) * 7 - jan1.getDay() + 1;
+  const start = new Date(Number(year), 0, dayOfYear);
+  const end = new Date(start); end.setDate(end.getDate() + 6);
+  const fmt = (d: Date) => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return `${fmt(start)} – ${fmt(end)}`;
+}
+
+function WeeklyReviewTab() {
+  const { toast } = useToast();
+  const weekKey = getWeekReviewKey();
+
+  const [history, setHistory] = useState<WeekReview[]>(() => {
+    try { return JSON.parse(localStorage.getItem(LS_WEEKLY_REVIEW) || "[]"); } catch { return []; }
+  });
+
+  const current: WeekReview = history.find(w => w.weekKey === weekKey) || {
+    weekKey, weekLabel: getWeekLabel(weekKey),
+    checklistDone: {}, signupsActual: "", signupsTarget: "", focusChannel: "", notes: "",
+  };
+
+  function updateCurrent(updates: Partial<WeekReview>) {
+    const updated = { ...current, ...updates };
+    const next = history.filter(w => w.weekKey !== weekKey);
+    next.unshift(updated);
+    setHistory(next);
+    localStorage.setItem(LS_WEEKLY_REVIEW, JSON.stringify(next));
+  }
+
+  function toggleCheck(id: string) {
+    updateCurrent({ checklistDone: { ...current.checklistDone, [id]: !current.checklistDone[id] } });
+  }
+
+  function completeReview() {
+    updateCurrent({ completedAt: new Date().toISOString() });
+    toast({ title: "Weekly review saved ✓", description: "Great work. See you next week!" });
+  }
+
+  const checkedCount = REVIEW_CHECKLIST.filter(i => current.checklistDone[i.id]).length;
+  const pct = Math.round((checkedCount / REVIEW_CHECKLIST.length) * 100);
+  const pastWeeks = history.filter(w => w.weekKey !== weekKey).slice(0, 4);
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h2 className="text-base font-semibold flex items-center gap-2"><ListChecks className="h-4 w-4 text-primary" /> Weekly Review — 15 Minutes</h2>
+        <p className="text-xs text-muted-foreground mt-0.5">Run this every Friday (or Monday morning). Consistency is the growth lever. Data saves in your browser.</p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><ClipboardCheck className="h-4 w-4" /> This Week — {current.weekLabel}</CardTitle></CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs text-muted-foreground">Review checklist</span>
+              <Badge variant={pct === 100 ? "default" : "secondary"} className="text-xs">{checkedCount}/{REVIEW_CHECKLIST.length}</Badge>
+            </div>
+            <Progress value={pct} className="h-1.5 mb-2" />
+            <div className="space-y-1.5">
+              {REVIEW_CHECKLIST.map(item => (
+                <div key={item.id} className="flex items-center gap-2.5" data-testid={`review-item-${item.id}`}>
+                  <button
+                    className={`h-4.5 w-4.5 rounded border flex items-center justify-center shrink-0 transition-colors ${current.checklistDone[item.id] ? "bg-green-500 border-green-500" : "border-muted-foreground/40 hover:border-green-400"}`}
+                    onClick={() => toggleCheck(item.id)}
+                    aria-label={`Check ${item.label}`}
+                    data-testid={`check-review-${item.id}`}
+                    style={{ minWidth: 18, minHeight: 18 }}
+                  >
+                    {current.checklistDone[item.id] && <CheckCircle2 className="h-3 w-3 text-white" />}
+                  </button>
+                  <span className={`text-xs flex-1 ${current.checklistDone[item.id] ? "line-through text-muted-foreground" : ""}`}>{item.label}</span>
+                  {item.link && (
+                    <Link href={item.link}>
+                      <span className="text-[10px] text-primary hover:underline whitespace-nowrap">{item.linkLabel}</span>
+                    </Link>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 pt-2 border-t">
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">Signups Target</label>
+                <Input className="h-7 text-xs mt-1" placeholder="e.g. 50" value={current.signupsTarget} onChange={e => updateCurrent({ signupsTarget: e.target.value })} data-testid="input-review-target" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">Signups Actual</label>
+                <Input className="h-7 text-xs mt-1" placeholder="e.g. 38" value={current.signupsActual} onChange={e => updateCurrent({ signupsActual: e.target.value })} data-testid="input-review-actual" />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Next Week's #1 Focus Channel</label>
+              <Input className="h-7 text-xs mt-1" placeholder="e.g. LinkedIn, Partner Outreach, Blog..." value={current.focusChannel} onChange={e => updateCurrent({ focusChannel: e.target.value })} data-testid="input-review-focus" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Notes & Follow-ups</label>
+              <Textarea className="text-xs mt-1" rows={4} placeholder="What worked? What missed? What's the #1 thing to fix next week?" value={current.notes} onChange={e => updateCurrent({ notes: e.target.value })} data-testid="input-review-notes" />
+            </div>
+            <Button className="w-full gap-2 text-xs" onClick={completeReview} data-testid="button-review-complete">
+              <CheckCircle2 className="h-3.5 w-3.5" /> Mark Review Complete
+            </Button>
+          </CardContent>
+        </Card>
+
+        <div className="space-y-3">
+          <h3 className="text-sm font-semibold text-muted-foreground">Last 4 Weeks</h3>
+          {pastWeeks.length === 0 ? (
+            <Card><CardContent className="pt-6 pb-6 text-center text-xs text-muted-foreground">No past reviews yet. Complete your first review to see history here.</CardContent></Card>
+          ) : (
+            pastWeeks.map(w => {
+              const done = REVIEW_CHECKLIST.filter(i => w.checklistDone[i.id]).length;
+              const pctW = Math.round((done / REVIEW_CHECKLIST.length) * 100);
+              return (
+                <Card key={w.weekKey} data-testid={`past-review-${w.weekKey}`}>
+                  <CardContent className="pt-3 pb-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold">{w.weekLabel}</span>
+                      <div className="flex items-center gap-2">
+                        {w.completedAt && <Badge className="text-[10px] bg-green-500 text-white">Completed</Badge>}
+                        <Badge variant="secondary" className="text-[10px]">{done}/{REVIEW_CHECKLIST.length} checks</Badge>
+                      </div>
+                    </div>
+                    <Progress value={pctW} className="h-1" />
+                    <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                      {w.signupsActual && <span>Signups: <strong className="text-foreground">{w.signupsActual}</strong> / {w.signupsTarget || "?"}</span>}
+                      {w.focusChannel && <span>Focus: <strong className="text-foreground">{w.focusChannel}</strong></span>}
+                    </div>
+                    {w.notes && <p className="text-xs text-muted-foreground line-clamp-2">{w.notes}</p>}
+                  </CardContent>
+                </Card>
+              );
+            })
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TAB: SCORECARD
+// ─────────────────────────────────────────────────────────────────────────────
+
+const LS_SCORECARD = "gp_scorecard_v1";
+
+interface ChannelRow {
+  id: string;
+  channel: string;
+  owner: string;
+  weeklyTarget: number;
+  weeks: number[];
+}
+
+const DEFAULT_CHANNELS: ChannelRow[] = [
+  { id: "linkedin", channel: "LinkedIn", owner: "", weeklyTarget: 3, weeks: [0, 0, 0, 0] },
+  { id: "reddit", channel: "Reddit / Quora", owner: "", weeklyTarget: 10, weeks: [0, 0, 0, 0] },
+  { id: "blog", channel: "Blog Posts", owner: "", weeklyTarget: 2, weeks: [0, 0, 0, 0] },
+  { id: "youtube", channel: "YouTube", owner: "", weeklyTarget: 1, weeks: [0, 0, 0, 0] },
+  { id: "haro", channel: "HARO / PR", owner: "", weeklyTarget: 3, weeks: [0, 0, 0, 0] },
+  { id: "partner", channel: "Partner Outreach", owner: "", weeklyTarget: 10, weeks: [0, 0, 0, 0] },
+  { id: "reviews", channel: "Review Requests", owner: "", weeklyTarget: 3, weeks: [0, 0, 0, 0] },
+  { id: "gbp", channel: "Google Business Profile", owner: "", weeklyTarget: 1, weeks: [0, 0, 0, 0] },
+  { id: "newsletter", channel: "Newsletter", owner: "", weeklyTarget: 1, weeks: [0, 0, 0, 0] },
+];
+
+function getMondayKey() {
+  const d = new Date();
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  const monday = new Date(d.setDate(diff));
+  return monday.toISOString().slice(0, 10);
+}
+
+function getStatusColor(actual: number, target: number) {
+  if (target === 0) return "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400";
+  const ratio = actual / target;
+  if (ratio >= 1) return "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300";
+  if (ratio >= 0.6) return "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300";
+  return "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400";
+}
+
+function getStatusLabel(actual: number, target: number) {
+  if (target === 0) return "—";
+  const ratio = actual / target;
+  if (ratio >= 1) return "On Track";
+  if (ratio >= 0.6) return "Behind";
+  return "Off Track";
+}
+
+function Sparkline({ weeks, target }: { weeks: number[]; target: number }) {
+  const max = Math.max(target, ...weeks, 1);
+  const w = 60; const h = 24; const pts = weeks.length;
+  const points = weeks.map((v, i) => {
+    const x = (i / (pts - 1)) * w;
+    const y = h - (v / max) * h;
+    return `${x},${y}`;
+  }).join(" ");
+  return (
+    <svg width={w} height={h} className="overflow-visible">
+      <polyline points={points} fill="none" stroke="currentColor" strokeWidth="1.5" className="text-primary opacity-60" />
+      {weeks.map((v, i) => (
+        <circle key={i} cx={(i / (pts - 1)) * w} cy={h - (v / max) * h} r="2" className={v >= target ? "fill-green-500" : v >= target * 0.6 ? "fill-yellow-500" : "fill-red-500"} />
+      ))}
+    </svg>
+  );
+}
+
+function ScorecardTab() {
+  const { toast } = useToast();
+  const mondayKey = getMondayKey();
+
+  const [channels, setChannels] = useState<ChannelRow[]>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(LS_SCORECARD) || "{}");
+      if (saved.mondayKey === mondayKey) return saved.channels;
+      if (saved.channels) {
+        const shifted = (saved.channels as ChannelRow[]).map(c => ({
+          ...c, weeks: [c.weeks[1] || 0, c.weeks[2] || 0, c.weeks[3] || 0, 0],
+        }));
+        return shifted;
+      }
+      return DEFAULT_CHANNELS;
+    } catch { return DEFAULT_CHANNELS; }
+  });
+
+  useEffect(() => {
+    localStorage.setItem(LS_SCORECARD, JSON.stringify({ mondayKey, channels }));
+  }, [channels, mondayKey]);
+
+  function update(id: string, field: keyof ChannelRow, value: string | number) {
+    setChannels(prev => prev.map(c => c.id === id ? { ...c, [field]: value } : c));
+  }
+
+  function updateThisWeek(id: string, value: number) {
+    setChannels(prev => prev.map(c => {
+      if (c.id !== id) return c;
+      const weeks = [...c.weeks];
+      weeks[3] = value;
+      return { ...c, weeks };
+    }));
+  }
+
+  function resetWeek() {
+    setChannels(prev => prev.map(c => ({ ...c, weeks: [c.weeks[1] || 0, c.weeks[2] || 0, c.weeks[3] || 0, 0] })));
+    toast({ title: "Scorecard reset for new week" });
+  }
+
+  const summary = useMemo(() => {
+    const hits = channels.filter(c => c.weeklyTarget > 0 && c.weeks[3] >= c.weeklyTarget).length;
+    const total = channels.filter(c => c.weeklyTarget > 0).length;
+    return { hits, total, pct: total > 0 ? Math.round((hits / total) * 100) : 0 };
+  }, [channels]);
+
+  const weekLabels = Array.from({ length: 4 }, (_, i) => {
+    const d = new Date(mondayKey);
+    d.setDate(d.getDate() - (3 - i) * 7);
+    return i === 3 ? "This Week" : d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  });
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-start justify-between flex-wrap gap-2">
+        <div>
+          <h2 className="text-base font-semibold flex items-center gap-2"><BarChart3 className="h-4 w-4 text-primary" /> Channel Scorecard</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">Ownership + weekly targets. Resets automatically each Monday. Data saves in your browser.</p>
+        </div>
+        <Button size="sm" variant="outline" onClick={resetWeek} className="gap-1.5 text-xs" data-testid="button-scorecard-reset"><RefreshCw className="h-3.5 w-3.5" /> Reset to New Week</Button>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        <Card><CardContent className="pt-4 pb-3 text-center">
+          <div className={`text-2xl font-bold ${summary.pct >= 80 ? "text-green-600" : summary.pct >= 50 ? "text-yellow-600" : "text-red-600"}`}>{summary.pct}%</div>
+          <div className="text-xs text-muted-foreground">Targets Hit This Week</div>
+        </CardContent></Card>
+        <Card><CardContent className="pt-4 pb-3 text-center">
+          <div className="text-2xl font-bold text-green-600">{summary.hits}</div>
+          <div className="text-xs text-muted-foreground">Channels On Track</div>
+        </CardContent></Card>
+        <Card><CardContent className="pt-4 pb-3 text-center">
+          <div className="text-2xl font-bold text-muted-foreground">{summary.total - summary.hits}</div>
+          <div className="text-xs text-muted-foreground">Channels Behind</div>
+        </CardContent></Card>
+      </div>
+
+      <Progress value={summary.pct} className="h-2.5" />
+
+      <Card>
+        <CardContent className="pt-4 overflow-x-auto">
+          <table className="w-full text-xs min-w-[700px]">
+            <thead>
+              <tr className="border-b">
+                <th className="text-left px-2 py-2 font-semibold text-muted-foreground">Channel</th>
+                <th className="text-left px-2 py-2 font-semibold text-muted-foreground">Owner</th>
+                <th className="text-left px-2 py-2 font-semibold text-muted-foreground">Weekly Target</th>
+                {weekLabels.map((label, i) => (
+                  <th key={i} className={`text-left px-2 py-2 font-semibold ${i === 3 ? "text-foreground" : "text-muted-foreground"}`}>{label}</th>
+                ))}
+                <th className="text-left px-2 py-2 font-semibold text-muted-foreground">Status</th>
+                <th className="text-left px-2 py-2 font-semibold text-muted-foreground">Trend</th>
+              </tr>
+            </thead>
+            <tbody>
+              {channels.map(c => {
+                const thisWeek = c.weeks[3];
+                const statusColor = getStatusColor(thisWeek, c.weeklyTarget);
+                const statusLabel = getStatusLabel(thisWeek, c.weeklyTarget);
+                return (
+                  <tr key={c.id} className="border-b last:border-0 hover:bg-muted/20" data-testid={`scorecard-row-${c.id}`}>
+                    <td className="px-2 py-2 font-medium">{c.channel}</td>
+                    <td className="px-2 py-1.5">
+                      <Input
+                        className="h-7 text-xs w-24"
+                        placeholder="Owner"
+                        value={c.owner}
+                        onChange={e => update(c.id, "owner", e.target.value)}
+                        data-testid={`input-owner-${c.id}`}
+                      />
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <Input
+                        type="number"
+                        className="h-7 text-xs w-16"
+                        min={0}
+                        value={c.weeklyTarget}
+                        onChange={e => update(c.id, "weeklyTarget", Number(e.target.value))}
+                        data-testid={`input-target-${c.id}`}
+                      />
+                    </td>
+                    {c.weeks.slice(0, 3).map((v, i) => (
+                      <td key={i} className="px-2 py-2 text-muted-foreground">{v}</td>
+                    ))}
+                    <td className="px-2 py-1.5">
+                      <Input
+                        type="number"
+                        className="h-7 text-xs w-16 font-semibold"
+                        min={0}
+                        value={thisWeek}
+                        onChange={e => updateThisWeek(c.id, Number(e.target.value))}
+                        data-testid={`input-actual-${c.id}`}
+                      />
+                    </td>
+                    <td className="px-2 py-2">
+                      <Badge className={`text-[10px] ${statusColor}`}>{statusLabel}</Badge>
+                    </td>
+                    <td className="px-2 py-2">
+                      <Sparkline weeks={c.weeks} target={c.weeklyTarget} />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function GrowthPlaybook() {
@@ -698,6 +1720,21 @@ export default function GrowthPlaybook() {
                 </TabsTrigger>
               );
             })}
+            <TabsTrigger value="tools" className="flex items-center gap-1.5 text-xs whitespace-nowrap" data-testid="tab-tools">
+              <Wrench className="h-3.5 w-3.5" /> Tools
+            </TabsTrigger>
+            <TabsTrigger value="partner-pipeline" className="flex items-center gap-1.5 text-xs whitespace-nowrap" data-testid="tab-partner-pipeline">
+              <Handshake className="h-3.5 w-3.5" /> Partner Pipeline
+            </TabsTrigger>
+            <TabsTrigger value="content-repurposing" className="flex items-center gap-1.5 text-xs whitespace-nowrap" data-testid="tab-content-repurposing">
+              <Repeat2 className="h-3.5 w-3.5" /> Content Repurposing
+            </TabsTrigger>
+            <TabsTrigger value="weekly-review" className="flex items-center gap-1.5 text-xs whitespace-nowrap" data-testid="tab-weekly-review">
+              <ListChecks className="h-3.5 w-3.5" /> Weekly Review
+            </TabsTrigger>
+            <TabsTrigger value="scorecard" className="flex items-center gap-1.5 text-xs whitespace-nowrap" data-testid="tab-scorecard">
+              <BarChart3 className="h-3.5 w-3.5" /> Scorecard
+            </TabsTrigger>
           </TabsList>
         </div>
 
@@ -738,6 +1775,66 @@ export default function GrowthPlaybook() {
             </TabsContent>
           );
         })}
+
+        <TabsContent value="tools" className="mt-3">
+          <Card>
+            <CardHeader className="pb-2">
+              <div className="border-l-4 border-primary pl-4">
+                <CardTitle className="text-base flex items-center gap-2"><Wrench className="h-4 w-4" /> Tools — Growth Execution Stack</CardTitle>
+                <CardDescription className="mt-1">Every platform tool and external resource that supports running this playbook. Click any card to open the tool.</CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent><ToolsTab /></CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="partner-pipeline" className="mt-3">
+          <Card>
+            <CardHeader className="pb-2">
+              <div className="border-l-4 border-green-500 pl-4">
+                <CardTitle className="text-base flex items-center gap-2"><Handshake className="h-4 w-4" /> Partner Outreach Pipeline</CardTitle>
+                <CardDescription className="mt-1">Lightweight CRM for tracking every CPA, bookkeeper, insurance, and lender partner prospect. Saves locally in your browser.</CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent><PartnerPipelineTab /></CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="content-repurposing" className="mt-3">
+          <Card>
+            <CardHeader className="pb-2">
+              <div className="border-l-4 border-purple-500 pl-4">
+                <CardTitle className="text-base flex items-center gap-2"><Repeat2 className="h-4 w-4" /> Content Repurposing Workflow</CardTitle>
+                <CardDescription className="mt-1">Turn one merchant statement review into 8 content outputs every week. Templates pre-filled — just swap in real numbers.</CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent><ContentRepurposingTab /></CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="weekly-review" className="mt-3">
+          <Card>
+            <CardHeader className="pb-2">
+              <div className="border-l-4 border-blue-500 pl-4">
+                <CardTitle className="text-base flex items-center gap-2"><ListChecks className="h-4 w-4" /> Weekly Review — 15 Minutes</CardTitle>
+                <CardDescription className="mt-1">Structured Friday review: pull reports, score each channel, log signups vs. target, pick next week's focus. Saves 4 weeks of history.</CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent><WeeklyReviewTab /></CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="scorecard" className="mt-3">
+          <Card>
+            <CardHeader className="pb-2">
+              <div className="border-l-4 border-orange-500 pl-4">
+                <CardTitle className="text-base flex items-center gap-2"><BarChart3 className="h-4 w-4" /> Channel Scorecard</CardTitle>
+                <CardDescription className="mt-1">Channel ownership + weekly targets. Auto red/yellow/green vs. target. Resets each Monday. 4-week sparkline per channel.</CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent><ScorecardTab /></CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
     </div>
   );
