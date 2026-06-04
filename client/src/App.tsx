@@ -190,6 +190,7 @@ const DocumentVault = lazy(() => import("@/pages/dashboard/DocumentVault"));
 const VirtualTerminal = lazy(() => import("@/pages/dashboard/VirtualTerminal"));
 const PartnerOrgs = lazy(() => import("@/pages/dashboard/PartnerOrgs"));
 const GhlSequenceGuide = lazy(() => import("@/pages/dashboard/GhlSequenceGuide"));
+const GrowthPlaybook = lazy(() => import("@/pages/dashboard/GrowthPlaybook"));
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -606,6 +607,9 @@ function Router() {
         </Route>
         <Route path="/dashboard/ghl-sequence-guide">
           <ProtectedRoute component={GhlSequenceGuide} />
+        </Route>
+        <Route path="/dashboard/growth-playbook">
+          <ProtectedRoute component={GrowthPlaybook} />
         </Route>
 
         <Route component={NotFound} />
