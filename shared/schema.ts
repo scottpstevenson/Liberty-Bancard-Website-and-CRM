@@ -180,6 +180,8 @@ export const deals = pgTable("deals", {
   boardingLog: jsonb("boarding_log"),
   boardingSubmittedAt: timestamp("boarding_submitted_at"),
   boardingApprovedAt: timestamp("boarding_approved_at"),
+  shareToken: varchar("share_token", { length: 64 }).unique(),
+  shareData: jsonb("share_data"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
   archivedAt: timestamp("archived_at"),

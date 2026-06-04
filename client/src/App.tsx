@@ -86,6 +86,7 @@ const ThanksSupport = lazy(() => import("@/pages/ThanksSupport"));
 const ThanksApplication = lazy(() => import("@/pages/ThanksApplication"));
 const ProposalViewer = lazy(() => import("@/pages/ProposalViewer"));
 const CoBrandedProposalViewer = lazy(() => import("@/pages/CoBrandedProposalViewer"));
+const SavingsPage = lazy(() => import("@/pages/SavingsPage"));
 
 // ─── Merchant / Partner Public Pages ──────────────────────────────────────────
 const MerchantApplication = lazy(() => import("@/pages/MerchantApplication"));
@@ -310,6 +311,7 @@ function Router() {
         <Route path="/thanks-statement" component={ThanksStatement} />
         <Route path="/proposal/:token" component={ProposalViewer} />
         <Route path="/co-branded-proposal/:token" component={CoBrandedProposalViewer} />
+        <Route path="/savings/:token" component={SavingsPage} />
         <Route path="/thanks-estimate" component={ThanksEstimate} />
         <Route path="/thanks-call" component={ThanksCall} />
         <Route path="/thanks-support" component={ThanksSupport} />

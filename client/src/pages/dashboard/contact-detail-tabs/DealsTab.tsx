@@ -1,10 +1,14 @@
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useMutation } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Loader2, Link2 } from "lucide-react";
 import type { Deal, Agent } from "@shared/schema";
 import BoardingPanel from "@/components/BoardingPanel";
 import { DealAgentAssignment } from "./DealAgentAssignment";
 import { formatDate } from "./shared";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
 
 interface DealsTabProps {
   deals: Deal[];
@@ -16,6 +20,25 @@ interface DealsTabProps {
 
 export function DealsTab({ deals, contactId, isManagerOrAdmin, agentsList, setLocation }: DealsTabProps) {
   const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  const shareLinkMutation = useMutation({
+    mutationFn: async (dealId: number) => {
+      const res = await apiRequest("POST", `/api/deals/${dealId}/generate-share-link`);
+      return res.json();
+    },
+    onSuccess: async (data: { shareUrl: string }) => {
+      try {
+        await navigator.clipboard.writeText(data.shareUrl);
+        toast({ title: "Share link copied!", description: "Send it to the merchant." });
+      } catch {
+        toast({ title: "Share link generated", description: data.shareUrl });
+      }
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to generate link", description: err.message, variant: "destructive" });
+    },
+  });
 
   if (deals.length === 0) {
     return <Card><CardContent className="py-8 text-center text-muted-foreground">No deals yet</CardContent></Card>;
@@ -54,8 +77,30 @@ export function DealsTab({ deals, contactId, isManagerOrAdmin, agentsList, setLo
                   </p>
                 )}
               </div>
-              <div className="text-sm text-muted-foreground" data-testid={`text-deal-date-${deal.id}`}>
-                Created {formatDate(deal.createdAt)}
+              <div className="flex items-center gap-2">
+                <div className="text-sm text-muted-foreground" data-testid={`text-deal-date-${deal.id}`}>
+                  Created {formatDate(deal.createdAt)}
+                </div>
+                {deal.savingsProposal && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      shareLinkMutation.mutate(deal.id);
+                    }}
+                    disabled={shareLinkMutation.isPending && shareLinkMutation.variables === deal.id}
+                    data-testid={`button-share-deal-contact-${deal.id}`}
+                    title="Generate shareable savings results page"
+                  >
+                    {shareLinkMutation.isPending && shareLinkMutation.variables === deal.id ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <Link2 className="w-3 h-3 mr-1" />
+                    )}
+                    Share Results
+                  </Button>
+                )}
               </div>
             </div>
             {isManagerOrAdmin && agentsList && (

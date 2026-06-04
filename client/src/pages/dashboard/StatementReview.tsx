@@ -32,6 +32,8 @@ import {
   Send,
   Calendar,
   XCircle,
+  Link2,
+  Copy,
 } from "lucide-react";
 import type { Deal, Contact } from "@shared/schema";
 
@@ -131,6 +133,24 @@ export default function StatementReview() {
     },
     onError: (err: Error) => {
       toast({ title: "Send Failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const shareLinkMutation = useMutation({
+    mutationFn: async (dealId: number) => {
+      const res = await apiRequest("POST", `/api/deals/${dealId}/generate-share-link`);
+      return res.json();
+    },
+    onSuccess: async (data: { shareUrl: string }) => {
+      try {
+        await navigator.clipboard.writeText(data.shareUrl);
+        toast({ title: "Share link copied!", description: "Send it to the merchant or paste it anywhere." });
+      } catch {
+        toast({ title: "Share link generated", description: data.shareUrl });
+      }
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to generate link", description: err.message, variant: "destructive" });
     },
   });
 
@@ -303,7 +323,7 @@ export default function StatementReview() {
                           {deal.totalVolume && <span>Vol: {deal.totalVolume}</span>}
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         {deal.savingsProposal ? (
                           <Badge variant="secondary" className="text-xs">
                             <CheckCircle2 className="w-3 h-3 mr-1" />
@@ -324,6 +344,23 @@ export default function StatementReview() {
                           >
                             {sendProposalMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3 mr-1" />}
                             Send
+                          </Button>
+                        )}
+                        {!!deal.savingsProposal && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => shareLinkMutation.mutate(deal.id)}
+                            disabled={shareLinkMutation.isPending && shareLinkMutation.variables === deal.id}
+                            data-testid={`button-share-deal-${deal.id}`}
+                            title="Generate shareable results page and copy link"
+                          >
+                            {shareLinkMutation.isPending && shareLinkMutation.variables === deal.id ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Link2 className="w-3 h-3 mr-1" />
+                            )}
+                            Share
                           </Button>
                         )}
                         <Button
