@@ -2,13 +2,14 @@ import { useQueryClient, useMutation } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Loader2, Link2 } from "lucide-react";
+import { Loader2, Link2, Eye } from "lucide-react";
 import type { Deal, Agent } from "@shared/schema";
 import BoardingPanel from "@/components/BoardingPanel";
 import { DealAgentAssignment } from "./DealAgentAssignment";
 import { formatDate } from "./shared";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { formatTimeAgo } from "@/lib/utils";
 
 interface DealsTabProps {
   deals: Deal[];
@@ -75,6 +76,19 @@ export function DealsTab({ deals, contactId, isManagerOrAdmin, agentsList, setLo
                   <p className="text-sm text-muted-foreground" data-testid={`text-deal-offer-${deal.id}`}>
                     Offer: {deal.offerPath}
                   </p>
+                )}
+                {deal.shareToken && (
+                  <div className="flex items-center gap-1 text-xs" data-testid={`text-share-views-${deal.id}`}>
+                    <Eye className="w-3 h-3 text-muted-foreground" />
+                    {(deal.shareViewCount ?? 0) > 0 ? (
+                      <span className="text-blue-600 dark:text-blue-400 font-medium">
+                        Viewed {deal.shareViewCount} {deal.shareViewCount === 1 ? "time" : "times"}
+                        {deal.shareLastViewedAt ? `, last seen ${formatTimeAgo(deal.shareLastViewedAt)}` : ""}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">Not yet viewed</span>
+                    )}
+                  </div>
                 )}
               </div>
               <div className="flex items-center gap-2">

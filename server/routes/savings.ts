@@ -4,7 +4,7 @@ import { storage } from "../storage";
 import crypto from "crypto";
 import { db } from "../db";
 import { deals, contacts, partners } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 function getBaseUrl(req: any): string {
   const replitDomain = process.env.REPLIT_DOMAINS?.split(",")[0]?.trim();
@@ -81,6 +81,14 @@ export function registerSavingsRoutes(app: Express) {
 
       const shareData = deal.shareData as any;
       if (!shareData) return res.status(404).json({ message: "Results page not found" });
+
+      await db
+        .update(deals)
+        .set({
+          shareViewCount: sql`COALESCE(share_view_count, 0) + 1`,
+          shareLastViewedAt: new Date(),
+        })
+        .where(eq(deals.shareToken, token));
 
       let affiliateCode: string | null = null;
       let contactEmail: string | null = null;

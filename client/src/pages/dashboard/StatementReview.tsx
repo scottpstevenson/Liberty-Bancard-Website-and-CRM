@@ -34,8 +34,10 @@ import {
   XCircle,
   Link2,
   Copy,
+  Eye,
 } from "lucide-react";
 import type { Deal, Contact } from "@shared/schema";
+import { formatTimeAgo } from "@/lib/utils";
 
 interface PlanData {
   name: string;
@@ -321,6 +323,23 @@ export default function StatementReview() {
                           <span>{deal.stage}</span>
                           {deal.effectiveRate && <span>Rate: {deal.effectiveRate}</span>}
                           {deal.totalVolume && <span>Vol: {deal.totalVolume}</span>}
+                          {deal.shareToken && (deal.shareViewCount ?? 0) > 0 && (
+                            <span
+                              className="flex items-center gap-1 text-blue-600 dark:text-blue-400 font-medium"
+                              data-testid={`text-view-count-${deal.id}`}
+                              title={`Last viewed: ${formatTimeAgo(deal.shareLastViewedAt)}`}
+                            >
+                              <Eye className="w-3 h-3" />
+                              Viewed {deal.shareViewCount} {deal.shareViewCount === 1 ? "time" : "times"}
+                              {deal.shareLastViewedAt ? `, last seen ${formatTimeAgo(deal.shareLastViewedAt)}` : ""}
+                            </span>
+                          )}
+                          {deal.shareToken && (deal.shareViewCount ?? 0) === 0 && (
+                            <span className="flex items-center gap-1 text-muted-foreground" data-testid={`text-view-count-zero-${deal.id}`}>
+                              <Eye className="w-3 h-3" />
+                              Not yet viewed
+                            </span>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-2 flex-wrap">
