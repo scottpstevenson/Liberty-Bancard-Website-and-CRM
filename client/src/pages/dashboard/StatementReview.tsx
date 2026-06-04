@@ -15,6 +15,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Loader2,
   FileText,
   DollarSign,
@@ -35,6 +41,8 @@ import {
   Link2,
   Copy,
   Eye,
+  Mail,
+  ChevronDown,
 } from "lucide-react";
 import type { Deal, Contact } from "@shared/schema";
 import { formatTimeAgo } from "@/lib/utils";
@@ -153,6 +161,19 @@ export default function StatementReview() {
     },
     onError: (err: Error) => {
       toast({ title: "Failed to generate link", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const emailShareLinkMutation = useMutation({
+    mutationFn: async (dealId: number) => {
+      const res = await apiRequest("POST", `/api/deals/${dealId}/email-share-link`);
+      return res.json();
+    },
+    onSuccess: (data: { email: string }) => {
+      toast({ title: "Email sent!", description: `Savings results link sent to ${data.email}.` });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Email failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -366,21 +387,44 @@ export default function StatementReview() {
                           </Button>
                         )}
                         {!!deal.savingsProposal && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => shareLinkMutation.mutate(deal.id)}
-                            disabled={shareLinkMutation.isPending && shareLinkMutation.variables === deal.id}
-                            data-testid={`button-share-deal-${deal.id}`}
-                            title="Generate shareable results page and copy link"
-                          >
-                            {shareLinkMutation.isPending && shareLinkMutation.variables === deal.id ? (
-                              <Loader2 className="w-3 h-3 animate-spin" />
-                            ) : (
-                              <Link2 className="w-3 h-3 mr-1" />
-                            )}
-                            Share
-                          </Button>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={
+                                  (shareLinkMutation.isPending && shareLinkMutation.variables === deal.id) ||
+                                  (emailShareLinkMutation.isPending && emailShareLinkMutation.variables === deal.id)
+                                }
+                                data-testid={`button-share-deal-${deal.id}`}
+                              >
+                                {(shareLinkMutation.isPending && shareLinkMutation.variables === deal.id) ||
+                                (emailShareLinkMutation.isPending && emailShareLinkMutation.variables === deal.id) ? (
+                                  <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                                ) : (
+                                  <Link2 className="w-3 h-3 mr-1" />
+                                )}
+                                Share
+                                <ChevronDown className="w-3 h-3 ml-1" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem
+                                onClick={() => shareLinkMutation.mutate(deal.id)}
+                                data-testid={`menu-copy-link-${deal.id}`}
+                              >
+                                <Copy className="w-3 h-3 mr-2" />
+                                Copy Link
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => emailShareLinkMutation.mutate(deal.id)}
+                                data-testid={`menu-email-merchant-${deal.id}`}
+                              >
+                                <Mail className="w-3 h-3 mr-2" />
+                                Email to Merchant
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         )}
                         <Button
                           size="sm"
