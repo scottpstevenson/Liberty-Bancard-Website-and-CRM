@@ -412,8 +412,8 @@ Attached is your payment processing analysis. Here's a quick summary:
 
 • Your current effective rate: {{custom.currentRate}}%
 • Liberty Bancard rate: {{custom.lbRate}}%
-• Estimated monthly savings: ${{custom.monthlySavings}}
-• Annualized: ${{custom.annualSavings}}
+• Estimated monthly savings: \${{custom.monthlySavings}}
+• Annualized: \${{custom.annualSavings}}
 
 The next step is a 15-minute call to walk through the numbers and answer any questions. You can book directly here: [Calendar Link]
 
