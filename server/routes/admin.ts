@@ -9,6 +9,7 @@ import { insertAgentMerchantSchema, insertAgentQuotaSchema, insertAgentSchema, i
 import { desc, eq, isNull } from "drizzle-orm";
 import { parse } from "csv-parse/sync";
 import path from "path";
+import { publicLeadRateLimit } from "../middleware/public-rate-limit";
 
 export function registerAdminRoutes(app: Express) {
   // === ADMIN: SESSION MANAGEMENT ===
@@ -394,7 +395,7 @@ export function registerAdminRoutes(app: Express) {
   });
 
   // === RESIDUAL REPORTS ===
-  app.get("/api/residual-reports", isAuthenticated, async (req, res) => {
+  app.get("/api/residual-reports", requireRole('admin', 'manager'), async (req, res) => {
     try {
       const reports = await storage.getResidualReports();
       res.json(reports);
@@ -403,7 +404,7 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.post("/api/residual-reports", isAuthenticated, async (req, res) => {
+  app.post("/api/residual-reports", requireRole('admin', 'manager'), async (req, res) => {
     try {
       const input = insertResidualReportSchema.parse(req.body);
       const report = await storage.createResidualReport(input, { actorType: "user", userId: (req.user as any)?.id ?? null });
@@ -414,7 +415,7 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.get("/api/residual-reports/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/residual-reports/:id", requireRole('admin', 'manager'), async (req, res) => {
     try {
       const report = await storage.getResidualReport(Number(req.params.id));
       if (!report) return res.status(404).json({ message: "Not found" });
@@ -424,7 +425,7 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.get("/api/merchant-residuals", isAuthenticated, async (req, res) => {
+  app.get("/api/merchant-residuals", requireRole('admin', 'manager'), async (req, res) => {
     try {
       const month = req.query.month as string | undefined;
       const dealId = req.query.dealId ? Number(req.query.dealId) : undefined;
@@ -452,7 +453,7 @@ export function registerAdminRoutes(app: Express) {
 
 
   // === HEALTH ALERTS ===
-  app.get("/api/health-alerts", isAuthenticated, async (req, res) => {
+  app.get("/api/health-alerts", requireRole('admin', 'manager'), async (req, res) => {
     try {
       const alerts = await storage.getActiveHealthAlerts();
       res.json(alerts);
@@ -461,7 +462,7 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.get("/api/health-alerts/deal/:dealId", isAuthenticated, async (req, res) => {
+  app.get("/api/health-alerts/deal/:dealId", requireRole('admin', 'manager'), async (req, res) => {
     try {
       const alerts = await storage.getHealthAlertsByDeal(Number(req.params.dealId));
       res.json(alerts);
@@ -493,7 +494,7 @@ export function registerAdminRoutes(app: Express) {
 
 
   // === CONSENT AUDIT LOGS ===
-  app.get("/api/consent-audit", isAuthenticated, async (req, res) => {
+  app.get("/api/consent-audit", requireRole('admin', 'manager'), async (req, res) => {
     try {
       const logs = await storage.getConsentAuditLogs();
       res.json(logs);
@@ -524,7 +525,7 @@ export function registerAdminRoutes(app: Express) {
 
 
   // === DATA DELETE REQUESTS ===
-  app.post("/api/data-requests", async (req, res) => {
+  app.post("/api/data-requests", publicLeadRateLimit, async (req, res) => {
     try {
       const input = insertDataDeleteRequestSchema.parse(req.body);
       const request = await storage.createDataDeleteRequest(input);

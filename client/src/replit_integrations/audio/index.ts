@@ -20,7 +20,7 @@
  *   const handleClick = async () => {
  *     if (recorder.state === "recording") {
  *       const blob = await recorder.stopRecording();
- *       await stream.streamVoiceResponse("/api/voice-conversations/1/messages", blob);
+ *       // await stream.streamVoiceResponse(yourVoiceApiEndpoint, blob);
  *     } else {
  *       await recorder.startRecording();
  *     }

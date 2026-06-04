@@ -79,7 +79,6 @@ const KNOWN_MISMATCHES = new Set<string>([
   "/api/sdr/discovery/nightly/${start",
   "/api/sdr/merchants",
   "/api/sms-inbox/thread",
-  "/api/voice-conversations/1/messages",
 ]);
 
 function main() {

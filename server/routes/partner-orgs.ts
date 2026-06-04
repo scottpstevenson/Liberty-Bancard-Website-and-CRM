@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import { isAuthenticated, isDashboardUser } from "../replit_integrations/auth";
+import { publicLeadRateLimit } from "../middleware/public-rate-limit";
 import { storage } from "../storage";
 import { z } from "zod";
 import { insertPartnerOrgSchema, insertPartnerOrgUserSchema } from "@shared/schema";
@@ -45,7 +46,7 @@ export function registerPartnerOrgsRoutes(app: Express) {
   });
 
   // ── Public: submit contact from partner branded page (no auth required) ────
-  app.post("/api/contacts/public", async (req, res) => {
+  app.post("/api/contacts/public", publicLeadRateLimit, async (req, res) => {
     try {
       const {
         firstName, lastName, email, phone, companyName,
@@ -95,7 +96,7 @@ export function registerPartnerOrgsRoutes(app: Express) {
   });
 
   // ── Public: partner portal statement upload (no auth required) ─────────────
-  app.post("/api/statements/upload", upload.single("file"), async (req, res) => {
+  app.post("/api/statements/upload", publicLeadRateLimit, upload.single("file"), async (req, res) => {
     try {
       const { email, partnerSlug } = req.body;
       if (!email) {

@@ -1,5 +1,5 @@
 import type { Express, Request as ExpressRequest } from "express";
-import { isAuthenticated, isAdmin } from "../replit_integrations/auth";
+import { isAuthenticated, isAdmin, isDashboardUser } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { db, pool } from "../db";
 import { z } from "zod";
@@ -19,6 +19,7 @@ import { parse } from "csv-parse/sync";
 
 export function registerSdrRoutes(app: Express) {
   // === HEALTH ENDPOINTS ===
+  // Public minimal health check — intentionally reveals nothing about internals
   app.get("/health", async (_req, res) => {
     let dbOk = false;
     try {
@@ -27,34 +28,48 @@ export function registerSdrRoutes(app: Express) {
     } catch (err) {
       console.error("[Health] DB check failed:", err);
     }
-    const { isGhlConfigured } = await import("../services/ghl");
     if (!dbOk) {
-      return res.status(503).json({ status: "degraded", db: "error" });
+      return res.status(503).json({ status: "degraded" });
     }
-    return res.status(200).json({
-      status: "ok",
-      db: "ok",
-      ghl: isGhlConfigured() ? "configured" : "missing",
-    });
+    return res.status(200).json({ status: "ok" });
   });
 
+  // Public minimal API health check — no internals exposed
   app.get("/api/health", async (_req, res) => {
+    let dbOk = false;
+    try {
+      const result = await pool.query("SELECT 1 AS check");
+      dbOk = result.rows.length > 0;
+    } catch {}
+    if (!dbOk) {
+      return res.status(503).json({ status: "degraded" });
+    }
+    res.json({ status: "ok" });
+  });
+
+  // Verbose health check — dashboard users only
+  app.get("/api/admin/health", isDashboardUser, async (_req, res) => {
     const uptime = process.uptime();
     let dbOk = false;
     let sessionOk = false;
+    let sessionCount: number | null = null;
     try {
       const result = await pool.query("SELECT 1 AS check");
       dbOk = result.rows.length > 0;
     } catch {}
     try {
-      const sessResult = await pool.query("SELECT COUNT(*) FROM sessions");
+      const sessResult = await pool.query("SELECT COUNT(*) AS cnt FROM sessions");
       sessionOk = sessResult.rows.length > 0;
+      sessionCount = sessResult.rows[0] ? parseInt(sessResult.rows[0].cnt, 10) : null;
     } catch {}
+    const { isGhlConfigured } = await import("../services/ghl");
     res.json({
       ok: dbOk && sessionOk,
       uptime: Math.floor(uptime),
       db: dbOk ? "connected" : "error",
       session: sessionOk ? "connected" : "error",
+      sessionCount,
+      ghl: isGhlConfigured() ? "configured" : "missing",
       timestamp: new Date().toISOString(),
     });
   });
@@ -358,6 +373,16 @@ export function registerSdrRoutes(app: Express) {
   });
 
   // === SDR WEBHOOK RECEIVER ===
+  // Guard: reject all GHL webhooks with 503 in production when the signing secret is unset.
+  // This forces the operator to configure GHL_WEBHOOK_SECRET before enabling GHL.
+  app.use("/api/webhooks/ghl/", (req, res, next) => {
+    if (!process.env.GHL_WEBHOOK_SECRET && process.env.NODE_ENV === "production") {
+      console.error("[SDR Webhook] GHL_WEBHOOK_SECRET not configured — rejecting webhook in production");
+      return res.status(503).json({ received: false, error: "Webhook signing not configured" });
+    }
+    next();
+  });
+
   function getSdrWebhookRawBody(req: ExpressRequest): string {
     const rawBody = (req as ExpressRequest & { rawBody?: Buffer }).rawBody;
     if (rawBody && Buffer.isBuffer(rawBody)) {

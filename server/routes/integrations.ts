@@ -88,6 +88,11 @@ export function registerIntegrationsRoutes(app: Express) {
 
   app.post("/api/webhooks/ghl", async (req, res) => {
     try {
+      const webhookSecret = process.env.GHL_WEBHOOK_SECRET;
+      if (!webhookSecret && process.env.NODE_ENV === "production") {
+        console.error("[GHL Webhook] GHL_WEBHOOK_SECRET not configured — rejecting webhook in production");
+        return res.status(503).json({ received: false, error: "Webhook signing not configured" });
+      }
       const signature = (req.headers["x-ghl-signature"] || req.headers["x-hub-signature-256"] || "") as string;
       const rawBody = req.rawBody instanceof Buffer ? req.rawBody.toString("utf8") : JSON.stringify(req.body);
 

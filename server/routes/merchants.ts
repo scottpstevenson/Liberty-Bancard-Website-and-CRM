@@ -454,6 +454,10 @@ export function registerMerchantsRoutes(app: Express) {
   app.post("/api/webhooks/ghl-document", webhookRateLimit, async (req, res) => {
     try {
       const webhookSecret = process.env.GHL_WEBHOOK_SECRET;
+      if (!webhookSecret && process.env.NODE_ENV === "production") {
+        console.error("[GHL Document Webhook] GHL_WEBHOOK_SECRET not configured — rejecting webhook in production");
+        return res.status(503).json({ received: false, error: "Webhook signing not configured" });
+      }
       if (webhookSecret) {
         const signature = req.headers["x-ghl-signature"] || req.headers["x-webhook-signature"];
         if (!signature || signature !== webhookSecret) {
@@ -506,7 +510,7 @@ export function registerMerchantsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/merchant-profiles", isAuthenticated, async (req, res) => {
+  app.post("/api/merchant-profiles", requireRole('admin', 'manager', 'agent'), async (req, res) => {
     try {
       const input = insertMerchantProfileSchema.parse(req.body);
       const profile = await storage.createMerchantProfile(input);

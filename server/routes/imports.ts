@@ -26,6 +26,7 @@ import path from "path";
 import fs from "fs";
 import { uploadLarge, trackReferral, normalizePhoneForImport, classifyVerticalForImport, sendConfirmationSms } from "./helpers";
 import { syncAffiliateSignupToGhl } from "../services/ghl-form-sync";
+import { publicLeadRateLimit } from "../middleware/public-rate-limit";
 
 export function registerImportsRoutes(app: Express) {
   // === FULL COREVT IMPORT ===
@@ -466,7 +467,7 @@ Guidelines:
     res.send(xml);
   });
 
-  app.post("/api/affiliate/signup", async (req, res) => {
+  app.post("/api/affiliate/signup", publicLeadRateLimit, async (req, res) => {
     try {
       const { firstName, lastName, email, phone, companyName, website, howHeard, password } = req.body;
       if (!firstName || typeof firstName !== "string" || firstName.length > 100) {
