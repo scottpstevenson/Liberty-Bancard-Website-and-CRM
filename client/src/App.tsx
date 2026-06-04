@@ -189,6 +189,7 @@ const LiveChatDashboard = lazy(() => import("@/pages/dashboard/LiveChat"));
 const DocumentVault = lazy(() => import("@/pages/dashboard/DocumentVault"));
 const VirtualTerminal = lazy(() => import("@/pages/dashboard/VirtualTerminal"));
 const PartnerOrgs = lazy(() => import("@/pages/dashboard/PartnerOrgs"));
+const GhlSequenceGuide = lazy(() => import("@/pages/dashboard/GhlSequenceGuide"));
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -602,6 +603,9 @@ function Router() {
         </Route>
         <Route path="/dashboard/virtual-terminal">
           <ProtectedRoute component={VirtualTerminal} />
+        </Route>
+        <Route path="/dashboard/ghl-sequence-guide">
+          <ProtectedRoute component={GhlSequenceGuide} />
         </Route>
 
         <Route component={NotFound} />
