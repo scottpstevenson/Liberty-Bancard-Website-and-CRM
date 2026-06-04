@@ -19,7 +19,7 @@ import {
   Loader2, CalendarDays, PhoneCall, Link2, Copy, ChevronRight, Star,
   BookOpen, LayoutDashboard, Users, ClipboardList, Calendar, FileText,
   ExternalLink, XCircle, Activity, MessageSquare, Voicemail, Video,
-  Trophy, TrendingDown, Minus, Crown, Medal, Award, Smartphone, QrCode,
+  Trophy, TrendingDown, Minus, Crown, Medal, Award, Smartphone, QrCode, Calculator,
 } from "lucide-react";
 import { SALES_STAGES } from "@shared/schema";
 
@@ -1242,6 +1242,7 @@ export default function SalesRepHome() {
                 { href: "/dashboard/calendar", icon: Calendar, label: "Calendar" },
                 { href: "/dashboard/call-outcome", icon: PhoneCall, label: "Log Call" },
                 { href: "/assets", icon: FileText, label: "Collateral" },
+                { href: "/sales/agent-calculator", icon: Calculator, label: "Earnings Calc" },
               ].map((item) => (
                 <Button
                   key={item.href}

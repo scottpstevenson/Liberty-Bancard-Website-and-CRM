@@ -5,8 +5,8 @@ import { storage } from "../storage";
 import { db } from "../db";
 import { auditChange } from "../services/audit-change";
 import { z } from "zod";
-import { insertAgentMerchantSchema, insertAgentQuotaSchema, insertAgentSchema, insertConsentAuditLogSchema, insertDataDeleteRequestSchema, insertHealthAlertSchema, insertResidualReportSchema, insertReviewRequestSchema, users } from "@shared/schema";
-import { desc, eq } from "drizzle-orm";
+import { insertAgentMerchantSchema, insertAgentQuotaSchema, insertAgentSchema, insertConsentAuditLogSchema, insertDataDeleteRequestSchema, insertHealthAlertSchema, insertResidualReportSchema, insertReviewRequestSchema, users, contacts } from "@shared/schema";
+import { desc, eq, isNull } from "drizzle-orm";
 import { parse } from "csv-parse/sync";
 import path from "path";
 
@@ -652,6 +652,57 @@ export function registerAdminRoutes(app: Express) {
       const pingResults = await pingAllAdapters();
       const statuses = getAllAdapterStatuses();
       res.json({ ping: pingResults, adapters: statuses });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === GHL CONTACT ID BACKFILL ===
+  app.post("/api/admin/backfill-ghl-contacts", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const { isGhlConfigured, lookupGhlContactByEmail } = await import("../services/ghl");
+      if (!isGhlConfigured()) {
+        return res.status(503).json({ message: "GHL not configured. Set GHL_API_KEY and GHL_LOCATION_ID." });
+      }
+
+      const rows = await db
+        .select()
+        .from(contacts)
+        .where(isNull(contacts.ghlContactId));
+
+      const results = { matched: 0, notFound: 0, errors: 0, total: rows.length };
+      const log: Array<{ id: number; email: string; status: string; ghlId?: string; error?: string }> = [];
+
+      for (const contact of rows) {
+        if (!contact.email) { results.errors++; log.push({ id: contact.id, email: "", status: "skipped_no_email" }); continue; }
+        try {
+          const ghlId = await lookupGhlContactByEmail(contact.email);
+          if (ghlId) {
+            await db.update(contacts).set({ ghlContactId: ghlId }).where(eq(contacts.id, contact.id));
+            results.matched++;
+            log.push({ id: contact.id, email: contact.email, status: "matched", ghlId });
+          } else {
+            results.notFound++;
+            log.push({ id: contact.id, email: contact.email, status: "not_found" });
+          }
+        } catch (err: any) {
+          results.errors++;
+          log.push({ id: contact.id, email: contact.email, status: "error", error: err.message });
+        }
+        await new Promise(r => setTimeout(r, 120));
+      }
+
+      res.json({ results, log });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/admin/backfill-ghl-contacts/status", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const allCount = await db.select({ id: contacts.id }).from(contacts);
+      const nullCount = await db.select({ id: contacts.id }).from(contacts).where(isNull(contacts.ghlContactId));
+      res.json({ totalContacts: allCount.length, missingGhlId: nullCount.length });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

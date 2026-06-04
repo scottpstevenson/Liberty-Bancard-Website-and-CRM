@@ -232,4 +232,8 @@
     page-break-inside: avoid;
     break-inside: avoid;
   }
+
+  .print\:hidden {
+    display: none !important;
+  }
 }

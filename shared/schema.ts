@@ -3723,3 +3723,24 @@ export const insertEntityRelationshipSchema = createInsertSchema(entityRelations
 
 export type EntityRelationship = typeof entityRelationships.$inferSelect;
 export type InsertEntityRelationship = z.infer<typeof insertEntityRelationshipSchema>;
+
+export const toolClickEvents = pgTable("tool_click_events", {
+  id: serial("id").primaryKey(),
+  toolId: text("tool_id").notNull(),
+  toolTitle: text("tool_title"),
+  source: text("source").default("sales-tools-hub"),
+  userId: text("user_id"),
+  sessionId: text("session_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("tool_click_events_tool_id_idx").on(table.toolId),
+  index("tool_click_events_created_at_idx").on(table.createdAt),
+]);
+
+export const insertToolClickEventSchema = createInsertSchema(toolClickEvents).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type ToolClickEvent = typeof toolClickEvents.$inferSelect;
+export type InsertToolClickEvent = z.infer<typeof insertToolClickEventSchema>;

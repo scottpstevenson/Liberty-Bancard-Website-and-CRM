@@ -290,7 +290,7 @@ export default function LocationIndustryPage() {
               <Link href="/upload-statement" data-testid="link-location-upload">
                 <Button size="lg" className="gap-2 bg-sky-500 border-sky-500 text-white">
                   <Upload className="w-4 h-4" />
-                  Free Statement Review
+                  Get My Free Analysis
                 </Button>
               </Link>
               <Link href={`/industries/${vertical?.industryPageSlug || ""}`} data-testid="link-location-industry">

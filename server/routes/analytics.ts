@@ -2,14 +2,63 @@ import type { Express } from "express";
 import { isAuthenticated } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { pool } from "../db";
-import { contacts } from "@shared/schema";
+import { contacts, toolClickEvents } from "@shared/schema";
 import { isGhlConfigured, sendGhlEmailForMerchant } from "../services/ghl";
 import { buildWeeklyDigest } from "../services/digest-service";
 import { db } from "../db";
 import { agents, deals, leaderboardSettings } from "@shared/schema";
-import { eq, and, gte, desc } from "drizzle-orm";
+import { eq, and, gte, desc, sql, count } from "drizzle-orm";
 
 export function registerAnalyticsRoutes(app: Express) {
+
+  // === SALES TOOL CLICK TRACKING ===
+  app.post("/api/analytics/tool-click", async (req, res) => {
+    try {
+      const { toolId, toolTitle, source, sessionId } = req.body;
+      if (!toolId) return res.status(400).json({ message: "toolId is required" });
+      const userId = (req.user as any)?.id?.toString() ?? null;
+      await db.insert(toolClickEvents).values({
+        toolId,
+        toolTitle: toolTitle ?? null,
+        source: source ?? "sales-tools-hub",
+        userId,
+        sessionId: sessionId ?? null,
+      });
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === AGENT RESIDUAL TIER CONFIG ===
+  // Served from the server so rates can be updated without redeploying the frontend.
+  app.get("/api/agent-tiers", async (_req, res) => {
+    res.json([
+      { label: "Starter",  minAccounts: 1,  maxAccounts: 4,  residualBps: 25, bonusLabel: null },
+      { label: "Silver",   minAccounts: 5,  maxAccounts: 14, residualBps: 35, bonusLabel: "Priority support" },
+      { label: "Gold",     minAccounts: 15, maxAccounts: 29, residualBps: 45, bonusLabel: "Marketing materials" },
+      { label: "Platinum", minAccounts: 30, maxAccounts: 59, residualBps: 55, bonusLabel: "Co-branded collateral + bonus" },
+      { label: "Elite",    minAccounts: 60, maxAccounts: null, residualBps: 70, bonusLabel: "Dedicated account manager" },
+    ]);
+  });
+
+  app.get("/api/analytics/tool-clicks", isAuthenticated, async (req, res) => {
+    try {
+      const rows = await db
+        .select({
+          toolId: toolClickEvents.toolId,
+          toolTitle: toolClickEvents.toolTitle,
+          clicks: count(toolClickEvents.id),
+        })
+        .from(toolClickEvents)
+        .groupBy(toolClickEvents.toolId, toolClickEvents.toolTitle)
+        .orderBy(desc(count(toolClickEvents.id)));
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // === KPI DASHBOARD ===
   app.get("/api/kpi/summary", isAuthenticated, async (req, res) => {
     try {

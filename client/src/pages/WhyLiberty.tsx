@@ -223,7 +223,7 @@ export default function WhyLiberty() {
                 <Link href="/upload-statement" data-testid="link-why-upload">
                   <Button className="gap-2 cta-pulse">
                     <Upload className="w-4 h-4" />
-                    Free Statement Review
+                    Get My Free Analysis
                   </Button>
                 </Link>
                 <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking("why_liberty_hero")} data-testid="link-why-book-call">
@@ -279,7 +279,7 @@ export default function WhyLiberty() {
                 <Link href="/upload-statement" data-testid="link-story-upload">
                   <Button className="gap-2">
                     <Upload className="w-4 h-4" />
-                    Get Your Free Statement Review
+                    Get My Free Analysis
                   </Button>
                 </Link>
               </div>

@@ -109,6 +109,7 @@ const TerminalShop = lazy(() => import("@/pages/TerminalShop"));
 // ─── Sales Tools (hidden) ─────────────────────────────────────────────────────
 const CostQuiz = lazy(() => import("@/pages/sales/CostQuiz"));
 const SalesOnePager = lazy(() => import("@/pages/sales/SalesOnePager"));
+const AgentCalculator = lazy(() => import("@/pages/sales/AgentCalculator"));
 
 // ─── Mobile PWA ───────────────────────────────────────────────────────────────
 const MobileApp = lazy(() => import("@/pages/mobile/MobileApp"));
@@ -371,6 +372,7 @@ function Router() {
 
         {/* Sales Landing Pages (hidden, noindex) */}
         <Route path="/quiz/processing-cost" component={CostQuiz} />
+        <Route path="/sales/agent-calculator" component={AgentCalculator} />
         <Route path="/sales/:slug" component={SalesOnePager} />
 
         {/* Industry Pages */}

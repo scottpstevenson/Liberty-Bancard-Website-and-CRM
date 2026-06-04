@@ -1,5 +1,6 @@
 import { useParams } from "wouter";
 import { Link } from "wouter";
+import { CALENDAR_URL } from "@/lib/constants";
 import { SEO } from "@/components/SEO";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
@@ -929,12 +930,12 @@ export default function SalesOnePager() {
                   Upload Statement
                 </Button>
               </Link>
-              <Link href="/get-started">
-                <Button variant="outline" className="gap-2 bg-white/10 border-white/20 text-white backdrop-blur-sm" data-testid="button-cta-call">
+              <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="button-cta-call">
+                <Button variant="outline" className="gap-2 bg-white/10 border-white/20 text-white backdrop-blur-sm">
                   <Phone className="w-4 h-4" />
                   Book a 10-Minute Call
                 </Button>
-              </Link>
+              </a>
             </div>
             <p className="text-primary-foreground/50 text-xs mt-6" data-testid="text-cta-disclaimer">
               All savings estimates require a statement review. Eligibility, underwriting, and card brand rules apply.

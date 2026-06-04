@@ -127,6 +127,13 @@
                         "when": 1780000000000,
                         "tag": "0016_referral_converted_at",
                         "breakpoints": true
+                },
+                {
+                        "idx": 18,
+                        "version": "7",
+                        "when": 1780100000000,
+                        "tag": "0017_tool_click_events",
+                        "breakpoints": true
                 }
         ]
 }

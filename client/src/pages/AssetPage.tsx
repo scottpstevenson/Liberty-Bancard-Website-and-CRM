@@ -28,6 +28,7 @@ import {
   FolderOpen,
   Search,
 } from "lucide-react";
+import { CALENDAR_URL } from "@/lib/constants";
 import imgCloverFlex3 from "@assets/images/terminal-clover-flex-3.png";
 import imgCloverMini3 from "@assets/images/terminal-clover-mini-3.png";
 import imgCloverStationDuo from "@assets/images/terminal-clover-station-duo.png";
@@ -705,7 +706,7 @@ function CtaSection() {
             Upload Statement
           </Button>
         </Link>
-        <a href="tel:9542668214" data-testid="link-cta-book-call">
+        <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-cta-book-call">
           <Button variant="outline" className="gap-2">
             <Calendar className="w-4 h-4" />
             Book 10-Min Call

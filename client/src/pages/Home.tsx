@@ -242,7 +242,7 @@ export default function Home() {
                   <Link href="/upload-statement" data-testid="link-hero-upload">
                     <Button size="lg" className="gap-2 bg-sky-500 border-sky-500 text-white">
                       <Upload className="w-4 h-4" />
-                      Get Your Liberty Analysis Free →
+                      Get My Free Analysis →
                     </Button>
                   </Link>
                   <Link href="/get-started" data-testid="link-hero-quiz">
@@ -432,7 +432,7 @@ export default function Home() {
                     <Link href="/upload-statement" data-testid="link-what-you-get-upload">
                       <Button className="w-full gap-2">
                         <Upload className="w-4 h-4" />
-                        Get My Free Breakdown
+                        Get My Free Analysis
                       </Button>
                     </Link>
                     <p className="text-xs text-muted-foreground mt-3">*Eligibility, underwriting, card brand rules, and applicable laws apply.</p>
@@ -982,7 +982,7 @@ export default function Home() {
                     <Link href="/upload-statement" data-testid="link-guarantee-cta">
                       <Button className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600">
                         <Upload className="w-4 h-4" />
-                        Get Your Liberty Analysis Free
+                        Get My Free Analysis
                       </Button>
                     </Link>
                   </div>
@@ -1456,7 +1456,7 @@ export default function Home() {
               <Link href="/upload-statement" data-testid="link-final-upload">
                 <Button size="lg" className="gap-2 bg-sky-500 border-sky-500 text-white">
                   <Upload className="w-4 h-4" />
-                  Get Your Liberty Analysis Free →
+                  Get My Free Analysis →
                 </Button>
               </Link>
               <Link href="/get-started" data-testid="link-final-quiz">

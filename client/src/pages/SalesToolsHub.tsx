@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
+import { apiRequest } from "@/lib/queryClient";
 
 import {
   Calculator,
@@ -165,6 +166,14 @@ function CopyShareButton({ tool, className }: { tool: SalesTool; className?: str
   );
 }
 
+function trackToolClick(tool: SalesTool) {
+  apiRequest("POST", "/api/analytics/tool-click", {
+    toolId: tool.id,
+    toolTitle: tool.title,
+    source: "sales-tools-hub",
+  }).catch(() => {});
+}
+
 export default function SalesToolsHub() {
   return (
     <div className="min-h-screen flex flex-col font-body">
@@ -252,7 +261,7 @@ export default function SalesToolsHub() {
 
                       <div className="flex flex-col gap-2 pt-1">
                         <CopyShareButton tool={tool} />
-                        <Link href={tool.href} data-testid={`link-open-tool-${tool.id}`}>
+                        <Link href={tool.href} data-testid={`link-open-tool-${tool.id}`} onClick={() => trackToolClick(tool)}>
                           <Button size="sm" className="w-full gap-1.5 text-xs">
                             <ExternalLink className="w-3.5 h-3.5" />
                             Open Tool

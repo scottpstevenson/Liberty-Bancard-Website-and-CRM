@@ -453,7 +453,7 @@ export default function FAQ() {
                 <Card className="h-full hover-elevate">
                   <CardContent className="pt-6 text-center">
                     <h3 className="font-semibold text-foreground mb-2">
-                      Free Statement Review
+                      Get My Free Analysis
                     </h3>
                     <p className="text-sm text-muted-foreground">
                       Upload your current statement and see exactly how much you

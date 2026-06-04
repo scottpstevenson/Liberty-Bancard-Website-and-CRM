@@ -28,6 +28,7 @@ import {
   Minus,
   Plus,
   X,
+  Printer,
 } from "lucide-react";
 import { PromoBanner, PromoList } from "@/components/PromoBanner";
 import imgCloverFlex3 from "@assets/images/terminal-clover-flex-3.png";
@@ -435,6 +436,18 @@ export default function TerminalShop() {
                     <p className="text-muted-foreground max-w-2xl" data-testid="text-shop-subheading">
                       No leases. No markup. Buy outright or get free placement with a processing agreement. Every terminal ships pre-configured and ready to accept payments.
                     </p>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0 print:hidden">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-2"
+                      onClick={() => window.print()}
+                      data-testid="button-print-sheet"
+                    >
+                      <Printer className="w-4 h-4" />
+                      Print / Save as PDF
+                    </Button>
                   </div>
                   {cartCount > 0 && (
                     <Button

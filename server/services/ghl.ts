@@ -181,6 +181,25 @@ type GhlContactInput = Pick<Contact,
   "consentEmail" | "landingPage"
 >>;
 
+/**
+ * Look up an existing GHL contact by email. Returns the GHL contact ID if found,
+ * or null if no match exists. Never creates a contact.
+ */
+export async function lookupGhlContactByEmail(email: string): Promise<string | null> {
+  const config = getConfig();
+  if (!config) throw new Error("GHL not configured");
+  try {
+    const result = await ghlFetch(
+      `/contacts/search/duplicate?locationId=${encodeURIComponent(config.locationId)}&email=${encodeURIComponent(email)}`,
+      { method: "GET" }
+    );
+    const id = result?.contact?.id ?? result?.contacts?.[0]?.id ?? null;
+    return id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function upsertGhlContact(contact: GhlContactInput): Promise<string> {
   const config = getConfig();
   if (!config) throw new Error("GHL not configured");
