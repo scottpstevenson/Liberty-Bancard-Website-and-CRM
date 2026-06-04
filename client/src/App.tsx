@@ -288,6 +288,7 @@ function Router() {
         <Route path="/0-percent-processing" component={ZeroPercent} />
         <Route path="/beat-square-stripe" component={BeatSquareStripe} />
         <Route path="/about-contact" component={AboutContact} />
+        <Route path="/contact" component={AboutContact} />
         <Route path="/estimate" component={Estimate} />
         <Route path="/support" component={Support} />
         <Route path="/privacy-policy" component={PrivacyPolicy} />

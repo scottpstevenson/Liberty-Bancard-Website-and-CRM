@@ -115,7 +115,7 @@ export function registerSeoAdminRoutes(app: Express) {
       // Real-fetch verification on all declared rows (full coverage by default).
       // Pass ?sample=N to limit to the first N rows for faster dashboard loads.
       const proto = (req.headers["x-forwarded-proto"] as string) || req.protocol || "http";
-      const host = req.get("host") || `localhost:${process.env.PORT || 5000}`;
+      const host = req.get("host") || (process.env.APP_URL ? new URL(process.env.APP_URL).host : `localhost:${process.env.PORT || 5000}`);
       const baseUrl = `${proto}://${host}`;
       const sampleParam = typeof req.query.sample === "string" ? parseInt(req.query.sample, 10) : NaN;
       const limit = !isNaN(sampleParam) && sampleParam > 0 ? sampleParam : ROUTE_HTML_CHECKS_MAX;

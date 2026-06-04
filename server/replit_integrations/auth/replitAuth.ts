@@ -13,7 +13,7 @@ import { storage } from "../../storage";
 import { isGhlConfigured, sendGhlEmailForMerchant as sendGhlEmail } from "../../services/ghl";
 import { sendSmtpEmail, isSmtpConfigured } from "../../services/smtp-email";
 import { db } from "../../db";
-import { systemSettings } from "@shared/schema";
+import { systemSettings, users } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { csrfProtection } from "../../middleware/csrf";
 import { merchantAuthRateLimit, verifyEmailRateLimit } from "../../middleware/public-rate-limit";
@@ -142,9 +142,9 @@ async function seedAdminUser() {
     );
   }
 
+  const passwordHash = await bcrypt.hash(adminPassword, 12);
   const existing = await authStorage.getUserByEmail(adminEmail);
   if (!existing) {
-    const passwordHash = await bcrypt.hash(adminPassword, 12);
     await authStorage.upsertUser({
       email: adminEmail,
       firstName: "Scott",
@@ -154,6 +154,12 @@ async function seedAdminUser() {
       authProvider: "local",
     });
     console.log(`[Auth] Admin user seeded: ${adminEmail}`);
+  } else {
+    await db
+      .update(users)
+      .set({ passwordHash, updatedAt: new Date() })
+      .where(eq(users.email, adminEmail.toLowerCase()));
+    console.log(`[Auth] Admin password synced from env: ${adminEmail}`);
   }
 }
 

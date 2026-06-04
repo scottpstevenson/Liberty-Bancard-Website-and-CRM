@@ -1,0 +1,6 @@
+- [Login rate limiter behavior](login-rate-limiter.md) — 401 "Invalid email or password" is returned for BOTH wrong password AND rate-limit hits — indistinguishable from logs.
+- [Admin password sync](admin-password-sync.md) — seedAdminUser now re-hashes and updates DB password on every startup; use env vars to control it.
+- [Playwright test user](playwright-test-user.md) — Dedicated test user exists in DB; avoid using admin user (2FA risk, rate limiter).
+- [SEO audit regex fix](seo-audit-apostrophe.md) — seo-audit.ts meta-description regex was broken by apostrophes; fixed to `content="([^"]*)"`.
+- [Tasks page crash](tasks-page-crash.md) — ResponsiveTable used as children wrapper (invalid); replaced with overflow-x-auto div.
+- [Dashboard route map](dashboard-route-map.md) — AI advisors are at /dashboard/chat (not /dashboard/ai-advisors); full route list documented.

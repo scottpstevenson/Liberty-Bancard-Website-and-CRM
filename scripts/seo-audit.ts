@@ -180,7 +180,7 @@ async function auditRoute(spec: RouteSpec): Promise<AuditResult> {
 
     const desc = pickAttr(
       html,
-      /<meta\s+name=["']description["']\s+content=["']([^"']+)["']/i
+      /<meta\s+name=["']description["']\s+content="([^"]*)"/i
     );
     if (!desc) {
       errors.push("missing meta description");

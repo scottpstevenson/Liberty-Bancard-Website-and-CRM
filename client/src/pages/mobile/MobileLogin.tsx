@@ -41,6 +41,7 @@ export default function MobileLogin() {
             <input
               data-testid="input-email"
               type="email"
+              autoComplete="username"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@libertybancard.com"
@@ -57,6 +58,7 @@ export default function MobileLogin() {
               <input
                 data-testid="input-password"
                 type={showPassword ? "text" : "password"}
+                autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"

@@ -214,7 +214,7 @@ export function registerWidgetRoutes(app: Express) {
     const theme = req.query.theme === "dark" ? "dark" : "light";
     const bg = theme === "dark" ? "#111827" : "#f8fafc";
     const protocol = req.headers["x-forwarded-proto"] || req.protocol;
-    const host = req.headers["x-forwarded-host"] || req.headers.host || "localhost:5000";
+    const host = req.headers["x-forwarded-host"] || req.headers.host || (process.env.APP_URL ? new URL(process.env.APP_URL).host : "localhost:5000");
     const origin = `${protocol}://${host}`;
 
     const safeRef = ref.replace(/[^a-zA-Z0-9_\-]/g, "").slice(0, 64);

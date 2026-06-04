@@ -1392,8 +1392,8 @@ export function getFreeAnalysisGuaranteedHtml(): string {
   ${ctaSection("Not Signing Up Feels Irrational", "Either we find you savings — or we pay you $50. There is no scenario where you lose.")}`;
 
   return ssrHtmlShell({
-    title: "Free Merchant Statement Analysis — Guaranteed Savings or We Pay You | Liberty Bancard",
-    description: "Upload your statement and we'll find your hidden fees, benchmark you against 3,200+ statements, and show you exactly what you should be paying. If we can't find savings, we'll send you a $50 gift card.",
+    title: "Free Statement Analysis — Guaranteed Savings | Liberty Bancard",
+    description: "Upload your statement and we'll find hidden fees, benchmark against 3,200+ statements, and show what you should pay. No savings? We'll send you a $50 gift card.",
     canonical: "/free-analysis-guaranteed",
     keywords: "free merchant statement analysis, guaranteed savings, payment processing review, hidden fees, merchant services benchmark",
     schemaJsons: [faqSchema, serviceSchema],

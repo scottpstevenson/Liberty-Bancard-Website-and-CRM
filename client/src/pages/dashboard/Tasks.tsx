@@ -512,7 +512,7 @@ export default function Tasks() {
         }}
       />
 
-      <ResponsiveTable data-testid="tasks-table">
+      <div className="overflow-x-auto border rounded-md" data-testid="tasks-table">
         <Table>
           <TableHeader>
             <TableRow>
@@ -638,7 +638,7 @@ export default function Tasks() {
             })}
           </TableBody>
         </Table>
-      </ResponsiveTable>
+      </div>
     </div>
   );
 }
