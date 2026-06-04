@@ -1076,6 +1076,36 @@ function ReferralTab({ profile }: { profile: MerchantProfile | null | undefined 
                   </Button>
                 </div>
               )}
+              {referralLink && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2 justify-start"
+                    onClick={() => {
+                      const text = encodeURIComponent(`I've been saving on payment processing fees with Liberty Bancard. They do a free statement review — no pressure. Check it out: ${referralLink}`);
+                      window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(referralLink)}&summary=${text}`, "_blank", "noopener,noreferrer,width=600,height=600");
+                    }}
+                    data-testid="button-share-linkedin-merchant"
+                  >
+                    <svg className="w-4 h-4 text-[#0A66C2]" fill="currentColor" viewBox="0 0 24 24"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
+                    Share on LinkedIn
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2 justify-start"
+                    onClick={() => {
+                      const body = `Hey! I save on payment processing fees through Liberty Bancard. They do a free review — ${referralLink}`;
+                      window.open(`sms:?body=${encodeURIComponent(body)}`, "_self");
+                    }}
+                    data-testid="button-share-sms-merchant"
+                  >
+                    <svg className="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
+                    Send via SMS
+                  </Button>
+                </div>
+              )}
               <p className="text-sm text-muted-foreground">
                 Share this code with other business owners. You earn <strong>$50 in credits</strong> for every merchant who activates their account using your code.
               </p>

@@ -12,6 +12,7 @@ import { allBlogPosts, type BlogPost as BlogPostType, type GeneratedBlogPostResp
 import { getFAQSchema, getArticleSchema, getBreadcrumbSchema } from "@/components/SEO";
 import type { BlogSection } from "@/lib/all-blog-data";
 import { useQuery } from "@tanstack/react-query";
+import { NewsletterSignupInline } from "@/components/NewsletterSignupInline";
 
 function renderSection(section: BlogSection, index: number) {
   switch (section.type) {
@@ -252,13 +253,30 @@ export default function BlogPost() {
           </div>
 
           <div className="prose-custom" data-testid="article-content">
-            {post.content.map((section, index) => renderSection(section, index))}
+            {post.content.map((section, index) => {
+              const rendered = renderSection(section, index);
+              const paragraphIndex = post.content
+                .slice(0, index + 1)
+                .filter((s) => s.type === "paragraph")
+                .length;
+              if (paragraphIndex === 3 && section.type === "paragraph") {
+                return (
+                  <div key={`section-with-nl-${index}`}>
+                    {rendered}
+                    <NewsletterSignupInline variant="inline" />
+                  </div>
+                );
+              }
+              return rendered;
+            })}
           </div>
 
           <div className="mt-8 pt-6 border-t border-border flex items-center justify-between">
             <span className="text-xs text-muted-foreground uppercase tracking-wide">Found this useful? Share it.</span>
             <ShareButtons title={post.title} description={post.excerpt} hashtags={["payments", "smallbusiness"]} />
           </div>
+
+          <NewsletterSignupInline variant="end" />
 
           <div className="border-t border-border mt-12 pt-8">
             <div className="flex flex-col sm:flex-row justify-between gap-4">

@@ -813,4 +813,41 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
     }
   });
 
+  // === NEWSLETTER SIGNUP ===
+  app.post("/api/newsletter/subscribe", publicLeadRateLimit, async (req, res) => {
+    try {
+      const schema = z.object({
+        firstName: z.string().min(1).max(100),
+        email: z.string().email(),
+      });
+      const { firstName, email } = schema.parse(req.body);
+
+      const contact = await createContactGhlFirst({
+        firstName,
+        lastName: "",
+        email,
+        phone: "",
+        status: "New",
+        tags: ["NEWSLETTER-SIGNUP", "src_blog"],
+        referralSource: "newsletter",
+        landingPage: "/blog",
+      });
+
+      syncFormSubmissionToGhl({
+        contactId: contact.id,
+        leadSource: "newsletter_signup",
+        formData: { lb_newsletter_source: "blog_inline" },
+      }).catch(err => console.error("[Newsletter] GHL sync error:", err));
+
+      autoEnrollFromTrigger("newsletter_signup", { contactId: contact.id, formType: "newsletter" }).catch(err =>
+        console.error("[Newsletter] Auto-enroll error:", err),
+      );
+
+      res.status(201).json({ success: true, contactId: contact.id });
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      res.status(400).json({ message: err.message || "Subscription failed" });
+    }
+  });
+
 }

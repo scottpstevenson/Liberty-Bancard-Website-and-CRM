@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -15,7 +15,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Users, Handshake, DollarSign, Award, Plus, PlayCircle, Target, BookOpen, TrendingUp, Star, ChevronDown, ChevronUp, Link2, CheckCircle, XCircle, Copy, ExternalLink, Eye } from "lucide-react";
+import { Users, Handshake, DollarSign, Award, Plus, PlayCircle, Target, BookOpen, TrendingUp, Star, ChevronDown, ChevronUp, Link2, CheckCircle, XCircle, Copy, ExternalLink, Eye, Trophy, Medal } from "lucide-react";
 import type { Partner, Referral } from "@shared/schema";
 import { PARTNER_TYPES, REFERRAL_STATUSES } from "@shared/schema";
 import { HelpCenter } from "@/components/HelpCenter";
@@ -184,9 +184,217 @@ function ReferralExplainer() {
   );
 }
 
+type LeaderboardEntry = {
+  rank: number;
+  displayName: string;
+  referrals: number;
+  conversions: number;
+  earnings: number;
+  badge: "Bronze" | "Silver" | "Gold" | "Platinum";
+  partnerId: number;
+};
+
+type LeaderboardResponse = {
+  leaderboard: LeaderboardEntry[];
+  lastMonth: LeaderboardEntry[];
+  month: string;
+  lastMonthDate: string;
+  currentPartnerId: number | null;
+};
+
+const BADGE_STYLES: Record<string, { label: string; className: string }> = {
+  Bronze:   { label: "Bronze",   className: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-700" },
+  Silver:   { label: "Silver",   className: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-600" },
+  Gold:     { label: "Gold",     className: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200 border border-yellow-300 dark:border-yellow-700" },
+  Platinum: { label: "Platinum", className: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200 border border-indigo-300 dark:border-indigo-700" },
+};
+
+function LeaderboardTable({
+  entries,
+  currentPartnerId,
+  testIdPrefix,
+}: {
+  entries: LeaderboardEntry[];
+  currentPartnerId: number | null;
+  testIdPrefix: string;
+}) {
+  if (entries.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground text-center py-6">No referral activity recorded for this period.</p>
+    );
+  }
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead className="w-14">Rank</TableHead>
+          <TableHead>Affiliate</TableHead>
+          <TableHead className="text-center">Referrals</TableHead>
+          <TableHead className="text-center">Conversions</TableHead>
+          <TableHead className="text-right">Earnings</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {entries.map((entry) => {
+          const badgeStyle = BADGE_STYLES[entry.badge] || BADGE_STYLES.Bronze;
+          const isCurrentUser = currentPartnerId != null && entry.partnerId === currentPartnerId;
+          const rankIcons = [
+            <Trophy key="1" className="w-4 h-4 text-yellow-500" />,
+            <Medal key="2" className="w-4 h-4 text-slate-400" />,
+            <Medal key="3" className="w-4 h-4 text-amber-600" />,
+          ];
+          return (
+            <TableRow
+              key={entry.partnerId}
+              className={isCurrentUser ? "bg-primary/5 dark:bg-primary/10 font-semibold" : ""}
+              data-testid={`${testIdPrefix}-row-${entry.rank}`}
+            >
+              <TableCell>
+                <div className="flex items-center gap-1.5">
+                  {entry.rank <= 3 ? rankIcons[entry.rank - 1] : (
+                    <span className="text-sm font-bold text-muted-foreground">#{entry.rank}</span>
+                  )}
+                </div>
+              </TableCell>
+              <TableCell>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-medium text-sm" data-testid={`text-leaderboard-name-${entry.rank}`}>
+                    {entry.displayName}
+                    {isCurrentUser && (
+                      <span className="ml-1 text-[11px] text-primary font-semibold">(you)</span>
+                    )}
+                  </span>
+                  <span className={`text-[11px] font-semibold px-1.5 py-0.5 rounded-full ${badgeStyle.className}`} data-testid={`badge-leaderboard-${entry.rank}`}>
+                    {entry.badge}
+                  </span>
+                </div>
+              </TableCell>
+              <TableCell className="text-center font-medium" data-testid={`text-leaderboard-referrals-${entry.rank}`}>{entry.referrals}</TableCell>
+              <TableCell className="text-center font-medium" data-testid={`text-leaderboard-conversions-${entry.rank}`}>{entry.conversions}</TableCell>
+              <TableCell className="text-right font-semibold text-emerald-600 dark:text-emerald-400" data-testid={`text-leaderboard-earnings-${entry.rank}`}>
+                ${entry.earnings.toLocaleString()}
+              </TableCell>
+            </TableRow>
+          );
+        })}
+      </TableBody>
+    </Table>
+  );
+}
+
+function LeaderboardTab() {
+  const [lastMonthOpen, setLastMonthOpen] = useState(false);
+
+  const { data, isLoading } = useQuery<LeaderboardResponse>({
+    queryKey: ["/api/partners/leaderboard"],
+  });
+
+  const monthLabel = data?.month
+    ? new Date(data.month).toLocaleString("en-US", { month: "long", year: "numeric" })
+    : "";
+  const lastMonthLabel = data?.lastMonthDate
+    ? new Date(data.lastMonthDate).toLocaleString("en-US", { month: "long", year: "numeric" })
+    : "";
+
+  const leaderboard = data?.leaderboard || [];
+  const lastMonth = data?.lastMonth || [];
+  const currentPartnerId = data?.currentPartnerId ?? null;
+
+  if (isLoading) {
+    return (
+      <div className="space-y-3" data-testid="leaderboard-loading">
+        {[1,2,3,4,5].map(i => <Skeleton key={i} className="h-14 w-full" />)}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6" data-testid="leaderboard-tab">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <h2 className="text-lg font-semibold flex items-center gap-2">
+            <Trophy className="w-5 h-5 text-yellow-500" />
+            Top Affiliates — {monthLabel || "This Month"}
+          </h2>
+          <p className="text-sm text-muted-foreground">Ranked by conversions this calendar month</p>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          {Object.entries(BADGE_STYLES).map(([key, val]) => (
+            <span key={key} className={`text-xs font-medium px-2 py-0.5 rounded-full ${val.className}`}>
+              {val.label}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {leaderboard.length === 0 ? (
+        <Card data-testid="card-leaderboard-empty">
+          <CardContent className="flex flex-col items-center justify-center py-16 gap-4">
+            <Trophy className="w-12 h-12 text-muted-foreground/40" />
+            <div className="text-center space-y-1">
+              <p className="font-semibold text-foreground">No referral activity yet this month</p>
+              <p className="text-sm text-muted-foreground">
+                The leaderboard will populate once affiliates start converting referrals.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card data-testid="card-leaderboard">
+          <CardContent className="p-0">
+            <LeaderboardTable entries={leaderboard} currentPartnerId={currentPartnerId} testIdPrefix="this-month" />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Last Month Winners Accordion */}
+      <Card data-testid="card-last-month-accordion">
+        <button
+          className="w-full flex items-center justify-between p-4 hover:bg-muted/30 transition-colors text-left"
+          onClick={() => setLastMonthOpen((o) => !o)}
+          data-testid="button-last-month-toggle"
+        >
+          <div className="flex items-center gap-2">
+            <Medal className="w-5 h-5 text-amber-600" />
+            <div>
+              <span className="font-semibold text-sm">Last Month's Winners</span>
+              {lastMonthLabel && (
+                <span className="ml-2 text-xs text-muted-foreground">({lastMonthLabel})</span>
+              )}
+            </div>
+          </div>
+          {lastMonthOpen
+            ? <ChevronUp className="w-4 h-4 text-muted-foreground" />
+            : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+        </button>
+        {lastMonthOpen && (
+          <CardContent className="p-0 border-t border-border" data-testid="last-month-content">
+            <LeaderboardTable entries={lastMonth} currentPartnerId={currentPartnerId} testIdPrefix="last-month" />
+          </CardContent>
+        )}
+      </Card>
+
+      <Card className="border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/20">
+        <CardContent className="p-4">
+          <div className="flex items-start gap-3">
+            <Star className="w-5 h-5 text-blue-600 mt-0.5 shrink-0" />
+            <div>
+              <p className="font-semibold text-blue-800 dark:text-blue-200 mb-1">Badge Tiers (All-Time)</p>
+              <p className="text-sm text-blue-700 dark:text-blue-300">
+                <strong>Bronze</strong>: 1+ conversions · <strong>Silver</strong>: 5+ · <strong>Gold</strong>: 10+ · <strong>Platinum</strong>: 25+ converted referrals.
+                Your row is highlighted if you're registered as an affiliate.
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 export default function ReferralProgram() {
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<"partners" | "referrals" | "tiers">("partners");
+  const [activeTab, setActiveTab] = useState<"partners" | "referrals" | "tiers" | "leaderboard">("partners");
   const [isPartnerDialogOpen, setIsPartnerDialogOpen] = useState(false);
   const [isReferralDialogOpen, setIsReferralDialogOpen] = useState(false);
   const [isTierDialogOpen, setIsTierDialogOpen] = useState(false);
@@ -464,7 +672,7 @@ export default function ReferralProgram() {
         </Card>
       )}
 
-      <div className="flex gap-2">
+      <div className="flex gap-2 flex-wrap">
         <Button
           variant={activeTab === "partners" ? "default" : "outline"}
           onClick={() => setActiveTab("partners")}
@@ -485,6 +693,15 @@ export default function ReferralProgram() {
           data-testid="tab-tiers"
         >
           Commission Tiers
+        </Button>
+        <Button
+          variant={activeTab === "leaderboard" ? "default" : "outline"}
+          onClick={() => setActiveTab("leaderboard")}
+          className="gap-2"
+          data-testid="tab-leaderboard"
+        >
+          <Trophy className="w-4 h-4" />
+          Leaderboard
         </Button>
       </div>
 
@@ -899,6 +1116,8 @@ export default function ReferralProgram() {
           </Card>
         </>
       )}
+
+      {activeTab === "leaderboard" && <LeaderboardTab />}
 
       <ReferralExplainer />
 

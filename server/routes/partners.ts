@@ -743,4 +743,98 @@ export function registerPartnersRoutes(app: Express) {
       res.status(400).json({ message: err.message });
     }
   });
+
+  // === AFFILIATE LEADERBOARD ===
+  app.get("/api/partners/leaderboard", isDashboardUser, async (req, res) => {
+    try {
+      const now = new Date();
+      const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 1);
+
+      const allPartners = await storage.getPartners();
+      const allReferrals = await storage.getReferrals();
+
+      const CONVERTED_STATUSES = ["converted", "qualified", "paid", "closed"];
+
+      // Month-bounded helpers
+      const isThisMonth = (d: Date | null | undefined) =>
+        d != null && d >= thisMonthStart;
+      const isLastMonth = (d: Date | null | undefined) =>
+        d != null && d >= lastMonthStart && d < lastMonthEnd;
+
+      const partnerMap = new Map(allPartners.map((p) => [p.id, p]));
+
+      // Aggregate per partner — includes monthly earnings from commissionAmount
+      const aggregate = (filter: (d: Date | null | undefined) => boolean) => {
+        const counts = new Map<number, { referrals: number; conversions: number; earnings: number }>();
+        for (const r of allReferrals) {
+          if (!r.partnerId) continue;
+          const created = r.createdAt ? new Date(r.createdAt) : null;
+          if (!filter(created)) continue;
+          const cur = counts.get(r.partnerId) ?? { referrals: 0, conversions: 0, earnings: 0 };
+          cur.referrals += 1;
+          if (CONVERTED_STATUSES.includes(r.status ?? "")) cur.conversions += 1;
+          cur.earnings += parseFloat(r.commissionAmount || "0");
+          counts.set(r.partnerId, cur);
+        }
+        return counts;
+      };
+
+      const thisMonth = aggregate(isThisMonth);
+      const lastMonth = aggregate(isLastMonth);
+
+      const toEntry = (counts: Map<number, { referrals: number; conversions: number; earnings: number }>) => {
+        return Array.from(counts.entries())
+          .filter(([, c]) => c.referrals > 0)
+          // Primary sort: referral count this period; secondary: conversions
+          .sort((a, b) => b[1].referrals - a[1].referrals || b[1].conversions - a[1].conversions)
+          .slice(0, 10)
+          .map(([partnerId, c], i) => {
+            const p = partnerMap.get(partnerId);
+            const name = p?.contactName || p?.companyName || "Anonymous";
+            const parts = name.trim().split(/\s+/);
+            const displayName = parts.length >= 2
+              ? `${parts[0]} ${parts[parts.length - 1][0]}.`
+              : parts[0] || "Anonymous";
+            // Badge tier based on all-time referral count (not conversions)
+            const allTimeReferrals = p?.totalReferrals ?? 0;
+            const badge =
+              allTimeReferrals >= 25 ? "Platinum" :
+              allTimeReferrals >= 10 ? "Gold" :
+              allTimeReferrals >= 5  ? "Silver" : "Bronze";
+            return {
+              rank: i + 1,
+              displayName,
+              referrals: c.referrals,
+              conversions: c.conversions,
+              // Monthly earnings from commissionAmount field on each referral
+              earnings: Math.round(c.earnings * 100) / 100,
+              badge,
+              partnerId,
+            };
+          });
+      };
+
+      // Determine the current user's partner ID (if any) — by email match
+      const reqUser = req.user as any;
+      let currentPartnerId: number | null = null;
+      if (reqUser?.email) {
+        const match = allPartners.find(
+          (p) => p.email?.toLowerCase() === reqUser.email.toLowerCase()
+        );
+        if (match) currentPartnerId = match.id;
+      }
+
+      res.json({
+        leaderboard: toEntry(thisMonth),
+        lastMonth: toEntry(lastMonth),
+        month: thisMonthStart.toISOString(),
+        lastMonthDate: lastMonthStart.toISOString(),
+        currentPartnerId,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
 }
