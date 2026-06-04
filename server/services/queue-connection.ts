@@ -15,12 +15,15 @@ export async function getRedisConnection(): Promise<ConnectionOptions> {
   if (redisUrl) {
     console.log("[Queue] Connecting to Redis:", redisUrl.replace(/:\/\/.*@/, "://***@"));
     const url = new URL(redisUrl);
+    // Force TLS for Upstash (and any rediss:// URL). Upstash only accepts TLS
+    // connections but sometimes the URL is copied with redis:// instead of rediss://.
+    const forceTls = url.protocol === "rediss:" || url.hostname.includes("upstash.io");
     _connection = {
       host: url.hostname,
       port: parseInt(url.port || "6379", 10),
       password: url.password || undefined,
       username: url.username || undefined,
-      tls: url.protocol === "rediss:" ? {} : undefined,
+      tls: forceTls ? {} : undefined,
     };
     _usingMock = false;
   } else {
