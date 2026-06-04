@@ -43,6 +43,9 @@ const Integrations = lazy(() => import("@/pages/Integrations"));
 const FAQ = lazy(() => import("@/pages/FAQ"));
 const AffiliateProgram = lazy(() => import("@/pages/AffiliateProgram"));
 const ISOPartnerProgram = lazy(() => import("@/pages/ISOPartnerProgram"));
+const PartnerCPA = lazy(() => import("@/pages/PartnerCPA"));
+const PartnerBookkeeper = lazy(() => import("@/pages/PartnerBookkeeper"));
+const PartnerInsurance = lazy(() => import("@/pages/PartnerInsurance"));
 const SavingsCalculator = lazy(() => import("@/pages/SavingsCalculator"));
 const RateComparison = lazy(() => import("@/pages/RateComparison"));
 const FreeAnalysis = lazy(() => import("@/pages/FreeAnalysis"));
@@ -326,6 +329,9 @@ function Router() {
         <Route path="/integrations" component={Integrations} />
         <Route path="/faq" component={FAQ} />
         <Route path="/affiliate" component={AffiliateProgram} />
+        <Route path="/partners/cpa" component={PartnerCPA} />
+        <Route path="/partners/bookkeeper" component={PartnerBookkeeper} />
+        <Route path="/partners/insurance" component={PartnerInsurance} />
         <Route path="/partners" component={ISOPartnerProgram} />
         <Route path="/partner-portal" component={PartnerPortal} />
         <Route path="/partner-login" component={PartnerLogin} />

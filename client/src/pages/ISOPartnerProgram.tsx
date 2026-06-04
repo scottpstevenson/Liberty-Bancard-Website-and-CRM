@@ -634,6 +634,66 @@ export default function ISOPartnerProgram() {
           </div>
         </section>
 
+        {/* Partner by Profession */}
+        <section className="py-16 md:py-20 border-t border-border/30">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="text-center mb-10">
+              <h2 className="text-2xl md:text-3xl font-display font-bold text-foreground mb-4">
+                Partner by Profession
+              </h2>
+              <p className="text-muted-foreground max-w-2xl mx-auto">
+                We've built dedicated resources for the three most common non-ISO referrer types. If one of these fits your background, you'll find tailored copy, FAQs, and income estimates built specifically for you.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <Link href="/partners/cpa">
+                <div className="group border border-border/50 hover:border-primary/40 hover:shadow-md rounded-2xl p-7 transition-all cursor-pointer bg-background" data-testid="card-profession-cpa">
+                  <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center mb-4 group-hover:bg-primary/15 transition-colors">
+                    <BookOpen className="w-6 h-6 text-primary" />
+                  </div>
+                  <h3 className="font-display font-bold text-lg text-foreground mb-2">CPAs & Accountants</h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed mb-4">
+                    You already review your clients' financials. Processing fees are often the largest overlooked cost. Refer clients, earn 30% lifetime residuals — no sales effort required.
+                  </p>
+                  <div className="flex items-center gap-1.5 text-primary text-sm font-medium">
+                    Learn more <ChevronRight className="w-4 h-4" />
+                  </div>
+                </div>
+              </Link>
+
+              <Link href="/partners/bookkeeper">
+                <div className="group border border-border/50 hover:border-primary/40 hover:shadow-md rounded-2xl p-7 transition-all cursor-pointer bg-background" data-testid="card-profession-bookkeeper">
+                  <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center mb-4 group-hover:bg-primary/15 transition-colors">
+                    <FileText className="w-6 h-6 text-primary" />
+                  </div>
+                  <h3 className="font-display font-bold text-lg text-foreground mb-2">Bookkeepers</h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed mb-4">
+                    You reconcile their statements every month — you see the fees firsthand. You're the most trusted advisor in the room. Turn that into recurring income.
+                  </p>
+                  <div className="flex items-center gap-1.5 text-primary text-sm font-medium">
+                    Learn more <ChevronRight className="w-4 h-4" />
+                  </div>
+                </div>
+              </Link>
+
+              <Link href="/partners/insurance">
+                <div className="group border border-border/50 hover:border-primary/40 hover:shadow-md rounded-2xl p-7 transition-all cursor-pointer bg-background" data-testid="card-profession-insurance">
+                  <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center mb-4 group-hover:bg-primary/15 transition-colors">
+                    <Shield className="w-6 h-6 text-primary" />
+                  </div>
+                  <h3 className="font-display font-bold text-lg text-foreground mb-2">Business Insurance Agents</h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed mb-4">
+                    You talk to every small business. Cash discount programs eliminate processing fees for your clients — a natural conversation starter that earns you 30% monthly residuals.
+                  </p>
+                  <div className="flex items-center gap-1.5 text-primary text-sm font-medium">
+                    Learn more <ChevronRight className="w-4 h-4" />
+                  </div>
+                </div>
+              </Link>
+            </div>
+          </div>
+        </section>
+
         {/* CTA Banner */}
         <section className="py-12 bg-primary text-primary-foreground">
           <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
