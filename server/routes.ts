@@ -49,6 +49,7 @@ import { registerReviewQueueRoutes } from "./routes/review-queue";
 import { registerQueueMetricsRoutes } from "./routes/queue-metrics";
 import { registerRelationshipsRoutes } from "./routes/relationships";
 import { registerSavingsRoutes } from "./routes/savings";
+import { registerWidgetRoutes } from "./routes/widget";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -166,6 +167,7 @@ export async function registerRoutes(
   registerReviewQueueRoutes(app);
   registerRelationshipsRoutes(app);
   registerSavingsRoutes(app);
+  registerWidgetRoutes(app);
 
   // Must be registered before the API 404 catch-all — extracts route
   // permissions by walking the already-populated express router stack

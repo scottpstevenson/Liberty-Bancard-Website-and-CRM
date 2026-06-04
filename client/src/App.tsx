@@ -197,6 +197,8 @@ const PartnerOrgs = lazy(() => import("@/pages/dashboard/PartnerOrgs"));
 const GhlSequenceGuide = lazy(() => import("@/pages/dashboard/GhlSequenceGuide"));
 const GrowthPlaybook = lazy(() => import("@/pages/dashboard/GrowthPlaybook"));
 const GrowthKPI = lazy(() => import("@/pages/dashboard/GrowthKPI"));
+const WidgetGenerator = lazy(() => import("@/pages/dashboard/WidgetGenerator"));
+const PartnerEmbedWidget = lazy(() => import("@/pages/PartnerEmbedWidget"));
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -627,6 +629,11 @@ function Router() {
         <Route path="/dashboard/growth-kpi">
           <ProtectedRoute component={GrowthKPI} allowedRoles={["admin", "manager"]} />
         </Route>
+        <Route path="/dashboard/widget-generator">
+          <ProtectedRoute component={WidgetGenerator} allowedRoles={["admin", "manager"]} />
+        </Route>
+
+        <Route path="/partners/embed-widget" component={PartnerEmbedWidget} />
 
         <Route component={NotFound} />
       </Switch>

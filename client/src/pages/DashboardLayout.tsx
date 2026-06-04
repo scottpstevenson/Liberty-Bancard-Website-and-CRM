@@ -72,6 +72,7 @@ import {
   ShieldOff,
   FileText,
   Linkedin,
+  Code2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -175,6 +176,7 @@ const businessItems: MenuItem[] = [
   { icon: Trophy, label: "Win/Loss Analysis", href: "/dashboard/win-loss", roles: ["admin", "manager"] },
   { icon: Handshake, label: "Referral Program", href: "/dashboard/referral-program", roles: ["admin", "manager"] },
   { icon: Link2, label: "Partner Orgs", href: "/dashboard/partner-orgs", roles: ["admin"] },
+  { icon: Code2, label: "Widget Generator", href: "/dashboard/widget-generator", roles: ["admin", "manager"] },
   { icon: Star, label: "Review Requests", href: "/dashboard/review-requests", roles: ["admin", "manager"] },
   { icon: MessageSquare, label: "Testimonial Submissions", href: "/dashboard/testimonial-submissions", roles: ["admin", "manager"] },
   { icon: ThumbsUp, label: "NPS / CSAT", href: "/dashboard/nps", roles: ["admin", "manager"] },
