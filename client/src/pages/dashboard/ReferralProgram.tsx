@@ -195,6 +195,7 @@ type LeaderboardEntry = {
 };
 
 type LeaderboardResponse = {
+  period: "monthly" | "alltime";
   leaderboard: LeaderboardEntry[];
   lastMonth: LeaderboardEntry[];
   month: string;
@@ -284,9 +285,13 @@ function LeaderboardTable({
 
 function LeaderboardTab() {
   const [lastMonthOpen, setLastMonthOpen] = useState(false);
+  const [period, setPeriod] = useState<"alltime" | "monthly">("alltime");
 
   const { data, isLoading } = useQuery<LeaderboardResponse>({
-    queryKey: ["/api/partners/leaderboard"],
+    queryKey: ["/api/partners/leaderboard", period],
+    queryFn: () =>
+      fetch(`/api/partners/leaderboard?period=${period}`, { credentials: "include" })
+        .then((r) => r.json()),
   });
 
   const monthLabel = data?.month
@@ -300,6 +305,16 @@ function LeaderboardTab() {
   const lastMonth = data?.lastMonth || [];
   const currentPartnerId = data?.currentPartnerId ?? null;
 
+  const headingLabel = period === "monthly"
+    ? `Top Affiliates — ${monthLabel || "This Month"}`
+    : "Top Affiliates — All Time";
+  const subLabel = period === "monthly"
+    ? "Ranked by referrals this calendar month"
+    : "Ranked by all-time referrals";
+  const emptyLabel = period === "monthly"
+    ? "No referral activity yet this month"
+    : "No referral activity recorded yet";
+
   if (isLoading) {
     return (
       <div className="space-y-3" data-testid="leaderboard-loading">
@@ -310,20 +325,40 @@ function LeaderboardTab() {
 
   return (
     <div className="space-y-6" data-testid="leaderboard-tab">
-      <div className="flex items-center justify-between flex-wrap gap-2">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="text-lg font-semibold flex items-center gap-2">
             <Trophy className="w-5 h-5 text-yellow-500" />
-            Top Affiliates — {monthLabel || "This Month"}
+            {headingLabel}
           </h2>
-          <p className="text-sm text-muted-foreground">Ranked by conversions this calendar month</p>
+          <p className="text-sm text-muted-foreground">{subLabel}</p>
         </div>
-        <div className="flex gap-2 flex-wrap">
-          {Object.entries(BADGE_STYLES).map(([key, val]) => (
-            <span key={key} className={`text-xs font-medium px-2 py-0.5 rounded-full ${val.className}`}>
-              {val.label}
-            </span>
-          ))}
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Period toggle */}
+          <div className="flex rounded-md border border-border overflow-hidden" data-testid="leaderboard-period-toggle">
+            <button
+              className={`px-3 py-1.5 text-sm font-medium transition-colors ${period === "alltime" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted"}`}
+              onClick={() => setPeriod("alltime")}
+              data-testid="button-period-alltime"
+            >
+              All Time
+            </button>
+            <button
+              className={`px-3 py-1.5 text-sm font-medium transition-colors border-l border-border ${period === "monthly" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted"}`}
+              onClick={() => setPeriod("monthly")}
+              data-testid="button-period-monthly"
+            >
+              This Month
+            </button>
+          </div>
+          {/* Badge legend */}
+          <div className="flex gap-2 flex-wrap">
+            {Object.entries(BADGE_STYLES).map(([key, val]) => (
+              <span key={key} className={`text-xs font-medium px-2 py-0.5 rounded-full ${val.className}`}>
+                {val.label}
+              </span>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -332,7 +367,7 @@ function LeaderboardTab() {
           <CardContent className="flex flex-col items-center justify-center py-16 gap-4">
             <Trophy className="w-12 h-12 text-muted-foreground/40" />
             <div className="text-center space-y-1">
-              <p className="font-semibold text-foreground">No referral activity yet this month</p>
+              <p className="font-semibold text-foreground">{emptyLabel}</p>
               <p className="text-sm text-muted-foreground">
                 The leaderboard will populate once affiliates start converting referrals.
               </p>
@@ -342,12 +377,13 @@ function LeaderboardTab() {
       ) : (
         <Card data-testid="card-leaderboard">
           <CardContent className="p-0">
-            <LeaderboardTable entries={leaderboard} currentPartnerId={currentPartnerId} testIdPrefix="this-month" />
+            <LeaderboardTable entries={leaderboard} currentPartnerId={currentPartnerId} testIdPrefix={period === "monthly" ? "this-month" : "all-time"} />
           </CardContent>
         </Card>
       )}
 
-      {/* Last Month Winners Accordion */}
+      {/* Last Month Winners Accordion — only shown in monthly view */}
+      {period === "monthly" && (
       <Card data-testid="card-last-month-accordion">
         <button
           className="w-full flex items-center justify-between p-4 hover:bg-muted/30 transition-colors text-left"
@@ -373,6 +409,7 @@ function LeaderboardTab() {
           </CardContent>
         )}
       </Card>
+      )}
 
       <Card className="border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/20">
         <CardContent className="p-4">

@@ -747,31 +747,43 @@ export function registerPartnersRoutes(app: Express) {
   // === AFFILIATE LEADERBOARD ===
   app.get("/api/partners/leaderboard", isDashboardUser, async (req, res) => {
     try {
+      const period = (req.query.period as string) === "monthly" ? "monthly" : "alltime";
+
       const now = new Date();
       const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
       const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 1);
+      const lastMonthEnd = thisMonthStart;
 
       const allPartners = await storage.getPartners();
       const allReferrals = await storage.getReferrals();
 
       const CONVERTED_STATUSES = ["converted", "qualified", "paid", "closed"];
 
-      // Month-bounded helpers
-      const isThisMonth = (d: Date | null | undefined) =>
-        d != null && d >= thisMonthStart;
-      const isLastMonth = (d: Date | null | undefined) =>
-        d != null && d >= lastMonthStart && d < lastMonthEnd;
+      // For monthly views, filter by convertedAt (when the referral was converted).
+      // Fall back to updatedAt for legacy rows that predate the convertedAt column.
+      const conversionDate = (r: (typeof allReferrals)[0]): Date | null => {
+        if (r.convertedAt) return new Date(r.convertedAt);
+        if (CONVERTED_STATUSES.includes(r.status ?? "") && r.updatedAt) return new Date(r.updatedAt);
+        return null;
+      };
+
+      // Date-range helpers (operate on the resolved conversion date)
+      const isThisMonth = (d: Date | null) => d != null && d >= thisMonthStart && d < nextMonthStart;
+      const isLastMonth = (d: Date | null) => d != null && d >= lastMonthStart && d < lastMonthEnd;
 
       const partnerMap = new Map(allPartners.map((p) => [p.id, p]));
 
-      // Aggregate per partner — includes monthly earnings from commissionAmount
-      const aggregate = (filter: (d: Date | null | undefined) => boolean) => {
+      // Aggregate per partner using referral counts (all) and conversion date (for monthly windows).
+      // For alltime: count every referral regardless of date.
+      // For monthly windows: only count referrals whose conversion date falls in the window.
+      const aggregate = (
+        includeReferral: (r: (typeof allReferrals)[0]) => boolean
+      ) => {
         const counts = new Map<number, { referrals: number; conversions: number; earnings: number }>();
         for (const r of allReferrals) {
           if (!r.partnerId) continue;
-          const created = r.createdAt ? new Date(r.createdAt) : null;
-          if (!filter(created)) continue;
+          if (!includeReferral(r)) continue;
           const cur = counts.get(r.partnerId) ?? { referrals: 0, conversions: 0, earnings: 0 };
           cur.referrals += 1;
           if (CONVERTED_STATUSES.includes(r.status ?? "")) cur.conversions += 1;
@@ -781,8 +793,17 @@ export function registerPartnersRoutes(app: Express) {
         return counts;
       };
 
-      const thisMonth = aggregate(isThisMonth);
-      const lastMonth = aggregate(isLastMonth);
+      // For alltime: include every referral.
+      // For monthly: include only referrals converted this month (by convertedAt or updatedAt fallback).
+      const primaryFilter =
+        period === "monthly"
+          ? (r: (typeof allReferrals)[0]) => isThisMonth(conversionDate(r))
+          : (_r: (typeof allReferrals)[0]) => true;
+
+      const lastMonthFilter = (r: (typeof allReferrals)[0]) => isLastMonth(conversionDate(r));
+
+      const primary = aggregate(primaryFilter);
+      const lastMonth = aggregate(lastMonthFilter);
 
       const toEntry = (counts: Map<number, { referrals: number; conversions: number; earnings: number }>) => {
         return Array.from(counts.entries())
@@ -797,7 +818,7 @@ export function registerPartnersRoutes(app: Express) {
             const displayName = parts.length >= 2
               ? `${parts[0]} ${parts[parts.length - 1][0]}.`
               : parts[0] || "Anonymous";
-            // Badge tier based on all-time referral count (not conversions)
+            // Badge tier based on all-time referral count
             const allTimeReferrals = p?.totalReferrals ?? 0;
             const badge =
               allTimeReferrals >= 25 ? "Platinum" :
@@ -808,7 +829,6 @@ export function registerPartnersRoutes(app: Express) {
               displayName,
               referrals: c.referrals,
               conversions: c.conversions,
-              // Monthly earnings from commissionAmount field on each referral
               earnings: Math.round(c.earnings * 100) / 100,
               badge,
               partnerId,
@@ -827,7 +847,8 @@ export function registerPartnersRoutes(app: Express) {
       }
 
       res.json({
-        leaderboard: toEntry(thisMonth),
+        period,
+        leaderboard: toEntry(primary),
         lastMonth: toEntry(lastMonth),
         month: thisMonthStart.toISOString(),
         lastMonthDate: lastMonthStart.toISOString(),

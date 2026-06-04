@@ -211,7 +211,16 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
 
 
   async updateReferral(id: number, updates: Partial<InsertReferral>) {
-    const [updated] = await db.update(referrals).set({ ...updates, updatedAt: new Date() }).where(eq(referrals.id, id)).returning();
+    const CONVERTED_STATUSES = ["converted", "qualified", "paid", "closed"];
+    const extraFields: Partial<typeof referrals.$inferInsert> = {};
+    if (updates.status && CONVERTED_STATUSES.includes(updates.status)) {
+      // Only set convertedAt if it isn't already stamped — check current record
+      const [current] = await db.select({ convertedAt: referrals.convertedAt }).from(referrals).where(eq(referrals.id, id));
+      if (!current?.convertedAt) {
+        extraFields.convertedAt = new Date();
+      }
+    }
+    const [updated] = await db.update(referrals).set({ ...updates, ...extraFields, updatedAt: new Date() }).where(eq(referrals.id, id)).returning();
     return updated;
   }
 

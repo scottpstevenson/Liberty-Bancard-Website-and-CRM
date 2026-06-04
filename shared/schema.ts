@@ -1788,6 +1788,7 @@ export const referrals = pgTable("referrals", {
   incentiveAmount: text("incentive_amount"),
   commissionAmount: text("commission_amount"),
   paidAt: timestamp("paid_at"),
+  convertedAt: timestamp("converted_at"),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

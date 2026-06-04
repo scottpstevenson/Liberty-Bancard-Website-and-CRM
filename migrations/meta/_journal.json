@@ -120,6 +120,13 @@
                         "when": 1749081600000,
                         "tag": "0015_savings_share_token",
                         "breakpoints": true
+                },
+                {
+                        "idx": 17,
+                        "version": "7",
+                        "when": 1780000000000,
+                        "tag": "0016_referral_converted_at",
+                        "breakpoints": true
                 }
         ]
 }
