@@ -987,6 +987,169 @@ function SilentSequencesWidget() {
   );
 }
 
+interface SubjectAuditItem {
+  id: number;
+  contactId: number;
+  dealId: number | null;
+  sequenceId: number | null;
+  sequenceName: string | null;
+  currentStep: number | null;
+  status: string;
+  nextActionAt: string | null;
+  updatedAt: string | null;
+  nextStepSubject: string | null;
+  nextStepType: string | null;
+}
+
+interface SubjectAuditData {
+  totalActive: number;
+  midSequenceCount: number;
+  items: SubjectAuditItem[];
+}
+
+function SubjectAuditPanel() {
+  const { toast } = useToast();
+
+  const { data, isLoading, isError, refetch } = useQuery<SubjectAuditData>({
+    queryKey: ["/api/operator/enrollment-subject-audit"],
+    refetchInterval: 60000,
+  });
+
+  const retriggerMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/operator/enrollment-subject-audit/retrigger", {});
+      return res.json();
+    },
+    onSuccess: (result: { count: number; message: string }) => {
+      toast({ title: `Re-triggered ${result.count} enrollment(s)`, description: result.message });
+      queryClient.invalidateQueries({ queryKey: ["/api/operator/enrollment-subject-audit"] });
+    },
+    onError: (err: any) => {
+      toast({ title: "Re-trigger failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 gap-3">
+        <AlertTriangle className="w-8 h-8 text-red-500" />
+        <p className="text-sm text-muted-foreground">Failed to load enrollment audit data</p>
+        <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="btn-retry-subject-audit">
+          <RefreshCw className="w-4 h-4 mr-1" /> Retry
+        </Button>
+      </div>
+    );
+  }
+
+  const midCount = data?.midSequenceCount ?? 0;
+
+  return (
+    <div className="space-y-4">
+      <Card className={midCount > 0 ? "border-yellow-500/50 bg-yellow-500/5" : "border-green-500/30 bg-green-500/5"}>
+        <CardContent className="p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <Mail className={`w-5 h-5 mt-0.5 ${midCount > 0 ? "text-yellow-600" : "text-green-600"}`} />
+              <div>
+                <div className="font-medium text-sm" data-testid="text-subject-audit-summary">
+                  {midCount > 0
+                    ? `${midCount} mid-sequence enrollment${midCount !== 1 ? "s" : ""} may have pending steps with updated subject lines`
+                    : "No mid-sequence enrollments — all leads are at step 0 or completed"}
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  {data?.totalActive ?? 0} total active enrollments · {midCount} past step 0 (subject sync relevant)
+                </div>
+                <div className="text-xs text-muted-foreground mt-0.5">
+                  Re-triggering bumps <code className="bg-muted px-1 rounded">nextActionAt</code> to now so the sequence worker uses the updated subject on the next tick.
+                </div>
+              </div>
+            </div>
+            {midCount > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="shrink-0 border-yellow-500/50 text-yellow-700 hover:bg-yellow-500/10"
+                disabled={retriggerMutation.isPending}
+                onClick={() => retriggerMutation.mutate()}
+                data-testid="btn-retrigger-enrollments"
+              >
+                {retriggerMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                ) : (
+                  <Play className="w-4 h-4 mr-1" />
+                )}
+                Re-trigger All ({midCount})
+              </Button>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Mid-Sequence Active Enrollments</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {!data?.items?.length ? (
+            <div className="text-center py-6 text-muted-foreground text-sm" data-testid="text-no-mid-sequence">
+              No mid-sequence enrollments found
+            </div>
+          ) : (
+            <div className="max-h-96 overflow-auto">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-background">
+                  <tr className="border-b text-left">
+                    <th className="py-1 px-2">ID</th>
+                    <th className="py-1 px-2">Contact</th>
+                    <th className="py-1 px-2">Sequence</th>
+                    <th className="py-1 px-2">Step</th>
+                    <th className="py-1 px-2">Next Step Type</th>
+                    <th className="py-1 px-2">Next Subject</th>
+                    <th className="py-1 px-2">Next Action At</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.items.map(item => (
+                    <tr key={item.id} className="border-b hover:bg-muted/30" data-testid={`subject-audit-row-${item.id}`}>
+                      <td className="py-1 px-2">{item.id}</td>
+                      <td className="py-1 px-2">{item.contactId}</td>
+                      <td className="py-1 px-2 max-w-[150px] truncate" title={item.sequenceName ?? undefined}>
+                        {item.sequenceName ?? `Seq #${item.sequenceId}`}
+                      </td>
+                      <td className="py-1 px-2">{item.currentStep}</td>
+                      <td className="py-1 px-2">
+                        {item.nextStepType ? (
+                          <Badge variant="secondary" className="text-xs capitalize">{item.nextStepType}</Badge>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </td>
+                      <td className="py-1 px-2 max-w-[200px] truncate text-muted-foreground" title={item.nextStepSubject ?? undefined}>
+                        {item.nextStepSubject ?? <span className="italic">none / non-email step</span>}
+                      </td>
+                      <td className="py-1 px-2 text-muted-foreground whitespace-nowrap">
+                        {item.nextActionAt ? new Date(item.nextActionAt).toLocaleString() : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 function LowConfidencePanel() {
   const { data: items, isLoading, isError, refetch } = useQuery<LowConfidenceItem[]>({
     queryKey: ["/api/sdr/operator/low-confidence"],
@@ -1606,6 +1769,9 @@ export default function OperatorDashboard() {
             <ShieldCheck className="w-3.5 h-3.5" /> AI Health
           </TabsTrigger>
           <TabsTrigger value="ai-activity" data-testid="tab-ai-activity">AI Activity</TabsTrigger>
+          <TabsTrigger value="subject-audit" data-testid="tab-subject-audit" className="flex items-center gap-1">
+            <Mail className="w-3.5 h-3.5" /> Subject Sync
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="job-health">
@@ -1649,6 +1815,9 @@ export default function OperatorDashboard() {
         </TabsContent>
         <TabsContent value="ai-activity">
           <AiActivityPanel />
+        </TabsContent>
+        <TabsContent value="subject-audit">
+          <SubjectAuditPanel />
         </TabsContent>
       </Tabs>
     </div>

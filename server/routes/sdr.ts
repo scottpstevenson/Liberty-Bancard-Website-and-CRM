@@ -1963,6 +1963,98 @@ export function registerSdrRoutes(app: Express) {
     }
   });
 
+  // ── Enrollment Subject Audit ──────────────────────────────────────────────
+
+  app.get("/api/operator/enrollment-subject-audit", isAdmin, async (_req, res) => {
+    try {
+      const { sequenceEnrollments, followUpSequences, sequenceSteps } = await import("@shared/schema");
+      const { and, gt, inArray } = await import("drizzle-orm");
+
+      const activeEnrollments = await db
+        .select({
+          id: sequenceEnrollments.id,
+          contactId: sequenceEnrollments.contactId,
+          dealId: sequenceEnrollments.dealId,
+          sequenceId: sequenceEnrollments.sequenceId,
+          currentStep: sequenceEnrollments.currentStep,
+          status: sequenceEnrollments.status,
+          nextActionAt: sequenceEnrollments.nextActionAt,
+          updatedAt: sequenceEnrollments.updatedAt,
+          sequenceName: followUpSequences.name,
+        })
+        .from(sequenceEnrollments)
+        .leftJoin(followUpSequences, eq(sequenceEnrollments.sequenceId, followUpSequences.id))
+        .where(eq(sequenceEnrollments.status, "active"));
+
+      const midSequence = activeEnrollments.filter(e => (e.currentStep ?? 0) > 0);
+
+      const nextSteps = midSequence.length > 0
+        ? await db
+            .select({
+              sequenceId: sequenceSteps.sequenceId,
+              stepOrder: sequenceSteps.stepOrder,
+              subject: sequenceSteps.subject,
+              actionType: sequenceSteps.actionType,
+            })
+            .from(sequenceSteps)
+            .where(
+              inArray(
+                sequenceSteps.sequenceId,
+                [...new Set(midSequence.map(e => e.sequenceId).filter((id): id is number => id != null))]
+              )
+            )
+        : [];
+
+      const items = midSequence.map(e => {
+        const nextStep = nextSteps.find(
+          s => s.sequenceId === e.sequenceId && s.stepOrder === (e.currentStep ?? 0)
+        );
+        return {
+          ...e,
+          nextStepSubject: nextStep?.subject ?? null,
+          nextStepType: nextStep?.actionType ?? null,
+        };
+      });
+
+      res.json({
+        totalActive: activeEnrollments.length,
+        midSequenceCount: midSequence.length,
+        items,
+      });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.post("/api/operator/enrollment-subject-audit/retrigger", isAdmin, async (_req, res) => {
+    try {
+      const { sequenceEnrollments } = await import("@shared/schema");
+      const { and, gt } = await import("drizzle-orm");
+
+      const now = new Date();
+      const result = await db
+        .update(sequenceEnrollments)
+        .set({ nextActionAt: now, updatedAt: now })
+        .where(
+          and(
+            eq(sequenceEnrollments.status, "active"),
+            gt(sequenceEnrollments.currentStep, 0)
+          )
+        )
+        .returning({ id: sequenceEnrollments.id });
+
+      res.json({
+        message: `Re-triggered ${result.length} mid-sequence enrollment(s). The next step for each will be sent on the next sequence-worker tick using updated subject lines.`,
+        count: result.length,
+        retriggeredIds: result.map(r => r.id),
+      });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
   // ── Sync Conflicts ────────────────────────────────────────────────────────
 
   app.get("/api/operator/sync-conflicts", isAdmin, async (req, res) => {
