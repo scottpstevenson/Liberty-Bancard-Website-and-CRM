@@ -88,6 +88,7 @@ export default function UploadStatement() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [isUploading, setIsUploading] = useState(false);
+  const [analysisVertical, setAnalysisVertical] = useState("");
 
   const params = new URLSearchParams(window.location.search);
   const preTerminal = params.get("terminal") === "yes";
@@ -154,6 +155,31 @@ export default function UploadStatement() {
       form.setValue("businessName", merchantProfile.businessName);
     }
   }, [merchantProfile, form]);
+
+  const ANALYSIS_VERTICALS: { label: string; slug: string }[] = [
+    { label: "Medical / Med Spa", slug: "med_spa" },
+    { label: "Dental", slug: "dental" },
+    { label: "Auto Repair", slug: "auto_repair" },
+    { label: "Salon / Beauty", slug: "salon" },
+    { label: "Gym / Fitness", slug: "gym" },
+    { label: "Hotel / Lodging", slug: "hotel" },
+    { label: "Landscaping", slug: "landscaping" },
+    { label: "Construction", slug: "construction" },
+    { label: "Legal", slug: "legal" },
+  ];
+
+  const FORM_TO_ANALYSIS_SLUG: Record<string, string> = {
+    "Medical/Dental/Medspa": "med_spa",
+    "Automotive": "auto_repair",
+  };
+
+  const formVerticalValue = form.watch("vertical");
+  useEffect(() => {
+    if (formVerticalValue && !analysisVertical) {
+      const mapped = FORM_TO_ANALYSIS_SLUG[formVerticalValue];
+      if (mapped) setAnalysisVertical(mapped);
+    }
+  }, [formVerticalValue]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const submitMutation = useMutation({
     mutationFn: (data: UploadFormData) => {
@@ -264,7 +290,8 @@ export default function UploadStatement() {
         headers: analysisHeaders,
         credentials: "include",
         body: JSON.stringify({
-          statementData: `Monthly volume: $${analysisVolume}, Current effective rate: ${analysisRate}%, Processor type: unknown`
+          statementData: `Monthly volume: $${analysisVolume}, Current effective rate: ${analysisRate}%, Processor type: unknown`,
+          ...(analysisVertical ? { vertical: analysisVertical } : {}),
         }),
       });
       if (!res.ok) {
@@ -671,6 +698,29 @@ export default function UploadStatement() {
                     <Input placeholder="e.g. 3.2" data-testid="input-analysis-rate" value={analysisRate} onChange={e => setAnalysisRate(e.target.value)} />
                   </div>
                 </div>
+                <div className="space-y-2">
+                  <Label>Industry / Vertical <span className="text-muted-foreground font-normal">(optional — unlocks tailored output)</span></Label>
+                  <Select
+                    value={analysisVertical || "_none"}
+                    onValueChange={(v) => setAnalysisVertical(v === "_none" ? "" : v)}
+                  >
+                    <SelectTrigger data-testid="select-analysis-vertical">
+                      <SelectValue placeholder="Select vertical for tailored analysis" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="_none">No vertical (generic analysis)</SelectItem>
+                      {ANALYSIS_VERTICALS.map(({ label, slug }) => (
+                        <SelectItem
+                          key={slug}
+                          value={slug}
+                          data-testid={`select-analysis-item-${slug}`}
+                        >
+                          {label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
                 <Button
                   className="gap-2"
                   onClick={handleAnalysis}
@@ -687,6 +737,14 @@ export default function UploadStatement() {
                 )}
                 {analysisResult && (
                   <div className="space-y-3 border-t pt-4" data-testid="analysis-results">
+                    {(analysisResult._vertical as string | null | undefined) && (
+                      <div className="flex items-center gap-2" data-testid="text-analysis-vertical">
+                        <span className="text-xs text-muted-foreground">Vertical context applied:</span>
+                        <span className="inline-flex items-center rounded-full bg-sky-100 dark:bg-sky-900/40 px-2.5 py-0.5 text-xs font-medium text-sky-700 dark:text-sky-300">
+                          {ANALYSIS_VERTICALS.find(v => v.slug === (analysisResult._vertical as string))?.label ?? (analysisResult._vertical as string)}
+                        </span>
+                      </div>
+                    )}
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <div className="text-xs text-muted-foreground">Effective Rate</div>

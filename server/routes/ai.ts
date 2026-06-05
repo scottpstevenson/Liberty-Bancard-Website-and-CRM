@@ -488,7 +488,7 @@ Return JSON with:
         details: analysis,
       });
 
-      res.json({ ...analysis, _flagged: stmtFlagged, _reviewQueueId: stmtReviewId });
+      res.json({ ...analysis, _flagged: stmtFlagged, _reviewQueueId: stmtReviewId, _vertical: resolvedVertical });
     } catch (err: any) {
       res.status(500).json({ message: err.message || "Analysis error" });
     }
