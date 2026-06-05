@@ -154,16 +154,30 @@ RULES:
   // === AI EMAIL COMPOSER ===
   app.post("/api/ai/compose-email", isAuthenticated, async (req, res) => {
     try {
-      const { contactId, prospectId, context, tone } = req.body;
+      const { contactId, prospectId, context, tone, vertical: verticalParam } = req.body;
 
       let recipientData = "";
+      let resolvedVertical: string | null = verticalParam && isVerticalSupported(verticalParam) ? verticalParam : null;
+
       if (contactId) {
         const contact = await storage.getContact(Number(contactId));
-        if (contact) recipientData = `Recipient: ${contact.firstName} ${contact.lastName}, Company: ${contact.companyName || "N/A"}, Email: ${contact.email}, Status: ${contact.status}, Vertical: ${contact.vertical || "N/A"}`;
+        if (contact) {
+          recipientData = `Recipient: ${contact.firstName} ${contact.lastName}, Company: ${contact.companyName || "N/A"}, Email: ${contact.email}, Status: ${contact.status}, Vertical: ${contact.vertical || "N/A"}`;
+          if (!resolvedVertical && contact.vertical && isVerticalSupported(contact.vertical)) {
+            resolvedVertical = contact.vertical;
+          }
+        }
       } else if (prospectId) {
         const prospect = await storage.getProspect(Number(prospectId));
-        if (prospect) recipientData = `Prospect: ${prospect.companyName}, Contact: ${prospect.ownerFirstName || ""} ${prospect.ownerLastName || ""}, Email: ${prospect.email || "N/A"}, Vertical: ${prospect.vertical || "N/A"}, Score: ${prospect.score || "N/A"}, Website: ${prospect.website || "N/A"}`;
+        if (prospect) {
+          recipientData = `Prospect: ${prospect.companyName}, Contact: ${prospect.ownerFirstName || ""} ${prospect.ownerLastName || ""}, Email: ${prospect.email || "N/A"}, Vertical: ${prospect.vertical || "N/A"}, Score: ${prospect.score || "N/A"}, Website: ${prospect.website || "N/A"}`;
+          if (!resolvedVertical && prospect.vertical && isVerticalSupported(prospect.vertical)) {
+            resolvedVertical = prospect.vertical;
+          }
+        }
       }
+
+      const verticalBlock = resolvedVertical ? buildVerticalSystemPromptBlock(resolvedVertical) : "";
 
       const { OpenAI } = await import("openai");
       const openai = new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
@@ -180,7 +194,8 @@ RULES:
 - Email body should be 3-5 short paragraphs
 - Be value-first: lead with what you can do for them
 - End with a clear call-to-action (book a call or reply)
-FORMAT your response as JSON: {"subject": "...", "body": "..."}`
+- When a vertical context block is provided, reference the industry-specific pain points and talking points naturally in the email body; apply all compliance notes (e.g., IOLTA disclaimers for legal, lodging notes for hotels)
+FORMAT your response as JSON: {"subject": "...", "body": "..."}${verticalBlock}`
         },
         { role: "user" as const, content: `${recipientData}\n\nAdditional context: ${context || "General outreach for payment processing services."}` }
       ];
@@ -388,8 +403,28 @@ Respond ONLY with valid JSON.`
   // === AI STATEMENT ANALYSIS ===
   app.post("/api/ai/analyze-statement", isAuthenticated, async (req, res) => {
     try {
-      const { contactId, dealId, statementData } = req.body;
+      const { contactId, dealId, statementData, vertical: verticalParam } = req.body;
       if (!statementData) return res.status(400).json({ message: "statementData required" });
+
+      let resolvedVertical: string | null = verticalParam && isVerticalSupported(verticalParam) ? verticalParam : null;
+
+      if (!resolvedVertical && contactId) {
+        const contact = await storage.getContact(Number(contactId));
+        if (contact?.vertical && isVerticalSupported(contact.vertical)) {
+          resolvedVertical = contact.vertical;
+        }
+      }
+      if (!resolvedVertical && dealId) {
+        const deal = await storage.getDeal(Number(dealId));
+        if (deal?.contactId) {
+          const contact = await storage.getContact(deal.contactId);
+          if (contact?.vertical && isVerticalSupported(contact.vertical)) {
+            resolvedVertical = contact.vertical;
+          }
+        }
+      }
+
+      const verticalBlock = resolvedVertical ? buildVerticalSystemPromptBlock(resolvedVertical) : "";
 
       const { OpenAI } = await import("openai");
       const openai = new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
@@ -403,6 +438,7 @@ RULES:
 - Include disclaimer: "Eligibility, underwriting, card brand rules, and applicable laws apply."
 - Be specific about fee types and rates found
 - Recommend the best offer path based on the data
+- When a vertical context block is provided, use the recommended offer paths and compliance notes specific to that industry when selecting recommendedPath and writing keyFindings; apply vertical-specific compliance requirements (e.g., IOLTA notes for legal, lodging interchange notes for hotels)
 
 Return JSON with:
 - effectiveRate: estimated effective rate as percentage string
@@ -412,7 +448,7 @@ Return JSON with:
 - keyFindings: array of 3-5 specific findings about their current processing
 - riskFlags: array of any concerning items (high rates, non-compliant fees, etc.)
 - nextSteps: array of recommended next steps
-- overallAssessment: 2-3 sentence summary`
+- overallAssessment: 2-3 sentence summary${verticalBlock}`
         },
         { role: "user" as const, content: `Statement Data:\n${typeof statementData === 'string' ? statementData : JSON.stringify(statementData)}` }
       ];

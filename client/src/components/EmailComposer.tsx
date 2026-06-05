@@ -40,6 +40,7 @@ export function EmailComposer({ contactId, prospectId, initialVertical, onClose,
         prospectId,
         context: vertical ? `[Vertical: ${vertical}] ${context}` : context,
         tone,
+        vertical,
       })
       return res.json() as Promise<{ subject: string; body: string }>
     },

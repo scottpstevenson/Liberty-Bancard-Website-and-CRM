@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import Comments from "@/components/Comments";
+import { EmailComposer } from "@/components/EmailComposer";
 
 import {
   type ActivityEvent,
@@ -425,6 +426,8 @@ export default function ContactDetail() {
 
   const [showTaskDialog, setShowTaskDialog] = useState(false);
   const [taskForm, setTaskForm] = useState({ title: "", description: "", dueDate: "" });
+
+  const [emailComposerOpen, setEmailComposerOpen] = useState(false);
 
   const [showCompanyDialog, setShowCompanyDialog] = useState(false);
   const [companyMode, setCompanyMode] = useState<"existing" | "new">("existing");
@@ -858,13 +861,25 @@ export default function ContactDetail() {
                 </Button>
               </>
             ) : (
-              <Button variant="outline" onClick={startEdit} data-testid="button-edit">
-                <Edit2 className="h-4 w-4 mr-1" /> Edit
-              </Button>
+              <>
+                <Button variant="outline" onClick={startEdit} data-testid="button-edit">
+                  <Edit2 className="h-4 w-4 mr-1" /> Edit
+                </Button>
+                <Button variant="outline" onClick={() => setEmailComposerOpen(true)} data-testid="button-compose-email-contact">
+                  <Mail className="h-4 w-4 mr-1" /> Compose Email
+                </Button>
+              </>
             )}
           </div>
         </div>
       </div>
+
+      <EmailComposer
+        open={emailComposerOpen}
+        onClose={() => setEmailComposerOpen(false)}
+        contactId={contact.id}
+        initialVertical={contact.vertical ?? undefined}
+      />
 
       {/* GHL Sync Status */}
         <GhlSyncStatus
