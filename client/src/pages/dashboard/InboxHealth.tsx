@@ -13,6 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Loader2, Mail, Shield, AlertTriangle, Plus, Trash2, RefreshCw, Activity, Server, Gauge, Pause, Play, Settings, TrendingUp, BarChart3 } from "lucide-react";
 import { useState } from "react";
+import { VERTICALS } from "@shared/schema";
 
 interface SendingIdentity {
   id: number;
@@ -547,11 +548,9 @@ function AddIdentityDialog() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">Any Vertical</SelectItem>
-                <SelectItem value="Medical/Dental/Medspa">Medical/Dental/Medspa</SelectItem>
-                <SelectItem value="Automotive">Automotive</SelectItem>
-                <SelectItem value="Restaurant">Restaurant</SelectItem>
-                <SelectItem value="Home Services">Home Services</SelectItem>
-                <SelectItem value="Retail">Retail</SelectItem>
+                {VERTICALS.map((v) => (
+                  <SelectItem key={v} value={v}>{v}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>

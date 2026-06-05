@@ -24,7 +24,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { exportToCSV } from "@/lib/export-csv";
 import type { Deal, Contact, PipelineStage, Agent, AgentMerchant } from "@shared/schema";
-import { SALES_STAGES, OFFER_PATHS } from "@shared/schema";
+import { SALES_STAGES, OFFER_PATHS, VERTICALS } from "@shared/schema";
 import Comments from "@/components/Comments";
 import SavedFilterBar from "@/components/SavedFilterBar";
 import DashboardErrorState from "@/components/DashboardErrorState";
@@ -474,6 +474,7 @@ export default function Pipeline() {
     stage: "New Lead",
     offerPath: "",
     notes: "",
+    vertical: "",
   });
 
   // Co-branded proposal state
@@ -494,6 +495,7 @@ export default function Pipeline() {
   const [editFollowUp, setEditFollowUp] = useState("");
   const [editAgentId, setEditAgentId] = useState<string>("none");
   const [editMid, setEditMid] = useState("");
+  const [editVertical, setEditVertical] = useState("");
 
   const { data: dealsResult, isLoading: dealsLoading, isError: dealsError, refetch: refetchDeals } = useQuery<{ data: Deal[]; total: number }>({
     queryKey: ["/api/deals", { pipeline: "sales" }],
@@ -749,7 +751,7 @@ export default function Pipeline() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/deals"] });
       setCreateOpen(false);
-      setNewDeal({ contactId: "", pipeline: "sales", stage: "New Lead", offerPath: "", notes: "" });
+      setNewDeal({ contactId: "", pipeline: "sales", stage: "New Lead", offerPath: "", notes: "", vertical: "" });
       toast({ title: "Deal created successfully" });
     },
     onError: (err: Error) => {
@@ -871,6 +873,7 @@ export default function Pipeline() {
       stage: newDeal.stage,
       notes: newDeal.notes || undefined,
       offerPath: newDeal.offerPath || undefined,
+      vertical: newDeal.vertical || undefined,
     };
     if (newDeal.contactId) {
       payload.contactId = Number(newDeal.contactId);
@@ -885,6 +888,7 @@ export default function Pipeline() {
     if (editNotes !== (selectedDeal.notes || "")) updates.notes = editNotes;
     if (editFollowUp) updates.nextFollowUp = new Date(editFollowUp).toISOString();
     if (editMid !== (selectedDeal.mid || "")) updates.mid = editMid.trim() || null;
+    if (editVertical !== (selectedDeal.vertical || "")) updates.vertical = editVertical || null;
     if (Object.keys(updates).length === 0) {
       setDetailOpen(false);
       return;
@@ -899,6 +903,7 @@ export default function Pipeline() {
     setEditFollowUp(deal.nextFollowUp ? new Date(deal.nextFollowUp).toISOString().slice(0, 16) : "");
     setEditAgentId("none");
     setEditMid(deal.mid || "");
+    setEditVertical(deal.vertical || "");
     setDetailOpen(true);
     if ((deal as any).partnerOrgId) {
       loadDealProposals(deal.id);
@@ -1148,6 +1153,19 @@ export default function Pipeline() {
                 </Select>
               </div>
               <div className="space-y-2">
+                <Label>Vertical</Label>
+                <Select value={newDeal.vertical} onValueChange={(v) => setNewDeal({ ...newDeal, vertical: v })}>
+                  <SelectTrigger data-testid="select-deal-vertical">
+                    <SelectValue placeholder="Select vertical (optional)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {VERTICALS.map((v) => (
+                      <SelectItem key={v} value={v}>{v}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
                 <Label>Notes</Label>
                 <Textarea
                   value={newDeal.notes}
@@ -1321,6 +1339,24 @@ export default function Pipeline() {
                   <SelectContent>
                     {SALES_STAGES.map((s) => (
                       <SelectItem key={s} value={s}>{s}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Vertical</Label>
+                <Select
+                  value={editVertical || "none"}
+                  onValueChange={(v) => setEditVertical(v === "none" ? "" : v)}
+                >
+                  <SelectTrigger data-testid="select-edit-vertical">
+                    <SelectValue placeholder="Select vertical (optional)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">— None —</SelectItem>
+                    {VERTICALS.map((v) => (
+                      <SelectItem key={v} value={v}>{v}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>

@@ -188,6 +188,7 @@ export const deals = pgTable("deals", {
   updatedAt: timestamp("updated_at").defaultNow(),
   archivedAt: timestamp("archived_at"),
   partnerOrgId: integer("partner_org_id"),
+  vertical: text("vertical"),
 }, (table) => [
   index("deals_contact_id_idx").on(table.contactId),
   index("deals_pipeline_idx").on(table.pipeline),
@@ -527,6 +528,15 @@ export const VERTICALS = [
   "Restaurant",
   "Home Services",
   "Retail",
+  "Med Spa",
+  "Dental",
+  "Auto Repair",
+  "Salon",
+  "Gym",
+  "Hotel",
+  "Landscaping",
+  "Construction",
+  "Legal",
   "Other",
 ] as const;
 

@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Building2 } from "lucide-react";
 import type { Dispatch, SetStateAction } from "react";
 import type { Company, ContactCompany } from "@shared/schema";
+import { VERTICALS } from "@shared/schema";
 
 type DealForm = { pipeline: string; stage: string; offerPath: string; notes: string };
 type TicketForm = { subject: string; description: string; priority: string; category: string };
@@ -303,12 +304,9 @@ export function CreateDialogs(p: Props) {
                       <SelectValue placeholder="Select vertical" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Medical/Dental/Medspa">Medical/Dental/Medspa</SelectItem>
-                      <SelectItem value="Automotive">Automotive</SelectItem>
-                      <SelectItem value="Restaurant">Restaurant</SelectItem>
-                      <SelectItem value="Home Services">Home Services</SelectItem>
-                      <SelectItem value="Retail">Retail</SelectItem>
-                      <SelectItem value="Other">Other</SelectItem>
+                      {VERTICALS.map((v) => (
+                        <SelectItem key={v} value={v}>{v}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
