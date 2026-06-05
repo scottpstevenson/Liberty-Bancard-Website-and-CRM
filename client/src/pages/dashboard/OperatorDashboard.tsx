@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -1842,11 +1842,14 @@ interface VerticalCoverageRow {
   step3Complete: number;
   completed: number;
   conversionRate: number;
+  lastEnrolledAt: string | null;
+  daysSinceEnrollment: number | null;
 }
 
 function VerticalCoveragePanel() {
   const { toast } = useToast();
   const [search, setSearch] = useState("");
+  const queryClient = useQueryClient();
 
   const { data: rows = [], isLoading, isError, refetch } = useQuery<VerticalCoverageRow[]>({
     queryKey: ["/api/sequences/vertical-coverage"],
@@ -1858,12 +1861,27 @@ function VerticalCoveragePanel() {
     refetchInterval: 60000,
   });
 
+  const toggleMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await fetch(`/api/sequences/${id}/toggle-status`, { method: "PUT", credentials: "include" });
+      if (!res.ok) throw new Error("Failed to toggle sequence status");
+      return res.json();
+    },
+    onSuccess: (updated: any) => {
+      toast({ title: `Sequence ${updated.status}`, description: `"${updated.name}" is now ${updated.status}.` });
+      queryClient.invalidateQueries({ queryKey: ["/api/sequences/vertical-coverage"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sequences"] });
+    },
+    onError: (err: Error) => toast({ title: "Toggle failed", description: err.message, variant: "destructive" }),
+  });
+
   const filtered = rows.filter((r) =>
     r.vertical.toLowerCase().includes(search.toLowerCase()) ||
     r.sequenceType.toLowerCase().includes(search.toLowerCase())
   );
 
   const zeroEnrollment = filtered.filter((r) => r.enrolled === 0);
+  const staleSequences = filtered.filter((r) => r.sequenceStatus === "active" && r.daysSinceEnrollment !== null && r.daysSinceEnrollment >= 7);
   const hasData = rows.length > 0;
 
   function exportCsv() {
@@ -1952,6 +1970,25 @@ function VerticalCoveragePanel() {
         </Card>
       )}
 
+      {staleSequences.length > 0 && (
+        <Card className="border-orange-300 bg-orange-50 dark:bg-orange-950/20 dark:border-orange-700">
+          <CardContent className="py-3 px-4">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-orange-600 dark:text-orange-400 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-medium text-orange-800 dark:text-orange-300">
+                  {staleSequences.length} active sequence{staleSequences.length > 1 ? "s" : ""} with no new enrollments in 7+ days
+                </p>
+                <p className="text-xs text-orange-700 dark:text-orange-400 mt-0.5">
+                  {staleSequences.slice(0, 3).map((r) => `${r.vertical} (${r.daysSinceEnrollment}d ago)`).join(", ")}
+                  {staleSequences.length > 3 ? ` +${staleSequences.length - 3} more` : ""}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {hasData && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <Card>
@@ -2014,6 +2051,8 @@ function VerticalCoveragePanel() {
                   <th className="text-right py-2.5 px-3 font-medium text-xs text-muted-foreground whitespace-nowrap">Step 3 ✓</th>
                   <th className="text-right py-2.5 px-3 font-medium text-xs text-muted-foreground whitespace-nowrap">Completed</th>
                   <th className="text-right py-2.5 px-3 font-medium text-xs text-muted-foreground whitespace-nowrap">Conv. Rate</th>
+                  <th className="text-right py-2.5 px-3 font-medium text-xs text-muted-foreground whitespace-nowrap">Last Enrolled</th>
+                  <th className="py-2.5 px-3"></th>
                 </tr>
               </thead>
               <tbody>
@@ -2078,6 +2117,28 @@ function VerticalCoveragePanel() {
                           {row.conversionRate}%
                         </span>
                       )}
+                    </td>
+                    <td className="py-2.5 px-3 text-right text-xs text-muted-foreground whitespace-nowrap" data-testid={`last-enrolled-vertical-${row.id}`}>
+                      {row.lastEnrolledAt ? (
+                        <span className={row.daysSinceEnrollment !== null && row.daysSinceEnrollment >= 7 && row.sequenceStatus === "active" ? "text-orange-600 dark:text-orange-400 font-medium" : ""}>
+                          {row.daysSinceEnrollment === 0 ? "today" : row.daysSinceEnrollment === 1 ? "1d ago" : `${row.daysSinceEnrollment}d ago`}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground/40">never</span>
+                      )}
+                    </td>
+                    <td className="py-2.5 px-3 text-right">
+                      <Button
+                        size="sm"
+                        variant={row.sequenceStatus === "active" ? "outline" : "default"}
+                        className={`text-xs h-7 px-2 ${row.sequenceStatus === "active" ? "border-red-300 text-red-600 hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-950/20" : "bg-green-600 hover:bg-green-700 text-white"}`}
+                        disabled={toggleMutation.isPending}
+                        onClick={() => toggleMutation.mutate(row.id)}
+                        data-testid={`button-toggle-sequence-${row.id}`}
+                        aria-label={row.sequenceStatus === "active" ? "Pause sequence" : "Activate sequence"}
+                      >
+                        {row.sequenceStatus === "active" ? "Pause" : "Activate"}
+                      </Button>
                     </td>
                   </tr>
                 ))}

@@ -198,13 +198,15 @@ export function registerCampaignsRoutes(app: Express) {
             COUNT(e.id)::int AS enrolled,
             COUNT(CASE WHEN e.current_step >= 1 THEN 1 END)::int AS step1_complete,
             COUNT(CASE WHEN e.current_step >= 3 THEN 1 END)::int AS step3_complete,
-            COUNT(CASE WHEN e.status = 'completed' THEN 1 END)::int AS completed
+            COUNT(CASE WHEN e.status = 'completed' THEN 1 END)::int AS completed,
+            MAX(e.created_at) AS last_enrolled_at
           FROM follow_up_sequences s
           LEFT JOIN sequence_enrollments e ON e.sequence_id = s.id
           GROUP BY s.id, s.name, s.status, s.total_steps
           ORDER BY s.name
         `);
 
+        const now = new Date();
         const rows = result.rows.map((row: any) => {
           const name: string = row.name || "";
           const dashIdx = name.indexOf(" \u2014 ");
@@ -213,6 +215,10 @@ export function registerCampaignsRoutes(app: Express) {
           const enrolled = row.enrolled ?? 0;
           const completed = row.completed ?? 0;
           const conversionRate = enrolled > 0 ? Math.round((completed / enrolled) * 1000) / 10 : 0;
+          const lastEnrolledAt: string | null = row.last_enrolled_at ? row.last_enrolled_at.toISOString() : null;
+          const daysSinceEnrollment = lastEnrolledAt
+            ? Math.floor((now.getTime() - new Date(lastEnrolledAt).getTime()) / 86400000)
+            : null;
           return {
             id: row.id,
             sequenceName: name,
@@ -225,6 +231,8 @@ export function registerCampaignsRoutes(app: Express) {
             step3Complete: row.step3_complete ?? 0,
             completed,
             conversionRate,
+            lastEnrolledAt,
+            daysSinceEnrollment,
           };
         });
 
@@ -232,6 +240,20 @@ export function registerCampaignsRoutes(app: Express) {
       } finally {
         client.release();
       }
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/sequences/:id/toggle-status", isAuthenticated, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const seq = await storage.getFollowUpSequence(id);
+      if (!seq) return res.status(404).json({ message: "Sequence not found" });
+      const newStatus = seq.status === "active" ? "paused" : "active";
+      const updated = await storage.updateFollowUpSequence(id, { status: newStatus });
+      await storage.createAuditLog({ action: `sequence_${newStatus}`, entityType: "sequence", entityId: id, details: { name: seq.name, previousStatus: seq.status } });
+      res.json(updated);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

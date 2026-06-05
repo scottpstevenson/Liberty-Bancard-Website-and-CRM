@@ -733,6 +733,7 @@ export default function Contacts() {
                 <TableHead>Name</TableHead>
                 <TableHead>Company</TableHead>
                 <TableHead>Email</TableHead>
+                <TableHead>Vertical</TableHead>
                 <TableHead>Tags</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
@@ -803,6 +804,15 @@ export default function Contacts() {
                     </TableCell>
                     <TableCell>{contact.companyName}</TableCell>
                     <TableCell className="text-muted-foreground text-sm">{contact.email}</TableCell>
+                    <TableCell>
+                      {contact.vertical ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary" data-testid={`badge-vertical-${contact.id}`}>
+                          {contact.vertical}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground/40 text-xs">—</span>
+                      )}
+                    </TableCell>
                     <TableCell>
                       <div className="flex gap-1 flex-wrap">
                         {(contact.tags || []).slice(0, 2).map((tag: string) => (

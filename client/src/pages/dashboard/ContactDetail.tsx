@@ -809,6 +809,28 @@ export default function ContactDetail() {
                   ) : contact.phone}
                 </span>
               )}
+              {isEditing ? (
+                <span className="flex items-center gap-1">
+                  <Select
+                    value={editFields.vertical ?? ""}
+                    onValueChange={(v) => setEditFields(p => ({ ...p, vertical: v === "_none" ? "" : v }))}
+                  >
+                    <SelectTrigger className="w-44 h-7 text-xs" data-testid="select-edit-vertical">
+                      <SelectValue placeholder="Set vertical…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="_none" data-testid="option-vertical-none">No vertical</SelectItem>
+                      {["Restaurant", "Retail", "Healthcare", "Dental", "Med Spa", "Auto Repair", "Salon/Beauty", "Gym/Fitness", "Hotel/Lodging", "Landscaping", "Construction", "Legal"].map(v => (
+                        <SelectItem key={v} value={v} data-testid={`option-vertical-${v.toLowerCase().replace(/\W+/g, "-")}`}>{v}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </span>
+              ) : contact.vertical ? (
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary" data-testid="badge-vertical">
+                  {contact.vertical}
+                </span>
+              ) : null}
               <Badge variant={statusColor(contact.status)} data-testid="badge-status">
                 {contact.status}
               </Badge>

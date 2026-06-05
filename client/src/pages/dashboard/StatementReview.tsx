@@ -116,6 +116,7 @@ export default function StatementReview() {
   const [manualVolume, setManualVolume] = useState("");
   const [manualRate, setManualRate] = useState("");
   const [manualTicket, setManualTicket] = useState("");
+  const [manualVertical, setManualVertical] = useState("");
   const [activeProposal, setActiveProposal] = useState<Proposal | null>(null);
 
   const { data: dealsRes, isLoading: dealsLoading } = useQuery<{ data: Deal[]; total: number }>({
@@ -203,10 +204,11 @@ export default function StatementReview() {
     }
     generateMutation.mutate({
       dealId: Number(selectedDealId),
-      statementData: manualVolume ? {
-        monthlyVolume: manualVolume,
+      statementData: (manualVolume || manualVertical) ? {
+        monthlyVolume: manualVolume || undefined,
         effectiveRate: manualRate || undefined,
         avgTicket: manualTicket || undefined,
+        vertical: manualVertical || undefined,
       } : undefined,
     });
   };
@@ -257,6 +259,21 @@ export default function StatementReview() {
                     <SelectItem key={d.id} value={String(d.id)} data-testid={`select-deal-${d.id}`}>
                       {getContactName(d.contactId)} - {d.stage}
                     </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Merchant Vertical</Label>
+              <Select value={manualVertical} onValueChange={(v) => setManualVertical(v === "_none" ? "" : v)}>
+                <SelectTrigger data-testid="select-proposal-vertical">
+                  <SelectValue placeholder="Select vertical (optional)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_none">No vertical</SelectItem>
+                  {["Restaurant", "Retail", "Healthcare", "Dental", "Med Spa", "Auto Repair", "Salon/Beauty", "Gym/Fitness", "Hotel/Lodging", "Landscaping", "Construction", "Legal"].map(v => (
+                    <SelectItem key={v} value={v} data-testid={`option-proposal-vertical-${v.toLowerCase().replace(/\W+/g, "-")}`}>{v}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>

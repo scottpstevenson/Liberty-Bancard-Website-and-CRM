@@ -4,22 +4,31 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
+import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
 import { apiRequest } from "@/lib/queryClient"
 import { useMutation } from "@tanstack/react-query"
-import { Sparkles, Copy, Send, Loader2, Mail } from "lucide-react"
+import { Sparkles, Copy, Send, Loader2, Mail, Tag } from "lucide-react"
+
+const VERTICALS = [
+  "Restaurant", "Retail", "Healthcare", "Dental", "Med Spa",
+  "Auto Repair", "Salon/Beauty", "Gym/Fitness", "Hotel/Lodging",
+  "Landscaping", "Construction", "Legal",
+]
 
 interface EmailComposerProps {
   contactId?: number
   prospectId?: number
+  initialVertical?: string
   onClose: () => void
   open: boolean
 }
 
-export function EmailComposer({ contactId, prospectId, onClose, open }: EmailComposerProps) {
+export function EmailComposer({ contactId, prospectId, initialVertical, onClose, open }: EmailComposerProps) {
   const [context, setContext] = useState("")
   const [tone, setTone] = useState("")
+  const [vertical, setVertical] = useState(initialVertical || "")
   const [subject, setSubject] = useState("")
   const [body, setBody] = useState("")
   const { toast } = useToast()
@@ -29,7 +38,7 @@ export function EmailComposer({ contactId, prospectId, onClose, open }: EmailCom
       const res = await apiRequest("POST", "/api/ai/compose-email", {
         contactId,
         prospectId,
-        context,
+        context: vertical ? `[Vertical: ${vertical}] ${context}` : context,
         tone,
       })
       return res.json() as Promise<{ subject: string; body: string }>
@@ -63,10 +72,50 @@ export function EmailComposer({ contactId, prospectId, onClose, open }: EmailCom
           <DialogTitle className="flex items-center gap-2">
             <Mail className="h-5 w-5" />
             Compose Email with AI
+            {vertical && (
+              <Badge variant="outline" className="ml-1 text-xs bg-primary/10 text-primary border-primary/30 font-normal" data-testid="badge-composer-vertical">
+                <Tag className="h-3 w-3 mr-1" />
+                {vertical}
+              </Badge>
+            )}
           </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <Label htmlFor="email-vertical" className="flex items-center gap-1">
+                <Tag className="h-3.5 w-3.5" /> Vertical Context
+              </Label>
+              <Select value={vertical} onValueChange={(v) => setVertical(v === "_none" ? "" : v)}>
+                <SelectTrigger id="email-vertical" data-testid="select-email-vertical">
+                  <SelectValue placeholder="Select vertical (optional)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_none">No vertical</SelectItem>
+                  {VERTICALS.map(v => (
+                    <SelectItem key={v} value={v} data-testid={`option-email-vertical-${v.toLowerCase().replace(/\W+/g, "-")}`}>{v}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="email-tone">Tone</Label>
+              <Select value={tone} onValueChange={setTone}>
+                <SelectTrigger data-testid="select-email-tone">
+                  <SelectValue placeholder="Select a tone" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="consultative and professional">Consultative and Professional</SelectItem>
+                  <SelectItem value="friendly and casual">Friendly and Casual</SelectItem>
+                  <SelectItem value="urgent follow-up">Urgent Follow-up</SelectItem>
+                  <SelectItem value="value-driven pitch">Value-driven Pitch</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
           <div className="space-y-2">
             <Label htmlFor="email-context">What should this email be about?</Label>
             <Textarea
@@ -76,21 +125,6 @@ export function EmailComposer({ contactId, prospectId, onClose, open }: EmailCom
               value={context}
               onChange={(e) => setContext(e.target.value)}
             />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="email-tone">Tone</Label>
-            <Select value={tone} onValueChange={setTone}>
-              <SelectTrigger data-testid="select-email-tone">
-                <SelectValue placeholder="Select a tone" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="consultative and professional">Consultative and Professional</SelectItem>
-                <SelectItem value="friendly and casual">Friendly and Casual</SelectItem>
-                <SelectItem value="urgent follow-up">Urgent Follow-up</SelectItem>
-                <SelectItem value="value-driven pitch">Value-driven Pitch</SelectItem>
-              </SelectContent>
-            </Select>
           </div>
 
           <Button
