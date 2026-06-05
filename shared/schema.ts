@@ -1034,7 +1034,7 @@ export const followUpSequences = pgTable("follow_up_sequences", {
   triggerType: text("trigger_type").notNull().default("manual"),
   triggerConfig: jsonb("trigger_config"),
   totalSteps: integer("total_steps").default(0),
-  status: text("status").default("active"),
+  status: text("status").default("paused"),
   createdBy: text("created_by"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

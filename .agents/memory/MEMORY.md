@@ -4,3 +4,4 @@
 - [SEO audit regex fix](seo-audit-apostrophe.md) — seo-audit.ts meta-description regex was broken by apostrophes; fixed to `content="([^"]*)"`.
 - [Tasks page crash](tasks-page-crash.md) — ResponsiveTable used as children wrapper (invalid); replaced with overflow-x-auto div.
 - [Dashboard route map](dashboard-route-map.md) — AI advisors are at /dashboard/chat (not /dashboard/ai-advisors); full route list documented.
+- [Sequence control policy](sequence-control-policy.md) — All sequences default to `paused`; storage layer blocks enrollment into non-active sequences at creation time.

@@ -219,6 +219,12 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
 
 
   async createSequenceEnrollment(enrollment: InsertSequenceEnrollment) {
+    if (enrollment.sequenceId) {
+      const [seq] = await db.select({ status: followUpSequences.status }).from(followUpSequences).where(eq(followUpSequences.id, enrollment.sequenceId));
+      if (seq && seq.status !== "active") {
+        throw new Error(`Sequence ${enrollment.sequenceId} is ${seq.status} — enrollment blocked. Activate the sequence before enrolling contacts.`);
+      }
+    }
     const [created] = await db.insert(sequenceEnrollments).values(enrollment).returning();
     return created;
   }

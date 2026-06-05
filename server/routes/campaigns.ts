@@ -286,6 +286,11 @@ export function registerCampaignsRoutes(app: Express) {
   app.post("/api/sequence-enrollments", isAuthenticated, async (req, res) => {
     try {
       const input = insertSequenceEnrollmentSchema.parse(req.body);
+      if (input.sequenceId) {
+        const seq = await storage.getFollowUpSequence(input.sequenceId);
+        if (!seq) return res.status(404).json({ message: "Sequence not found." });
+        if (seq.status !== "active") return res.status(409).json({ message: `Sequence "${seq.name}" is ${seq.status}. Activate it before enrolling contacts.` });
+      }
       const enrollment = await storage.createSequenceEnrollment(input);
       await storage.createAuditLog({ action: "sequence_enrolled", entityType: "contact", entityId: enrollment.contactId || 0, details: { sequenceId: String(enrollment.sequenceId) } });
       res.status(201).json(enrollment);
