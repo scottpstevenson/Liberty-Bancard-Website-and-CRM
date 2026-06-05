@@ -7,6 +7,7 @@ import type { AbTestConfig, AbTestResults } from "@shared/schema";
 import { getCampaignAnalytics, processSendQueue, queueCampaignMessages } from "../services/campaign-engine";
 import { parse } from "csv-parse/sync";
 import { checkAbTestWinners } from "../services/ab-test-worker";
+import { pool } from "../db";
 
 interface AbTestResultRow {
   sequenceId: number;
@@ -179,6 +180,58 @@ export function registerCampaignsRoutes(app: Express) {
     try {
       const sequences = await storage.getFollowUpSequences();
       res.json(sequences);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/sequences/vertical-coverage", isAuthenticated, async (_req, res) => {
+    try {
+      const client = await pool.connect();
+      try {
+        const result = await client.query(`
+          SELECT
+            s.id,
+            s.name,
+            s.status,
+            s.total_steps,
+            COUNT(e.id)::int AS enrolled,
+            COUNT(CASE WHEN e.current_step >= 1 THEN 1 END)::int AS step1_complete,
+            COUNT(CASE WHEN e.current_step >= 3 THEN 1 END)::int AS step3_complete,
+            COUNT(CASE WHEN e.status = 'completed' THEN 1 END)::int AS completed
+          FROM follow_up_sequences s
+          LEFT JOIN sequence_enrollments e ON e.sequence_id = s.id
+          GROUP BY s.id, s.name, s.status, s.total_steps
+          ORDER BY s.name
+        `);
+
+        const rows = result.rows.map((row: any) => {
+          const name: string = row.name || "";
+          const dashIdx = name.indexOf(" \u2014 ");
+          const vertical = dashIdx !== -1 ? name.substring(0, dashIdx).trim() : name;
+          const sequenceType = dashIdx !== -1 ? name.substring(dashIdx + 3).trim() : "";
+          const enrolled = row.enrolled ?? 0;
+          const completed = row.completed ?? 0;
+          const conversionRate = enrolled > 0 ? Math.round((completed / enrolled) * 1000) / 10 : 0;
+          return {
+            id: row.id,
+            sequenceName: name,
+            vertical,
+            sequenceType,
+            sequenceStatus: row.status,
+            totalSteps: row.total_steps ?? 0,
+            enrolled,
+            step1Complete: row.step1_complete ?? 0,
+            step3Complete: row.step3_complete ?? 0,
+            completed,
+            conversionRate,
+          };
+        });
+
+        res.json(rows);
+      } finally {
+        client.release();
+      }
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

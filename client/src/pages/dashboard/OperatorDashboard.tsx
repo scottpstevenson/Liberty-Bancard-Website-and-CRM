@@ -1772,6 +1772,9 @@ export default function OperatorDashboard() {
           <TabsTrigger value="subject-audit" data-testid="tab-subject-audit" className="flex items-center gap-1">
             <Mail className="w-3.5 h-3.5" /> Subject Sync
           </TabsTrigger>
+          <TabsTrigger value="vertical-coverage" data-testid="tab-vertical-coverage" className="flex items-center gap-1">
+            <BarChart3 className="w-3.5 h-3.5" /> Vertical Coverage
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="job-health">
@@ -1819,7 +1822,273 @@ export default function OperatorDashboard() {
         <TabsContent value="subject-audit">
           <SubjectAuditPanel />
         </TabsContent>
+        <TabsContent value="vertical-coverage">
+          <VerticalCoveragePanel />
+        </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+interface VerticalCoverageRow {
+  id: number;
+  sequenceName: string;
+  vertical: string;
+  sequenceType: string;
+  sequenceStatus: string;
+  totalSteps: number;
+  enrolled: number;
+  step1Complete: number;
+  step3Complete: number;
+  completed: number;
+  conversionRate: number;
+}
+
+function VerticalCoveragePanel() {
+  const { toast } = useToast();
+  const [search, setSearch] = useState("");
+
+  const { data: rows = [], isLoading, isError, refetch } = useQuery<VerticalCoverageRow[]>({
+    queryKey: ["/api/sequences/vertical-coverage"],
+    queryFn: async () => {
+      const res = await fetch("/api/sequences/vertical-coverage", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch vertical coverage data");
+      return res.json();
+    },
+    refetchInterval: 60000,
+  });
+
+  const filtered = rows.filter((r) =>
+    r.vertical.toLowerCase().includes(search.toLowerCase()) ||
+    r.sequenceType.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const zeroEnrollment = filtered.filter((r) => r.enrolled === 0);
+  const hasData = rows.length > 0;
+
+  function exportCsv() {
+    const headers = ["Vertical", "Sequence Type", "Status", "Steps", "Enrolled", "Step 1 ✓", "Step 3 ✓", "Completed", "Conv. Rate %"];
+    const csvRows = [
+      headers.join(","),
+      ...filtered.map((r) =>
+        [
+          `"${r.vertical}"`,
+          `"${r.sequenceType}"`,
+          r.sequenceStatus,
+          r.totalSteps,
+          r.enrolled,
+          r.step1Complete,
+          r.step3Complete,
+          r.completed,
+          r.conversionRate,
+        ].join(",")
+      ),
+    ];
+    const blob = new Blob([csvRows.join("\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `vertical-coverage-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast({ title: "CSV exported", description: `${filtered.length} rows exported.` });
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 gap-3" data-testid="vertical-coverage-error">
+        <AlertTriangle className="w-8 h-8 text-destructive" />
+        <p className="text-muted-foreground">Failed to load vertical coverage data.</p>
+        <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="button-retry-vertical-coverage">
+          <RefreshCw className="w-4 h-4 mr-2" /> Retry
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4 py-4" data-testid="vertical-coverage-panel">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
+        <div>
+          <h2 className="text-lg font-semibold">Vertical Sequence Coverage</h2>
+          <p className="text-sm text-muted-foreground">
+            Enrollment stats per sequence — spot zero-enrollment verticals and step drop-off at a glance.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="button-refresh-vertical-coverage" aria-label="Refresh">
+            <RefreshCw className="w-4 h-4 mr-1" /> Refresh
+          </Button>
+          <Button variant="outline" size="sm" onClick={exportCsv} data-testid="button-export-vertical-coverage" disabled={filtered.length === 0}>
+            <ArrowUpRight className="w-4 h-4 mr-1" /> Export CSV
+          </Button>
+        </div>
+      </div>
+
+      {zeroEnrollment.length > 0 && (
+        <Card className="border-amber-300 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-700">
+          <CardContent className="py-3 px-4">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+                  {zeroEnrollment.length} sequence{zeroEnrollment.length > 1 ? "s" : ""} with zero enrollments
+                </p>
+                <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+                  Auto-tagging may not be firing for: {zeroEnrollment.slice(0, 5).map((r) => r.vertical).join(", ")}
+                  {zeroEnrollment.length > 5 ? ` +${zeroEnrollment.length - 5} more` : ""}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {hasData && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <Card>
+            <CardContent className="pt-4 pb-3 px-4">
+              <div className="text-2xl font-bold">{rows.length}</div>
+              <div className="text-xs text-muted-foreground mt-0.5">Total Sequences</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4 pb-3 px-4">
+              <div className="text-2xl font-bold">{rows.reduce((s, r) => s + r.enrolled, 0).toLocaleString()}</div>
+              <div className="text-xs text-muted-foreground mt-0.5">Total Enrolled</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4 pb-3 px-4">
+              <div className="text-2xl font-bold text-amber-600">{zeroEnrollment.length}</div>
+              <div className="text-xs text-muted-foreground mt-0.5">Zero-Enrollment</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4 pb-3 px-4">
+              <div className="text-2xl font-bold text-green-600">{rows.reduce((s, r) => s + r.completed, 0).toLocaleString()}</div>
+              <div className="text-xs text-muted-foreground mt-0.5">Total Completed</div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      <div className="flex items-center gap-2">
+        <Input
+          placeholder="Filter by vertical or type…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="max-w-sm text-sm"
+          data-testid="input-vertical-coverage-search"
+        />
+        {search && (
+          <Button variant="ghost" size="sm" onClick={() => setSearch("")} data-testid="button-clear-vertical-search" aria-label="Clear search">
+            <XCircle className="w-4 h-4" />
+          </Button>
+        )}
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground text-sm" data-testid="vertical-coverage-empty">
+          {rows.length === 0 ? "No sequences found in database." : "No sequences match your filter."}
+        </div>
+      ) : (
+        <Card>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm" data-testid="table-vertical-coverage">
+              <thead>
+                <tr className="border-b bg-muted/40">
+                  <th className="text-left py-2.5 px-3 font-medium text-xs text-muted-foreground whitespace-nowrap">Vertical</th>
+                  <th className="text-left py-2.5 px-3 font-medium text-xs text-muted-foreground whitespace-nowrap">Sequence Type</th>
+                  <th className="text-center py-2.5 px-3 font-medium text-xs text-muted-foreground whitespace-nowrap">Status</th>
+                  <th className="text-right py-2.5 px-3 font-medium text-xs text-muted-foreground whitespace-nowrap">Enrolled</th>
+                  <th className="text-right py-2.5 px-3 font-medium text-xs text-muted-foreground whitespace-nowrap">Step 1 ✓</th>
+                  <th className="text-right py-2.5 px-3 font-medium text-xs text-muted-foreground whitespace-nowrap">Step 3 ✓</th>
+                  <th className="text-right py-2.5 px-3 font-medium text-xs text-muted-foreground whitespace-nowrap">Completed</th>
+                  <th className="text-right py-2.5 px-3 font-medium text-xs text-muted-foreground whitespace-nowrap">Conv. Rate</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((row) => (
+                  <tr
+                    key={row.id}
+                    className="border-b last:border-0 hover:bg-muted/30 transition-colors"
+                    data-testid={`row-vertical-coverage-${row.id}`}
+                  >
+                    <td className="py-2.5 px-3 font-medium max-w-[180px]">
+                      <span className="truncate block" title={row.vertical}>{row.vertical}</span>
+                    </td>
+                    <td className="py-2.5 px-3 text-muted-foreground max-w-[160px]">
+                      <span className="truncate block text-xs" title={row.sequenceType}>{row.sequenceType || "—"}</span>
+                    </td>
+                    <td className="py-2.5 px-3 text-center">
+                      <Badge
+                        variant="outline"
+                        className={`text-xs ${
+                          row.sequenceStatus === "active"
+                            ? "border-green-500 text-green-700 dark:text-green-400"
+                            : "border-muted text-muted-foreground"
+                        }`}
+                        data-testid={`status-vertical-${row.id}`}
+                      >
+                        {row.sequenceStatus}
+                      </Badge>
+                    </td>
+                    <td className="py-2.5 px-3 text-right">
+                      <span className={`font-medium ${row.enrolled === 0 ? "text-amber-600" : ""}`} data-testid={`enrolled-vertical-${row.id}`}>
+                        {row.enrolled.toLocaleString()}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3 text-right text-muted-foreground" data-testid={`step1-vertical-${row.id}`}>
+                      {row.enrolled > 0 ? (
+                        <>
+                          {row.step1Complete.toLocaleString()}
+                          <span className="text-xs ml-1">({row.enrolled > 0 ? Math.round((row.step1Complete / row.enrolled) * 100) : 0}%)</span>
+                        </>
+                      ) : (
+                        <span className="text-muted-foreground/50">—</span>
+                      )}
+                    </td>
+                    <td className="py-2.5 px-3 text-right text-muted-foreground" data-testid={`step3-vertical-${row.id}`}>
+                      {row.enrolled > 0 ? (
+                        <>
+                          {row.step3Complete.toLocaleString()}
+                          <span className="text-xs ml-1">({row.enrolled > 0 ? Math.round((row.step3Complete / row.enrolled) * 100) : 0}%)</span>
+                        </>
+                      ) : (
+                        <span className="text-muted-foreground/50">—</span>
+                      )}
+                    </td>
+                    <td className="py-2.5 px-3 text-right" data-testid={`completed-vertical-${row.id}`}>
+                      {row.completed.toLocaleString()}
+                    </td>
+                    <td className="py-2.5 px-3 text-right" data-testid={`conv-rate-vertical-${row.id}`}>
+                      {row.enrolled === 0 ? (
+                        <span className="text-muted-foreground/50">—</span>
+                      ) : (
+                        <span className={`font-medium ${row.conversionRate >= 10 ? "text-green-600 dark:text-green-400" : row.conversionRate > 0 ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground"}`}>
+                          {row.conversionRate}%
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+      <p className="text-xs text-muted-foreground text-right">
+        Showing {filtered.length} of {rows.length} sequences · Auto-refreshes every 60s
+      </p>
     </div>
   );
 }
