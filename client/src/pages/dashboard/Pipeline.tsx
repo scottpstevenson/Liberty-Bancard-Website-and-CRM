@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useSearch } from "wouter";
+import { useSearch, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -167,6 +167,7 @@ function SortableDealCard({
   restoreDealMutation,
   getContactName,
   getCompanyName,
+  getContactVertical,
   midSummary,
 }: {
   deal: Deal;
@@ -178,8 +179,10 @@ function SortableDealCard({
   restoreDealMutation: any;
   getContactName: (id: number | null) => string;
   getCompanyName: (id: number | null) => string;
+  getContactVertical: (id: number | null) => string | null;
   midSummary?: MidSummary;
 }) {
+  const [, navigateTo] = useLocation();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: deal.id,
     data: { stage: deal.stage },
@@ -223,6 +226,16 @@ function SortableDealCard({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const v = getContactVertical(deal.contactId);
+                    navigateTo(`/dashboard/chat${v ? `?vertical=${encodeURIComponent(v)}` : ""}`);
+                  }}
+                  data-testid={`menu-ai-advisor-deal-${deal.id}`}
+                >
+                  <Bot className="w-4 h-4 mr-2" /> Ask AI Advisor
+                </DropdownMenuItem>
                 {isDealArchived ? (
                   <DropdownMenuItem
                     onClick={(e) => { e.stopPropagation(); restoreDealMutation.mutate(deal.id); }}
@@ -278,6 +291,7 @@ function DroppableColumn({
   restoreDealMutation,
   getContactName,
   getCompanyName,
+  getContactVertical,
   setCreateOpen,
   midSummaries,
 }: {
@@ -291,6 +305,7 @@ function DroppableColumn({
   restoreDealMutation: any;
   getContactName: (id: number | null) => string;
   getCompanyName: (id: number | null) => string;
+  getContactVertical: (id: number | null) => string | null;
   setCreateOpen: (open: boolean) => void;
   midSummaries: Record<string, MidSummary>;
 }) {
@@ -318,6 +333,7 @@ function DroppableColumn({
                 restoreDealMutation={restoreDealMutation}
                 getContactName={getContactName}
                 getCompanyName={getCompanyName}
+                getContactVertical={getContactVertical}
                 midSummary={midSummaries[String(deal.id)]}
               />
             );
@@ -843,6 +859,12 @@ export default function Pipeline() {
     return contact?.companyName || "";
   };
 
+  const getContactVertical = (contactId: number | null): string | null => {
+    if (!contactId) return null;
+    const contact = contactsMap.get(contactId);
+    return contact?.vertical || null;
+  };
+
   const handleCreateDeal = () => {
     const payload: Record<string, unknown> = {
       pipeline: newDeal.pipeline,
@@ -1229,6 +1251,7 @@ export default function Pipeline() {
                   restoreDealMutation={restoreDealMutation}
                   getContactName={getContactName}
                   getCompanyName={getCompanyName}
+                  getContactVertical={getContactVertical}
                   setCreateOpen={setCreateOpen}
                   midSummaries={midSummaries}
                 />

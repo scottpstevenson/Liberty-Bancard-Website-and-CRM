@@ -130,9 +130,8 @@ export default function Chat() {
     const params = new URLSearchParams(window.location.search);
     const vParam = params.get("vertical");
     if (vParam) {
-      const slug = normalizeSlug(vParam);
-      const supported = VERTICALS.find(v => v.slug === slug);
-      if (supported) setVertical(slug);
+      const matched = matchContactVertical(vParam);
+      if (matched) setVertical(matched);
     }
   }, []);
 

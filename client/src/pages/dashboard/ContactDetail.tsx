@@ -21,7 +21,7 @@ import {
   Ticket, Mail, Phone, Building2,
   Activity, Link2, Trash2, Star,
   RefreshCw, CheckCircle2, AlertCircle, Linkedin, FolderOpen, Info,
-  ChevronDown, ChevronUp, Brain, AlertOctagon, ShieldCheck, GitFork,
+  ChevronDown, ChevronUp, Brain, AlertOctagon, ShieldCheck, GitFork, Bot,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import Comments from "@/components/Comments";
@@ -815,7 +815,17 @@ export default function ContactDetail() {
             </div>
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
+            <Button
+              variant="outline"
+              onClick={() => {
+                const v = contact.vertical ? encodeURIComponent(contact.vertical) : null;
+                setLocation(`/dashboard/chat${v ? `?vertical=${v}` : ""}`);
+              }}
+              data-testid="button-ask-ai-advisor"
+            >
+              <Bot className="h-4 w-4 mr-1" /> Ask AI Advisor
+            </Button>
             {isEditing ? (
               <>
                 <Button onClick={saveEdit} disabled={updateContact.isPending} data-testid="button-save-edit">
