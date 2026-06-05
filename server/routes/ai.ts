@@ -8,12 +8,13 @@ import { logAiCall } from "../services/ai-audit-logger";
 import { parse } from "csv-parse/sync";
 import path from "path";
 import type { ProposalData, ProposalPlan } from "./helpers";
+import { buildVerticalSystemPromptBlock, isVerticalSupported } from "../services/vertical-advisor-prompts";
 
 export function registerAiRoutes(app: Express) {
   // === AI ADVISOR ===
   app.post("/api/ai/chat", isAuthenticated, async (req, res) => {
     try {
-      const { department, messages } = req.body;
+      const { department, messages, vertical } = req.body;
       const basePrompt = `ROLE: Liberty Bancard AI Advisor - ${department || "General"}
 GOAL: Increase conversion and operational efficiency while staying compliance-safe.
 NON-NEGOTIABLES:
@@ -30,16 +31,21 @@ OUTPUT FORMAT:
 4) Internal tasks (with due times)`;
 
       const departmentPrompts: Record<string, string> = {
-        sales: "You are the Sales Advisor. Prioritize statement upload + booked calls; draft follow-ups; recommend offer path based on vertical and volume.",
-        support: "You are the Support Advisor. Classify tickets by category (Funding, Terminal, Chargeback, PCI, Other); request missing details; suggest macro response; escalate urgent issues.",
-        onboarding: "You are the Onboarding Advisor. Generate doc checklists; go-live plans; terminal setup steps; Day 2/7/14/30 check-in messages.",
-        marketing: "You are the Marketing Advisor. Create weekly content plans; repurpose proof into briefs; draft landing page variants; write ad copy (no claims without proof).",
+        sales: "You are the Sales Advisor. Prioritize statement upload + booked calls; draft follow-ups; recommend offer path based on vertical and volume. When a vertical context block is provided, use the pain points, objections/rebuttals, and talking points to tailor every response to that specific industry.",
+        support: "You are the Support Advisor. Classify tickets by category (Funding, Terminal, Chargeback, PCI, Other); request missing details; suggest macro response; escalate urgent issues. When a vertical context block is provided, factor in industry-specific chargeback patterns and compliance notes.",
+        onboarding: "You are the Onboarding Advisor. Generate doc checklists; go-live plans; terminal setup steps; Day 2/7/14/30 check-in messages. When a vertical context block is provided, tailor onboarding checklists to that industry's specific compliance and operational requirements.",
+        marketing: "You are the Marketing Advisor. Create weekly content plans; repurpose proof into briefs; draft landing page variants; write ad copy (no claims without proof). When a vertical context block is provided, use the vertical's pain points and talking points to create industry-specific messaging.",
         finance: "You are the Finance Advisor. Provide reconciliation checklists; commission tracking guidance; anomaly detection tips. Never give tax advice.",
-        compliance: "You are the Compliance Advisor. Review copy and messages for claim risk; ensure disclaimers and consent language are present.",
+        compliance: "You are the Compliance Advisor. Review copy and messages for claim risk; ensure disclaimers and consent language are present. When a vertical context block is provided, apply all vertical-specific compliance notes rigorously — especially IOLTA rules for legal, lodging addendum requirements for hotels, and NACHA rules for gym/subscription businesses.",
         executive: "You are the Executive Advisor. Provide weekly KPI digests + bottleneck analysis + recommended changes (approval required for all external changes).",
       };
 
-      const systemPrompt = `${basePrompt}\n\n${departmentPrompts[department] || departmentPrompts.sales}`;
+      const resolvedVertical = vertical && isVerticalSupported(vertical) ? vertical : null;
+      if (vertical && !resolvedVertical) {
+        console.warn(`[AI Chat] Unknown vertical slug "${vertical}" — context block skipped.`);
+      }
+      const verticalBlock = resolvedVertical ? buildVerticalSystemPromptBlock(resolvedVertical) : "";
+      const systemPrompt = `${basePrompt}\n\n${departmentPrompts[department] || departmentPrompts.sales}${verticalBlock}`;
 
       const { OpenAI } = await import("openai");
       const openai = new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
