@@ -1961,6 +1961,158 @@ Liberty Bancard | [Phone] | [Calendar Link]
   },
 
   // ─────────────────────────────────────────────────────────────
+  // VERTICAL SDR COLD — CONSTRUCTION
+  // ─────────────────────────────────────────────────────────────
+  {
+    id: "cold-outbound-construction",
+    name: "SDR: Cold Outbound — Construction",
+    category: "sdr_cold_outbound",
+    triggerConditions: "Cold outbound to FL general contractors, remodelers, roofing, HVAC, plumbing, electrical, and specialty trades. No prior contact. GHL trigger: Contact tag = LB-COLD-CONSTRUCTION OR business_type = construction/contractor/trades.",
+    usesConversationAI: false,
+    steps: [
+      {
+        stepNumber: 1,
+        channel: "email",
+        delayDescription: "Day 0 AM",
+        subject: "Liberty Bancard × {{companyName}} — cut job-cost fees",
+        body: `Hi {{contact.firstName}},
+
+We work with Florida contractors and trades on card processing costs — especially on large job invoices and subcontractor payments.
+
+3 things we typically find:
+1. Overpriced processing on high-ticket project payments
+2. No text-to-pay or virtual terminal for remote invoice collection
+3. Hidden fees buried in monthly statements
+
+Free 10-minute statement review — usually uncovers $300–$800/month for FL contractors.
+
+— [SDR Name]
+Liberty Bancard | [Phone] | [Calendar Link]`,
+      },
+      {
+        stepNumber: 2,
+        channel: "call",
+        delayDescription: "Day 1 AM",
+        body: "",
+        callScript: "Hi {{contact.firstName}}, this is [SDR Name] with Liberty Bancard. We work with Florida contractors to reduce card processing costs on large job payments — do you have a couple minutes? I can send you a link to upload your latest statement and we'll have a full savings breakdown in 24 hours.",
+        callMode: "intro_qualification",
+        ghlNote: "GHL Action: Create Outbound Call task → assign to SDR. Branch: Answered → Inbound Nurture. Voicemail → Step 2b voicemail drop.",
+      },
+      {
+        stepNumber: 3,
+        channel: "voicemail_drop",
+        delayDescription: "Day 1 (if voicemail)",
+        body: "",
+        voicemailScript: "Hi {{contact.firstName}}, [SDR Name] here with Liberty Bancard. We help Florida contractors cut card processing fees on big job payments — usually $300–$800 a month. I'll send you an email — or give me a ring back. Talk soon.",
+        ghlNote: "Voicemail Drop → construction voicemail 1 audio. Trigger Step 3 SMS immediately.",
+      },
+      {
+        stepNumber: 4,
+        channel: "sms",
+        delayDescription: "Day 1 +5min (if voicemail)",
+        body: "{{contact.firstName}}, [SDR Name] from Liberty Bancard — just left a voicemail. We help FL contractors cut processing fees on job payments. Free review: [Calendar Link]. Reply STOP to opt out.",
+      },
+      {
+        stepNumber: 5,
+        channel: "email",
+        delayDescription: "Day 3",
+        subject: "{{contact.firstName}}, how a similar contractor saved $600/month",
+        body: `Hi {{contact.firstName}},
+
+A Florida contractor came to us overpaying on processing. After switching:
+
+- Effective rate dropped significantly on high-ticket project invoices
+- Text-to-pay cut collection time from 14 days to under 3 days
+- Chargebacks cut in half with improved deposit and lien waiver workflows
+
+Want to see what your numbers look like?
+
+— [SDR Name]
+Liberty Bancard | [Phone] | [Calendar Link]`,
+      },
+      {
+        stepNumber: 6,
+        channel: "call",
+        delayDescription: "Day 5",
+        body: "",
+        callScript: "Hi {{contact.firstName}}, [SDR Name] from Liberty Bancard. Following up on the free statement review — did you get my emails? Most FL contractors we review are overpaying on large job payments. Takes 10 minutes to find out. Call me at [Phone] or grab a time at [Calendar Link].",
+        callMode: "statement_chase",
+        ghlNote: "GHL Action: Outbound Call. Branch: Answered → Inbound Nurture. Voicemail → Step 5b.",
+      },
+      {
+        stepNumber: 7,
+        channel: "voicemail_drop",
+        delayDescription: "Day 5 (if voicemail)",
+        body: "",
+        voicemailScript: "Hi {{contact.firstName}}, [SDR Name] with Liberty Bancard — following up on reducing processing fees for your job payments. Free review, 10 minutes. [Phone] or [Calendar Link]. Thanks.",
+        ghlNote: "Voicemail Drop → construction voicemail 2. Trigger Step 5c SMS.",
+      },
+      {
+        stepNumber: 8,
+        channel: "sms",
+        delayDescription: "Day 5 +5min (if voicemail)",
+        body: "{{contact.firstName}}, [SDR Name] at Liberty Bancard. FL surcharging can eliminate credit card processing costs on job invoices entirely. Free 10-min review: [Calendar Link]. Reply STOP to opt out.",
+      },
+      {
+        stepNumber: 9,
+        channel: "email",
+        delayDescription: "Day 7",
+        subject: "FL surcharging for contractors, {{contact.firstName}}",
+        body: `Hi {{contact.firstName}},
+
+Florida allows surcharging on credit cards (not debit). For contractors running high-ticket job invoices, this can eliminate processing costs entirely on credit transactions.
+
+We set this up correctly — compliant signage, dual-pricing at the terminal, zero compliance risk.
+
+Worth 10 minutes to find out what you could save?
+
+— [SDR Name]
+Liberty Bancard | [Phone] | [Calendar Link]`,
+      },
+      {
+        stepNumber: 10,
+        channel: "call",
+        delayDescription: "Day 10",
+        body: "",
+        callScript: "Hi {{contact.firstName}}, [SDR Name] from Liberty Bancard — last follow-up on the free statement review. If the timing's not right, no worries. But if you want to see if you're overpaying on job payments, give me a ring or check your email. Thanks.",
+        callMode: "breakup",
+        ghlNote: "GHL Action: Outbound Call. Branch: Answered → Inbound Nurture. Voicemail → Step 8b.",
+      },
+      {
+        stepNumber: 11,
+        channel: "voicemail_drop",
+        delayDescription: "Day 10 (if voicemail)",
+        body: "",
+        voicemailScript: "Hi {{contact.firstName}}, this is [SDR Name] with Liberty Bancard — one more check-in about the free processing review. If the timing's not right, no worries. But if you want to see if you're overpaying on job payments, give me a ring or check your email. Thanks.",
+        ghlNote: "Final voicemail drop. Trigger break-up SMS.",
+      },
+      {
+        stepNumber: 12,
+        channel: "email",
+        delayDescription: "Day 14",
+        subject: "{{contact.firstName}} — closing the file on {{companyName}}",
+        body: `Hi {{contact.firstName}},
+
+I'll keep this short — this is my last outreach.
+
+If you ever want a free review of your processing costs, we're here. Most FL contractors we work with save $300–$800/month on job-cost payments.
+
+No pressure. If your setup is solid, we'll tell you that too.
+
+Liberty Bancard | [Phone] | [Calendar Link]
+
+— [SDR Name]`,
+      },
+      {
+        stepNumber: 13,
+        channel: "sms",
+        delayDescription: "Day 14 +5min",
+        body: "{{contact.firstName}}, last message from Liberty Bancard — no pressure at all. If you ever want that free review: [Calendar Link] — [SDR Name]. Reply STOP to opt out.",
+      },
+    ],
+  },
+
+  // ─────────────────────────────────────────────────────────────
   // VERTICAL — MEDICAL: INBOUND + OPS
   // ─────────────────────────────────────────────────────────────
   {

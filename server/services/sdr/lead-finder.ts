@@ -12,6 +12,7 @@ const DEFAULT_VERTICALS = [
   "chiropractic",
   "restaurant",
   "medical practice",
+  "construction",
 ];
 
 const DEFAULT_METROS = [

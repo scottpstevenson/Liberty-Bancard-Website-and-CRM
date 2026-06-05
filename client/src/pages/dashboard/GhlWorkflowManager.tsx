@@ -43,6 +43,7 @@ const ALL_SEQUENCES = [
   { name: "SDR: Cold Outbound — Auto Repair", category: "sdr_cold_outbound" },
   { name: "SDR: Cold Outbound — Med Spa", category: "sdr_cold_outbound" },
   { name: "SDR: Cold Outbound — Dental", category: "sdr_cold_outbound" },
+  { name: "SDR: Cold Outbound — Construction", category: "sdr_cold_outbound" },
   { name: "SDR: Reply Engaged", category: "sdr_reply_engaged" },
   { name: "SDR: Statement Chase", category: "sdr_statement_chase" },
   { name: "SDR: Proposal Follow-Up", category: "sdr_proposal_followup" },
@@ -286,6 +287,7 @@ const COLD_OUTBOUND_CADENCE_SEQUENCES = [
   "SDR: Cold Outbound — Auto Repair",
   "SDR: Cold Outbound — Med Spa",
   "SDR: Cold Outbound — Dental",
+  "SDR: Cold Outbound — Construction",
 ];
 
 type CadenceGroup = "primary" | "cold_outbound";
@@ -535,7 +537,7 @@ function CadenceTimeline() {
   );
 }
 
-const COLD_OUTBOUND_IDS = ["cold-outbound-auto-repair", "cold-outbound-dental", "cold-outbound-medspa"];
+const COLD_OUTBOUND_IDS = ["cold-outbound-auto-repair", "cold-outbound-dental", "cold-outbound-medspa", "cold-outbound-construction"];
 
 const GROUP_BY_CATEGORY: Record<string, "inbound" | "cold_sdr" | "sales" | "ops"> = {
   inbound: "inbound",
@@ -602,12 +604,14 @@ const DB_NAME_BY_PROMPT_ID: Record<string, string> = {
   "cold-outbound-auto-repair": "SDR: Cold Outbound — Auto Repair",
   "cold-outbound-medspa": "SDR: Cold Outbound — Med Spa",
   "cold-outbound-dental": "SDR: Cold Outbound — Dental",
+  "cold-outbound-construction": "SDR: Cold Outbound — Construction",
 };
 
 const GHL_TAG_BY_PROMPT_ID: Record<string, string> = {
   "cold-outbound-auto-repair": "LB-COLD-AUTO-REPAIR",
   "cold-outbound-medspa": "LB-COLD-MEDSPA",
   "cold-outbound-dental": "LB-COLD-DENTAL",
+  "cold-outbound-construction": "LB-COLD-CONSTRUCTION",
 };
 
 function CadenceBlueprints() {
