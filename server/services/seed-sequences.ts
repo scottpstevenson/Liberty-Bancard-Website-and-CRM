@@ -65,6 +65,8 @@ export async function seedSequences() {
       "SDR: Cold Outbound — Auto Repair",
       "SDR: Cold Outbound — Med Spa",
       "SDR: Cold Outbound — Dental",
+      "SDR: Cold Outbound — Construction",
+      "25. FL Construction — Vertical Playbook",
       "1. Switch & Save — Statement Audit",
       "20. Free Analysis Follow-Up",
       "SDR: Reply Engaged",

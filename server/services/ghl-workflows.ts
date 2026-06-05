@@ -31,6 +31,7 @@ export const GHL_WORKFLOW_REGISTRY: GhlWorkflowConfig[] = [
   { id: "sdr_cold_medical", name: "SDR Cold Outbound - Medical/Dental", category: "sdr_outbound", triggerType: "sdr_outreach", envKey: "GHL_WORKFLOW_SDR_MEDICAL", description: "Cold outbound for medical/dental vertical." },
   { id: "sdr_cold_restaurant", name: "SDR Cold Outbound - Restaurant", category: "sdr_outbound", triggerType: "sdr_outreach", envKey: "GHL_WORKFLOW_SDR_RESTAURANT", description: "Cold outbound for restaurant vertical." },
   { id: "sdr_cold_retail", name: "SDR Cold Outbound - Retail", category: "sdr_outbound", triggerType: "sdr_outreach", envKey: "GHL_WORKFLOW_SDR_RETAIL", description: "Cold outbound for retail vertical." },
+  { id: "sdr_cold_construction", name: "SDR Cold Outbound - Construction", category: "sdr_outbound", triggerType: "sdr_outreach", envKey: "GHL_WORKFLOW_SDR_CONSTRUCTION", description: "Cold outbound for FL construction vertical (contractors, remodelers, roofing, specialty trades)." },
   { id: "sdr_cold_default", name: "SDR Cold Outbound - Default", category: "sdr_outbound", triggerType: "sdr_outreach", envKey: "GHL_WORKFLOW_SDR_DEFAULT", description: "Default cold outbound for uncategorized verticals." },
   { id: "sdr_statement_audit", name: "SDR Statement Audit Follow-Up", category: "sdr_outbound", triggerType: "sdr_outreach", envKey: "GHL_WORKFLOW_SDR_STATEMENT", description: "Statement audit focused outreach sequence." },
 
@@ -136,6 +137,7 @@ export function getSdrWorkflowForVertical(vertical: string): string {
   if (normalizedVertical.includes("medical") || normalizedVertical.includes("dental") || normalizedVertical.includes("healthcare")) return "sdr_cold_medical";
   if (normalizedVertical.includes("restaurant") || normalizedVertical.includes("food")) return "sdr_cold_restaurant";
   if (normalizedVertical.includes("retail")) return "sdr_cold_retail";
+  if (normalizedVertical.includes("construction") || normalizedVertical.includes("contractor") || normalizedVertical.includes("remodel") || normalizedVertical.includes("roofing") || normalizedVertical.includes("trades")) return "sdr_cold_construction";
 
   return "sdr_cold_default";
 }
