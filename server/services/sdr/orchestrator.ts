@@ -236,6 +236,90 @@ const EMAIL_TEMPLATES: Record<string, { subject: string; body: string }[]> = {
       body: "Hi {{first_name}},\n\nFree patient collections review for {{company_name}} covers text-to-pay, payment plans, card-on-file, and fee benchmarking for {{service_type}} practices. Takes 10 minutes.\n\nBest,\nLiberty Bancard Team\n\nHIPAA applies to covered entities and business associates. Liberty Bancard does not access PHI. Florida surcharging applies to credit only (not debit/prepaid), requires disclosure, signage, receipt language, and 30-day notice to acquirer per card brand rules. Eligibility, underwriting, and applicable laws apply.",
     },
   ],
+  "Salon": [
+    {
+      subject: "Quick question about card fees at {{company_name}}",
+      body: "Hi {{first_name}},\n\nWe work with Florida salons and beauty businesses on payment processing — card-on-file for appointments, tip management, and reducing overall swipe fees.\n\n3 common issues at salons like {{company_name}}:\n- No card-on-file for no-show protection or deposits\n- Tip prompt configuration that slows checkout\n- Overpaying on processing (especially on higher-ticket services)\n\nMost salons we review at your estimated volume ({{estimated_volume}}) find $150-400/month in savings or workflow improvements.\n\nFree 10-minute payment review — interested?\n\nBest,\nLiberty Bancard Team\n\nEligibility, underwriting, card brand rules, and applicable laws apply.",
+    },
+    {
+      subject: "How a salon similar to {{company_name}} improved payment flow",
+      body: "Hi {{first_name}},\n\nA Florida salon similar to {{company_name}} came to us with common checkout challenges.\n\nAfter switching:\n- Card-on-file set up for deposits and no-show protection\n- Tip prompts streamlined at checkout\n- Processing rate reduced on service and retail tickets\n- Online booking integrated with payment capture\n\nWant to see what your numbers look like? We do a free side-by-side review.\n\nBest,\nLiberty Bancard Team\n\nEligibility, underwriting, card brand rules, and applicable laws apply.",
+    },
+    {
+      subject: "Last note about payments at {{company_name}}",
+      body: "Hi {{first_name}},\n\nOur free payment review for {{company_name}} covers:\n- Card-on-file and deposit setup for appointments\n- Tip configuration and checkout flow\n- Processing cost benchmarking (estimated volume: {{estimated_volume}})\n- Online payment and booking integration options\n\nNo pressure — if your setup is already working, we'll tell you.\n\nBest,\nLiberty Bancard Team\n\nEligibility, underwriting, card brand rules, and applicable laws apply.",
+    },
+  ],
+  "Gym": [
+    {
+      subject: "Quick question about billing at {{company_name}}",
+      body: "Hi {{first_name}},\n\nWe help Florida gyms and fitness studios streamline membership billing and reduce payment processing costs.\n\n4 issues we commonly see at fitness businesses like {{company_name}}:\n- Failed recurring payments eating into membership revenue\n- No automated retry logic for declined cards\n- Overpaying on processing (estimated volume: {{estimated_volume}})\n- Clunky front-desk checkout for drop-ins and packages\n\nA payment workflow review usually uncovers $200-600/month in savings or recovered revenue.\n\nFree 10-minute review — interested?\n\nBest,\nLiberty Bancard Team\n\nEligibility, underwriting, card brand rules, and applicable laws apply.",
+    },
+    {
+      subject: "How a gym similar to {{company_name}} reduced failed payments",
+      body: "Hi {{first_name}},\n\nA Florida fitness studio similar to {{company_name}} came to us losing membership revenue to failed billing.\n\nAfter implementing our payment workflow:\n- Failed payment retry logic recovered significant monthly revenue\n- Card updater reduced churn from expired cards\n- Processing rate lowered across membership and drop-in transactions\n- Front-desk checkout streamlined for classes and packages\n\nWant to see what {{company_name}} could improve?\n\nBest,\nLiberty Bancard Team\n\nEligibility, underwriting, card brand rules, and applicable laws apply.",
+    },
+    {
+      subject: "Last check-in about membership payments at {{company_name}}",
+      body: "Hi {{first_name}},\n\nOur free payment review for {{company_name}} covers membership billing, failed payment recovery, processing cost benchmarking ({{estimated_volume}}), and drop-in checkout flow. Takes 10 minutes.\n\nBest,\nLiberty Bancard Team\n\nEligibility, underwriting, card brand rules, and applicable laws apply.",
+    },
+  ],
+  "Hotel": [
+    {
+      subject: "Quick question about payment processing at {{company_name}}",
+      body: "Hi {{first_name}},\n\nWe work with Florida hotels and hospitality businesses on payment processing — card-on-file for reservations, incidental holds, and reducing overall processing costs.\n\n4 common issues at properties like {{company_name}}:\n- Card authorization and incidental hold complexity\n- No-show and cancellation payment capture\n- High effective rate on card-present and card-not-present transactions\n- Fragmented payment systems across front desk, restaurant, and ancillary revenue\n\nFree 10-minute payment review for hospitality properties — interested?\n\nBest,\nLiberty Bancard Team\n\nEligibility, underwriting, card brand rules, and applicable laws apply.",
+    },
+    {
+      subject: "How a property similar to {{company_name}} reduced processing costs",
+      body: "Hi {{first_name}},\n\nA Florida hospitality property similar to {{company_name}} came to us with fragmented payment systems.\n\nAfter our review:\n- Effective processing rate lowered across front-desk and F&B transactions\n- Card-on-file and incidental hold workflow simplified\n- No-show payment capture improved\n- Unified reporting across all revenue centers\n\nWant to see what your numbers look like? Free side-by-side comparison.\n\nBest,\nLiberty Bancard Team\n\nEligibility, underwriting, card brand rules, and applicable laws apply.",
+    },
+    {
+      subject: "Last note about payments at {{company_name}}",
+      body: "Hi {{first_name}},\n\nOur free payment review for {{company_name}} covers processing cost benchmarking ({{estimated_volume}}), card-on-file and authorization workflows, no-show capture, and multi-department payment consolidation. Takes 10 minutes.\n\nBest,\nLiberty Bancard Team\n\nEligibility, underwriting, card brand rules, and applicable laws apply.",
+    },
+  ],
+  "Landscaping": [
+    {
+      subject: "Quick question about card payments at {{company_name}}",
+      body: "Hi {{first_name}},\n\nWe help Florida landscaping and lawn care businesses get paid faster and reduce card processing costs.\n\n3 common issues we see at field service businesses like {{company_name}}:\n- No text-to-pay or mobile invoicing for job completion\n- Overpaying on processing (estimated volume: {{estimated_volume}})\n- Slow payment collection after service — waiting for checks or cash\n\nText-to-pay alone typically accelerates collection by several days and reduces outstanding balances.\n\nFree 10-minute payment review — interested?\n\nBest,\nLiberty Bancard Team\n\nEligibility, underwriting, card brand rules, and applicable laws apply.",
+    },
+    {
+      subject: "How a landscaping company similar to {{company_name}} sped up collections",
+      body: "Hi {{first_name}},\n\nA Florida landscaping company similar to {{company_name}} came to us waiting too long to get paid after completing jobs.\n\nAfter implementing our payment workflow:\n- Text-to-pay enabled for on-site and remote invoicing\n- Processing rate lowered on card transactions\n- Recurring billing set up for maintenance contracts\n- Mobile payments enabled in the field\n\nWant to see what {{company_name}} could improve?\n\nBest,\nLiberty Bancard Team\n\nEligibility, underwriting, card brand rules, and applicable laws apply.",
+    },
+    {
+      subject: "Last check-in about payments at {{company_name}}",
+      body: "Hi {{first_name}},\n\nOur free payment review for {{company_name}} covers text-to-pay setup, mobile field payments, recurring billing for maintenance contracts, and processing cost benchmarking ({{estimated_volume}}). Takes 10 minutes.\n\nBest,\nLiberty Bancard Team\n\nEligibility, underwriting, card brand rules, and applicable laws apply.",
+    },
+  ],
+  "Construction": [
+    {
+      subject: "Quick question about payments at {{company_name}}",
+      body: "Hi {{first_name}},\n\nWe help Florida contractors and construction businesses get paid faster on larger job tickets and reduce card processing costs.\n\n4 common issues we see at businesses like {{company_name}}:\n- No efficient way to collect deposits or progress payments by card\n- High effective rate on larger-ticket transactions\n- No text-to-pay or invoice payment link for remote collection\n- Clunky process for change orders or additional billing\n\nFor contractors at your estimated volume ({{estimated_volume}}), a payment review typically finds $300-800/month in savings or revenue acceleration.\n\nFree 10-minute review — interested?\n\nBest,\nLiberty Bancard Team\n\nEligibility, underwriting, card brand rules, and applicable laws apply.",
+    },
+    {
+      subject: "How a contractor similar to {{company_name}} improved payment collection",
+      body: "Hi {{first_name}},\n\nA Florida contractor similar to {{company_name}} came to us struggling to collect efficiently on larger job tickets.\n\nAfter our payment review:\n- Deposit and progress payment collection streamlined via card or ACH\n- Text-to-pay enabled for remote invoice collection\n- Effective processing rate lowered on higher-ticket transactions\n- Change order billing handled cleanly without extra steps\n\nWant to see what your numbers look like?\n\nBest,\nLiberty Bancard Team\n\nEligibility, underwriting, card brand rules, and applicable laws apply.",
+    },
+    {
+      subject: "Last note about payments at {{company_name}}",
+      body: "Hi {{first_name}},\n\nOur free payment review for {{company_name}} covers deposit and progress payment collection, text-to-pay setup, processing cost benchmarking ({{estimated_volume}}), and ACH options for larger job payments. Takes 10 minutes.\n\nBest,\nLiberty Bancard Team\n\nEligibility, underwriting, card brand rules, and applicable laws apply.",
+    },
+  ],
+  "Legal": [
+    {
+      subject: "Quick question about payment processing at {{company_name}}",
+      body: "Hi {{first_name}},\n\nWe help Florida law firms and legal professionals manage client payment processing — trust account compliance, retainer collection, and reducing overall card processing costs.\n\n4 issues we commonly see at firms like {{company_name}}:\n- No compliant way to accept cards into trust (IOLTA) accounts\n- Overpaying on processing for retainer and invoice payments\n- No online payment link for remote client invoice collection\n- Clunky reconciliation between payments and billing systems\n\nFree 10-minute payment review for legal professionals — interested?\n\nBest,\nLiberty Bancard Team\n\nLaw firms accepting credit cards for legal fees should consult applicable bar ethics rules regarding surcharging and trust account compliance. Eligibility, underwriting, card brand rules, and applicable laws apply.",
+    },
+    {
+      subject: "How a firm similar to {{company_name}} streamlined client payments",
+      body: "Hi {{first_name}},\n\nA Florida law firm similar to {{company_name}} came to us with client payment collection challenges.\n\nAfter our review:\n- Compliant card acceptance workflow for retainers and fees\n- Online payment links for remote client invoice collection\n- Processing rate lowered on client payment transactions\n- Cleaner reconciliation between payment processor and billing software\n\nWant to see what {{company_name}} could improve?\n\nBest,\nLiberty Bancard Team\n\nConsult applicable bar ethics rules regarding surcharging and trust account compliance. Eligibility, underwriting, card brand rules, and applicable laws apply.",
+    },
+    {
+      subject: "Last check-in about client payments at {{company_name}}",
+      body: "Hi {{first_name}},\n\nOur free payment review for {{company_name}} covers retainer and fee collection workflow, trust account compliance, online payment link setup, and processing cost benchmarking ({{estimated_volume}}). Takes 10 minutes.\n\nBest,\nLiberty Bancard Team\n\nConsult applicable bar ethics rules regarding surcharging and trust account compliance. Eligibility, underwriting, card brand rules, and applicable laws apply.",
+    },
+  ],
 };
 
 const SMS_TEMPLATES: Record<string, string[]> = {
@@ -259,20 +343,84 @@ const SMS_TEMPLATES: Record<string, string[]> = {
     "Hi {{first_name}}, this is {{agent_name}} with Liberty Bancard. We help FL {{service_type}} practices improve patient payment flow & collections. Quick review? {{link}}",
     "Following up on patient payments at {{company_name}}. Free collections review takes 10 min: {{link}}",
   ],
+  "Salon": [
+    "Hi {{first_name}}, this is {{agent_name}} with Liberty Bancard. We help FL salons set up card-on-file, tips & cut processing costs. Free 10-min review? {{link}}",
+    "Following up on payment processing for {{company_name}}. Most salons find savings quickly — free review: {{link}}",
+  ],
+  "Gym": [
+    "Hi {{first_name}}, this is {{agent_name}} with Liberty Bancard. We help FL gyms & studios reduce failed membership payments & cut card fees. Free review? {{link}}",
+    "Following up on membership billing at {{company_name}}. Free payment review takes 10 min: {{link}}",
+  ],
+  "Hotel": [
+    "Hi {{first_name}}, this is {{agent_name}} with Liberty Bancard. We help FL hotels streamline card-on-file, incidental holds & lower processing costs. Quick review? {{link}}",
+    "Following up on payment processing at {{company_name}}. Free hospitality payment review: {{link}}",
+  ],
+  "Landscaping": [
+    "Hi {{first_name}}, this is {{agent_name}} with Liberty Bancard. We help FL landscapers get paid faster with text-to-pay & cut card fees. Free review? {{link}}",
+    "Following up on collections for {{company_name}}. Text-to-pay can speed up payment on every job — free review: {{link}}",
+  ],
+  "Construction": [
+    "Hi {{first_name}}, this is {{agent_name}} with Liberty Bancard. We help FL contractors collect deposits & job payments faster & cut card fees. Free review? {{link}}",
+    "Following up on payment collection for {{company_name}}. Free 10-min payment review for contractors: {{link}}",
+  ],
+  "Legal": [
+    "Hi {{first_name}}, this is {{agent_name}} with Liberty Bancard. We help FL law firms accept client payments compliantly & reduce processing costs. Free review? {{link}}",
+    "Following up on client payment processing for {{company_name}}. Free 10-min review for legal professionals: {{link}}",
+  ],
 };
 
 function normalizeVerticalKey(vertical: string | null | undefined): string {
   if (!vertical) return "";
   const v = vertical.toLowerCase().trim();
+
+  // Auto repair / automotive (before salon to avoid "auto" matching other things)
   if (/auto|automotive|auto repair|collision|body shop|tire/i.test(v)) return "Auto";
-  const hasMedSpaTerms = /med.?spa|medspa|aesthetic|botox|filler|laser|beauty|salon/i.test(v);
+
+  // Med Spa — clinical aesthetic treatments (keep existing bucket)
+  const hasMedSpaTerms = /med.?spa|medspa|aesthetic|botox|filler|laser/i.test(v);
   const hasClinicalTerms = /dental|dentist|chiro|optom|podiatr|dermat|urgent care|physical therapy|behavioral|healthcare|clinic/i.test(v);
   const hasMedicalPrimary = /^medical(?!.*spa)/i.test(v) || hasClinicalTerms;
   if (hasMedSpaTerms && !hasMedicalPrimary) return "Salon/Spa";
   if (hasMedicalPrimary || /^medical/i.test(v)) return "Healthcare";
   if (hasMedSpaTerms) return "Salon/Spa";
   if (/spa/i.test(v)) return "Salon/Spa";
+
+  // Plain beauty salons, hair salons, nail salons, barbers
+  if (/\bsalon\b|hair salon|nail salon|beauty salon|barber|beauty parlor|cosmetolog/i.test(v)) return "Salon";
+
+  // Gym / fitness / wellness studios
+  if (/\bgym\b|fitness|crossfit|yoga|pilates|martial arts|personal training|boxing|dance studio|wellness center/i.test(v)) return "Gym";
+
+  // Hotel / hospitality / lodging
+  if (/\bhotel\b|motel|\binn\b|\blodge\b|\bresort\b|hospitality|bed and breakfast|b&b|vacation rental|airbnb/i.test(v)) return "Hotel";
+
+  // Landscaping / lawn / grounds
+  if (/landscap|lawn care|lawn service|lawn mowing|tree service|tree trimm|grounds.?keep|irrigation|pest control|exterminator/i.test(v)) return "Landscaping";
+
+  // Construction / trades / contractors
+  if (/\bconstruct|contractor|builder|roofer|roofing|plumb|electrician|electrical|hvac|remodel|renovati|carpent|mason|concrete|drywall|paint|siding|window install|flooring install/i.test(v)) return "Construction";
+
+  // Legal / professional services / law
+  if (/attorney|law firm|\blawyer\b|\blegal\b|solicitor|paralegal|notary|title company/i.test(v)) return "Legal";
+
   return "";
+}
+
+const VERTICAL_SEQUENCE_MAP: Record<string, string> = {
+  "Auto":                   "SDR: Cold Outbound — Auto Repair",
+  "Salon/Spa":              "SDR: Cold Outbound — Med Spa",
+  "Healthcare":             "SDR: Cold Outbound — Dental",
+  "Medical/Dental/Medspa":  "SDR: Cold Outbound — Dental",
+  "Salon":                  "V-Salon: SDR Outbound Prospecting",
+  "Gym":                    "V-Gym: SDR Outbound Prospecting",
+  "Hotel":                  "V-Hotel: SDR Outbound Prospecting",
+  "Landscaping":            "V-Landscaping: SDR Outbound Prospecting",
+  "Construction":           "V-Construction: SDR Outbound Prospecting",
+  "Legal":                  "V-Legal: SDR Outbound Prospecting",
+};
+
+function resolveVerticalSequenceName(verticalKey: string, rawVertical: string | null | undefined): string {
+  return VERTICAL_SEQUENCE_MAP[verticalKey] || `SDR: Cold Outbound — ${rawVertical || "General"}`;
 }
 
 function personalizeTemplate(template: string, lead: SdrLeadState): string {
@@ -494,10 +642,7 @@ async function executeEmailAction(lead: SdrLeadState, strongerCta?: boolean): Pr
 
       if (lead.contactId && lead.ghlContactId) {
         const vertKey = normalizeVerticalKey(lead.vertical);
-        const resolvedSeqName = vertKey === "Auto" ? "SDR: Cold Outbound — Auto Repair"
-          : vertKey === "Salon/Spa" ? "SDR: Cold Outbound — Med Spa"
-          : vertKey === "Healthcare" || vertKey === "Medical/Dental/Medspa" ? "SDR: Cold Outbound — Dental"
-          : `SDR: Cold Outbound — ${lead.vertical || "General"}`;
+        const resolvedSeqName = resolveVerticalSequenceName(vertKey, lead.vertical);
         tagContactForInboxOrganization({
           contactId: lead.contactId,
           ghlContactId: lead.ghlContactId,
@@ -642,10 +787,7 @@ async function executeSmsAction(lead: SdrLeadState): Promise<boolean> {
 
       if (lead.contactId && lead.ghlContactId) {
         const smsVertKey = normalizeVerticalKey(lead.vertical);
-        const smsResolvedSeqName = smsVertKey === "Auto" ? "SDR: Cold Outbound — Auto Repair"
-          : smsVertKey === "Salon/Spa" ? "SDR: Cold Outbound — Med Spa"
-          : smsVertKey === "Healthcare" || smsVertKey === "Medical/Dental/Medspa" ? "SDR: Cold Outbound — Dental"
-          : `SDR: Cold Outbound — ${lead.vertical || "General"}`;
+        const smsResolvedSeqName = resolveVerticalSequenceName(smsVertKey, lead.vertical);
         tagContactForInboxOrganization({
           contactId: lead.contactId,
           ghlContactId: lead.ghlContactId,

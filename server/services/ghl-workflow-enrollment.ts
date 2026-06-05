@@ -111,6 +111,33 @@ const SEQUENCE_WORKFLOW_MAP: Record<string, GhlWorkflowMapping> = {
   "V-Auto: Inbound Lead Nurture": { sequenceName: "V-Auto: Inbound Lead Nurture", ghlWorkflowId: null, category: "inbound", vertical: "auto", inboxLabel: "Inbound: Auto", inboxTags: ["LB-SDR", "LB-AUTO", "LB-SEQ-V-AUTO-INBOUND"] },
   "V-Auto: Account Management Ops": { sequenceName: "V-Auto: Account Management Ops", ghlWorkflowId: null, category: "operations", vertical: "auto", inboxLabel: "Ops: Auto", inboxTags: ["LB-OPS", "LB-AUTO"] },
   "V-Medical: SDR Outbound Prospecting": { sequenceName: "V-Medical: SDR Outbound Prospecting", ghlWorkflowId: null, category: "sdr", vertical: "medical", inboxLabel: "SDR: V-Medical", inboxTags: ["LB-SDR", "LB-MEDSPA", "LB-SEQ-V-MEDICAL-SDR"] },
+  "V-Med Spa: SDR Outbound Prospecting": { sequenceName: "V-Med Spa: SDR Outbound Prospecting", ghlWorkflowId: null, category: "sdr", vertical: "medspa", inboxLabel: "SDR: V-MedSpa", inboxTags: ["LB-SDR", "LB-MEDSPA", "LB-SEQ-V-MEDSPA-SDR"] },
+  "V-Med Spa: Inbound Lead Nurture": { sequenceName: "V-Med Spa: Inbound Lead Nurture", ghlWorkflowId: null, category: "inbound", vertical: "medspa", inboxLabel: "Inbound: MedSpa", inboxTags: ["LB-SDR", "LB-MEDSPA", "LB-SEQ-V-MEDSPA-INBOUND"] },
+  "V-Med Spa: Account Management Ops": { sequenceName: "V-Med Spa: Account Management Ops", ghlWorkflowId: null, category: "operations", vertical: "medspa", inboxLabel: "Ops: MedSpa", inboxTags: ["LB-OPS", "LB-MEDSPA"] },
+  "V-Dental: SDR Outbound Prospecting": { sequenceName: "V-Dental: SDR Outbound Prospecting", ghlWorkflowId: null, category: "sdr", vertical: "dental", inboxLabel: "SDR: V-Dental", inboxTags: ["LB-SDR", "LB-DENTAL", "LB-SEQ-V-DENTAL-SDR"] },
+  "V-Dental: Inbound Lead Nurture": { sequenceName: "V-Dental: Inbound Lead Nurture", ghlWorkflowId: null, category: "inbound", vertical: "dental", inboxLabel: "Inbound: Dental", inboxTags: ["LB-SDR", "LB-DENTAL", "LB-SEQ-V-DENTAL-INBOUND"] },
+  "V-Dental: Account Management Ops": { sequenceName: "V-Dental: Account Management Ops", ghlWorkflowId: null, category: "operations", vertical: "dental", inboxLabel: "Ops: Dental", inboxTags: ["LB-OPS", "LB-DENTAL"] },
+  "V-Auto Repair: SDR Outbound Prospecting": { sequenceName: "V-Auto Repair: SDR Outbound Prospecting", ghlWorkflowId: null, category: "sdr", vertical: "autorepair", inboxLabel: "SDR: V-AutoRepair", inboxTags: ["LB-SDR", "LB-AUTO", "LB-SEQ-V-AUTOREPAIR-SDR"] },
+  "V-Auto Repair: Inbound Lead Nurture": { sequenceName: "V-Auto Repair: Inbound Lead Nurture", ghlWorkflowId: null, category: "inbound", vertical: "autorepair", inboxLabel: "Inbound: AutoRepair", inboxTags: ["LB-SDR", "LB-AUTO", "LB-SEQ-V-AUTOREPAIR-INBOUND"] },
+  "V-Auto Repair: Account Management Ops": { sequenceName: "V-Auto Repair: Account Management Ops", ghlWorkflowId: null, category: "operations", vertical: "autorepair", inboxLabel: "Ops: AutoRepair", inboxTags: ["LB-OPS", "LB-AUTO"] },
+  "V-Salon: SDR Outbound Prospecting": { sequenceName: "V-Salon: SDR Outbound Prospecting", ghlWorkflowId: null, category: "sdr", vertical: "salon", inboxLabel: "SDR: V-Salon", inboxTags: ["LB-SDR", "LB-SDR-SALON", "LB-SEQ-V-SALON-SDR"] },
+  "V-Salon: Inbound Lead Nurture": { sequenceName: "V-Salon: Inbound Lead Nurture", ghlWorkflowId: null, category: "inbound", vertical: "salon", inboxLabel: "Inbound: Salon", inboxTags: ["LB-SDR", "LB-SDR-SALON", "LB-SEQ-V-SALON-INBOUND"] },
+  "V-Salon: Account Management Ops": { sequenceName: "V-Salon: Account Management Ops", ghlWorkflowId: null, category: "operations", vertical: "salon", inboxLabel: "Ops: Salon", inboxTags: ["LB-OPS", "LB-SDR-SALON"] },
+  "V-Gym: SDR Outbound Prospecting": { sequenceName: "V-Gym: SDR Outbound Prospecting", ghlWorkflowId: null, category: "sdr", vertical: "gym", inboxLabel: "SDR: V-Gym", inboxTags: ["LB-SDR", "LB-SDR-GYM", "LB-SEQ-V-GYM-SDR"] },
+  "V-Gym: Inbound Lead Nurture": { sequenceName: "V-Gym: Inbound Lead Nurture", ghlWorkflowId: null, category: "inbound", vertical: "gym", inboxLabel: "Inbound: Gym", inboxTags: ["LB-SDR", "LB-SDR-GYM", "LB-SEQ-V-GYM-INBOUND"] },
+  "V-Gym: Account Management Ops": { sequenceName: "V-Gym: Account Management Ops", ghlWorkflowId: null, category: "operations", vertical: "gym", inboxLabel: "Ops: Gym", inboxTags: ["LB-OPS", "LB-SDR-GYM"] },
+  "V-Hotel: SDR Outbound Prospecting": { sequenceName: "V-Hotel: SDR Outbound Prospecting", ghlWorkflowId: null, category: "sdr", vertical: "hotel", inboxLabel: "SDR: V-Hotel", inboxTags: ["LB-SDR", "LB-SDR-HOTEL", "LB-SEQ-V-HOTEL-SDR"] },
+  "V-Hotel: Inbound Lead Nurture": { sequenceName: "V-Hotel: Inbound Lead Nurture", ghlWorkflowId: null, category: "inbound", vertical: "hotel", inboxLabel: "Inbound: Hotel", inboxTags: ["LB-SDR", "LB-SDR-HOTEL", "LB-SEQ-V-HOTEL-INBOUND"] },
+  "V-Hotel: Account Management Ops": { sequenceName: "V-Hotel: Account Management Ops", ghlWorkflowId: null, category: "operations", vertical: "hotel", inboxLabel: "Ops: Hotel", inboxTags: ["LB-OPS", "LB-SDR-HOTEL"] },
+  "V-Landscaping: SDR Outbound Prospecting": { sequenceName: "V-Landscaping: SDR Outbound Prospecting", ghlWorkflowId: null, category: "sdr", vertical: "landscaping", inboxLabel: "SDR: V-Landscaping", inboxTags: ["LB-SDR", "LB-SDR-LANDSCAPING", "LB-SEQ-V-LANDSCAPING-SDR"] },
+  "V-Landscaping: Inbound Lead Nurture": { sequenceName: "V-Landscaping: Inbound Lead Nurture", ghlWorkflowId: null, category: "inbound", vertical: "landscaping", inboxLabel: "Inbound: Landscaping", inboxTags: ["LB-SDR", "LB-SDR-LANDSCAPING", "LB-SEQ-V-LANDSCAPING-INBOUND"] },
+  "V-Landscaping: Account Management Ops": { sequenceName: "V-Landscaping: Account Management Ops", ghlWorkflowId: null, category: "operations", vertical: "landscaping", inboxLabel: "Ops: Landscaping", inboxTags: ["LB-OPS", "LB-SDR-LANDSCAPING"] },
+  "V-Construction: SDR Outbound Prospecting": { sequenceName: "V-Construction: SDR Outbound Prospecting", ghlWorkflowId: null, category: "sdr", vertical: "construction", inboxLabel: "SDR: V-Construction", inboxTags: ["LB-SDR", "LB-SDR-CONSTRUCTION", "LB-SEQ-V-CONSTRUCTION-SDR"] },
+  "V-Construction: Inbound Lead Nurture": { sequenceName: "V-Construction: Inbound Lead Nurture", ghlWorkflowId: null, category: "inbound", vertical: "construction", inboxLabel: "Inbound: Construction", inboxTags: ["LB-SDR", "LB-SDR-CONSTRUCTION", "LB-SEQ-V-CONSTRUCTION-INBOUND"] },
+  "V-Construction: Account Management Ops": { sequenceName: "V-Construction: Account Management Ops", ghlWorkflowId: null, category: "operations", vertical: "construction", inboxLabel: "Ops: Construction", inboxTags: ["LB-OPS", "LB-SDR-CONSTRUCTION"] },
+  "V-Legal: SDR Outbound Prospecting": { sequenceName: "V-Legal: SDR Outbound Prospecting", ghlWorkflowId: null, category: "sdr", vertical: "legal", inboxLabel: "SDR: V-Legal", inboxTags: ["LB-SDR", "LB-SDR-LEGAL", "LB-SEQ-V-LEGAL-SDR"] },
+  "V-Legal: Inbound Lead Nurture": { sequenceName: "V-Legal: Inbound Lead Nurture", ghlWorkflowId: null, category: "inbound", vertical: "legal", inboxLabel: "Inbound: Legal", inboxTags: ["LB-SDR", "LB-SDR-LEGAL", "LB-SEQ-V-LEGAL-INBOUND"] },
+  "V-Legal: Account Management Ops": { sequenceName: "V-Legal: Account Management Ops", ghlWorkflowId: null, category: "operations", vertical: "legal", inboxLabel: "Ops: Legal", inboxTags: ["LB-OPS", "LB-SDR-LEGAL"] },
 };
 
 const INBOX_SMART_LIST_TAGS = {
@@ -148,11 +175,17 @@ function getVerticalTag(vertical: string | null | undefined): string {
   if (!vertical) return "LB-VERTICAL-GENERAL";
   const v = vertical.toLowerCase().trim();
   if (/auto|automotive|repair|collision|body shop|tire/i.test(v)) return "LB-AUTO";
-  if (/med.?spa|medspa|aesthetic|botox|filler|laser|beauty|salon/i.test(v)) return "LB-MEDSPA";
+  if (/med.?spa|medspa|aesthetic|botox|filler|laser/i.test(v)) return "LB-MEDSPA";
   if (/dental|dentist/i.test(v)) return "LB-DENTAL";
   if (/medical|healthcare|clinic|chiro|optom|podiatr/i.test(v)) return "LB-MEDICAL";
   if (/restaurant|food|bar|cafe|catering/i.test(v)) return "LB-RESTAURANT";
   if (/retail|shop|store|boutique/i.test(v)) return "LB-RETAIL";
+  if (/\bsalon\b|hair salon|nail salon|beauty salon|barber|beauty parlor|cosmetolog/i.test(v)) return "LB-SDR-SALON";
+  if (/\bgym\b|fitness|crossfit|yoga|pilates|martial arts|personal training|boxing|dance studio|wellness center/i.test(v)) return "LB-SDR-GYM";
+  if (/\bhotel\b|motel|\binn\b|\blodge\b|\bresort\b|hospitality|bed and breakfast/i.test(v)) return "LB-SDR-HOTEL";
+  if (/landscap|lawn care|lawn service|lawn mowing|tree service|tree trimm|grounds.?keep/i.test(v)) return "LB-SDR-LANDSCAPING";
+  if (/\bconstruct|contractor|builder|roofer|roofing|plumb|electrician|electrical|hvac|remodel|renovati/i.test(v)) return "LB-SDR-CONSTRUCTION";
+  if (/attorney|law firm|\blawyer\b|\blegal\b|solicitor|paralegal|notary/i.test(v)) return "LB-SDR-LEGAL";
   return "LB-VERTICAL-GENERAL";
 }
 
