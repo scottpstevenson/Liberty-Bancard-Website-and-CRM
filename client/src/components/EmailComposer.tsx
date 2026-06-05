@@ -17,6 +17,30 @@ const VERTICALS = [
   "Landscaping", "Construction", "Legal",
 ]
 
+const VERTICAL_SLUG_TO_DISPLAY: Record<string, string> = {
+  med_spa: "Med Spa",
+  dental: "Dental",
+  auto_repair: "Auto Repair",
+  salon: "Salon",
+  gym: "Gym",
+  hotel: "Hotel",
+  landscaping: "Landscaping",
+  construction: "Construction",
+  legal: "Legal",
+  restaurant: "Restaurant",
+  retail: "Retail",
+  healthcare: "Healthcare",
+}
+
+function resolveVerticalDisplayName(vertical: string): string {
+  if (!vertical) return ""
+  const bySlug = VERTICAL_SLUG_TO_DISPLAY[vertical.toLowerCase().replace(/[\s/]+/g, "_")]
+  if (bySlug) return bySlug
+  const direct = VERTICAL_SLUG_TO_DISPLAY[vertical.toLowerCase()]
+  if (direct) return direct
+  return vertical
+}
+
 interface EmailComposerProps {
   contactId?: number
   prospectId?: number
@@ -76,7 +100,7 @@ export function EmailComposer({ contactId, prospectId, initialVertical, onClose,
             {vertical && (
               <Badge variant="outline" className="ml-1 text-xs bg-primary/10 text-primary border-primary/30 font-normal" data-testid="badge-composer-vertical">
                 <Tag className="h-3 w-3 mr-1" />
-                {vertical}
+                {resolveVerticalDisplayName(vertical)}
               </Badge>
             )}
           </DialogTitle>
@@ -128,24 +152,34 @@ export function EmailComposer({ contactId, prospectId, initialVertical, onClose,
             />
           </div>
 
-          <Button
-            data-testid="button-generate-email"
-            onClick={() => generateMutation.mutate()}
-            disabled={generateMutation.isPending || !context || !tone}
-            className="w-full"
-          >
-            {generateMutation.isPending ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Generating...
-              </>
-            ) : (
-              <>
-                <Sparkles className="mr-2 h-4 w-4" />
-                Generate Email with AI
-              </>
+          <div className="space-y-2">
+            <Button
+              data-testid="button-generate-email"
+              onClick={() => generateMutation.mutate()}
+              disabled={generateMutation.isPending || !context || !tone}
+              className="w-full"
+            >
+              {generateMutation.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="mr-2 h-4 w-4" />
+                  Generate Email with AI
+                </>
+              )}
+            </Button>
+            {vertical && (
+              <div className="flex justify-center" data-testid="vertical-context-indicator">
+                <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/30 font-normal gap-1" data-testid="badge-vertical-context-active">
+                  <Tag className="h-3 w-3" />
+                  {resolveVerticalDisplayName(vertical)} context active
+                </Badge>
+              </div>
             )}
-          </Button>
+          </div>
 
           {hasGenerated && (
             <div className="space-y-4">
