@@ -52,6 +52,7 @@ export function ExitIntentPopup() {
           size="icon"
           className="absolute top-3 right-3"
           onClick={handleDismiss}
+          aria-label="Close"
           data-testid="button-exit-intent-close"
         >
           <X className="w-4 h-4" />

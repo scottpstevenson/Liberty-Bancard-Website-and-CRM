@@ -87,6 +87,7 @@ export function PromoBanner({
               size="icon"
               className="absolute right-2 top-1/2 -translate-y-1/2"
               onClick={() => setDismissed(true)}
+              aria-label="Dismiss"
               data-testid="promo-banner-dismiss"
             >
               <X className="w-4 h-4" />
@@ -136,6 +137,7 @@ export function PromoBanner({
             variant="ghost"
             size="icon"
             onClick={() => setDismissed(true)}
+            aria-label="Dismiss"
             data-testid="promo-card-dismiss"
           >
             <X className="w-4 h-4" />

@@ -418,6 +418,7 @@ export default function ChatWidget() {
                   className="bg-[hsl(222,47%,11%)] text-white hover:bg-[hsl(222,47%,18%)] shrink-0"
                   onClick={handleSend}
                   disabled={sending || !input.trim()}
+                  aria-label="Send message"
                   data-testid="chat-send-button"
                 >
                   {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}

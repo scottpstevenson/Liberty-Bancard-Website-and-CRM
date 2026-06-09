@@ -329,6 +329,7 @@ function CommentNode({
                 size="icon"
                 onClick={handleReply}
                 disabled={createMutation.isPending || !replyContent.trim()}
+                aria-label="Submit reply"
                 data-testid={`button-submit-reply-${comment.id}`}
               >
                 <Send className="w-4 h-4" />
@@ -428,6 +429,7 @@ export default function Comments({ entityType, entityId }: CommentsProps) {
           size="icon"
           onClick={handleSubmit}
           disabled={createMutation.isPending || !newContent.trim()}
+          aria-label="Submit comment"
           data-testid="button-submit-comment"
         >
           <Send className="w-4 h-4" />

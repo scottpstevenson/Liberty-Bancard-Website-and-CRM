@@ -680,6 +680,23 @@ export default function ActivationPanel() {
         </Card>
       )}
 
+      {ghlHealth && ghlHealth.configured && !ghlHealth.authTest && (
+        <Card className="border-amber-500 bg-amber-50 dark:bg-amber-950/20" data-testid="banner-ghl-token-invalid">
+          <CardContent className="py-3 flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold text-amber-800 dark:text-amber-400">GHL Token Invalid — All GHL Syncs Are Failing</p>
+              <p className="text-sm text-amber-700 dark:text-amber-500 mt-0.5">
+                The GoHighLevel Private Integration Token returned a 401 Unauthorized error. Contact sync, opportunity updates, workflow enrollment, and calendar bookings are all blocked until a valid token is set.
+              </p>
+              <p className="text-xs text-amber-600 dark:text-amber-600 mt-1 font-mono">
+                Fix: GHL → Settings → Integrations → Private Integrations → regenerate token → set <strong>GHL_PRIVATE_INTEGRATION_TOKEN</strong> env var → restart server.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Tabs defaultValue={identities.length === 0 ? "wizard" : "status"}>
         <TabsList data-testid="tabs-activation">
           <TabsTrigger value="runbook" data-testid="tab-runbook">Day-1 Runbook</TabsTrigger>

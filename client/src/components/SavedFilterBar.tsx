@@ -103,6 +103,7 @@ export default function SavedFilterBar({ entityType, currentFilters, onApplyFilt
               size="icon"
               className="h-5 w-5"
               onClick={(e) => { e.stopPropagation(); deleteFilterMutation.mutate(filter.id); }}
+              aria-label={`Delete filter ${filter.name}`}
               data-testid={`button-delete-filter-${filter.id}`}
             >
               <X className="h-3 w-3" />

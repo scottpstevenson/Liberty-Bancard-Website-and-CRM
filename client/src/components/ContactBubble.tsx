@@ -40,7 +40,7 @@ export function ContactBubble() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between gap-2 mb-3">
               <span className="text-sm font-semibold text-foreground">Need a quick answer?</span>
-              <Button size="icon" variant="ghost" onClick={() => setOpen(false)} data-testid="button-bubble-close">
+              <Button size="icon" variant="ghost" aria-label="Close" onClick={() => setOpen(false)} data-testid="button-bubble-close">
                 <X className="w-4 h-4" />
               </Button>
             </div>
@@ -73,6 +73,7 @@ export function ContactBubble() {
         size="icon"
         className="rounded-full shadow-lg"
         onClick={() => setOpen(!open)}
+        aria-label={open ? "Close contact bubble" : "Open contact bubble"}
         data-testid="button-bubble-toggle"
       >
         {open ? <X className="w-5 h-5" /> : <MessageCircle className="w-5 h-5" />}

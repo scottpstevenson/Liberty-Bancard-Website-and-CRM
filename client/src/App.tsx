@@ -704,7 +704,9 @@ function App() {
         <ThemeProvider>
           <TooltipProvider>
             <Toaster />
-            <PublicLayout />
+            <ErrorBoundary>
+              <PublicLayout />
+            </ErrorBoundary>
           </TooltipProvider>
         </ThemeProvider>
       </QueryClientProvider>

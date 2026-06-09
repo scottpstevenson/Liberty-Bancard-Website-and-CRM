@@ -285,7 +285,7 @@ function DetailRow({ row }: { row: UnifiedRow }) {
               <span>{new Date(row.enrichedAt).toLocaleDateString()}</span>
             </div>
           )}
-          {row.tags.length > 0 && (
+          {(row.tags?.length ?? 0) > 0 && (
             <div className="flex items-start gap-2 flex-wrap">
               <Tag className="h-3.5 w-3.5 mt-0.5 shrink-0" />
               {row.tags.map((t, i) => (

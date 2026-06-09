@@ -195,18 +195,18 @@ export default function SocialComposer() {
                           {p.publishedAt && <span className="text-muted-foreground">Pub: {new Date(p.publishedAt).toLocaleDateString()}</span>}
                         </div>
                         <div className="flex gap-1 shrink-0">
-                          <Button size="icon" variant="ghost" onClick={() => copyPost(p)} title="Copy" data-testid={`button-copy-${p.id}`}>
+                          <Button size="icon" variant="ghost" aria-label="Copy post" onClick={() => copyPost(p)} title="Copy" data-testid={`button-copy-${p.id}`}>
                             <Copy className="w-4 h-4" />
                           </Button>
-                          <Button size="icon" variant="ghost" onClick={() => setEditingId(p.id)} data-testid={`button-edit-soc-${p.id}`}>
+                          <Button size="icon" variant="ghost" aria-label="Edit post" onClick={() => setEditingId(p.id)} data-testid={`button-edit-soc-${p.id}`}>
                             <Edit3 className="w-4 h-4" />
                           </Button>
                           {p.status !== "published" && (
-                            <Button size="icon" variant="ghost" onClick={() => publishMutation.mutate(p.id)} title="Mark published" data-testid={`button-pub-${p.id}`}>
+                            <Button size="icon" variant="ghost" aria-label="Mark published" onClick={() => publishMutation.mutate(p.id)} title="Mark published" data-testid={`button-pub-${p.id}`}>
                               <Send className="w-4 h-4" />
                             </Button>
                           )}
-                          <Button size="icon" variant="ghost" onClick={() => { if (confirm("Delete?")) deleteMutation.mutate(p.id); }} className="text-destructive" data-testid={`button-del-${p.id}`}>
+                          <Button size="icon" variant="ghost" aria-label="Delete post" onClick={() => { if (confirm("Delete?")) deleteMutation.mutate(p.id); }} className="text-destructive" data-testid={`button-del-${p.id}`}>
                             <Trash2 className="w-4 h-4" />
                           </Button>
                         </div>

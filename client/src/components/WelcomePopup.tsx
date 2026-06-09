@@ -137,6 +137,7 @@ export function WelcomePopup() {
               size="icon"
               className="h-7 w-7 -mr-2"
               onClick={handleDismiss}
+              aria-label="Close"
               data-testid="button-welcome-close"
             >
               <X className="w-4 h-4" />

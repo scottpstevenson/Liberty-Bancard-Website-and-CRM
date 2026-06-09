@@ -5,3 +5,5 @@
 - [Tasks page crash](tasks-page-crash.md) — ResponsiveTable used as children wrapper (invalid); replaced with overflow-x-auto div.
 - [Dashboard route map](dashboard-route-map.md) — AI advisors are at /dashboard/chat (not /dashboard/ai-advisors); full route list documented.
 - [Sequence control policy](sequence-control-policy.md) — All sequences default to `paused`; storage layer blocks enrollment into non-active sequences at creation time.
+- [Redis BullMQ smoke-test pattern](redis-bullmq-smoketest.md) — probe Redis with ioredis ping before handing ConnectionOptions to BullMQ; WRONGPASS loops forever otherwise; setInterval fallback only triggers on throw.
+- [GHL token ops](ghl-token-ops.md) — GHL Private Integration Token 401 on all endpoints when expired; authTest in ActivationPanel shows N/A; user must regenerate in GHL Settings → Private Integrations.
