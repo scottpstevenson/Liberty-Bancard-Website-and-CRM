@@ -84,7 +84,7 @@ export async function classifyIntent(
         rawPrompt: JSON.stringify(classifyMessages),
       },
       () => openai.chat.completions.create({
-        model: "gpt-4o-mini",
+        model: "gpt-5-mini",
         messages: classifyMessages,
         temperature: 0.1,
         max_tokens: 200,
@@ -312,7 +312,7 @@ export async function executeIntentAction(
       action: action.actionType,
     },
     decisionReason: `Intent: ${classification.intent} (${(classification.confidence * 100).toFixed(0)}%) → Action: ${action.actionType}`,
-    modelVersion: "gpt-4o-mini",
+    modelVersion: "gpt-5-mini",
   });
 
   if (action.actionType === "immediate_suppression") {

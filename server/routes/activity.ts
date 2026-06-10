@@ -319,7 +319,7 @@ Respond in this exact JSON format:
       const { completion: aiResponse, flagged: autoReplyFlagged, reviewQueueId: autoReplyReviewId } = await logAiCall(
         { triggerType: "auto-reply", actorType: (req as any).user?.role || "agent", actorId: (req as any).user?.id?.toString(), rawPrompt: JSON.stringify(autoReplyMessages) },
         () => openai.chat.completions.create({
-          model: "gpt-4o-mini",
+          model: "gpt-5-mini",
           temperature: 0.7,
           messages: autoReplyMessages,
         }));

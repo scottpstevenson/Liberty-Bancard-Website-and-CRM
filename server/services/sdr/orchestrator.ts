@@ -450,7 +450,7 @@ async function personalizeWithAI(template: string, lead: SdrLeadState, channel: 
     const { completion: response, flagged: orchFlagged, reviewQueueId: orchReviewId } = await logAiCall(
       { triggerType: "outbound-copy", actorType: "system", rawPrompt: JSON.stringify(orchMessages) },
       () => openai.chat.completions.create({
-        model: "gpt-4o-mini",
+        model: "gpt-5-mini",
         messages: orchMessages,
         temperature: 0.7,
         max_tokens: channel === "sms" ? 100 : 300,

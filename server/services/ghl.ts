@@ -871,7 +871,7 @@ Message Keywords: ${classification.keywords.join(", ")}`;
 
   try {
     const completion = await getOpenAI().chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-5-mini",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: `${contactContext}\n\nInbound message:\n"${inboundMessage}"\n\nGenerate a ${channel} reply. ${isSms ? "Keep it under 300 characters." : "Include a subject line on the first line prefixed with 'Subject: ' followed by the body."}` }
