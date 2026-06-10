@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { CheckCircle, XCircle, Save, RefreshCw, Workflow, Search, Copy, Download, ChevronDown, ChevronRight, Bot, FileText, Phone, Mic, Mail, MessageSquare, Settings2, Map, Play, Pause, Loader2 } from "lucide-react";
+import { CheckCircle, XCircle, Save, RefreshCw, Workflow, Search, Copy, Download, ChevronDown, ChevronRight, Bot, FileText, Phone, Mic, Mail, MessageSquare, Settings2, Map, Play, Pause, Loader2, AlertTriangle, Zap, ExternalLink, Info } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { jsPDF } from "jspdf";
 import {
@@ -18,6 +18,7 @@ import {
 } from "@/lib/ghl-workflow-prompts";
 
 const ALL_SEQUENCES = [
+  // Core Sales & Education
   { name: "1. Switch & Save — Statement Audit", category: "sales" },
   { name: "2. Payment Stack 101 — Education", category: "education" },
   { name: "3. Fast Approval — Application Completion", category: "onboarding" },
@@ -40,21 +41,62 @@ const ALL_SEQUENCES = [
   { name: "Proposal Follow-Up", category: "sales" },
   { name: "No-Show Reschedule", category: "sales" },
   { name: "Long-Term Nurture", category: "nurture" },
+  // SDR Cold Outbound by Vertical
   { name: "SDR: Cold Outbound — Auto Repair", category: "sdr_cold_outbound" },
   { name: "SDR: Cold Outbound — Med Spa", category: "sdr_cold_outbound" },
   { name: "SDR: Cold Outbound — Dental", category: "sdr_cold_outbound" },
   { name: "SDR: Cold Outbound — Construction", category: "sdr_cold_outbound" },
+  // SDR Reply & Pipeline Handling
   { name: "SDR: Reply Engaged", category: "sdr_reply_engaged" },
   { name: "SDR: Statement Chase", category: "sdr_statement_chase" },
   { name: "SDR: Proposal Follow-Up", category: "sdr_proposal_followup" },
   { name: "SDR: No-Show Recovery", category: "sdr_noshow_recovery" },
+  // Vertical Playbooks — Retail
   { name: "V-Retail: SDR Outbound Prospecting", category: "sdr" },
   { name: "V-Retail: Inbound Lead Nurture", category: "inbound" },
   { name: "V-Retail: Account Management Ops", category: "operations" },
+  // Vertical Playbooks — Auto
   { name: "V-Auto: SDR Outbound Prospecting", category: "sdr" },
   { name: "V-Auto: Inbound Lead Nurture", category: "inbound" },
   { name: "V-Auto: Account Management Ops", category: "operations" },
+  // Vertical Playbooks — Medical
   { name: "V-Medical: SDR Outbound Prospecting", category: "sdr" },
+  // Vertical Playbooks — Med Spa
+  { name: "V-Med Spa: SDR Outbound Prospecting", category: "sdr" },
+  { name: "V-Med Spa: Inbound Lead Nurture", category: "inbound" },
+  { name: "V-Med Spa: Account Management Ops", category: "operations" },
+  // Vertical Playbooks — Dental
+  { name: "V-Dental: SDR Outbound Prospecting", category: "sdr" },
+  { name: "V-Dental: Inbound Lead Nurture", category: "inbound" },
+  { name: "V-Dental: Account Management Ops", category: "operations" },
+  // Vertical Playbooks — Auto Repair
+  { name: "V-Auto Repair: SDR Outbound Prospecting", category: "sdr" },
+  { name: "V-Auto Repair: Inbound Lead Nurture", category: "inbound" },
+  { name: "V-Auto Repair: Account Management Ops", category: "operations" },
+  // Vertical Playbooks — Salon
+  { name: "V-Salon: SDR Outbound Prospecting", category: "sdr" },
+  { name: "V-Salon: Inbound Lead Nurture", category: "inbound" },
+  { name: "V-Salon: Account Management Ops", category: "operations" },
+  // Vertical Playbooks — Gym
+  { name: "V-Gym: SDR Outbound Prospecting", category: "sdr" },
+  { name: "V-Gym: Inbound Lead Nurture", category: "inbound" },
+  { name: "V-Gym: Account Management Ops", category: "operations" },
+  // Vertical Playbooks — Hotel
+  { name: "V-Hotel: SDR Outbound Prospecting", category: "sdr" },
+  { name: "V-Hotel: Inbound Lead Nurture", category: "inbound" },
+  { name: "V-Hotel: Account Management Ops", category: "operations" },
+  // Vertical Playbooks — Landscaping
+  { name: "V-Landscaping: SDR Outbound Prospecting", category: "sdr" },
+  { name: "V-Landscaping: Inbound Lead Nurture", category: "inbound" },
+  { name: "V-Landscaping: Account Management Ops", category: "operations" },
+  // Vertical Playbooks — Construction
+  { name: "V-Construction: SDR Outbound Prospecting", category: "sdr" },
+  { name: "V-Construction: Inbound Lead Nurture", category: "inbound" },
+  { name: "V-Construction: Account Management Ops", category: "operations" },
+  // Vertical Playbooks — Legal
+  { name: "V-Legal: SDR Outbound Prospecting", category: "sdr" },
+  { name: "V-Legal: Inbound Lead Nurture", category: "inbound" },
+  { name: "V-Legal: Account Management Ops", category: "operations" },
 ];
 
 interface WorkflowMapping {
@@ -1414,6 +1456,169 @@ function PromptsDocument() {
   );
 }
 
+const GHL_SETUP_STEPS = [
+  {
+    step: 1,
+    title: "Fix your GHL token",
+    detail: "In GHL → Settings → Private Integrations, regenerate your token. Then set the env var GHL_PRIVATE_INTEGRATION_TOKEN in Replit Secrets and restart the app.",
+    link: "https://app.gohighlevel.com/settings/private-integrations",
+    linkLabel: "GHL Private Integrations",
+    critical: true,
+  },
+  {
+    step: 2,
+    title: "Build workflows in GHL",
+    detail: "In GHL → Automation → Workflows, create one workflow per sequence. Copy the full email/SMS/call/voicemail content from the AI Workflow Prompts tab. Set the trigger to \"Contact Tag Added\" using the sequence's LB-* tag (e.g. LB-SEQ-COLD-AUTO). GHL then handles all delivery — email, SMS, voicemail drops, and AI calls.",
+    link: "https://app.gohighlevel.com/automation/workflows",
+    linkLabel: "GHL Automation",
+    critical: true,
+  },
+  {
+    step: 3,
+    title: "Copy each workflow ID from GHL",
+    detail: "Open a GHL workflow → click the three-dot menu → Settings. The Workflow ID is a long alphanumeric string (e.g. abc1234def5678...). Copy it.",
+    critical: false,
+  },
+  {
+    step: 4,
+    title: "Paste the workflow ID into the fields below",
+    detail: "Find the matching sequence below, paste the GHL Workflow ID, and click Save. Once saved, Replit will enroll contacts directly into that GHL workflow — GHL runs ALL execution from there.",
+    critical: false,
+  },
+  {
+    step: 5,
+    title: "Activate sequences in Replit",
+    detail: "Go to Dashboard → Sequences and unpause the sequences you want running. For full SDR automation, start with: SDR Cold Outbound (by vertical), SDR Reply Engaged, SDR Statement Chase, and SDR No-Show Recovery.",
+    critical: false,
+  },
+];
+
+function GhlSetupGuide({ configuredCount, totalCount }: { configuredCount: number; totalCount: number }) {
+  const [open, setOpen] = useState(configuredCount === 0);
+  const allDone = configuredCount === totalCount;
+
+  return (
+    <Card className={`border-2 ${allDone ? "border-green-400 dark:border-green-700" : "border-amber-400 dark:border-amber-700"}`} data-testid="card-ghl-setup-guide">
+      <div
+        className={`flex items-center justify-between p-4 cursor-pointer rounded-t-lg transition-colors ${allDone ? "bg-green-50 dark:bg-green-900/20" : "bg-amber-50 dark:bg-amber-900/20"}`}
+        onClick={() => setOpen(v => !v)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={e => { if (e.key === "Enter" || e.key === " ") setOpen(v => !v); }}
+        data-testid="button-toggle-setup-guide"
+        aria-expanded={open}
+      >
+        <div className="flex items-center gap-3">
+          {allDone
+            ? <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400 shrink-0" />
+            : <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
+          }
+          <div>
+            <p className={`font-semibold text-sm ${allDone ? "text-green-800 dark:text-green-300" : "text-amber-800 dark:text-amber-300"}`}>
+              {allDone
+                ? "GHL Execution Fully Connected — All sequences wired"
+                : `GHL Execution Not Wired — ${totalCount - configuredCount} of ${totalCount} sequences need a workflow ID`}
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {allDone
+                ? "Replit triggers contacts into GHL. GHL handles all email, SMS, voicemail, and calls."
+                : "Without GHL workflow IDs, sequences fall back to email/SMS only. No voicemail drops or AI calls. Click to see setup steps."}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${allDone ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300" : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"}`}>
+            {configuredCount}/{totalCount} connected
+          </span>
+          {open ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
+        </div>
+      </div>
+
+      {open && (
+        <CardContent className="pt-0 pb-5 px-4 border-t border-border/50">
+          <div className="mt-4 mb-3 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 flex items-start gap-2">
+            <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+            <p className="text-xs text-blue-800 dark:text-blue-300">
+              <span className="font-semibold">Architecture: Replit is the brain, GHL is the hands.</span>{" "}
+              Replit manages contacts, decides when to enroll, syncs data to GHL, and triggers the GHL workflow. GHL then handles all delivery — timed emails, SMS texts, voicemail drops, and AI-powered calls. You only need to build the workflows once in GHL and paste their IDs here.
+            </p>
+          </div>
+
+          <div className="space-y-3 mt-4">
+            {GHL_SETUP_STEPS.map(s => (
+              <div key={s.step} className="flex gap-3" data-testid={`setup-step-${s.step}`}>
+                <div className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${s.critical ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300" : "bg-muted text-muted-foreground"}`}>
+                  {s.step}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-semibold text-foreground">{s.title}</p>
+                    {s.critical && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300 font-semibold uppercase tracking-wide">Required first</span>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{s.detail}</p>
+                  {s.link && (
+                    <a
+                      href={s.link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-1"
+                      data-testid={`link-setup-step-${s.step}`}
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                      {s.linkLabel}
+                    </a>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-5 pt-4 border-t border-border/50">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Priority sequences to wire first</p>
+            <div className="flex flex-wrap gap-1.5">
+              {["SDR: Cold Outbound — Auto Repair", "SDR: Cold Outbound — Med Spa", "SDR: Cold Outbound — Dental", "SDR: Cold Outbound — Construction", "SDR: Reply Engaged", "SDR: Statement Chase", "SDR: Proposal Follow-Up", "SDR: No-Show Recovery", "1. Switch & Save — Statement Audit"].map(name => (
+                <span key={name} className="text-xs bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 rounded-full">{name}</span>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-4 pt-4 border-t border-border/50">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">What GHL executes vs. what Replit manages</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/10 p-3">
+                <p className="text-xs font-semibold text-blue-800 dark:text-blue-300 flex items-center gap-1.5 mb-1.5">
+                  <Zap className="w-3.5 h-3.5" /> Replit manages
+                </p>
+                <ul className="space-y-0.5 text-xs text-blue-700 dark:text-blue-400">
+                  <li>• Contact & lead database</li>
+                  <li>• Sequence enrollment logic</li>
+                  <li>• Lead scoring & intent detection</li>
+                  <li>• Deal pipeline & CRM</li>
+                  <li>• Triggers GHL workflow on enrollment</li>
+                </ul>
+              </div>
+              <div className="rounded-lg border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/10 p-3">
+                <p className="text-xs font-semibold text-green-800 dark:text-green-300 flex items-center gap-1.5 mb-1.5">
+                  <Workflow className="w-3.5 h-3.5" /> GHL executes
+                </p>
+                <ul className="space-y-0.5 text-xs text-green-700 dark:text-green-400">
+                  <li>• Timed email delivery</li>
+                  <li>• SMS text messages</li>
+                  <li>• Voicemail drops</li>
+                  <li>• AI-powered phone calls</li>
+                  <li>• If/then reply branching</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
 export default function GhlWorkflowManager() {
   const { toast } = useToast();
   const [editingIds, setEditingIds] = useState<Record<string, string>>({});
@@ -1501,24 +1706,34 @@ export default function GhlWorkflowManager() {
         </TabsList>
 
         <TabsContent value="id-manager" className="space-y-4 mt-4">
+          <GhlSetupGuide configuredCount={configuredCount} totalCount={ALL_SEQUENCES.length} />
+
           <div className="flex items-center justify-between flex-wrap gap-3">
             <Card className="flex-1" data-testid="card-ghl-workflow-summary">
               <CardContent className="p-4">
                 <div className="flex items-center gap-6 flex-wrap">
                   <div className="flex items-center gap-2">
                     <CheckCircle className="w-4 h-4 text-green-500" />
-                    <span className="text-sm"><span className="font-semibold">{configuredCount}</span> sequences connected to GHL</span>
+                    <span className="text-sm"><span className="font-semibold">{configuredCount}</span> of <span className="font-semibold">{ALL_SEQUENCES.length}</span> sequences connected to GHL</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <XCircle className="w-4 h-4 text-red-400" />
-                    <span className="text-sm"><span className="font-semibold">{ALL_SEQUENCES.length - configuredCount}</span> sequences need a workflow ID</span>
+                    <XCircle className="w-4 h-4 text-amber-400" />
+                    <span className="text-sm"><span className="font-semibold">{ALL_SEQUENCES.length - configuredCount}</span> need a GHL workflow ID</span>
                   </div>
                 </div>
-                {configuredCount < ALL_SEQUENCES.length && (
-                  <p className="text-xs text-muted-foreground mt-2">
-                    Sequences without a GHL workflow ID will not enroll contacts in GHL. Copy the workflow ID from GHL → Automation → Workflows → [workflow] → Settings.
-                  </p>
-                )}
+                <div className="mt-2 h-2 w-full rounded-full bg-muted overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-green-500 transition-all"
+                    style={{ width: `${Math.round((configuredCount / ALL_SEQUENCES.length) * 100)}%` }}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {configuredCount === 0
+                    ? "No sequences are wired to GHL yet. Follow the setup guide above."
+                    : configuredCount < ALL_SEQUENCES.length
+                    ? "Sequences without a GHL workflow ID fall back to Replit direct sends (email/SMS only — no voicemail or calls)."
+                    : "All sequences are connected. GHL handles all email, SMS, voicemail, and call execution."}
+                </p>
               </CardContent>
             </Card>
             <Button variant="outline" size="sm" onClick={() => queryClient.invalidateQueries({ queryKey: ["/api/ghl/workflow-mappings"] })} data-testid="button-refresh-mappings">

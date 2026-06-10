@@ -189,7 +189,18 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
 
         const serviceType = contact?.vertical || industry;
         const estimatedVolume = contact?.monthlyVolume || monthlyVolume;
-        const agentName = "Liberty Bancard";
+        let agentName = "Liberty Bancard";
+        if (contact?.agentId) {
+          try {
+            const assignedAgent = await storage.getAgent(contact.agentId);
+            if (assignedAgent) {
+              const fullName = [assignedAgent.firstName, assignedAgent.lastName].filter(Boolean).join(" ");
+              if (fullName) agentName = fullName;
+            }
+          } catch {
+            // fallback to default
+          }
+        }
 
         const interpolate = (text: string | null | undefined): string => {
           if (!text) return "";
