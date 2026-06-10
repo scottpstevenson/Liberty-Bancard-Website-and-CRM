@@ -19,6 +19,7 @@ export const INTENT_LABELS = [
   "angry",
   "booked",
   "sent_statement",
+  "unclear",
 ] as const;
 
 export type IntentLabel = typeof INTENT_LABELS[number];
@@ -45,12 +46,13 @@ const INTENT_SYSTEM_PROMPT = `You are a reply classifier for a merchant services
 - call_me: Merchant requests a phone call or callback
 - later: Merchant says not now but maybe later, or asks to follow up in the future
 - not_interested: Merchant politely declines or says they're not interested
-- already_have_provider: Merchant says they already have a processor/provider they're happy with
+- already_have_provider: Merchant says they already have a processor/provider they're happy with (Square, Stripe, Clover, Toast, Heartland, First Data, Worldpay, NMI, Chase, their bank, etc.) or are locked into a contract
 - wrong_person: Merchant says they're not the right contact or don't handle payments
-- stop: Merchant explicitly asks to stop messages, unsubscribe, or be removed
-- angry: Merchant is hostile, threatens legal action, or is aggressive
+- stop: Merchant explicitly asks to stop messages, unsubscribe, or be removed from contact list
+- angry: Merchant is hostile, threatens legal action, uses aggressive language, or calls this harassment/spam
 - booked: Merchant confirms they've booked or will attend a meeting
 - sent_statement: Merchant says they've sent or will send their processing statement
+- unclear: Auto-reply, out-of-office, unrelated content, foreign language, blank or garbled text, or truly ambiguous — cannot be reliably classified
 
 Respond with JSON only: {"intent": "<label>", "confidence": <0.0-1.0>, "reasoning": "<brief explanation>"}`;
 
@@ -134,10 +136,10 @@ function buildClassificationPrompt(messageText: string, context: IntentContext):
 function ruleBasedClassify(text: string): IntentClassification {
   const lower = text.toLowerCase().trim();
 
-  if (/\b(stop|unsubscribe|remove|opt.?out|do not (contact|text|call|email))\b/.test(lower)) {
+  if (/\b(stop|unsubscribe|opt.?out|do not (contact|text|call|email)|take me off|remove me from|remove my (name|number|email)|don.?t (contact|text|call|email) me( again)?|never (contact|email|text|call)|leave me alone)\b/.test(lower)) {
     return { intent: "stop", confidence: 0.95, reasoning: "Explicit opt-out keyword detected" };
   }
-  if (/\b(fuck|shit|sue|lawyer|attorney|legal action|report|harass|spam)\b/.test(lower)) {
+  if (/\b(fuck|shit|sue|lawyer|attorney|legal action|cease and desist|i.?ll report|report (you|this)|harassment|this is harassment|you.?re (spamming|harassing)|ftc|bbb complaint|threatening)\b/.test(lower)) {
     return { intent: "angry", confidence: 0.9, reasoning: "Hostile or threatening language detected" };
   }
   if (/\b(call me|give me a call|phone call|can you call|ring me|callback)\b/.test(lower)) {
@@ -164,7 +166,7 @@ function ruleBasedClassify(text: string): IntentClassification {
   if (/\b(not now|maybe later|check back|follow up (later|next)|in a (few|couple)|busy right now|not a good time)\b/.test(lower)) {
     return { intent: "later", confidence: 0.75, reasoning: "Deferral language detected" };
   }
-  if (/\b(already have|happy with|use (square|stripe|clover|toast)|current (provider|processor)|no need|all set)\b/.test(lower)) {
+  if (/\b(already have|happy with|use (square|stripe|clover|toast|heartland|worldpay|first data|nmi|chase|paypal|payfac|bank of america|wells fargo|elavon|tsys)|current (provider|processor|system)|locked (in|into) (a )?contract|under contract|no need|all set|we.?re (good|set|fine)|got (someone|a company|a processor|a provider)|already (processing|using|working with))\b/.test(lower)) {
     return { intent: "already_have_provider", confidence: 0.8, reasoning: "Existing provider mention" };
   }
   if (/\b(wrong (person|number|contact)|don('t| not) handle|not (my|the) (department|area)|not responsible)\b/.test(lower)) {
@@ -174,7 +176,11 @@ function ruleBasedClassify(text: string): IntentClassification {
     return { intent: "not_interested", confidence: 0.8, reasoning: "Decline language detected" };
   }
 
-  return { intent: "interested", confidence: 0.3, reasoning: "No clear pattern matched, defaulting to interested with low confidence" };
+  if (/out of office|on vacation|auto.?reply|automatic reply|i am away|i('m| am) currently (out|unavailable|away)|will (return|be back)/i.test(lower)) {
+    return { intent: "unclear", confidence: 0.9, reasoning: "Auto-reply or out-of-office message detected" };
+  }
+
+  return { intent: "unclear", confidence: 0.3, reasoning: "No clear pattern matched — flagged for human review" };
 }
 
 export interface IntentAction {
@@ -284,6 +290,12 @@ export function mapIntentToAction(intent: IntentLabel, currentStage?: string): I
         sendResponse: true,
         responseTemplate: "statement_received_acknowledgment",
       };
+    case "unclear":
+      return {
+        actionType: "human_review",
+        flagForHumanReview: true,
+        sendResponse: false,
+      };
     default:
       return {
         actionType: "no_action",
@@ -339,6 +351,31 @@ export async function executeIntentAction(
           updatedAt: new Date(),
         }).where(eq(sdrLeadState.merchantId, merchantId));
       }
+    }
+    return;
+  }
+
+  if (action.actionType === "human_review") {
+    await db.insert(sdrLeadEvents).values({
+      merchantId,
+      eventType: "human_review_flagged",
+      channel,
+      actorType: "system",
+      payloadJson: {
+        reason: `Unclassifiable reply — confidence: ${(classification.confidence * 100).toFixed(0)}%`,
+        originalIntent: classification.intent,
+        reasoning: classification.reasoning,
+      },
+      decisionReason: "Unclear intent — flagged for human review, no automated action taken",
+    });
+
+    if (state) {
+      await db.update(sdrLeadState).set({
+        ownerType: "human",
+        nextAction: "human_review_unclear_reply",
+        nextActionType: "human_review",
+        updatedAt: new Date(),
+      }).where(eq(sdrLeadState.merchantId, merchantId));
     }
     return;
   }

@@ -32,27 +32,47 @@ export interface FullScoreResult {
   };
 }
 
-const VERTICAL_FIT: Record<string, number> = {
-  "Restaurant": 25,
-  "Food/Beverage": 22,
-  "Retail": 20,
-  "Salon/Spa": 22,
-  "Healthcare": 24,
-  "Medical/Dental/Medspa": 24,
-  "Auto": 18,
-  "Automotive": 18,
-  "Fitness/Recreation": 16,
-  "Construction": 12,
-  "Professional Services": 14,
-  "Legal": 14,
-  "Accounting": 12,
-  "Real Estate": 10,
-  "Hospitality": 20,
-  "Cleaning Services": 14,
-  "Technology": 8,
-  "Education": 10,
-  "Other": 10,
+const VERTICAL_FIT_RAW: Record<string, number> = {
+  "restaurant": 25,
+  "food/beverage": 22,
+  "food & beverage": 22,
+  "food and beverage": 22,
+  "retail": 20,
+  "salon/spa": 22,
+  "salon & spa": 22,
+  "salon": 22,
+  "spa": 22,
+  "healthcare": 24,
+  "medical/dental/medspa": 24,
+  "medical": 24,
+  "dental": 24,
+  "medspa": 24,
+  "med spa": 24,
+  "auto": 18,
+  "automotive": 18,
+  "auto repair": 18,
+  "fitness/recreation": 16,
+  "fitness": 16,
+  "gym": 16,
+  "construction": 12,
+  "professional services": 14,
+  "legal": 14,
+  "accounting": 12,
+  "real estate": 10,
+  "hospitality": 20,
+  "hotel": 20,
+  "cleaning services": 14,
+  "landscaping": 13,
+  "technology": 8,
+  "education": 10,
+  "other": 10,
 };
+
+function getVerticalFitScore(vertical: string | null | undefined): number {
+  if (!vertical) return 10;
+  const key = vertical.toLowerCase().trim();
+  return VERTICAL_FIT_RAW[key] ?? 10;
+}
 
 const WEBSITE_QUALITY_SCORES: Record<string, number> = {
   "excellent": 20,
@@ -263,7 +283,7 @@ export function scoreFit(lead: SdrLeadState): ScoreResult {
   const factors: Record<string, number> = {};
   let score = 0;
 
-  const verticalScore = VERTICAL_FIT[lead.vertical || "Other"] || 10;
+  const verticalScore = getVerticalFitScore(lead.vertical);
   factors.vertical = verticalScore;
   score += verticalScore;
 
@@ -406,14 +426,14 @@ export function scoreProcessor(processorData: { vendors: string[]; hasProcessor:
       score += switchScore;
 
       if (switchable.includes("Square")) {
-        factors.squareDetected = 20;
-        score += 20;
+        factors.squareBonus = 10;
+        score += 10;
       } else if (switchable.includes("Stripe")) {
-        factors.stripeDetected = 15;
-        score += 15;
+        factors.stripeBonus = 5;
+        score += 5;
       } else if (switchable.includes("Toast")) {
-        factors.toastDetected = 15;
-        score += 15;
+        factors.toastBonus = 5;
+        score += 5;
       }
     }
 
