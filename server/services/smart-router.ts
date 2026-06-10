@@ -20,21 +20,31 @@ interface RoutingRule {
 }
 
 const ROUTING_RULES: RoutingRule[] = [
-  { verticals: ["Restaurant"], minScore: 50, maxScore: 100, painKeywords: [], sequenceKeywords: ["restaurant", "rest"], volumeMin: undefined, priority: 10 },
-  { verticals: ["Retail"], minScore: 50, maxScore: 100, painKeywords: [], sequenceKeywords: ["retail", "rtl"], volumeMin: undefined, priority: 10 },
-  { verticals: ["Automotive", "Auto", "Auto Repair"], minScore: 50, maxScore: 100, painKeywords: [], sequenceKeywords: ["auto", "automotive", "fl auto", "auto repair"], volumeMin: undefined, priority: 10 },
-  { verticals: ["Salon/Spa", "Med Spa", "Medspa", "Aesthetic", "Medical Spa"], minScore: 50, maxScore: 100, painKeywords: [], sequenceKeywords: ["med spa", "medspa", "fl med spa", "spa", "aesthetic"], volumeMin: undefined, priority: 11 },
-  { verticals: ["Medical/Dental/Medspa", "Healthcare", "Medical", "Dental", "Dentist", "Chiropractic"], minScore: 50, maxScore: 100, painKeywords: [], sequenceKeywords: ["medical", "healthcare", "fl medical", "dental", "chiropractic", "optometry"], volumeMin: undefined, priority: 12 },
+  // ── Vertical-specific rules (prefer V-series sequences) ──────────────────
+  { verticals: ["Restaurant", "Food/Beverage", "Food & Beverage"], minScore: 50, maxScore: 100, painKeywords: [], sequenceKeywords: ["restaurant", "retail merchants", "switch & save"], volumeMin: undefined, priority: 10 },
+  { verticals: ["Retail"], minScore: 50, maxScore: 100, painKeywords: [], sequenceKeywords: ["v-retail", "retail"], volumeMin: undefined, priority: 10 },
+  { verticals: ["Automotive", "Auto", "Auto Repair"], minScore: 50, maxScore: 100, painKeywords: [], sequenceKeywords: ["v-auto repair", "v-auto", "auto repair", "auto merchants"], volumeMin: undefined, priority: 10 },
+  { verticals: ["Salon/Spa", "Salon", "Spa"], minScore: 50, maxScore: 100, painKeywords: [], sequenceKeywords: ["v-salon", "salon"], volumeMin: undefined, priority: 11 },
+  { verticals: ["Med Spa", "Medspa", "Medical Spa", "Aesthetic"], minScore: 50, maxScore: 100, painKeywords: [], sequenceKeywords: ["v-med spa", "med spa"], volumeMin: undefined, priority: 12 },
+  { verticals: ["Medical/Dental/Medspa", "Healthcare", "Medical"], minScore: 50, maxScore: 100, painKeywords: [], sequenceKeywords: ["v-medical", "medical"], volumeMin: undefined, priority: 12 },
+  { verticals: ["Dental", "Dentist", "Chiropractic"], minScore: 50, maxScore: 100, painKeywords: [], sequenceKeywords: ["v-dental", "dental"], volumeMin: undefined, priority: 12 },
+  { verticals: ["Gym", "Fitness", "Fitness/Recreation"], minScore: 50, maxScore: 100, painKeywords: [], sequenceKeywords: ["v-gym", "gym"], volumeMin: undefined, priority: 10 },
+  { verticals: ["Hotel", "Hospitality"], minScore: 50, maxScore: 100, painKeywords: [], sequenceKeywords: ["v-hotel", "hotel"], volumeMin: undefined, priority: 10 },
+  { verticals: ["Landscaping", "Cleaning Services"], minScore: 50, maxScore: 100, painKeywords: [], sequenceKeywords: ["v-landscaping", "landscaping"], volumeMin: undefined, priority: 10 },
+  { verticals: ["Construction", "Contractor"], minScore: 50, maxScore: 100, painKeywords: [], sequenceKeywords: ["v-construction", "construction"], volumeMin: undefined, priority: 10 },
+  { verticals: ["Legal", "Professional Services", "Accounting"], minScore: 50, maxScore: 100, painKeywords: [], sequenceKeywords: ["v-legal", "legal"], volumeMin: undefined, priority: 10 },
 
+  // ── Pain-point rules (cross-vertical, score-gated) ───────────────────────
   { verticals: [], minScore: 70, maxScore: 100, painKeywords: ["high_rates", "rate_increase", "rates_too_high"], sequenceKeywords: ["switch", "save", "rate"], volumeMin: undefined, priority: 8 },
   { verticals: [], minScore: 70, maxScore: 100, painKeywords: ["chargeback", "dispute"], sequenceKeywords: ["chargeback", "defense"], volumeMin: undefined, priority: 8 },
   { verticals: [], minScore: 70, maxScore: 100, painKeywords: ["slow_funding"], sequenceKeywords: ["funding", "speed"], volumeMin: undefined, priority: 8 },
   { verticals: [], minScore: 45, maxScore: 100, painKeywords: ["technology", "terminal", "equipment"], sequenceKeywords: ["terminal", "pos", "smart"], volumeMin: undefined, priority: 7 },
 
+  // ── Score-bucket fallbacks ────────────────────────────────────────────────
   { verticals: [], minScore: 70, maxScore: 100, painKeywords: [], sequenceKeywords: ["fast approval", "quick"], volumeMin: undefined, priority: 5 },
   { verticals: [], minScore: 45, maxScore: 69, painKeywords: [], sequenceKeywords: ["trust", "trust builder", "payment stack"], volumeMin: undefined, priority: 5 },
   { verticals: [], minScore: 20, maxScore: 44, painKeywords: [], sequenceKeywords: ["reactivation", "nurture"], volumeMin: undefined, priority: 3 },
-  { verticals: [], minScore: 0, maxScore: 19, painKeywords: [], sequenceKeywords: ["referral"], volumeMin: undefined, priority: 1 },
+  { verticals: [], minScore: 0, maxScore: 19, painKeywords: [], sequenceKeywords: ["referral", "nurture"], volumeMin: undefined, priority: 1 },
 ];
 
 function checkCompliance(contact: Contact): { allowed: boolean; reason?: string; channelsAllowed: string[] } {

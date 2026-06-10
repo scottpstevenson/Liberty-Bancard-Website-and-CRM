@@ -61,6 +61,8 @@ const ALL_SEQUENCES = [
   { name: "V-Auto: Account Management Ops", category: "operations" },
   // Vertical Playbooks — Medical
   { name: "V-Medical: SDR Outbound Prospecting", category: "sdr" },
+  { name: "V-Medical: Inbound Lead Nurture", category: "inbound" },
+  { name: "V-Medical: Account Management Ops", category: "operations" },
   // Vertical Playbooks — Med Spa
   { name: "V-Med Spa: SDR Outbound Prospecting", category: "sdr" },
   { name: "V-Med Spa: Inbound Lead Nurture", category: "inbound" },

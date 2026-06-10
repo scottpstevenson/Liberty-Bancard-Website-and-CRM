@@ -407,20 +407,32 @@ function normalizeVerticalKey(vertical: string | null | undefined): string {
 }
 
 const VERTICAL_SEQUENCE_MAP: Record<string, string> = {
-  "Auto":                   "SDR: Cold Outbound — Auto Repair",
-  "Salon/Spa":              "SDR: Cold Outbound — Med Spa",
-  "Healthcare":             "SDR: Cold Outbound — Dental",
-  "Medical/Dental/Medspa":  "SDR: Cold Outbound — Dental",
+  "Auto":                   "V-Auto Repair: SDR Outbound Prospecting",
+  "Automotive":             "V-Auto Repair: SDR Outbound Prospecting",
+  "Auto Repair":            "V-Auto Repair: SDR Outbound Prospecting",
+  "Salon/Spa":              "V-Salon: SDR Outbound Prospecting",
   "Salon":                  "V-Salon: SDR Outbound Prospecting",
+  "Healthcare":             "V-Medical: SDR Outbound Prospecting",
+  "Medical/Dental/Medspa":  "V-Medical: SDR Outbound Prospecting",
+  "Medical":                "V-Medical: SDR Outbound Prospecting",
+  "Dental":                 "V-Dental: SDR Outbound Prospecting",
+  "Dentist":                "V-Dental: SDR Outbound Prospecting",
+  "Med Spa":                "V-Med Spa: SDR Outbound Prospecting",
+  "Medspa":                 "V-Med Spa: SDR Outbound Prospecting",
+  "Retail":                 "V-Retail: SDR Outbound Prospecting",
   "Gym":                    "V-Gym: SDR Outbound Prospecting",
+  "Fitness/Recreation":     "V-Gym: SDR Outbound Prospecting",
+  "Fitness":                "V-Gym: SDR Outbound Prospecting",
   "Hotel":                  "V-Hotel: SDR Outbound Prospecting",
+  "Hospitality":            "V-Hotel: SDR Outbound Prospecting",
   "Landscaping":            "V-Landscaping: SDR Outbound Prospecting",
   "Construction":           "V-Construction: SDR Outbound Prospecting",
   "Legal":                  "V-Legal: SDR Outbound Prospecting",
+  "Professional Services":  "V-Legal: SDR Outbound Prospecting",
 };
 
 function resolveVerticalSequenceName(verticalKey: string, rawVertical: string | null | undefined): string {
-  return VERTICAL_SEQUENCE_MAP[verticalKey] || `SDR: Cold Outbound — ${rawVertical || "General"}`;
+  return VERTICAL_SEQUENCE_MAP[verticalKey] || "1. Switch & Save — Statement Audit";
 }
 
 function personalizeTemplate(template: string, lead: SdrLeadState): string {
@@ -436,7 +448,7 @@ function personalizeTemplate(template: string, lead: SdrLeadState): string {
     .replace(/\{\{city\}\}/g, lead.city || "your area")
     .replace(/\{\{service_type\}\}/g, serviceType)
     .replace(/\{\{estimated_volume\}\}/g, estimatedVolume)
-    .replace(/\{\{agent_name\}\}/g, "Liberty Bancard")
+    .replace(/\{\{agent_name\}\}/g, (lead as any)._resolvedAgentName || "Liberty Bancard")
     .replace(/\{\{link\}\}/g, "https://calendly.com/libertybancard");
 }
 
