@@ -1,0 +1,912 @@
+Yes. Here is the feedback rewritten in a Replit-friendly implementation format you can paste into Replit, use as task comments, or give to Replit Agent.
+
+⸻
+
+Liberty Bancard Replit Feedback / Implementation Review
+
+Project Identity Clarification
+
+This application should be treated as the internal AI operating system for Liberty Bancard, a merchant services sales and management company.
+
+It is not a payment processor.
+
+It is not a virtual terminal.
+
+It should not store card numbers, run transactions, batch payments, issue refunds, or function like Square, Stripe, Clover, NMI, Authorize.net, or a gateway terminal.
+
+The app’s purpose is to help Liberty Bancard:
+
+* Generate merchant leads
+* Run AI-assisted SDR outreach
+* Qualify businesses
+* Collect merchant statements
+* Analyze pricing
+* Generate proposals
+* Manage the sales pipeline
+* Onboard approved merchants
+* Manage documents and support
+* Track residuals
+* Recruit partners and ISOs
+* Retain merchants after onboarding
+
+The core business goal is to become a scalable merchant services company that can compete against Square and Stripe on pricing, service, free terminal incentives, and hands-on onboarding.
+
+⸻
+
+High-Level Product Feedback
+
+The platform already has a strong foundation. The public website, CRM, AI enrichment, proposal engine, onboarding foundation, partner portal, GHL sync, and operator dashboard are mostly in place.
+
+The next stage should focus less on adding new broad features and more on closing the operational gaps that prevent the system from scaling.
+
+The most important Replit focus areas are:
+
+1. Fix all conversion paths so leads can actually book, upload statements, and enter the CRM correctly.
+2. Complete the autonomous AI SDR orchestration loop.
+3. Clean up GHL sync integrity, especially missing ghlContactId records.
+4. Add compliance controls around outreach.
+5. Improve onboarding operations so merchants can be boarded without manual chaos.
+6. Add partner/agent monetization tools so Liberty can scale through referral partners and ISOs.
+
+⸻
+
+P0 Critical Tasks
+
+P0-1: Wire Real Calendar Booking to All CTAs
+
+Problem
+
+Several CTAs imply that a merchant can book a call, but the actual calendar link or booking workflow is not consistently wired.
+
+This creates a major conversion leak.
+
+Goal
+
+Every CTA that promises a call, consultation, or free analysis should lead to a working conversion path.
+
+Required Work
+
+Audit all public-facing CTAs, including:
+
+* Homepage
+* Pricing page
+* Savings calculator
+* Rate comparison pages
+* Statement upload pages
+* Industry landing pages
+* City landing pages
+* Terminal shop
+* Partner pages
+* Blog CTAs
+* Header navigation
+* Footer CTAs
+* Proposal viewer
+* Merchant portal prompts
+
+Standardize CTA behavior.
+
+Primary CTA should be:
+
+“Get My Free Analysis”
+
+Secondary CTA can be:
+
+“Book a Call”
+
+Acceptance Criteria
+
+* Every “Book a Call” button opens a valid GHL calendar link or embedded scheduling flow.
+* Every “Get My Free Analysis” CTA routes to the statement upload or lead capture funnel.
+* CTA clicks are tracked with source, page, UTM, vertical, and CTA label.
+* After booking, the contact is created or updated in the CRM.
+* If possible, the deal stage updates to Call Booked.
+* No dead CTA links remain.
+
+⸻
+
+P0-2: Complete AI SDR Bot v2 Orchestration
+
+Problem
+
+Lead discovery, enrichment, scoring, and some sequence infrastructure exist, but the full autonomous SDR loop is not complete.
+
+The app needs a reliable automation loop that can decide what to do next after each lead event.
+
+Goal
+
+Build the AI SDR system so it can safely move leads from discovery to outreach to qualification to statement upload or booking.
+
+Required Sequence
+
+The SDR system should support this lifecycle:
+
+1. New lead discovered
+2. Lead deduped
+3. Lead enriched
+4. Lead scored
+5. Vertical assigned
+6. Outreach sequence selected
+7. GHL workflow triggered
+8. Reply received
+9. AI classifies reply intent
+10. System decides next action
+11. Lead is routed to booking, statement upload, objection handling, DNC, or human review
+12. CRM stage updates automatically
+13. Activity log records every action
+
+Required Intent Categories
+
+AI reply classification should include:
+
+* Interested
+* Wants pricing
+* Wants statement review
+* Wants call
+* Objection
+* Already has processor
+* Uses Square
+* Uses Stripe
+* Uses Toast/Clover/other POS
+* Not interested
+* Do not contact
+* Wrong contact
+* Needs follow-up later
+* Human review required
+
+Acceptance Criteria
+
+* Leads can enter a sequence automatically based on vertical and score.
+* Replies are classified and stored.
+* DNC and opt-out replies stop all outreach.
+* Booking intent sends a calendar link.
+* Statement intent sends a statement upload link.
+* Objections trigger the correct follow-up workflow.
+* Low-confidence AI decisions are routed to a human.
+* Every automated action is logged.
+* Operator dashboard shows stuck leads, failed actions, and low-confidence replies.
+
+⸻
+
+P0-3: Add Compliance and DNC Protection Layer
+
+Problem
+
+Scaling outbound email, SMS, and voice outreach creates legal and reputational risk if opt-outs, DNC, TCPA rules, and quiet hours are not enforced.
+
+Goal
+
+Add a central compliance guard before any outbound action is executed.
+
+Required Work
+
+Create a compliance check that runs before:
+
+* Email send
+* SMS send
+* Call trigger
+* Voicemail drop
+* GHL workflow enrollment
+* Re-enrichment outreach
+* Re-engagement sequence
+
+Compliance Rules Needed
+
+* Global DNC list
+* Contact-level opt-out
+* Company-level opt-out
+* SMS opt-out
+* Email unsubscribe
+* Call suppression
+* Timezone-aware quiet hours
+* Suppression by source
+* Manual admin suppression
+* Audit log of opt-out source
+* Stop-word detection for SMS replies
+* Bounce and complaint suppression
+
+Acceptance Criteria
+
+* No sequence can send to a suppressed contact.
+* DNC status blocks GHL workflow enrollment.
+* SMS STOP-style replies update suppression automatically.
+* Admins can manually suppress a contact or company.
+* Suppression status is visible on contact records.
+* All suppression events are logged.
+
+⸻
+
+P0-4: Backfill Missing GHL Contact IDs
+
+Problem
+
+Contacts created before the GHL sync fix may not have a ghlContactId.
+
+Those contacts may not be eligible for GHL workflows, SMS, calls, calendar automations, or activity sync.
+
+Goal
+
+Create a safe backfill process to match existing Liberty contacts with GHL contacts and store the correct ghlContactId.
+
+Required Work
+
+Build a script or admin action that:
+
+1. Finds contacts with missing ghlContactId
+2. Searches GHL by email, phone, and normalized company name
+3. Matches contacts safely
+4. Stores the GHL contact ID
+5. Logs uncertain matches
+6. Avoids duplicate creation unless no match exists
+7. Produces a backfill summary
+
+Acceptance Criteria
+
+* All contacts with valid email or phone are checked.
+* Exact matches are auto-linked.
+* Ambiguous matches are sent to review.
+* Failed matches are logged.
+* Duplicate contacts are not created unnecessarily.
+* Admin can view summary: matched, unmatched, skipped, failed, ambiguous.
+* Existing GHL workflows can now reach previously orphaned contacts.
+
+⸻
+
+P0-5: Fix Remaining Dead Links and Broken Upload Paths
+
+Problem
+
+Any broken link in the sales funnel damages trust and loses leads.
+
+Goal
+
+Ensure every public and dashboard route used for lead conversion works correctly.
+
+Required Work
+
+Audit:
+
+* Navbar links
+* Footer links
+* Statement upload links
+* Proposal links
+* CTA buttons
+* Terminal shop links
+* Sales tools links
+* Partner links
+* Calendar links
+* Dashboard sidebar links
+* Merchant portal links
+* Public SEO landing page CTAs
+
+Acceptance Criteria
+
+* No 404s from primary navigation.
+* Upload statement CTAs work from every public page.
+* Proposal token links work.
+* Partner application links work.
+* Calendar links work.
+* Dead links are logged and fixed.
+* Add a route smoke test if possible.
+
+⸻
+
+P1 High-Priority Tasks
+
+P1-1: Improve Statement Upload to Proposal Flow
+
+Problem
+
+The statement analysis engine is a core revenue feature. It needs to be extremely reliable and easy to use.
+
+Goal
+
+Make the statement upload process fast, clear, and sales-ready.
+
+Required UX
+
+Merchant should be able to:
+
+1. Click “Get My Free Analysis”
+2. Upload a statement
+3. Enter basic business/contact info
+4. Receive confirmation
+5. Get routed into CRM
+6. Trigger AI analysis
+7. Notify the assigned rep
+8. Generate proposal draft
+
+Acceptance Criteria
+
+* Upload supports PDF and common image formats.
+* Merchant receives success confirmation.
+* Contact and deal are created or updated.
+* Uploaded statement is attached to the merchant/deal.
+* AI analysis status is visible to reps.
+* Failed extraction shows a useful fallback state.
+* Rep can override vertical and pricing assumptions.
+* Proposal can be generated and sent from the dashboard.
+
+⸻
+
+P1-2: Strengthen Merchant Onboarding Workflow
+
+Problem
+
+The onboarding flow exists, but to support thousands of merchants it needs stronger operational visibility.
+
+Goal
+
+Make onboarding trackable, checklist-driven, and easy for both reps and merchants.
+
+Required Work
+
+Improve onboarding with:
+
+* Required document checklist
+* Missing document reminders
+* Boarding status timeline
+* Internal review status
+* Processor submission status
+* Equipment deployment status
+* Merchant-facing onboarding tracker
+* Rep-facing onboarding dashboard
+
+Acceptance Criteria
+
+* Each merchant has a clear onboarding status.
+* Missing items are visible.
+* Merchant can upload required documents.
+* Reps can see what is blocking approval.
+* Boarding events are logged.
+* Merchant receives status updates.
+* Closed-won deals automatically create onboarding records.
+
+⸻
+
+P1-3: Add Document Vault Permissions and Bulk Download
+
+Problem
+
+The document vault is useful, but it needs stronger permissions and bulk operations.
+
+Goal
+
+Make document management safe and operationally efficient.
+
+Required Work
+
+Add:
+
+* Rep ownership permissions
+* Admin access override
+* Partner access restrictions
+* Merchant access restrictions
+* Document category permissions
+* Bulk ZIP download
+* Document status labels
+* Missing document indicators
+
+Acceptance Criteria
+
+* Reps only see documents for merchants they are allowed to access.
+* Admins can access all documents.
+* Partners only see referred merchant documents if permitted.
+* Merchants only see their own approved documents.
+* Internal users can download all documents for a merchant as a ZIP.
+* All document access is logged.
+
+⸻
+
+P1-4: Build Agent Agreement and Earnings Calculator
+
+Problem
+
+The partner portal exists, but agent recruitment needs a stronger conversion and onboarding tool.
+
+Goal
+
+Allow agents, ISOs, and referral partners to understand earnings potential and complete onboarding.
+
+Required Work
+
+Build:
+
+* Agent earnings calculator
+* Residual split calculator
+* Commission tier explanation
+* Agent agreement generation
+* E-signature flow
+* Agent onboarding checklist
+* Partner document vault
+* Admin approval workflow
+
+Acceptance Criteria
+
+* Prospective agents can estimate earnings.
+* Approved agents can sign agreements.
+* Admin can assign commission tiers.
+* Partner portal shows agreed terms.
+* Signed agreement is stored.
+* Agent status updates after approval.
+
+⸻
+
+P1-5: Add Commission and Residual Automation
+
+Problem
+
+Residual tracking exists, but agent commissions appear to be too manual for scale.
+
+Goal
+
+Automate agent residual calculation and reporting.
+
+Required Work
+
+Add:
+
+* Merchant-to-agent mapping
+* Commission rules
+* Residual split logic
+* Monthly payout calculation
+* Adjustments
+* Chargeback offsets
+* Export for accounting
+* Partner dashboard visibility
+
+Acceptance Criteria
+
+* Admin can assign a merchant to an agent.
+* System calculates monthly commission based on rules.
+* Partner can view estimated earnings.
+* Admin can approve or adjust payouts.
+* Export is available for accounting.
+* Commission history is stored.
+
+⸻
+
+P2 Growth and Scale Tasks
+
+P2-1: Add Multi-Location and Franchise Support
+
+Problem
+
+Many high-value merchants operate multiple locations. The current model should support parent-child account structures.
+
+Required Work
+
+Add:
+
+* Parent merchant account
+* Child locations
+* Multiple MIDs per merchant group
+* Location-specific documents
+* Location-specific processing stats
+* Group-level proposal
+* Group-level reporting
+* Franchise ownership view
+
+Acceptance Criteria
+
+* One parent company can have multiple merchant locations.
+* Each location can have its own MID.
+* Documents can be tied to parent or location.
+* Reporting can show location-level and group-level performance.
+* CRM can manage multi-location opportunities.
+
+⸻
+
+P2-2: Add Merchant Self-Service Rate Review
+
+Problem
+
+Existing merchants should be able to request help, upload new statements, or ask for a rate review without manually contacting a rep.
+
+Required Work
+
+Add portal action:
+
+“Request Rate Review”
+
+Flow:
+
+1. Merchant clicks request
+2. Merchant uploads recent statement
+3. AI compares current pricing
+4. Internal task is created
+5. Rep reviews and responds
+6. Merchant receives follow-up
+
+Acceptance Criteria
+
+* Merchant can request review from portal.
+* Request creates CRM task.
+* Statement is stored.
+* AI analysis runs.
+* Rep can generate retention proposal.
+* Activity is logged.
+
+⸻
+
+P2-3: Add Merchant Referral Program
+
+Problem
+
+Happy merchants should become a source of new leads.
+
+Required Work
+
+Add:
+
+* Merchant referral link
+* Referral form
+* Referral reward tracking
+* Referral status
+* Portal referral widget
+* Automated referral ask after positive NPS
+* Admin reward management
+
+Acceptance Criteria
+
+* Merchant can refer another business.
+* Referral is attributed to merchant.
+* Referral enters CRM.
+* Reward status is tracked.
+* Admin can approve reward.
+* Referral performance is visible.
+
+⸻
+
+P2-4: Add NPS, CSAT, Review, and Retention Automation
+
+Problem
+
+The retention layer should become automated and measurable.
+
+Required Work
+
+Add:
+
+* NPS auto-send after onboarding
+* CSAT after ticket close
+* Promoter review request
+* Detractor support escalation
+* Retention campaign triggers
+* Merchant health score alerts
+* Review request workflow
+
+Acceptance Criteria
+
+* Surveys send automatically based on lifecycle events.
+* Negative feedback creates a task or ticket.
+* Positive feedback triggers review/referral request.
+* Merchant satisfaction history is visible.
+* Retention metrics appear in dashboard.
+
+⸻
+
+P2-5: Add A/B Testing Infrastructure
+
+Problem
+
+To scale acquisition, Liberty needs to test landing pages, CTAs, email copy, and proposal formats.
+
+Required Work
+
+Add:
+
+* Landing page variant testing
+* CTA variant tracking
+* Email subject-line tracking
+* Proposal format testing
+* Conversion dashboard
+* Experiment assignment logic
+
+Acceptance Criteria
+
+* Admin can create or configure variants.
+* Visitors are assigned to variants.
+* CTA clicks and uploads are attributed.
+* Conversion rates are visible.
+* Winning variants can be identified.
+
+⸻
+
+UI/UX Feedback for Replit
+
+Public Website UX
+
+The public website should optimize for one primary conversion action:
+
+Get My Free Analysis
+
+Secondary actions should support that goal.
+
+Recommended CTA hierarchy:
+
+1. Get My Free Analysis
+2. Upload Statement
+3. Book a Call
+4. See How Much You Can Save
+5. Compare Against Square/Stripe
+
+Avoid confusing the visitor with too many competing CTAs.
+
+The user should always understand:
+
+* Liberty can likely lower their processing costs.
+* Liberty may provide free or discounted terminals.
+* Liberty offers real human support.
+* The next step is easy: upload a statement or book a call.
+
+Dashboard UX
+
+The dashboard should not just show data. It should tell the rep what to do next.
+
+The rep command center should prioritize:
+
+* New interested replies
+* Statement uploads needing review
+* Proposals waiting to send
+* Calls booked today
+* Deals stuck in pipeline
+* Missing onboarding documents
+* Merchants needing support
+* Chargebacks requiring action
+* Hot leads with no follow-up
+
+Merchant Portal UX
+
+The merchant portal should feel like a service portal, not a payment terminal.
+
+Do not add virtual terminal functionality.
+
+Prioritize:
+
+* Onboarding status
+* Required documents
+* Support tickets
+* Rate review request
+* Referral option
+* Account manager contact
+* Important resources
+
+Partner Portal UX
+
+The partner portal should focus on motivation and transparency.
+
+Prioritize:
+
+* Referral link
+* Referred merchants
+* Deal status
+* Estimated commissions
+* Approved commissions
+* Co-branded materials
+* Earnings calculator
+* Agreement status
+
+⸻
+
+Code and Architecture Feedback
+
+Keep the App Modular
+
+Recommended modules:
+
+* leads
+* contacts
+* companies
+* deals
+* proposals
+* statements
+* onboarding
+* documents
+* partners
+* commissions
+* merchants
+* ghl
+* sequences
+* compliance
+* analytics
+* operator
+
+Avoid mixing GHL sync logic directly into unrelated route handlers.
+
+Centralize External Integrations
+
+Create clean service layers for:
+
+* GHL
+* OpenAI
+* Serper
+* Apollo
+* Outscraper
+* Apify
+* SMTP
+* Analytics
+* Processor boarding
+
+Each integration should have:
+
+* Retry logic
+* Error logging
+* Rate-limit handling
+* Typed responses
+* Safe fallbacks
+* Admin-visible failure logs
+
+Centralize Compliance Checks
+
+Before any outbound action, call one compliance guard.
+
+Example conceptual flow:
+
+const allowed = await complianceService.canContact({
+  contactId,
+  channel: "sms",
+  workflow: "auto_repair_sequence",
+});
+if (!allowed.ok) {
+  await auditLog.create({
+    type: "OUTREACH_BLOCKED",
+    reason: allowed.reason,
+    contactId,
+  });
+  return;
+}
+
+No email, SMS, call, voicemail, or workflow enrollment should bypass this check.
+
+Add Strong Observability
+
+The operator dashboard should clearly show:
+
+* Queue health
+* Failed jobs
+* Stuck leads
+* GHL sync failures
+* Webhook failures
+* AI classification failures
+* Statement extraction failures
+* High bounce rates
+* Low reply rates
+* Paused inboxes
+* DNC events
+* Calendar booking failures
+
+Improve Data Integrity
+
+Add regular checks for:
+
+* Contacts without email or phone
+* Contacts missing ghlContactId
+* Duplicate companies
+* Duplicate contacts
+* Deals without contacts
+* Closed-won deals without onboarding records
+* Merchants without MIDs
+* Partner referrals without attribution
+* Documents without merchant/deal association
+
+⸻
+
+Recommended Replit Task Order
+
+Sprint 1: Conversion Fixes
+
+1. Wire calendar booking globally.
+2. Standardize CTA language.
+3. Fix dead links.
+4. Confirm statement upload works from all major pages.
+5. Add CTA attribution tracking.
+
+Sprint 2: GHL Sync Integrity
+
+1. Backfill missing ghlContactId.
+2. Add unmatched contact report.
+3. Add sync failure dashboard.
+4. Add retry failed sync action.
+5. Confirm all contacts can enter GHL workflows.
+
+Sprint 3: AI SDR v2
+
+1. Build SDR state machine.
+2. Add reply intent classification.
+3. Add next-action decision engine.
+4. Connect decisions to GHL workflows.
+5. Add human review queue.
+6. Add stuck-lead detection.
+
+Sprint 4: Compliance
+
+1. Add suppression model.
+2. Add global DNC checks.
+3. Add SMS opt-out handling.
+4. Add timezone quiet hours.
+5. Add compliance audit logs.
+6. Block outreach if suppression applies.
+
+Sprint 5: Onboarding Operations
+
+1. Add onboarding checklist.
+2. Add document permissions.
+3. Add bulk document download.
+4. Add merchant-facing onboarding tracker.
+5. Add missing document reminders.
+
+Sprint 6: Partner Monetization
+
+1. Add agent agreement.
+2. Add earnings calculator.
+3. Add commission rules.
+4. Add residual payout reporting.
+5. Add partner commission dashboard.
+
+⸻
+
+Definition of Done for Scale
+
+The app should not be considered scale-ready until these are true:
+
+* Every CTA works.
+* Every lead enters CRM correctly.
+* Every qualified lead syncs to GHL correctly.
+* Every contact has suppression and compliance status.
+* AI SDR can classify replies and choose next actions.
+* DNC/opt-out rules block outreach reliably.
+* Statement upload creates a usable sales opportunity.
+* Proposal generation is reliable.
+* Closed-won deals automatically enter onboarding.
+* Onboarding has checklist visibility.
+* Required documents are tracked.
+* Merchant portal supports basic post-sale service.
+* Partner portal supports referrals and earnings visibility.
+* Operator dashboard shows failures before they become business problems.
+* Admin can pause outbound globally.
+* Admin can trace every automated action.
+
+⸻
+
+Replit Agent Prompt
+
+Use this if you want to paste a direct instruction into Replit Agent:
+
+You are working on the Liberty Bancard app.
+This app is not a payment processor and not a virtual terminal. Do not add card processing, card storage, transaction, refund, batch, or payment terminal functionality.
+The app is an internal AI-powered operating system for a merchant services sales company. It manages lead generation, AI SDR outreach, CRM, statement analysis, proposals, onboarding, merchant management, partner referrals, residual tracking, and operations.
+Focus on making the platform scalable for thousands of merchants.
+Priority order:
+1. Fix all public CTAs, booking links, statement upload links, and dead links.
+2. Wire real GHL calendar booking into every relevant CTA.
+3. Standardize the primary CTA to “Get My Free Analysis.”
+4. Backfill missing GHL contact IDs and add sync failure visibility.
+5. Complete AI SDR v2 orchestration: lead state machine, reply classification, next action engine, GHL workflow triggers, human review queue, and stuck-lead detection.
+6. Add compliance/DNC layer before any outbound email, SMS, call, voicemail, or GHL workflow enrollment.
+7. Improve onboarding with document checklist, missing document reminders, boarding status, and merchant-facing tracker.
+8. Add document permissions and bulk document download.
+9. Build agent agreement, earnings calculator, and commission automation.
+10. Add merchant retention features like NPS auto-send, rate review request, and referral program.
+For every feature:
+- Use existing TypeScript patterns.
+- Keep services modular.
+- Add database migrations where needed.
+- Add role-based access checks.
+- Add audit logs for important actions.
+- Add loading, empty, and error states in the UI.
+- Add admin/operator visibility for failures.
+- Avoid breaking existing GHL sync, CRM, proposal, onboarding, or public website routes.
+
+⸻
+
+Final Feedback to Replit
+
+The current app is strong, but the next work should be disciplined and revenue-focused.
+
+Do not build random new features until the existing funnel is fully operational.
+
+The most important business issue is not whether the app has enough screens. It is whether a merchant can move cleanly from:
+
+website visitor → statement upload → proposal → booked call → closed won → onboarded merchant → retained account → referral source
+
+Every task should support that sequence.
