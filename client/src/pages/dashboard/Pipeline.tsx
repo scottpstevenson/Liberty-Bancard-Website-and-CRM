@@ -17,7 +17,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Calendar, Sparkles, Loader2, Download, ChevronDown, ChevronUp, Archive, Settings, ArrowUp, ArrowDown, Pencil, Trash2, RotateCcw, MoreVertical, TrendingUp, TrendingDown, UserRound, AlertTriangle, Activity, ArrowUpDown, FileText, Copy, ExternalLink, Send, CheckCircle2, History, User, Bot, Monitor } from "lucide-react";
+import { Plus, Calendar, Sparkles, Loader2, Download, ChevronDown, ChevronUp, Archive, Settings, ArrowUp, ArrowDown, Pencil, Trash2, RotateCcw, MoreVertical, TrendingUp, TrendingDown, UserRound, AlertTriangle, Activity, ArrowUpDown, FileText, Copy, ExternalLink, Send, CheckCircle2, History, User, Bot, Monitor, ShieldCheck, ShieldAlert, ShieldX, Clock } from "lucide-react";
 import TerminalEconomicsCard from "@/components/TerminalEconomicsCard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
@@ -478,6 +478,82 @@ export default function Pipeline() {
     vertical: "",
   });
 
+  // Terminal economics state
+  const [terminalEcon, setTerminalEcon] = useState<{
+    available: boolean;
+    terminalModel?: string;
+    terminalCost?: number;
+    msrp?: number;
+    estimatedMonthlyGrossProfit?: number;
+    paybackMonths?: number | null;
+    tier?: "green" | "yellow" | "red";
+    greenThreshold?: number;
+    yellowThreshold?: number;
+    leaseComparison?: { competitorMonthlyLease: number; savingsVsLease3Year: number };
+  } | null>(null);
+  const [terminalEconLoading, setTerminalEconLoading] = useState(false);
+  const [approvalActionPending, setApprovalActionPending] = useState(false);
+  const [approvalReason, setApprovalReason] = useState("");
+
+  const loadTerminalEconomics = async (dealId: number) => {
+    setTerminalEconLoading(true);
+    try {
+      const res = await fetch(`/api/deals/${dealId}/terminal-economics`, { credentials: "include" });
+      if (res.ok) setTerminalEcon(await res.json());
+      else setTerminalEcon(null);
+    } catch { setTerminalEcon(null); }
+    finally { setTerminalEconLoading(false); }
+  };
+
+  const handleTerminalApprove = async () => {
+    if (!selectedDeal) return;
+    setApprovalActionPending(true);
+    try {
+      const res = await apiRequest("POST", `/api/deals/${selectedDeal.id}/terminal-economics/approve`, {});
+      if (res.ok) {
+        toast({ title: "Terminal approved" });
+        queryClient.invalidateQueries({ queryKey: ["/api/deals", { pipeline: "sales" }] });
+        loadTerminalEconomics(selectedDeal.id);
+      } else {
+        const data = await res.json();
+        toast({ title: data.message || "Approval failed", variant: "destructive" });
+      }
+    } catch { toast({ title: "Network error", variant: "destructive" }); }
+    finally { setApprovalActionPending(false); }
+  };
+
+  const handleTerminalReject = async () => {
+    if (!selectedDeal) return;
+    setApprovalActionPending(true);
+    try {
+      const res = await apiRequest("POST", `/api/deals/${selectedDeal.id}/terminal-economics/reject`, { reason: approvalReason });
+      if (res.ok) {
+        toast({ title: "Terminal rejected" });
+        queryClient.invalidateQueries({ queryKey: ["/api/deals", { pipeline: "sales" }] });
+        loadTerminalEconomics(selectedDeal.id);
+        setApprovalReason("");
+      } else {
+        const data = await res.json();
+        toast({ title: data.message || "Rejection failed", variant: "destructive" });
+      }
+    } catch { toast({ title: "Network error", variant: "destructive" }); }
+    finally { setApprovalActionPending(false); }
+  };
+
+  const handleCheckTerminalApproval = async (dealId: number) => {
+    try {
+      const res = await apiRequest("POST", `/api/deals/${dealId}/terminal-economics/check-approval`, {});
+      if (res.ok) {
+        const data = await res.json();
+        if (data.approvalRequired && data.approvalStatus === "pending_approval") {
+          toast({ title: "Manager approval required", description: "This terminal has a long payback period. An approval task has been created.", variant: "destructive" });
+          queryClient.invalidateQueries({ queryKey: ["/api/deals", { pipeline: "sales" }] });
+          loadTerminalEconomics(dealId);
+        }
+      }
+    } catch {}
+  };
+
   // Co-branded proposal state
   const [generatingProposal, setGeneratingProposal] = useState(false);
   const [dealProposals, setDealProposals] = useState<Array<{
@@ -918,10 +994,14 @@ export default function Pipeline() {
     setEditMid(deal.mid || "");
     setEditVertical(deal.vertical || "");
     setDetailOpen(true);
+    setTerminalEcon(null);
     if ((deal as any).partnerOrgId) {
       loadDealProposals(deal.id);
     } else {
       setDealProposals([]);
+    }
+    if ((deal as any).terminalRecommendation) {
+      loadTerminalEconomics(deal.id);
     }
   };
 
@@ -1607,6 +1687,129 @@ export default function Pipeline() {
                       ))}
                     </div>
                   )}
+                </div>
+              )}
+
+              {(selectedDeal as any).terminalRecommendation && (
+                <div className="border-t pt-4 space-y-3" data-testid="section-terminal-economics">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <h4 className="text-sm font-semibold flex items-center gap-1.5">
+                      <Monitor className="w-4 h-4 text-primary" />
+                      Equipment Economics
+                    </h4>
+                    <Badge variant="outline" className="text-xs no-default-hover-elevate no-default-active-elevate">
+                      {(selectedDeal as any).terminalRecommendation}
+                    </Badge>
+                  </div>
+
+                  {terminalEconLoading ? (
+                    <div className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
+                      <Loader2 className="w-4 h-4 animate-spin" /> Calculating payback...
+                    </div>
+                  ) : terminalEcon && terminalEcon.available ? (
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        <div className="bg-muted/40 rounded-md p-2.5">
+                          <div className="text-xs text-muted-foreground mb-0.5">Terminal Cost</div>
+                          <div className="font-semibold">${terminalEcon.terminalCost?.toFixed(0)}</div>
+                          <div className="text-xs text-muted-foreground">MSRP: ${terminalEcon.msrp?.toFixed(0)}</div>
+                        </div>
+                        <div className="bg-muted/40 rounded-md p-2.5">
+                          <div className="text-xs text-muted-foreground mb-0.5">Monthly Gross Profit</div>
+                          <div className="font-semibold">{terminalEcon.estimatedMonthlyGrossProfit && terminalEcon.estimatedMonthlyGrossProfit > 0 ? `$${terminalEcon.estimatedMonthlyGrossProfit.toFixed(0)}` : "Not set"}</div>
+                        </div>
+                      </div>
+
+                      <div className={`rounded-md p-3 flex items-center justify-between gap-2 ${
+                        terminalEcon.tier === "green" ? "bg-green-50 border border-green-200 dark:bg-green-950/20 dark:border-green-800" :
+                        terminalEcon.tier === "yellow" ? "bg-amber-50 border border-amber-200 dark:bg-amber-950/20 dark:border-amber-800" :
+                        "bg-red-50 border border-red-200 dark:bg-red-950/20 dark:border-red-800"
+                      }`} data-testid="terminal-payback-result">
+                        <div className="flex items-center gap-2">
+                          <Clock className="w-4 h-4 shrink-0 opacity-70" />
+                          <div>
+                            <div className="text-sm font-semibold">
+                              {terminalEcon.paybackMonths != null ? `${terminalEcon.paybackMonths}-month payback` : "Payback N/A"}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              ≤{terminalEcon.greenThreshold}mo = green · ≤{terminalEcon.yellowThreshold}mo = yellow
+                            </div>
+                          </div>
+                        </div>
+                        {terminalEcon.tier === "green" && <Badge className="bg-green-100 text-green-700 border-green-200 no-default-hover-elevate no-default-active-elevate">On Track</Badge>}
+                        {terminalEcon.tier === "yellow" && <Badge className="bg-amber-100 text-amber-700 border-amber-200 no-default-hover-elevate no-default-active-elevate">Caution</Badge>}
+                        {terminalEcon.tier === "red" && <Badge className="bg-red-100 text-red-700 border-red-200 no-default-hover-elevate no-default-active-elevate">Needs Approval</Badge>}
+                      </div>
+
+                      {terminalEcon.leaseComparison && (
+                        <div className="text-xs text-muted-foreground bg-muted/30 rounded-md p-2.5">
+                          vs. competitor lease: <strong>${terminalEcon.leaseComparison.competitorMonthlyLease}/mo × 36mo</strong> = ${terminalEcon.leaseComparison.savingsVsLease3Year.toLocaleString()} total cost
+                          — buying saves <strong className="text-green-600">${(terminalEcon.leaseComparison.savingsVsLease3Year - (terminalEcon.terminalCost || 0)).toLocaleString()}</strong>
+                        </div>
+                      )}
+
+                      {(() => {
+                        const apStatus = (selectedDeal as any).terminalApprovalStatus;
+                        if (!apStatus || apStatus === "not_required") return null;
+                        return (
+                          <div className="flex items-center gap-2 flex-wrap" data-testid="terminal-approval-status">
+                            {apStatus === "approved" && <span className="inline-flex items-center gap-1 text-xs text-green-700 bg-green-50 border border-green-200 px-2 py-1 rounded-md"><ShieldCheck className="w-3.5 h-3.5" /> Manager approved</span>}
+                            {apStatus === "pending_approval" && <span className="inline-flex items-center gap-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1 rounded-md"><ShieldAlert className="w-3.5 h-3.5" /> Awaiting manager approval</span>}
+                            {apStatus === "rejected" && <span className="inline-flex items-center gap-1 text-xs text-red-700 bg-red-50 border border-red-200 px-2 py-1 rounded-md"><ShieldX className="w-3.5 h-3.5" /> Manager rejected — use a different terminal</span>}
+                          </div>
+                        );
+                      })()}
+
+                      {isManagerOrAdmin && (selectedDeal as any).terminalApprovalStatus === "pending_approval" && (
+                        <div className="space-y-2" data-testid="terminal-approval-actions">
+                          <Input
+                            value={approvalReason}
+                            onChange={(e) => setApprovalReason(e.target.value)}
+                            placeholder="Rejection reason (optional)"
+                            className="text-sm h-8"
+                            data-testid="input-rejection-reason"
+                          />
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              className="gap-1.5 bg-green-600 hover:bg-green-700 text-white"
+                              onClick={handleTerminalApprove}
+                              disabled={approvalActionPending}
+                              data-testid="button-approve-terminal"
+                            >
+                              {approvalActionPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}
+                              Approve
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="gap-1.5 border-red-300 text-red-700 hover:bg-red-50"
+                              onClick={handleTerminalReject}
+                              disabled={approvalActionPending}
+                              data-testid="button-reject-terminal"
+                            >
+                              {approvalActionPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldX className="w-3.5 h-3.5" />}
+                              Reject
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+
+                      {terminalEcon.tier === "red" && (!(selectedDeal as any).terminalApprovalStatus || (selectedDeal as any).terminalApprovalStatus === "not_required") && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1.5 w-full border-amber-300 text-amber-700"
+                          onClick={() => handleCheckTerminalApproval(selectedDeal.id)}
+                          data-testid="button-request-terminal-approval"
+                        >
+                          <ShieldAlert className="w-3.5 h-3.5" /> Request Manager Approval
+                        </Button>
+                      )}
+                    </div>
+                  ) : terminalEcon && !terminalEcon.available ? (
+                    <p className="text-xs text-muted-foreground">Terminal model "{(selectedDeal as any).terminalRecommendation}" not in catalog. Add it in the Equipment Model Catalog to enable economics tracking.</p>
+                  ) : null}
                 </div>
               )}
 

@@ -190,6 +190,7 @@ const OperatorDashboard = lazy(() => import("@/pages/dashboard/OperatorDashboard
 const SeoHealth = lazy(() => import("@/pages/dashboard/SeoHealth"));
 const Training = lazy(() => import("@/pages/dashboard/Training"));
 const Leaderboard = lazy(() => import("@/pages/dashboard/Leaderboard"));
+const TerminalROI = lazy(() => import("@/pages/dashboard/TerminalROI"));
 const SalesRepHome = lazy(() => import("@/pages/dashboard/SalesRepHome"));
 const LiveChatDashboard = lazy(() => import("@/pages/dashboard/LiveChat"));
 const DocumentVault = lazy(() => import("@/pages/dashboard/DocumentVault"));
@@ -615,6 +616,9 @@ function Router() {
         </Route>
         <Route path="/dashboard/leaderboard">
           <ProtectedRoute component={Leaderboard} />
+        </Route>
+        <Route path="/dashboard/terminal-roi">
+          <ProtectedRoute component={TerminalROI} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/my-day">
           <AgentRoute component={SalesRepHome} />

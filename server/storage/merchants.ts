@@ -219,6 +219,49 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   }
 
 
+  async getEquipmentModels(activeOnly = false) {
+    const { equipmentModels } = await import("@shared/schema");
+    if (activeOnly) {
+      return await db.select().from(equipmentModels).where(eq(equipmentModels.isActive, true)).orderBy(asc(equipmentModels.name));
+    }
+    return await db.select().from(equipmentModels).orderBy(asc(equipmentModels.name));
+  }
+
+
+  async getEquipmentModel(id: number) {
+    const { equipmentModels } = await import("@shared/schema");
+    const [model] = await db.select().from(equipmentModels).where(eq(equipmentModels.id, id));
+    return model;
+  }
+
+
+  async getEquipmentModelByName(name: string) {
+    const { equipmentModels } = await import("@shared/schema");
+    const [model] = await db.select().from(equipmentModels).where(eq(equipmentModels.name, name));
+    return model;
+  }
+
+
+  async createEquipmentModel(model: import("@shared/schema").InsertEquipmentModel) {
+    const { equipmentModels } = await import("@shared/schema");
+    const [created] = await db.insert(equipmentModels).values(model).returning();
+    return created;
+  }
+
+
+  async updateEquipmentModel(id: number, updates: Partial<import("@shared/schema").InsertEquipmentModel>) {
+    const { equipmentModels } = await import("@shared/schema");
+    const [updated] = await db.update(equipmentModels).set({ ...updates, updatedAt: new Date() }).where(eq(equipmentModels.id, id)).returning();
+    return updated;
+  }
+
+
+  async deleteEquipmentModel(id: number) {
+    const { equipmentModels } = await import("@shared/schema");
+    await db.delete(equipmentModels).where(eq(equipmentModels.id, id));
+  }
+
+
   async getAgents() {
     return await db.select().from(agents).orderBy(desc(agents.createdAt));
   }

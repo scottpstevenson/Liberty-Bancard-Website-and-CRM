@@ -617,6 +617,90 @@ export default function TerminalShop() {
               </div>
             </section>
 
+            <section className="py-16 bg-gradient-to-br from-primary/5 to-background" data-testid="section-roi-calculator">
+              <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div className="text-center mb-10">
+                  <h2 className="text-2xl font-display font-bold text-foreground mb-3" data-testid="text-roi-heading">
+                    How Fast Does Your Terminal Pay For Itself?
+                  </h2>
+                  <p className="text-muted-foreground max-w-2xl mx-auto">
+                    Unlike competitor leases that drain your margins for years, our terminal pricing is designed to recover in months — not a lifetime. See what your volume means for ROI.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+                  {[
+                    { volume: "$15,000/mo", gp: "$75", terminal: "Dejavoo QD4", cost: "$199", payback: "3 months", tier: "green" },
+                    { volume: "$30,000/mo", gp: "$150", terminal: "Clover Flex 3", cost: "$349", payback: "3 months", tier: "green" },
+                    { volume: "$60,000/mo", gp: "$300", terminal: "Clover Station Duo", cost: "$999", payback: "4 months", tier: "green" },
+                  ].map((ex, i) => (
+                    <div key={i} className="bg-background border rounded-xl p-6 shadow-sm" data-testid={`card-roi-example-${i}`}>
+                      <div className="flex items-center justify-between mb-4">
+                        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Example {i + 1}</span>
+                        <span className="inline-flex items-center gap-1 text-xs font-medium text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">
+                          ✓ {ex.payback} payback
+                        </span>
+                      </div>
+                      <div className="space-y-2.5 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Monthly Processing</span>
+                          <span className="font-semibold">{ex.volume}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Terminal</span>
+                          <span className="font-semibold">{ex.terminal}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Your Cost</span>
+                          <span className="font-semibold">{ex.cost}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Est. Monthly GP</span>
+                          <span className="font-semibold text-primary">{ex.gp}</span>
+                        </div>
+                        <div className="pt-2 border-t">
+                          <div className="flex justify-between text-sm font-bold">
+                            <span>Break-even</span>
+                            <span className="text-green-600">{ex.payback}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="bg-background border rounded-xl p-6 shadow-sm">
+                  <h3 className="text-base font-semibold mb-4">vs. Competitor Leasing</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 text-sm font-medium text-red-600">
+                        <span className="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center text-xs">✕</span>
+                        Typical Lease (36 months)
+                      </div>
+                      <ul className="text-sm text-muted-foreground space-y-1.5">
+                        <li>• ~$45–$95/month for a $500 terminal</li>
+                        <li>• Total paid: <strong className="text-foreground">$1,620–$3,420</strong> for a terminal worth $500</li>
+                        <li>• Locked in — can't leave without penalty</li>
+                        <li>• You never own the equipment</li>
+                      </ul>
+                    </div>
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 text-sm font-medium text-green-600">
+                        <span className="w-5 h-5 rounded-full bg-green-100 flex items-center justify-center text-xs">✓</span>
+                        Liberty Bancard (buy or free placement)
+                      </div>
+                      <ul className="text-sm text-muted-foreground space-y-1.5">
+                        <li>• Buy outright from $49 — you own it forever</li>
+                        <li>• Or qualify for <strong className="text-foreground">free terminal placement</strong> with processing</li>
+                        <li>• No lock-in. No monthly terminal fees.</li>
+                        <li>• Average break-even: <strong className="text-green-600">3–6 months</strong></li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
             <section className="py-12">
               <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
                 <h2 className="text-xl font-display font-bold text-foreground mb-4 text-center" data-testid="text-active-promos-heading">

@@ -142,6 +142,9 @@ export const deals = pgTable("deals", {
   recommendedPath: text("recommended_path"),
   terminalRecommendation: text("terminal_recommendation"),
   terminalStatus: text("terminal_status"),
+  terminalApprovalStatus: text("terminal_approval_status").default("not_required"),
+  terminalApprovalTaskId: integer("terminal_approval_task_id"),
+  terminalCostAtOrder: real("terminal_cost_at_order"),
   fundingNotes: text("funding_notes"),
   expectedGoLiveDate: timestamp("expected_go_live_date"),
   goLiveDate: timestamp("go_live_date"),
@@ -1452,6 +1455,27 @@ export const insertEquipmentOrderSchema = createInsertSchema(equipmentOrders).om
 
 export type EquipmentOrder = typeof equipmentOrders.$inferSelect;
 export type InsertEquipmentOrder = z.infer<typeof insertEquipmentOrderSchema>;
+
+export const equipmentModels = pgTable("equipment_models", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  category: text("category").default("Terminal"),
+  description: text("description"),
+  msrp: real("msrp").default(0).notNull(),
+  libertyCost: real("liberty_cost").default(0).notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertEquipmentModelSchema = createInsertSchema(equipmentModels).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type EquipmentModel = typeof equipmentModels.$inferSelect;
+export type InsertEquipmentModel = z.infer<typeof insertEquipmentModelSchema>;
 
 export const EQUIPMENT_STATUSES = [
   "pending",

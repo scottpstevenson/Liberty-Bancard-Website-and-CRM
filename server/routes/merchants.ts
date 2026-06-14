@@ -927,18 +927,64 @@ export function registerMerchantsRoutes(app: Express) {
   app.post("/api/equipment-orders", isDashboardUser, async (req, res) => {
     try {
       const input = insertEquipmentOrderSchema.parse(req.body);
+
+      const adminOverride = req.body.adminOverride === true;
+      const userRole = (req.user as any)?.role as string | undefined;
+      const isAdminOrManager = userRole === "admin" || userRole === "manager";
+
       let economicsFields: Record<string, unknown> = {};
-      if (input.dealId && !req.body.libertyCost) {
+      if (input.dealId) {
         const deal = await storage.getDeal(input.dealId);
-        const vol = deal?.totalVolume ? Number(String(deal.totalVolume).replace(/[^0-9.]/g, "")) : null;
-        const eco = computeOrderEconomics(input.equipmentType, vol);
-        economicsFields = {
-          libertyCost: String(eco.libertyCost),
-          estimatedMonthlyGp: String(eco.estimatedMonthlyGp),
-          ...(eco.paybackMonths != null ? { paybackMonths: String(eco.paybackMonths) } : {}),
-          approvalTier: eco.approvalTier,
-        };
+        const terminalStatus = (deal as any)?.terminalApprovalStatus as string | undefined;
+
+        if (terminalStatus === "pending_approval" || terminalStatus === "rejected") {
+          if (!adminOverride || !isAdminOrManager) {
+            return res.status(403).json({
+              message: terminalStatus === "pending_approval"
+                ? "Equipment order blocked: this deal has a terminal recommendation pending manager approval. Wait for approval, or an admin/manager can pass adminOverride=true."
+                : "Equipment order blocked: the terminal recommendation on this deal was rejected. Update the terminal selection or a manager can override.",
+              code: terminalStatus === "pending_approval" ? "terminal_approval_pending" : "terminal_approval_rejected",
+              canOverride: isAdminOrManager,
+            });
+          }
+          await storage.createAuditLog({
+            action: "terminal_approval_order_override",
+            entityType: "deal",
+            entityId: input.dealId,
+            userId: (req.user as any)?.id ?? null,
+            details: {
+              overriddenStatus: terminalStatus,
+              overriddenBy: (req.user as any)?.email,
+              role: userRole,
+            },
+          });
+        }
+
+        if (!req.body.libertyCost) {
+          const vol = deal?.totalVolume ? Number(String(deal.totalVolume).replace(/[^0-9.]/g, "")) : null;
+          const eco = computeOrderEconomics(input.equipmentType, vol);
+          economicsFields = {
+            libertyCost: String(eco.libertyCost),
+            estimatedMonthlyGp: String(eco.estimatedMonthlyGp),
+            ...(eco.paybackMonths != null ? { paybackMonths: String(eco.paybackMonths) } : {}),
+            approvalTier: eco.approvalTier,
+          };
+        }
+
+
+        if (deal?.terminalRecommendation && !(deal as any).terminalCostAtOrder) {
+          const models = await storage.getEquipmentModels();
+          const rec = deal.terminalRecommendation.toLowerCase();
+          const model = models.find(m =>
+            m.name.toLowerCase() === rec ||
+            rec.includes(m.name.toLowerCase().split(" ")[0])
+          );
+          if (model) {
+            await storage.updateDeal(input.dealId, { terminalCostAtOrder: model.libertyCost } as any);
+          }
+        }
       }
+
       const order = await storage.createEquipmentOrder({ ...input, ...economicsFields } as any);
       res.status(201).json(order);
     } catch (err: any) {

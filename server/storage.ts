@@ -363,6 +363,13 @@ export interface IStorage {
   createEquipmentOrder(order: InsertEquipmentOrder): Promise<EquipmentOrder>;
   updateEquipmentOrder(id: number, updates: Partial<InsertEquipmentOrder>): Promise<EquipmentOrder | undefined>;
 
+  getEquipmentModels(activeOnly?: boolean): Promise<import("@shared/schema").EquipmentModel[]>;
+  getEquipmentModel(id: number): Promise<import("@shared/schema").EquipmentModel | undefined>;
+  getEquipmentModelByName(name: string): Promise<import("@shared/schema").EquipmentModel | undefined>;
+  createEquipmentModel(model: import("@shared/schema").InsertEquipmentModel): Promise<import("@shared/schema").EquipmentModel>;
+  updateEquipmentModel(id: number, updates: Partial<import("@shared/schema").InsertEquipmentModel>): Promise<import("@shared/schema").EquipmentModel | undefined>;
+  deleteEquipmentModel(id: number): Promise<void>;
+
   getAgents(): Promise<Agent[]>;
   getAgent(id: number): Promise<Agent | undefined>;
   createAgent(agent: InsertAgent): Promise<Agent>;

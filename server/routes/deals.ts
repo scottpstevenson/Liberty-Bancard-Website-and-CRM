@@ -17,6 +17,7 @@ import { updateContactGhlFirst } from "../services/contact-writer";
 import { parse } from "csv-parse/sync";
 import path from "path";
 import { sendPushToAllReps } from "../services/push-service";
+import { computeDealTerminalEconomics } from "../services/terminal-economics";
 
 export function registerDealsRoutes(app: Express) {
   // === DEALS ===
@@ -201,6 +202,64 @@ export function registerDealsRoutes(app: Express) {
           console.error(`[GHL Deal Stage] Exception syncing deal ${updated.id} stage to GHL:`, ghlErr.message);
         });
       }
+      // === Terminal Economics: auto-trigger approval task when recommendation changes to a red-tier terminal ===
+      const terminalStatus = (updated as any).terminalApprovalStatus as string | null | undefined;
+      if (
+        old &&
+        updated.terminalRecommendation &&
+        old.terminalRecommendation !== updated.terminalRecommendation &&
+        (!terminalStatus || terminalStatus === "not_required")
+      ) {
+        (async () => {
+          try {
+            const econ = await computeDealTerminalEconomics(updated.id);
+            if (econ && econ.tier === "red") {
+              const managers = await storage.getUsersByRole(["manager"]);
+              const managerEmail = managers[0]?.email || process.env.ADMIN_EMAIL || "admin";
+
+              const contact = updated.contactId ? await storage.getContact(updated.contactId) : null;
+              const merchantName = contact?.companyName || [contact?.firstName, contact?.lastName].filter(Boolean).join(" ") || `Deal #${updated.id}`;
+              const paybackStr = econ.paybackMonths ? `${econ.paybackMonths}-month` : "unknown";
+
+              const task = await storage.createTask({
+                dealId: updated.id,
+                contactId: updated.contactId || undefined,
+                title: `Terminal approval needed — ${merchantName} — $${econ.terminalCost.toFixed(0)} terminal, ${paybackStr} payback`,
+                description: `Terminal "${econ.terminalModel}" on Deal #${updated.id} (${merchantName}) has a payback period of ${econ.paybackMonths ?? "N/A"} months (threshold: ${econ.yellowThreshold} months). Manager approval required before committing the free terminal.\n\nTerminal cost: $${econ.terminalCost.toFixed(0)}\nMonthly GP: $${econ.estimatedMonthlyGrossProfit.toFixed(0)}\nPayback: ${econ.paybackMonths ?? "N/A"} months\n\nApprove or reject at: /dashboard/pipeline?deal=${updated.id}`,
+                assignedTo: managerEmail,
+                priority: "high",
+                dueDate: new Date(Date.now() + 48 * 60 * 60 * 1000),
+              });
+
+              await storage.updateDeal(updated.id, {
+                terminalApprovalStatus: "pending_approval",
+                terminalApprovalTaskId: task.id,
+              } as any);
+
+              await storage.createNotification({
+                channel: "internal",
+                title: "Terminal Approval Required",
+                message: `Deal #${updated.id} (${merchantName}) — ${econ.terminalModel} has ${econ.paybackMonths ?? "N/A"}mo payback. Manager approval needed.`,
+                type: "urgent",
+                recipientId: managerEmail,
+                metadata: { dealId: updated.id, terminalModel: econ.terminalModel, paybackMonths: econ.paybackMonths, taskId: task.id },
+              });
+
+              await storage.createAuditLog({
+                action: "terminal_approval_auto_triggered",
+                entityType: "deal",
+                entityId: updated.id,
+                details: { terminalModel: econ.terminalModel, terminalCost: econ.terminalCost, paybackMonths: econ.paybackMonths, taskId: task.id, assignedTo: managerEmail },
+              });
+
+              console.log(`[Terminal Economics] Auto-triggered approval task #${task.id} for Deal #${updated.id} — assigned to ${managerEmail}`);
+            }
+          } catch (econErr) {
+            console.error("[Terminal Economics] Auto-trigger approval error:", econErr);
+          }
+        })();
+      }
+
       res.json(updated);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
