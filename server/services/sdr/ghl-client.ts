@@ -624,7 +624,7 @@ export async function sendTemplateResponse(
         body: JSON.stringify({
           type: channel === "email" ? "Email" : "SMS",
           contactId: merchant.ghlContactId,
-          message: template.replace("{{booking_link}}", process.env.GHL_DEFAULT_BOOKING_LINK || "[booking link]"),
+          message: template.replace("{{booking_link}}", process.env.GHL_DEFAULT_BOOKING_LINK || process.env.SALES_CALENDAR_URL || "https://calendly.com/libertybancard"),
         }),
       });
     }

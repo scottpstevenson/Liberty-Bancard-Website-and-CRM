@@ -1,6 +1,9 @@
 import webpush from "web-push";
 import fs from "fs";
 import path from "path";
+import { db } from "../db";
+import { pushSubscriptions } from "@shared/schema";
+import { eq, and } from "drizzle-orm";
 
 const KEYS_FILE = path.join(process.cwd(), ".local", "vapid-keys.json");
 
@@ -61,84 +64,113 @@ export function getVapidPublicKey(): string {
   return loadOrGenerateVapidKeys().publicKey;
 }
 
-interface PushSubscriptionRecord {
-  userId: number;
-  subscription: webpush.PushSubscription;
-}
-
-const subscriptions: PushSubscriptionRecord[] = [];
-
-export function saveSubscription(userId: number, subscription: webpush.PushSubscription) {
-  const idx = subscriptions.findIndex(
-    (s) => s.userId === userId && s.subscription.endpoint === subscription.endpoint
-  );
-  if (idx === -1) {
-    subscriptions.push({ userId, subscription });
-  } else {
-    subscriptions[idx].subscription = subscription;
-  }
-  console.log(`[Push] Saved subscription for user ${userId}. Total: ${subscriptions.length}`);
-}
-
-export function removeSubscription(userId: number, endpoint: string) {
-  const before = subscriptions.length;
-  const idx = subscriptions.findIndex(
-    (s) => s.userId === userId && s.subscription.endpoint === endpoint
-  );
-  if (idx !== -1) subscriptions.splice(idx, 1);
-  console.log(`[Push] Removed subscription. Before: ${before}, after: ${subscriptions.length}`);
-}
-
 export interface PushPayload {
   title: string;
   body: string;
   url?: string;
 }
 
-export async function sendPushToUser(userId: number, payload: PushPayload) {
+export async function saveSubscription(userId: string, subscription: webpush.PushSubscription) {
+  const { keys } = subscription as any;
+  const auth = keys?.auth || "";
+  const p256dh = keys?.p256dh || "";
+
+  await db
+    .insert(pushSubscriptions)
+    .values({
+      userId,
+      endpoint: subscription.endpoint,
+      auth,
+      p256dh,
+    })
+    .onConflictDoUpdate({
+      target: pushSubscriptions.endpoint,
+      set: {
+        userId,
+        auth,
+        p256dh,
+      },
+    });
+
+  console.log(`[Push] Saved subscription for user ${userId}: ${subscription.endpoint.slice(0, 60)}…`);
+}
+
+export async function removeSubscription(userId: string, endpoint: string) {
+  await db
+    .delete(pushSubscriptions)
+    .where(
+      and(
+        eq(pushSubscriptions.userId, userId),
+        eq(pushSubscriptions.endpoint, endpoint)
+      )
+    );
+  console.log(`[Push] Removed subscription for user ${userId}`);
+}
+
+async function getUserSubscriptions(userId: string): Promise<webpush.PushSubscription[]> {
+  const rows = await db
+    .select()
+    .from(pushSubscriptions)
+    .where(eq(pushSubscriptions.userId, userId));
+
+  return rows.map((r) => ({
+    endpoint: r.endpoint,
+    keys: { auth: r.auth, p256dh: r.p256dh },
+  }));
+}
+
+async function getAllSubscriptions(): Promise<Array<{ userId: number; subscription: webpush.PushSubscription }>> {
+  const rows = await db.select().from(pushSubscriptions);
+  return rows.map((r) => ({
+    userId: r.userId,
+    subscription: {
+      endpoint: r.endpoint,
+      keys: { auth: r.auth, p256dh: r.p256dh },
+    },
+  }));
+}
+
+async function removeStaleSubscription(endpoint: string) {
+  await db.delete(pushSubscriptions).where(eq(pushSubscriptions.endpoint, endpoint));
+  console.log(`[Push] Removed stale subscription: ${endpoint.slice(0, 60)}…`);
+}
+
+export async function sendPushToUser(userId: string, payload: PushPayload) {
   initWebPush();
-  const userSubs = subscriptions.filter((s) => s.userId === userId);
-  if (!userSubs.length) return;
+  const subs = await getUserSubscriptions(userId);
+  if (!subs.length) return;
 
   const msg = JSON.stringify(payload);
   const results = await Promise.allSettled(
-    userSubs.map((s) => webpush.sendNotification(s.subscription, msg))
+    subs.map((s) => webpush.sendNotification(s, msg))
   );
 
-  results.forEach((r, i) => {
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i];
     if (r.status === "rejected") {
       const err = r.reason as any;
       if (err?.statusCode === 410 || err?.statusCode === 404) {
-        subscriptions.splice(
-          subscriptions.findIndex((sub) => sub.subscription.endpoint === userSubs[i].subscription.endpoint),
-          1
-        );
+        await removeStaleSubscription(subs[i].endpoint);
       }
     }
-  });
+  }
 }
 
 export async function sendPushToAllReps(payload: PushPayload) {
   initWebPush();
-  if (!subscriptions.length) return;
+  const allSubs = await getAllSubscriptions();
+  if (!allSubs.length) return;
 
   const msg = JSON.stringify(payload);
-  const toRemove: string[] = [];
-
   await Promise.allSettled(
-    subscriptions.map(async (s) => {
+    allSubs.map(async ({ subscription }) => {
       try {
-        await webpush.sendNotification(s.subscription, msg);
+        await webpush.sendNotification(subscription, msg);
       } catch (err: any) {
         if (err?.statusCode === 410 || err?.statusCode === 404) {
-          toRemove.push(s.subscription.endpoint);
+          await removeStaleSubscription(subscription.endpoint);
         }
       }
     })
   );
-
-  toRemove.forEach((endpoint) => {
-    const idx = subscriptions.findIndex((s) => s.subscription.endpoint === endpoint);
-    if (idx !== -1) subscriptions.splice(idx, 1);
-  });
 }

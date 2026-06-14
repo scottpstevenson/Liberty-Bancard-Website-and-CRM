@@ -3754,3 +3754,23 @@ export const insertToolClickEventSchema = createInsertSchema(toolClickEvents).om
 
 export type ToolClickEvent = typeof toolClickEvents.$inferSelect;
 export type InsertToolClickEvent = z.infer<typeof insertToolClickEventSchema>;
+
+export const pushSubscriptions = pgTable("push_subscriptions", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  endpoint: text("endpoint").notNull(),
+  auth: text("auth").notNull(),
+  p256dh: text("p256dh").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("push_subscriptions_user_id_idx").on(table.userId),
+  uniqueIndex("push_subscriptions_endpoint_idx").on(table.endpoint),
+]);
+
+export const insertPushSubscriptionSchema = createInsertSchema(pushSubscriptions).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type PushSubscription = typeof pushSubscriptions.$inferSelect;
+export type InsertPushSubscription = z.infer<typeof insertPushSubscriptionSchema>;

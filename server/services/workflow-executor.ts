@@ -152,7 +152,7 @@ export async function executeWorkflowActions(
 
       } else if (action.type === "send_ghl_email" && contactId) {
         if (isGhlConfigured()) {
-          const subject = await interpolateTemplate(action.subject || "Liberty Bancard", contactId, dealId);
+          const subject = await interpolateTemplate(action.subject || "Message from Liberty Bancard", contactId, dealId);
           const body = await interpolateTemplate(action.body || "", contactId, dealId);
           if (action.templateId) {
             const result = await sendTemplatedMessage({ templateId: action.templateId, contactId, dealId });
@@ -165,7 +165,7 @@ export async function executeWorkflowActions(
           await storage.createEmailLog({
             contactId,
             direction: "outbound",
-            subject: action.subject || "Liberty Bancard",
+            subject: action.subject || "Message from Liberty Bancard",
             body: action.body || "",
             status: "queued",
             metadata: { source: "workflow", workflowId },

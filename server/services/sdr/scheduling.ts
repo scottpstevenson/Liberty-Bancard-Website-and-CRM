@@ -5,28 +5,67 @@ import { eq } from "drizzle-orm";
 import { fetchCalendars, isSdrGhlConfigured, triggerWorkflow } from "./ghl-client";
 import { onStageChange } from "./ghl-sync-rules";
 
+const VERTICAL_CALENDAR_KEY_MAP: Record<string, { envVar: string; calendarKey: string }> = {
+  "Medical/Dental/Medspa": { envVar: "GHL_CALENDAR_MEDICAL",     calendarKey: "MEDICAL" },
+  "Healthcare":            { envVar: "GHL_CALENDAR_MEDICAL",     calendarKey: "MEDICAL" },
+  "Medical":               { envVar: "GHL_CALENDAR_MEDICAL",     calendarKey: "MEDICAL" },
+  "Dental":                { envVar: "GHL_CALENDAR_DENTAL",      calendarKey: "DENTAL" },
+  "Med Spa":               { envVar: "GHL_CALENDAR_MEDSPA",      calendarKey: "MEDSPA" },
+  "Medspa":                { envVar: "GHL_CALENDAR_MEDSPA",      calendarKey: "MEDSPA" },
+  "Automotive":            { envVar: "GHL_CALENDAR_AUTO",        calendarKey: "AUTO" },
+  "Auto":                  { envVar: "GHL_CALENDAR_AUTO",        calendarKey: "AUTO" },
+  "Auto Repair":           { envVar: "GHL_CALENDAR_AUTO",        calendarKey: "AUTO" },
+  "Restaurant":            { envVar: "GHL_CALENDAR_RESTAURANT",  calendarKey: "RESTAURANT" },
+  "Home Services":         { envVar: "GHL_CALENDAR_HOME",        calendarKey: "HOME" },
+  "Retail":                { envVar: "GHL_CALENDAR_RETAIL",      calendarKey: "RETAIL" },
+  "Salon/Spa":             { envVar: "GHL_CALENDAR_SALON",       calendarKey: "SALON" },
+  "Salon":                 { envVar: "GHL_CALENDAR_SALON",       calendarKey: "SALON" },
+  "Gym":                   { envVar: "GHL_CALENDAR_GYM",         calendarKey: "GYM" },
+  "Fitness":               { envVar: "GHL_CALENDAR_GYM",         calendarKey: "GYM" },
+  "Fitness/Recreation":    { envVar: "GHL_CALENDAR_GYM",         calendarKey: "GYM" },
+  "Hotel":                 { envVar: "GHL_CALENDAR_HOTEL",       calendarKey: "HOTEL" },
+  "Hospitality":           { envVar: "GHL_CALENDAR_HOTEL",       calendarKey: "HOTEL" },
+  "Landscaping":           { envVar: "GHL_CALENDAR_LANDSCAPING", calendarKey: "LANDSCAPING" },
+  "Construction":          { envVar: "GHL_CALENDAR_CONSTRUCTION",calendarKey: "CONSTRUCTION" },
+  "Legal":                 { envVar: "GHL_CALENDAR_LEGAL",       calendarKey: "LEGAL" },
+  "Professional Services": { envVar: "GHL_CALENDAR_LEGAL",       calendarKey: "LEGAL" },
+};
+
+function normalizeVerticalForCalendar(vertical: string): string {
+  const v = vertical.toLowerCase().trim();
+  if (/^auto$|automotive|auto repair|collision|body shop|tire/i.test(v)) return "Automotive";
+  if (/med.?spa|medspa/i.test(v)) return "Med Spa";
+  if (/dental|dentist/i.test(v)) return "Dental";
+  if (/medical|healthcare|clinic|health/i.test(v)) return "Medical/Dental/Medspa";
+  if (/salon|spa|hair|nail|barber|beauty/i.test(v)) return "Salon/Spa";
+  if (/gym|fitness|yoga|pilates|crossfit|martial arts|wellness/i.test(v)) return "Gym";
+  if (/hotel|motel|lodge|resort|hospitality|inn/i.test(v)) return "Hotel";
+  if (/landscap|lawn|tree service|grounds|irrigation/i.test(v)) return "Landscaping";
+  if (/construct|contractor|builder|roofer|plumb|electrician|hvac|remodel/i.test(v)) return "Construction";
+  if (/attorney|law firm|lawyer|legal|solicitor|paralegal/i.test(v)) return "Legal";
+  if (/restaurant|food|cafe|bakery|diner|bistro/i.test(v)) return "Restaurant";
+  if (/retail|shop|store|boutique/i.test(v)) return "Retail";
+  if (/home service|handyman|cleaning|maid|janitorial/i.test(v)) return "Home Services";
+  return vertical;
+}
+
 function getVerticalCalendarMap(): Record<string, string> {
-  return {
-    "Medical/Dental/Medspa": process.env.GHL_CALENDAR_MEDICAL || "",
-    "Automotive": process.env.GHL_CALENDAR_AUTO || "",
-    "Restaurant": process.env.GHL_CALENDAR_RESTAURANT || "",
-    "Home Services": process.env.GHL_CALENDAR_HOME || "",
-    "Retail": process.env.GHL_CALENDAR_RETAIL || "",
-  };
+  const map: Record<string, string> = {};
+  for (const [key, { envVar }] of Object.entries(VERTICAL_CALENDAR_KEY_MAP)) {
+    map[key] = process.env[envVar] || "";
+  }
+  return map;
 }
 
 function requireCalendarId(vertical: string): string {
-  const map = getVerticalCalendarMap();
-  const calendarId = map[vertical];
+  const normalized = normalizeVerticalForCalendar(vertical);
+  const entry = VERTICAL_CALENDAR_KEY_MAP[normalized] || VERTICAL_CALENDAR_KEY_MAP[vertical];
+  if (!entry) {
+    throw new Error(`No calendar configuration found for vertical "${vertical}". Add it to VERTICAL_CALENDAR_KEY_MAP.`);
+  }
+  const calendarId = process.env[entry.envVar] || "";
   if (!calendarId) {
-    const envVarName = {
-      "Medical/Dental/Medspa": "GHL_CALENDAR_MEDICAL",
-      "Automotive": "GHL_CALENDAR_AUTO",
-      "Restaurant": "GHL_CALENDAR_RESTAURANT",
-      "Home Services": "GHL_CALENDAR_HOME",
-      "Retail": "GHL_CALENDAR_RETAIL",
-    }[vertical] || `GHL_CALENDAR_${vertical.toUpperCase().replace(/\s+/g, "_")}`;
-    throw new Error(`Calendar not configured for vertical "${vertical}". Set the ${envVarName} environment variable.`);
+    throw new Error(`Calendar not configured for vertical "${vertical}". Set the ${entry.envVar} environment variable.`);
   }
   return calendarId;
 }
@@ -40,13 +79,17 @@ export interface CalendarSelection {
 export async function decideBestCalendar(merchant: SdrMerchant): Promise<CalendarSelection | null> {
   if (!isSdrGhlConfigured()) return null;
 
-  if (merchant.vertical && merchant.vertical in getVerticalCalendarMap()) {
-    const calendarId = requireCalendarId(merchant.vertical);
-    return {
-      calendarId,
-      calendarName: `${merchant.vertical} Calendar`,
-      reason: `Matched by vertical: ${merchant.vertical}`,
-    };
+  if (merchant.vertical) {
+    const normalized = normalizeVerticalForCalendar(merchant.vertical);
+    const entry = VERTICAL_CALENDAR_KEY_MAP[normalized] || VERTICAL_CALENDAR_KEY_MAP[merchant.vertical];
+    const calendarId = entry ? (process.env[entry.envVar] || "") : "";
+    if (calendarId) {
+      return {
+        calendarId,
+        calendarName: `${normalized} Calendar`,
+        reason: `Matched by vertical: ${merchant.vertical} → ${normalized}`,
+      };
+    }
   }
 
   const defaultCalendarId = process.env.GHL_DEFAULT_CALENDAR_ID;
@@ -132,7 +175,8 @@ export async function sendBookingLink(
   try {
     const bookingWorkflowId = process.env.GHL_WORKFLOW_BOOKING_LINK;
     if (!bookingWorkflowId) {
-      throw new Error("GHL_WORKFLOW_BOOKING_LINK environment variable is not set. Cannot trigger booking link workflow.");
+      console.warn("[Scheduling] GHL_WORKFLOW_BOOKING_LINK not configured — booking link URL generated but workflow not triggered");
+      return { sent: false, bookingUrl, reason: "GHL_WORKFLOW_BOOKING_LINK not configured" };
     }
     await triggerWorkflow({
       workflowId: bookingWorkflowId,

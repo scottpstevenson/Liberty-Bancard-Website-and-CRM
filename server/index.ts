@@ -63,6 +63,39 @@ function validateCriticalEnvVars() {
 }
 validateCriticalEnvVars();
 
+function logEnvVarChecklist() {
+  const checks: Array<{ envVar: string | string[]; feature: string }> = [
+    { envVar: "NMI_SECURITY_KEY",          feature: "NMI processor boarding (MID provisioning disabled without it)" },
+    { envVar: "GHL_LOCATION_ID",           feature: "GoHighLevel CRM sync and all GHL communications" },
+    { envVar: "GHL_DEFAULT_BOOKING_LINK",  feature: "{{link}} in SDR outreach templates (falls back to Calendly URL)" },
+    { envVar: "GHL_WORKFLOW_BOOKING_LINK", feature: "Automated booking link workflow trigger via GHL" },
+    { envVar: ["VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY"], feature: "Push notifications (auto-generated fallback keys used — not portable across restarts without this)" },
+    { envVar: "SENTRY_DSN",                feature: "Sentry error monitoring" },
+    { envVar: "SERPER_API_KEY",            feature: "Serper.dev Google search enrichment in Outreach Command Center" },
+    { envVar: "APOLLO_API_KEY",            feature: "Apollo.io B2B contact discovery" },
+    { envVar: "PROXYCURL_API_KEY",         feature: "ProxyCurl LinkedIn enrichment" },
+    { envVar: "APIFY_API_TOKEN",           feature: "Apify Yelp/Facebook business scraping" },
+    { envVar: "OUTSCRAPER_API_KEY",        feature: "Outscraper Google Maps bulk data pulls" },
+    { envVar: "SMTP_HOST",                 feature: "SMTP email fallback (used when GHL is not configured or contact has no GHL ID)" },
+  ];
+
+  const missing: string[] = [];
+  for (const check of checks) {
+    const vars = Array.isArray(check.envVar) ? check.envVar : [check.envVar];
+    const allMissing = vars.every((v) => !process.env[v]);
+    if (allMissing) {
+      const label = vars.join(" / ");
+      missing.push(`  ✗ ${label.padEnd(35)} → ${check.feature}`);
+    }
+  }
+
+  if (missing.length === 0) {
+    console.log("[Config] ✓ All monitored environment variables are set.");
+  } else {
+    console.warn(`[Config] Missing optional/feature-gating env vars (${missing.length}):\n${missing.join("\n")}`);
+  }
+}
+
 process.on("unhandledRejection", (reason: any) => {
   console.error("[Process] Unhandled promise rejection:", reason);
   if (process.env.SENTRY_DSN) {
@@ -310,6 +343,7 @@ app.use((req, res, next) => {
     },
     async () => {
       log(`serving on port ${port}`);
+      logEnvVarChecklist();
       seedDefaultData();
       seedSequences();
       seedVerticalCampaigns();

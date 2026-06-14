@@ -85,15 +85,74 @@ export function registerSocialRoutes(app: Express) {
     const post = await storage.getSocialPost(id);
     if (!post) return res.status(404).json({ error: "Not found" });
 
-    const enableAutoPublish = process.env.LINKEDIN_AUTO_PUBLISH === "true";
-    if (enableAutoPublish && post.platform === "linkedin" && process.env.LINKEDIN_ACCESS_TOKEN) {
-      // Real LinkedIn API call would go here; left as a stub so the route behaves
-      // deterministically. Operators copy/paste from the composer until enabled.
+    if (post.platform === "linkedin" && process.env.LINKEDIN_ACCESS_TOKEN) {
+      try {
+        const orgUrn = process.env.LINKEDIN_ORG_URN;
+        const authorUrn = orgUrn || `urn:li:person:${process.env.LINKEDIN_PERSON_URN || "me"}`;
+
+        const ugcPayload: any = {
+          author: authorUrn,
+          lifecycleState: "PUBLISHED",
+          specificContent: {
+            "com.linkedin.ugc.ShareContent": {
+              shareCommentary: { text: post.body || "" },
+              shareMediaCategory: "NONE",
+            },
+          },
+          visibility: {
+            "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC",
+          },
+        };
+
+        if ((post as any).linkUrl) {
+          ugcPayload.specificContent["com.linkedin.ugc.ShareContent"].shareMediaCategory = "ARTICLE";
+          ugcPayload.specificContent["com.linkedin.ugc.ShareContent"].media = [
+            {
+              status: "READY",
+              originalUrl: (post as any).linkUrl,
+            },
+          ];
+        }
+
+        const liRes = await fetch("https://api.linkedin.com/v2/ugcPosts", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${process.env.LINKEDIN_ACCESS_TOKEN}`,
+            "Content-Type": "application/json",
+            "X-Restli-Protocol-Version": "2.0.0",
+          },
+          body: JSON.stringify(ugcPayload),
+        });
+
+        if (!liRes.ok) {
+          const errText = await liRes.text();
+          console.error(`[LinkedIn] UGC post failed (${liRes.status}): ${errText}`);
+          return res.status(502).json({ error: `LinkedIn API error ${liRes.status}`, detail: errText });
+        }
+
+        const liData = await liRes.json() as any;
+        const linkedInPostId = liData.id || liData["id"] || null;
+
+        const updated = await storage.updateSocialPost(id, {
+          status: "published",
+          publishedAt: new Date(),
+        });
+        return res.json({ post: updated, linkedInPostId, note: "Published to LinkedIn via UGC Posts API." });
+      } catch (err: any) {
+        console.error("[LinkedIn] Publish error:", err.message);
+        return res.status(500).json({ error: "Failed to publish to LinkedIn", detail: err.message });
+      }
+    }
+
+    if (post.platform === "linkedin" && !process.env.LINKEDIN_ACCESS_TOKEN) {
       const updated = await storage.updateSocialPost(id, {
         status: "published",
         publishedAt: new Date(),
       });
-      return res.json({ post: updated, note: "Marked published (LinkedIn API stub)." });
+      return res.json({
+        post: updated,
+        note: "Marked as published. To auto-publish to LinkedIn, set LINKEDIN_ACCESS_TOKEN (and optionally LINKEDIN_ORG_URN) in your environment secrets.",
+      });
     }
 
     const updated = await storage.updateSocialPost(id, {

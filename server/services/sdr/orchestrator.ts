@@ -435,11 +435,34 @@ function resolveVerticalSequenceName(verticalKey: string, rawVertical: string | 
   return VERTICAL_SEQUENCE_MAP[verticalKey] || "1. Switch & Save — Statement Audit";
 }
 
+async function attachAgentName(lead: SdrLeadState): Promise<void> {
+  try {
+    if (!lead.contactId) return;
+    const contact = await storage.getContact(lead.contactId);
+    if (!contact) return;
+    const deals = await storage.getDealsByContact(contact.id);
+    for (const deal of deals) {
+      const agentMerchantList = await storage.getAgentMerchantsByDeal(deal.id);
+      if (agentMerchantList.length > 0) {
+        const agentRecord = await storage.getAgent(agentMerchantList[0].agentId);
+        if (agentRecord?.name) {
+          (lead as any)._resolvedAgentName = agentRecord.name;
+          return;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[SDR Orchestrator] Could not resolve agent name:", err);
+  }
+}
+
 function personalizeTemplate(template: string, lead: SdrLeadState): string {
   const firstName = lead.ownerName?.split(" ")[0] || "there";
   const enrichment = (lead.enrichmentData as Record<string, any>) || {};
   const serviceType = enrichment.serviceType || lead.vertical || "general";
   const estimatedVolume = enrichment.estimatedVolume || "your current volume";
+
+  const bookingLink = process.env.GHL_DEFAULT_BOOKING_LINK || process.env.SALES_CALENDAR_URL || "https://calendly.com/libertybancard";
 
   return template
     .replace(/\{\{first_name\}\}/g, firstName)
@@ -449,7 +472,7 @@ function personalizeTemplate(template: string, lead: SdrLeadState): string {
     .replace(/\{\{service_type\}\}/g, serviceType)
     .replace(/\{\{estimated_volume\}\}/g, estimatedVolume)
     .replace(/\{\{agent_name\}\}/g, (lead as any)._resolvedAgentName || "Liberty Bancard")
-    .replace(/\{\{link\}\}/g, "https://calendly.com/libertybancard");
+    .replace(/\{\{link\}\}/g, bookingLink);
 }
 
 async function personalizeWithAI(template: string, lead: SdrLeadState, channel: string): Promise<string> {
@@ -929,6 +952,8 @@ function isImmediateAction(actionType: string): boolean {
 
 async function processLead(lead: SdrLeadState): Promise<void> {
   try {
+    await attachAgentName(lead);
+
     if (lead.stage === "DISCOVERED" || lead.stage === "ENRICHED" || lead.stage === "DEDUPED" || lead.stage === "CLASSIFIED") {
       const processorData = await getLeadProcessorData(lead.businessId);
       const growthData = await getLeadGrowthData(lead.businessId, lead);

@@ -429,8 +429,14 @@ function getGhlStageIdOverrides(): Record<string, string> {
   const raw = process.env.GHL_STAGE_ID_MAP;
   if (!raw) return {};
   try {
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      console.warn(`[GHL Sync] GHL_STAGE_ID_MAP parsed but is not a plain object (got ${Array.isArray(parsed) ? "array" : typeof parsed}): ${raw}`);
+      return {};
+    }
+    return parsed;
   } catch {
+    console.warn(`[GHL Sync] GHL_STAGE_ID_MAP failed to parse as JSON — stage ID overrides disabled. Bad value: ${raw}`);
     return {};
   }
 }
