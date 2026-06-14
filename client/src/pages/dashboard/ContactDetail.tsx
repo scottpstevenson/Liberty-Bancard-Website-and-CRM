@@ -22,6 +22,7 @@ import {
   Activity, Link2, Trash2, Star,
   RefreshCw, CheckCircle2, AlertCircle, Linkedin, FolderOpen, Info,
   ChevronDown, ChevronUp, Brain, AlertOctagon, ShieldCheck, GitFork, Bot, MapPin, Store,
+  FileSearch2,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import Comments from "@/components/Comments";
@@ -478,6 +479,51 @@ export default function ContactDetail() {
     enabled: !!contactId,
   });
 
+  type RateReviewEntry = {
+    id: number;
+    status: string | null;
+    createdAt: string | null;
+    repViewedAt: string | null;
+    resolvedAt: string | null;
+    resolution: string | null;
+    dealId: number | null;
+    document?: { id: number; fileName: string } | null;
+  };
+  const { data: rateReviews = [], refetch: refetchRateReviews } = useQuery<RateReviewEntry[]>({
+    queryKey: ["/api/rate-reviews/contact", contactId],
+    queryFn: async () => {
+      const res = await fetch(`/api/rate-reviews/contact/${contactId}`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!contactId,
+  });
+
+  const markRateReviewViewedMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("POST", `/api/rate-reviews/${id}/mark-viewed`);
+      return res.json();
+    },
+    onSuccess: () => {
+      refetchRateReviews();
+      toast({ title: "Marked as viewed" });
+    },
+  });
+
+  const generateRetentionProposalMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("POST", `/api/rate-reviews/${id}/generate-proposal`);
+      return res.json();
+    },
+    onSuccess: () => {
+      refetchRateReviews();
+      toast({ title: "Retention proposal queued", description: "AI is generating the proposal. Check the deal's proposals tab shortly." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
   const { data: allCompanies = [] } = useQuery<Company[]>({
     queryKey: ["/api/companies"],
   });
@@ -925,6 +971,82 @@ export default function ContactDetail() {
           ghlSyncStatus={ghlSyncStatus}
           resyncToGhlMutation={resyncToGhlMutation}
         />
+
+      {/* Rate Review Banner */}
+      {rateReviews.filter(r => r.status !== "resolved").map((review) => {
+        const statusLabels: Record<string, string> = {
+          requested: "Submitted — Awaiting Review",
+          analysis_pending: "Analyzing Statement…",
+          analysis_complete: "Analysis Complete",
+          rep_viewed: "Under Review",
+          proposal_sent: "Proposal Sent",
+        };
+        const statusLabel = statusLabels[review.status ?? "requested"] ?? review.status;
+        return (
+          <Card key={review.id} className="border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30" data-testid={`card-rate-review-banner-${review.id}`}>
+            <CardContent className="py-3 px-4">
+              <div className="flex flex-wrap items-start gap-3">
+                <FileSearch2 className="w-5 h-5 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+                <div className="flex-1 min-w-0 space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-semibold text-amber-800 dark:text-amber-200">Rate Review Requested</span>
+                    <Badge variant="outline" className="text-xs border-amber-400 text-amber-700 dark:text-amber-300" data-testid={`badge-rate-review-status-${review.id}`}>
+                      {statusLabel}
+                    </Badge>
+                    {review.repViewedAt && (
+                      <Badge variant="secondary" className="text-xs" data-testid={`badge-rate-review-viewed-${review.id}`}>Viewed</Badge>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-amber-700 dark:text-amber-400">
+                    <span>Submitted: {review.createdAt ? new Date(review.createdAt).toLocaleDateString() : "—"}</span>
+                    {review.document && (
+                      <span>Statement: <span className="font-medium" data-testid={`text-rate-review-doc-${review.id}`}>{review.document.fileName}</span></span>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    {!review.repViewedAt && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs border-amber-400 text-amber-800 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-900/40"
+                        onClick={() => markRateReviewViewedMutation.mutate(review.id)}
+                        disabled={markRateReviewViewedMutation.isPending}
+                        data-testid={`button-mark-reviewed-${review.id}`}
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
+                        Mark Reviewed
+                      </Button>
+                    )}
+                    {review.dealId && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs border-amber-400 text-amber-800 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-900/40"
+                        onClick={() => generateRetentionProposalMutation.mutate(review.id)}
+                        disabled={generateRetentionProposalMutation.isPending}
+                        data-testid={`button-generate-retention-proposal-${review.id}`}
+                      >
+                        <TrendingUp className="w-3.5 h-3.5 mr-1" />
+                        {generateRetentionProposalMutation.isPending ? "Generating…" : "Generate Retention Proposal"}
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs border-amber-400 text-amber-800 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-900/40"
+                      onClick={() => setActiveTab("documents")}
+                      data-testid={`button-view-rate-review-doc-${review.id}`}
+                    >
+                      <FolderOpen className="w-3.5 h-3.5 mr-1" />
+                      View Statement
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })}
 
       {/* LinkedIn Enrichment */}
         <LinkedinEnrichmentSection

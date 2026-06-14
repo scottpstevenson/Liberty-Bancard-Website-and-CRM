@@ -37,6 +37,7 @@ import { registerChargebacksRoutes } from "./routes/chargebacks";
 import { registerToolkitRoutes } from "./routes/toolkit";
 import { registerLifecycleRoutes } from "./routes/lifecycle";
 import { registerChurnRoutes } from "./routes/churn";
+import { registerRateReviewRoutes } from "./routes/rate-review";
 import { registerResidualsRoutes } from "./routes/residuals";
 import { registerVirtualTerminalRoutes } from "./routes/virtual-terminal";
 import { registerBoardingRoutes } from "./routes/boarding";
@@ -158,6 +159,7 @@ export async function registerRoutes(
   registerToolkitRoutes(app);
   registerLifecycleRoutes(app);
   registerChurnRoutes(app);
+  registerRateReviewRoutes(app);
   registerResidualsRoutes(app);
   registerVirtualTerminalRoutes(app);
   registerBoardingRoutes(app);

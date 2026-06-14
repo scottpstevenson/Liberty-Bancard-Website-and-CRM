@@ -237,6 +237,7 @@ export const DOCUMENT_CATEGORIES = [
   "EIN Letter",
   "Signed Proposal",
   "Processing Statement",
+  "Rate Review Statement",
   "Other",
 ] as const;
 
@@ -3791,6 +3792,36 @@ export const insertOnboardingChecklistItemSchema = createInsertSchema(onboarding
 
 export type OnboardingChecklistItem = typeof onboardingChecklistItems.$inferSelect;
 export type InsertOnboardingChecklistItem = z.infer<typeof insertOnboardingChecklistItemSchema>;
+
+export const rateReviewRequests = pgTable("rate_review_requests", {
+  id: serial("id").primaryKey(),
+  contactId: integer("contact_id").references(() => contacts.id),
+  dealId: integer("deal_id").references(() => deals.id),
+  documentId: integer("document_id").references(() => documents.id),
+  status: text("status").default("requested"),
+  analysisResult: jsonb("analysis_result"),
+  isOptimalPricing: boolean("is_optimal_pricing"),
+  requestNotes: text("request_notes"),
+  repViewedAt: timestamp("rep_viewed_at"),
+  resolvedAt: timestamp("resolved_at"),
+  resolvedBy: text("resolved_by"),
+  resolution: text("resolution"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("rate_review_requests_contact_id_idx").on(table.contactId),
+  index("rate_review_requests_status_idx").on(table.status),
+  index("rate_review_requests_created_at_idx").on(table.createdAt),
+]);
+
+export const insertRateReviewRequestSchema = createInsertSchema(rateReviewRequests).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type RateReviewRequest = typeof rateReviewRequests.$inferSelect;
+export type InsertRateReviewRequest = z.infer<typeof insertRateReviewRequestSchema>;
 
 export const toolClickEvents = pgTable("tool_click_events", {
   id: serial("id").primaryKey(),

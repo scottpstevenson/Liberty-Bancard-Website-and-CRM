@@ -24,6 +24,7 @@ import {
   PlayCircle, BookOpen, ChevronDown, ChevronUp, Shield, Clock, Zap, Star,
   Phone, Mail, AlertCircle, AlertTriangle, FileCheck, CheckCircle2, Gift, Copy, ExternalLink,
   TrendingUp, TrendingDown, DollarSign, BarChart2, PieChart, Target, Info,
+  FileSearch2, RefreshCw,
 } from "lucide-react";
 import { Link } from "wouter";
 import type { MerchantProfile, OnboardingStep, Ticket, MerchantReferral } from "@shared/schema";
@@ -190,6 +191,189 @@ function AdminMidEditor({ profile }: { profile: MerchantProfile }) {
   );
 }
 
+type RateReviewStatus = {
+  reviews: Array<{
+    id: number;
+    status: string | null;
+    requestNotes: string | null;
+    createdAt: string | null;
+    repViewedAt: string | null;
+    resolvedAt: string | null;
+    resolution: string | null;
+    document?: { id: number; fileName: string; storageKey: string } | null;
+  }>;
+  eligible: boolean;
+};
+
+const RATE_REVIEW_STATUS_LABELS: Record<string, string> = {
+  requested: "Submitted — Under Review",
+  analysis_pending: "Analyzing Statement…",
+  analysis_complete: "Analysis Complete",
+  rep_viewed: "Under Review by Your Rep",
+  proposal_sent: "Proposal Prepared",
+  resolved: "Resolved",
+};
+
+function RateReviewCard({ profile }: { profile: MerchantProfile }) {
+  const { toast } = useToast();
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [notes, setNotes] = useState("");
+  const [isUploading, setIsUploading] = useState(false);
+
+  const { data, isLoading, refetch } = useQuery<RateReviewStatus>({
+    queryKey: ["/api/merchant-portal/rate-review"],
+    queryFn: async () => {
+      const res = await fetch("/api/merchant-portal/rate-review", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
+  });
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedFile) return;
+    setIsUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", selectedFile);
+      if (notes) formData.append("notes", notes);
+      const res = await fetch("/api/merchant-portal/rate-review", {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: "Upload failed" }));
+        throw new Error(err.message || "Upload failed");
+      }
+      toast({ title: "Rate review submitted!", description: "We'll analyze your statement and contact you within 1 business day." });
+      setSelectedFile(null);
+      setNotes("");
+      refetch();
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  if (isLoading) return <Skeleton className="h-32 w-full" data-testid="rate-review-loading" />;
+
+  const openReview = data?.reviews?.find(r => r.status !== "resolved");
+
+  if (!data?.eligible && !openReview) {
+    const goLive = profile.goLiveDate ? new Date(profile.goLiveDate) : null;
+    const daysRemaining = goLive ? Math.max(0, 30 - Math.floor((Date.now() - goLive.getTime()) / 86400000)) : null;
+    return (
+      <Card data-testid="card-rate-review-ineligible" className="border-dashed">
+        <CardContent className="flex items-start gap-3 py-4">
+          <FileSearch2 className="w-5 h-5 text-muted-foreground mt-0.5 shrink-0" />
+          <div>
+            <p className="text-sm font-medium">Rate Review</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {profile.accountStatus !== "active"
+                ? "Available once your account is active."
+                : daysRemaining !== null && daysRemaining > 0
+                  ? `Available in ${daysRemaining} day${daysRemaining !== 1 ? "s" : ""} — after 30 days of processing.`
+                  : "Request a review of your processing rates."}
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (openReview) {
+    const statusLabel = RATE_REVIEW_STATUS_LABELS[openReview.status ?? "requested"] ?? openReview.status;
+    return (
+      <Card data-testid="card-rate-review-open">
+        <CardHeader className="flex flex-row items-center justify-between gap-2 flex-wrap pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <FileSearch2 className="w-4 h-4 text-primary" />
+            Rate Review In Progress
+          </CardTitle>
+          <Badge variant="secondary" data-testid="badge-rate-review-status">{statusLabel}</Badge>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div>
+              <p className="text-xs text-muted-foreground">Submitted</p>
+              <p className="font-medium" data-testid="text-rate-review-submitted">{openReview.createdAt ? new Date(openReview.createdAt).toLocaleDateString() : "—"}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Statement</p>
+              <p className="font-medium truncate" data-testid="text-rate-review-doc">{openReview.document?.fileName || "Uploaded"}</p>
+            </div>
+          </div>
+          {openReview.resolution && (
+            <div className="rounded-md bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 p-3">
+              <p className="text-xs text-emerald-700 dark:text-emerald-300 font-medium">Resolution</p>
+              <p className="text-sm mt-0.5" data-testid="text-rate-review-resolution">{openReview.resolution}</p>
+            </div>
+          )}
+          {openReview.requestNotes && (
+            <p className="text-xs text-muted-foreground">Notes: {openReview.requestNotes}</p>
+          )}
+          <p className="text-xs text-muted-foreground">Your account representative will contact you within 1 business day.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card data-testid="card-rate-review-form">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base flex items-center gap-2">
+          <FileSearch2 className="w-4 h-4 text-primary" />
+          Request a Rate Review
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="rounded-md bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 p-3 space-y-1">
+          <p className="text-sm font-medium text-blue-800 dark:text-blue-200">What happens when you request a rate review?</p>
+          <ul className="text-xs text-blue-700 dark:text-blue-300 space-y-1 list-disc list-inside">
+            <li>Our AI analyzes your current processing statement</li>
+            <li>Your rep reviews savings opportunities within 1 business day</li>
+            <li>We'll present you with an optimized pricing proposal</li>
+          </ul>
+          <p className="text-xs text-blue-600 dark:text-blue-400 pt-1">Eligibility, card brand rules, and applicable laws apply. No savings are guaranteed without full statement review.</p>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div>
+            <label className="block text-sm font-medium mb-1.5" htmlFor="rate-review-file">Upload Your Current Statement <span className="text-red-500">*</span></label>
+            <div className="relative">
+              <Input
+                id="rate-review-file"
+                type="file"
+                accept=".pdf,.csv,.xls,.xlsx,.png,.jpg,.jpeg"
+                onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                className="cursor-pointer"
+                required
+                data-testid="input-rate-review-file"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">Accepted: PDF, CSV, Excel, or image. Max 10MB.</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1.5" htmlFor="rate-review-notes">Notes (optional)</label>
+            <Textarea
+              id="rate-review-notes"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Any specific concerns about your current rates, fees, or pricing?"
+              rows={3}
+              data-testid="textarea-rate-review-notes"
+            />
+          </div>
+          <Button type="submit" disabled={!selectedFile || isUploading} className="w-full" data-testid="button-submit-rate-review">
+            {isUploading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Submitting…</> : <><Upload className="w-4 h-4 mr-2" /> Submit Rate Review Request</>}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+
 function AccountTab({ profile, isLoading, isAdmin }: { profile: MerchantProfile | null | undefined; isLoading: boolean; isAdmin: boolean }) {
   if (isLoading) {
     return (
@@ -327,6 +511,8 @@ function AccountTab({ profile, isLoading, isAdmin }: { profile: MerchantProfile 
           </CardContent>
         </Card>
       )}
+
+      <RateReviewCard profile={profile} />
     </div>
   );
 }

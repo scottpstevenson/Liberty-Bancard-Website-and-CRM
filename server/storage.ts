@@ -120,6 +120,7 @@ import { HealthStorage } from "./storage/health";
 import { PartnersStorage } from "./storage/partners";
 import { ReviewsStorage } from "./storage/reviews";
 import { MiscStorage } from "./storage/misc";
+import { RateReviewStorage } from "./storage/rate-review";
 import { BusinessesStorage } from "./storage/businesses";
 import { SdrStorage } from "./storage/sdr";
 import { PartnerOrgsStorage } from "./storage/partner-orgs";
@@ -689,10 +690,10 @@ function normalizePagination(params?: PaginationParams): { limit: number; offset
     }
   }
 
-export interface DatabaseStorage extends ContactsStorage, DealsStorage, TicketsStorage, TasksStorage, DocumentsStorage, AuditStorage, NotificationsStorage, WorkflowsStorage, TemplatesStorage, ProspectsStorage, CampaignsStorage, NotesStorage, CommLogsStorage, AutomationStorage, SunbizStorage, MerchantsStorage, ResidualsStorage, HealthStorage, PartnersStorage, ReviewsStorage, MiscStorage, BusinessesStorage, SdrStorage, PartnerOrgsStorage, ContentStorage, ChurnStorage, RelationshipsStorage {}
+export interface DatabaseStorage extends ContactsStorage, DealsStorage, TicketsStorage, TasksStorage, DocumentsStorage, AuditStorage, NotificationsStorage, WorkflowsStorage, TemplatesStorage, ProspectsStorage, CampaignsStorage, NotesStorage, CommLogsStorage, AutomationStorage, SunbizStorage, MerchantsStorage, ResidualsStorage, HealthStorage, PartnersStorage, ReviewsStorage, MiscStorage, RateReviewStorage, BusinessesStorage, SdrStorage, PartnerOrgsStorage, ContentStorage, ChurnStorage, RelationshipsStorage {}
 
 export class DatabaseStorage implements IStorage {}
 
-applyMixins(DatabaseStorage, [ContactsStorage, DealsStorage, TicketsStorage, TasksStorage, DocumentsStorage, AuditStorage, NotificationsStorage, WorkflowsStorage, TemplatesStorage, ProspectsStorage, CampaignsStorage, NotesStorage, CommLogsStorage, AutomationStorage, SunbizStorage, MerchantsStorage, ResidualsStorage, HealthStorage, PartnersStorage, ReviewsStorage, MiscStorage, BusinessesStorage, SdrStorage, PartnerOrgsStorage, ContentStorage, ChurnStorage, RelationshipsStorage]);
+applyMixins(DatabaseStorage, [ContactsStorage, DealsStorage, TicketsStorage, TasksStorage, DocumentsStorage, AuditStorage, NotificationsStorage, WorkflowsStorage, TemplatesStorage, ProspectsStorage, CampaignsStorage, NotesStorage, CommLogsStorage, AutomationStorage, SunbizStorage, MerchantsStorage, ResidualsStorage, HealthStorage, PartnersStorage, ReviewsStorage, MiscStorage, RateReviewStorage, BusinessesStorage, SdrStorage, PartnerOrgsStorage, ContentStorage, ChurnStorage, RelationshipsStorage]);
 
 export const storage = new DatabaseStorage();
