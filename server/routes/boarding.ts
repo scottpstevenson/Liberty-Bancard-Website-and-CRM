@@ -637,4 +637,22 @@ export function registerBoardingRoutes(app: Express) {
       res.status(500).json({ message: err.message });
     }
   });
+
+  app.get("/api/operator/statement-chain", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const limit = Math.min(Number(req.query.limit) || 60, 200);
+      const failuresOnly = req.query.failuresOnly === "true";
+      const all = await storage.getAuditLogs({ limit: limit * 4 });
+      const filtered = all
+        .filter((l) =>
+          failuresOnly
+            ? l.action === "statement_chain_partial_failure"
+            : l.action === "statement_chain_complete" || l.action === "statement_chain_partial_failure"
+        )
+        .slice(0, limit);
+      res.json(filtered);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
 }

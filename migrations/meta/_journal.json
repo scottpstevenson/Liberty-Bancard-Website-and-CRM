@@ -190,6 +190,13 @@
                         "when": 1780900000000,
                         "tag": "0019_rate_review_requests",
                         "breakpoints": true
+                },
+                {
+                        "idx": 26,
+                        "version": "7",
+                        "when": 1781000000000,
+                        "tag": "0024_terminal_economics",
+                        "breakpoints": true
                 }
         ]
 }

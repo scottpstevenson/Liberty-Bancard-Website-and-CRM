@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb, varchar, real, index, uniqueIndex, unique } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, jsonb, varchar, real, numeric, index, uniqueIndex, unique } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -1432,6 +1432,13 @@ export const equipmentOrders = pgTable("equipment_orders", {
   shippedAt: timestamp("shipped_at"),
   deliveredAt: timestamp("delivered_at"),
   notes: text("notes"),
+  libertyCost: numeric("liberty_cost"),
+  estimatedMonthlyGp: numeric("estimated_monthly_gp"),
+  paybackMonths: numeric("payback_months"),
+  approvalTier: text("approval_tier"),
+  managerApproved: boolean("manager_approved").default(false),
+  approvedAt: timestamp("approved_at"),
+  approvedByUserId: varchar("approved_by_user_id"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

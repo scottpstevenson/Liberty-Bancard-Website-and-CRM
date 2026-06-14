@@ -7,3 +7,5 @@
 - [Sequence control policy](sequence-control-policy.md) — All sequences default to `paused`; storage layer blocks enrollment into non-active sequences at creation time.
 - [Redis BullMQ smoke-test pattern](redis-bullmq-smoketest.md) — probe Redis with ioredis ping before handing ConnectionOptions to BullMQ; WRONGPASS loops forever otherwise; setInterval fallback only triggers on throw.
 - [GHL token ops](ghl-token-ops.md) — GHL Private Integration Token 401 on all endpoints when expired; authTest in ActivationPanel shows N/A; user must regenerate in GHL Settings → Private Integrations.
+- [Idempotent migration FK pattern](idempotent-migration-fk.md) — duplicate FK migrations: wrap ADD CONSTRAINT with DROP CONSTRAINT IF EXISTS first; both 0020 and 0023 had the same multi_location_fk name.
+- [JSX fragment scope in multi-card pages](jsx-fragment-multi-card.md) — when a page section has multiple sibling Cards, the ternary else-branch fragment must close BEFORE the first Card's </CardContent>, not inside a later sibling Card.

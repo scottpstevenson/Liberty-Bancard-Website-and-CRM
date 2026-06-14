@@ -89,6 +89,7 @@ export default function UploadStatement() {
   const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [isUploading, setIsUploading] = useState(false);
   const [analysisVertical, setAnalysisVertical] = useState("");
+  const [uploadSucceeded, setUploadSucceeded] = useState(false);
 
   const params = new URLSearchParams(window.location.search);
   const preTerminal = params.get("terminal") === "yes";
@@ -254,11 +255,7 @@ export default function UploadStatement() {
       trackStatementUpload();
       trackFormSubmission("statement_upload");
       trackConversion("statement_upload");
-      toast({
-        title: "Statement Received",
-        description: "We got your statement and will review it shortly.",
-      });
-      setLocation("/thanks-statement");
+      setUploadSucceeded(true);
     },
     onError: (error: Error) => {
       setUploadProgress(0);
@@ -381,14 +378,37 @@ export default function UploadStatement() {
           <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 reveal">
             <Card data-testid="card-upload-form">
               <CardContent className="pt-6">
-                <h2
-                  className="text-2xl font-bold text-foreground mb-6"
-                  data-testid="text-form-title"
-                >
-                  Submit Your Statement for Review
-                </h2>
+                {uploadSucceeded ? (
+                  <div className="text-center py-10 space-y-5" data-testid="section-upload-success">
+                    <CheckCircle2 className="h-14 w-14 text-green-500 mx-auto" />
+                    <div>
+                      <h2 className="text-2xl font-bold text-foreground mb-2" data-testid="text-success-heading">
+                        Statement Received!
+                      </h2>
+                      <p className="text-muted-foreground max-w-md mx-auto">
+                        We've got your statement and our AI is analyzing it now. A team member will follow up with your personalized savings report — typically within 1 business day.
+                      </p>
+                    </div>
+                    <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                      <span data-testid="text-analyzing">Analyzing your statement…</span>
+                    </div>
+                    <div className="pt-2">
+                      <Button asChild variant="outline" data-testid="button-view-portal">
+                        <Link href="/merchant-portal">View My Portal</Link>
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <h2
+                      className="text-2xl font-bold text-foreground mb-6"
+                      data-testid="text-form-title"
+                    >
+                      Submit Your Statement for Review
+                    </h2>
 
-                <Form {...form}>
+                    <Form {...form}>
                   <form
                     onSubmit={form.handleSubmit(onSubmit)}
                     className="space-y-6"
@@ -677,6 +697,8 @@ export default function UploadStatement() {
                     </Button>
                   </form>
                 </Form>
+                  </>
+                )}
               </CardContent>
             </Card>
 

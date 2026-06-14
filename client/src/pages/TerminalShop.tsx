@@ -563,6 +563,60 @@ export default function TerminalShop() {
               </div>
             </section>
 
+            <section className="py-12 border-t" data-testid="section-terminal-roi">
+              <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+                <h2 className="text-xl font-display font-bold text-foreground mb-2 text-center">
+                  Free Terminal — The Economics
+                </h2>
+                <p className="text-sm text-muted-foreground text-center mb-8">
+                  How the Liberty Bancard free terminal offer works for merchants at every volume level.
+                </p>
+                <div className="overflow-x-auto rounded-lg border">
+                  <table className="w-full text-sm" data-testid="table-terminal-roi">
+                    <thead className="bg-muted/60">
+                      <tr>
+                        <th className="text-left p-3 font-medium text-foreground">Monthly Volume</th>
+                        <th className="text-right p-3 font-medium text-foreground">Est. Monthly GP</th>
+                        <th className="text-right p-3 font-medium text-foreground">Terminal Cost</th>
+                        <th className="text-right p-3 font-medium text-foreground">Payback</th>
+                        <th className="text-right p-3 font-medium text-foreground">Tier</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[
+                        { vol: "$10,000", gp: "$20", cost: "$199", payback: "9.9 mo", tier: "yellow" },
+                        { vol: "$20,000", gp: "$40", cost: "$199", payback: "5.0 mo", tier: "green" },
+                        { vol: "$30,000", gp: "$60", cost: "$199", payback: "3.3 mo", tier: "green" },
+                        { vol: "$50,000", gp: "$100", cost: "$199", payback: "2.0 mo", tier: "green" },
+                        { vol: "$5,000",  gp: "$10", cost: "$199", payback: "19.9 mo", tier: "red" },
+                      ].map((row, i) => (
+                        <tr key={i} className={`border-t ${i % 2 === 0 ? "bg-background" : "bg-muted/20"}`}>
+                          <td className="p-3 font-medium">{row.vol}</td>
+                          <td className="p-3 text-right text-muted-foreground">{row.gp}</td>
+                          <td className="p-3 text-right text-muted-foreground">{row.cost}</td>
+                          <td className="p-3 text-right font-semibold">{row.payback}</td>
+                          <td className="p-3 text-right">
+                            {row.tier === "green" && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/20 dark:text-green-300">Auto-approve</span>
+                            )}
+                            {row.tier === "yellow" && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-300">Rep discretion</span>
+                            )}
+                            {row.tier === "red" && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700 dark:bg-red-900/20 dark:text-red-300">Mgr approval</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="text-xs text-muted-foreground mt-4 text-center">
+                  Based on 20 bps Liberty margin estimate. PAX A920 example ($199 Liberty cost). Actual payback depends on program and volume.
+                </p>
+              </div>
+            </section>
+
             <section className="py-12">
               <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
                 <h2 className="text-xl font-display font-bold text-foreground mb-4 text-center" data-testid="text-active-promos-heading">

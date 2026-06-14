@@ -17,7 +17,8 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Calendar, Sparkles, Loader2, Download, ChevronDown, ChevronUp, Archive, Settings, ArrowUp, ArrowDown, Pencil, Trash2, RotateCcw, MoreVertical, TrendingUp, TrendingDown, UserRound, AlertTriangle, Activity, ArrowUpDown, FileText, Copy, ExternalLink, Send, CheckCircle2, History, User, Bot } from "lucide-react";
+import { Plus, Calendar, Sparkles, Loader2, Download, ChevronDown, ChevronUp, Archive, Settings, ArrowUp, ArrowDown, Pencil, Trash2, RotateCcw, MoreVertical, TrendingUp, TrendingDown, UserRound, AlertTriangle, Activity, ArrowUpDown, FileText, Copy, ExternalLink, Send, CheckCircle2, History, User, Bot, Monitor } from "lucide-react";
+import TerminalEconomicsCard from "@/components/TerminalEconomicsCard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
@@ -1426,6 +1427,21 @@ export default function Pipeline() {
                   Used to match incoming residual reports back to this deal.
                 </p>
               </div>
+
+              {selectedDeal && (
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-1.5">
+                    <Monitor className="w-3.5 h-3.5" />
+                    Terminal Economics
+                  </Label>
+                  <TerminalEconomicsCard
+                    dealId={selectedDeal.id}
+                    terminalRecommendation={(selectedDeal as any).terminalRecommendation}
+                    monthlyVolume={(selectedDeal as any).totalVolume}
+                    isManagerOrAdmin={isManagerOrAdmin}
+                  />
+                </div>
+              )}
 
               {isManagerOrAdmin && (
                 <div className="space-y-2">

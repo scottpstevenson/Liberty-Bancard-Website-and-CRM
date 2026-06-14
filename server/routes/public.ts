@@ -18,6 +18,7 @@ import path from "path";
 import fs from "fs";
 import { upload, trackReferral, sendConfirmationSms } from "./helpers";
 import { publicLeadRateLimit } from "../middleware/public-rate-limit";
+import { StatementChainTracker } from "../services/statement-upload-chain";
 
 export function registerPublicRoutes(app: Express) {
   const autoProposalRateLimit = new Map<string, number>();
@@ -283,16 +284,20 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       ingestBusinessFromContact(contact.id, "manual_upload", "website_statement").catch(err => console.warn("[Statement] Business ingest failed:", err));
       scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
-      autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "statement_upload" }).catch(err => console.error("Auto-enroll error:", err));
-      triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: deal.id }, { formType: "statement_upload" }).catch(err => console.error("Workflow trigger error:", err));
-      enrollInInboundConfirmation({ contactId: contact.id, formType: "statement_upload", dealId: deal.id }).catch(err => console.error("GHL inbound confirmation error:", err));
-      if (!isGhlInboundActive() && parseBool(consentSms)) sendConfirmationSms(contact.id, firstName, "statement_upload", deal.id).catch(err => console.error("Confirm SMS error:", err));
-      generateDealBlueprint(deal.id).catch(err => console.error("Blueprint generation error:", err));
-      autoGenerateProposal(deal.id, statementFileBuffer).catch(err => console.error("Auto-proposal error:", err));
-      syncFormSubmissionToGhl({ contactId: contact.id, dealId: deal.id, leadSource: "statement_upload", sequenceName: "1. Switch & Save — Statement Audit", formData: { lb_sequence_name: "1. Switch & Save — Statement Audit" } }).catch(err => console.error("GHL form sync error:", err));
-      syncStatementUploadToGhl(contact.id, statementFileName).catch(err => console.error("GHL statement sync error:", err));
-
       res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id });
+
+      // Background chain — all steps tracked with per-step failure logging
+      const chain = new StatementChainTracker();
+      Promise.all([
+        chain.run("blueprint_generation",   () => generateDealBlueprint(deal.id)),
+        chain.run("proposal_generation",    () => autoGenerateProposal(deal.id, statementFileBuffer)),
+        chain.run("ghl_form_sync",          () => syncFormSubmissionToGhl({ contactId: contact.id, dealId: deal.id, leadSource: "statement_upload", sequenceName: "1. Switch & Save — Statement Audit", formData: { lb_sequence_name: "1. Switch & Save — Statement Audit" } })),
+        chain.run("ghl_statement_sync",     () => syncStatementUploadToGhl(contact.id, statementFileName)),
+        chain.run("sequence_enrollment",    () => autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "statement_upload" })),
+        chain.run("workflow_trigger",       () => triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: deal.id }, { formType: "statement_upload" })),
+        chain.run("inbound_confirmation",   () => enrollInInboundConfirmation({ contactId: contact.id, formType: "statement_upload", dealId: deal.id })),
+        ...(!isGhlInboundActive() && parseBool(consentSms) ? [chain.run("confirm_sms", () => sendConfirmationSms(contact.id, firstName, "statement_upload", deal.id))] : []),
+      ]).then(() => chain.persist(contact.id, deal.id)).catch(() => {});
     } catch (err: any) {
       res.status(400).json({ message: err.message || "Invalid submission" });
     }

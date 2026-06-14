@@ -6,6 +6,7 @@ import { and, eq } from "drizzle-orm";
 import { insertEquipmentOrderSchema, insertMerchantApplicationSchema, insertMerchantProfileSchema, insertOnboardingStepSchema, deals } from "@shared/schema";
 import { db } from "../db";
 import { getDocumentStatus, sendDocumentForEsign } from "../services/ghl";
+import { computeOrderEconomics } from "../services/terminal-economics";
 import { syncMerchantApplicationToGhl } from "../services/ghl-form-sync";
 import { createContactGhlFirst } from "../services/contact-writer";
 import { sendMerchantWelcomeEmail, sendMerchantPortalWelcomeEmail } from "../services/merchant-welcome";
@@ -926,7 +927,19 @@ export function registerMerchantsRoutes(app: Express) {
   app.post("/api/equipment-orders", isDashboardUser, async (req, res) => {
     try {
       const input = insertEquipmentOrderSchema.parse(req.body);
-      const order = await storage.createEquipmentOrder(input);
+      let economicsFields: Record<string, unknown> = {};
+      if (input.dealId && !req.body.libertyCost) {
+        const deal = await storage.getDeal(input.dealId);
+        const vol = deal?.totalVolume ? Number(String(deal.totalVolume).replace(/[^0-9.]/g, "")) : null;
+        const eco = computeOrderEconomics(input.equipmentType, vol);
+        economicsFields = {
+          libertyCost: String(eco.libertyCost),
+          estimatedMonthlyGp: String(eco.estimatedMonthlyGp),
+          ...(eco.paybackMonths != null ? { paybackMonths: String(eco.paybackMonths) } : {}),
+          approvalTier: eco.approvalTier,
+        };
+      }
+      const order = await storage.createEquipmentOrder({ ...input, ...economicsFields } as any);
       res.status(201).json(order);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join('.') });
@@ -938,6 +951,21 @@ export function registerMerchantsRoutes(app: Express) {
     try {
       const updated = await storage.updateEquipmentOrder(Number(req.params.id), req.body);
       if (!updated) return res.status(404).json({ message: "Not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/equipment-orders/:id/approve", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const user = req.user as any;
+      const updated = await storage.updateEquipmentOrder(Number(req.params.id), {
+        managerApproved: true,
+        approvedAt: new Date(),
+        approvedByUserId: user?.id ?? null,
+      } as any);
+      if (!updated) return res.status(404).json({ message: "Order not found" });
       res.json(updated);
     } catch (err: any) {
       res.status(400).json({ message: err.message });

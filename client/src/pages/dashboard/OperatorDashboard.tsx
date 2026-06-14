@@ -17,8 +17,9 @@ import {
   Activity, AlertTriangle, ArrowUpRight, BarChart3, Calendar, CheckCircle2,
   Clock, Loader2, Mail, MessageSquare, Phone, RefreshCw, Send, Shield,
   Target, TrendingUp, Users, XCircle, Zap, Eye, Filter, ChevronRight, Server, GitMerge,
-  Bot, DollarSign, Hash, Play, Flag, ShieldCheck,
+  Bot, DollarSign, Hash, Play, Flag, ShieldCheck, FileText,
 } from "lucide-react";
+import StatementChainPanel from "@/components/operator/StatementChainPanel";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell, Legend, LineChart, Line } from "recharts";
 
 interface SyncConflict {
@@ -1775,6 +1776,9 @@ export default function OperatorDashboard() {
           <TabsTrigger value="vertical-coverage" data-testid="tab-vertical-coverage" className="flex items-center gap-1">
             <BarChart3 className="w-3.5 h-3.5" /> Vertical Coverage
           </TabsTrigger>
+          <TabsTrigger value="statement-chain" data-testid="tab-statement-chain" className="flex items-center gap-1">
+            <FileText className="w-3.5 h-3.5" /> Statement Chain
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="job-health">
@@ -1824,6 +1828,9 @@ export default function OperatorDashboard() {
         </TabsContent>
         <TabsContent value="vertical-coverage">
           <VerticalCoveragePanel />
+        </TabsContent>
+        <TabsContent value="statement-chain">
+          <StatementChainPanel />
         </TabsContent>
       </Tabs>
     </div>
