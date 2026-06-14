@@ -13,6 +13,7 @@ import { routeContact } from "../services/smart-router";
 import { ingestBusinessFromContact } from "../services/sdr/dedupe";
 import { syncFormSubmissionToGhl, syncStatementUploadToGhl, syncSupportTicketToGhl } from "../services/ghl-form-sync";
 import { createContactGhlFirst } from "../services/contact-writer";
+import { runStatementUploadChain } from "../services/statement-upload-chain";
 import { parse } from "csv-parse/sync";
 import path from "path";
 import fs from "fs";
@@ -215,35 +216,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
 
       if (!contact) throw new Error("Could not resolve contact record");
 
-      let offerPath = "Not Sure";
-      if (parseBool(interestedIn0Percent)) offerPath = "0% Program";
-      else if (parseBool(needTerminal)) offerPath = "Terminal Needed";
-
-      const deal = existingDealId
-        ? await storage.getDeal(existingDealId).then(d => d!)
-        : await storage.createDeal({
-            contactId: contact.id, pipeline: "sales", stage: "Statement Received",
-            offerPath, notes: `Statement uploaded. ${notes || ""}`.trim(),
-            leadSource: utmSource ? `utm:${utmSource}` : "website",
-            campaignName: utmCampaign || undefined,
-          });
-
-      if (!deal) throw new Error("Could not resolve deal record");
-
-      await storage.createTask({
-        dealId: deal.id, contactId: contact.id,
-        title: "Review statement + send breakdown",
-        assignedTo: "Scott Stevenson",
-        dueDate: new Date(Date.now() + 2 * 60 * 60 * 1000),
-        priority: "high",
-      });
-
-      await storage.createNotification({
-        channel: "#sales", title: "New Statement Upload",
-        message: `${firstName} ${lastName} from ${businessName || "Unknown"} (${vertical || "Unknown"}) uploaded a statement`,
-        type: "alert",
-      });
-
+      // SMS consent audit log
       if (parseBool(consentSms)) {
         await storage.createConsentAuditLog({
           contactId: contact.id,
@@ -258,46 +231,36 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       }
 
       const statementFileBuffer = req.file?.buffer;
-      const rawStatementName = req.file?.originalname || businessName + "_statement";
+      const rawStatementName = req.file?.originalname || (businessName ? businessName + "_statement" : "statement");
       const statementFileName = path.basename(rawStatementName).replace(/[^a-zA-Z0-9._-]/g, "_");
 
-      if (statementFileBuffer) {
-        const uploadsDir = path.join(process.cwd(), "uploads");
-        if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
-        const diskFileName = `${Date.now()}_${statementFileName}`;
-        fs.writeFileSync(path.join(uploadsDir, diskFileName), statementFileBuffer);
-        const storageKey = `statements/${diskFileName}`;
+      // Run the full 11-step conversion chain (fire-and-forget — merchant always gets 201)
+      runStatementUploadChain({
+        contactId: contact.id,
+        dealId: existingDealId || null,
+        fileBuffer: statementFileBuffer,
+        fileName: statementFileName,
+        source: "website",
+        businessName: businessName || undefined,
+        consentEmail: parseBool(consentSms),
+      }).catch(err => console.error("[StatementChain] Unhandled chain error:", err.message));
 
-        await storage.createDocument({
-          type: "merchant_statement",
-          fileName: statementFileName,
-          storageKey,
-          dealId: deal.id,
-          contactId: contact.id,
-          accessScope: "internal",
-        });
-      }
-
-      await storage.createAuditLog({ action: "statement_uploaded", entityType: "contact", entityId: contact.id, details: { source: "website", hasFile: !!statementFileBuffer } });
-      await storage.updateDeal(deal.id, { statementReceived: true, docReadinessScore: statementFileBuffer ? 2 : 1 });
+      // Non-chain fire-and-forget actions
       trackReferral(referralCode, contactName, email, mobile, businessName).catch(err => console.error("Referral tracking error:", err));
       ingestBusinessFromContact(contact.id, "manual_upload", "website_statement").catch(err => console.warn("[Statement] Business ingest failed:", err));
       scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
-      res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id });
+      triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: deal.id }, { formType: "statement_upload" }).catch(err => console.error("Workflow trigger error:", err));
+      enrollInInboundConfirmation({ contactId: contact.id, formType: "statement_upload", dealId: deal.id }).catch(err => console.error("GHL inbound confirmation error:", err));
 
-      // Background chain — all steps tracked with per-step failure logging
-      const chain = new StatementChainTracker();
-      Promise.all([
-        chain.run("blueprint_generation",   () => generateDealBlueprint(deal.id)),
-        chain.run("proposal_generation",    () => autoGenerateProposal(deal.id, statementFileBuffer)),
-        chain.run("ghl_form_sync",          () => syncFormSubmissionToGhl({ contactId: contact.id, dealId: deal.id, leadSource: "statement_upload", sequenceName: "1. Switch & Save — Statement Audit", formData: { lb_sequence_name: "1. Switch & Save — Statement Audit" } })),
-        chain.run("ghl_statement_sync",     () => syncStatementUploadToGhl(contact.id, statementFileName)),
-        chain.run("sequence_enrollment",    () => autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "statement_upload" })),
-        chain.run("workflow_trigger",       () => triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: deal.id }, { formType: "statement_upload" })),
-        chain.run("inbound_confirmation",   () => enrollInInboundConfirmation({ contactId: contact.id, formType: "statement_upload", dealId: deal.id })),
-        ...(!isGhlInboundActive() && parseBool(consentSms) ? [chain.run("confirm_sms", () => sendConfirmationSms(contact.id, firstName, "statement_upload", deal.id))] : []),
-      ]).then(() => chain.persist(contact.id, deal.id)).catch(() => {});
+      await storage.createAuditLog({
+        action: "statement_uploaded",
+        entityType: "contact",
+        entityId: contact.id,
+        details: { source: "website", hasFile: !!statementFileBuffer },
+      });
+
+      res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id });
     } catch (err: any) {
       res.status(400).json({ message: err.message || "Invalid submission" });
     }

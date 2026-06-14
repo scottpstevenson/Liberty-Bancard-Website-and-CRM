@@ -168,6 +168,11 @@ const HISTORY_HOURS = 24;
 class QueueManager {
   private queues: Map<string, Queue> = new Map();
   private workers: Map<string, Worker> = new Map();
+
+  /** Expose underlying BullMQ Queue for one-off job enqueuing. */
+  getQueue(name: string): Queue | undefined {
+    return this.queues.get(name);
+  }
   private connection!: ConnectionOptions;
   private throughputBaseline: Map<string, ThroughputEntry> = new Map();
   private jobHistory: Map<string, HistoryBucket[]> = new Map();
@@ -286,7 +291,11 @@ class QueueManager {
           break;
         }
         case QUEUE_NAMES.ENRICHMENT: {
-          await runEnrichmentTick();
+          if (_job.name === "statement-blueprint" && typeof _job.data?.dealId === "number") {
+            await runStatementBlueprintJob(_job.data.dealId);
+          } else {
+            await runEnrichmentTick();
+          }
           break;
         }
         case QUEUE_NAMES.DISCOVERY: {
@@ -606,6 +615,46 @@ async function runEnrichmentTick(): Promise<void> {
   const { processSunbizEnrichmentQueue } = await import("./sunbiz-enrichment");
   await processEnrichmentQueue();
   await processSunbizEnrichmentQueue(5).catch(err => console.error("[Queue:enrichment] Sunbiz enrichment error (best-effort):", err));
+}
+
+/**
+ * One-off BullMQ job processor for statement blueprint/analysis.
+ * Transitions deal analysisStatus: pending → processing → complete/failed.
+ * Re-throws on error so BullMQ can retry up to the configured attempt limit.
+ */
+async function runStatementBlueprintJob(dealId: number): Promise<void> {
+  await storage.updateDeal(dealId, { analysisStatus: "processing" }).catch(() => {});
+  try {
+    const { generateDealBlueprint } = await import("./deal-blueprint");
+    await generateDealBlueprint(dealId);
+    await storage.updateDeal(dealId, { analysisStatus: "complete" }).catch(() => {});
+    console.log(`[Queue:enrichment] Statement blueprint complete for deal #${dealId}`);
+  } catch (err: any) {
+    await storage.updateDeal(dealId, { analysisStatus: "failed" }).catch(() => {});
+    throw err; // re-throw → BullMQ retries + dead-letter on exhaustion
+  }
+}
+
+/**
+ * Enqueue a one-off statement-blueprint job to the enrichment queue.
+ * Returns the BullMQ job ID on success, or null if the queue is unavailable
+ * (e.g. Redis not configured or QueueManager not yet initialised).
+ */
+export async function enqueueStatementAnalysis(dealId: number): Promise<string | null> {
+  try {
+    const qm = await getQueueManager();
+    const queue = qm.getQueue(QUEUE_NAMES.ENRICHMENT);
+    if (!queue) return null;
+    const job = await queue.add("statement-blueprint", { dealId }, {
+      attempts: 3,
+      backoff: { type: "exponential", delay: 5000 },
+      jobId: `statement-blueprint-${dealId}-${Date.now()}`,
+    });
+    console.log(`[Queue:enrichment] Enqueued statement-blueprint for deal #${dealId} → job ${job.id}`);
+    return job.id ?? null;
+  } catch {
+    return null;
+  }
 }
 
 async function runDiscoveryTick(): Promise<void> {

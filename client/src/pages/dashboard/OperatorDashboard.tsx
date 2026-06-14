@@ -1776,8 +1776,8 @@ export default function OperatorDashboard() {
           <TabsTrigger value="vertical-coverage" data-testid="tab-vertical-coverage" className="flex items-center gap-1">
             <BarChart3 className="w-3.5 h-3.5" /> Vertical Coverage
           </TabsTrigger>
-          <TabsTrigger value="statement-chain" data-testid="tab-statement-chain" className="flex items-center gap-1">
-            <FileText className="w-3.5 h-3.5" /> Statement Chain
+          <TabsTrigger value="statement-upload" data-testid="tab-statement-upload" className="flex items-center gap-1">
+            <AlertTriangle className="w-3.5 h-3.5" /> Upload Failures
           </TabsTrigger>
         </TabsList>
 
@@ -1829,8 +1829,8 @@ export default function OperatorDashboard() {
         <TabsContent value="vertical-coverage">
           <VerticalCoveragePanel />
         </TabsContent>
-        <TabsContent value="statement-chain">
-          <StatementChainPanel />
+        <TabsContent value="statement-upload">
+          <StatementUploadFailuresPanel />
         </TabsContent>
       </Tabs>
     </div>
@@ -3065,6 +3065,175 @@ function AiActivityPanel() {
           )}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+// ─── Statement Upload Failures Panel ─────────────────────────────────────────
+
+interface UploadFailure {
+  id: number;
+  dealId: number | null;
+  step: number | null;
+  stepName: string | null;
+  error: string | null;
+  timestamp: string | null;
+  createdAt: string | null;
+}
+
+const STEP_LABELS: Record<number, string> = {
+  1: "Contact verified",
+  2: "Company linked",
+  3: "Deal created/advanced",
+  4: "File attached",
+  5: "AI analysis queued",
+  6: "Rep notified",
+  7: "GHL contact synced",
+  8: "Pipeline stage set",
+  9: "Merchant confirmation",
+  10: "Proposal draft",
+  11: "Follow-up enrolled",
+};
+
+function StatementUploadFailuresPanel() {
+  const { data: failures = [], isLoading, refetch, isFetching } = useQuery<UploadFailure[]>({
+    queryKey: ["/api/operator/statement-upload-failures"],
+    staleTime: 30_000,
+  });
+
+  const stepCounts = failures.reduce<Record<string, number>>((acc, f) => {
+    const key = f.stepName || `Step ${f.step}` || "Unknown";
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+
+  const stepBreakdown = Object.entries(stepCounts).sort((a, b) => b[1] - a[1]);
+
+  function relativeTime(ts: string | null) {
+    if (!ts) return "—";
+    const diff = Date.now() - new Date(ts).getTime();
+    const m = Math.floor(diff / 60000);
+    if (m < 1) return "just now";
+    if (m < 60) return `${m}m ago`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h}h ago`;
+    return `${Math.floor(h / 24)}d ago`;
+  }
+
+  return (
+    <div className="space-y-4" data-testid="panel-statement-upload-failures">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-semibold text-base">Statement Upload Chain Failures</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Logs individual step failures from the 11-step conversion chain. Uploads are never lost — these are background step failures only.
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => refetch()}
+          disabled={isFetching}
+          data-testid="button-refresh-upload-failures"
+        >
+          {isFetching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+        </Button>
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center justify-center py-10">
+          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+        </div>
+      ) : failures.length === 0 ? (
+        <Card data-testid="card-no-failures">
+          <CardContent className="py-10 text-center">
+            <CheckCircle2 className="w-8 h-8 text-green-500 mx-auto mb-2" />
+            <p className="text-sm font-medium">All upload chain steps are passing</p>
+            <p className="text-xs text-muted-foreground mt-1">No failures recorded in the last 500 audit log entries.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          {/* Step breakdown summary */}
+          {stepBreakdown.length > 0 && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Failure Breakdown by Step</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {stepBreakdown.map(([step, count]) => (
+                  <div key={step} className="flex items-center gap-2" data-testid={`row-step-breakdown-${step.replace(/\s/g, "-")}`}>
+                    <span className="text-xs text-muted-foreground w-44 truncate">{step}</span>
+                    <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-destructive"
+                        style={{ width: `${Math.min(100, (count / failures.length) * 100)}%` }}
+                      />
+                    </div>
+                    <Badge variant="destructive" className="text-xs shrink-0" data-testid={`badge-step-count-${step.replace(/\s/g, "-")}`}>
+                      {count}
+                    </Badge>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Recent failures table */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-destructive" />
+                Recent Failures ({failures.length})
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs" data-testid="table-upload-failures">
+                  <thead>
+                    <tr className="border-b bg-muted/30">
+                      <th className="text-left px-4 py-2 font-medium text-muted-foreground">Step</th>
+                      <th className="text-left px-4 py-2 font-medium text-muted-foreground">Error</th>
+                      <th className="text-left px-4 py-2 font-medium text-muted-foreground">Deal</th>
+                      <th className="text-left px-4 py-2 font-medium text-muted-foreground">When</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {failures.slice(0, 50).map((f) => (
+                      <tr key={f.id} className="border-b hover:bg-muted/20 transition-colors" data-testid={`row-failure-${f.id}`}>
+                        <td className="py-2 px-4">
+                          <Badge variant="outline" className="text-xs border-destructive/40 text-destructive">
+                            {f.stepName || (f.step ? STEP_LABELS[f.step] : "Unknown")}
+                          </Badge>
+                        </td>
+                        <td className="py-2 px-4 max-w-xs">
+                          <span className="text-destructive/80 truncate block max-w-xs" title={f.error || "—"}>
+                            {f.error || "—"}
+                          </span>
+                        </td>
+                        <td className="py-2 px-4">
+                          {f.dealId ? (
+                            <a
+                              href={`/dashboard/deals/${f.dealId}`}
+                              className="text-primary hover:underline"
+                              data-testid={`link-deal-${f.dealId}`}
+                            >
+                              #{f.dealId}
+                            </a>
+                          ) : <span className="text-muted-foreground">—</span>}
+                        </td>
+                        <td className="py-2 px-4 text-muted-foreground whitespace-nowrap">
+                          {relativeTime(f.timestamp || f.createdAt)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        </>
+      )}
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { insertCollateralPacketSchema, insertDocumentSchema, insertKnowledgeBase
 import { generateDealBlueprint } from "../services/deal-blueprint";
 import { advanceDealStage } from "../services/deal-stage-service";
 import { autoGenerateProposal } from "../services/proposal-engine";
+import { runStatementUploadChain } from "../services/statement-upload-chain";
 import { generateDocumentToken, verifyDocumentToken } from "../services/document-tokens";
 import { generateCoBrandedProposalPdf } from "../services/co-branded-proposal";
 import path from "path";
@@ -417,8 +418,22 @@ export function registerDocumentsRoutes(app: Express) {
 
       const { type, contactId, dealId, accessScope } = req.body;
       const fileName = req.file.originalname;
-      const storageKey = `uploads/${Date.now()}_${fileName}`;
 
+      // For merchant_statement uploads via dashboard, run the full 11-step chain
+      if ((type === "merchant_statement" || !type) && contactId) {
+        runStatementUploadChain({
+          contactId: Number(contactId),
+          dealId: dealId ? Number(dealId) : null,
+          fileBuffer: req.file.buffer,
+          fileName,
+          source: "dashboard",
+        }).catch(err => console.error("[StatementChain] Dashboard upload chain error:", err.message));
+
+        return res.status(201).json({ success: true, contactId: Number(contactId) });
+      }
+
+      // Non-statement document — legacy path
+      const storageKey = `uploads/${Date.now()}_${fileName}`;
       const uploadsDir = path.join(process.cwd(), "uploads");
       if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
       fs.writeFileSync(path.join(uploadsDir, `${Date.now()}_${fileName}`), req.file.buffer);
@@ -502,12 +517,8 @@ export function registerDocumentsRoutes(app: Express) {
       const user = req.user as any;
       const fileName = req.file.originalname;
       const fileNameLower = fileName.toLowerCase();
-      const storageKey = `statements/${Date.now()}_${fileName}`;
 
-      const uploadsDir = path.join(process.cwd(), "uploads");
-      if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
-      fs.writeFileSync(path.join(uploadsDir, `${Date.now()}_${fileName}`), req.file.buffer);
-
+      // Determine document type from filename for non-statement files
       const explicitDocType = req.body?.docType;
       const validDocTypes = ["merchant_statement", "voided_check", "government_id", "application"];
       let docType: string;
@@ -525,6 +536,90 @@ export function registerDocumentsRoutes(app: Express) {
         }
       }
 
+      // Resolve the uploader's contact
+      const { data: allContacts } = await storage.getContacts({ limit: 500 });
+      const uploaderContact = allContacts.find((c: any) => c.userId === user.id || c.email === user.email);
+      const uploaderContactId = uploaderContact?.id || null;
+
+      // For processing statements run the full 11-step chain; for other doc types use legacy path
+      if (docType === "merchant_statement" && uploaderContactId) {
+        const targetDealId = req.body?.dealId ? Number(req.body.dealId) : null;
+
+        // Run the full conversion chain (non-blocking — always respond 201)
+        runStatementUploadChain({
+          contactId: uploaderContactId,
+          dealId: targetDealId,
+          fileBuffer: req.file.buffer,
+          fileName,
+          source: "merchant_portal",
+          businessName: uploaderContact?.companyName || undefined,
+        }).catch(err => console.error("[StatementChain] Portal upload chain error:", err.message));
+
+        // Update onboarding deal doc readiness (separate from the sales chain)
+        try {
+          const { data: allDeals } = await storage.getDeals({ limit: 500 });
+          const merchantDeals = allDeals.filter(
+            d => d.pipeline === "onboarding" &&
+              d.contactId === uploaderContactId &&
+              !["Active (30 Days)", "Active (7 Days)"].includes(d.stage),
+          );
+          const dealsToUpdate = targetDealId
+            ? merchantDeals.filter(d => d.id === targetDealId)
+            : merchantDeals.length === 1 ? merchantDeals : [];
+
+          const allDocs = await storage.getDocuments();
+
+          for (const deal of dealsToUpdate) {
+            const dealDocs = allDocs.filter(
+              (d: any) => (d.dealId === deal.id) || (d.contactId === uploaderContactId && !d.dealId),
+            );
+            const hasStatement = deal.statementReceived || dealDocs.some(d => d.type === "merchant_statement");
+            const hasVoidedCheck = deal.voidedCheckReceived || dealDocs.some(d => d.type === "voided_check");
+            const hasId = deal.idReceived || dealDocs.some(d => d.type === "government_id");
+
+            const docUpdates: Record<string, any> = {};
+            if (hasStatement && !deal.statementReceived) docUpdates.statementReceived = true;
+            if (hasVoidedCheck && !deal.voidedCheckReceived) docUpdates.voidedCheckReceived = true;
+            if (hasId && !deal.idReceived) docUpdates.idReceived = true;
+            const totalDocs = [hasStatement, hasVoidedCheck, hasId].filter(Boolean).length;
+            docUpdates.docReadinessScore = Math.round((totalDocs / 3) * 100);
+            if (Object.keys(docUpdates).length > 0) await storage.updateDeal(deal.id, docUpdates);
+
+            if (hasStatement && hasVoidedCheck && hasId && deal.appCompleted) {
+              if (deal.stage === "Contract Sent" || deal.stage === "Application Started") {
+                await advanceDealStage(deal.id, "Underwriting Submitted", "document_auto_advance");
+                await storage.createNotification({
+                  channel: "internal",
+                  title: "Auto-Advanced to Underwriting",
+                  message: `Deal #${deal.id} auto-advanced — all documents collected.`,
+                  type: "success",
+                });
+                await storage.createAuditLog({
+                  action: "auto_advance_underwriting",
+                  entityType: "deal",
+                  entityId: deal.id,
+                  details: { reason: "All documents collected and application complete", docReadinessScore: 100 },
+                });
+                const steps = await storage.getOnboardingStepsByDeal(deal.id);
+                const docsStep = steps.find(s => s.stepName === "Documents Collected");
+                if (docsStep && docsStep.status !== "completed") {
+                  await storage.updateOnboardingStep(docsStep.id, { status: "completed", completedAt: new Date() });
+                }
+                const uwStep = steps.find(s => s.stepName === "Underwriting Review");
+                if (uwStep && uwStep.status === "pending") {
+                  await storage.updateOnboardingStep(uwStep.id, { status: "in_progress" });
+                }
+              }
+            }
+          }
+        } catch (onboardingErr: any) {
+          console.error("[Portal Upload] Onboarding deal update failed (non-fatal):", onboardingErr.message);
+        }
+
+        return res.status(201).json({ success: true, contactId: uploaderContactId });
+      }
+
+      // === Legacy path for non-statement document types ===
       const categoryMap: Record<string, string> = {
         merchant_statement: "Processing Statement",
         voided_check: "Voided Check",
@@ -532,13 +627,15 @@ export function registerDocumentsRoutes(app: Express) {
         application: "Application",
       };
 
-      const { data: allContacts } = await storage.getContacts({ limit: 500 });
-      const uploaderContact = allContacts.find((c: any) => c.userId === user.id || c.email === user.email);
-      const uploaderContactId = uploaderContact?.id || null;
+      const storageKey = `statements/${Date.now()}_${fileName}`;
+      const uploadsDir = path.join(process.cwd(), "uploads");
+      if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+      fs.writeFileSync(path.join(uploadsDir, `${Date.now()}_${fileName}`), req.file.buffer);
 
       const targetDealId = req.body?.dealId ? Number(req.body.dealId) : null;
       let associatedDealId: number | null = null;
       let dealId: number | undefined;
+
       if (uploaderContact) {
         const { data: allDeals } = await storage.getDeals({ limit: 500 });
         if (targetDealId) {
@@ -553,7 +650,7 @@ export function registerDocumentsRoutes(app: Express) {
             contactId: uploaderContact.id,
             pipeline: "sales",
             stage: "Statement Received",
-            notes: `Statement uploaded via merchant portal: ${fileName}`,
+            notes: `Document uploaded via merchant portal: ${fileName}`,
             leadSource: "merchant_portal",
           });
           dealId = newDeal.id;
@@ -579,83 +676,11 @@ export function registerDocumentsRoutes(app: Express) {
         title: "New Document Uploaded",
         message: `${user.firstName} ${user.lastName} uploaded: ${fileName} (${docType})`,
         type: "info",
-        metadata: { contactId: uploaderContactId || undefined, dealId: associatedDealId || dealId || undefined, entityType: dealId ? "deal" : "contact", entityId: dealId || uploaderContactId || undefined },
+        metadata: { contactId: uploaderContactId || undefined, dealId: associatedDealId || dealId || undefined },
       });
 
       if (dealId) {
         await storage.updateDeal(dealId, { statementReceived: true });
-        generateDealBlueprint(dealId).catch(err => console.error("Blueprint generation error:", err));
-        const uploadedBuffer = req.file?.buffer;
-        autoGenerateProposal(dealId, uploadedBuffer).catch(err => console.error("Auto-proposal error:", err));
-      }
-
-      if (uploaderContactId) {
-        const { data: allDeals } = await storage.getDeals({ limit: 500 });
-        const merchantDeals = allDeals.filter(
-          d => d.pipeline === "onboarding" &&
-            d.contactId === uploaderContactId &&
-            !["Active (30 Days)", "Active (7 Days)"].includes(d.stage)
-        );
-
-        const allDocs = await storage.getDocuments();
-
-        const dealsToUpdate = associatedDealId
-          ? merchantDeals.filter(d => d.id === associatedDealId)
-          : merchantDeals.length === 1
-            ? merchantDeals
-            : [];
-
-        for (const deal of dealsToUpdate) {
-          const dealDocs = allDocs.filter(
-            (d: any) =>
-              (d.dealId === deal.id) ||
-              (d.contactId === uploaderContactId && !d.dealId)
-          );
-
-          const hasStatement = deal.statementReceived || dealDocs.some(d => d.type === "merchant_statement");
-          const hasVoidedCheck = deal.voidedCheckReceived || dealDocs.some(d => d.type === "voided_check");
-          const hasId = deal.idReceived || dealDocs.some(d => d.type === "government_id");
-
-          const docUpdates: Record<string, any> = {};
-          if (hasStatement && !deal.statementReceived) docUpdates.statementReceived = true;
-          if (hasVoidedCheck && !deal.voidedCheckReceived) docUpdates.voidedCheckReceived = true;
-          if (hasId && !deal.idReceived) docUpdates.idReceived = true;
-
-          const totalDocs = [hasStatement, hasVoidedCheck, hasId].filter(Boolean).length;
-          docUpdates.docReadinessScore = Math.round((totalDocs / 3) * 100);
-
-          if (Object.keys(docUpdates).length > 0) {
-            await storage.updateDeal(deal.id, docUpdates);
-          }
-
-          if (hasStatement && hasVoidedCheck && hasId && deal.appCompleted) {
-            if (deal.stage === "Contract Sent" || deal.stage === "Application Started") {
-              await advanceDealStage(deal.id, "Underwriting Submitted", "document_auto_advance");
-              await storage.createNotification({
-                channel: "internal",
-                title: "Auto-Advanced to Underwriting",
-                message: `Deal #${deal.id} auto-advanced to Underwriting - all documents collected and application complete.`,
-                type: "success",
-              });
-              await storage.createAuditLog({
-                action: "auto_advance_underwriting",
-                entityType: "deal",
-                entityId: deal.id,
-                details: { reason: "All documents collected and application complete", docReadinessScore: 100 },
-              });
-
-              const steps = await storage.getOnboardingStepsByDeal(deal.id);
-              const docsStep = steps.find(s => s.stepName === "Documents Collected");
-              if (docsStep && docsStep.status !== "completed") {
-                await storage.updateOnboardingStep(docsStep.id, { status: "completed", completedAt: new Date() });
-              }
-              const uwStep = steps.find(s => s.stepName === "Underwriting Review");
-              if (uwStep && uwStep.status === "pending") {
-                await storage.updateOnboardingStep(uwStep.id, { status: "in_progress" });
-              }
-            }
-          }
-        }
       }
 
       res.status(201).json(doc);

@@ -6,6 +6,7 @@ import { autoGenerateProposal } from "../services/proposal-engine";
 import { sendSmtpEmail, isSmtpConfigured } from "../services/smtp-email";
 import { isGhlConfigured } from "../services/ghl";
 import { enrollInGhlWorkflow } from "../services/ghl-workflows";
+import { runStatementUploadChain } from "../services/statement-upload-chain";
 import path from "path";
 import fs from "fs";
 
@@ -177,6 +178,18 @@ export function registerRateReviewRoutes(app: Express) {
           html: confirmationHtml,
         }).catch(err => console.error("[RateReview] Confirmation email error:", err));
       }
+
+      // Fire the full 11-step statement upload chain (non-blocking).
+      // This handles GHL sync, pipeline advance, rep notification with correct userId,
+      // proposal draft entity creation, and sequence enrollment — same as all other upload paths.
+      runStatementUploadChain({
+        contactId: contact.id,
+        dealId: contactDeal?.id ?? null,
+        fileBuffer: req.file.buffer,
+        fileName: req.file.originalname,
+        source: "portal-rate-review",
+        businessName: merchantName,
+      }).catch(err => console.error("[RateReview] 11-step chain error:", err.message));
 
       res.status(201).json({ rateReview, document: doc });
     } catch (err: any) {

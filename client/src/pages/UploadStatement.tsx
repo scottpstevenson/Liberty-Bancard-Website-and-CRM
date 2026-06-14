@@ -88,8 +88,18 @@ export default function UploadStatement() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [isUploading, setIsUploading] = useState(false);
+  const [processingStep, setProcessingStep] = useState<number>(0);
   const [analysisVertical, setAnalysisVertical] = useState("");
   const [uploadSucceeded, setUploadSucceeded] = useState(false);
+
+  const PROCESSING_STEPS = [
+    "Uploading your statement…",
+    "Securing your file…",
+    "Creating your deal record…",
+    "Queuing AI analysis…",
+    "Notifying your advisor…",
+    "Almost done…",
+  ];
 
   const params = new URLSearchParams(window.location.search);
   const preTerminal = params.get("terminal") === "yes";
@@ -212,6 +222,7 @@ export default function UploadStatement() {
 
         setIsUploading(true);
         setUploadProgress(0);
+        setProcessingStep(0);
 
         xhr.upload.addEventListener("progress", (event) => {
           if (event.lengthComputable) {
@@ -220,15 +231,22 @@ export default function UploadStatement() {
         });
 
         xhr.addEventListener("load", () => {
-          setIsUploading(false);
           if (xhr.status >= 200 && xhr.status < 300) {
             setUploadProgress(100);
-            try {
-              resolve(JSON.parse(xhr.responseText));
-            } catch {
-              resolve({});
-            }
+            // Simulate server-side processing steps so the merchant sees meaningful feedback
+            let step = 1;
+            setProcessingStep(step);
+            const stepInterval = setInterval(() => {
+              step += 1;
+              setProcessingStep(step);
+              if (step >= 6) {
+                clearInterval(stepInterval);
+                setIsUploading(false);
+                try { resolve(JSON.parse(xhr.responseText)); } catch { resolve({}); }
+              }
+            }, 650);
           } else {
+            setIsUploading(false);
             let message = "Upload failed";
             try {
               const body = JSON.parse(xhr.responseText);
@@ -662,21 +680,52 @@ export default function UploadStatement() {
                     )}
 
                     {isUploading && (
-                      <div className="space-y-2" data-testid="upload-progress-container" role="status" aria-label="Upload in progress">
-                        <div className="flex items-center justify-between text-xs text-muted-foreground">
-                          <span className="flex items-center gap-1.5">
-                            <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
-                            Uploading your statement…
-                          </span>
-                          <span data-testid="text-upload-progress-percent">{uploadProgress}%</span>
-                        </div>
-                        <div className="h-2 w-full rounded-full bg-muted overflow-hidden" data-testid="upload-progress-bar-track">
-                          <div
-                            className="h-full rounded-full bg-primary transition-all duration-200"
-                            style={{ width: `${uploadProgress}%` }}
-                            data-testid="upload-progress-bar-fill"
-                          />
-                        </div>
+                      <div className="space-y-3" data-testid="upload-progress-container" role="status" aria-label="Upload in progress">
+                        {/* Phase 1: uploading bytes */}
+                        {uploadProgress < 100 && (
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between text-xs text-muted-foreground">
+                              <span className="flex items-center gap-1.5">
+                                <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                                {PROCESSING_STEPS[0]}
+                              </span>
+                              <span data-testid="text-upload-progress-percent">{uploadProgress}%</span>
+                            </div>
+                            <div className="h-2 w-full rounded-full bg-muted overflow-hidden" data-testid="upload-progress-bar-track">
+                              <div
+                                className="h-full rounded-full bg-primary transition-all duration-200"
+                                style={{ width: `${uploadProgress}%` }}
+                                data-testid="upload-progress-bar-fill"
+                              />
+                            </div>
+                          </div>
+                        )}
+                        {/* Phase 2: processing steps (after bytes are uploaded) */}
+                        {uploadProgress >= 100 && (
+                          <div className="space-y-1.5" data-testid="upload-processing-steps">
+                            {PROCESSING_STEPS.slice(1).map((label, idx) => {
+                              const stepNum = idx + 1;
+                              const done = processingStep > stepNum;
+                              const active = processingStep === stepNum;
+                              return (
+                                <div
+                                  key={label}
+                                  className={`flex items-center gap-2 text-xs transition-all duration-300 ${done ? "text-green-600 dark:text-green-400" : active ? "text-primary" : "text-muted-foreground opacity-50"}`}
+                                  data-testid={`step-processing-${stepNum}`}
+                                >
+                                  {done ? (
+                                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                                  ) : active ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                                  ) : (
+                                    <span className="w-3.5 h-3.5 shrink-0 rounded-full border border-muted-foreground/30 inline-block" />
+                                  )}
+                                  {label}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     )}
 

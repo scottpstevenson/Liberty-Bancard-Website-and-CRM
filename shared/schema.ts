@@ -168,6 +168,7 @@ export const deals = pgTable("deals", {
   proposalToken: text("proposal_token"),
   proposalEmailSentAt: timestamp("proposal_email_sent_at"),
   proposalStatus: text("proposal_status").default("none"),
+  analysisStatus: text("analysis_status").default("none"),
   statementReceived: boolean("statement_received").default(false),
   voidedCheckReceived: boolean("voided_check_received").default(false),
   idReceived: boolean("id_received").default(false),
@@ -3851,6 +3852,38 @@ export const insertToolClickEventSchema = createInsertSchema(toolClickEvents).om
 export type ToolClickEvent = typeof toolClickEvents.$inferSelect;
 export type InsertToolClickEvent = z.infer<typeof insertToolClickEventSchema>;
 
+// ─── Statement Proposals ─────────────────────────────────────────────────────
+// Dedicated proposal draft entity created at upload time (step 10 of the
+// statement upload chain). Overwritten when AI analysis completes.
+export const statementProposals = pgTable("statement_proposals", {
+  id: serial("id").primaryKey(),
+  dealId: integer("deal_id").references(() => deals.id),
+  contactId: integer("contact_id").references(() => contacts.id),
+  status: text("status").default("draft"),
+  merchantName: text("merchant_name"),
+  source: text("source"),
+  statementFileName: text("statement_file_name"),
+  plans: jsonb("plans"),
+  savingsEstimate: text("savings_estimate"),
+  effectiveRate: text("effective_rate"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("statement_proposals_deal_id_idx").on(table.dealId),
+  index("statement_proposals_contact_id_idx").on(table.contactId),
+]);
+
+export const insertStatementProposalSchema = createInsertSchema(statementProposals).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type StatementProposal = typeof statementProposals.$inferSelect;
+export type InsertStatementProposal = z.infer<typeof insertStatementProposalSchema>;
+
+// ─── Push Subscriptions ──────────────────────────────────────────────────────
 export const pushSubscriptions = pgTable("push_subscriptions", {
   id: serial("id").primaryKey(),
   userId: text("user_id").notNull(),

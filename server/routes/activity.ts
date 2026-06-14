@@ -1,5 +1,5 @@
 import type { Express } from "express";
-import { isAuthenticated } from "../replit_integrations/auth";
+import { isAuthenticated, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
 import { contacts, insertCalendarEventSchema, insertCallLogSchema, insertCommentSchema, insertEmailLogSchema, insertNoteSchema } from "@shared/schema";
@@ -10,6 +10,33 @@ import { parse } from "csv-parse/sync";
 import { logAiCall } from "../services/ai-audit-logger";
 
 export function registerActivityRoutes(app: Express) {
+
+  // === STATEMENT UPLOAD CHAIN FAILURES (Operator Dashboard) ===
+  app.get("/api/operator/statement-upload-failures", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const limit = Math.min(Number(req.query.limit) || 50, 200);
+      const allLogs = await storage.getAuditLogs({ limit: 500 });
+      const failures = allLogs
+        .filter(l => l.action === "statement_chain_step_failed")
+        .slice(0, limit)
+        .map(l => {
+          const d = (l.details || {}) as Record<string, unknown>;
+          return {
+            id: l.id,
+            dealId: l.entityId || null,
+            step: d.step ?? null,
+            stepName: d.stepName ?? null,
+            error: d.error ?? null,
+            timestamp: d.timestamp ?? l.createdAt,
+            createdAt: l.createdAt,
+          };
+        });
+      res.json(failures);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // === ACTIVITY TIMELINE ===
   app.get("/api/activity", isAuthenticated, async (req, res) => {
     try {
