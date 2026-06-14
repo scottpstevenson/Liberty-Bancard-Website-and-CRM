@@ -10,7 +10,7 @@ import {
   emailLogs, callLogs, stageAutomationRules, followUpSequences, sequenceSteps, sequenceEnrollments,
   sunbizEntities, consentAuditLogs, calendarEvents,
   merchantApplications, merchantProfiles, equipmentOrders, agents, agentQuotas, agentMerchants, residualReports, merchantResiduals,
-  healthAlerts, dealCompetitors, partners, referrals, commissionTiers, knowledgeBase, reviewRequests, testimonialSubmissions, onboardingSteps, midDailyStats,
+  healthAlerts, dealCompetitors, partners, referrals, commissionTiers, knowledgeBase, reviewRequests, testimonialSubmissions, onboardingSteps, midDailyStats, onboardingChecklistItems,
   sdrMerchants, sdrMerchantContacts, sdrLeadState, sdrLeadEvents, sdrChannelAttempts, sdrComplianceState,
   sendingIdentities,
   leadDiscoveryJobs, leadDiscoveryResults,
@@ -70,6 +70,7 @@ import {
   type InsertReviewRequest, type ReviewRequest,
   type InsertTestimonialSubmission, type TestimonialSubmission,
   type InsertOnboardingStep, type OnboardingStep,
+  type InsertOnboardingChecklistItem, type OnboardingChecklistItem,
   type InsertConsentAuditLog, type ConsentAuditLog,
   type CalendarEvent, type InsertCalendarEvent,
   systemSettings,
@@ -473,6 +474,13 @@ export interface IStorage {
   getOnboardingStepsByApplication(applicationId: number): Promise<OnboardingStep[]>;
   createOnboardingStep(step: InsertOnboardingStep, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }): Promise<OnboardingStep>;
   updateOnboardingStep(id: number, updates: Partial<InsertOnboardingStep>, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }): Promise<OnboardingStep | undefined>;
+
+  getOnboardingChecklistItems(dealId: number): Promise<OnboardingChecklistItem[]>;
+  getOnboardingChecklistItem(dealId: number, itemKey: string): Promise<OnboardingChecklistItem | undefined>;
+  upsertOnboardingChecklistItem(item: InsertOnboardingChecklistItem): Promise<OnboardingChecklistItem>;
+  updateOnboardingChecklistItemStatus(dealId: number, itemKey: string, status: string, documentId?: number | null, notes?: string | null): Promise<OnboardingChecklistItem | undefined>;
+  initializeOnboardingChecklist(dealId: number): Promise<OnboardingChecklistItem[]>;
+  getOnboardingKpis(): Promise<{ totalActive: number; pendingDocs: number; overdueItems: number; completedThisMonth: number }>;
 
   getConsentAuditLogs(): Promise<ConsentAuditLog[]>;
   getConsentAuditLogsByContact(contactId: number): Promise<ConsentAuditLog[]>;

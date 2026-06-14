@@ -22,7 +22,7 @@ import {
   CheckCircle, Circle, Loader2, Plus, Upload,
   Calendar, Hash, CreditCard, Activity, ArrowRight,
   PlayCircle, BookOpen, ChevronDown, ChevronUp, Shield, Clock, Zap, Star,
-  Phone, Mail, AlertCircle, FileCheck, CheckCircle2, Gift, Copy, ExternalLink,
+  Phone, Mail, AlertCircle, AlertTriangle, FileCheck, CheckCircle2, Gift, Copy, ExternalLink,
   TrendingUp, TrendingDown, DollarSign, BarChart2, PieChart, Target, Info,
 } from "lucide-react";
 import { Link } from "wouter";
@@ -331,11 +331,48 @@ function AccountTab({ profile, isLoading, isAdmin }: { profile: MerchantProfile 
   );
 }
 
+type PortalChecklistItem = {
+  id: number;
+  dealId: number;
+  itemKey: string;
+  status: string | null;
+  documentId: number | null;
+  notes: string | null;
+  updatedAt: string | null;
+  createdAt: string | null;
+};
+
+const CHECKLIST_ITEM_LABELS: Record<string, string> = {
+  voided_check: "Voided Check",
+  government_id: "Government-Issued ID",
+  signed_agreement: "Signed Merchant Agreement",
+  bank_letter: "Bank Letter",
+  business_license: "Business License",
+};
+
+const PORTAL_STATUS_MAP: Record<string, { label: string; color: string; description: string }> = {
+  not_requested: { label: "Not Yet Requested", color: "text-muted-foreground", description: "Your rep will request this when needed." },
+  requested: { label: "Requested — Action Needed", color: "text-amber-600 dark:text-amber-400", description: "Please upload this document to the Documents tab." },
+  received: { label: "Received — Under Review", color: "text-blue-600 dark:text-blue-400", description: "We received your document and are reviewing it." },
+  approved: { label: "Approved", color: "text-emerald-600 dark:text-emerald-400", description: "This document has been approved." },
+  rejected: { label: "Needs Correction", color: "text-red-600 dark:text-red-400", description: "This document needs to be re-uploaded. Check the notes or contact your rep." },
+};
+
 function OnboardingTab({ dealId, profile }: { dealId: number | null | undefined; profile: MerchantProfile | null | undefined }) {
   const { data: steps, isLoading } = useQuery<OnboardingStep[]>({
     queryKey: ["/api/onboarding-steps/deal", dealId],
     queryFn: async () => {
       const res = await fetch(`/api/onboarding-steps/deal/${dealId}`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!dealId,
+  });
+
+  const { data: checklistItems } = useQuery<PortalChecklistItem[]>({
+    queryKey: ["/api/deals", dealId, "onboarding-checklist"],
+    queryFn: async () => {
+      const res = await fetch(`/api/deals/${dealId}/onboarding-checklist`, { credentials: "include" });
       if (!res.ok) return [];
       return res.json();
     },
@@ -481,6 +518,59 @@ function OnboardingTab({ dealId, profile }: { dealId: number | null | undefined;
           </div>
         </CardContent>
       </Card>
+
+      {checklistItems && checklistItems.length > 0 && (
+        <Card data-testid="card-document-checklist">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <ClipboardList className="w-4 h-4 text-primary" />
+              Document Status
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">Track the review status of each required document. Upload files in the Documents tab.</p>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {checklistItems.map((item) => {
+              const statusInfo = PORTAL_STATUS_MAP[item.status || "not_requested"] ?? PORTAL_STATUS_MAP.not_requested;
+              const label = CHECKLIST_ITEM_LABELS[item.itemKey] ?? item.itemKey;
+              const needsAction = item.status === "requested" || item.status === "rejected";
+              return (
+                <div
+                  key={item.id}
+                  className={`flex items-start gap-3 rounded-lg border p-3 ${needsAction ? "border-amber-300 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-700" : "border-border bg-muted/30"}`}
+                  data-testid={`checklist-item-${item.itemKey}`}
+                >
+                  <div className="mt-0.5">
+                    {item.status === "approved" ? (
+                      <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                    ) : item.status === "rejected" ? (
+                      <AlertTriangle className="w-4 h-4 text-red-500" />
+                    ) : item.status === "received" ? (
+                      <FileText className="w-4 h-4 text-blue-500" />
+                    ) : item.status === "requested" ? (
+                      <AlertTriangle className="w-4 h-4 text-amber-500" />
+                    ) : (
+                      <Circle className="w-4 h-4 text-muted-foreground/40" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium" data-testid={`text-checklist-label-${item.itemKey}`}>{label}</p>
+                    <p className={`text-xs mt-0.5 ${statusInfo.color}`} data-testid={`text-checklist-status-${item.itemKey}`}>{statusInfo.label}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{statusInfo.description}</p>
+                    {item.notes && (
+                      <p className="text-xs mt-1 italic text-muted-foreground border-l-2 border-border pl-2" data-testid={`text-checklist-notes-${item.itemKey}`}>{item.notes}</p>
+                    )}
+                  </div>
+                  {needsAction && (
+                    <Badge variant="outline" className="text-xs text-amber-600 border-amber-400 shrink-0" data-testid={`badge-action-needed-${item.itemKey}`}>
+                      Action Needed
+                    </Badge>
+                  )}
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

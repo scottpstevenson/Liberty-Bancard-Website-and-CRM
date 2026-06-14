@@ -201,6 +201,7 @@ const GrowthKPI = lazy(() => import("@/pages/dashboard/GrowthKPI"));
 const WidgetGenerator = lazy(() => import("@/pages/dashboard/WidgetGenerator"));
 const PartnerEmbedWidget = lazy(() => import("@/pages/PartnerEmbedWidget"));
 const ColdLeads = lazy(() => import("@/pages/dashboard/ColdLeads"));
+const OnboardingBoard = lazy(() => import("@/pages/dashboard/OnboardingBoard"));
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -512,6 +513,9 @@ function Router() {
         </Route>
         <Route path="/dashboard/boarding">
           <ProtectedRoute component={BoardingTracker} />
+        </Route>
+        <Route path="/dashboard/onboarding-board">
+          <ProtectedRoute component={OnboardingBoard} />
         </Route>
         <Route path="/dashboard/merchant-portal">
           <ProtectedRoute component={MerchantPortal} />

@@ -188,6 +188,7 @@ const merchantItems: MenuItem[] = [
   { icon: ShieldCheck, label: "My Portal", href: "/dashboard/merchant-portal" },
   { icon: ClipboardList, label: "Applications", href: "/dashboard/merchant-applications", roles: ["admin", "manager"], badgeKey: "pendingApplications" },
   { icon: Send, label: "Boarding Submissions", href: "/dashboard/boarding", roles: ["admin", "manager"] },
+  { icon: ClipboardList, label: "Onboarding Board", href: "/dashboard/onboarding-board", roles: ["admin", "manager"] },
   { icon: HelpCircle, label: "Knowledge Base", href: "/dashboard/knowledge-base" },
   { icon: GraduationCap, label: "Training", href: "/dashboard/training", roles: ["admin", "manager", "agent"] },
 ];

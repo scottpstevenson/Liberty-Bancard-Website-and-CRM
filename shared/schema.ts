@@ -3738,6 +3738,57 @@ export const insertEntityRelationshipSchema = createInsertSchema(entityRelations
 export type EntityRelationship = typeof entityRelationships.$inferSelect;
 export type InsertEntityRelationship = z.infer<typeof insertEntityRelationshipSchema>;
 
+export const ONBOARDING_CHECKLIST_ITEM_KEYS = [
+  "voided_check",
+  "government_id",
+  "signed_agreement",
+  "bank_letter",
+  "business_license",
+] as const;
+
+export type OnboardingChecklistItemKey = typeof ONBOARDING_CHECKLIST_ITEM_KEYS[number];
+
+export const ONBOARDING_CHECKLIST_ITEM_LABELS: Record<OnboardingChecklistItemKey, string> = {
+  voided_check: "Voided Check",
+  government_id: "Government-Issued ID",
+  signed_agreement: "Signed Merchant Agreement",
+  bank_letter: "Bank Letter",
+  business_license: "Business License",
+};
+
+export const ONBOARDING_CHECKLIST_ITEM_STATUSES = [
+  "not_requested",
+  "requested",
+  "received",
+  "approved",
+  "rejected",
+] as const;
+
+export type OnboardingChecklistItemStatus = typeof ONBOARDING_CHECKLIST_ITEM_STATUSES[number];
+
+export const onboardingChecklistItems = pgTable("onboarding_checklist_items", {
+  id: serial("id").primaryKey(),
+  dealId: integer("deal_id").references(() => deals.id).notNull(),
+  itemKey: text("item_key").notNull(),
+  status: text("status").default("not_requested"),
+  documentId: integer("document_id").references(() => documents.id),
+  notes: text("notes"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("checklist_deal_id_idx").on(table.dealId),
+  uniqueIndex("checklist_deal_item_unique_idx").on(table.dealId, table.itemKey),
+]);
+
+export const insertOnboardingChecklistItemSchema = createInsertSchema(onboardingChecklistItems).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type OnboardingChecklistItem = typeof onboardingChecklistItems.$inferSelect;
+export type InsertOnboardingChecklistItem = z.infer<typeof insertOnboardingChecklistItemSchema>;
+
 export const toolClickEvents = pgTable("tool_click_events", {
   id: serial("id").primaryKey(),
   toolId: text("tool_id").notNull(),

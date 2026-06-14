@@ -14,7 +14,7 @@ import {
   emailLogs, callLogs, stageAutomationRules, followUpSequences, sequenceSteps, sequenceEnrollments,
   sunbizEntities, consentAuditLogs, calendarEvents,
   merchantApplications, merchantProfiles, equipmentOrders, agents, agentQuotas, agentMerchants, residualReports, merchantResiduals,
-  healthAlerts, dealCompetitors, partners, referrals, commissionTiers, knowledgeBase, reviewRequests, testimonialSubmissions, onboardingSteps, midDailyStats,
+  healthAlerts, dealCompetitors, partners, referrals, commissionTiers, knowledgeBase, reviewRequests, testimonialSubmissions, onboardingSteps, midDailyStats, onboardingChecklistItems,
   sdrMerchants, sdrMerchantContacts, sdrLeadState, sdrLeadEvents, sdrChannelAttempts, sdrComplianceState,
   sendingIdentities,
   leadDiscoveryJobs, leadDiscoveryResults,
@@ -522,6 +522,80 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
       .where(eq(syncConflicts.id, id))
       .returning();
     return row;
+  }
+
+  // ── Onboarding Checklist ──────────────────────────────────────────────────
+
+  async getOnboardingChecklistItems(dealId: number) {
+    return db.select().from(onboardingChecklistItems)
+      .where(eq(onboardingChecklistItems.dealId, dealId))
+      .orderBy(asc(onboardingChecklistItems.id));
+  }
+
+  async getOnboardingChecklistItem(dealId: number, itemKey: string) {
+    const [row] = await db.select().from(onboardingChecklistItems)
+      .where(and(eq(onboardingChecklistItems.dealId, dealId), eq(onboardingChecklistItems.itemKey, itemKey)));
+    return row;
+  }
+
+  async upsertOnboardingChecklistItem(item: { dealId: number; itemKey: string; status?: string; documentId?: number | null; notes?: string | null }) {
+    const [row] = await db.insert(onboardingChecklistItems)
+      .values({ ...item, updatedAt: new Date() } as any)
+      .onConflictDoUpdate({
+        target: [onboardingChecklistItems.dealId, onboardingChecklistItems.itemKey],
+        set: { status: item.status, documentId: item.documentId, notes: item.notes, updatedAt: new Date() },
+      })
+      .returning();
+    return row;
+  }
+
+  async updateOnboardingChecklistItemStatus(dealId: number, itemKey: string, status: string, documentId?: number | null, notes?: string | null) {
+    const updates: Record<string, any> = { status, updatedAt: new Date() };
+    if (documentId !== undefined) updates.documentId = documentId;
+    if (notes !== undefined) updates.notes = notes;
+    const [row] = await db.update(onboardingChecklistItems)
+      .set(updates)
+      .where(and(eq(onboardingChecklistItems.dealId, dealId), eq(onboardingChecklistItems.itemKey, itemKey)))
+      .returning();
+    return row;
+  }
+
+  async initializeOnboardingChecklist(dealId: number): Promise<typeof onboardingChecklistItems.$inferSelect[]> {
+    const { ONBOARDING_CHECKLIST_ITEM_KEYS } = await import("../../shared/schema");
+    const rows: typeof onboardingChecklistItems.$inferSelect[] = [];
+    for (const itemKey of ONBOARDING_CHECKLIST_ITEM_KEYS) {
+      const [row] = await db.insert(onboardingChecklistItems)
+        .values({ dealId, itemKey, status: "not_requested", updatedAt: new Date() } as any)
+        .onConflictDoNothing()
+        .returning();
+      if (row) rows.push(row);
+    }
+    return rows;
+  }
+
+  async getOnboardingKpis(): Promise<{ totalActive: number; pendingDocs: number; overdueItems: number; completedThisMonth: number }> {
+    const { data: allDeals } = await (this as any).getDeals({ limit: 5000 });
+    const onboardingDeals = allDeals.filter((d: any) => d.pipeline === "onboarding" && !d.archivedAt);
+    const totalActive = onboardingDeals.length;
+
+    const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+    const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
+
+    let pendingDocs = 0;
+    let overdueItems = 0;
+    let completedThisMonth = 0;
+
+    for (const deal of onboardingDeals) {
+      const items = await this.getOnboardingChecklistItems(deal.id);
+      const pending = items.filter(i => i.status === "not_requested" || i.status === "requested");
+      const overdue = pending.filter(i => new Date(i.updatedAt || i.createdAt || Date.now()) < twoDaysAgo);
+      const approved = items.filter(i => i.status === "approved" && i.updatedAt && new Date(i.updatedAt) >= monthStart);
+      pendingDocs += pending.length;
+      overdueItems += overdue.length;
+      completedThisMonth += approved.length;
+    }
+
+    return { totalActive, pendingDocs, overdueItems, completedThisMonth };
   }
 
   // ── NPS Responses ─────────────────────────────────────────────────────────

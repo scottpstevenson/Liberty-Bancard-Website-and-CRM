@@ -10,6 +10,7 @@ export const QUEUE_NAMES = {
   DISCOVERY: "discovery",
   DIGESTS: "digests",
   MID_INGESTION: "mid-ingestion",
+  ONBOARDING_REMINDER: "onboarding-reminder",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -89,6 +90,15 @@ const QUEUE_CONFIGS: QueueConfig[] = [
   {
     name: QUEUE_NAMES.MID_INGESTION,
     // concurrency=1: nightly batch; single-pass DB write avoids row-level conflicts.
+    concurrency: 1,
+    attempts: 3,
+    backoffDelay: 60000,
+    repeatEveryMs: 24 * 60 * 60 * 1000,
+    jobName: "run",
+  },
+  {
+    name: QUEUE_NAMES.ONBOARDING_REMINDER,
+    // concurrency=1: nightly scan; single pass to avoid duplicate notifications.
     concurrency: 1,
     attempts: 3,
     backoffDelay: 60000,
@@ -291,6 +301,10 @@ class QueueManager {
         }
         case QUEUE_NAMES.MID_INGESTION: {
           await runMidIngestionTick();
+          break;
+        }
+        case QUEUE_NAMES.ONBOARDING_REMINDER: {
+          await runOnboardingReminderTick();
           break;
         }
         default:
@@ -602,6 +616,11 @@ async function runDiscoveryTick(): Promise<void> {
 async function runDigestsTick(): Promise<void> {
   const { checkAndSendDigests } = await import("./digest-service");
   await checkAndSendDigests();
+}
+
+async function runOnboardingReminderTick(): Promise<void> {
+  const { runOnboardingReminderTick: tick } = await import("./onboarding-reminder");
+  await tick();
 }
 
 async function runMidIngestionTick(): Promise<void> {

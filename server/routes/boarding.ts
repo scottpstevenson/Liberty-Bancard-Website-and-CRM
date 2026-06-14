@@ -537,4 +537,104 @@ export function registerBoardingRoutes(app: Express) {
       res.status(500).json({ message: err.message });
     }
   });
+
+  // ── Onboarding Checklist Routes ───────────────────────────────────────────
+
+  app.get("/api/deals/:id/onboarding-checklist", isDashboardUser, async (req, res) => {
+    try {
+      const dealId = Number(req.params.id);
+      if (isNaN(dealId)) return res.status(400).json({ message: "Invalid deal ID" });
+      const items = await storage.getOnboardingChecklistItems(dealId);
+      res.json(items);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/deals/:id/onboarding-checklist/init", isDashboardUser, async (req, res) => {
+    try {
+      const dealId = Number(req.params.id);
+      if (isNaN(dealId)) return res.status(400).json({ message: "Invalid deal ID" });
+      const deal = await storage.getDeal(dealId);
+      if (!deal) return res.status(404).json({ message: "Deal not found" });
+      const items = await storage.initializeOnboardingChecklist(dealId);
+      res.json(items);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/deals/:id/onboarding-checklist/:itemKey", isDashboardUser, async (req, res) => {
+    try {
+      const dealId = Number(req.params.id);
+      const { itemKey } = req.params;
+      const { status, documentId, notes } = req.body as { status?: string; documentId?: number | null; notes?: string | null };
+
+      if (isNaN(dealId)) return res.status(400).json({ message: "Invalid deal ID" });
+
+      const validStatuses = ["not_requested", "requested", "received", "approved", "rejected"];
+      if (status && !validStatuses.includes(status)) {
+        return res.status(400).json({ message: `Invalid status. Must be one of: ${validStatuses.join(", ")}` });
+      }
+
+      if (status === "approved" || status === "rejected") {
+        const user = (req as any).user;
+        if (!user || !["admin", "manager"].includes(user.role)) {
+          return res.status(403).json({ message: "Only admins and managers can approve or reject documents" });
+        }
+      }
+
+      const item = await storage.updateOnboardingChecklistItemStatus(dealId, itemKey, status || "not_requested", documentId, notes);
+      if (!item) {
+        const upserted = await storage.upsertOnboardingChecklistItem({ dealId, itemKey, status: status || "not_requested", documentId, notes });
+        return res.json(upserted);
+      }
+      res.json(item);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/onboarding-board", isDashboardUser, async (req, res) => {
+    try {
+      const { data: allDeals } = await storage.getDeals({ limit: 5000 });
+      const onboardingDeals = allDeals.filter((d) => d.pipeline === "onboarding" && !d.archivedAt);
+
+      const results = await Promise.all(
+        onboardingDeals.map(async (deal) => {
+          const [checklistItems, contact] = await Promise.all([
+            storage.getOnboardingChecklistItems(deal.id),
+            deal.contactId ? storage.getContact(deal.contactId) : null,
+          ]);
+          const totalItems = checklistItems.length;
+          const approvedItems = checklistItems.filter((i) => i.status === "approved").length;
+          const pendingItems = checklistItems.filter((i) => i.status === "not_requested" || i.status === "requested").length;
+          const overdueItems = checklistItems.filter((i) => {
+            const isStale = i.status === "not_requested" || i.status === "requested";
+            const lastUpdated = new Date(i.updatedAt || i.createdAt || Date.now());
+            return isStale && lastUpdated < new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+          }).length;
+          return {
+            deal,
+            contact: contact ? { id: contact.id, firstName: contact.firstName, lastName: contact.lastName, companyName: contact.companyName, email: contact.email } : null,
+            checklistItems,
+            stats: { totalItems, approvedItems, pendingItems, overdueItems, progressPct: totalItems > 0 ? Math.round((approvedItems / totalItems) * 100) : 0 },
+          };
+        })
+      );
+
+      res.json(results);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/operator/onboarding-kpis", isDashboardUser, async (req, res) => {
+    try {
+      const kpis = await storage.getOnboardingKpis();
+      res.json(kpis);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
 }
