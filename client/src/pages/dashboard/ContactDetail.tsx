@@ -21,7 +21,7 @@ import {
   Ticket, Mail, Phone, Building2,
   Activity, Link2, Trash2, Star,
   RefreshCw, CheckCircle2, AlertCircle, Linkedin, FolderOpen, Info,
-  ChevronDown, ChevronUp, Brain, AlertOctagon, ShieldCheck, GitFork, Bot,
+  ChevronDown, ChevronUp, Brain, AlertOctagon, ShieldCheck, GitFork, Bot, MapPin, Store,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import Comments from "@/components/Comments";
@@ -46,6 +46,7 @@ import { ChangeHistoryTab } from "./contact-detail-tabs/ChangeHistoryTab";
   import { CreateDialogs } from "./contact-detail-tabs/CreateDialogs";
 import { GhlSyncStatus } from "./contact-detail-tabs/GhlSyncStatus";
 import { RelationshipsTab } from "./contact-detail-tabs/RelationshipsTab";
+import { LocationsTab } from "./contact-detail-tabs/LocationsTab";
 
 // ── Churn Risk Panel ──────────────────────────────────────────────────────────
 type MerchantHealthScore = {
@@ -530,6 +531,28 @@ export default function ContactDetail() {
     staleTime: 30000,
   });
 
+  const { data: parentAccount } = useQuery<Contact | null>({
+    queryKey: ["/api/contacts", contactId, "parent"],
+    queryFn: async () => {
+      const res = await fetch(`/api/contacts/${contactId}/parent`, { credentials: "include" });
+      if (!res.ok) return null;
+      return res.json();
+    },
+    enabled: !!contactId,
+    staleTime: 30000,
+  });
+
+  const { data: childLocations = [] } = useQuery<Contact[]>({
+    queryKey: ["/api/contacts", contactId, "locations"],
+    queryFn: async () => {
+      const res = await fetch(`/api/contacts/${contactId}/locations`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!contactId,
+    staleTime: 30000,
+  });
+
   const { data: contactDocuments = [] } = useQuery<Document[]>({
     queryKey: ["/api/merchant-documents/contact", contactId],
     queryFn: async () => {
@@ -837,6 +860,21 @@ export default function ContactDetail() {
               <Badge variant={statusColor(contact.status)} data-testid="badge-status">
                 {contact.status}
               </Badge>
+              {contact.isParentAccount && (
+                <Badge className="bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200 border-0" data-testid="badge-parent-account">
+                  <Store className="h-3 w-3 mr-1" /> Parent Account
+                </Badge>
+              )}
+              {parentAccount && (
+                <button
+                  className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                  onClick={() => setLocation(`/dashboard/contacts/${parentAccount.id}`)}
+                  data-testid="badge-part-of-parent"
+                >
+                  <MapPin className="h-3 w-3" />
+                  Part of: {parentAccount.companyName || `${parentAccount.firstName} ${parentAccount.lastName}`}
+                </button>
+              )}
             </div>
           </div>
 
@@ -1042,6 +1080,10 @@ export default function ContactDetail() {
             <GitFork className="h-3.5 w-3.5 mr-1" />
             Relationships
           </TabsTrigger>
+          <TabsTrigger value="locations" data-testid="tab-locations">
+            <MapPin className="h-3.5 w-3.5 mr-1" />
+            Locations {childLocations.length > 0 && `(${childLocations.length})`}
+          </TabsTrigger>
           <TabsTrigger value="history" data-testid="tab-history">History</TabsTrigger>
           <TabsTrigger value="comments" data-testid="tab-comments">Comments</TabsTrigger>
           <TabsTrigger value="churn-risk" data-testid="tab-churn-risk">
@@ -1104,6 +1146,10 @@ export default function ContactDetail() {
 
         <TabsContent value="relationships" data-testid="tab-content-relationships">
           <RelationshipsTab contactId={contactId} />
+        </TabsContent>
+
+        <TabsContent value="locations" data-testid="tab-content-locations">
+          <LocationsTab contact={contact} />
         </TabsContent>
 
         <TabsContent value="history" data-testid="tab-content-history">

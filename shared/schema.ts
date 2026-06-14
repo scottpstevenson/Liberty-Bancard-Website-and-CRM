@@ -79,6 +79,9 @@ export const contacts = pgTable("contacts", {
   partnerOrgId: integer("partner_org_id"),
   lastSyncedAt: timestamp("last_synced_at"),
   churnRiskTier: text("churn_risk_tier"),
+  isParentAccount: boolean("is_parent_account").default(false),
+  parentContactId: integer("parent_contact_id"),
+  locationName: text("location_name"),
 }, (table) => [
   uniqueIndex("contacts_email_unique_idx").on(table.email).where(sql`archived_at IS NULL`),
   index("contacts_phone_idx").on(table.phone),

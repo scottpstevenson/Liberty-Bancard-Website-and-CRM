@@ -162,6 +162,27 @@
                         "when": 1780500000000,
                         "tag": "0019_onboarding_checklist",
                         "breakpoints": true
+                },
+                {
+                        "idx": 23,
+                        "version": "7",
+                        "when": 1780700000000,
+                        "tag": "0022_multi_location",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 24,
+                        "version": "7",
+                        "when": 1780800000000,
+                        "tag": "0023_multi_location_fk",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 21,
+                        "version": "7",
+                        "when": 1780400000000,
+                        "tag": "0020_multi_location_fk",
+                        "breakpoints": true
                 }
         ]
 }

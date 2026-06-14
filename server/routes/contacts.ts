@@ -424,6 +424,146 @@ export function registerContactsRoutes(app: Express) {
     }
   });
 
+  // === MULTI-LOCATION / PARENT ACCOUNT ===
+
+  app.get("/api/contacts/:id/locations", isDashboardUser, async (req, res) => {
+    try {
+      const contactId = Number(req.params.id);
+      const locations = await storage.getChildLocations(contactId);
+      res.json(locations);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/contacts/:id/locations", isDashboardUser, async (req, res) => {
+    try {
+      const parentId = Number(req.params.id);
+      const schema = z.object({
+        contactId: z.number().int().positive(),
+        locationName: z.string().optional(),
+      });
+      const { contactId: childId, locationName } = schema.parse(req.body);
+
+      if (childId === parentId) {
+        return res.status(400).json({ message: "A contact cannot be linked to itself" });
+      }
+
+      const parent = await storage.getContact(parentId);
+      if (!parent) return res.status(404).json({ message: "Parent contact not found" });
+
+      // Prevent parent from being a child itself (no grandparent hierarchies)
+      if (parent.parentContactId) {
+        return res.status(400).json({ message: "The parent contact is already a child location of another account. Nested hierarchies are not supported." });
+      }
+
+      const child = await storage.getContact(childId);
+      if (!child) return res.status(404).json({ message: "Child contact not found" });
+
+      // Prevent child that is itself a parent (would create a fan-out hierarchy)
+      const existingChildren = await storage.getChildLocations(childId);
+      if (existingChildren.length > 0) {
+        return res.status(400).json({ message: "This contact already manages child locations. Move its locations first before linking it as a child." });
+      }
+
+      const updates: any = { parentContactId: parentId };
+      if (locationName !== undefined) updates.locationName = locationName;
+
+      const updated = await storage.updateContact(childId, updates, { actorType: "user", userId: (req.user as any)?.id ?? null });
+
+      if (!parent.isParentAccount) {
+        await storage.updateContact(parentId, { isParentAccount: true }, { actorType: "user", userId: (req.user as any)?.id ?? null });
+      }
+
+      // Rep inheritance: propagate parent's agent assignment to child's unassigned deals
+      try {
+        const parentDeals = await storage.getDealsByContact(parentId);
+        const childDeals = await storage.getDealsByContact(childId);
+        for (const parentDeal of parentDeals) {
+          const parentAgentRows = await storage.getAgentMerchantsByDeal(parentDeal.id);
+          if (parentAgentRows.length === 0) continue;
+          const parentAgent = parentAgentRows[0];
+          for (const childDeal of childDeals) {
+            const childAgentRows = await storage.getAgentMerchantsByDeal(childDeal.id);
+            if (childAgentRows.length === 0) {
+              await storage.assignMerchantToAgent({
+                agentId: parentAgent.agentId,
+                dealId: childDeal.id,
+                contactId: childId,
+                assignedAt: new Date(),
+                notes: `Inherited from parent account (contact #${parentId})`,
+              });
+            }
+          }
+        }
+      } catch (repErr: any) {
+        console.error(`[Location Link] Rep inheritance failed for child ${childId}:`, repErr.message);
+      }
+
+      await storage.createAuditLog({
+        action: "location_linked",
+        entityType: "contact",
+        entityId: childId,
+        details: { parentContactId: parentId, locationName: locationName ?? null },
+      });
+
+      res.status(201).json(updated);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/contacts/:id/locations/:locationId", isDashboardUser, async (req, res) => {
+    try {
+      const parentId = Number(req.params.id);
+      const locationId = Number(req.params.locationId);
+
+      const child = await storage.getContact(locationId);
+      if (!child || child.parentContactId !== parentId) {
+        return res.status(404).json({ message: "Location not linked to this parent" });
+      }
+
+      await storage.updateContact(locationId, { parentContactId: null, locationName: null }, { actorType: "user", userId: (req.user as any)?.id ?? null });
+
+      const remaining = await storage.getChildLocations(parentId);
+      if (remaining.length === 0) {
+        await storage.updateContact(parentId, { isParentAccount: false }, { actorType: "user", userId: (req.user as any)?.id ?? null });
+      }
+
+      await storage.createAuditLog({
+        action: "location_unlinked",
+        entityType: "contact",
+        entityId: locationId,
+        details: { parentContactId: parentId },
+      });
+
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/contacts/:id/group-kpis", isDashboardUser, async (req, res) => {
+    try {
+      const contactId = Number(req.params.id);
+      const kpis = await storage.getGroupKpis(contactId);
+      res.json(kpis);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/contacts/:id/parent", isDashboardUser, async (req, res) => {
+    try {
+      const contactId = Number(req.params.id);
+      const parent = await storage.getParentAccount(contactId);
+      res.json(parent ?? null);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.put("/api/companies/:id", isDashboardUser, async (req, res) => {
     try {
       const companyId = Number(req.params.id);

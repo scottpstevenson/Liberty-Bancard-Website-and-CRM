@@ -489,6 +489,7 @@ export default function Pipeline() {
   const [selectedDealIds, setSelectedDealIds] = useState<Set<number>>(new Set());
   const [showArchived, setShowArchived] = useState(false);
   const [sortMode, setSortMode] = useState<"default" | "volume_desc" | "trending_down" | "no_activity">("default");
+  const [groupFilterContactId, setGroupFilterContactId] = useState<number | null>(null);
 
   const [editStage, setEditStage] = useState("");
   const [editNotes, setEditNotes] = useState("");
@@ -527,6 +528,17 @@ export default function Pipeline() {
     staleTime: 5 * 60 * 1000,
   });
   const midSummaries = midSummaryData?.summaries || {};
+
+  // Derive group contact IDs for the selected parent account filter
+  const groupFilterContactIds = groupFilterContactId && contacts
+    ? new Set([
+        groupFilterContactId,
+        ...(contacts.filter(c => c.parentContactId === groupFilterContactId).map(c => c.id)),
+      ])
+    : null;
+
+  // Parent accounts available in the filter dropdown
+  const parentAccountContacts = (contacts || []).filter(c => c.isParentAccount);
 
   const { data: pipelineStages } = useQuery<PipelineStage[]>({
     queryKey: ["/api/pipeline-stages", configPipeline],
@@ -959,6 +971,7 @@ export default function Pipeline() {
       if (d.stage !== stage) return false;
       const isArchived = !!(d as any).archivedAt;
       if (!showArchived && isArchived) return false;
+      if (groupFilterContactIds && !groupFilterContactIds.has(d.contactId)) return false;
       if (sortMode === "trending_down") {
         const s = midSummaries[String(d.id)];
         if (!s || s.totalVolume <= 0 || s.trendPct >= 0) return false;
@@ -1045,6 +1058,24 @@ export default function Pipeline() {
               <SelectItem value="no_activity" data-testid="sort-no-activity">No activity (MID idle)</SelectItem>
             </SelectContent>
           </Select>
+          {parentAccountContacts.length > 0 && (
+            <Select
+              value={groupFilterContactId ? String(groupFilterContactId) : "all"}
+              onValueChange={(v) => setGroupFilterContactId(v === "all" ? null : Number(v))}
+            >
+              <SelectTrigger className="h-9 w-[180px]" data-testid="select-pipeline-group-filter">
+                <SelectValue placeholder="All groups" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" data-testid="group-filter-all">All groups</SelectItem>
+                {parentAccountContacts.map(c => (
+                  <SelectItem key={c.id} value={String(c.id)} data-testid={`group-filter-${c.id}`}>
+                    {c.companyName || `${c.firstName} ${c.lastName}`}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           <Button
             size="sm"
             variant="outline"

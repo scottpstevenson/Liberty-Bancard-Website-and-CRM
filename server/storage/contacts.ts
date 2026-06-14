@@ -349,4 +349,44 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   async getContactsByPartnerOrg(partnerOrgId: number) {
     return await db.select().from(contacts).where(eq(contacts.partnerOrgId, partnerOrgId)).orderBy(desc(contacts.createdAt));
   }
+
+  async getChildLocations(parentContactId: number) {
+    return await db.select().from(contacts)
+      .where(and(eq(contacts.parentContactId, parentContactId), isNull(contacts.archivedAt)))
+      .orderBy(asc(contacts.locationName), asc(contacts.companyName));
+  }
+
+  async getParentAccount(contactId: number) {
+    const [contact] = await db.select().from(contacts).where(eq(contacts.id, contactId));
+    if (!contact?.parentContactId) return null;
+    const [parent] = await db.select().from(contacts).where(eq(contacts.id, contact.parentContactId));
+    return parent ?? null;
+  }
+
+  async getGroupKpis(parentContactId: number) {
+    const children = await this.getChildLocations(parentContactId);
+    const allIds = [parentContactId, ...children.map(c => c.id)];
+    if (allIds.length === 0) return { locationCount: 0, totalDeals: 0, closedWonCount: 0, totalVolume: 0 };
+
+    const groupDeals = await db.select().from(deals)
+      .where(and(inArray(deals.contactId, allIds), isNull(deals.archivedAt)));
+
+    let totalVolume = 0;
+    let closedWonCount = 0;
+    const midSet = new Set<string>();
+    for (const d of groupDeals) {
+      if (d.totalVolume) totalVolume += parseFloat(d.totalVolume) || 0;
+      if (d.stage === "Closed Won") closedWonCount++;
+      if (d.mid) midSet.add(d.mid);
+    }
+
+    return {
+      locationCount: children.length,
+      totalDeals: groupDeals.length,
+      closedWonCount,
+      totalVolume,
+      activeMids: midSet.size,
+      locationIds: allIds,
+    };
+  }
 }

@@ -143,6 +143,7 @@ export async function syncContactToGhl(contactId: number): Promise<{ success: bo
     }
 
     await checkAndApplyActivePipelineTag(contact, ghlId);
+    await applyParentLocationTags(contact, ghlId);
 
     await storage.createGhlActivityLog({
       contactId,
@@ -872,6 +873,59 @@ export async function removeTagsFromLocal(ghlContactId: string, tags: string[]):
   } catch (err: any) {
     console.error("[GHL Sync] Failed to remove tags from local:", err.message);
     return { success: false, error: err.message };
+  }
+}
+
+export async function applyParentLocationTags(contact: Contact, ghlContactId?: string): Promise<void> {
+  try {
+    if (!ghlContactId) ghlContactId = contact.ghlContactId || undefined;
+    if (!ghlContactId) return;
+
+    const currentTags: string[] = contact.tags || [];
+    let updatedTags = [...currentTags];
+    const customFields: Array<{ key: string; field_value: string }> = [];
+
+    if (contact.isParentAccount) {
+      if (!updatedTags.includes("lb_parent_account")) {
+        updatedTags = [...updatedTags, "lb_parent_account"];
+      }
+    } else {
+      updatedTags = updatedTags.filter(t => t !== "lb_parent_account");
+    }
+
+    if (contact.parentContactId) {
+      const parent = await storage.getContact(contact.parentContactId);
+      if (parent) {
+        const parentName = parent.companyName || `${parent.firstName} ${parent.lastName}`.trim();
+        customFields.push({ key: "lb_location_of", field_value: parentName });
+      }
+    } else {
+      customFields.push({ key: "lb_location_of", field_value: "" });
+    }
+
+    const tagsChanged = updatedTags.join(",") !== currentTags.join(",");
+    if (tagsChanged || customFields.length > 0) {
+      const payload: Record<string, any> = {};
+      if (tagsChanged) {
+        payload.tags = updatedTags;
+        await storage.syncUpdateContact(contact.id, { tags: updatedTags });
+      }
+      if (customFields.length > 0) {
+        payload.customFields = customFields;
+      }
+      await ghlFetch(`/contacts/${ghlContactId}`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      });
+      if (contact.isParentAccount) {
+        console.log(`[GHL Sync] Applied lb_parent_account tag to contact ${contact.id}`);
+      }
+      if (contact.parentContactId) {
+        console.log(`[GHL Sync] Applied lb_location_of custom field to contact ${contact.id}`);
+      }
+    }
+  } catch (err: any) {
+    console.error(`[GHL Sync] Failed to apply parent/location tags for contact ${contact.id}:`, err.message);
   }
 }
 

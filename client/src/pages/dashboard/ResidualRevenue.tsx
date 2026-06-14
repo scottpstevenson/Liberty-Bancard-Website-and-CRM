@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { exportToCSV } from "@/lib/export-csv";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -202,6 +203,7 @@ function TableSkeleton({ rows = 5, cols = 9 }: { rows?: number; cols?: number })
 
 export default function ResidualRevenue() {
   const [searchQuery, setSearchQuery] = useState("");
+  const [groupFilterParentId, setGroupFilterParentId] = useState<number | null>(null);
   const [uploadMonth, setUploadMonth] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -215,6 +217,46 @@ export default function ResidualRevenue() {
   const [selectedDealId, setSelectedDealId] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+
+  const { data: contactsResult } = useQuery<{ data: Array<{ id: number; companyName: string | null; firstName: string; lastName: string; isParentAccount: boolean | null; parentContactId: number | null }> }>({
+    queryKey: ["/api/contacts"],
+    queryFn: async () => {
+      const res = await fetch("/api/contacts?limit=500", { credentials: "include" });
+      if (!res.ok) return { data: [] };
+      return res.json();
+    },
+    staleTime: 60000,
+  });
+  const allContacts = contactsResult?.data ?? [];
+  const parentAccountsList = allContacts.filter(c => c.isParentAccount);
+
+  const { data: allDealsResult } = useQuery<{ data: Array<{ id: number; contactId: number; mid: string | null }> }>({
+    queryKey: ["/api/deals"],
+    queryFn: async () => {
+      const res = await fetch("/api/deals?limit=1000", { credentials: "include" });
+      if (!res.ok) return { data: [] };
+      return res.json();
+    },
+    staleTime: 60000,
+    enabled: !!groupFilterParentId,
+  });
+  const allDeals = allDealsResult?.data ?? [];
+
+  // Compute group MIDs when a parent filter is active
+  const groupMidSet = useMemo<Set<string> | null>(() => {
+    if (!groupFilterParentId) return null;
+    const groupContactIds = new Set([
+      groupFilterParentId,
+      ...allContacts.filter(c => c.parentContactId === groupFilterParentId).map(c => c.id),
+    ]);
+    const mids = new Set<string>();
+    for (const deal of allDeals) {
+      if (groupContactIds.has(deal.contactId) && deal.mid) {
+        mids.add(deal.mid);
+      }
+    }
+    return mids;
+  }, [groupFilterParentId, allContacts, allDeals]);
 
   const { data: reports, isLoading: reportsLoading } = useQuery<ResidualReport[]>({
     queryKey: ["/api/residual-reports"],
@@ -376,15 +418,16 @@ export default function ResidualRevenue() {
   const filteredMerchants = useMemo(() => {
     if (!merchantResiduals) return [];
     const sorted = [...merchantResiduals].sort((a, b) => b.revenue - a.revenue);
-    if (!searchQuery) return sorted;
+    const afterGroup = groupMidSet ? sorted.filter(m => groupMidSet.has(m.mid)) : sorted;
+    if (!searchQuery) return afterGroup;
     const q = searchQuery.toLowerCase();
-    return sorted.filter(
+    return afterGroup.filter(
       (m) =>
         m.merchantName.toLowerCase().includes(q) ||
         m.mid.toLowerCase().includes(q) ||
         m.agent.toLowerCase().includes(q)
     );
-  }, [merchantResiduals, searchQuery]);
+  }, [merchantResiduals, searchQuery, groupMidSet]);
 
   const agentSummary = useMemo(() => {
     if (agents && agents.length > 0) return agents;
@@ -558,15 +601,35 @@ export default function ResidualRevenue() {
           <Card data-testid="card-merchant-residuals">
             <CardHeader className="flex flex-row items-center justify-between gap-2 flex-wrap">
               <CardTitle className="text-base">Merchant Residuals</CardTitle>
-              <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search merchants..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-9 w-64"
-                  data-testid="input-search-merchants"
-                />
+              <div className="flex items-center gap-2 flex-wrap">
+                {parentAccountsList.length > 0 && (
+                  <Select
+                    value={groupFilterParentId ? String(groupFilterParentId) : "all"}
+                    onValueChange={(v) => setGroupFilterParentId(v === "all" ? null : Number(v))}
+                  >
+                    <SelectTrigger className="h-9 w-[180px]" data-testid="select-residuals-group-filter">
+                      <SelectValue placeholder="All groups" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all" data-testid="residuals-group-all">All groups</SelectItem>
+                      {parentAccountsList.map(c => (
+                        <SelectItem key={c.id} value={String(c.id)} data-testid={`residuals-group-${c.id}`}>
+                          {c.companyName || `${c.firstName} ${c.lastName}`}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search merchants..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-9 w-64"
+                    data-testid="input-search-merchants"
+                  />
+                </div>
               </div>
             </CardHeader>
             <CardContent>

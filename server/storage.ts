@@ -143,6 +143,9 @@ export interface IStorage {
   getContact(id: number): Promise<typeof contacts.$inferSelect | undefined>;
   getContactByEmail(email: string): Promise<typeof contacts.$inferSelect | undefined>;
   getContactsByIds(ids: number[]): Promise<typeof contacts.$inferSelect[]>;
+  getChildLocations(parentContactId: number): Promise<typeof contacts.$inferSelect[]>;
+  getParentAccount(contactId: number): Promise<typeof contacts.$inferSelect | null>;
+  getGroupKpis(parentContactId: number): Promise<{ locationCount: number; totalDeals: number; closedWonCount: number; totalVolume: number; activeMids: number; locationIds: number[] }>;
   createContact(contact: InsertContact, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }): Promise<typeof contacts.$inferSelect>;
   updateContact(id: number, contact: UpdateContactRequest, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }): Promise<typeof contacts.$inferSelect | undefined>;
   syncUpdateContact(id: number, contact: UpdateContactRequest): Promise<typeof contacts.$inferSelect | undefined>;
