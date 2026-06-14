@@ -171,7 +171,9 @@ export interface IStorage {
   getDocuments(): Promise<typeof documents.$inferSelect[]>;
   getDocumentsByContact(contactId: number): Promise<typeof documents.$inferSelect[]>;
   getDocumentById(id: number): Promise<typeof documents.$inferSelect | undefined>;
+  getDocumentsByIds(ids: number[]): Promise<typeof documents.$inferSelect[]>;
   createDocument(doc: InsertDocument): Promise<typeof documents.$inferSelect>;
+  updateDocument(id: number, updates: Partial<InsertDocument>): Promise<typeof documents.$inferSelect | undefined>;
   deleteDocument(id: number): Promise<void>;
   createDocumentAccessLog(entry: InsertDocumentAccessLog): Promise<typeof documentAccessLog.$inferSelect>;
 

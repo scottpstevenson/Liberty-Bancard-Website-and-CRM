@@ -132,5 +132,15 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
     return row;
   }
 
+  async updateDocument(id: number, updates: Partial<InsertDocument>) {
+    const [doc] = await db.update(documents).set(updates).where(eq(documents.id, id)).returning();
+    return doc;
+  }
+
+  async getDocumentsByIds(ids: number[]) {
+    if (!ids.length) return [];
+    return await db.select().from(documents).where(inArray(documents.id, ids));
+  }
+
   }
   

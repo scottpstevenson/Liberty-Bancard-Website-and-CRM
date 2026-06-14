@@ -11,12 +11,16 @@ import { generateCoBrandedProposalPdf } from "../services/co-branded-proposal";
 import path from "path";
 import fs from "fs";
 import { upload } from "./helpers";
+import { createRequire } from "module";
+const _require = createRequire(import.meta.url);
+const archiver = _require("archiver") as typeof import("archiver").default;
 
 export function registerDocumentsRoutes(app: Express) {
   // === MERCHANT DOCUMENT VAULT ===
 
-  // Helper: check if a user can access a contact's documents.
-  // Admin and manager: always. Agent: only assigned contacts. Merchant: own contact (email match).
+  // Permission helper: controls who can view/download documents for a contact.
+  // admin/manager: all. agent: only their assigned contacts. merchant: own contact by email.
+  // partner: only docs explicitly shared (accessScope = 'partner') on their org's contacts.
   async function canAccessContactDocs(user: any, contactId: number | null): Promise<boolean> {
     const role = user?.role;
     if (!role) return false;
@@ -24,14 +28,66 @@ export function registerDocumentsRoutes(app: Express) {
     if (!contactId) return false;
     const contact = await storage.getContact(contactId);
     if (!contact) return false;
-    // Merchant self-access: user's email matches the contact's email
     if (user.email && contact.email && user.email === contact.email) return true;
-    // Agent/rep: only if assigned to this contact
+    if (role === 'partner') {
+      return !!(user.partnerOrgId && contact.partnerOrgId && user.partnerOrgId === contact.partnerOrgId);
+    }
     const userDisplay = `${user.firstName || ''} ${user.lastName || ''}`.trim();
     return (
       contact.assignedTo === user.email ||
       (!!userDisplay && contact.assignedTo === userDisplay)
     );
+  }
+
+  // Document-level permission check — called AFTER canAccessContactDocs passes.
+  // Enforces scope, category, and status restrictions per role.
+  // admin/manager: all. agent: all docs on their contacts. partner: scope='partner' only.
+  // merchant: scope='merchant', allowed categories only, no archived docs.
+  const MERCHANT_ALLOWED_CATEGORIES = ['Application', 'Voided Check', 'Photo ID', 'Bank Statement', 'Signed Proposal', 'Processing Statement'];
+
+  function canAccessDocument(user: any, doc: any): boolean {
+    const role = user?.role;
+    if (!role) return false;
+    if (['admin', 'manager'].includes(role)) return true;
+    if (role === 'agent') return true; // contact ownership already verified upstream
+    if (role === 'partner') return doc.accessScope === 'partner';
+    if (role === 'merchant') {
+      // Merchants may only view documents that have been explicitly approved
+      return (
+        doc.accessScope === 'merchant' &&
+        MERCHANT_ALLOWED_CATEGORIES.includes(doc.category || '') &&
+        doc.status === 'approved'
+      );
+    }
+    return false;
+  }
+
+  // Filter documents based on role after access check passes.
+  // Partners see only scope='partner'. Merchants see only scope='merchant', approved docs only.
+  function filterDocsByRole(docs: any[], role: string): any[] {
+    if (['admin', 'manager', 'agent'].includes(role)) return docs;
+    if (role === 'partner') return docs.filter(d => d.accessScope === 'partner');
+    if (role === 'merchant') {
+      return docs.filter(d =>
+        d.accessScope === 'merchant' &&
+        MERCHANT_ALLOWED_CATEGORIES.includes(d.category || '') &&
+        d.status === 'approved'
+      );
+    }
+    return docs;
+  }
+
+  // Log a document access event to the audit log.
+  function logDocumentAccess(userId: string | undefined, docId: number, action: 'view' | 'download' | 'bulk_download', role?: string) {
+    storage.createAuditLog({
+      userId: userId || null,
+      action: `document_${action}`,
+      entityType: 'document',
+      entityId: docId,
+      actorType: 'user',
+      actorId: userId || null,
+      details: { role: role || null },
+    }).catch(err => console.error('[doc-audit] failed:', err));
   }
 
   // GET /api/merchant-documents - admin/manager index of all documents
@@ -44,6 +100,7 @@ export function registerDocumentsRoutes(app: Express) {
       const allDocs = await storage.getDocuments();
       const category = req.query.category as string | undefined;
       const contactId = req.query.contactId ? Number(req.query.contactId) : undefined;
+      const status = req.query.status as string | undefined;
 
       let docs = allDocs;
       if (category && category !== "all") {
@@ -51,6 +108,9 @@ export function registerDocumentsRoutes(app: Express) {
       }
       if (contactId) {
         docs = docs.filter(d => d.contactId === contactId);
+      }
+      if (status && status !== "all") {
+        docs = docs.filter(d => (d.status || 'pending') === status);
       }
       res.json(docs);
     } catch (err: any) {
@@ -67,7 +127,8 @@ export function registerDocumentsRoutes(app: Express) {
         return res.status(403).json({ message: "Access denied" });
       }
       const docs = await storage.getDocumentsByContact(cid);
-      res.json(docs);
+      const filtered = filterDocsByRole(docs, user?.role || '');
+      res.json(filtered);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -81,7 +142,6 @@ export function registerDocumentsRoutes(app: Express) {
       const user = req.user as any;
       const { category, contactId, dealId } = req.body;
 
-      // Verify the user can access this contact before uploading
       if (contactId && !await canAccessContactDocs(user, Number(contactId))) {
         return res.status(403).json({ message: "Access denied" });
       }
@@ -110,7 +170,18 @@ export function registerDocumentsRoutes(app: Express) {
         uploadedBy,
         storageKey,
         accessScope: "internal",
+        status: "pending",
       });
+
+      storage.createAuditLog({
+        userId: String(user?.id || ''),
+        action: 'document_upload',
+        entityType: 'document',
+        entityId: doc.id,
+        actorType: 'user',
+        actorId: String(user?.id || ''),
+        details: { fileName, category: category || 'Other', contactId: contactId || null },
+      }).catch(err => console.error('[doc-audit] upload log failed:', err));
 
       res.status(201).json(doc);
     } catch (err: any) {
@@ -118,7 +189,38 @@ export function registerDocumentsRoutes(app: Express) {
     }
   });
 
-  // GET /api/merchant-documents/serve/:token - serve a file via signed token (no auth middleware — token IS the auth)
+  // PATCH /api/merchant-documents/:id/status - approve/reject/archive a document
+  app.patch("/api/merchant-documents/:id/status", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const { status } = req.body;
+      const validStatuses = ['pending', 'approved', 'rejected', 'archived'];
+      if (!validStatuses.includes(status)) {
+        return res.status(400).json({ message: "Invalid status. Must be: pending, approved, rejected, or archived" });
+      }
+
+      const doc = await storage.getDocumentById(Number(req.params.id));
+      if (!doc) return res.status(404).json({ message: "Document not found" });
+
+      const user = req.user as any;
+      const updated = await storage.updateDocument(doc.id, { status });
+
+      storage.createAuditLog({
+        userId: String(user?.id || ''),
+        action: `document_status_changed`,
+        entityType: 'document',
+        entityId: doc.id,
+        actorType: 'user',
+        actorId: String(user?.id || ''),
+        details: { from: doc.status || 'pending', to: status, fileName: doc.fileName },
+      }).catch(err => console.error('[doc-audit] status change log failed:', err));
+
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/merchant-documents/serve/:token - serve a file via signed token
   app.get("/api/merchant-documents/serve/:token", async (req, res) => {
     try {
       let payload;
@@ -131,12 +233,13 @@ export function registerDocumentsRoutes(app: Express) {
       const doc = await storage.getDocumentById(payload.documentId);
       if (!doc) return res.status(404).json({ message: "Document not found" });
 
-      // Log the actual document view (file served successfully or not — log on token validation pass)
       storage.createDocumentAccessLog({
         documentId: doc.id,
         userId: payload.userId,
         ip: (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket.remoteAddress || null,
       }).catch(err => console.error("[doc-access-log] failed to write:", err));
+
+      logDocumentAccess(payload.userId, doc.id, 'download');
 
       if (doc.storageKey) {
         const uploadsDir = path.join(process.cwd(), "uploads");
@@ -171,9 +274,16 @@ export function registerDocumentsRoutes(app: Express) {
       const user = req.user as any;
       const doc = await storage.getDocumentById(Number(req.params.id));
       if (!doc) return res.status(404).json({ message: "Document not found" });
+      // Contact-level check: user must be able to access this contact's documents
       if (!await canAccessContactDocs(user, doc.contactId)) {
         return res.status(403).json({ message: "Access denied" });
       }
+      // Document-level check: verify scope/category/status for restricted roles
+      if (!canAccessDocument(user, doc)) {
+        return res.status(403).json({ message: "Access denied to this document" });
+      }
+
+      logDocumentAccess(String(user?.id || ''), doc.id, 'view', user?.role);
 
       const token = generateDocumentToken(doc.id, user.id);
       const serveUrl = `/api/merchant-documents/serve/${token}`;
@@ -188,6 +298,73 @@ export function registerDocumentsRoutes(app: Express) {
     res.status(401).json({ message: "Direct document downloads are not permitted. Use /api/merchant-documents/:id/access-token to obtain a short-lived signed URL." });
   });
 
+  // POST /api/documents/bulk-download - ZIP download of selected documents
+  app.post("/api/documents/bulk-download", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const { ids } = req.body;
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ message: "ids must be a non-empty array" });
+      }
+      const numIds = ids.map(Number).filter(n => !isNaN(n));
+      if (numIds.length === 0) return res.status(400).json({ message: "No valid document IDs" });
+
+      const docs = await storage.getDocumentsByIds(numIds);
+      const user = req.user as any;
+
+      res.setHeader("Content-Type", "application/zip");
+      res.setHeader("Content-Disposition", `attachment; filename="documents_${Date.now()}.zip"`);
+
+      const archive = archiver("zip", { zlib: { level: 6 } });
+      archive.on("error", (err) => {
+        console.error("[bulk-download] archiver error:", err);
+        if (!res.headersSent) res.status(500).json({ message: err.message });
+      });
+      archive.pipe(res);
+
+      const uploadsDir = path.join(process.cwd(), "uploads");
+      const usedNames = new Map<string, number>();
+
+      for (const doc of docs) {
+        if (!doc.storageKey) continue;
+
+        const tryPaths = [
+          path.join(uploadsDir, doc.storageKey.replace(/^uploads\//, "")),
+          path.join(uploadsDir, "merchant_docs", path.basename(doc.storageKey)),
+          path.join(uploadsDir, path.basename(doc.storageKey)),
+        ];
+
+        let filePath: string | null = null;
+        for (const p of tryPaths) {
+          if (fs.existsSync(p)) { filePath = p; break; }
+        }
+        if (!filePath) continue;
+
+        const baseName = doc.fileName;
+        const count = usedNames.get(baseName) || 0;
+        usedNames.set(baseName, count + 1);
+        const entryName = count > 0 ? `${path.parse(baseName).name}_${count}${path.extname(baseName)}` : baseName;
+
+        archive.file(filePath, { name: entryName });
+
+        logDocumentAccess(String(user?.id || ''), doc.id, 'bulk_download', user?.role);
+      }
+
+      storage.createAuditLog({
+        userId: String(user?.id || ''),
+        action: 'document_bulk_download',
+        entityType: 'document',
+        entityId: null as any,
+        actorType: 'user',
+        actorId: String(user?.id || ''),
+        details: { documentIds: numIds, count: docs.length },
+      }).catch(err => console.error('[doc-audit] bulk download log failed:', err));
+
+      await archive.finalize();
+    } catch (err: any) {
+      if (!res.headersSent) res.status(500).json({ message: err.message });
+    }
+  });
+
   // DELETE /api/merchant-documents/:id - delete a document
   app.delete("/api/merchant-documents/:id", isAuthenticated, async (req, res) => {
     try {
@@ -198,21 +375,15 @@ export function registerDocumentsRoutes(app: Express) {
         return res.status(403).json({ message: "Access denied" });
       }
 
-      // Try to delete file from disk
       if (doc.storageKey) {
         const uploadsDir = path.join(process.cwd(), "uploads");
-
         const tryPaths = [
           path.join(uploadsDir, doc.storageKey.replace(/^uploads\//, "")),
           path.join(uploadsDir, "merchant_docs", path.basename(doc.storageKey)),
           path.join(uploadsDir, path.basename(doc.storageKey)),
         ];
-
         for (const p of tryPaths) {
-          if (fs.existsSync(p)) {
-            fs.unlinkSync(p);
-            break;
-          }
+          if (fs.existsSync(p)) { fs.unlinkSync(p); break; }
         }
       }
 
@@ -223,13 +394,13 @@ export function registerDocumentsRoutes(app: Express) {
     }
   });
 
-  // === LEGACY DOCUMENTS (kept for backward compatibility) ===
-  app.get("/api/documents", isDashboardUser, async (req, res) => {
+  // === LEGACY DOCUMENTS (restricted to admin/manager — no per-role filtering applied) ===
+  app.get("/api/documents", requireRole("admin", "manager"), async (req, res) => {
     const documents = await storage.getDocuments();
     res.json(documents);
   });
 
-  app.post("/api/documents", isDashboardUser, async (req, res) => {
+  app.post("/api/documents", requireRole("admin", "manager"), async (req, res) => {
     try {
       const input = insertDocumentSchema.parse(req.body);
       const doc = await storage.createDocument(input);
@@ -240,7 +411,7 @@ export function registerDocumentsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/documents/upload", isDashboardUser, upload.single("file"), async (req, res) => {
+  app.post("/api/documents/upload", requireRole("admin", "manager"), upload.single("file"), async (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ message: "No file uploaded" });
 
@@ -259,6 +430,7 @@ export function registerDocumentsRoutes(app: Express) {
         fileName,
         storageKey,
         accessScope: accessScope || "internal",
+        status: "pending",
       });
 
       res.status(201).json(doc);
@@ -267,7 +439,7 @@ export function registerDocumentsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/documents/download/:id", isDashboardUser, async (req, res) => {
+  app.get("/api/documents/download/:id", requireRole("admin", "manager"), async (req, res) => {
     try {
       const docs = await storage.getDocuments();
       const doc = docs.find(d => d.id === Number(req.params.id));
@@ -317,7 +489,7 @@ export function registerDocumentsRoutes(app: Express) {
     }
   });
 
-  app.get("/api/documents/contact/:contactId", isDashboardUser, async (req, res) => {
+  app.get("/api/documents/contact/:contactId", requireRole("admin", "manager"), async (req, res) => {
     const docs = await storage.getDocuments();
     const contactDocs = docs.filter(d => d.contactId === Number(req.params.contactId));
     res.json(contactDocs);
@@ -399,6 +571,7 @@ export function registerDocumentsRoutes(app: Express) {
         accessScope: "merchant",
         contactId: uploaderContactId,
         dealId: associatedDealId || dealId,
+        status: "pending",
       });
 
       await storage.createNotification({

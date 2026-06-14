@@ -237,6 +237,9 @@ export const DOCUMENT_CATEGORIES = [
   "Other",
 ] as const;
 
+export const DOCUMENT_STATUSES = ["pending", "approved", "rejected", "archived"] as const;
+export type DocumentStatus = typeof DOCUMENT_STATUSES[number];
+
 export const documents = pgTable("documents", {
   id: serial("id").primaryKey(),
   contactId: integer("contact_id").references(() => contacts.id),
@@ -249,6 +252,7 @@ export const documents = pgTable("documents", {
   uploadedBy: text("uploaded_by"),
   storageKey: text("storage_key"),
   accessScope: text("access_scope").default("internal"),
+  status: text("status").default("pending"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("documents_contact_id_idx").on(table.contactId),

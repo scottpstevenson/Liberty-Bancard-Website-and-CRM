@@ -495,13 +495,16 @@ function DocumentsTab({ contactId }: { contactId: number | null | undefined }) {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [fileError, setFileError] = useState<string | null>(null);
 
-  const { data: allDocuments, isLoading } = useQuery<DocType[]>({
-    queryKey: ["/api/documents"],
+  const { data: documents = [], isLoading } = useQuery<DocType[]>({
+    queryKey: ["/api/merchant-documents/contact", contactId],
+    queryFn: async () => {
+      if (!contactId) return [];
+      const res = await fetch(`/api/merchant-documents/contact/${contactId}`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!contactId,
   });
-
-  const documents = allDocuments?.filter(
-    (d) => d.accessScope === "merchant" || d.type === "merchant_statement" || (contactId && d.contactId === contactId)
-  ) || [];
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null;
@@ -553,7 +556,7 @@ function DocumentsTab({ contactId }: { contactId: number | null | undefined }) {
       setUploadProgress(0);
       const fileInput = document.querySelector('[data-testid="input-upload-file"]') as HTMLInputElement;
       if (fileInput) fileInput.value = "";
-      queryClient.invalidateQueries({ queryKey: ["/api/documents"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/merchant-documents/contact", contactId] });
     } catch (err: any) {
       setUploadProgress(0);
       toast({ title: "Upload failed", description: err.message || "Something went wrong.", variant: "destructive" });
@@ -666,7 +669,16 @@ function DocumentsTab({ contactId }: { contactId: number | null | undefined }) {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => window.open(`/api/documents/download/${doc.id}`, "_blank")}
+                        onClick={async () => {
+                          try {
+                            const res = await fetch(`/api/merchant-documents/${doc.id}/access-token`, { credentials: "include" });
+                            if (!res.ok) throw new Error("Could not get download link");
+                            const { url } = await res.json();
+                            window.open(url, "_blank");
+                          } catch {
+                            toast({ title: "Download failed", description: "Could not generate a download link.", variant: "destructive" });
+                          }
+                        }}
                         data-testid={`button-download-doc-${doc.id}`}
                       >
                         <FileText className="w-4 h-4 mr-1" />

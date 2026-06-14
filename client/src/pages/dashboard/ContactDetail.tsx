@@ -1091,7 +1091,7 @@ export default function ContactDetail() {
         </TabsContent>
 
         <TabsContent value="documents" data-testid="tab-content-documents">
-          <ContactDocumentsTab contactId={contactId} />
+          <ContactDocumentsTab contactId={contactId} userRole={user?.role} isPartnerContact={!!contact?.partnerOrgId} />
         </TabsContent>
 
         <TabsContent value="chargebacks" data-testid="tab-content-chargebacks">
