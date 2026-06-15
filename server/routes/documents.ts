@@ -12,9 +12,7 @@ import { generateCoBrandedProposalPdf } from "../services/co-branded-proposal";
 import path from "path";
 import fs from "fs";
 import { upload } from "./helpers";
-import { createRequire } from "module";
-const _require = createRequire(__filename);
-const archiver = _require("archiver") as typeof import("archiver").default;
+import { ZipArchive } from "archiver";
 
 export function registerDocumentsRoutes(app: Express) {
   // === MERCHANT DOCUMENT VAULT ===
@@ -315,7 +313,7 @@ export function registerDocumentsRoutes(app: Express) {
       res.setHeader("Content-Type", "application/zip");
       res.setHeader("Content-Disposition", `attachment; filename="documents_${Date.now()}.zip"`);
 
-      const archive = archiver("zip", { zlib: { level: 6 } });
+      const archive = new ZipArchive({ zlib: { level: 6 } });
       archive.on("error", (err) => {
         console.error("[bulk-download] archiver error:", err);
         if (!res.headersSent) res.status(500).json({ message: err.message });
