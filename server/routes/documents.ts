@@ -13,7 +13,7 @@ import path from "path";
 import fs from "fs";
 import { upload } from "./helpers";
 import { createRequire } from "module";
-const _require = createRequire(import.meta.url);
+const _require = createRequire(__filename);
 const archiver = _require("archiver") as typeof import("archiver").default;
 
 export function registerDocumentsRoutes(app: Express) {
