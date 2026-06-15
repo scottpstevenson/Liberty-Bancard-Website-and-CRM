@@ -15,7 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   Plus, Trash2, Loader2, Play, Pause, Mail, MessageSquare, Phone,
   CheckSquare, Clock, ChevronDown, ChevronUp, Users, Zap, Send, ArrowDown,
-  Target, BarChart3, FlaskConical,
+  Target, BarChart3, FlaskConical, Pencil, AlertTriangle,
 } from "lucide-react";
 
 interface ABTestConfig {
@@ -72,6 +72,9 @@ export default function Sequences() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
+  const [editingSeq, setEditingSeq] = useState<any | null>(null);
+  const [editLoadingSteps, setEditLoadingSteps] = useState(false);
+  const [originalStepIds, setOriginalStepIds] = useState<number[]>([]);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [enrollDialogSeqId, setEnrollDialogSeqId] = useState<number | null>(null);
   const [enrollContactId, setEnrollContactId] = useState("");
@@ -84,6 +87,8 @@ export default function Sequences() {
     status: "active",
   });
   const [steps, setSteps] = useState<SequenceStep[]>([]);
+
+  const isEditMode = editingSeq !== null;
 
   const { data: sequences, isLoading } = useQuery<any[]>({
     queryKey: ["/api/sequences"],
@@ -180,6 +185,89 @@ export default function Sequences() {
       toast({ title: "Failed to enroll", description: err.message, variant: "destructive" });
     },
   });
+
+  const editMutation = useMutation({
+    mutationFn: async () => {
+      if (!editingSeq) return;
+      await apiRequest("PUT", `/api/sequences/${editingSeq.id}`, {
+        name: form.name,
+        description: form.description,
+        triggerType: form.triggerType,
+        totalSteps: steps.length,
+      });
+      for (const stepId of originalStepIds) {
+        await apiRequest("DELETE", `/api/sequence-steps/${stepId}`);
+      }
+      for (let i = 0; i < steps.length; i++) {
+        const s = steps[i];
+        await apiRequest("POST", `/api/sequences/${editingSeq.id}/steps`, {
+          stepOrder: i + 1,
+          actionType: s.actionType,
+          delayDays: s.delayDays,
+          delayHours: s.delayHours,
+          subject: s.subject || null,
+          body: s.body || null,
+          config: s.config || null,
+          variantBSubject: s.variantBEnabled ? (s.variantBSubject || null) : null,
+          variantBBody: s.variantBEnabled ? (s.variantBBody || null) : null,
+          abTestConfig: s.variantBEnabled
+            ? (s.abTestConfig || { splitRatio: 50, minSampleSize: 100, winnerCriteria: "open_rate" })
+            : null,
+        });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/sequences"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sequences", editingSeq?.id, "steps"] });
+      setEditingSeq(null);
+      setOriginalStepIds([]);
+      setForm({ name: "", description: "", triggerType: "manual", status: "active" });
+      setSteps([]);
+      toast({ title: "Sequence updated" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to update sequence", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const openEditDialog = async (seq: any) => {
+    setEditLoadingSteps(true);
+    setEditingSeq(seq);
+    setForm({
+      name: seq.name,
+      description: seq.description || "",
+      triggerType: seq.triggerType || "manual",
+      status: seq.status,
+    });
+    try {
+      const res = await fetch(`/api/sequences/${seq.id}/steps`, { credentials: "include" });
+      const existingSteps: any[] = res.ok ? await res.json() : [];
+      setOriginalStepIds(existingSteps.map((s: any) => s.id));
+      setSteps(existingSteps.map((s: any) => ({
+        id: s.id,
+        stepOrder: s.stepOrder,
+        actionType: s.actionType,
+        delayDays: s.delayDays,
+        delayHours: s.delayHours,
+        subject: s.subject || "",
+        body: s.body || "",
+        variantBEnabled: !!(s.variantBBody || s.variantBSubject),
+        variantBSubject: s.variantBSubject || "",
+        variantBBody: s.variantBBody || "",
+        abTestConfig: s.abTestConfig || { splitRatio: 50, minSampleSize: 100, winnerCriteria: "open_rate" },
+      })));
+    } finally {
+      setEditLoadingSteps(false);
+    }
+  };
+
+  const closeDialog = () => {
+    setShowCreate(false);
+    setEditingSeq(null);
+    setOriginalStepIds([]);
+    setForm({ name: "", description: "", triggerType: "manual", status: "active" });
+    setSteps([]);
+  };
 
   const addStep = () => {
     setSteps([...steps, {
@@ -334,6 +422,15 @@ export default function Sequences() {
                       <Button
                         size="icon"
                         variant="ghost"
+                        aria-label="Edit sequence"
+                        onClick={() => openEditDialog(seq)}
+                        data-testid={`button-edit-${seq.id}`}
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
                         aria-label={seq.status === "active" ? "Pause sequence" : "Resume sequence"}
                         onClick={() => toggleMutation.mutate({
                           id: seq.id,
@@ -374,12 +471,18 @@ export default function Sequences() {
         </div>
       )}
 
-      <Dialog open={showCreate} onOpenChange={setShowCreate}>
+      <Dialog open={showCreate || isEditMode} onOpenChange={(open) => { if (!open) closeDialog(); }}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto" data-testid="dialog-create-sequence">
           <DialogHeader>
-            <DialogTitle>Create Drip Sequence</DialogTitle>
+            <DialogTitle>{isEditMode ? `Edit: ${editingSeq?.name}` : "Create Drip Sequence"}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-6">
+          {isEditMode && editLoadingSteps && (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+              <span className="ml-2 text-sm text-muted-foreground">Loading steps…</span>
+            </div>
+          )}
+          {(!isEditMode || !editLoadingSteps) && <div className="space-y-6">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Sequence Name</Label>
@@ -651,22 +754,36 @@ export default function Sequences() {
             </div>
 
             <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" onClick={() => setShowCreate(false)} data-testid="button-cancel-create">
+              <Button variant="outline" onClick={closeDialog} data-testid="button-cancel-create">
                 Cancel
               </Button>
-              <Button
-                onClick={() => createMutation.mutate()}
-                disabled={!form.name || steps.length === 0 || createMutation.isPending}
-                data-testid="button-save-sequence"
-              >
-                {createMutation.isPending ? (
-                  <><Loader2 className="w-4 h-4 animate-spin mr-2" /> Creating...</>
-                ) : (
-                  <><Send className="w-4 h-4 mr-2" /> Create Sequence</>
-                )}
-              </Button>
+              {isEditMode ? (
+                <Button
+                  onClick={() => editMutation.mutate()}
+                  disabled={!form.name || steps.length === 0 || editMutation.isPending || editLoadingSteps}
+                  data-testid="button-save-sequence"
+                >
+                  {editMutation.isPending ? (
+                    <><Loader2 className="w-4 h-4 animate-spin mr-2" /> Saving...</>
+                  ) : (
+                    <><Pencil className="w-4 h-4 mr-2" /> Save Changes</>
+                  )}
+                </Button>
+              ) : (
+                <Button
+                  onClick={() => createMutation.mutate()}
+                  disabled={!form.name || steps.length === 0 || createMutation.isPending}
+                  data-testid="button-save-sequence"
+                >
+                  {createMutation.isPending ? (
+                    <><Loader2 className="w-4 h-4 animate-spin mr-2" /> Creating...</>
+                  ) : (
+                    <><Send className="w-4 h-4 mr-2" /> Create Sequence</>
+                  )}
+                </Button>
+              )}
             </div>
-          </div>
+          </div>}
         </DialogContent>
       </Dialog>
 
@@ -762,6 +879,11 @@ function SequenceStepsView({ sequenceId, enrollments }: { sequenceId: number; en
                       {hasABTest && (
                         <Badge variant="outline" className="text-xs shrink-0 border-purple-400 text-purple-600 dark:text-purple-400">
                           <FlaskConical className="w-3 h-3 mr-1" /> A/B
+                        </Badge>
+                      )}
+                      {step.actionType === "call_reminder" && (
+                        <Badge variant="outline" className="text-xs shrink-0 border-amber-400 text-amber-600 dark:text-amber-400" title="Voice execution requires ORCHESTRATOR_ENABLED=true">
+                          <AlertTriangle className="w-3 h-3 mr-1" /> Needs Orchestrator
                         </Badge>
                       )}
                     </div>
