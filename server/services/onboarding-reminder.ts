@@ -1,6 +1,6 @@
 import { storage } from "../storage";
 import { isGhlConfigured } from "./ghl";
-import { resolveWorkflowId } from "./ghl-workflows";
+import { getWorkflowId } from "./ghl-workflows";
 
 const TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1000;
 
@@ -47,7 +47,7 @@ export async function runOnboardingReminderTick(): Promise<{ processed: number; 
         const contact = deal.contactId ? await storage.getContact(deal.contactId) : null;
 
         if (contact?.ghlContactId && isGhlConfigured()) {
-          const workflowId = resolveWorkflowId("GHL_WORKFLOW_ONBOARDING_REMINDER", "onboarding_reminder");
+          const workflowId = await getWorkflowId("GHL_WORKFLOW_ONBOARDING_REMINDER");
           if (workflowId) {
             const { enrollInGhlWorkflow } = await import("./ghl");
             await enrollInGhlWorkflow(contact.ghlContactId, workflowId);
