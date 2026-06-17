@@ -2,6 +2,30 @@ import nodemailer from "nodemailer";
 
 let transporter: nodemailer.Transporter | null = null;
 
+export function logSmtpStartupWarning(): void {
+  if (!isSmtpConfigured()) {
+    console.warn(
+      "[SMTP] ⚠️  SMTP is NOT configured. Transactional emails (proposals, merchant welcome, rep alerts) " +
+      "will fall back to GHL or be silently skipped. " +
+      "Set SMTP_HOST, SMTP_USER, and SMTP_PASS to enable direct email delivery.",
+    );
+  } else {
+    console.log(
+      `[SMTP] ✓ SMTP configured — host=${process.env.SMTP_HOST} port=${process.env.SMTP_PORT || 587} user=${process.env.SMTP_USER}`,
+    );
+  }
+}
+
+export function getSmtpStatus(): { configured: boolean; host: string | null; port: number; user: string | null; from: string | null } {
+  return {
+    configured: isSmtpConfigured(),
+    host: process.env.SMTP_HOST || null,
+    port: parseInt(process.env.SMTP_PORT || "587", 10),
+    user: process.env.SMTP_USER || null,
+    from: process.env.SMTP_FROM || process.env.SMTP_USER || null,
+  };
+}
+
 function getTransporter(): nodemailer.Transporter | null {
   if (transporter) return transporter;
 

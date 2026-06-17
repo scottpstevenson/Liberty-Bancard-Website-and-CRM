@@ -483,7 +483,7 @@ STATEMENT ANALYSIS RESULTS (use these findings):
     console.log(`[ProposalEngine] Proposal generated for deal ${dealId}, token: ${token}`);
 
     const settings = await storage.getSystemSetting("proposal_auto_send");
-    const autoSend = settings?.enabled !== false;
+    const autoSend = settings?.enabled === true;
 
     if (autoSend) {
       await sendProposalEmail(dealId);
@@ -607,10 +607,29 @@ export async function sendProposalEmail(dealId: number): Promise<boolean> {
     }
 
     if (!emailSent) {
-      console.warn(`[ProposalEngine] GHL not configured or send failed — proposal email NOT delivered for deal ${dealId}`);
-      await storage.updateDeal(deal.id, {
-        proposalStatus: "generated",
-      });
+      const { isSmtpConfigured, sendSmtpEmail } = await import("./smtp-email");
+      if (isSmtpConfigured()) {
+        try {
+          const smtpResult = await sendSmtpEmail({ to: contact.email, subject, html: body });
+          if (smtpResult.success) {
+            emailSent = true;
+            console.log(`[ProposalEngine] Proposal email sent via SMTP fallback for deal ${dealId}`);
+          } else {
+            console.warn(`[ProposalEngine] SMTP fallback failed for deal ${dealId}: ${smtpResult.error}`);
+          }
+        } catch (smtpErr: any) {
+          console.error(`[ProposalEngine] SMTP fallback threw for deal ${dealId}:`, smtpErr.message);
+        }
+      } else {
+        console.warn(
+          `[ProposalEngine] Neither GHL nor SMTP is configured — proposal email NOT delivered for deal ${dealId}. ` +
+          "Set GHL credentials or SMTP_HOST/SMTP_USER/SMTP_PASS to enable email delivery.",
+        );
+      }
+    }
+
+    if (!emailSent) {
+      await storage.updateDeal(deal.id, { proposalStatus: "generated" });
       return false;
     }
 

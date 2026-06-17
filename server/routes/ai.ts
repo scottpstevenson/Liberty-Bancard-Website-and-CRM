@@ -848,7 +848,7 @@ Notes: ${deal.notes || "None"}`
   app.get("/api/settings/proposal-auto-send", isAuthenticated, async (req, res) => {
     try {
       const setting = await storage.getSystemSetting("proposal_auto_send");
-      res.json(setting || { enabled: true });
+      res.json({ enabled: setting?.enabled === true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

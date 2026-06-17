@@ -724,7 +724,7 @@ function ProposalSettings() {
     },
   });
 
-  const isEnabled = autoSendSetting?.enabled !== false;
+  const isEnabled = autoSendSetting?.enabled === true;
 
   return (
     <Card data-testid="card-proposal-settings">

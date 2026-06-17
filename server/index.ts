@@ -285,6 +285,9 @@ app.use((req, res, next) => {
   await runDrizzleMigrations();
   await registerRoutes(httpServer, app);
 
+  const { logSmtpStartupWarning } = await import("./services/smtp-email");
+  logSmtpStartupWarning();
+
   // Sentry error-handler must be registered AFTER all routes so it can capture
   // errors propagated via next(err). It must also come BEFORE the generic error
   // handler below so Sentry receives the full error object.

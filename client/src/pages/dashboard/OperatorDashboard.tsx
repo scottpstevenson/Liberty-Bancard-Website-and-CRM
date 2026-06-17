@@ -1709,6 +1709,172 @@ function QueueMetricsPanel() {
   );
 }
 
+interface CommHealthData {
+  smtp: { configured: boolean; host: string | null; port: number; user: string | null; from: string | null };
+  ghl: { emailConfigured: boolean; fullyConfigured: boolean };
+  proposalAutoSend: boolean;
+  warnings: string[];
+  allHealthy: boolean;
+}
+
+function CommHealthPanel() {
+  const { toast } = useToast();
+
+  const { data, isLoading, isError, refetch, isFetching } = useQuery<CommHealthData>({
+    queryKey: ["/api/operator/communications-health"],
+    refetchInterval: 60_000,
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const res = await apiRequest("PUT", "/api/settings/proposal-auto-send", { enabled });
+      return res.json();
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/operator/communications-health"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/settings/proposal-auto-send"] });
+      toast({
+        title: result.enabled ? "Auto-Send Enabled" : "Auto-Send Disabled",
+        description: result.enabled
+          ? "Proposals will be automatically emailed to merchants after generation."
+          : "Proposals will be held for rep review before sending.",
+      });
+    },
+    onError: (err: any) => {
+      toast({ title: "Update Failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (isError || !data) {
+    return (
+      <div className="flex flex-col items-center gap-3 py-16">
+        <AlertTriangle className="w-7 h-7 text-destructive" />
+        <p className="text-sm text-muted-foreground">Failed to load communications health.</p>
+        <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="btn-retry-comm-health">
+          <RefreshCw className="w-4 h-4 mr-1" /> Retry
+        </Button>
+      </div>
+    );
+  }
+
+  const StatusRow = ({
+    label, ok, detail, testId,
+  }: { label: string; ok: boolean; detail?: string; testId?: string }) => (
+    <div className="flex items-start gap-3 py-2.5 border-b last:border-0" data-testid={testId}>
+      {ok
+        ? <CheckCircle2 className="w-4 h-4 text-green-500 mt-0.5 shrink-0" />
+        : <XCircle className="w-4 h-4 text-destructive mt-0.5 shrink-0" />}
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium">{label}</p>
+        {detail && <p className="text-xs text-muted-foreground mt-0.5">{detail}</p>}
+      </div>
+      <Badge variant={ok ? "default" : "destructive"} className="text-xs shrink-0">
+        {ok ? "OK" : "Not Set"}
+      </Badge>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4" data-testid="panel-comm-health">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-semibold text-base">Communications Health</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Email routing status and auto-send configuration for this system.
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => refetch()}
+          disabled={isFetching}
+          data-testid="btn-refresh-comm-health"
+        >
+          {isFetching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+        </Button>
+      </div>
+
+      {data.warnings.length > 0 && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-700 p-3 space-y-1" data-testid="comm-health-warnings">
+          {data.warnings.map((w, i) => (
+            <div key={i} className="flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+              <p className="text-xs text-amber-800 dark:text-amber-300">{w}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <Card data-testid="card-comm-channels">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Channel Status</CardTitle>
+        </CardHeader>
+        <CardContent className="px-4 pb-3 pt-0">
+          <StatusRow
+            label="SMTP Direct Email"
+            ok={data.smtp.configured}
+            detail={data.smtp.configured
+              ? `Host: ${data.smtp.host}  ·  Port: ${data.smtp.port}  ·  User: ${data.smtp.user}`
+              : "Set SMTP_HOST, SMTP_USER, and SMTP_PASS to enable direct email fallback"}
+            testId="row-smtp-status"
+          />
+          <StatusRow
+            label="GHL Email (primary)"
+            ok={data.ghl.emailConfigured}
+            detail={data.ghl.emailConfigured
+              ? `GHL integration active · Full SDR: ${data.ghl.fullyConfigured ? "Yes" : "Partial"}`
+              : "Set GHL_PRIVATE_INTEGRATION_TOKEN and GHL_LOCATION_ID to enable GHL email"}
+            testId="row-ghl-email-status"
+          />
+        </CardContent>
+      </Card>
+
+      <Card data-testid="card-proposal-auto-send">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Proposal Auto-Send</CardTitle>
+        </CardHeader>
+        <CardContent className="px-4 pb-4 pt-0">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex-1">
+              <p className="text-sm font-medium">{data.proposalAutoSend ? "Auto-Send ON" : "Hold for Review (OFF)"}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {data.proposalAutoSend
+                  ? "Proposals are automatically emailed to merchants when generated."
+                  : "Proposals are generated but held until a rep manually approves sending."}
+              </p>
+            </div>
+            <Button
+              variant={data.proposalAutoSend ? "default" : "outline"}
+              size="sm"
+              className="gap-2 shrink-0"
+              onClick={() => toggleMutation.mutate(!data.proposalAutoSend)}
+              disabled={toggleMutation.isPending}
+              data-testid="button-toggle-auto-send-health"
+            >
+              {toggleMutation.isPending ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : data.proposalAutoSend ? (
+                <Send className="w-3 h-3" />
+              ) : (
+                <Eye className="w-3 h-3" />
+              )}
+              {data.proposalAutoSend ? "Disable Auto-Send" : "Enable Auto-Send"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 export default function OperatorDashboard() {
   const { toast } = useToast();
 
@@ -1779,6 +1945,9 @@ export default function OperatorDashboard() {
           <TabsTrigger value="statement-upload" data-testid="tab-statement-upload" className="flex items-center gap-1">
             <AlertTriangle className="w-3.5 h-3.5" /> Upload Failures
           </TabsTrigger>
+          <TabsTrigger value="comm-health" data-testid="tab-comm-health" className="flex items-center gap-1">
+            <Mail className="w-3.5 h-3.5" /> Email Health
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="job-health">
@@ -1831,6 +2000,9 @@ export default function OperatorDashboard() {
         </TabsContent>
         <TabsContent value="statement-upload">
           <StatementUploadFailuresPanel />
+        </TabsContent>
+        <TabsContent value="comm-health">
+          <CommHealthPanel />
         </TabsContent>
       </Tabs>
     </div>

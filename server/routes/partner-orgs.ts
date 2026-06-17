@@ -86,7 +86,25 @@ export function registerPartnerOrgsRoutes(app: Express) {
       autoEnrollFromTrigger("contact_created", { contactId: contact.id }).catch(err => console.error("[PartnerPortal] Auto-enroll error:", err));
       triggerWorkflowsByEvent("contact_created", { entityType: "contact", entityId: contact.id, contactId: contact.id }).catch(err => console.error("[PartnerPortal] Workflow trigger error:", err));
 
-      res.status(201).json({ id: contact.id, message: "Thank you! We'll be in touch within 24 hours." });
+      // Derive warning from actual operation outcome: ghlContactId being set is
+      // proof the GHL upsert succeeded at runtime (not just that GHL is configured).
+      const { isSmtpConfigured } = await import("../services/smtp-email");
+      const ghlUpsertSucceeded = !!contact.ghlContactId;
+      const smtpAvailable = isSmtpConfigured();
+      const notificationsAvailable = ghlUpsertSucceeded || smtpAvailable;
+      if (!notificationsAvailable) {
+        console.warn(
+          `[PartnerPortal] Contact #${contact.id} saved but GHL upsert produced no ghlContactId ` +
+          "and SMTP is not configured — outbound notification may be delayed. " +
+          "Check GHL credentials or set SMTP_HOST/SMTP_USER/SMTP_PASS.",
+        );
+      }
+
+      res.status(201).json({
+        id: contact.id,
+        message: "Thank you! We'll be in touch within 24 hours.",
+        ...(notificationsAvailable ? {} : { warning: "Contact saved. Outbound notification may be delayed — communications not yet configured." }),
+      });
     } catch (err: any) {
       if (err?.code === "23505" || err?.message?.includes("unique")) {
         return res.status(409).json({ message: "A contact with this email already exists." });
@@ -169,7 +187,23 @@ export function registerPartnerOrgsRoutes(app: Express) {
       });
       await storage.createAuditLog({ action: "statement_uploaded", entityType: "contact", entityId: contact.id, details: { source: "partner_portal", partnerSlug, hasFile: !!fileBuffer } });
 
-      res.status(201).json({ message: "Statement received! We'll prepare your savings analysis within 24 hours." });
+      const { isSmtpConfigured: checkSmtpUpload } = await import("../services/smtp-email");
+      // Use actual GHL upsert outcome (ghlContactId set) not just config presence
+      const ghlUploadSucceeded = !!contact.ghlContactId;
+      const smtpUploadAvailable = checkSmtpUpload();
+      const commsAvailable = ghlUploadSucceeded || smtpUploadAvailable;
+      if (!commsAvailable) {
+        console.warn(
+          `[PartnerPortal/Upload] Statement for contact #${contact.id} saved but GHL upsert produced no ghlContactId ` +
+          "and SMTP is not configured — confirmation email may be delayed. " +
+          "Check GHL credentials or set SMTP_HOST/SMTP_USER/SMTP_PASS.",
+        );
+      }
+
+      res.status(201).json({
+        message: "Statement received! We'll prepare your savings analysis within 24 hours.",
+        ...(commsAvailable ? {} : { warning: "Statement saved. Confirmation email may be delayed — communications not yet configured." }),
+      });
     } catch (err: any) {
       res.status(500).json({ message: err.message || "Upload failed." });
     }

@@ -299,6 +299,46 @@ export function registerActivationRoutes(app: Express) {
     }
   });
 
+  // === COMMUNICATIONS HEALTH ===
+  app.get("/api/operator/communications-health", isAuthenticated, async (_req, res) => {
+    try {
+      const { isSmtpConfigured, getSmtpStatus } = await import("../services/smtp-email");
+      const { isSdrGhlConfigured } = await import("../services/sdr/ghl-client");
+      const { isGhlConfigured } = await import("../services/ghl");
+
+      const smtpStatus = getSmtpStatus();
+      const ghlEmail = isGhlConfigured();
+      const ghlFull = isSdrGhlConfigured();
+
+      const proposalAutoSendSetting = await storage.getSystemSetting("proposal_auto_send");
+      const proposalAutoSend = proposalAutoSendSetting?.enabled === true;
+
+      const warnings: string[] = [];
+      if (!smtpStatus.configured && !ghlEmail) {
+        warnings.push("Neither SMTP nor GHL email is configured. Transactional emails (proposals, rep alerts, merchant welcome) will not be delivered.");
+      }
+      if (!smtpStatus.configured) {
+        warnings.push("SMTP not configured. Direct email fallback unavailable. Set SMTP_HOST, SMTP_USER, and SMTP_PASS.");
+      }
+      if (!ghlFull) {
+        warnings.push("GHL not fully configured. Email via GHL unavailable. Set GHL_PRIVATE_INTEGRATION_TOKEN and GHL_LOCATION_ID.");
+      }
+
+      res.json({
+        smtp: smtpStatus,
+        ghl: {
+          emailConfigured: ghlEmail,
+          fullyConfigured: ghlFull,
+        },
+        proposalAutoSend,
+        warnings,
+        allHealthy: smtpStatus.configured && ghlEmail && !warnings.length,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // === SLA BREACH ACTIVITY (with collapsed flag) ===
   app.get("/api/operator/sla-breaches", isAuthenticated, async (_req, res) => {
     try {

@@ -396,7 +396,10 @@ export async function runStatementUploadChain(
       },
     });
 
-    // Email to rep (fire-and-forget)
+    // Email to rep — awaited so delivery failures are surfaced in step result
+    let emailChannel = "in-app-only";
+    let emailWarn: string | undefined;
+
     if (repEmail) {
       const subject = `New Statement Uploaded — ${merchantName}`;
       const body = `<p>Hi ${repName || "there"},</p>
@@ -406,21 +409,35 @@ export async function runStatementUploadChain(
 <p>— Liberty Bancard Automated Alerts</p>`;
 
       if (isSmtpConfigured()) {
-        sendSmtpEmail({ to: repEmail, subject, html: body }).catch(err =>
-          console.error("[StatementChain] Rep email (SMTP) failed:", err.message),
-        );
+        const smtpResult = await sendSmtpEmail({ to: repEmail, subject, html: body });
+        if (smtpResult.success) {
+          emailChannel = "smtp";
+        } else {
+          emailWarn = `SMTP send failed: ${smtpResult.error}`;
+          console.warn(`[StatementChain] Step 6 rep email via SMTP failed: ${smtpResult.error}`);
+        }
       } else if (isGhlConfigured()) {
-        const { sendGhlEmailForMerchant } = await import("./ghl");
-        sendGhlEmailForMerchant({ email: repEmail, subject, body }).catch(err =>
-          console.error("[StatementChain] Rep email (GHL) failed:", err.message),
-        );
+        try {
+          const { sendGhlEmailForMerchant } = await import("./ghl");
+          await sendGhlEmailForMerchant({ email: repEmail, subject, body });
+          emailChannel = "ghl";
+        } catch (ghlErr: any) {
+          emailWarn = `GHL send failed: ${ghlErr.message}`;
+          console.warn(`[StatementChain] Step 6 rep email via GHL failed: ${ghlErr.message}`);
+        }
+      } else {
+        emailWarn = "Neither SMTP nor GHL configured — rep email not sent";
+        console.warn("[StatementChain] Step 6: rep email skipped — no email channel available. Set SMTP_HOST or GHL credentials.");
       }
     }
 
-    steps.push(makeStep(6, "Rep notified", true, undefined, {
+    // In-app notification was already created above — step is still considered successful
+    // even if email delivery fails, but the warning is recorded for operator visibility.
+    steps.push(makeStep(6, "Rep notified", true, emailWarn, {
       repUserId: repUserId || "system-wide",
       repEmail: repEmail || "no-rep",
-      channel: repEmail && isSmtpConfigured() ? "smtp" : repEmail && isGhlConfigured() ? "ghl" : "in-app-only",
+      channel: emailChannel,
+      ...(emailWarn ? { emailWarning: emailWarn } : {}),
     }));
   } catch (err: any) {
     steps.push(makeStep(6, "Rep notified", false, err.message));
@@ -518,10 +535,14 @@ export async function runStatementUploadChain(
       steps.push(makeStep(9, "Merchant confirmation sent", smtpResult.success,
         smtpResult.error, { channel: "smtp", to: merchantEmail }));
     } else {
-      steps.push(makeStep(9, "Merchant confirmation sent", true, undefined, {
-        note: "Skipped — no GHL contact and SMTP not configured",
+      const reason = !merchantEmail
+        ? "No merchant email address on file"
+        : "No delivery channel: contact has no GHL ID and SMTP is not configured";
+      console.warn(`[StatementChain] Step 9: merchant confirmation NOT sent — ${reason}. Set SMTP_HOST or ensure GHL contact exists.`);
+      await logStepFailure(dealId, 9, "Merchant confirmation sent", reason);
+      steps.push(makeStep(9, "Merchant confirmation sent", false, reason, {
+        note: reason,
       }));
-      confirmed = true;
     }
   } catch (err: any) {
     steps.push(makeStep(9, "Merchant confirmation sent", false, err.message));
