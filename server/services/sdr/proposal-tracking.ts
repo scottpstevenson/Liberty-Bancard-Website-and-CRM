@@ -122,10 +122,10 @@ export async function markProposalClickedByTrackingId(trackingId: string): Promi
 }
 
 const ALTERNATE_SUBJECTS = [
-  "Your savings analysis results are ready",
-  "Quick update: we found savings for {{company_name}}",
-  "Did you see your processing analysis?",
-  "Important: savings opportunity for {{company_name}}",
+  "{{company_name}} — 3 pricing options, pick one",
+  "Your effective rate vs. what we'd charge",
+  "One question about your proposal",
+  "{{company_name}}: the switching question answered",
 ];
 
 export async function resendProposalEmail(leadId: number): Promise<boolean> {
@@ -143,7 +143,7 @@ export async function resendProposalEmail(leadId: number): Promise<boolean> {
     if (isGhlConfigured() && lead.contactId) {
       const selectedInbox = await selectBestInbox(lead.merchantId, lead.vertical || undefined);
       if (selectedInbox) {
-        const body = `Hi ${firstName},\n\nWe completed the savings analysis for ${companyName} and found some real opportunities to reduce your processing costs.\n\nWe put together 3 pricing options tailored to your business — one could save you hundreds per month.\n\nWant to take a look? Just reply to this email and we'll walk you through it.\n\nBest,\nLiberty Bancard Team\n\nEligibility, underwriting, card brand rules, and applicable laws apply.`;
+        const body = `Hi ${firstName},\n\nThe savings analysis for ${companyName} is done — three pricing options with a line-by-line cost comparison against what you're paying now.\n\nThe most popular option eliminates the interchange markup entirely and moves you to true cost-plus pricing.\n\nReply YES and we'll schedule a 10-minute walkthrough this week.\n\nLiberty Bancard\n\nEligibility, underwriting, card brand rules, and applicable laws apply.`;
 
         try {
           await sendGhlEmail({
@@ -197,7 +197,7 @@ export async function sendProposalSmsFollowUp(leadId: number): Promise<boolean> 
     const firstName = lead.ownerName?.split(" ")[0] || "there";
 
     if (isGhlConfigured() && lead.contactId) {
-      const smsBody = `Hi ${firstName}, we finished your savings analysis and found some good options. Would you like to go over it? Reply YES and we'll set up a quick 10-min call. — Liberty Bancard`;
+      const smsBody = `Hi ${firstName}, your processing analysis is ready — found real savings on interchange markup and fees. Reply YES for a 10-min walkthrough. — Liberty Bancard`;
       try {
         await sendGhlSms({ contactId: lead.contactId, body: smsBody });
       } catch (err) {

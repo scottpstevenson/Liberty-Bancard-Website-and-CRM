@@ -43,9 +43,7 @@ Liberty Bancard
       subject: "Re: Your restaurant's processing statement",
       body: `Hi {{firstName}},
 
-Just following up on my previous note — I know running a restaurant doesn't leave much time in the day.
-
-Quick question: do you know your current effective rate? (That's the actual percentage you're paying after all fees are factored in.) Most restaurant owners I talk to think they're paying around 2.5% — when the true number is often 3.1–3.4%.
+One quick question: do you know your current effective rate? That's the actual percentage you're paying after all fees — not the advertised rate. Most restaurant owners think they're around 2.5% when the true number is often 3.1–3.4%.
 
 I can calculate yours from your last statement in about 5 minutes and tell you exactly what you'd save. No obligation, no commitment.
 
@@ -177,16 +175,14 @@ Liberty Bancard
     },
     sms: "Hi {{firstName}}, {{agentName}} from Liberty Bancard. We help dental practices cut processing fees and integrate with Dentrix/Eaglesoft. Free analysis — could be $800+/mo in savings. Worth a quick call?",
     followUpEmail: {
-      subject: "Your dental practice processing — quick follow-up",
+      subject: "Dentrix/Eaglesoft processing vs. interchange-plus — the number",
       body: `Hi {{firstName}},
 
-Just checking back in — I know how busy a dental practice can be between procedures and admin.
+Quick number: on $80K/month in card volume, the difference between 3% flat (typical for dental software payments) and 2% interchange-plus is $800/month — or $9,600 a year.
 
-Quick thought: many of the practices we work with were unknowingly paying an extra $500–$1,200/month through their dental software's payment processing. It's one of those things nobody looks at closely until they see the comparison.
+Most practices we work with were paying that gap without realizing it. The switch takes about a day and doesn't change your front-desk workflow.
 
-All I'd need is your last month's processing statement to run the analysis. I'll handle everything else and have a full report back to you within 24 hours.
-
-Forward it to {{agentEmail}} whenever you get a chance.
+Forward your last processing statement to {{agentEmail}} and I'll have a line-by-line breakdown back within 24 hours.
 
 {{agentName}}
 Liberty Bancard`,
@@ -351,14 +347,14 @@ Liberty Bancard
     },
     sms: "Hi {{firstName}}, {{agentName}} from Liberty Bancard. We help gyms cut fees on recurring memberships — most save $200–$800/mo. Free analysis + Mindbody/ABC Fitness integration. Interested?",
     followUpEmail: {
-      subject: "Your gym's membership billing — quick follow-up",
+      subject: "Your gym's membership billing — the two numbers that matter",
       body: `Hi {{firstName}},
 
-Just circling back — wanted to make sure this didn't get buried.
+For a gym with 200+ members on recurring billing, every 0.5% you overpay on interchange costs roughly $120/month. That's $1,440 a year — before counting failed-payment churn.
 
-For gyms running recurring billing, there are two things we consistently help with: (1) reducing the per-transaction cost on membership charges, and (2) reducing failed payment churn with better dunning tools.
+Two things we consistently fix for fitness businesses: the per-charge cost on membership transactions, and the dunning setup that recovers failed payments before members cancel.
 
-Most gyms find at least one of these is worth a deeper look. Forward your last processing statement to {{agentEmail}} and I'll have a full analysis back to you in 24 hours.
+Forward your last processing statement to {{agentEmail}} and I'll have a full analysis back to you in 24 hours.
 
 {{agentName}}
 Liberty Bancard`,
@@ -434,7 +430,7 @@ Liberty Bancard
       subject: "Processing fees on your commercial landscaping accounts",
       body: `Hi {{firstName}},
 
-Just following up — one thing I didn't mention in my first email:
+One thing I didn't cover in my first email:
 
 If you have commercial clients paying large invoices by business credit card, you may be paying an extra 0.5–1.5% in fees that proper Level 2/3 data capture could eliminate. That's not a small number on $20K–$50K commercial jobs.
 
@@ -514,16 +510,14 @@ Liberty Bancard
     },
     sms: "Hi {{firstName}}, {{agentName}} from Liberty Bancard. We offer IOLTA-compliant payment processing for law firms with lower fees than LawPay. Free analysis — most firms save $400–$1,200/mo. Interested?",
     followUpEmail: {
-      subject: "Law firm processing — quick follow-up",
+      subject: "LawPay compliance at a lower rate — the comparison",
       body: `Hi {{firstName}},
 
-Just circling back on my earlier message about your firm's payment processing.
+One thing that surprises most attorneys: firms using LawPay are typically paying 2.9–3.5% on credit card retainers. Our IOLTA-compliant program delivers the same trust-account protection at 1.9–2.3% for most transaction types.
 
-One thing that often surprises attorneys: even firms using LawPay — which is excellent for IOLTA compliance — are typically paying 2.9–3.5% on credit card transactions. Our law-firm program offers the same IOLTA-safe compliance at 1.9–2.3% for most transaction types.
+Same compliance framework. Lower cost.
 
-The compliance framework is the same. The cost is lower.
-
-Forward your last statement to {{agentEmail}} and I'll put together a comparison. No sales pressure — just the numbers.
+Forward your last processing statement to {{agentEmail}} and I'll put together a side-by-side comparison within 24 hours. No pressure — just the numbers.
 
 {{agentName}}
 Liberty Bancard`,

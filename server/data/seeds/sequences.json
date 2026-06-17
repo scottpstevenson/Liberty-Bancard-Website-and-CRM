@@ -62,8 +62,8 @@
         "config": {
           "callMode": "follow_up_callback",
           "scriptType": "switch_save_followup",
-          "voicemailScript": "Hi {{firstName}}, Scott again from Liberty Bancard. Just following up — I know you're busy, but I wanted to make sure you got my email about the free statement review. Give me a ring back or check your email for the upload link. Talk soon!",
-          "opening": "Hi {{firstName}}, this is Scott with Liberty Bancard again. I wanted to follow up on the free statement review I mentioned — did you get a chance to look at my email?",
+          "voicemailScript": "Hi {{firstName}}, Scott again from Liberty Bancard. Calling back about the free statement review — the upload link is in my email, takes about 30 seconds. Give me a ring back or upload when you're ready. Talk soon!",
+          "opening": "Hi {{firstName}}, this is Scott with Liberty Bancard again. Calling back about the free statement review — did you get a chance to look at my email?",
           "close": "Perfect — if you can grab your latest statement, I can have a full savings breakdown ready in 24 hours. Want me to send the upload link again?"
         }
       },
@@ -73,7 +73,7 @@
         "delayDays": 0,
         "delayHours": 0,
         "config": {
-          "voicemailScript": "Hi {{firstName}}, Scott again from Liberty Bancard. Just following up — I know you're busy, but I wanted to make sure you got my email about the free statement review. Give me a ring back or check your email for the upload link. Talk soon!",
+          "voicemailScript": "Hi {{firstName}}, Scott again from Liberty Bancard. Calling back about the free statement review — the upload link is in my email, takes about 30 seconds. Give me a ring back or upload when you're ready. Talk soon!",
           "ghlNote": "Upload this voicemail audio to GHL Voicemail Drops library. In the workflow, add a Voicemail Drop action node immediately after the Manual Call node."
         }
       },
@@ -980,7 +980,7 @@
           "callMode": "intro_qualification",
           "scriptType": "free_analysis_intro",
           "voicemailScript": "Hi {{firstName}}, Scott here with Liberty Bancard. Your free savings analysis is ready — the numbers look good and I'd love to walk you through what we found. Check your email for details, or give me a ring back. I'll keep it to 10 minutes. Talk soon!",
-          "opening": "Hi {{firstName}}, this is Scott with Liberty Bancard. You just completed our free savings analysis and I wanted to reach out to walk you through the results — do you have a few minutes?",
+          "opening": "Hi {{firstName}}, this is Scott with Liberty Bancard. Calling because you just completed our free savings analysis and I want to walk you through the results — do you have a few minutes?",
           "close": "Great — I'd love to send you the full breakdown and schedule a quick call to review your options. What's the best email for the details?"
         }
       },
@@ -1018,7 +1018,7 @@
         "config": {
           "callMode": "follow_up_callback",
           "scriptType": "free_analysis_followup",
-          "voicemailScript": "Hi {{firstName}}, Scott with Liberty Bancard again. Just wanted to follow up on your savings analysis — we found some solid options and I want to make sure you have everything you need to move forward. Give me a ring back or check your email. Talk soon!",
+          "voicemailScript": "Hi {{firstName}}, Scott with Liberty Bancard. Your savings analysis is done — three solid ways to lower your costs, one of them significantly. Give me a ring back or check the details in your email. Talk soon!",
           "opening": "Hi {{firstName}}, Scott from Liberty Bancard. I'm following up on the free savings analysis you completed — did you get a chance to review the email we sent?",
           "close": "Great — I'd love to set up a quick 10-minute call to walk through your best options. Can I send you a calendar link?"
         }
@@ -1029,7 +1029,7 @@
         "delayDays": 0,
         "delayHours": 0,
         "config": {
-          "voicemailScript": "Hi {{firstName}}, Scott with Liberty Bancard again. Just wanted to follow up on your savings analysis — we found some solid options and I want to make sure you have everything you need to move forward. Give me a ring back or check your email. Talk soon!",
+          "voicemailScript": "Hi {{firstName}}, Scott with Liberty Bancard. Your savings analysis is done — three solid ways to lower your costs, one of them significantly. Give me a ring back or check the details in your email. Talk soon!",
           "ghlNote": "Upload this voicemail audio to GHL Voicemail Drops library. In the workflow, add a Voicemail Drop action node immediately after the Manual Call node."
         }
       },
@@ -1129,7 +1129,7 @@
         "delayDays": 4,
         "delayHours": 0,
         "subject": "{{firstName}}, quick question about your review",
-        "body": "<p>Hi {{contact.firstName}},</p><p>Just checking in — did you get a chance to look over the savings breakdown I sent? I know things get busy, so no pressure.</p><p>If anything in there didn't make sense or you had questions about how the numbers work, I'm happy to walk through it. Even a quick 5-minute call can clear things up.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Grab a Quick Call</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+        "body": "<p>Hi {{contact.firstName}},</p><p>Did you get a chance to look over the savings breakdown? One thing that trips people up: the effective rate number — that's your actual cost as a percentage of total card volume, after all fees are counted.</p><p>If anything wasn't clear or you want to compare a specific line item, a 5-minute call usually settles it.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Grab a Quick Call</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
       },
       {
         "stepOrder": 4,
@@ -1169,14 +1169,14 @@
         "delayDays": 5,
         "delayHours": 0,
         "subject": "{{firstName}}, had a chance to review the proposal?",
-        "body": "<p>Hi {{contact.firstName}},</p><p>Just following up on the proposal I sent over. I know these decisions take time, especially when you're comparing options.</p><p>A few things that usually help merchants decide:</p><ul><li>We handle all the switching — no downtime, no hassle</li><li>No long-term contracts or cancellation fees</li><li>Most merchants are fully transitioned within 5-7 business days</li></ul><p>If you'd like to talk through anything or if the numbers need adjusting, I'm here. Sometimes a quick conversation is all it takes.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Let's Talk</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+        "body": "<p>Hi {{contact.firstName}},</p><p>The most common concern at this stage is the switching hassle. Here's the honest answer: we manage the entire transition. Most merchants are live with us within 5 business days, with zero downtime — we handle hardware, setup, and the handoff from your current processor.</p><p>No long-term contract. No early termination fee. Terminal ships free.</p><p>If you want to review any of the three options in the proposal or adjust the numbers, I can be on a call within the hour.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a 10-Minute Call</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
       },
       {
         "stepOrder": 4,
         "actionType": "sms",
         "delayDays": 8,
         "delayHours": 0,
-        "body": "Hi {{contact.firstName}}, just checking in on your proposal. If the pricing needs tweaking or you have questions, just text me back. No pressure. - Liberty Bancard. Reply STOP to opt out"
+        "body": "Hi {{contact.firstName}}, proposal still in your inbox. If the pricing needs tweaking or you have a question, text me back. — Liberty Bancard. Reply STOP to opt out"
       }
     ]
   },
@@ -1234,14 +1234,14 @@
         "delayDays": 30,
         "delayHours": 0,
         "subject": "{{firstName}}, a quick industry update",
-        "body": "<p>Hi {{contact.firstName}},</p><p>Hope business is going well. I wanted to share something I've been seeing across the industry that might be relevant to you.</p><p>A lot of merchants in your space have been switching to dual pricing (cash discount) programs — it's been a game-changer for profit margins. If you're curious about how it works or whether it'd make sense for your business, I'm happy to walk you through it. No strings attached.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Let's Chat</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+        "body": "<p>Hi {{contact.firstName}},</p><p>Dual pricing (cash discount) programs have been picking up momentum across the industry — many merchants are eliminating their effective processing cost entirely on cash transactions, while keeping card acceptance for convenience.</p><p>If you're curious whether this makes sense for your volume and customer mix, I can walk you through the numbers in 10 minutes. No commitment.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Let's Chat</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
       },
       {
         "stepOrder": 3,
         "actionType": "sms",
         "delayDays": 60,
         "delayHours": 0,
-        "body": "Hey {{contact.firstName}}, just checking in. If you ever want to revisit your processing setup, I'm a text away. No pressure. - Liberty Bancard. Reply STOP to opt out"
+        "body": "Hey {{contact.firstName}}, Liberty Bancard here. If your processing fees have crept up or your contract is up for renewal, that's usually the best time to compare. I'm a text away. — Liberty Bancard. Reply STOP to opt out"
       },
       {
         "stepOrder": 4,
@@ -1552,7 +1552,7 @@
         "config": {
           "callMode": "cold_outbound",
           "scriptType": "cold_auto_repair_d5",
-          "voicemailScript": "Hi {{firstName}}, Scott with Liberty Bancard again. Just following up — I sent you an email about reducing processing fees on your repair tickets. Give me a ring back when you have a minute. Thanks!",
+          "voicemailScript": "Hi {{firstName}}, Scott with Liberty Bancard — calling about the processing review for your shop. Most auto repair shops we work with save $200–500 a month. Ring me back when you have a minute. Thanks!",
           "opening": "Hi {{firstName}}, Scott from Liberty Bancard. Following up on the free statement review — did you get my email?",
           "close": "I'll send the upload link right now. 24 hours and you'll know exactly where to save."
         }
@@ -1563,7 +1563,7 @@
         "delayDays": 0,
         "delayHours": 0,
         "config": {
-          "voicemailScript": "Hi {{firstName}}, Scott with Liberty Bancard again. Just following up — I sent you an email about reducing processing fees on your repair tickets. Give me a ring back when you have a minute. Thanks!",
+          "voicemailScript": "Hi {{firstName}}, Scott with Liberty Bancard — calling about the processing review for your shop. Most auto repair shops we work with save $200–500 a month. Ring me back when you have a minute. Thanks!",
           "ghlNote": "Upload this voicemail audio to GHL Voicemail Drops library. Add a Voicemail Drop node immediately after the Manual Call node in GHL workflow."
         }
       },
@@ -1671,7 +1671,7 @@
         "config": {
           "callMode": "cold_outbound",
           "scriptType": "cold_medspa_d5",
-          "voicemailScript": "Hi {{firstName}}, Scott from Liberty Bancard again. Just following up on the payment workflow review for your med spa. Give me a ring back when you have a minute — or check my email. Thanks!",
+          "voicemailScript": "Hi {{firstName}}, Scott from Liberty Bancard — calling about the payment review for your med spa. Membership billing and card-on-file setup usually finds $300–800 in monthly savings. Give me a ring or check my email. Thanks!",
           "opening": "Hi {{firstName}}, Scott from Liberty Bancard. Following up on the free payment review — did you get a chance to see my email?",
           "close": "I'd love to set up a 10-minute call to walk through the membership and card-on-file options. Want me to send a calendar link?"
         }
@@ -1682,7 +1682,7 @@
         "delayDays": 0,
         "delayHours": 0,
         "config": {
-          "voicemailScript": "Hi {{firstName}}, Scott from Liberty Bancard again. Just following up on the payment workflow review for your med spa. Give me a ring back when you have a minute — or check my email. Thanks!",
+          "voicemailScript": "Hi {{firstName}}, Scott from Liberty Bancard — calling about the payment review for your med spa. Membership billing and card-on-file setup usually finds $300–800 in monthly savings. Give me a ring or check my email. Thanks!",
           "ghlNote": "Upload this voicemail audio to GHL Voicemail Drops library. Add a Voicemail Drop node immediately after the Manual Call node in GHL workflow."
         }
       },
@@ -1906,7 +1906,7 @@
         "delayDays": 2,
         "delayHours": 0,
         "subject": "{{firstName}}, quick follow-up on your interest",
-        "body": "<p>Hi {{firstName}},</p><p>Just following up — would you prefer to:</p><ul><li>Upload a statement for a free analysis</li><li>Schedule a quick 10-minute call</li></ul><p>Either way works great. Most merchants are surprised by what we find.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a Call</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+        "body": "<p>Hi {{firstName}},</p><p>Quick question — two ways to get your analysis started:</p><ul><li>Upload a statement for a free analysis</li><li>Schedule a quick 10-minute call</li></ul><p>Either way works great. Most merchants are surprised by what we find.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a Call</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
       },
       {
         "stepOrder": 6,
@@ -1916,7 +1916,7 @@
         "config": {
           "callMode": "follow_up_callback",
           "scriptType": "reply_engaged_followup",
-          "voicemailScript": "Hi {{firstName}}, Scott from Liberty Bancard again. I wanted to follow up one more time — we have everything ready to do your free savings review whenever you're ready. Give me a ring back or check your email. Thanks!",
+          "voicemailScript": "Hi {{firstName}}, Scott from Liberty Bancard. Ready to run your free savings review — just need your latest statement. Upload via the link in my email or give me a ring back. Thanks!",
           "opening": "Hi {{firstName}}, Scott here from Liberty Bancard. Following up on your interest in the free savings review — have you had a chance to pull your latest statement?",
           "close": "No problem — I can send over the upload link again and we'll have results within 24 hours."
         }
@@ -1927,7 +1927,7 @@
         "delayDays": 0,
         "delayHours": 0,
         "config": {
-          "voicemailScript": "Hi {{firstName}}, Scott from Liberty Bancard again. I wanted to follow up one more time — we have everything ready to do your free savings review whenever you're ready. Give me a ring back or check your email. Thanks!",
+          "voicemailScript": "Hi {{firstName}}, Scott from Liberty Bancard. Ready to run your free savings review — just need your latest statement. Upload via the link in my email or give me a ring back. Thanks!",
           "ghlNote": "Upload this voicemail audio to GHL Voicemail Drops library. Add a Voicemail Drop node immediately after the Manual Call node in GHL workflow."
         }
       }
@@ -1959,7 +1959,7 @@
           "callMode": "statement_chase",
           "scriptType": "statement_chase_call",
           "voicemailScript": "Hi {{firstName}}, Scott here from Liberty Bancard. Calling about the free statement analysis — we just need your latest statement to finalize the numbers. Check your email for the upload link, or give me a quick call back. Thank you!",
-          "opening": "Hi {{firstName}}, this is Scott with Liberty Bancard. I'm reaching out about the free statement savings analysis — do you have your latest processing statement handy?",
+          "opening": "Hi {{firstName}}, this is Scott with Liberty Bancard. Calling about the free statement savings analysis — do you have your latest processing statement handy?",
           "close": "Great — I'll send you a secure upload link right now and we'll have a full breakdown within 24 hours."
         }
       },
@@ -2159,7 +2159,7 @@
         "delayDays": 2,
         "delayHours": 0,
         "subject": "{{firstName}}, one more try on the free review",
-        "body": "<p>Hi {{firstName}},</p><p>Just wanted to reach out one more time about the free savings review we discussed.</p><p>If you'd still like to see how much you could save on processing, here's a link to rebook at your convenience:</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Rebook Your Call</a></p><p>If the timing isn't right, no worries at all.</p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+        "body": "<p>Hi {{firstName}},</p><p>Leaving the door open on the free savings review we discussed.</p><p>If you'd still like to see how much you could save on processing, here's a link to book at your convenience:</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Rebook Your Call</a></p><p>If the timing isn't right, no worries at all.</p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
       },
       {
         "stepOrder": 6,
@@ -2170,7 +2170,7 @@
           "callMode": "follow_up_callback",
           "scriptType": "noshow_recovery_followup",
           "voicemailScript": "Hi {{firstName}}, Scott from Liberty Bancard — just one more try to connect and reschedule our call. No pressure at all. Give me a ring back or grab a time in your email. Talk soon!",
-          "opening": "Hi {{firstName}}, Scott from Liberty Bancard. I'm reaching out one more time about rescheduling — would you like to find a time that works better for you?",
+          "opening": "Hi {{firstName}}, Scott from Liberty Bancard. Calling to reschedule the free review — is there a better time that works for you?",
           "close": "I'll send you the booking link one more time. It only takes 30 seconds to grab a time."
         }
       },
@@ -2341,7 +2341,7 @@
         "config": {
           "callMode": "cold_outbound",
           "scriptType": "cold_construction_d5",
-          "voicemailScript": "Hi {{firstName}}, Scott with Liberty Bancard again. Just following up — I sent you an email about reducing processing fees on your job payments. Give me a ring back when you have a minute. Thanks!",
+          "voicemailScript": "Hi {{firstName}}, Scott with Liberty Bancard — calling about the processing review for your contracting business. FL contractors on large job payments typically save $300–800 a month. Ring me back when you have a minute. Thanks!",
           "opening": "Hi {{firstName}}, Scott from Liberty Bancard. Following up on the free statement review — did you get my email?",
           "close": "I'll send the upload link right now. 24 hours and you'll know exactly where to save."
         }
@@ -2352,7 +2352,7 @@
         "delayDays": 0,
         "delayHours": 0,
         "config": {
-          "voicemailScript": "Hi {{firstName}}, Scott with Liberty Bancard again. Just following up — I sent you an email about reducing processing fees on your job payments. Give me a ring back when you have a minute. Thanks!",
+          "voicemailScript": "Hi {{firstName}}, Scott with Liberty Bancard — calling about the processing review for your contracting business. FL contractors on large job payments typically save $300–800 a month. Ring me back when you have a minute. Thanks!",
           "ghlNote": "Upload this voicemail audio to GHL Voicemail Drops library. Add a Voicemail Drop node immediately after the Manual Call node in GHL workflow."
         }
       },
