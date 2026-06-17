@@ -1,4 +1,5 @@
 import { storage } from "../storage";
+import { pool } from "../db";
 import { sendGhlEmailForMerchant, isGhlConfigured } from "./ghl";
 import type { InsertNotification } from "@shared/schema";
 
@@ -27,55 +28,60 @@ export async function buildDailyDigest(): Promise<{
   const now = new Date();
   const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
-  const [dealsResult, contactsResult, ticketsResult, allTasks] = await Promise.all([
-    storage.getDeals({ limit: 500 }),
-    storage.getContacts({ limit: 500 }),
-    storage.getTickets({ limit: 500 }),
-    storage.getTasks(),
+  const [
+    newLeadsCountRow,
+    newLeadsRows,
+    dealsProgressedRow,
+    closedWonRow,
+    closedLostRow,
+    tasksCompletedRow,
+    tasksOverdueCountRow,
+    tasksOverdueRows,
+    newTicketsRow,
+    resolvedTicketsRow,
+  ] = await Promise.all([
+    pool.query<{ cnt: string }>(`
+      SELECT COUNT(*)::text AS cnt FROM contacts WHERE archived_at IS NULL AND created_at >= $1
+    `, [twentyFourHoursAgo]),
+    pool.query<{ first_name: string; last_name: string; company_name: string | null; lead_source: string | null }>(`
+      SELECT first_name, last_name, company_name, lead_source
+      FROM contacts WHERE archived_at IS NULL AND created_at >= $1
+      ORDER BY created_at DESC LIMIT 10
+    `, [twentyFourHoursAgo]),
+    pool.query<{ cnt: string }>(`
+      SELECT COUNT(*)::text AS cnt FROM deals
+      WHERE archived_at IS NULL AND updated_at >= $1 AND stage != 'New Lead'
+    `, [twentyFourHoursAgo]),
+    pool.query<{ cnt: string }>(`
+      SELECT COUNT(*)::text AS cnt FROM deals
+      WHERE archived_at IS NULL AND stage = 'Closed Won' AND closed_at >= $1
+    `, [twentyFourHoursAgo]),
+    pool.query<{ cnt: string }>(`
+      SELECT COUNT(*)::text AS cnt FROM deals
+      WHERE archived_at IS NULL AND stage = 'Closed Lost' AND closed_at >= $1
+    `, [twentyFourHoursAgo]),
+    pool.query<{ cnt: string }>(`
+      SELECT COUNT(*)::text AS cnt FROM tasks
+      WHERE status = 'completed' AND completed_at >= $1
+    `, [twentyFourHoursAgo]),
+    pool.query<{ cnt: string }>(`
+      SELECT COUNT(*)::text AS cnt FROM tasks WHERE status != 'completed' AND due_date < $1
+    `, [now]),
+    pool.query<{ id: number; title: string; assigned_to: string | null; due_date: string | null }>(`
+      SELECT id, title, assigned_to, due_date FROM tasks
+      WHERE status != 'completed' AND due_date < $1
+      ORDER BY due_date ASC LIMIT 10
+    `, [now]),
+    pool.query<{ cnt: string }>(`
+      SELECT COUNT(*)::text AS cnt FROM tickets WHERE created_at >= $1
+    `, [twentyFourHoursAgo]),
+    pool.query<{ cnt: string }>(`
+      SELECT COUNT(*)::text AS cnt FROM tickets WHERE resolved_at >= $1
+    `, [twentyFourHoursAgo]),
   ]);
-  const allDeals = dealsResult.data;
-  const allContacts = contactsResult.data;
-  const allTickets = ticketsResult.data;
 
-  const newLeads = allContacts.filter(
-    (c) => c.createdAt && new Date(c.createdAt) >= twentyFourHoursAgo
-  );
-  const dealsProgressed = allDeals.filter(
-    (d) =>
-      d.updatedAt &&
-      new Date(d.updatedAt) >= twentyFourHoursAgo &&
-      d.stage !== "New Lead"
-  );
-  const closedWon = allDeals.filter(
-    (d) =>
-      d.stage === "Closed Won" &&
-      d.closedAt &&
-      new Date(d.closedAt) >= twentyFourHoursAgo
-  );
-  const closedLost = allDeals.filter(
-    (d) =>
-      d.stage === "Closed Lost" &&
-      d.closedAt &&
-      new Date(d.closedAt) >= twentyFourHoursAgo
-  );
-  const tasksCompleted = allTasks.filter(
-    (t) =>
-      t.status === "completed" &&
-      t.completedAt &&
-      new Date(t.completedAt) >= twentyFourHoursAgo
-  );
-  const tasksOverdue = allTasks.filter(
-    (t) =>
-      t.status !== "completed" &&
-      t.dueDate &&
-      new Date(t.dueDate) < now
-  );
-  const newTickets = allTickets.filter(
-    (t) => t.createdAt && new Date(t.createdAt) >= twentyFourHoursAgo
-  );
-  const resolvedTickets = allTickets.filter(
-    (t) => t.resolvedAt && new Date(t.resolvedAt) >= twentyFourHoursAgo
-  );
+  const newLeads = newLeadsRows.rows;
+  const tasksOverdue = tasksOverdueRows.rows;
 
   // --- Churn risk: High + Critical merchants ---
   let highRiskChurnMerchants: { name: string; score: number; tier: string }[] = [];
@@ -100,30 +106,28 @@ export async function buildDailyDigest(): Promise<{
 
   const summary = {
     date: now.toLocaleDateString("en-US", { timeZone: "America/New_York" }),
-    newLeadsCount: newLeads.length,
-    dealsProgressedCount: dealsProgressed.length,
-    closedWonCount: closedWon.length,
-    closedLostCount: closedLost.length,
-    tasksCompletedCount: tasksCompleted.length,
-    tasksOverdueCount: tasksOverdue.length,
-    newTicketsCount: newTickets.length,
-    resolvedTicketsCount: resolvedTickets.length,
+    newLeadsCount: parseInt(newLeadsCountRow.rows[0]?.cnt ?? "0", 10),
+    dealsProgressedCount: parseInt(dealsProgressedRow.rows[0]?.cnt ?? "0", 10),
+    closedWonCount: parseInt(closedWonRow.rows[0]?.cnt ?? "0", 10),
+    closedLostCount: parseInt(closedLostRow.rows[0]?.cnt ?? "0", 10),
+    tasksCompletedCount: parseInt(tasksCompletedRow.rows[0]?.cnt ?? "0", 10),
+    tasksOverdueCount: parseInt(tasksOverdueCountRow.rows[0]?.cnt ?? "0", 10),
+    newTicketsCount: parseInt(newTicketsRow.rows[0]?.cnt ?? "0", 10),
+    resolvedTicketsCount: parseInt(resolvedTicketsRow.rows[0]?.cnt ?? "0", 10),
     churnAtRiskCount: highRiskChurnMerchants.length,
   };
 
   const newLeadsList = newLeads
-    .slice(0, 10)
     .map(
       (c) =>
-        `<li>${c.firstName} ${c.lastName}${c.companyName ? ` — ${c.companyName}` : ""}${c.leadSource ? ` (${c.leadSource})` : ""}</li>`
+        `<li>${c.first_name} ${c.last_name}${c.company_name ? ` — ${c.company_name}` : ""}${c.lead_source ? ` (${c.lead_source})` : ""}</li>`
     )
     .join("");
 
   const overdueList = tasksOverdue
-    .slice(0, 10)
     .map(
       (t) =>
-        `<li>${t.title}${t.assignedTo ? ` — ${t.assignedTo}` : ""} (due ${t.dueDate ? new Date(t.dueDate).toLocaleDateString() : "N/A"})</li>`
+        `<li>${t.title}${t.assigned_to ? ` — ${t.assigned_to}` : ""} (due ${t.due_date ? new Date(t.due_date).toLocaleDateString() : "N/A"})</li>`
     )
     .join("");
 
@@ -171,120 +175,93 @@ export async function buildWeeklyDigest(): Promise<{
   const now = new Date();
   const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-  const [dealsResult2, contactsResult2, ticketsResult2, allTasks] = await Promise.all([
-    storage.getDeals({ limit: 500 }),
-    storage.getContacts({ limit: 500 }),
-    storage.getTickets({ limit: 500 }),
-    storage.getTasks(),
+  const [
+    newLeadsRow,
+    newDealsRow,
+    closedWonRows,
+    closedLostRow,
+    proposalsSentRow,
+    newTicketsRow,
+    resolvedTicketsRow,
+    overdueTasksRow,
+    pipelineValueRow,
+    sourceRows,
+    leaderboardRows,
+    avgCycleRow,
+  ] = await Promise.all([
+    pool.query<{ cnt: string }>(`
+      SELECT COUNT(*)::text AS cnt FROM contacts WHERE archived_at IS NULL AND created_at >= $1
+    `, [sevenDaysAgo]),
+    pool.query<{ cnt: string }>(`
+      SELECT COUNT(*)::text AS cnt FROM deals WHERE archived_at IS NULL AND created_at >= $1
+    `, [sevenDaysAgo]),
+    pool.query<{ owner: string | null; estimated_gross_profit_monthly: string | null }>(`
+      SELECT owner, estimated_gross_profit_monthly FROM deals
+      WHERE archived_at IS NULL AND stage = 'Closed Won' AND closed_at >= $1
+    `, [sevenDaysAgo]),
+    pool.query<{ cnt: string }>(`
+      SELECT COUNT(*)::text AS cnt FROM deals
+      WHERE archived_at IS NULL AND stage = 'Closed Lost' AND closed_at >= $1
+    `, [sevenDaysAgo]),
+    pool.query<{ cnt: string }>(`
+      SELECT COUNT(*)::text AS cnt FROM deals
+      WHERE archived_at IS NULL AND stage = 'Proposal Sent' AND updated_at >= $1
+    `, [sevenDaysAgo]),
+    pool.query<{ cnt: string }>(`
+      SELECT COUNT(*)::text AS cnt FROM tickets WHERE created_at >= $1
+    `, [sevenDaysAgo]),
+    pool.query<{ cnt: string }>(`
+      SELECT COUNT(*)::text AS cnt FROM tickets WHERE resolved_at >= $1
+    `, [sevenDaysAgo]),
+    pool.query<{ cnt: string }>(`
+      SELECT COUNT(*)::text AS cnt FROM tasks WHERE status != 'completed' AND due_date < $1
+    `, [now]),
+    pool.query<{ total_value: string }>(`
+      SELECT COALESCE(SUM(CASE WHEN estimated_gross_profit_monthly IS NOT NULL AND estimated_gross_profit_monthly != ''
+        THEN CAST(REGEXP_REPLACE(estimated_gross_profit_monthly, '[^0-9.]', '', 'g') AS DECIMAL) ELSE 0 END), 0)::text AS total_value
+      FROM deals WHERE archived_at IS NULL AND pipeline = 'sales'
+        AND stage NOT IN ('Closed Won', 'Closed Lost')
+    `),
+    pool.query<{ src: string; cnt: string }>(`
+      SELECT COALESCE(NULLIF(utm_source, ''), NULLIF(lead_source, ''), 'direct') AS src, COUNT(*)::text AS cnt
+      FROM contacts WHERE archived_at IS NULL AND created_at >= $1
+      GROUP BY src ORDER BY cnt::int DESC LIMIT 5
+    `, [sevenDaysAgo]),
+    pool.query<{ owner: string; wins: string }>(`
+      SELECT COALESCE(owner, 'Unassigned') AS owner, COUNT(*)::text AS wins
+      FROM deals WHERE archived_at IS NULL AND stage = 'Closed Won' AND closed_at >= $1
+      GROUP BY owner ORDER BY wins::int DESC LIMIT 5
+    `, [sevenDaysAgo]),
+    pool.query<{ avg_days: string }>(`
+      SELECT COALESCE(AVG(EXTRACT(EPOCH FROM (closed_at - created_at)) / 86400), 0)::text AS avg_days
+      FROM deals WHERE archived_at IS NULL AND stage = 'Closed Won'
+        AND closed_at >= $1 AND created_at IS NOT NULL AND closed_at IS NOT NULL
+    `, [sevenDaysAgo]),
   ]);
-  const allDeals = dealsResult2.data;
-  const allContacts = contactsResult2.data;
-  const allTickets = ticketsResult2.data;
 
-  const newLeads = allContacts.filter(
-    (c) => c.createdAt && new Date(c.createdAt) >= sevenDaysAgo
-  ).length;
-  const newDeals = allDeals.filter(
-    (d) => d.createdAt && new Date(d.createdAt) >= sevenDaysAgo
-  ).length;
-  const closedWon = allDeals.filter(
-    (d) =>
-      d.stage === "Closed Won" &&
-      d.closedAt &&
-      new Date(d.closedAt) >= sevenDaysAgo
-  );
-  const closedLost = allDeals.filter(
-    (d) =>
-      d.stage === "Closed Lost" &&
-      d.closedAt &&
-      new Date(d.closedAt) >= sevenDaysAgo
-  ).length;
-  const proposalsSent = allDeals.filter(
-    (d) =>
-      d.stage === "Proposal Sent" &&
-      d.updatedAt &&
-      new Date(d.updatedAt) >= sevenDaysAgo
-  ).length;
-  const newTickets = allTickets.filter(
-    (t) => t.createdAt && new Date(t.createdAt) >= sevenDaysAgo
-  ).length;
-  const resolvedTickets = allTickets.filter(
-    (t) => t.resolvedAt && new Date(t.resolvedAt) >= sevenDaysAgo
-  ).length;
-  const overdueTaskCount = allTasks.filter(
-    (t) => t.status !== "completed" && t.dueDate && new Date(t.dueDate) < now
-  ).length;
+  const closedWonList = closedWonRows.rows;
+  const newDeals = parseInt(newDealsRow.rows[0]?.cnt ?? "0", 10);
+  const closedWonCount = closedWonList.length;
+  const weeklyRevenue = closedWonList.reduce((s, d) => s + parseCurrency(d.estimated_gross_profit_monthly), 0);
+  const conversionRate = newDeals > 0 ? Math.round((closedWonCount / newDeals) * 100) : 0;
 
-  const weeklyRevenue = closedWon.reduce(
-    (s, d) => s + parseCurrency(d.estimatedGrossProfitMonthly),
-    0
-  );
-  const conversionRate =
-    newDeals > 0 ? Math.round((closedWon.length / newDeals) * 100) : 0;
-
-  const sourceBreakdown: Record<string, number> = {};
-  allContacts
-    .filter((c) => c.createdAt && new Date(c.createdAt) >= sevenDaysAgo)
-    .forEach((c) => {
-      const src = c.utmSource || c.leadSource || "direct";
-      sourceBreakdown[src] = (sourceBreakdown[src] || 0) + 1;
-    });
-
-  const topSources = Object.entries(sourceBreakdown)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5);
-
-  const ownerWins: Record<string, number> = {};
-  closedWon.forEach((d) => {
-    const owner = d.owner || "Unassigned";
-    ownerWins[owner] = (ownerWins[owner] || 0) + 1;
-  });
-  const leaderboard = Object.entries(ownerWins)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5);
-
-  const activeSalesDeals = allDeals.filter(
-    (d) =>
-      d.pipeline === "sales" &&
-      d.stage !== "Closed Won" &&
-      d.stage !== "Closed Lost"
-  );
-  const pipelineValue = activeSalesDeals.reduce(
-    (s, d) => s + parseCurrency(d.estimatedGrossProfitMonthly),
-    0
-  );
-
-  const wonDealsWithDates = closedWon.filter(
-    (d) => d.createdAt && d.closedAt
-  );
-  const avgCycleTimeDays =
-    wonDealsWithDates.length > 0
-      ? Math.round(
-          wonDealsWithDates.reduce(
-            (s, d) =>
-              s +
-              (new Date(d.closedAt!).getTime() -
-                new Date(d.createdAt!).getTime()) /
-                (1000 * 60 * 60 * 24),
-            0
-          ) / wonDealsWithDates.length
-        )
-      : 0;
+  const topSources = sourceRows.rows.map(r => [r.src, parseInt(r.cnt, 10)] as [string, number]);
+  const leaderboard = leaderboardRows.rows.map(r => [r.owner, parseInt(r.wins, 10)] as [string, number]);
 
   const summary = {
     period: `${sevenDaysAgo.toLocaleDateString()} - ${now.toLocaleDateString()}`,
-    newLeads,
+    newLeads: parseInt(newLeadsRow.rows[0]?.cnt ?? "0", 10),
     newDeals,
-    proposalsSent,
-    closedWonCount: closedWon.length,
-    closedLost,
+    proposalsSent: parseInt(proposalsSentRow.rows[0]?.cnt ?? "0", 10),
+    closedWonCount,
+    closedLost: parseInt(closedLostRow.rows[0]?.cnt ?? "0", 10),
     conversionRate,
     weeklyRevenue: Math.round(weeklyRevenue),
-    pipelineValue: Math.round(pipelineValue),
-    avgCycleTimeDays,
-    newTickets,
-    resolvedTickets,
-    overdueTaskCount,
+    pipelineValue: Math.round(parseFloat(pipelineValueRow.rows[0]?.total_value ?? "0")),
+    avgCycleTimeDays: Math.round(parseFloat(avgCycleRow.rows[0]?.avg_days ?? "0")),
+    newTickets: parseInt(newTicketsRow.rows[0]?.cnt ?? "0", 10),
+    resolvedTickets: parseInt(resolvedTicketsRow.rows[0]?.cnt ?? "0", 10),
+    overdueTaskCount: parseInt(overdueTasksRow.rows[0]?.cnt ?? "0", 10),
     topSources,
     leaderboard,
   };

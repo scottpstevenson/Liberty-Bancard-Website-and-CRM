@@ -290,21 +290,67 @@ const FULL_LOOP_STAGE_PROGRESSION_EVERY_N = 12;
  * own dedicated BullMQ queues (enrichment, sequences, digests, mid-ingestion).
  */
 export async function runFullSlaLoop(): Promise<void> {
-  await runSlaCheck();
-  await storage.setSystemSetting("sla_worker_last_tick", {
-    at: new Date().toISOString(),
-    cycle: fullLoopCycleCount + 1,
-    driver: "bullmq",
-  }).catch(() => {});
+  try {
+    await runSlaCheck();
+  } catch (err) {
+    console.error("[SlaLoop] runSlaCheck error:", err);
+  }
 
-  await checkWaitingWorkflows().catch(err => console.error("[SlaLoop] checkWaitingWorkflows error:", err));
-  await checkDocumentReadiness().catch(err => console.error("[SlaLoop] checkDocumentReadiness error:", err));
-  await periodicLeadScoring().catch(err => console.error("[SlaLoop] periodicLeadScoring error:", err));
-  await checkApplicationReminders().catch(err => console.error("[SlaLoop] checkApplicationReminders error:", err));
-  await checkChargebackDeadlines().catch(err => console.error("[SlaLoop] checkChargebackDeadlines error:", err));
-  await checkNpsTriggers().catch(err => console.error("[SlaLoop] checkNpsTriggers error:", err));
-  await checkRetentionCampaigns().catch(err => console.error("[SlaLoop] checkRetentionCampaigns error:", err));
-  await checkAbTestWinners().catch(err => console.error("[SlaLoop] checkAbTestWinners error:", err));
+  try {
+    await storage.setSystemSetting("sla_worker_last_tick", {
+      at: new Date().toISOString(),
+      cycle: fullLoopCycleCount + 1,
+      driver: "bullmq",
+    });
+  } catch { /* non-critical */ }
+
+  try {
+    await checkWaitingWorkflows();
+  } catch (err) {
+    console.error("[SlaLoop] checkWaitingWorkflows error:", err);
+  }
+
+  try {
+    await checkDocumentReadiness();
+  } catch (err) {
+    console.error("[SlaLoop] checkDocumentReadiness error:", err);
+  }
+
+  try {
+    await periodicLeadScoring();
+  } catch (err) {
+    console.error("[SlaLoop] periodicLeadScoring error:", err);
+  }
+
+  try {
+    await checkApplicationReminders();
+  } catch (err) {
+    console.error("[SlaLoop] checkApplicationReminders error:", err);
+  }
+
+  try {
+    await checkChargebackDeadlines();
+  } catch (err) {
+    console.error("[SlaLoop] checkChargebackDeadlines error:", err);
+  }
+
+  try {
+    await checkNpsTriggers();
+  } catch (err) {
+    console.error("[SlaLoop] checkNpsTriggers error:", err);
+  }
+
+  try {
+    await checkRetentionCampaigns();
+  } catch (err) {
+    console.error("[SlaLoop] checkRetentionCampaigns error:", err);
+  }
+
+  try {
+    await checkAbTestWinners();
+  } catch (err) {
+    console.error("[SlaLoop] checkAbTestWinners error:", err);
+  }
 
   if (fullLoopCycleCount % FULL_LOOP_STAGE_PROGRESSION_EVERY_N === 0) {
     try {
@@ -321,7 +367,11 @@ export async function runFullSlaLoop(): Promise<void> {
   fullLoopCycleCount++;
 
   if (fullLoopCycleCount % FULL_LOOP_AI_OPS_EVERY_N === 0) {
-    await runScheduledAiOps().catch(err => console.error("[SlaLoop] runScheduledAiOps error:", err));
+    try {
+      await runScheduledAiOps();
+    } catch (err) {
+      console.error("[SlaLoop] runScheduledAiOps error:", err);
+    }
   }
 }
 

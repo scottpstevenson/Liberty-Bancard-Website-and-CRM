@@ -252,18 +252,26 @@ export async function fullSyncToGhl(): Promise<{ synced: number; failed: number;
 
   console.log(`[GHL Sync] Starting full sync: ${unsyncedContacts.length} contacts to push`);
 
-  for (const contact of unsyncedContacts) {
-    try {
-      const result = await syncContactToGhl(contact.id);
-      if (result.success) {
-        synced++;
-      } else {
+  const BATCH_SIZE = 10;
+  const BATCH_DELAY_MS = 1000;
+
+  for (let i = 0; i < unsyncedContacts.length; i += BATCH_SIZE) {
+    const batch = unsyncedContacts.slice(i, i + BATCH_SIZE);
+    await Promise.all(batch.map(async (contact) => {
+      try {
+        const result = await syncContactToGhl(contact.id);
+        if (result.success) {
+          synced++;
+        } else {
+          failed++;
+        }
+      } catch (err) {
+        console.error(`[GHL Sync] Error syncing contact ${contact.id}:`, err);
         failed++;
       }
-      await new Promise(resolve => setTimeout(resolve, 500));
-    } catch (err) {
-      console.error(`[GHL Sync] Error syncing contact ${contact.id}:`, err);
-      failed++;
+    }));
+    if (i + BATCH_SIZE < unsyncedContacts.length) {
+      await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
     }
   }
 

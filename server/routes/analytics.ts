@@ -63,78 +63,148 @@ export function registerAnalyticsRoutes(app: Express) {
   // === KPI DASHBOARD ===
   app.get("/api/kpi/summary", isAuthenticated, async (req, res) => {
     try {
-      const [dealsR, ticketsR, contactsR, allTasks] = await Promise.all([
-        storage.getDeals({ limit: 500 }),
-        storage.getTickets({ limit: 500 }),
-        storage.getContacts({ limit: 500 }),
-        storage.getTasks(),
-      ]);
-      const allDeals = dealsR.data;
-      const allTickets = ticketsR.data;
-      const allContacts = contactsR.data;
-
       const now = new Date();
       const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
       const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-      const salesDeals = allDeals.filter(d => d.pipeline === "sales");
-      const onboardingDeals = allDeals.filter(d => d.pipeline === "onboarding");
-      const recentDeals = salesDeals.filter(d => d.createdAt && new Date(d.createdAt) >= thirtyDaysAgo);
-      const closedWon = salesDeals.filter(d => d.stage === "Closed Won" && d.closedAt && new Date(d.closedAt) >= thirtyDaysAgo);
-      const closedLost = salesDeals.filter(d => d.stage === "Closed Lost" && d.closedAt && new Date(d.closedAt) >= thirtyDaysAgo);
-
-      const openTickets = allTickets.filter(t => t.status !== "Resolved" && t.status !== "Closed");
-      const breachedTickets = allTickets.filter(t =>
-        t.slaDeadline && new Date(t.slaDeadline) < now && !t.resolvedAt && t.status !== "Resolved" && t.status !== "Closed"
-      );
-
-      const pendingTasks = allTasks.filter(t => t.status === "pending");
-      const overdueTasks = allTasks.filter(t => t.status === "pending" && t.dueDate && new Date(t.dueDate) < now);
+      const [
+        dealStageRows,
+        closedWonRow,
+        closedLostRow,
+        newLeads30dRow,
+        newLeads7dRow,
+        onboardingRows,
+        openTicketsRow,
+        breachedTicketsRow,
+        pendingTasksRow,
+        overdueTasksRow,
+        totalContactsRow,
+        newContacts30dRow,
+        revenueRow,
+      ] = await Promise.all([
+        pool.query<{ stage: string; cnt: string }>(`
+          SELECT stage, COUNT(*)::text AS cnt FROM deals
+          WHERE archived_at IS NULL AND pipeline = 'sales'
+          GROUP BY stage
+        `),
+        pool.query<{ cnt: string }>(`
+          SELECT COUNT(*)::text AS cnt FROM deals
+          WHERE archived_at IS NULL AND pipeline = 'sales' AND stage = 'Closed Won'
+            AND closed_at >= $1
+        `, [thirtyDaysAgo]),
+        pool.query<{ cnt: string }>(`
+          SELECT COUNT(*)::text AS cnt FROM deals
+          WHERE archived_at IS NULL AND pipeline = 'sales' AND stage = 'Closed Lost'
+            AND closed_at >= $1
+        `, [thirtyDaysAgo]),
+        pool.query<{ cnt: string }>(`
+          SELECT COUNT(*)::text AS cnt FROM deals
+          WHERE archived_at IS NULL AND pipeline = 'sales' AND created_at >= $1
+        `, [thirtyDaysAgo]),
+        pool.query<{ cnt: string }>(`
+          SELECT COUNT(*)::text AS cnt FROM deals
+          WHERE archived_at IS NULL AND pipeline = 'sales' AND created_at >= $1
+        `, [sevenDaysAgo]),
+        pool.query<{ stage: string; cnt: string }>(`
+          SELECT stage, COUNT(*)::text AS cnt FROM deals
+          WHERE archived_at IS NULL AND pipeline = 'onboarding'
+          GROUP BY stage
+        `),
+        pool.query<{ cnt: string }>(`
+          SELECT COUNT(*)::text AS cnt FROM tickets
+          WHERE status NOT IN ('Resolved', 'Closed')
+        `),
+        pool.query<{ cnt: string }>(`
+          SELECT COUNT(*)::text AS cnt FROM tickets
+          WHERE sla_deadline < $1 AND resolved_at IS NULL
+            AND status NOT IN ('Resolved', 'Closed')
+        `, [now]),
+        pool.query<{ cnt: string }>(`
+          SELECT COUNT(*)::text AS cnt FROM tasks WHERE status = 'pending'
+        `),
+        pool.query<{ cnt: string }>(`
+          SELECT COUNT(*)::text AS cnt FROM tasks WHERE status = 'pending' AND due_date < $1
+        `, [now]),
+        pool.query<{ cnt: string }>(`
+          SELECT COUNT(*)::text AS cnt FROM contacts WHERE archived_at IS NULL
+        `),
+        pool.query<{ cnt: string }>(`
+          SELECT COUNT(*)::text AS cnt FROM contacts WHERE archived_at IS NULL AND created_at >= $1
+        `, [thirtyDaysAgo]),
+        pool.query<{ total_volume: string; total_residual: string; total_profit: string; deal_count: string }>(`
+          SELECT
+            COALESCE(SUM(CASE WHEN estimated_processing_volume IS NOT NULL AND estimated_processing_volume != ''
+              THEN CAST(REGEXP_REPLACE(estimated_processing_volume, '[^0-9.]', '', 'g') AS DECIMAL) ELSE 0 END), 0)::text AS total_volume,
+            COALESCE(SUM(CASE WHEN estimated_residual IS NOT NULL AND estimated_residual != ''
+              THEN CAST(REGEXP_REPLACE(estimated_residual, '[^0-9.]', '', 'g') AS DECIMAL) ELSE 0 END), 0)::text AS total_residual,
+            (SELECT COALESCE(SUM(CASE WHEN estimated_gross_profit_monthly IS NOT NULL AND estimated_gross_profit_monthly != ''
+              THEN CAST(REGEXP_REPLACE(estimated_gross_profit_monthly, '[^0-9.]', '', 'g') AS DECIMAL) ELSE 0 END), 0)
+             FROM deals WHERE archived_at IS NULL)::text AS total_profit,
+            (SELECT COUNT(*) FROM deals WHERE archived_at IS NULL)::text AS deal_count
+          FROM contacts WHERE archived_at IS NULL
+        `),
+      ]);
 
       const stagesCount: Record<string, number> = {};
-      salesDeals.forEach(d => { stagesCount[d.stage] = (stagesCount[d.stage] || 0) + 1; });
+      let totalActiveSales = 0;
+      for (const row of dealStageRows.rows) {
+        stagesCount[row.stage] = parseInt(row.cnt, 10);
+        if (row.stage !== "Closed Won" && row.stage !== "Closed Lost") {
+          totalActiveSales += parseInt(row.cnt, 10);
+        }
+      }
 
-      const parseCurrency = (v: string | null | undefined): number => {
-        if (!v) return 0;
-        const n = parseFloat(v.replace(/[^0-9.\-]/g, ""));
-        return isNaN(n) ? 0 : n;
-      };
+      const closedWon30d = parseInt(closedWonRow.rows[0]?.cnt ?? "0", 10);
+      const closedLost30d = parseInt(closedLostRow.rows[0]?.cnt ?? "0", 10);
+      const recentDealsCount = parseInt(newLeads30dRow.rows[0]?.cnt ?? "0", 10);
 
-      const totalEstVolume = allContacts.reduce((s, c) => s + parseCurrency(c.estimatedProcessingVolume), 0);
-      const totalEstResidual = allContacts.reduce((s, c) => s + parseCurrency(c.estimatedResidual), 0);
-      const totalEstProfit = allDeals.reduce((s, d) => s + parseCurrency(d.estimatedGrossProfitMonthly), 0);
+      const onboardingStages: Record<string, number> = {};
+      for (const row of onboardingRows.rows) {
+        onboardingStages[row.stage] = parseInt(row.cnt, 10);
+      }
+      const liveStages = new Set(["Live (First Batch)", "Active (7 Days)", "Active (30 Days)"]);
+      const onboardingActive = Object.entries(onboardingStages)
+        .filter(([stage]) => stage !== "Active (30 Days)")
+        .reduce((s, [, cnt]) => s + cnt, 0);
+      const onboardingLive = Object.entries(onboardingStages)
+        .filter(([stage]) => liveStages.has(stage))
+        .reduce((s, [, cnt]) => s + cnt, 0);
+
+      const rev = revenueRow.rows[0];
+      const totalEstProfit = parseFloat(rev?.total_profit ?? "0");
+      const dealCount = parseInt(rev?.deal_count ?? "0", 10);
 
       res.json({
         pipeline: {
-          totalActive: salesDeals.filter(d => d.stage !== "Closed Won" && d.stage !== "Closed Lost").length,
-          closedWon30d: closedWon.length,
-          closedLost30d: closedLost.length,
-          conversionRate: recentDeals.length > 0 ? Math.round((closedWon.length / recentDeals.length) * 100) : 0,
+          totalActive: totalActiveSales,
+          closedWon30d,
+          closedLost30d,
+          conversionRate: recentDealsCount > 0 ? Math.round((closedWon30d / recentDealsCount) * 100) : 0,
           stagesBreakdown: stagesCount,
-          newLeads7d: salesDeals.filter(d => d.createdAt && new Date(d.createdAt) >= sevenDaysAgo).length,
+          newLeads7d: parseInt(newLeads7dRow.rows[0]?.cnt ?? "0", 10),
         },
         onboarding: {
-          active: onboardingDeals.filter(d => d.stage !== "Active (30 Days)").length,
-          live: onboardingDeals.filter(d => d.stage === "Live (First Batch)" || d.stage === "Active (7 Days)" || d.stage === "Active (30 Days)").length,
+          active: onboardingActive,
+          live: onboardingLive,
         },
         support: {
-          openTickets: openTickets.length,
-          breachedSla: breachedTickets.length,
+          openTickets: parseInt(openTicketsRow.rows[0]?.cnt ?? "0", 10),
+          breachedSla: parseInt(breachedTicketsRow.rows[0]?.cnt ?? "0", 10),
           avgResolutionHours: 0,
         },
         tasks: {
-          pending: pendingTasks.length,
-          overdue: overdueTasks.length,
+          pending: parseInt(pendingTasksRow.rows[0]?.cnt ?? "0", 10),
+          overdue: parseInt(overdueTasksRow.rows[0]?.cnt ?? "0", 10),
         },
         contacts: {
-          total: allContacts.length,
-          new30d: allContacts.filter(c => c.createdAt && new Date(c.createdAt) >= thirtyDaysAgo).length,
+          total: parseInt(totalContactsRow.rows[0]?.cnt ?? "0", 10),
+          new30d: parseInt(newContacts30dRow.rows[0]?.cnt ?? "0", 10),
         },
         revenue: {
-          totalEstVolume,
-          totalEstResidual,
+          totalEstVolume: parseFloat(rev?.total_volume ?? "0"),
+          totalEstResidual: parseFloat(rev?.total_residual ?? "0"),
           totalEstProfit,
-          avgDealProfit: allDeals.length > 0 ? Math.round(totalEstProfit / allDeals.length) : 0,
+          avgDealProfit: dealCount > 0 ? Math.round(totalEstProfit / dealCount) : 0,
         },
       });
     } catch (err: any) {
@@ -146,42 +216,71 @@ export function registerAnalyticsRoutes(app: Express) {
   // === KPI COMPARATIVE ===
   app.get("/api/kpi/comparative", isAuthenticated, async (req, res) => {
     try {
-      const [dealsR2, contactsR2, ticketsR2] = await Promise.all([
-        storage.getDeals({ limit: 500 }),
-        storage.getContacts({ limit: 500 }),
-        storage.getTickets({ limit: 500 }),
-      ]);
-      const allDeals = dealsR2.data;
-      const allContacts = contactsR2.data;
-      const allTickets = ticketsR2.data;
-
       const now = new Date();
       const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
       const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+      const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
 
-      const thisMonthDeals = allDeals.filter(d => d.createdAt && new Date(d.createdAt) >= thisMonthStart);
-      const lastMonthDeals = allDeals.filter(d => d.createdAt && new Date(d.createdAt) >= lastMonthStart && new Date(d.createdAt) <= lastMonthEnd);
+      const [dealsRows, contactsRows, wonRows, ticketsRows] = await Promise.all([
+        pool.query<{ period: string; cnt: string }>(`
+          SELECT
+            CASE WHEN created_at >= $1 THEN 'current' ELSE 'previous' END AS period,
+            COUNT(*)::text AS cnt
+          FROM deals
+          WHERE archived_at IS NULL AND created_at >= $2 AND created_at <= $3
+          GROUP BY period
+        `, [thisMonthStart, lastMonthStart, now]),
+        pool.query<{ period: string; cnt: string }>(`
+          SELECT
+            CASE WHEN created_at >= $1 THEN 'current' ELSE 'previous' END AS period,
+            COUNT(*)::text AS cnt
+          FROM contacts
+          WHERE archived_at IS NULL AND created_at >= $2 AND created_at <= $3
+          GROUP BY period
+        `, [thisMonthStart, lastMonthStart, now]),
+        pool.query<{ period: string; cnt: string }>(`
+          SELECT
+            CASE WHEN updated_at >= $1 THEN 'current' ELSE 'previous' END AS period,
+            COUNT(*)::text AS cnt
+          FROM deals
+          WHERE archived_at IS NULL AND stage = 'Closed Won'
+            AND updated_at >= $2 AND updated_at <= $3
+          GROUP BY period
+        `, [thisMonthStart, lastMonthStart, now]),
+        pool.query<{ period: string; cnt: string }>(`
+          SELECT
+            CASE WHEN created_at >= $1 THEN 'current' ELSE 'previous' END AS period,
+            COUNT(*)::text AS cnt
+          FROM tickets
+          WHERE created_at >= $2 AND created_at <= $3
+          GROUP BY period
+        `, [thisMonthStart, lastMonthStart, now]),
+      ]);
 
-      const thisMonthContacts = allContacts.filter(c => c.createdAt && new Date(c.createdAt) >= thisMonthStart);
-      const lastMonthContacts = allContacts.filter(c => c.createdAt && new Date(c.createdAt) >= lastMonthStart && new Date(c.createdAt) <= lastMonthEnd);
-
-      const thisMonthWon = allDeals.filter(d => d.stage === "Closed Won" && d.updatedAt && new Date(d.updatedAt) >= thisMonthStart);
-      const lastMonthWon = allDeals.filter(d => d.stage === "Closed Won" && d.updatedAt && new Date(d.updatedAt) >= lastMonthStart && new Date(d.updatedAt) <= lastMonthEnd);
-
-      const thisMonthTickets = allTickets.filter(t => t.createdAt && new Date(t.createdAt) >= thisMonthStart);
-      const lastMonthTickets = allTickets.filter(t => t.createdAt && new Date(t.createdAt) >= lastMonthStart && new Date(t.createdAt) <= lastMonthEnd);
+      const tally = (rows: { period: string; cnt: string }[]) => {
+        let current = 0, previous = 0;
+        for (const r of rows) {
+          if (r.period === "current") current = parseInt(r.cnt, 10);
+          else previous = parseInt(r.cnt, 10);
+        }
+        return { current, previous };
+      };
 
       const calcChange = (current: number, previous: number) => {
         if (previous === 0) return current > 0 ? 100 : 0;
         return Math.round(((current - previous) / previous) * 100);
       };
 
+      const deals = tally(dealsRows.rows);
+      const contacts = tally(contactsRows.rows);
+      const won = tally(wonRows.rows);
+      const tickets = tally(ticketsRows.rows);
+
       res.json({
-        newDeals: { current: thisMonthDeals.length, previous: lastMonthDeals.length, change: calcChange(thisMonthDeals.length, lastMonthDeals.length) },
-        newContacts: { current: thisMonthContacts.length, previous: lastMonthContacts.length, change: calcChange(thisMonthContacts.length, lastMonthContacts.length) },
-        closedWon: { current: thisMonthWon.length, previous: lastMonthWon.length, change: calcChange(thisMonthWon.length, lastMonthWon.length) },
-        tickets: { current: thisMonthTickets.length, previous: lastMonthTickets.length, change: calcChange(thisMonthTickets.length, lastMonthTickets.length) },
+        newDeals: { ...deals, change: calcChange(deals.current, deals.previous) },
+        newContacts: { ...contacts, change: calcChange(contacts.current, contacts.previous) },
+        closedWon: { ...won, change: calcChange(won.current, won.previous) },
+        tickets: { ...tickets, change: calcChange(tickets.current, tickets.previous) },
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });

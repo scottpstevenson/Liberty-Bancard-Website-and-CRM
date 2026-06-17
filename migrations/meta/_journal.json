@@ -1,216 +1,223 @@
 {
-	"version": "7",
-	"dialect": "postgresql",
-	"entries": [
-		{
-			"idx": 0,
-			"version": "7",
-			"when": 1773427593891,
-			"tag": "0000_faulty_gwen_stacy",
-			"breakpoints": true
-		},
-		{
-			"idx": 1,
-			"version": "7",
-			"when": 1773677529872,
-			"tag": "0001_smooth_hellion",
-			"breakpoints": true
-		},
-		{
-			"idx": 2,
-			"version": "7",
-			"when": 1773686429334,
-			"tag": "0002_old_sentry",
-			"breakpoints": true
-		},
-		{
-			"idx": 3,
-			"version": "7",
-			"when": 1776210419954,
-			"tag": "0003_tough_mandarin",
-			"breakpoints": true
-		},
-		{
-			"idx": 4,
-			"version": "7",
-			"when": 1777739225248,
-			"tag": "0004_dusty_naoko",
-			"breakpoints": true
-		},
-		{
-			"idx": 5,
-			"version": "7",
-			"when": 1777739833710,
-			"tag": "0005_shallow_stepford_cuckoos",
-			"breakpoints": true
-		},
-		{
-			"idx": 6,
-			"version": "7",
-			"when": 1746229200000,
-			"tag": "0006_live_chat_tables",
-			"breakpoints": true
-		},
-		{
-			"idx": 7,
-			"version": "7",
-			"when": 1746489600000,
-			"tag": "0007_ab_testing_linkedin_enrichment",
-			"breakpoints": true
-		},
-		{
-			"idx": 8,
-			"version": "7",
-			"when": 1746489600001,
-			"tag": "0008_document_vault_columns",
-			"breakpoints": true
-		},
-		{
-			"idx": 9,
-			"version": "7",
-			"when": 1746576000000,
-			"tag": "0009_residual_reconciliation",
-			"breakpoints": true
-		},
-		{
-			"idx": 10,
-			"version": "7",
-			"when": 1746662400000,
-			"tag": "0010_processor_boarding_mid_stats",
-			"breakpoints": true
-		},
-		{
-			"idx": 11,
-			"version": "7",
-			"when": 1746748800000,
-			"tag": "0011_underwriting_notes_log",
-			"breakpoints": true
-		},
-		{
-			"idx": 12,
-			"version": "7",
-			"when": 1748390400000,
-			"tag": "0012_verbal_commit_pipeline_stage",
-			"breakpoints": true
-		},
-		{
-			"idx": 13,
-			"version": "7",
-			"when": 1748476800000,
-			"tag": "0012_user_sessions",
-			"breakpoints": true
-		},
-		{
-			"idx": 14,
-			"version": "7",
-			"when": 1748563200000,
-			"tag": "0013_ai_audit_observability",
-			"breakpoints": true
-		},
-		{
-			"idx": 15,
-			"version": "7",
-			"when": 1777739833711,
-			"tag": "0014_startup_sql_consolidation",
-			"breakpoints": true
-		},
-		{
-			"idx": 16,
-			"version": "7",
-			"when": 1749081600000,
-			"tag": "0015_savings_share_token",
-			"breakpoints": true
-		},
-		{
-			"idx": 17,
-			"version": "7",
-			"when": 1780000000000,
-			"tag": "0016_referral_converted_at",
-			"breakpoints": true
-		},
-		{
-			"idx": 18,
-			"version": "7",
-			"when": 1780100000000,
-			"tag": "0017_tool_click_events",
-			"breakpoints": true
-		},
-		{
-			"idx": 19,
-			"version": "7",
-			"when": 1780200000000,
-			"tag": "0018_deal_vertical",
-			"breakpoints": true
-		},
-		{
-			"idx": 20,
-			"version": "7",
-			"when": 1780300000000,
-			"tag": "0019_push_subscriptions",
-			"breakpoints": true
-		},
-		{
-			"idx": 21,
-			"version": "7",
-			"when": 1780400000000,
-			"tag": "0020_document_status",
-			"breakpoints": true
-		},
-		{
-			"idx": 22,
-			"version": "7",
-			"when": 1780500000000,
-			"tag": "0019_onboarding_checklist",
-			"breakpoints": true
-		},
-		{
-			"idx": 23,
-			"version": "7",
-			"when": 1780700000000,
-			"tag": "0022_multi_location",
-			"breakpoints": true
-		},
-		{
-			"idx": 24,
-			"version": "7",
-			"when": 1780800000000,
-			"tag": "0023_multi_location_fk",
-			"breakpoints": true
-		},
-		{
-			"idx": 21,
-			"version": "7",
-			"when": 1780400000000,
-			"tag": "0020_multi_location_fk",
-			"breakpoints": true
-		},
-		{
-			"idx": 25,
-			"version": "7",
-			"when": 1780900000000,
-			"tag": "0019_rate_review_requests",
-			"breakpoints": true
-		},
-		{
-			"idx": 26,
-			"version": "7",
-			"when": 1781000000000,
-			"tag": "0024_terminal_economics",
-			"breakpoints": true
-		},
-		{
-			"idx": 27,
-			"version": "7",
-			"when": 1781100000000,
-			"tag": "0024_deal_analysis_status",
-			"breakpoints": true
-		},
-		{
-			"idx": 27,
-			"version": "7",
-			"when": 1781100000000,
-			"tag": "0025_statement_proposals",
-			"breakpoints": true
-		}
-	]
+        "version": "7",
+        "dialect": "postgresql",
+        "entries": [
+                {
+                        "idx": 0,
+                        "version": "7",
+                        "when": 1773427593891,
+                        "tag": "0000_faulty_gwen_stacy",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 1,
+                        "version": "7",
+                        "when": 1773677529872,
+                        "tag": "0001_smooth_hellion",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 2,
+                        "version": "7",
+                        "when": 1773686429334,
+                        "tag": "0002_old_sentry",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 3,
+                        "version": "7",
+                        "when": 1776210419954,
+                        "tag": "0003_tough_mandarin",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 4,
+                        "version": "7",
+                        "when": 1777739225248,
+                        "tag": "0004_dusty_naoko",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 5,
+                        "version": "7",
+                        "when": 1777739833710,
+                        "tag": "0005_shallow_stepford_cuckoos",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 6,
+                        "version": "7",
+                        "when": 1746229200000,
+                        "tag": "0006_live_chat_tables",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 7,
+                        "version": "7",
+                        "when": 1746489600000,
+                        "tag": "0007_ab_testing_linkedin_enrichment",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 8,
+                        "version": "7",
+                        "when": 1746489600001,
+                        "tag": "0008_document_vault_columns",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 9,
+                        "version": "7",
+                        "when": 1746576000000,
+                        "tag": "0009_residual_reconciliation",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 10,
+                        "version": "7",
+                        "when": 1746662400000,
+                        "tag": "0010_processor_boarding_mid_stats",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 11,
+                        "version": "7",
+                        "when": 1746748800000,
+                        "tag": "0011_underwriting_notes_log",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 12,
+                        "version": "7",
+                        "when": 1748390400000,
+                        "tag": "0012_verbal_commit_pipeline_stage",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 13,
+                        "version": "7",
+                        "when": 1748476800000,
+                        "tag": "0012_user_sessions",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 14,
+                        "version": "7",
+                        "when": 1748563200000,
+                        "tag": "0013_ai_audit_observability",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 15,
+                        "version": "7",
+                        "when": 1777739833711,
+                        "tag": "0014_startup_sql_consolidation",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 16,
+                        "version": "7",
+                        "when": 1749081600000,
+                        "tag": "0015_savings_share_token",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 17,
+                        "version": "7",
+                        "when": 1780000000000,
+                        "tag": "0016_referral_converted_at",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 18,
+                        "version": "7",
+                        "when": 1780100000000,
+                        "tag": "0017_tool_click_events",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 19,
+                        "version": "7",
+                        "when": 1780200000000,
+                        "tag": "0018_deal_vertical",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 20,
+                        "version": "7",
+                        "when": 1780300000000,
+                        "tag": "0019_push_subscriptions",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 21,
+                        "version": "7",
+                        "when": 1780400000000,
+                        "tag": "0020_document_status",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 22,
+                        "version": "7",
+                        "when": 1780500000000,
+                        "tag": "0019_onboarding_checklist",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 23,
+                        "version": "7",
+                        "when": 1780700000000,
+                        "tag": "0022_multi_location",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 24,
+                        "version": "7",
+                        "when": 1780800000000,
+                        "tag": "0023_multi_location_fk",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 21,
+                        "version": "7",
+                        "when": 1780400000000,
+                        "tag": "0020_multi_location_fk",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 25,
+                        "version": "7",
+                        "when": 1780900000000,
+                        "tag": "0019_rate_review_requests",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 26,
+                        "version": "7",
+                        "when": 1781000000000,
+                        "tag": "0024_terminal_economics",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 27,
+                        "version": "7",
+                        "when": 1781100000000,
+                        "tag": "0024_deal_analysis_status",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 27,
+                        "version": "7",
+                        "when": 1781100000000,
+                        "tag": "0025_statement_proposals",
+                        "breakpoints": true
+                },
+                {
+                        "idx": 28,
+                        "version": "7",
+                        "when": 1781200000000,
+                        "tag": "0026_performance_indexes",
+                        "breakpoints": true
+                }
+        ]
 }
