@@ -95,3 +95,6 @@ timeoutMs = 120000
 
 [userenv.shared]
 APP_URL = "https://libertybancard.com"
+SDR_ENABLED = "true"
+NIGHTLY_DISCOVERY_ENABLED = "true"
+LEGACY_OUTREACH_ENABLED = "true"
