@@ -3907,6 +3907,58 @@ export const insertStatementProposalSchema = createInsertSchema(statementProposa
 export type StatementProposal = typeof statementProposals.$inferSelect;
 export type InsertStatementProposal = z.infer<typeof insertStatementProposalSchema>;
 
+// ─── Underwriting Rules Engine ───────────────────────────────────────────────
+export const underwritingRules = pgTable("underwriting_rules", {
+  id: serial("id").primaryKey(),
+  minMonthlyVolume: numeric("min_monthly_volume").default("5000"),
+  maxMonthlyVolume: numeric("max_monthly_volume").default("500000"),
+  effectiveRateCeiling: numeric("effective_rate_ceiling").default("3.5"),
+  chargebackRateLimit: numeric("chargeback_rate_limit").default("1.0"),
+  chargebackRateHardLimit: numeric("chargeback_rate_hard_limit").default("2.0"),
+  volumeHardDeviationPct: numeric("volume_hard_deviation_pct").default("50"),
+  allowedProcessors: text("allowed_processors").array(),
+  blockedProcessors: text("blocked_processors").array(),
+  autoApproveEnabled: boolean("auto_approve_enabled").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertUnderwritingRulesSchema = createInsertSchema(underwritingRules).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type UnderwritingRules = typeof underwritingRules.$inferSelect;
+export type InsertUnderwritingRules = z.infer<typeof insertUnderwritingRulesSchema>;
+
+export const underwritingDecisions = pgTable("underwriting_decisions", {
+  id: serial("id").primaryKey(),
+  dealId: integer("deal_id").references(() => deals.id),
+  decision: text("decision").notNull(),
+  score: integer("score").notNull().default(0),
+  reasons: text("reasons").array(),
+  rulesSnapshot: jsonb("rules_snapshot"),
+  decidedAt: timestamp("decided_at").defaultNow(),
+  overriddenBy: text("overridden_by"),
+  overriddenAt: timestamp("overridden_at"),
+  overrideAction: text("override_action"),
+  overrideNote: text("override_note"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("underwriting_decisions_deal_id_idx").on(table.dealId),
+  index("underwriting_decisions_decision_idx").on(table.decision),
+  index("underwriting_decisions_created_at_idx").on(table.createdAt),
+]);
+
+export const insertUnderwritingDecisionSchema = createInsertSchema(underwritingDecisions).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type UnderwritingDecision = typeof underwritingDecisions.$inferSelect;
+export type InsertUnderwritingDecision = z.infer<typeof insertUnderwritingDecisionSchema>;
+
 // ─── Push Subscriptions ──────────────────────────────────────────────────────
 export const pushSubscriptions = pgTable("push_subscriptions", {
   id: serial("id").primaryKey(),

@@ -52,6 +52,7 @@ import { registerRelationshipsRoutes } from "./routes/relationships";
 import { registerSavingsRoutes } from "./routes/savings";
 import { registerWidgetRoutes } from "./routes/widget";
 import { registerTerminalEconomicsRoutes } from "./routes/terminal-economics";
+import { registerUnderwritingRoutes } from "./routes/underwriting";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -172,6 +173,7 @@ export async function registerRoutes(
   registerSavingsRoutes(app);
   registerWidgetRoutes(app);
   registerTerminalEconomicsRoutes(app);
+  registerUnderwritingRoutes(app);
 
   // Must be registered before the API 404 catch-all — extracts route
   // permissions by walking the already-populated express router stack

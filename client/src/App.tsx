@@ -203,6 +203,7 @@ const WidgetGenerator = lazy(() => import("@/pages/dashboard/WidgetGenerator"));
 const PartnerEmbedWidget = lazy(() => import("@/pages/PartnerEmbedWidget"));
 const ColdLeads = lazy(() => import("@/pages/dashboard/ColdLeads"));
 const OnboardingBoard = lazy(() => import("@/pages/dashboard/OnboardingBoard"));
+const UnderwritingPage = lazy(() => import("@/pages/dashboard/Underwriting"));
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -649,6 +650,10 @@ function Router() {
 
         <Route path="/dashboard/cold-leads">
           <ProtectedRoute component={ColdLeads} />
+        </Route>
+
+        <Route path="/dashboard/underwriting">
+          <ProtectedRoute component={UnderwritingPage} allowedRoles={["admin", "manager"]} />
         </Route>
 
         <Route component={NotFound} />

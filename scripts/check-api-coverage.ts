@@ -79,6 +79,10 @@ const KNOWN_MISMATCHES = new Set<string>([
   "/api/sdr/discovery/nightly/${start",
   "/api/sdr/merchants",
   "/api/sms-inbox/thread",
+  // Underwriting override endpoints — server handlers exist as /api/underwriting/deals/:id/approve|reject
+  // coverage script sees :param because apiRequest uses a template literal with runtime dealId
+  "/api/underwriting/deals/:param/approve",
+  "/api/underwriting/deals/:param/reject",
 ]);
 
 function main() {

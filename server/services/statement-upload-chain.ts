@@ -296,6 +296,55 @@ export async function runStatementUploadChain(
             await storage.updateDeal(capturedDealId, { analysisStatus: "processing" });
             await generateDealBlueprint(capturedDealId);
             await storage.updateDeal(capturedDealId, { analysisStatus: "complete" }).catch(() => {});
+            console.log(`[StatementChain] Blueprint complete for deal #${capturedDealId}`);
+
+            // Run underwriting engine after inline analysis (mirrors BullMQ path)
+            try {
+              const { runUnderwritingEngine } = await import("./underwriting-engine");
+              const deal = await storage.getDeal(capturedDealId);
+              if (deal) {
+                const result = await runUnderwritingEngine({ deal });
+                await storage.createUnderwritingDecision({
+                  dealId: capturedDealId,
+                  decision: result.decision,
+                  score: result.score,
+                  reasons: result.reasons,
+                  rulesSnapshot: result.rulesSnapshot,
+                  decidedAt: new Date(),
+                });
+                await storage.createAuditLog({
+                  action: "underwriting_auto_decision",
+                  entityType: "deal",
+                  entityId: capturedDealId,
+                  actorType: "system",
+                  details: {
+                    decision: result.decision,
+                    score: result.score,
+                    reasons: result.reasons,
+                    rulesSnapshot: result.rulesSnapshot,
+                    timestamp: new Date().toISOString(),
+                  },
+                });
+                const { advanceDealStage } = await import("./deal-stage-service");
+                if (result.decision === "approve") {
+                  await advanceDealStage(capturedDealId, "Proposal Sent", "underwriting_auto_approve").catch(() => {});
+                } else {
+                  await advanceDealStage(capturedDealId, "Review In Progress", "underwriting_flag").catch(() => {});
+                  await storage.createNotification({
+                    channel: "internal",
+                    title: result.decision === "hold"
+                      ? `Underwriting HOLD — Deal #${capturedDealId} requires immediate review`
+                      : `Underwriting Review Required — Deal #${capturedDealId}`,
+                    message: result.reasons[0] ?? "Deal flagged for manual review",
+                    type: "alert",
+                    metadata: { dealId: capturedDealId, decision: result.decision, score: result.score, link: `/dashboard/underwriting`, eventType: "underwriting_flagged" },
+                  });
+                }
+                console.log(`[Underwriting] Deal #${capturedDealId} decision=${result.decision} score=${result.score}`);
+              }
+            } catch (uwErr: any) {
+              console.error(`[Underwriting] Engine failed for deal #${capturedDealId} (non-fatal):`, uwErr.message);
+            }
           } catch (err: any) {
             console.error(`[StatementChain] Blueprint job failed for deal #${capturedDealId}:`, err.message);
             await storage.updateDeal(capturedDealId, { analysisStatus: "failed" }).catch(() => {});

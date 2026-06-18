@@ -87,6 +87,9 @@ import {
   generatedBlogPosts,
   type GeneratedBlogPost, type InsertGeneratedBlogPost,
   type UpdateSdrLeadState,
+  underwritingRules, underwritingDecisions,
+  type UnderwritingRules, type InsertUnderwritingRules,
+  type UnderwritingDecision, type InsertUnderwritingDecision,
   ghlWorkflowMappings, type GhlWorkflowMapping,
   npsResponses, type NpsResponse, type InsertNpsResponse,
   merchantReferrals, type MerchantReferral, type InsertMerchantReferral,
@@ -126,6 +129,7 @@ import { SdrStorage } from "./storage/sdr";
 import { PartnerOrgsStorage } from "./storage/partner-orgs";
 import { ContentStorage } from "./storage/content";
 import { ChurnStorage } from "./storage/churn";
+import { UnderwritingStorage } from "./storage/underwriting";
 
 export interface PaginationParams {
   limit?: number;
@@ -668,6 +672,15 @@ export interface IStorage {
   upsertChurnScoreWeight(signalKey: string, weight: number, label?: string, description?: string): Promise<import("@shared/schema").ChurnScoreWeight>;
   getMerchantHealthScoresByTier(tier: string): Promise<import("@shared/schema").MerchantHealthScore[]>;
   getChurnRiskSummary(): Promise<{ tier: string; count: number }[]>;
+
+  // Underwriting
+  getUnderwritingRules(): Promise<UnderwritingRules>;
+  updateUnderwritingRules(updates: Partial<InsertUnderwritingRules>): Promise<UnderwritingRules>;
+  getUnderwritingDecisions(filters?: { decision?: string; dealId?: number; since?: Date; limit?: number }): Promise<UnderwritingDecision[]>;
+  getUnderwritingDecisionByDeal(dealId: number): Promise<UnderwritingDecision | undefined>;
+  createUnderwritingDecision(data: InsertUnderwritingDecision): Promise<UnderwritingDecision>;
+  overrideUnderwritingDecision(decisionId: number, overrideAction: "approve" | "reject", overriddenBy: string, note?: string): Promise<UnderwritingDecision | undefined>;
+  getUnderwritingStats(since?: Date): Promise<{ total: number; approved: number; review: number; hold: number; overridden: number }>;
 }
 
 const DEFAULT_LIMIT = 100;
@@ -697,10 +710,10 @@ function normalizePagination(params?: PaginationParams): { limit: number; offset
     }
   }
 
-export interface DatabaseStorage extends ContactsStorage, DealsStorage, TicketsStorage, TasksStorage, DocumentsStorage, AuditStorage, NotificationsStorage, WorkflowsStorage, TemplatesStorage, ProspectsStorage, CampaignsStorage, NotesStorage, CommLogsStorage, AutomationStorage, SunbizStorage, MerchantsStorage, ResidualsStorage, HealthStorage, PartnersStorage, ReviewsStorage, MiscStorage, RateReviewStorage, BusinessesStorage, SdrStorage, PartnerOrgsStorage, ContentStorage, ChurnStorage, RelationshipsStorage {}
+export interface DatabaseStorage extends ContactsStorage, DealsStorage, TicketsStorage, TasksStorage, DocumentsStorage, AuditStorage, NotificationsStorage, WorkflowsStorage, TemplatesStorage, ProspectsStorage, CampaignsStorage, NotesStorage, CommLogsStorage, AutomationStorage, SunbizStorage, MerchantsStorage, ResidualsStorage, HealthStorage, PartnersStorage, ReviewsStorage, MiscStorage, RateReviewStorage, BusinessesStorage, SdrStorage, PartnerOrgsStorage, ContentStorage, ChurnStorage, RelationshipsStorage, UnderwritingStorage {}
 
 export class DatabaseStorage implements IStorage {}
 
-applyMixins(DatabaseStorage, [ContactsStorage, DealsStorage, TicketsStorage, TasksStorage, DocumentsStorage, AuditStorage, NotificationsStorage, WorkflowsStorage, TemplatesStorage, ProspectsStorage, CampaignsStorage, NotesStorage, CommLogsStorage, AutomationStorage, SunbizStorage, MerchantsStorage, ResidualsStorage, HealthStorage, PartnersStorage, ReviewsStorage, MiscStorage, RateReviewStorage, BusinessesStorage, SdrStorage, PartnerOrgsStorage, ContentStorage, ChurnStorage, RelationshipsStorage]);
+applyMixins(DatabaseStorage, [ContactsStorage, DealsStorage, TicketsStorage, TasksStorage, DocumentsStorage, AuditStorage, NotificationsStorage, WorkflowsStorage, TemplatesStorage, ProspectsStorage, CampaignsStorage, NotesStorage, CommLogsStorage, AutomationStorage, SunbizStorage, MerchantsStorage, ResidualsStorage, HealthStorage, PartnersStorage, ReviewsStorage, MiscStorage, RateReviewStorage, BusinessesStorage, SdrStorage, PartnerOrgsStorage, ContentStorage, ChurnStorage, RelationshipsStorage, UnderwritingStorage]);
 
 export const storage = new DatabaseStorage();
