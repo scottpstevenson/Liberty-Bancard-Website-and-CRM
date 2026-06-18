@@ -25,6 +25,9 @@ interface GhlHealthData {
   configured: boolean;
   authTest: boolean;
   hasWebhookSecret: boolean;
+  circuitOpen: boolean;
+  consecutiveFailures: number;
+  threshold: number;
 }
 
 interface SdrHealthData {
@@ -567,6 +570,15 @@ export default function ActivationPanel() {
     onError: (err: Error) => toast({ title: "GHL test failed", description: err.message, variant: "destructive" }),
   });
 
+  const circuitResetMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/ghl/circuit-reset"),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/ghl/health"] });
+      toast({ title: "GHL circuit reset", description: "Consecutive failure count cleared. Sync will resume on next tick." });
+    },
+    onError: (err: Error) => toast({ title: "Circuit reset failed", description: err.message, variant: "destructive" }),
+  });
+
   const bridgeMutation = useMutation({
     mutationFn: async () => {
       const resp = await apiRequest("POST", "/api/sdr/bridge", {
@@ -761,13 +773,31 @@ export default function ActivationPanel() {
               <CardContent>
                 {ghlHealth ? (
                   <div className="space-y-1 text-sm">
+                    {ghlHealth.circuitOpen && (
+                      <div className="flex items-start gap-2 rounded-md border border-yellow-400 bg-yellow-50 dark:bg-yellow-950/30 dark:border-yellow-600 px-3 py-2 mb-2" data-testid="banner-ghl-circuit-open">
+                        <AlertTriangle className="w-4 h-4 text-yellow-600 dark:text-yellow-400 mt-0.5 shrink-0" />
+                        <div>
+                          <p className="font-medium text-yellow-800 dark:text-yellow-300">GHL Circuit Breaker Open</p>
+                          <p className="text-xs text-yellow-700 dark:text-yellow-400">{ghlHealth.consecutiveFailures} consecutive failures — sync is paused until reset.</p>
+                        </div>
+                      </div>
+                    )}
                     <div className="flex justify-between"><span>Configured</span><Badge variant={ghlHealth.configured ? "default" : "destructive"} data-testid="badge-ghl-configured">{ghlHealth.configured ? "Yes" : "No"}</Badge></div>
                     <div className="flex justify-between"><span>Auth Test</span><Badge variant={ghlHealth.authTest ? "default" : "secondary"} data-testid="badge-ghl-auth">{ghlHealth.authTest ? "Pass" : "N/A"}</Badge></div>
                     <div className="flex justify-between"><span>Webhook Secret</span><Badge variant={ghlHealth.hasWebhookSecret ? "default" : "secondary"} data-testid="badge-ghl-webhook">{ghlHealth.hasWebhookSecret ? "Set" : "Missing"}</Badge></div>
-                    <Button size="sm" variant="outline" className="mt-2 w-full" onClick={() => ghlTestMutation.mutate()} disabled={ghlTestMutation.isPending} data-testid="button-test-ghl">
-                      {ghlTestMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Zap className="w-3 h-3 mr-1" />}
-                      Test & Bootstrap
-                    </Button>
+                    <div className="flex justify-between items-center"><span>Circuit Breaker</span><Badge variant={ghlHealth.circuitOpen ? "destructive" : "default"} data-testid="badge-ghl-circuit">{ghlHealth.circuitOpen ? `Open (${ghlHealth.consecutiveFailures}/${ghlHealth.threshold})` : `Closed (${ghlHealth.consecutiveFailures}/${ghlHealth.threshold})`}</Badge></div>
+                    <div className="flex gap-2 mt-2">
+                      <Button size="sm" variant="outline" className="flex-1" onClick={() => ghlTestMutation.mutate()} disabled={ghlTestMutation.isPending} data-testid="button-test-ghl">
+                        {ghlTestMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Zap className="w-3 h-3 mr-1" />}
+                        Test & Bootstrap
+                      </Button>
+                      {ghlHealth.circuitOpen && (
+                        <Button size="sm" variant="outline" className="flex-1 border-yellow-400 text-yellow-700 hover:bg-yellow-50 dark:border-yellow-600 dark:text-yellow-400" onClick={() => circuitResetMutation.mutate()} disabled={circuitResetMutation.isPending} data-testid="button-reset-circuit">
+                          {circuitResetMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <RefreshCw className="w-3 h-3 mr-1" />}
+                          Reset Circuit
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 ) : <Loader2 className="w-4 h-4 animate-spin" />}
               </CardContent>

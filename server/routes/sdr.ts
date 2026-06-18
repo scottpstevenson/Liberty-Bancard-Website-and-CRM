@@ -84,7 +84,20 @@ export function registerSdrRoutes(app: Express) {
           authTest = true;
         } catch {}
       }
-      res.json({ ...config, authTest });
+      const { getGhlCircuitStatus } = await import("../services/ghl-sync");
+      const circuit = getGhlCircuitStatus();
+      res.json({ ...config, authTest, ...circuit });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/ghl/circuit-reset", isAuthenticated, async (_req, res) => {
+    try {
+      const { resetGhlCircuit } = await import("../services/ghl-sync");
+      resetGhlCircuit();
+      await storage.createAuditLog({ action: "GHL_CIRCUIT_RESET", entityType: "system", details: "GHL circuit breaker manually reset via Activation Panel" });
+      res.json({ ok: true, message: "GHL circuit breaker reset — consecutive failure count cleared" });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

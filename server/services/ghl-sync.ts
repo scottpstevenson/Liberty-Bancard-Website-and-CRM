@@ -1108,6 +1108,19 @@ export function stopAutoSyncLoop(): void {
   }
 }
 
+export function getGhlCircuitStatus(): { circuitOpen: boolean; consecutiveFailures: number; threshold: number } {
+  return {
+    circuitOpen: consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD,
+    consecutiveFailures: consecutiveGhlFailures,
+    threshold: GHL_CIRCUIT_THRESHOLD,
+  };
+}
+
+export function resetGhlCircuit(): void {
+  consecutiveGhlFailures = 0;
+  console.log("[GHL Sync] Circuit breaker manually reset by operator");
+}
+
 /**
  * Full GHL sync tick — mirrors the complete body of startAutoSyncLoop's
  * setInterval callback (contacts, failed-contact retry, deals, recent tasks,
