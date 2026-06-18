@@ -1080,6 +1080,11 @@ const syncedTaskIds = new Set<number>();
 
 const GHL_CIRCUIT_THRESHOLD = 5;
 let consecutiveGhlFailures = 0;
+let ghlCircuitOpen = false;
+
+export function getGhlCircuitState(): { open: boolean; consecutiveFailures: number } {
+  return { open: ghlCircuitOpen, consecutiveFailures: consecutiveGhlFailures };
+}
 
 export function startAutoSyncLoop(intervalMs: number = 45000): void {
   if (syncIntervalId) return;
@@ -1111,7 +1116,12 @@ export function stopAutoSyncLoop(): void {
  */
 export async function runGhlFullSyncTick(): Promise<void> {
   if (!isGhlConfigured()) return;
+  if (ghlCircuitOpen) {
+    console.log("[Queue:ghl-sync] GHL_CIRCUIT_RESET — new tick detected, resetting circuit breaker to allow recovery");
+    storage.createAuditLog({ action: "GHL_CIRCUIT_RESET", entityType: "system", details: "Circuit breaker reset at start of new sync tick — GHL will be retried" }).catch(() => {});
+  }
   consecutiveGhlFailures = 0;
+  ghlCircuitOpen = false;
   const { acquireJobLock, releaseJobLock, JOB_NAMES } = await import("./job-registry");
   const acquired = await acquireJobLock(JOB_NAMES.GHL_SYNC);
   if (!acquired) return;
@@ -1123,6 +1133,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
       if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
         console.error(`[Queue:ghl-sync] GHL_CIRCUIT_OPEN — ${consecutiveGhlFailures} consecutive failures, aborting tick`);
         storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures in contacts phase — tick aborted` }).catch(() => {});
+        ghlCircuitOpen = true;
         await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN");
         return;
       }
@@ -1144,6 +1155,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
     if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
       console.error(`[Queue:ghl-sync] GHL_CIRCUIT_OPEN — ${consecutiveGhlFailures} consecutive failures after contacts phase, aborting tick`);
       storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures after contacts phase — tick aborted` }).catch(() => {});
+      ghlCircuitOpen = true;
       await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN");
       return;
     }
@@ -1184,6 +1196,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
     if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
       console.error(`[Queue:ghl-sync] GHL_CIRCUIT_OPEN — ${consecutiveGhlFailures} consecutive failures, aborting tick before deals`);
       storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures before deals phase — tick aborted` }).catch(() => {});
+      ghlCircuitOpen = true;
       await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN");
       return;
     }
@@ -1195,6 +1208,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
       if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
         console.error(`[Queue:ghl-sync] GHL_CIRCUIT_OPEN — ${consecutiveGhlFailures} consecutive failures, aborting deals phase`);
         storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures in deals phase — tick aborted` }).catch(() => {});
+        ghlCircuitOpen = true;
         await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN");
         return;
       }
@@ -1216,6 +1230,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
     if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
       console.error(`[Queue:ghl-sync] GHL_CIRCUIT_OPEN — ${consecutiveGhlFailures} consecutive failures after deals phase, aborting tick`);
       storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures after deals phase — tick aborted` }).catch(() => {});
+      ghlCircuitOpen = true;
       await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN");
       return;
     }
@@ -1231,6 +1246,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
       if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
         console.error(`[Queue:ghl-sync] GHL_CIRCUIT_OPEN — ${consecutiveGhlFailures} consecutive failures, aborting tasks phase`);
         storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures in tasks phase — tick aborted` }).catch(() => {});
+        ghlCircuitOpen = true;
         await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN");
         return;
       }
@@ -1253,6 +1269,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
     if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
       console.error(`[Queue:ghl-sync] GHL_CIRCUIT_OPEN — ${consecutiveGhlFailures} consecutive failures after tasks phase, aborting tick`);
       storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures after tasks phase — tick aborted` }).catch(() => {});
+      ghlCircuitOpen = true;
       await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN");
       return;
     }
@@ -1264,6 +1281,7 @@ export async function runGhlFullSyncTick(): Promise<void> {
       if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
         console.error(`[Queue:ghl-sync] GHL_CIRCUIT_OPEN — ${consecutiveGhlFailures} consecutive failures, aborting companies phase`);
         storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures in companies phase — tick aborted` }).catch(() => {});
+        ghlCircuitOpen = true;
         await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN");
         return;
       }

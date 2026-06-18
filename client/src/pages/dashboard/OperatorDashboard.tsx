@@ -774,6 +774,7 @@ interface ActivationStatusData {
   totalIdentities: number;
   activeEnrollments: number;
   flags: Record<string, boolean>;
+  ghlSync?: { circuitOpen: boolean; consecutiveFailures: number };
 }
 
 function ReadinessChecklistWidget() {
@@ -825,6 +826,21 @@ function ReadinessChecklistWidget() {
         </CardContent>
       </Card>
 
+      {data.ghlSync?.circuitOpen && (
+        <Card className="border-red-500/70 bg-red-500/5" data-testid="card-ghl-circuit-open">
+          <CardContent className="p-4 flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-red-600 mt-0.5 shrink-0" />
+            <div>
+              <div className="font-semibold text-sm text-red-700 dark:text-red-400">GHL Sync Circuit Breaker — OPEN</div>
+              <div className="text-xs text-muted-foreground mt-1">
+                {data.ghlSync.consecutiveFailures} consecutive GHL API failures detected. The sync loop paused to avoid flooding a degraded API.
+                It will automatically reset and retry on the next 45-second tick. Refresh GHL credentials if this persists.
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader className="pb-2"><CardTitle className="text-sm">Pre-Flight Readiness Checklist</CardTitle></CardHeader>
         <CardContent>
@@ -844,6 +860,12 @@ function ReadinessChecklistWidget() {
               </li>
             ))}
           </ol>
+          <div className="mt-3 pt-3 border-t flex items-center gap-2 text-xs text-muted-foreground" data-testid="row-ghl-circuit-state">
+            <span className={`w-2 h-2 rounded-full ${data.ghlSync?.circuitOpen ? "bg-red-500" : "bg-green-500"}`} />
+            GHL circuit breaker: {data.ghlSync?.circuitOpen
+              ? `OPEN (${data.ghlSync.consecutiveFailures} failures — will auto-reset next tick)`
+              : "Closed — sync healthy"}
+          </div>
         </CardContent>
       </Card>
     </div>

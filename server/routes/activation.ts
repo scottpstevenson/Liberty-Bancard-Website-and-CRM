@@ -6,6 +6,7 @@ import { sql, desc, and, gte } from "drizzle-orm";
 import { emailLogs, callLogs, outboundMessages, auditLogs } from "@shared/schema";
 import { featureFlags } from "../services/feature-flags";
 import { runStageProgressionSweep } from "../services/stage-progression";
+import { getGhlCircuitState } from "../services/ghl-sync";
 
 export function registerActivationRoutes(app: Express) {
   // === ACTIVATION DIAGNOSTICS ===
@@ -117,6 +118,7 @@ export function registerActivationRoutes(app: Express) {
 
       const ready = checks.every(c => c.ok);
 
+      const circuitState = getGhlCircuitState();
       res.json({
         ready,
         checks,
@@ -129,6 +131,10 @@ export function registerActivationRoutes(app: Express) {
           LEGACY_OUTREACH_ENABLED: featureFlags.LEGACY_OUTREACH_ENABLED,
           ORCHESTRATOR_ENABLED: featureFlags.ORCHESTRATOR_ENABLED,
           SDR_ENABLED: featureFlags.SDR_ENABLED,
+        },
+        ghlSync: {
+          circuitOpen: circuitState.open,
+          consecutiveFailures: circuitState.consecutiveFailures,
         },
       });
     } catch (err: any) {
