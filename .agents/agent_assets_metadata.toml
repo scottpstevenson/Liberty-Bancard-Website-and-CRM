@@ -257,3 +257,9 @@ id = "OyY0hBjLQ3Tidbe8Iafme"
 uri = "file://attached_assets/stock_images/vertical-auto-dealer.jpg"
 type = "image"
 title = "car dealership salesperson showing vehicle to couple"
+
+[[outputs]]
+id = "p0aeFx7VdRq8di6I9QD3x"
+uri = "file://docs/ghl-workflow-playbook.md"
+type = "text"
+title = "GHL Workflow Playbook — Liberty Bancard"
