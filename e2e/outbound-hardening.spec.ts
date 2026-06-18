@@ -12,6 +12,27 @@ async function loginViaApi(request: any) {
   return res;
 }
 
+/**
+ * Fetch the CSRF token for authenticated API mutations.
+ * Calling GET /api/csrf-token sets the csrf_token cookie in the Playwright
+ * request context AND returns the token value so it can be sent as the
+ * X-CSRF-Token header on subsequent POST/PUT/PATCH/DELETE requests.
+ */
+async function getCsrfToken(request: any): Promise<string> {
+  const res = await request.get(`${BASE_URL}/api/csrf-token`);
+  expect(res.status()).toBe(200);
+  const body = await res.json();
+  return body.token as string;
+}
+
+/** Build headers for an authenticated mutation (always includes CSRF token). */
+function mutationHeaders(csrfToken: string): Record<string, string> {
+  return {
+    "Content-Type": "application/json",
+    "X-CSRF-Token": csrfToken,
+  };
+}
+
 async function loginViaBrowser(page: any) {
   await page.goto(`${BASE_URL}/login`);
   await page.getByLabel(/email/i).fill(TEST_EMAIL);
@@ -100,6 +121,7 @@ test.describe("Outbound hardening — go-live readiness", () => {
   });
 
   // ─── Test 5: Statement upload API — lead creation persists ────────
+  // This endpoint is public (unauthenticated) — no CSRF token needed.
   test("statement upload API creates a lead and returns success", async ({ request }) => {
     const uniqueEmail = `e2e-stmt-${Date.now()}@example-test.internal`;
     const res = await request.post(`${BASE_URL}/api/leads/statement-upload`, {
@@ -137,6 +159,8 @@ test.describe("Outbound hardening — go-live readiness", () => {
   // ─── Test 7: Deal stage mutation — persisted via API ─────────────
   test("deal stage mutation persists to API and is readable back", async ({ request }) => {
     await loginViaApi(request);
+    const csrf = await getCsrfToken(request);
+    const headers = mutationHeaders(csrf);
 
     const dealsRes = await request.get(`${BASE_URL}/api/deals?limit=5`);
     expect(dealsRes.status()).toBe(200);
@@ -154,6 +178,7 @@ test.describe("Outbound hardening — go-live readiness", () => {
 
     const patchRes = await request.put(`${BASE_URL}/api/deals/${deal.id}`, {
       data: { pipelineStage: targetStage },
+      headers,
     });
     expect([200, 201]).toContain(patchRes.status());
 
@@ -164,6 +189,7 @@ test.describe("Outbound hardening — go-live readiness", () => {
 
     await request.put(`${BASE_URL}/api/deals/${deal.id}`, {
       data: { pipelineStage: originalStage },
+      headers,
     });
   });
 
@@ -214,6 +240,8 @@ test.describe("Outbound hardening — go-live readiness", () => {
   // ─── Test 11: Sequence enrollment — API creates and persists state ─
   test("sequence enrollment API creates an enrollment and returns it", async ({ request }) => {
     await loginViaApi(request);
+    const csrf = await getCsrfToken(request);
+    const headers = mutationHeaders(csrf);
 
     const seqRes = await request.get(`${BASE_URL}/api/sequences`);
     expect(seqRes.status()).toBe(200);
@@ -243,6 +271,7 @@ test.describe("Outbound hardening — go-live readiness", () => {
         contactId: contacts[0].id,
         status: "active",
       },
+      headers,
     });
 
     if (enrollRes.status() === 409) {
@@ -270,6 +299,8 @@ test.describe("Outbound hardening — go-live readiness", () => {
   // ─── Test 12: Proposal send — API endpoint exists and responds ────
   test("proposal send endpoint exists and responds to authenticated requests", async ({ request }) => {
     await loginViaApi(request);
+    const csrf = await getCsrfToken(request);
+    const headers = mutationHeaders(csrf);
 
     const dealsRes = await request.get(`${BASE_URL}/api/deals?limit=5`);
     const dealsBody = await dealsRes.json();
@@ -282,11 +313,13 @@ test.describe("Outbound hardening — go-live readiness", () => {
     const dealId = deals[0].id;
     const res = await request.post(`${BASE_URL}/api/deals/${dealId}/send-proposal`, {
       data: { recipientEmail: "e2e-test-do-not-send@example-test.internal" },
+      headers,
     });
 
     expect(typeof res.status()).toBe("number");
     expect(res.status()).not.toBe(404);
     expect(res.status()).not.toBe(401);
+    expect(res.status()).not.toBe(403);
   });
 
   // ─── Test 13: Full happy-path journey — no skip fallbacks ─────────
@@ -295,8 +328,10 @@ test.describe("Outbound hardening — go-live readiness", () => {
     const ts = Date.now();
     const uniqueEmail = `e2e-journey-${ts}@example-test.internal`;
 
-    // Step 1: Login via API to get session cookie
+    // Step 1: Login via API to get session cookie, then fetch CSRF token
     await loginViaApi(request);
+    const csrf = await getCsrfToken(request);
+    const headers = mutationHeaders(csrf);
 
     // Step 2: Create a contact via API (seeding test data)
     const contactRes = await request.post(`${BASE_URL}/api/contacts`, {
@@ -308,6 +343,7 @@ test.describe("Outbound hardening — go-live readiness", () => {
         businessName: `E2E Journey Biz ${ts}`,
         type: "lead",
       },
+      headers,
     });
     expect([200, 201]).toContain(contactRes.status());
     const contact = await contactRes.json();
@@ -322,6 +358,7 @@ test.describe("Outbound hardening — go-live readiness", () => {
         pipelineStage: "New Lead",
         value: "5000",
       },
+      headers,
     });
     expect([200, 201]).toContain(dealRes.status());
     const deal = await dealRes.json();
@@ -340,6 +377,7 @@ test.describe("Outbound hardening — go-live readiness", () => {
     // Step 6: Mutate the deal stage via API (avoids flaky drag-drop)
     const patchRes = await request.put(`${BASE_URL}/api/deals/${dealId}`, {
       data: { pipelineStage: "Statement Received" },
+      headers,
     });
     expect([200, 201]).toContain(patchRes.status());
 
@@ -354,6 +392,9 @@ test.describe("Outbound hardening — go-live readiness", () => {
     await expect(page.getByText(/Statement Received/i).first()).toBeVisible({ timeout: 10_000 });
 
     // Step 9: Cleanup — restore stage and delete deal
-    await request.put(`${BASE_URL}/api/deals/${dealId}`, { data: { pipelineStage: "New Lead" } });
+    await request.put(`${BASE_URL}/api/deals/${dealId}`, {
+      data: { pipelineStage: "New Lead" },
+      headers,
+    });
   });
 });
