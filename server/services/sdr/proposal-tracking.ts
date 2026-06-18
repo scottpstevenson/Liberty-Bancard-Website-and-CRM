@@ -1,8 +1,9 @@
 import { db } from "../../db";
 import { sdrLeadState, sdrLeadEvents } from "@shared/schema";
 import { eq } from "drizzle-orm";
+import { storage } from "../../storage";
 import { sendGhlEmail, sendGhlSms, isGhlConfigured } from "../ghl";
-import { selectBestInbox, recordSend } from "./inbox-rotation";
+import { selectBestInbox, recordSend, rollbackSend } from "./inbox-rotation";
 import crypto from "crypto";
 
 function generateTrackingId(): string {
@@ -146,14 +147,24 @@ export async function resendProposalEmail(leadId: number): Promise<boolean> {
         const body = `Hi ${firstName},\n\nThe savings analysis for ${companyName} is done — three pricing options with a line-by-line cost comparison against what you're paying now.\n\nThe most popular option eliminates the interchange markup entirely and moves you to true cost-plus pricing.\n\nReply YES and we'll schedule a 10-minute walkthrough this week.\n\nLiberty Bancard\n\nEligibility, underwriting, card brand rules, and applicable laws apply.`;
 
         try {
-          await sendGhlEmail({
-            contactId: lead.contactId,
-            subject,
-            body,
-            fromEmail: selectedInbox.emailAddress,
-            fromName: selectedInbox.label,
-          });
-          await recordSend(selectedInbox.id, lead.merchantId);
+          const reserved = await recordSend(selectedInbox.id, lead.merchantId);
+          if (!reserved) {
+            console.warn(`[ProposalTracking] Inbox at daily cap for lead ${leadId} — proposal resend skipped`);
+            storage.createAuditLog({ action: "DAILY_CAP_REACHED", entityType: "sdr_lead", entityId: leadId, details: `ProposalTracking inbox ${selectedInbox.emailAddress} at daily cap — proposal resend not sent` }).catch(() => {});
+          } else {
+            try {
+              await sendGhlEmail({
+                contactId: lead.contactId,
+                subject,
+                body,
+                fromEmail: selectedInbox.emailAddress,
+                fromName: selectedInbox.label,
+              });
+            } catch (sendErr) {
+              await rollbackSend(selectedInbox.id);
+              throw sendErr;
+            }
+          }
         } catch (err) {
           console.error("[ProposalTracking] Resend email failed:", err);
           return false;

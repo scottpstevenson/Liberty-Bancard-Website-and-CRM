@@ -2,8 +2,9 @@ import { db } from "../../db";
 import { sdrLeadState, sdrLeadEvents } from "@shared/schema";
 import type { SdrLeadState } from "@shared/schema";
 import { eq } from "drizzle-orm";
+import { storage } from "../../storage";
 import { sendGhlEmail, sendGhlSms, isGhlConfigured } from "../ghl";
-import { selectBestInbox, recordSend } from "./inbox-rotation";
+import { selectBestInbox, recordSend, rollbackSend } from "./inbox-rotation";
 import crypto from "crypto";
 
 function generateUploadToken(): string {
@@ -51,14 +52,24 @@ export async function sendStatementRequest(leadId: number): Promise<boolean> {
       const selectedInbox = await selectBestInbox(lead.merchantId, lead.vertical || undefined);
       if (selectedInbox) {
         try {
-          await sendGhlEmail({
-            contactId: lead.contactId,
-            subject: emailSubject,
-            body: emailBody,
-            fromEmail: selectedInbox.emailAddress,
-            fromName: selectedInbox.label,
-          });
-          await recordSend(selectedInbox.id, lead.merchantId);
+          const reserved = await recordSend(selectedInbox.id, lead.merchantId);
+          if (!reserved) {
+            console.warn(`[StatementFlow] Inbox at daily cap for lead ${lead.id} — statement email skipped`);
+            storage.createAuditLog({ action: "DAILY_CAP_REACHED", entityType: "sdr_lead", entityId: lead.id, details: `StatementFlow inbox ${selectedInbox.emailAddress} at daily cap — statement email not sent` }).catch(() => {});
+          } else {
+            try {
+              await sendGhlEmail({
+                contactId: lead.contactId,
+                subject: emailSubject,
+                body: emailBody,
+                fromEmail: selectedInbox.emailAddress,
+                fromName: selectedInbox.label,
+              });
+            } catch (sendErr) {
+              await rollbackSend(selectedInbox.id);
+              throw sendErr;
+            }
+          }
         } catch (err) {
           console.error("[StatementFlow] Email send failed:", err);
         }
@@ -121,15 +132,27 @@ export async function sendStatementReminder(leadId: number): Promise<boolean> {
         const selectedInbox = await selectBestInbox(lead.merchantId, lead.vertical || undefined);
         if (selectedInbox) {
           try {
-            await sendGhlEmail({
-              contactId: lead.contactId,
-              subject: `Quick reminder — your free savings analysis for ${lead.companyName || "your business"}`,
-              body: `Hi ${firstName},\n\nJust a friendly reminder — we're ready to analyze your processing statement and show you where ${lead.companyName || "your business"} can save.\n\nMost businesses we review find 15-30% in unnecessary fees. The analysis takes us about 24 hours once we have your statement.\n\nUpload here (secure, 30 seconds): ${uploadUrl}\n\nBest,\nLiberty Bancard Team\n\nEligibility, underwriting, card brand rules, and applicable laws apply.`,
-              fromEmail: selectedInbox.emailAddress,
-              fromName: selectedInbox.label,
-            });
-            await recordSend(selectedInbox.id, lead.merchantId);
-          } catch {}
+            const reserved = await recordSend(selectedInbox.id, lead.merchantId);
+            if (!reserved) {
+              console.warn(`[StatementFlow] Inbox at daily cap for lead ${lead.id} — reminder email skipped`);
+              storage.createAuditLog({ action: "DAILY_CAP_REACHED", entityType: "sdr_lead", entityId: lead.id, details: `StatementFlow inbox ${selectedInbox.emailAddress} at daily cap — reminder email not sent` }).catch(() => {});
+            } else {
+              try {
+                await sendGhlEmail({
+                  contactId: lead.contactId,
+                  subject: `Quick reminder — your free savings analysis for ${lead.companyName || "your business"}`,
+                  body: `Hi ${firstName},\n\nJust a friendly reminder — we're ready to analyze your processing statement and show you where ${lead.companyName || "your business"} can save.\n\nMost businesses we review find 15-30% in unnecessary fees. The analysis takes us about 24 hours once we have your statement.\n\nUpload here (secure, 30 seconds): ${uploadUrl}\n\nBest,\nLiberty Bancard Team\n\nEligibility, underwriting, card brand rules, and applicable laws apply.`,
+                  fromEmail: selectedInbox.emailAddress,
+                  fromName: selectedInbox.label,
+                });
+              } catch (sendErr) {
+                await rollbackSend(selectedInbox.id);
+                throw sendErr;
+              }
+            }
+          } catch (err) {
+            console.error("[StatementFlow] Reminder email send failed:", err);
+          }
         }
       }
       nextActionAt = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);

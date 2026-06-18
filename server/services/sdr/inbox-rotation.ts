@@ -132,32 +132,54 @@ export async function selectBestInbox(
   return filtered[0] || null;
 }
 
+/**
+ * Atomically records a send for the given identity.
+ * Uses a single SQL UPDATE with a WHERE guard (sent_today < effective_limit)
+ * so concurrent sends cannot race past the daily cap.
+ * Returns true when the increment succeeded, false when the cap was already reached.
+ */
 export async function recordSend(
   identityId: number,
   businessId: number
-): Promise<void> {
-  const identity = await db
+): Promise<boolean> {
+  // Read identity once to compute the warmup-aware effective limit.
+  const [identity] = await db
     .select()
     .from(sendingIdentities)
     .where(eq(sendingIdentities.id, identityId))
     .limit(1);
 
-  if (!identity[0]) return;
+  if (!identity) return false;
 
-  await db
+  const effectiveLimit = getEffectiveDailyLimit(identity);
+
+  // Atomic increment — only executes when still under the daily cap.
+  const updated = await db
     .update(sendingIdentities)
     .set({
-      sentToday: (identity[0].sentToday || 0) + 1,
+      sentToday: sql`COALESCE(${sendingIdentities.sentToday}, 0) + 1`,
       lastUsedAt: new Date(),
       updatedAt: new Date(),
     })
-    .where(eq(sendingIdentities.id, identityId));
+    .where(
+      and(
+        eq(sendingIdentities.id, identityId),
+        sql`COALESCE(${sendingIdentities.sentToday}, 0) < ${effectiveLimit}`
+      )
+    )
+    .returning({ id: sendingIdentities.id });
+
+  if (updated.length === 0) {
+    console.log(`[Inbox Rotation] Daily cap reached for identity ${identityId} (limit: ${effectiveLimit}), blocking send`);
+    return false;
+  }
 
   await db.insert(domainBusinessLog).values({
-    domain: identity[0].domain,
+    domain: identity.domain,
     businessId,
   });
 
+  // Update daily performance counters using SQL expression to avoid read-write race.
   const today = getEstDateString();
   const existing = await db
     .select()
@@ -173,9 +195,7 @@ export async function recordSend(
   if (existing[0]) {
     await db
       .update(identityPerformanceDaily)
-      .set({
-        emailsSent: (existing[0].emailsSent || 0) + 1,
-      })
+      .set({ emailsSent: sql`COALESCE(${identityPerformanceDaily.emailsSent}, 0) + 1` })
       .where(eq(identityPerformanceDaily.id, existing[0].id));
   } else {
     await db.insert(identityPerformanceDaily).values({
@@ -183,6 +203,26 @@ export async function recordSend(
       date: today,
       emailsSent: 1,
     });
+  }
+
+  return true;
+}
+
+/**
+ * Rolls back a previously-reserved send slot when the provider send fails
+ * after slot reservation. Decrements sentToday by 1, never below 0.
+ */
+export async function rollbackSend(identityId: number): Promise<void> {
+  try {
+    await db
+      .update(sendingIdentities)
+      .set({
+        sentToday: sql`GREATEST(COALESCE(${sendingIdentities.sentToday}, 0) - 1, 0)`,
+        updatedAt: new Date(),
+      })
+      .where(eq(sendingIdentities.id, identityId));
+  } catch (err) {
+    console.warn(`[Inbox Rotation] rollbackSend failed for identity ${identityId}:`, err);
   }
 }
 

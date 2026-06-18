@@ -55,6 +55,20 @@ interface SendingIdentity {
   warmupStartedAt?: string | null;
 }
 
+interface ReadinessCheck {
+  id: string;
+  label: string;
+  ok: boolean;
+  detail: string;
+}
+
+interface ReadinessData {
+  ready: boolean;
+  passCount: number;
+  totalChecks: number;
+  checks: ReadinessCheck[];
+}
+
 interface ChannelAttempt {
   id: number;
   sentAt: string | null;
@@ -505,6 +519,7 @@ export default function ActivationPanel() {
   const eventsQuery = useQuery<LeadEvent[]>({ queryKey: ["/api/sdr/activation/recent-events"] });
   const stuckQuery = useQuery<StuckLead[]>({ queryKey: ["/api/sdr/activation/stuck-leads"] });
   const orchestratorQuery = useQuery<OrchestratorStatusData>({ queryKey: ["/api/sdr/orchestrator/status"] });
+  const readinessQuery = useQuery<ReadinessData>({ queryKey: ["/api/operator/readiness-checks"] });
 
   const pauseMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/sdr/pause-all", { reason: "Manual pause from activation panel" }),
@@ -617,7 +632,7 @@ export default function ActivationPanel() {
   const orchestratorStatus = orchestratorQuery.data;
 
   const refreshAll = () => {
-    ["/api/sdr/health", "/api/ghl/health", "/api/health", "/api/sdr/flags", "/api/sdr/sending-identities", "/api/sdr/activation/recent-attempts", "/api/sdr/activation/recent-events", "/api/sdr/activation/stuck-leads", "/api/sdr/orchestrator/status"]
+    ["/api/sdr/health", "/api/ghl/health", "/api/health", "/api/sdr/flags", "/api/sdr/sending-identities", "/api/sdr/activation/recent-attempts", "/api/sdr/activation/recent-events", "/api/sdr/activation/stuck-leads", "/api/sdr/orchestrator/status", "/api/operator/readiness-checks"]
       .forEach(key => queryClient.invalidateQueries({ queryKey: [key] }));
   };
 
@@ -702,6 +717,7 @@ export default function ActivationPanel() {
           <TabsTrigger value="runbook" data-testid="tab-runbook">Day-1 Runbook</TabsTrigger>
           <TabsTrigger value="wizard" data-testid="tab-identity-wizard">Identity Wizard</TabsTrigger>
           <TabsTrigger value="status" data-testid="tab-status">System Status</TabsTrigger>
+          <TabsTrigger value="readiness" data-testid="tab-readiness">Readiness</TabsTrigger>
           <TabsTrigger value="bridge" data-testid="tab-bridge">Bridge</TabsTrigger>
           <TabsTrigger value="orchestrator" data-testid="tab-orchestrator">Orchestrator</TabsTrigger>
           <TabsTrigger value="activity" data-testid="tab-activity">Activity</TabsTrigger>
@@ -908,6 +924,77 @@ export default function ActivationPanel() {
                     </tbody>
                   </table>
                 </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="readiness" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <ListChecks className="w-4 h-4" /> Go-Live Readiness Checklist
+                  </CardTitle>
+                  {readinessQuery.data && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {readinessQuery.data.passCount} of {readinessQuery.data.totalChecks} checks passing
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  {readinessQuery.data && (
+                    <Badge
+                      variant={readinessQuery.data.ready ? "default" : "destructive"}
+                      data-testid="badge-readiness-status"
+                    >
+                      {readinessQuery.data.ready ? "Ready" : "Not Ready"}
+                    </Badge>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => queryClient.invalidateQueries({ queryKey: ["/api/operator/readiness-checks"] })}
+                    disabled={readinessQuery.isFetching}
+                    data-testid="button-recheck-readiness"
+                  >
+                    {readinessQuery.isFetching ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <RefreshCw className="w-3 h-3 mr-1" />}
+                    Re-check
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {readinessQuery.isLoading ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Running checks…
+                </div>
+              ) : readinessQuery.data ? (
+                <div className="space-y-2">
+                  {readinessQuery.data.checks.map((check) => (
+                    <div
+                      key={check.id}
+                      className="flex items-start gap-3 p-3 rounded border"
+                      data-testid={`readiness-check-${check.id}`}
+                    >
+                      {check.ok ? (
+                        <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0 mt-0.5" />
+                      ) : (
+                        <XCircle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium">{check.label}</div>
+                        <div className="text-xs text-muted-foreground mt-0.5">{check.detail}</div>
+                      </div>
+                      <Badge variant={check.ok ? "default" : "destructive"} className="shrink-0 text-xs">
+                        {check.ok ? "Pass" : "Fail"}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-sm text-muted-foreground">Failed to load readiness checks.</div>
               )}
             </CardContent>
           </Card>

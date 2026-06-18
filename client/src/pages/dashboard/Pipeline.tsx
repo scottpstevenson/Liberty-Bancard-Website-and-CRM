@@ -551,7 +551,7 @@ export default function Pipeline() {
           loadTerminalEconomics(dealId);
         }
       }
-    } catch {}
+    } catch (err) { console.error("[Pipeline] checkTerminalApproval error:", err); }
   };
 
   // Co-branded proposal state
@@ -996,12 +996,12 @@ export default function Pipeline() {
     setDetailOpen(true);
     setTerminalEcon(null);
     if ((deal as any).partnerOrgId) {
-      loadDealProposals(deal.id);
+      loadDealProposals(deal.id).catch(err => console.error("[Pipeline] loadDealProposals", err));
     } else {
       setDealProposals([]);
     }
     if ((deal as any).terminalRecommendation) {
-      loadTerminalEconomics(deal.id);
+      loadTerminalEconomics(deal.id).catch(err => console.error("[Pipeline] loadTerminalEconomics", err));
     }
   };
 
@@ -1010,7 +1010,7 @@ export default function Pipeline() {
     try {
       const res = await fetch(`/api/deals/${dealId}/co-branded-proposals`, { credentials: "include" });
       if (res.ok) setDealProposals(await res.json());
-    } catch {}
+    } catch (err) { console.error("[Pipeline] loadDealProposals error:", err); }
     finally { setDealProposalsLoading(false); }
   };
 

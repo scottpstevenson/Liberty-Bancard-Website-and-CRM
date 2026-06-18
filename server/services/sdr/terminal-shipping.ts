@@ -3,7 +3,7 @@ import { sdrLeadState, sdrLeadEvents, equipmentOrders } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { storage } from "../../storage";
 import { sendGhlEmail, isGhlConfigured } from "../ghl";
-import { selectBestInbox, recordSend } from "./inbox-rotation";
+import { selectBestInbox, recordSend, rollbackSend } from "./inbox-rotation";
 
 export async function createEquipmentOrderForLead(leadId: number): Promise<boolean> {
   try {
@@ -65,14 +65,24 @@ export async function createEquipmentOrderForLead(leadId: number): Promise<boole
         const welcomeBody = `Hi ${firstName},\n\nWelcome to Liberty Bancard! We're thrilled to have ${companyName} on board.\n\nHere's what happens next:\n\n1. Your ${terminalType} terminal has been ordered and will ship within 2-3 business days\n2. You'll receive tracking information via email once shipped\n3. Our team will reach out to schedule your setup and training session\n4. You'll be processing within days of receiving your terminal\n\nIf you have any questions in the meantime, just reply to this email.\n\nWelcome aboard!\n\nLiberty Bancard Team\n\nEligibility, underwriting, card brand rules, and applicable laws apply.`;
 
         try {
-          await sendGhlEmail({
-            contactId: lead.contactId,
-            subject: welcomeSubject,
-            body: welcomeBody,
-            fromEmail: selectedInbox.emailAddress,
-            fromName: selectedInbox.label,
-          });
-          await recordSend(selectedInbox.id, lead.merchantId);
+          const reserved = await recordSend(selectedInbox.id, lead.merchantId);
+          if (!reserved) {
+            console.warn(`[TerminalShipping] Inbox at daily cap for lead ${leadId} — welcome email skipped`);
+            storage.createAuditLog({ action: "DAILY_CAP_REACHED", entityType: "sdr_lead", entityId: leadId, details: `TerminalShipping inbox ${selectedInbox.emailAddress} at daily cap — welcome email not sent` }).catch(() => {});
+          } else {
+            try {
+              await sendGhlEmail({
+                contactId: lead.contactId,
+                subject: welcomeSubject,
+                body: welcomeBody,
+                fromEmail: selectedInbox.emailAddress,
+                fromName: selectedInbox.label,
+              });
+            } catch (sendErr) {
+              await rollbackSend(selectedInbox.id);
+              throw sendErr;
+            }
+          }
         } catch (err) {
           console.error("[TerminalShipping] Welcome email failed:", err);
         }
@@ -116,15 +126,27 @@ export async function handleTerminalShipped(leadId: number, trackingNumber: stri
       const selectedInbox = await selectBestInbox(lead.merchantId, lead.vertical || undefined);
       if (selectedInbox) {
         try {
-          await sendGhlEmail({
-            contactId: lead.contactId,
-            subject: `Your terminal is on the way!`,
-            body: `Hi ${firstName},\n\nGreat news — your payment terminal has shipped!\n\nTracking Number: ${trackingNumber}\n\nYou should receive your terminal within 3-5 business days. Once it arrives, our team will be in touch to help with setup and training.\n\nBest,\nLiberty Bancard Team`,
-            fromEmail: selectedInbox.emailAddress,
-            fromName: selectedInbox.label,
-          });
-          await recordSend(selectedInbox.id, lead.merchantId);
-        } catch {}
+          const reserved = await recordSend(selectedInbox.id, lead.merchantId);
+          if (!reserved) {
+            console.warn(`[TerminalShipping] Inbox at daily cap for lead ${leadId} — shipping notification skipped`);
+            storage.createAuditLog({ action: "DAILY_CAP_REACHED", entityType: "sdr_lead", entityId: leadId, details: `TerminalShipping inbox ${selectedInbox.emailAddress} at daily cap — shipping notification not sent` }).catch(() => {});
+          } else {
+            try {
+              await sendGhlEmail({
+                contactId: lead.contactId,
+                subject: `Your terminal is on the way!`,
+                body: `Hi ${firstName},\n\nGreat news — your payment terminal has shipped!\n\nTracking Number: ${trackingNumber}\n\nYou should receive your terminal within 3-5 business days. Once it arrives, our team will be in touch to help with setup and training.\n\nBest,\nLiberty Bancard Team`,
+                fromEmail: selectedInbox.emailAddress,
+                fromName: selectedInbox.label,
+              });
+            } catch (sendErr) {
+              await rollbackSend(selectedInbox.id);
+              throw sendErr;
+            }
+          }
+        } catch (err) {
+          console.error("[TerminalShipping] Shipping notification email failed:", err);
+        }
       }
     }
 

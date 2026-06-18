@@ -8,7 +8,7 @@ import { getProcessorSignals, getProcessorTemplate } from "./processor-detector"
 import { decideNextAction, getAllowedTransitions } from "./stage-rules";
 import { sendGhlEmail, sendGhlSms, isGhlConfigured } from "../ghl";
 import { resolveVoiceScriptForLead, buildGhlVoicePayload } from "./voice-orchestrator";
-import { selectBestInbox, recordSend, recordBounce, recordDelivered } from "./inbox-rotation";
+import { selectBestInbox, recordSend, rollbackSend, recordBounce, recordDelivered } from "./inbox-rotation";
 import { tagContactForInboxOrganization } from "../ghl-workflow-enrollment";
 import { ingestBusiness } from "./dedupe";
 import { featureFlags } from "../feature-flags";
@@ -572,7 +572,17 @@ async function executeEmailAction(lead: SdrLeadState, strongerCta?: boolean): Pr
 
   const selectedInbox = await selectBestInbox(lead.merchantId, lead.vertical || undefined);
   if (!selectedInbox) {
-    console.log(`[SDR Orchestrator] No eligible inbox available for lead ${lead.id} (merchantId: ${lead.merchantId}), deferring email`);
+    console.log(`[SDR Orchestrator] No eligible inbox available for lead ${lead.id} (merchantId: ${lead.merchantId}) — all inboxes at daily cap, deferring email`);
+    try {
+      await storage.createAuditLog({
+        action: "DAILY_CAP_REACHED",
+        entityType: "sdr_lead",
+        entityId: lead.id,
+        details: `All sending identities at daily cap — lead ${lead.id} deferred (merchantId: ${lead.merchantId}, vertical: ${lead.vertical || "unknown"})`,
+      });
+    } catch (auditErr) {
+      console.warn("[SDR Orchestrator] Failed to write DAILY_CAP_REACHED audit event:", auditErr);
+    }
     return false;
   }
 
@@ -643,6 +653,20 @@ async function executeEmailAction(lead: SdrLeadState, strongerCta?: boolean): Pr
     return false;
   }
 
+  const slotReserved = await recordSend(selectedInbox.id, lead.merchantId);
+  if (!slotReserved) {
+    console.log(`[SDR Orchestrator] Inbox ${selectedInbox.emailAddress} hit daily cap (atomic check) for lead ${lead.id} — aborting send`);
+    try {
+      await storage.createAuditLog({
+        action: "DAILY_CAP_REACHED",
+        entityType: "sdr_lead",
+        entityId: lead.id,
+        details: `Send slot reservation failed — inbox ${selectedInbox.emailAddress} at daily cap for lead ${lead.id}`,
+      });
+    } catch { /* non-fatal */ }
+    return false;
+  }
+
   try {
     const result = await sendGhlEmail({
       contactId: lead.contactId,
@@ -666,7 +690,6 @@ async function executeEmailAction(lead: SdrLeadState, strongerCta?: boolean): Pr
 
     if (result.success) {
       dailyCounters.emailsSent++;
-      await recordSend(selectedInbox.id, lead.merchantId);
       await recordDelivered(selectedInbox.id);
       trackSendForKillSwitch(result.messageId);
       await db.update(sdrLeadState).set({
@@ -696,6 +719,7 @@ async function executeEmailAction(lead: SdrLeadState, strongerCta?: boolean): Pr
 
     return result.success;
   } catch (err: any) {
+    await rollbackSend(selectedInbox.id);
     const errorLower = (err.message || "").toLowerCase();
     if (errorLower.includes("bounce") || errorLower.includes("invalid") || errorLower.includes("undeliverable")) {
       await recordBounce(selectedInbox.id);
@@ -1025,6 +1049,27 @@ async function processLead(lead: SdrLeadState): Promise<void> {
     }
 
     if (shouldExecuteNow) {
+      if (decision.nextActionType === "send_email") {
+        const enrollInbox = await selectBestInbox(lead.merchantId, lead.vertical || undefined);
+        if (!enrollInbox) {
+          const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+          try {
+            await storage.createAuditLog({
+              action: "DAILY_CAP_REACHED",
+              entityType: "sdr_lead",
+              entityId: lead.id,
+              details: `Enrollment deferred to next day — all inboxes at daily cap (lead ${lead.id}, merchantId: ${lead.merchantId})`,
+            });
+          } catch { /* non-fatal */ }
+          await db.update(sdrLeadState).set({
+            nextActionAt: tomorrow,
+            decisionReason: "Enrollment deferred to next day: all sending identities at daily cap",
+            updatedAt: new Date(),
+          }).where(eq(sdrLeadState.id, lead.id));
+          return;
+        }
+      }
+
       const actionSuccess = await executeAction(lead, decision.nextActionType, decision.actionParams);
 
       if (!actionSuccess) {

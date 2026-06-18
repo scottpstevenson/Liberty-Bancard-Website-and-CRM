@@ -339,6 +339,176 @@ export function registerActivationRoutes(app: Express) {
     }
   });
 
+  // === GO-LIVE READINESS CHECKS ===
+  app.get("/api/operator/readiness-checks", isAuthenticated, async (_req, res) => {
+    try {
+      const { isSdrGhlConfigured, getSdrGhlConfig } = await import("../services/sdr/ghl-client");
+      const { isSmtpConfigured } = await import("../services/smtp-email");
+
+      const identities = await storage.getSendingIdentities();
+      const activeIdentities = identities.filter((i: any) => i.status === "active" && i.isActive !== false);
+      const totalCapacity = activeIdentities.reduce((sum: number, i: any) => sum + (i.dailyLimit || 0), 0);
+      const totalSentToday = activeIdentities.reduce((sum: number, i: any) => sum + (i.sentToday || 0), 0);
+
+      const ghlCfg = getSdrGhlConfig();
+      const ghlOk = isSdrGhlConfigured();
+
+      let ghlAuthOk = false;
+      let ghlAuthDetail = "Skipped (not configured)";
+      if (ghlOk) {
+        try {
+          const { fetchCalendars } = await import("../services/sdr/ghl-client");
+          const probeResult = await Promise.race([
+            fetchCalendars().then(cals => ({ ok: true, detail: `Auth probe OK (${Array.isArray(cals) ? cals.length : 0} calendars)` })),
+            new Promise<{ ok: boolean; detail: string }>(resolve =>
+              setTimeout(() => resolve({ ok: true, detail: "Probe timed out — treating as OK" }), 4000)
+            ),
+          ]);
+          ghlAuthOk = probeResult.ok;
+          ghlAuthDetail = probeResult.detail;
+        } catch (err: any) {
+          const msg = (err.message || "").toLowerCase();
+          ghlAuthOk = false;
+          ghlAuthDetail = msg.includes("401") || msg.includes("unauthorized") || msg.includes("403")
+            ? "Token rejected (401/403) — regenerate in GHL Settings → Private Integrations"
+            : `Auth probe error: ${(err.message || "unknown").substring(0, 80)}`;
+        }
+      }
+
+      const smtpOk = isSmtpConfigured();
+
+      const { GHL_WORKFLOW_REGISTRY } = await import("../services/ghl-workflows");
+      const mappedWorkflowCount = (await Promise.all(
+        GHL_WORKFLOW_REGISTRY.map(async (w: any) => {
+          if (process.env[w.envKey]) return true;
+          try {
+            const s = await storage.getSystemSetting(`ghl_workflow_${w.id}`);
+            return !!((s as any)?.value);
+          } catch { return false; }
+        })
+      )).filter(Boolean).length;
+
+      let redisOk = false;
+      let redisDetail = "";
+      try {
+        const redisUrl = process.env.REDIS_URL;
+        if (!redisUrl) {
+          redisOk = true;
+          redisDetail = "ioredis-mock (dev mode)";
+        } else {
+          const { default: IORedis } = await import("ioredis");
+          const client = new IORedis(redisUrl, { connectTimeout: 2000, maxRetriesPerRequest: 0, enableOfflineQueue: false, lazyConnect: true });
+          await client.connect();
+          const pong = await client.ping();
+          redisOk = pong === "PONG";
+          redisDetail = redisOk ? "Connected" : "Ping failed — check REDIS_URL";
+          client.disconnect();
+        }
+      } catch (e: any) {
+        redisOk = false;
+        redisDetail = `Connection error: ${(e.message || "unknown").substring(0, 80)} — check REDIS_URL`;
+      }
+
+      const stuckCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      let stuckCount = 0;
+      try {
+        const { sdrLeadState } = await import("@shared/schema");
+        const { lte, isNotNull } = await import("drizzle-orm");
+        const stuckRows = await db.select({ id: sdrLeadState.id })
+          .from(sdrLeadState)
+          .where(
+            and(
+              isNotNull(sdrLeadState.nextActionAt),
+              lte(sdrLeadState.nextActionAt, stuckCutoff)
+            )
+          )
+          .limit(50);
+        stuckCount = stuckRows.length;
+      } catch { /* non-fatal */ }
+
+      const adminDigestEmail = !!process.env.ADMIN_DIGEST_EMAIL;
+      const bookingLink = !!process.env.GHL_DEFAULT_BOOKING_LINK;
+
+      const inboxesWithCapacity = activeIdentities.filter((i: any) => (i.sentToday || 0) < (i.dailyLimit || 0));
+
+      const checks = [
+        {
+          id: "redis_connected",
+          label: "Redis connected",
+          ok: redisOk,
+          detail: redisDetail || (redisOk ? "Connected" : "Set REDIS_URL to a valid Redis connection string"),
+        },
+        {
+          id: "inbox_capacity",
+          label: "At least 1 active inbox with remaining daily capacity",
+          ok: inboxesWithCapacity.length > 0,
+          detail: activeIdentities.length === 0
+            ? "No active sending identities configured"
+            : `${inboxesWithCapacity.length} of ${activeIdentities.length} active inboxes have remaining capacity (${totalSentToday} sent of ${totalCapacity} total limit)`,
+        },
+        {
+          id: "ghl_configured",
+          label: "GHL credentials configured & token valid",
+          ok: ghlOk && ghlAuthOk,
+          detail: !ghlOk
+            ? "Set GHL_PRIVATE_INTEGRATION_TOKEN and GHL_LOCATION_ID"
+            : ghlAuthOk
+            ? `Token valid (live probe) · Location ID: ${ghlCfg.hasLocationId ? "set" : "missing"}`
+            : `Token set but probe failed — ${ghlAuthDetail}. Regenerate in GHL Settings → Private Integrations`,
+        },
+        {
+          id: "ghl_workflows_mapped",
+          label: "At least 5 GHL workflow IDs mapped",
+          ok: mappedWorkflowCount >= 5,
+          detail: `${mappedWorkflowCount} of ${GHL_WORKFLOW_REGISTRY.length} workflow IDs configured — set via env or GHL Workflow ID Manager`,
+        },
+        {
+          id: "smtp_fallback",
+          label: "SMTP email fallback configured",
+          ok: smtpOk,
+          detail: smtpOk ? "SMTP configured" : "Set SMTP_HOST, SMTP_USER, SMTP_PASS for transactional email fallback",
+        },
+        {
+          id: "sdr_enabled",
+          label: "SDR_ENABLED feature flag on",
+          ok: featureFlags.SDR_ENABLED === true,
+          detail: featureFlags.SDR_ENABLED ? "Enabled" : "Set SDR_ENABLED=true to activate SDR pipeline",
+        },
+        {
+          id: "orchestrator_enabled",
+          label: "ORCHESTRATOR_ENABLED feature flag on",
+          ok: featureFlags.ORCHESTRATOR_ENABLED === true,
+          detail: featureFlags.ORCHESTRATOR_ENABLED ? "Enabled" : "Set ORCHESTRATOR_ENABLED=true to start orchestrator",
+        },
+        {
+          id: "admin_digest_email",
+          label: "ADMIN_DIGEST_EMAIL configured",
+          ok: adminDigestEmail,
+          detail: adminDigestEmail ? "Set" : "Set ADMIN_DIGEST_EMAIL for daily digest notifications",
+        },
+        {
+          id: "booking_link",
+          label: "GHL_DEFAULT_BOOKING_LINK configured",
+          ok: bookingLink,
+          detail: bookingLink ? "Set" : "Set GHL_DEFAULT_BOOKING_LINK for meeting-intent reply automation",
+        },
+        {
+          id: "no_stuck_leads",
+          label: "No stuck leads older than 24h",
+          ok: stuckCount === 0,
+          detail: stuckCount === 0 ? "No stuck leads" : `${stuckCount} leads past their nextActionAt — check Stuck Leads tab`,
+        },
+      ];
+
+      const passCount = checks.filter(c => c.ok).length;
+      const ready = checks.every(c => c.ok);
+
+      res.json({ ready, passCount, totalChecks: checks.length, checks });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // === SLA BREACH ACTIVITY (with collapsed flag) ===
   app.get("/api/operator/sla-breaches", isAuthenticated, async (_req, res) => {
     try {

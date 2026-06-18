@@ -1078,113 +1078,19 @@ let syncIntervalId: ReturnType<typeof setInterval> | null = null;
 const syncedCompanyIds = new Set<number>();
 const syncedTaskIds = new Set<number>();
 
+const GHL_CIRCUIT_THRESHOLD = 5;
+let consecutiveGhlFailures = 0;
+
 export function startAutoSyncLoop(intervalMs: number = 45000): void {
   if (syncIntervalId) return;
 
   console.log(`[GHL Sync] Auto-sync loop started (every ${intervalMs / 1000}s)`);
   syncIntervalId = setInterval(async () => {
     if (!isGhlConfigured()) return;
-    const { acquireJobLock, releaseJobLock, JOB_NAMES } = await import("./job-registry");
-    const acquired = await acquireJobLock(JOB_NAMES.GHL_SYNC);
-    if (!acquired) return;
     try {
-      const { data: contacts } = await storage.getContacts({ limit: 500 });
-      const unsyncedContacts = contacts.filter(c => !c.ghlContactId && c.email);
-      let synced = 0;
-      for (const contact of unsyncedContacts.slice(0, 10)) {
-        try {
-          const result = await syncContactToGhl(contact.id);
-          if (result.success) synced++;
-          await new Promise(r => setTimeout(r, 300));
-        } catch (e: any) {
-          console.error(`[GHL Sync] Auto-sync contact ${contact.id} error:`, e.message);
-        }
-      }
-
-      // Retry contacts with recent ghl_sync_failed audit entries (update failures).
-      // This ensures contacts that have a ghlContactId but failed on a PUT update
-      // eventually re-sync — closing the durable retry loop.
-      try {
-        const auditLogs = await storage.getAuditLogs();
-        const oneHourAgo = Date.now() - 60 * 60 * 1000;
-        const failedContactIds = [...new Set(
-          auditLogs
-            .filter(l => l.action === "ghl_sync_failed" && l.entityType === "contact" && l.createdAt && new Date(l.createdAt).getTime() > oneHourAgo)
-            .map(l => l.entityId)
-            .filter((id): id is number => typeof id === "number")
-        )].slice(0, 5);
-        for (const contactId of failedContactIds) {
-          try {
-            const result = await syncContactToGhl(contactId);
-            if (result.success) {
-              synced++;
-              console.log(`[GHL Sync] Retry succeeded for previously-failed contact ${contactId}`);
-            }
-            await new Promise(r => setTimeout(r, 300));
-          } catch (e: any) {
-            console.warn(`[GHL Sync] Retry failed for contact ${contactId}:`, e.message);
-          }
-        }
-      } catch (auditErr: any) {
-        console.warn(`[GHL Sync] Could not check audit log for retry candidates:`, auditErr.message);
-      }
-
-      const { data: deals } = await storage.getDeals({ limit: 500 });
-      const unsyncedDeals = deals.filter(d => !d.ghlOpportunityId && d.contactId);
-      let dealsSynced = 0;
-      for (const deal of unsyncedDeals.slice(0, 5)) {
-        try {
-          const result = await syncDealToGhl(deal.id);
-          if (result.success) dealsSynced++;
-          await new Promise(r => setTimeout(r, 300));
-        } catch (e: any) {
-          console.error(`[GHL Sync] Auto-sync deal ${deal.id} error:`, e.message);
-        }
-      }
-
-      const allTasks = await storage.getTasks({ limit: 100 });
-      const recentTasks = allTasks.filter(t => {
-        if (!t.contactId || syncedTaskIds.has(t.id)) return false;
-        const created = t.createdAt ? new Date(t.createdAt).getTime() : 0;
-        return Date.now() - created < 120000;
-      });
-      let tasksSynced = 0;
-      for (const task of recentTasks.slice(0, 5)) {
-        try {
-          const result = await syncTaskToGhl(task.id);
-          if (result.success) {
-            tasksSynced++;
-            syncedTaskIds.add(task.id);
-          }
-          await new Promise(r => setTimeout(r, 300));
-        } catch (e: any) {
-          console.error(`[GHL Sync] Auto-sync task ${task.id} error:`, e.message);
-        }
-      }
-
-      const companies = await storage.getCompanies();
-      const unsyncedCompanies = companies.filter(c => !syncedCompanyIds.has(c.id));
-      let companiesSynced = 0;
-      for (const company of unsyncedCompanies.slice(0, 5)) {
-        try {
-          const result = await syncCompanyToGhl(company.id);
-          if (result.success) {
-            companiesSynced++;
-            syncedCompanyIds.add(company.id);
-          }
-          await new Promise(r => setTimeout(r, 300));
-        } catch (e: any) {
-          console.error(`[GHL Sync] Auto-sync company ${company.id} error:`, e.message);
-        }
-      }
-
-      if (synced > 0 || dealsSynced > 0 || tasksSynced > 0 || companiesSynced > 0) {
-        console.log(`[GHL Sync] Auto-sync batch: ${synced} contacts, ${dealsSynced} deals, ${tasksSynced} tasks, ${companiesSynced} companies`);
-      }
-      await releaseJobLock(JOB_NAMES.GHL_SYNC, true);
+      await runGhlFullSyncTick();
     } catch (err: any) {
       console.error("[GHL Sync] Auto-sync loop error:", err.message);
-      await releaseJobLock(JOB_NAMES.GHL_SYNC, false, err.message);
     }
   }, intervalMs);
 }
@@ -1205,6 +1111,7 @@ export function stopAutoSyncLoop(): void {
  */
 export async function runGhlFullSyncTick(): Promise<void> {
   if (!isGhlConfigured()) return;
+  consecutiveGhlFailures = 0;
   const { acquireJobLock, releaseJobLock, JOB_NAMES } = await import("./job-registry");
   const acquired = await acquireJobLock(JOB_NAMES.GHL_SYNC);
   if (!acquired) return;
@@ -1213,13 +1120,32 @@ export async function runGhlFullSyncTick(): Promise<void> {
     const unsyncedContacts = contacts.filter(c => !c.ghlContactId && c.email);
     let synced = 0;
     for (const contact of unsyncedContacts.slice(0, 10)) {
+      if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
+        console.error(`[Queue:ghl-sync] GHL_CIRCUIT_OPEN — ${consecutiveGhlFailures} consecutive failures, aborting tick`);
+        storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures in contacts phase — tick aborted` }).catch(() => {});
+        await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN");
+        return;
+      }
       try {
         const result = await syncContactToGhl(contact.id);
-        if (result.success) synced++;
+        if (result.success) {
+          consecutiveGhlFailures = 0;
+          synced++;
+        } else {
+          consecutiveGhlFailures++;
+        }
         await new Promise(r => setTimeout(r, 300));
       } catch (e: any) {
+        consecutiveGhlFailures++;
         console.error(`[Queue:ghl-sync] Contact ${contact.id} sync error:`, e.message);
       }
+    }
+
+    if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
+      console.error(`[Queue:ghl-sync] GHL_CIRCUIT_OPEN — ${consecutiveGhlFailures} consecutive failures after contacts phase, aborting tick`);
+      storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures after contacts phase — tick aborted` }).catch(() => {});
+      await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN");
+      return;
     }
 
     try {
@@ -1232,14 +1158,22 @@ export async function runGhlFullSyncTick(): Promise<void> {
           .filter((id): id is number => typeof id === "number")
       )].slice(0, 5);
       for (const contactId of failedContactIds) {
+        if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
+          console.error(`[Queue:ghl-sync] GHL_CIRCUIT_OPEN — ${consecutiveGhlFailures} consecutive failures, aborting retry phase`);
+          break;
+        }
         try {
           const result = await syncContactToGhl(contactId);
           if (result.success) {
+            consecutiveGhlFailures = 0;
             synced++;
             console.log(`[Queue:ghl-sync] Retry succeeded for failed contact ${contactId}`);
+          } else {
+            consecutiveGhlFailures++;
           }
           await new Promise(r => setTimeout(r, 300));
         } catch (e: any) {
+          consecutiveGhlFailures++;
           console.warn(`[Queue:ghl-sync] Retry failed for contact ${contactId}:`, e.message);
         }
       }
@@ -1247,17 +1181,43 @@ export async function runGhlFullSyncTick(): Promise<void> {
       console.warn(`[Queue:ghl-sync] Could not check audit log for retry candidates:`, auditErr.message);
     }
 
+    if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
+      console.error(`[Queue:ghl-sync] GHL_CIRCUIT_OPEN — ${consecutiveGhlFailures} consecutive failures, aborting tick before deals`);
+      storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures before deals phase — tick aborted` }).catch(() => {});
+      await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN");
+      return;
+    }
+
     const { data: deals } = await storage.getDeals({ limit: 500 });
     const unsyncedDeals = deals.filter(d => !d.ghlOpportunityId && d.contactId);
     let dealsSynced = 0;
     for (const deal of unsyncedDeals.slice(0, 5)) {
+      if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
+        console.error(`[Queue:ghl-sync] GHL_CIRCUIT_OPEN — ${consecutiveGhlFailures} consecutive failures, aborting deals phase`);
+        storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures in deals phase — tick aborted` }).catch(() => {});
+        await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN");
+        return;
+      }
       try {
         const result = await syncDealToGhl(deal.id);
-        if (result.success) dealsSynced++;
+        if (result.success) {
+          consecutiveGhlFailures = 0;
+          dealsSynced++;
+        } else {
+          consecutiveGhlFailures++;
+        }
         await new Promise(r => setTimeout(r, 300));
       } catch (e: any) {
+        consecutiveGhlFailures++;
         console.error(`[Queue:ghl-sync] Deal ${deal.id} sync error:`, e.message);
       }
+    }
+
+    if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
+      console.error(`[Queue:ghl-sync] GHL_CIRCUIT_OPEN — ${consecutiveGhlFailures} consecutive failures after deals phase, aborting tick`);
+      storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures after deals phase — tick aborted` }).catch(() => {});
+      await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN");
+      return;
     }
 
     const allTasks = await storage.getTasks({ limit: 100 });
@@ -1268,30 +1228,57 @@ export async function runGhlFullSyncTick(): Promise<void> {
     });
     let tasksSynced = 0;
     for (const task of recentTasks.slice(0, 5)) {
+      if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
+        console.error(`[Queue:ghl-sync] GHL_CIRCUIT_OPEN — ${consecutiveGhlFailures} consecutive failures, aborting tasks phase`);
+        storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures in tasks phase — tick aborted` }).catch(() => {});
+        await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN");
+        return;
+      }
       try {
         const result = await syncTaskToGhl(task.id);
         if (result.success) {
+          consecutiveGhlFailures = 0;
           tasksSynced++;
           syncedTaskIds.add(task.id);
+        } else {
+          consecutiveGhlFailures++;
         }
         await new Promise(r => setTimeout(r, 300));
       } catch (e: any) {
+        consecutiveGhlFailures++;
         console.error(`[Queue:ghl-sync] Task ${task.id} sync error:`, e.message);
       }
+    }
+
+    if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
+      console.error(`[Queue:ghl-sync] GHL_CIRCUIT_OPEN — ${consecutiveGhlFailures} consecutive failures after tasks phase, aborting tick`);
+      storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures after tasks phase — tick aborted` }).catch(() => {});
+      await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN");
+      return;
     }
 
     const companies = await storage.getCompanies();
     const unsyncedCompanies = companies.filter(c => !syncedCompanyIds.has(c.id));
     let companiesSynced = 0;
     for (const company of unsyncedCompanies.slice(0, 5)) {
+      if (consecutiveGhlFailures >= GHL_CIRCUIT_THRESHOLD) {
+        console.error(`[Queue:ghl-sync] GHL_CIRCUIT_OPEN — ${consecutiveGhlFailures} consecutive failures, aborting companies phase`);
+        storage.createAuditLog({ action: "GHL_CIRCUIT_OPEN", entityType: "system", details: `Circuit opened: ${consecutiveGhlFailures} consecutive GHL failures in companies phase — tick aborted` }).catch(() => {});
+        await releaseJobLock(JOB_NAMES.GHL_SYNC, false, "GHL_CIRCUIT_OPEN");
+        return;
+      }
       try {
         const result = await syncCompanyToGhl(company.id);
         if (result.success) {
+          consecutiveGhlFailures = 0;
           companiesSynced++;
           syncedCompanyIds.add(company.id);
+        } else {
+          consecutiveGhlFailures++;
         }
         await new Promise(r => setTimeout(r, 300));
       } catch (e: any) {
+        consecutiveGhlFailures++;
         console.error(`[Queue:ghl-sync] Company ${company.id} sync error:`, e.message);
       }
     }
