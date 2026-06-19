@@ -141,6 +141,12 @@ async function analyzeStatementData(deal: Deal, contact: Contact | null | undefi
   keyFindings: string[];
   riskFlags: string[];
   currentFees: Record<string, string>;
+  verticalInsights?: {
+    industryAvgRate: string;
+    industryAvgTicket: string;
+    verticalBenchmark: string;
+    opportunityScore: number;
+  };
 } | null> {
   try {
     const contextLines = [
@@ -191,6 +197,7 @@ Return JSON with:
 - recommendedPath: one of ["Cash Discount", "Dual Pricing", "Tiered Reduction", "Interchange Plus"]
 - keyFindings: array of 3-5 specific findings about their current processing
 - riskFlags: array of any concerning items (high rates, non-compliant fees, etc.)
+- verticalInsights: object with { industryAvgRate: string, industryAvgTicket: string, verticalBenchmark: string, opportunityScore: number (1-100) }
 - nextSteps: array of recommended next steps
 - overallAssessment: 2-3 sentence summary`,
       },
@@ -447,6 +454,7 @@ STATEMENT ANALYSIS RESULTS (use these findings):
 
     proposal.generatedAt = new Date().toISOString();
     proposal.dealId = deal.id;
+    proposal.verticalInsights = analysis?.verticalInsights;
 
     const token = generateProposalToken();
     const bestPlan = proposal.plans.find((p: any) => p.shortName === proposal.recommendedPlan) || proposal.plans[0];

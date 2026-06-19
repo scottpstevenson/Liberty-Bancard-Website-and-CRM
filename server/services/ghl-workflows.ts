@@ -25,6 +25,7 @@ export const GHL_WORKFLOW_REGISTRY: GhlWorkflowConfig[] = [
   { id: "post_call_review", name: "Post-Call Follow-Up", category: "nurture", triggerType: "call_completed", envKey: "GHL_WORKFLOW_POST_CALL", description: "Follow-up sequence after sales call. Sends recap, proposal, and next steps." },
   { id: "proposal_followup", name: "Proposal Follow-Up", category: "nurture", triggerType: "proposal_sent", envKey: "GHL_WORKFLOW_PROPOSAL_FOLLOWUP", description: "Follow-up sequence after proposal delivery. Day 1 check, Day 3 nudge, Day 7 urgency." },
   { id: "long_term_nurture", name: "Long-Term Nurture", category: "nurture", triggerType: "nurture_enrolled", envKey: "GHL_WORKFLOW_LONG_NURTURE", description: "Monthly touch sequence for leads not ready to buy. Education-focused content." },
+  { id: "statement_analyzed", name: "Statement Analyzed - Sync to GHL", category: "inbound_lead", triggerType: "statement_analyzed", envKey: "GHL_WORKFLOW_STATEMENT_ANALYZED", description: "Triggered when a statement analysis is synced to GHL. Confirms custom field updates." },
 
   { id: "sdr_cold_auto", name: "SDR Cold Outbound - Auto", category: "sdr_outbound", triggerType: "sdr_outreach", envKey: "GHL_WORKFLOW_SDR_AUTO", description: "Cold outbound for automotive vertical." },
   { id: "sdr_cold_medspa", name: "SDR Cold Outbound - Med Spa", category: "sdr_outbound", triggerType: "sdr_outreach", envKey: "GHL_WORKFLOW_SDR_MEDSPA", description: "Cold outbound for med spa vertical." },
@@ -36,6 +37,8 @@ export const GHL_WORKFLOW_REGISTRY: GhlWorkflowConfig[] = [
   { id: "sdr_statement_audit", name: "SDR Statement Audit Follow-Up", category: "sdr_outbound", triggerType: "sdr_outreach", envKey: "GHL_WORKFLOW_SDR_STATEMENT", description: "Statement audit focused outreach sequence." },
 
   { id: "merchant_approved", name: "Merchant Approved — Portal Welcome", category: "onboarding", triggerType: "merchant_approved", envKey: "GHL_WORKFLOW_MERCHANT_APPROVED", description: "Triggered when a merchant profile is approved. Sends portal access email with MID and next steps. Falls back to direct GHL email if workflow ID is not set." },
+  { id: "proposal_viewed", name: "Proposal Viewed", category: "nurture", triggerType: "proposal_viewed", envKey: "GHL_WORKFLOW_PROPOSAL_VIEWED", description: "Triggered on first view of a co-branded proposal." },
+  { id: "proposal_accepted", name: "Proposal Accepted", category: "nurture", triggerType: "proposal_accepted", envKey: "GHL_WORKFLOW_PROPOSAL_ACCEPTED", description: "Triggered when a merchant accepts a co-branded proposal." },
 ];
 
 export async function getWorkflowId(workflowKey: string): Promise<string | null> {

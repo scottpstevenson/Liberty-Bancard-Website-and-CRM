@@ -18,6 +18,8 @@ import { parse } from "csv-parse/sync";
 import path from "path";
 import { sendPushToAllReps } from "../services/push-service";
 import { computeDealTerminalEconomics } from "../services/terminal-economics";
+import { enrollInGhlWorkflow } from "../services/ghl-workflows";
+import { updateCustomFields } from "../services/sdr/ghl-client";
 
 export function registerDealsRoutes(app: Express) {
   // === DEALS ===
@@ -323,6 +325,52 @@ export function registerDealsRoutes(app: Express) {
     }
   });
 
+
+  app.post("/api/deals/:id/sync-analysis-to-ghl", isDashboardUser, async (req, res) => {
+    try {
+      const dealId = Number(req.params.id);
+      const deal = await storage.getDeal(dealId);
+      if (!deal) return res.status(404).json({ message: "Deal not found" });
+
+      const contact = deal.contactId ? await storage.getContact(deal.contactId) : null;
+      if (!contact || !contact.ghlContactId) {
+        return res.status(400).json({ message: "Contact not linked to GHL" });
+      }
+
+      const proposal = deal.savingsProposal as any;
+      if (!proposal) return res.status(400).json({ message: "No analysis available to sync" });
+
+      const fields: Record<string, string> = {
+        "lb_current_rate": proposal.currentState?.effectiveRate || "",
+        "lb_monthly_volume": proposal.currentState?.monthlyVolume?.toString() || "",
+        "lb_estimated_savings": proposal.plans?.find((p: any) => p.shortName === proposal.recommendedPlan)?.annualSavings?.toString() || "",
+        "lb_recommended_program": proposal.recommendedPlan || "",
+      };
+
+      if (proposal.verticalInsights) {
+        fields["lb_vertical_benchmark"] = proposal.verticalInsights.verticalBenchmark || "";
+        fields["lb_opportunity_score"] = proposal.verticalInsights.opportunityScore?.toString() || "";
+      }
+
+      await updateCustomFields(contact.ghlContactId, fields);
+      await enrollInGhlWorkflow({
+        workflowKey: "statement_analyzed",
+        ghlContactId: contact.ghlContactId,
+        metadata: { dealId: deal.id, analysisDate: new Date().toISOString() }
+      });
+
+      await storage.createAuditLog({
+        action: "ghl_analysis_sync",
+        entityType: "deal",
+        entityId: deal.id,
+        details: { fields }
+      });
+
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
 
   // === DEAL COMPETITORS ===
   app.get("/api/deal-competitors", isDashboardUser, async (req, res) => {

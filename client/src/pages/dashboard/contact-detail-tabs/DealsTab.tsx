@@ -1,4 +1,4 @@
-import { useQueryClient, useMutation } from "@tanstack/react-query";
+import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -8,7 +8,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Loader2, Link2, Copy, Mail, ChevronDown, Eye } from "lucide-react";
+import { Loader2, Link2, Copy, Mail, ChevronDown, Eye, FileText, CheckCircle2, Send, ExternalLink } from "lucide-react";
 import type { Deal, Agent } from "@shared/schema";
 import BoardingPanel from "@/components/BoardingPanel";
 import { DealAgentAssignment } from "./DealAgentAssignment";
@@ -17,12 +17,107 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { formatTimeAgo } from "@/lib/utils";
 
+interface CoBrandedProposal {
+  id: number;
+  merchantName: string;
+  token: string;
+  status: string;
+  viewCount: number;
+  deliveredAt: string | null;
+  acceptedAt: string | null;
+  viewerUrl: string;
+}
+
+interface DealWithPartner extends Deal {
+  partnerOrgId: number | null;
+}
+
 interface DealsTabProps {
-  deals: Deal[];
+  deals: DealWithPartner[];
   contactId: number;
   isManagerOrAdmin: boolean;
   agentsList: Agent[] | undefined;
   setLocation: (path: string) => void;
+}
+
+function CoBrandedProposalsSection({ dealId }: { dealId: number }) {
+  const { toast } = useToast();
+  const { data: proposals, isLoading } = useQuery<CoBrandedProposal[]>({
+    queryKey: ["/api/deals", dealId, "co-branded-proposals"],
+    queryFn: async () => {
+      const res = await fetch(`/api/deals/${dealId}/co-branded-proposals`);
+      if (!res.ok) return [];
+      return res.json();
+    }
+  });
+
+  if (isLoading) return <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground"><Loader2 className="w-3 h-3 animate-spin" /> Loading proposals...</div>;
+  if (!proposals || proposals.length === 0) return null;
+
+  return (
+    <div className="mt-4 pt-4 border-t space-y-2">
+      <div className="flex items-center gap-2 mb-2">
+        <FileText className="w-4 h-4 text-blue-600" />
+        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Co-Branded Proposals</h4>
+      </div>
+      <div className="space-y-2">
+        {proposals.map(p => (
+          <div key={p.id} className="flex items-center justify-between gap-2 p-2 rounded-md bg-muted/30 border text-xs">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-medium truncate">{p.merchantName}</span>
+                {p.acceptedAt ? (
+                  <Badge variant="outline" className="h-4 px-1 text-[10px] bg-green-50 text-green-700 border-green-200">
+                    <CheckCircle2 className="w-2.5 h-2.5 mr-0.5" /> Accepted
+                  </Badge>
+                ) : p.viewCount > 0 ? (
+                  <Badge variant="outline" className="h-4 px-1 text-[10px] bg-blue-50 text-blue-700 border-blue-200">
+                    Viewed {p.viewCount}×
+                  </Badge>
+                ) : p.deliveredAt ? (
+                  <Badge variant="outline" className="h-4 px-1 text-[10px] bg-sky-50 text-sky-700 border-sky-200">
+                    <Send className="w-2.5 h-2.5 mr-0.5" /> Sent
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="h-4 px-1 text-[10px]">Draft</Badge>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-1 shrink-0">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+                onClick={() => {
+                  apiRequest("POST", `/api/co-branded-proposals/${p.id}/send`, {})
+                    .then(() => toast({ title: "Proposal sent via GHL!" }))
+                    .catch((err) => toast({ title: "Failed to send", description: err.message, variant: "destructive" }));
+                }}
+                title="Send via GHL"
+                data-testid={`button-send-ghl-deal-proposal-${p.id}`}
+              >
+                <Send className="w-3 h-3" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={() => { navigator.clipboard.writeText(p.viewerUrl); toast({ title: "Link copied!" }); }}
+                title="Copy link"
+              >
+                <Copy className="w-3 h-3" />
+              </Button>
+              <a href={p.viewerUrl} target="_blank" rel="noopener noreferrer">
+                <Button variant="ghost" size="icon" className="h-6 w-6" title="Open">
+                  <ExternalLink className="w-3 h-3" />
+                </Button>
+              </a>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export function DealsTab({ deals, contactId, isManagerOrAdmin, agentsList, setLocation }: DealsTabProps) {
@@ -172,6 +267,7 @@ export function DealsTab({ deals, contactId, isManagerOrAdmin, agentsList, setLo
               dealPipeline={deal.pipeline || ""}
               onStatusChange={() => queryClient.invalidateQueries({ queryKey: ["/api/contacts", contactId, "detail"] })}
             />
+            {deal.partnerOrgId && <CoBrandedProposalsSection dealId={deal.id} />}
           </CardContent>
         </Card>
       ))}

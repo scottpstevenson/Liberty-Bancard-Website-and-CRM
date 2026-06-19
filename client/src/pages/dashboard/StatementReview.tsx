@@ -81,6 +81,12 @@ interface Proposal {
   recommendedReason: string;
   urgencyCtas: string[];
   complianceDisclaimer: string;
+  verticalInsights?: {
+    industryAvgRate: string;
+    industryAvgTicket: string;
+    verticalBenchmark: string;
+    opportunityScore: number;
+  };
   feeBreakdown: {
     currentInterchange: string;
     currentMarkup: string;
@@ -499,6 +505,19 @@ function ProposalReport({ proposal, dealId, onProposalUpdated }: { proposal: Pro
     },
   });
 
+  const syncToGhlMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/deals/${dealId}/sync-analysis-to-ghl`);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Synced to GHL", description: "Analysis data and custom fields updated in GoHighLevel." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Sync Failed", description: err.message, variant: "destructive" });
+    },
+  });
+
   const handleEditPlanField = (planIndex: number, field: string, value: string | number) => {
     const updated = editPlans.map((plan, i) => {
       if (i !== planIndex) return plan;
@@ -541,6 +560,23 @@ function ProposalReport({ proposal, dealId, onProposalUpdated }: { proposal: Pro
               Edit Before Sending
             </Button>
           )}
+          {dealId && !editing && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-2"
+              onClick={() => syncToGhlMutation.mutate()}
+              disabled={syncToGhlMutation.isPending}
+              data-testid="button-sync-ghl"
+            >
+              {syncToGhlMutation.isPending ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <TrendingUp className="w-3 h-3 text-blue-500" />
+              )}
+              Sync to GHL
+            </Button>
+          )}
           {editing && (
             <>
               <Button
@@ -560,6 +596,47 @@ function ProposalReport({ proposal, dealId, onProposalUpdated }: { proposal: Pro
           )}
         </div>
       </div>
+
+      {proposal.verticalInsights && (
+        <Card data-testid="card-vertical-insights" className="border-blue-100 bg-blue-50/30 dark:bg-blue-950/10">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-blue-500" />
+              Vertical Insights & Benchmarking
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground uppercase font-semibold">Vertical Benchmark</p>
+                <p className="text-sm font-medium">{proposal.verticalInsights.verticalBenchmark}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground uppercase font-semibold">Industry Avg Rate</p>
+                <p className="text-sm font-medium">{proposal.verticalInsights.industryAvgRate}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground uppercase font-semibold">Industry Avg Ticket</p>
+                <p className="text-sm font-medium">{proposal.verticalInsights.industryAvgTicket}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground uppercase font-semibold">Opportunity Score</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-bold text-blue-600 dark:text-blue-400">
+                    {proposal.verticalInsights.opportunityScore}/100
+                  </p>
+                  <div className="h-1.5 w-16 bg-blue-100 dark:bg-blue-900 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-blue-500" 
+                      style={{ width: `${proposal.verticalInsights.opportunityScore}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {editing && (
         <Card className="border-amber-200 bg-amber-50/50 dark:bg-amber-950/20" data-testid="card-edit-mode">

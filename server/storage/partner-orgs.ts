@@ -199,9 +199,25 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   }
 
   async getAllCoBrandedProposals() {
-    const { coBrandedProposals } = await import("@shared/schema");
-    return await db.select().from(coBrandedProposals)
-      .orderBy(desc(coBrandedProposals.createdAt));
+    const { coBrandedProposals, contacts } = await import("@shared/schema");
+    const results = await db.select({
+      proposal: coBrandedProposals,
+      contact: contacts,
+    })
+    .from(coBrandedProposals)
+    .leftJoin(contacts, eq(coBrandedProposals.contactId, contacts.id))
+    .orderBy(desc(coBrandedProposals.createdAt));
+
+    return results.map(r => ({
+      ...r.proposal,
+      contact: r.contact ? {
+        id: r.contact.id,
+        firstName: r.contact.firstName,
+        lastName: r.contact.lastName,
+        email: r.contact.email,
+        ghlContactId: r.contact.ghlContactId,
+      } : null
+    }));
   }
 
   async getCoBrandedProposal(id: number) {

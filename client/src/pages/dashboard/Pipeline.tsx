@@ -24,7 +24,7 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { exportToCSV } from "@/lib/export-csv";
-import type { Deal, Contact, PipelineStage, Agent, AgentMerchant } from "@shared/schema";
+import type { Deal, Contact, PipelineStage, Agent, AgentMerchant, CoBrandedProposal } from "@shared/schema";
 import { SALES_STAGES, OFFER_PATHS, VERTICALS } from "@shared/schema";
 import Comments from "@/components/Comments";
 import SavedFilterBar from "@/components/SavedFilterBar";
@@ -182,6 +182,7 @@ function SortableDealCard({
   getCompanyName: (id: number | null) => string;
   getContactVertical: (id: number | null) => string | null;
   midSummary?: MidSummary;
+  proposals?: CoBrandedProposal[];
 }) {
   const [, navigateTo] = useLocation();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -270,6 +271,39 @@ function SortableDealCard({
               {deal.offerPath}
             </Badge>
           )}
+          {proposals && proposals.length > 0 && (() => {
+            const accepted = proposals.some(p => p.status === "accepted");
+            const viewed = proposals.some(p => (p as any).viewCount > 0 || p.status === "viewed");
+            if (accepted) {
+              return (
+                <Badge variant="outline" className="text-xs bg-green-100 text-green-800 border-green-200 no-default-hover-elevate no-default-active-elevate" data-testid={`badge-proposal-accepted-${deal.id}`}>
+                  Proposal Accepted
+                </Badge>
+              );
+            }
+            if (viewed) {
+              return (
+                <Badge variant="outline" className="text-xs bg-amber-100 text-amber-800 border-amber-200 no-default-hover-elevate no-default-active-elevate" data-testid={`badge-proposal-viewed-${deal.id}`}>
+                  Proposal Viewed
+                </Badge>
+              );
+            }
+            return null;
+          })()}
+          {deal.proposalStatus && deal.proposalStatus !== "none" && (
+            <Badge 
+              variant="outline" 
+              className={`text-xs no-default-hover-elevate no-default-active-elevate ${
+                deal.proposalStatus === "accepted" ? "border-green-500 text-green-700 bg-green-50/50" : 
+                deal.proposalStatus === "viewed" ? "border-blue-500 text-blue-700 bg-blue-50/50" : 
+                "border-amber-500 text-amber-700 bg-amber-50/50"
+              }`}
+              data-testid={`badge-proposal-status-${deal.id}`}
+            >
+              <FileText className="w-3 h-3 mr-1" />
+              Proposal {deal.proposalStatus.charAt(0).toUpperCase() + deal.proposalStatus.slice(1)}
+            </Badge>
+          )}
           {deal.mid && <DealMidBadge summary={midSummary} />}
           <div className="text-xs text-muted-foreground" data-testid={`text-deal-date-${deal.id}`}>
             <Calendar className="w-3 h-3 inline-block mr-1" />
@@ -309,6 +343,7 @@ function DroppableColumn({
   getContactVertical: (id: number | null) => string | null;
   setCreateOpen: (open: boolean) => void;
   midSummaries: Record<string, MidSummary>;
+  proposalsByDeal: Record<string, CoBrandedProposal[]>;
 }) {
   return (
     <div className="w-[270px] flex-shrink-0" data-testid={`stage-column-${stage.replace(/\s+/g, "-").toLowerCase()}`}>
@@ -336,6 +371,7 @@ function DroppableColumn({
                 getCompanyName={getCompanyName}
                 getContactVertical={getContactVertical}
                 midSummary={midSummaries[String(deal.id)]}
+                proposals={proposalsByDeal[String(deal.id)]}
               />
             );
           })}
@@ -563,6 +599,9 @@ export default function Pipeline() {
   const [dealProposalsLoading, setDealProposalsLoading] = useState(false);
   const [proposalPlan, setProposalPlan] = useState("interchangePlus");
 
+  // Cache for deal proposals to show badges on cards
+  const [proposalsByDeal, setProposalsByDeal] = useState<Record<string, CoBrandedProposal[]>>({});
+
   const [selectedDealIds, setSelectedDealIds] = useState<Set<number>>(new Set());
   const [showArchived, setShowArchived] = useState(false);
   const [sortMode, setSortMode] = useState<"default" | "volume_desc" | "trending_down" | "no_activity">("default");
@@ -580,7 +619,27 @@ export default function Pipeline() {
     queryFn: async () => {
       const res = await fetch("/api/deals?pipeline=sales&limit=500", { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch deals");
-      return res.json();
+      const result = await res.json();
+      
+      // Batch fetch proposals for all deals to show badges
+      if (result.data && result.data.length > 0) {
+        (async () => {
+          const newProposalsByDeal: Record<string, CoBrandedProposal[]> = {};
+          await Promise.all(result.data.map(async (deal: Deal) => {
+            try {
+              const pRes = await fetch(`/api/deals/${deal.id}/co-branded-proposals`, { credentials: "include" });
+              if (pRes.ok) {
+                newProposalsByDeal[String(deal.id)] = await pRes.json();
+              }
+            } catch (err) {
+              console.error(`Error fetching proposals for deal ${deal.id}:`, err);
+            }
+          }));
+          setProposalsByDeal(newProposalsByDeal);
+        })();
+      }
+      
+      return result;
     },
   });
   const deals = dealsResult?.data;
@@ -1665,6 +1724,20 @@ export default function Pipeline() {
                             </div>
                           </div>
                           <div className="flex items-center gap-1 shrink-0">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+                              onClick={() => {
+                                apiRequest("POST", `/api/co-branded-proposals/${p.id}/send`, {})
+                                  .then(() => toast({ title: "Proposal sent via GHL!" }))
+                                  .catch((err) => toast({ title: "Failed to send", description: err.message, variant: "destructive" }));
+                              }}
+                              title="Send via GHL"
+                              data-testid={`button-send-ghl-deal-proposal-${p.id}`}
+                            >
+                              <Send className="w-3.5 h-3.5" />
+                            </Button>
                             <button
                               className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
                               onClick={() => { navigator.clipboard.writeText(p.viewerUrl); toast({ title: "Link copied!" }); }}

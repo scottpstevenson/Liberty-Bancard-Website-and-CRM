@@ -198,6 +198,7 @@ const LiveChatDashboard = lazy(() => import("@/pages/dashboard/LiveChat"));
 const DocumentVault = lazy(() => import("@/pages/dashboard/DocumentVault"));
 const VirtualTerminal = lazy(() => import("@/pages/dashboard/VirtualTerminal"));
 const PartnerOrgs = lazy(() => import("@/pages/dashboard/PartnerOrgs"));
+const CoBrandedProposals = lazy(() => import("@/pages/dashboard/CoBrandedProposals"));
 const GhlSequenceGuide = lazy(() => import("@/pages/dashboard/GhlSequenceGuide"));
 const GrowthPlaybook = lazy(() => import("@/pages/dashboard/GrowthPlaybook"));
 const GrowthKPI = lazy(() => import("@/pages/dashboard/GrowthKPI"));
@@ -268,7 +269,7 @@ function ProtectedRoute({ component: Component, allowedRoles }: { component: Rea
 
   if (user.role === "agent" && location === "/dashboard") return null;
 
-  if (allowedRoles && !allowedRoles.includes(user.role)) {
+  if (allowedRoles && !allowedRoles.includes(user.role as string)) {
     return <Redirect to="/dashboard" />;
   }
 
@@ -550,7 +551,10 @@ function Router() {
           <ProtectedRoute component={ReferralProgram} />
         </Route>
         <Route path="/dashboard/partner-orgs">
-          <ProtectedRoute component={PartnerOrgs} />
+          <ProtectedRoute component={PartnerOrgs} allowedRoles={["admin"]} />
+        </Route>
+        <Route path="/dashboard/co-branded-proposals">
+          <ProtectedRoute component={CoBrandedProposals} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/knowledge-base">
           <ProtectedRoute component={KnowledgeBase} />

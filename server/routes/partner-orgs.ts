@@ -8,6 +8,8 @@ import bcrypt from "bcryptjs";
 import { upload } from "./helpers";
 import path from "path";
 import fs from "fs";
+import { addNote, addTag } from "../services/sdr/ghl-client";
+import { enrollInGhlWorkflow } from "../services/ghl-workflows";
 import { createContactGhlFirst } from "../services/contact-writer";
 import { scoreContact } from "../services/lead-scoring";
 import { autoEnrollFromTrigger } from "../services/sequence-worker";
@@ -717,7 +719,37 @@ export function registerPartnerOrgsRoutes(app: Express) {
       const org = await storage.getPartnerOrg(proposal.partnerOrgId!);
       if (!org) return res.status(404).json({ message: "Partner not found." });
 
+      const isFirstView = !proposal.viewedAt || (proposal.viewCount || 0) === 0;
       await trackProposalView(req.params.token);
+
+      // T303: First view alerts
+      if (isFirstView && proposal.dealId) {
+        try {
+          const deal = await storage.getDeal(proposal.dealId!);
+          if (deal) {
+            await storage.updateDeal(deal.id, { proposalStatus: "viewed" });
+            if (deal.contactId) {
+              const contact = await storage.getContact(deal.contactId);
+              if (contact?.ghlContactId) {
+                await Promise.all([
+                  addNote({ contactId: contact.ghlContactId, body: `Co-branded proposal viewed: ${proposal.merchantName}` }),
+                  addTag({ contactId: contact.ghlContactId, tags: ["proposal-viewed"] }),
+                  enrollInGhlWorkflow({ workflowKey: "proposal_viewed", ghlContactId: contact.ghlContactId })
+                ]);
+              }
+              await storage.createNotification({
+                channel: "app",
+                title: "Proposal Viewed",
+                message: `Proposal for ${proposal.merchantName} was viewed for the first time.`,
+                type: "info",
+                metadata: { dealId: deal.id, proposalId: proposal.id }
+              });
+            }
+          }
+        } catch (err) {
+          console.error("[ProposalTracking] Error in view alert sequence:", err);
+        }
+      }
 
       res.json({
         id: proposal.id,
@@ -753,6 +785,34 @@ export function registerPartnerOrgsRoutes(app: Express) {
           status: "accepted",
           acceptedAt: new Date(),
         });
+
+        if (proposal.dealId) {
+          try {
+            const deal = await storage.getDeal(proposal.dealId!);
+            if (deal) {
+              await storage.updateDeal(deal.id, { proposalStatus: "accepted" });
+              if (deal.contactId) {
+                const contact = await storage.getContact(deal.contactId);
+                if (contact?.ghlContactId) {
+                  await Promise.all([
+                    addNote({ contactId: contact.ghlContactId, body: `Co-branded proposal ACCEPTED: ${proposal.merchantName}` }),
+                    addTag({ contactId: contact.ghlContactId, tags: ["proposal-accepted"] }),
+                    enrollInGhlWorkflow({ workflowKey: "proposal_accepted", ghlContactId: contact.ghlContactId })
+                  ]);
+                }
+                await storage.createNotification({
+                  channel: "app",
+                  title: "Proposal Accepted",
+                  message: `Proposal for ${proposal.merchantName} has been accepted!`,
+                  type: "success",
+                  metadata: { dealId: deal.id, proposalId: proposal.id }
+                });
+              }
+            }
+          } catch (err) {
+            console.error("[ProposalTracking] Error in accept alert sequence:", err);
+          }
+        }
       }
       res.json({ message: "Proposal accepted." });
     } catch (err: any) {
@@ -845,6 +905,42 @@ export function registerPartnerOrgsRoutes(app: Express) {
         return res.status(500).json({ message: "Failed to deliver email. Please configure GHL or SMTP." });
       }
       res.json({ message: "Proposal sent successfully." });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Admin: enroll a proposal in a GHL workflow ───────────────────────────
+  app.post("/api/co-branded-proposals/:id/enroll-workflow", isDashboardUser, async (req, res) => {
+    try {
+      const proposal = await storage.getCoBrandedProposal(Number(req.params.id));
+      if (!proposal) return res.status(404).json({ message: "Proposal not found." });
+
+      const { workflowKey } = req.body;
+      if (!workflowKey) {
+        return res.status(400).json({ message: "workflowKey is required." });
+      }
+
+      const contact = proposal.contactId ? await storage.getContact(proposal.contactId) : null;
+      if (!contact || !contact.ghlContactId) {
+        return res.status(400).json({ message: "Associated contact not found or not synced to GHL." });
+      }
+
+      const result = await enrollInGhlWorkflow({
+        workflowKey,
+        ghlContactId: contact.ghlContactId,
+        metadata: {
+          proposalId: proposal.id,
+          proposalToken: proposal.token,
+          merchantName: proposal.merchantName,
+        },
+      });
+
+      if (!result.success) {
+        return res.status(500).json({ message: result.error || "Failed to enroll in workflow." });
+      }
+
+      res.json({ message: "Enrolled in workflow successfully." });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

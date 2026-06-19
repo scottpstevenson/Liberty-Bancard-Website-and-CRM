@@ -653,6 +653,20 @@ export async function sendCoBrandedProposalEmail(proposalId: number, baseUrl: st
       deliveredAt: new Date(),
     });
 
+    if (proposal.contactId) {
+      const contact = await storage.getContact(proposal.contactId);
+      if (contact && contact.ghlContactId) {
+        try {
+          await addNote({
+            contactId: contact.ghlContactId,
+            body: `Sent co-branded savings proposal: ${proposalUrl}`
+          });
+        } catch (err) {
+          console.error("[CoBrandedProposal] addNote failed:", err);
+        }
+      }
+    }
+
     if (proposal.dealId) {
       await storage.createAuditLog({
         action: "co_branded_proposal_sent",

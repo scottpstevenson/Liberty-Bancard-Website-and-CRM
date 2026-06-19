@@ -494,7 +494,7 @@ export default function CoBrandedProposalViewer() {
         </Card>
 
         {/* Print / Download */}
-        <div className="flex justify-center gap-3 flex-wrap" data-testid="section-download-actions">
+        <div className="flex justify-center gap-3 flex-wrap print:hidden" data-testid="section-download-actions">
           <a
             href={`/api/public/co-branded-proposal/${token}/download`}
             download

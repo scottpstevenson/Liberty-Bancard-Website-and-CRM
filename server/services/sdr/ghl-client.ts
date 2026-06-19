@@ -436,7 +436,6 @@ export const REQUIRED_CUSTOM_FIELDS = [
   { key: "lb_consent_sms", name: "LB Consent SMS", dataType: "TEXT" },
   { key: "lb_consent_email", name: "LB Consent Email", dataType: "TEXT" },
   { key: "lb_business_type", name: "LB Business Type", dataType: "TEXT" },
-  { key: "lb_estimated_savings", name: "LB Estimated Savings", dataType: "TEXT" },
   { key: "lb_recommended_program", name: "LB Recommended Program", dataType: "TEXT" },
   { key: "lb_referral_code", name: "LB Referral Code", dataType: "TEXT" },
   { key: "lb_landing_page", name: "LB Landing Page", dataType: "TEXT" },
@@ -448,6 +447,8 @@ export const REQUIRED_CUSTOM_FIELDS = [
   { key: "lb_ecommerce_needed", name: "LB E-Commerce Needed", dataType: "TEXT" },
   { key: "lb_affiliate_code", name: "LB Affiliate Code", dataType: "TEXT" },
   { key: "lb_estimated_savings", name: "LB Estimated Savings", dataType: "TEXT" },
+  { key: "lb_vertical_benchmark", name: "LB Vertical Benchmark", dataType: "TEXT" },
+  { key: "lb_opportunity_score", name: "LB Opportunity Score", dataType: "NUMERICAL" },
 ] as const;
 
 export const REQUIRED_TAGS = [
