@@ -513,7 +513,32 @@ export const WORKFLOW_TRIGGERS = [
   "scheduled",
   "manual",
   "application_reminder",
+  "inbound_message",
 ] as const;
+
+export const INBOUND_CLASSIFICATIONS = [
+  "booking_intent",
+  "positive_reply",
+  "objection",
+  "unsubscribe",
+  "interested",
+  "callback",
+  "support",
+  "question",
+  "neutral",
+] as const;
+
+export const INBOUND_CLASSIFICATION_LABELS: Record<string, string> = {
+  booking_intent: "Booking Intent",
+  positive_reply: "Positive Reply",
+  objection: "Objection",
+  unsubscribe: "Unsubscribe / Opt-Out",
+  interested: "Interested",
+  callback: "Callback Request",
+  support: "Support Request",
+  question: "Question",
+  neutral: "Neutral",
+};
 
 export const WORKFLOW_ACTIONS = [
   "create_task",
