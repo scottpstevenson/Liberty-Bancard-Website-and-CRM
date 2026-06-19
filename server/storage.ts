@@ -144,7 +144,7 @@ export interface PaginatedResult<T> {
 }
 
 export interface IStorage {
-  getContacts(params?: PaginationParams): Promise<PaginatedResult<typeof contacts.$inferSelect>>;
+  getContacts(params?: PaginationParams & { emailStatus?: string }): Promise<PaginatedResult<typeof contacts.$inferSelect>>;
   getContact(id: number): Promise<typeof contacts.$inferSelect | undefined>;
   getContactByEmail(email: string): Promise<typeof contacts.$inferSelect | undefined>;
   getContactsByIds(ids: number[]): Promise<typeof contacts.$inferSelect[]>;

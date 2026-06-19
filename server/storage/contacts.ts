@@ -101,10 +101,12 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   import { type PaginationParams, type PaginatedResult, normalizePagination } from "./_shared";
 
   export class ContactsStorage {
-    async getContacts(params?: PaginationParams) {
+    async getContacts(params?: PaginationParams & { emailStatus?: string }) {
     const { limit, offset } = normalizePagination(params);
-    const [totalResult] = await db.select({ count: count() }).from(contacts);
-    const data = await db.select().from(contacts).orderBy(desc(contacts.createdAt)).limit(limit).offset(offset);
+    const emailStatus = params?.emailStatus;
+    const whereClause = emailStatus ? eq(contacts.emailStatus, emailStatus) : undefined;
+    const [totalResult] = await db.select({ count: count() }).from(contacts).where(whereClause);
+    const data = await db.select().from(contacts).where(whereClause).orderBy(desc(contacts.createdAt)).limit(limit).offset(offset);
     return { data, total: totalResult.count, limit, offset };
   }
 

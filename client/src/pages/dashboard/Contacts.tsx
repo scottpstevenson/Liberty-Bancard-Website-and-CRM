@@ -387,6 +387,7 @@ export default function Contacts() {
   const [bulkUpdating, setBulkUpdating] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [emailHealthFilter, setEmailHealthFilter] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [selectedContact, setSelectedContact] = useState<any>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -474,6 +475,14 @@ export default function Contacts() {
     }
   };
 
+  const EMAIL_HEALTH_OPTIONS = [
+    { value: "", label: "All" },
+    { value: "active", label: "Active" },
+    { value: "bounced", label: "Bounced" },
+    { value: "invalid", label: "Invalid" },
+    { value: "opted_out", label: "Opted Out" },
+  ];
+
   const filteredContacts = contacts?.filter((c: any) => {
     const matchesSearch = c.firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       c.lastName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -481,14 +490,25 @@ export default function Contacts() {
     const isArchived = !!c.archivedAt;
     if (!showArchived && isArchived) return false;
     if (statusFilter && c.status !== statusFilter) return false;
+    if (emailHealthFilter) {
+      const contactEmailStatus = (c.emailStatus || "active");
+      if (contactEmailStatus !== emailHealthFilter) return false;
+    }
     return matchesSearch;
   });
 
-  const contactsFilterState = { searchTerm, statusFilter, showArchived: String(showArchived) };
+  const emailHealthCounts = EMAIL_HEALTH_OPTIONS.reduce((acc, opt) => {
+    if (!opt.value) return acc;
+    acc[opt.value] = contacts?.filter((c: any) => (c.emailStatus || "active") === opt.value).length ?? 0;
+    return acc;
+  }, {} as Record<string, number>);
+
+  const contactsFilterState = { searchTerm, statusFilter, emailHealthFilter, showArchived: String(showArchived) };
 
   const handleApplySavedFilter = (filters: Record<string, unknown>) => {
     setSearchTerm(String(filters.searchTerm || ""));
     setStatusFilter(String(filters.statusFilter || ""));
+    setEmailHealthFilter(String(filters.emailHealthFilter || ""));
     if (filters.showArchived === "true") setShowArchived(true);
     else setShowArchived(false);
   };
@@ -572,6 +592,40 @@ export default function Contacts() {
           />
         </div>
         
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1 flex-wrap" data-testid="email-health-filter">
+            {EMAIL_HEALTH_OPTIONS.map((opt) => {
+              const isActive = emailHealthFilter === opt.value;
+              const count = opt.value ? emailHealthCounts[opt.value] : filteredContacts?.length;
+              return (
+                <button
+                  key={opt.value || "all"}
+                  onClick={() => setEmailHealthFilter(opt.value)}
+                  data-testid={`chip-email-health-${opt.value || "all"}`}
+                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+                    isActive
+                      ? opt.value === "bounced" || opt.value === "invalid"
+                        ? "bg-red-100 border-red-300 text-red-700 dark:bg-red-900/40 dark:border-red-700 dark:text-red-300"
+                        : opt.value === "opted_out"
+                        ? "bg-slate-200 border-slate-400 text-slate-700 dark:bg-slate-700 dark:border-slate-500 dark:text-slate-200"
+                        : "bg-primary/10 border-primary/30 text-primary"
+                      : "bg-background border-border text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  {opt.label}
+                  {count !== undefined && count > 0 && (
+                    <span className={`px-1 py-0.5 rounded text-[10px] font-semibold ${
+                      isActive ? "bg-white/30 dark:bg-black/20" : "bg-muted-foreground/10"
+                    }`} data-testid={`count-email-health-${opt.value || "all"}`}>
+                      {count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex items-center gap-2" data-testid="toggle-show-archived-contacts">
             <Switch

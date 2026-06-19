@@ -33,7 +33,8 @@ export function registerContactsRoutes(app: Express) {
     try {
       const limit = req.query.limit ? Number(req.query.limit) : undefined;
       const offset = req.query.offset ? Number(req.query.offset) : undefined;
-      const result = await storage.getContacts({ limit, offset });
+      const emailStatus = req.query.emailStatus ? String(req.query.emailStatus) : undefined;
+      const result = await storage.getContacts({ limit, offset, emailStatus });
       res.json(result);
     } catch (err: any) {
       console.error("Get contacts error:", err.message);
