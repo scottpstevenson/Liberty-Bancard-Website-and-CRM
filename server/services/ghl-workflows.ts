@@ -43,6 +43,7 @@ export const GHL_WORKFLOW_REGISTRY: GhlWorkflowConfig[] = [
   { id: "rate_review_confirmation", name: "Rate Review Confirmation", category: "inbound_lead", triggerType: "rate_review_submitted", envKey: "GHL_WORKFLOW_RATE_REVIEW_CONFIRMATION", description: "Triggered when a merchant submits a rate review request via the merchant portal. Sends confirmation email with next steps and analysis timeline." },
   { id: "onboarding_reminder", name: "Onboarding Document Reminder", category: "onboarding", triggerType: "onboarding_reminder", envKey: "GHL_WORKFLOW_ONBOARDING_REMINDER", description: "Triggered when onboarding documents are overdue (>2 days pending). Sends reminder to merchant to complete outstanding checklist items." },
   { id: "voicemail_drop", name: "Voicemail Drop Trigger", category: "sales", triggerType: "voicemail_drop_requested", envKey: "GHL_WORKFLOW_VOICEMAIL_DROP", description: "Triggered when a sequence voicemail_drop step fires. If configured, GHL handles the actual audio delivery natively via a Voicemail Drop action node. Contact is tagged vm-drop-pending and a GHL note with the script preview is added before this workflow is enrolled." },
+  { id: "unsubscribe", name: "Unsubscribe / Opt-Out", category: "inbound_lead", triggerType: "inbound_message", envKey: "GHL_WORKFLOW_UNSUBSCRIBE", description: "Triggered when a contact replies with an unsubscribe/opt-out intent. Removes them from all active GHL workflows and suppression lists." },
 ];
 
 export async function getWorkflowId(workflowKey: string): Promise<string | null> {

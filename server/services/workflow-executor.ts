@@ -237,19 +237,35 @@ export async function executeWorkflowActions(
         }
 
       } else if (action.type === "enroll_sequence") {
-        if (action.sequenceId && contactId) {
-          await storage.createSequenceEnrollment({
-            sequenceId: action.sequenceId,
-            contactId,
-            dealId,
-            status: "active",
-            nextActionAt: new Date(),
-            currentStep: 0,
-          });
-          logEntries.push({ step: i + 1, action: "enroll_sequence", sequenceId: action.sequenceId, status: "completed", timestamp: new Date().toISOString() });
+        if (contactId) {
+          let resolvedSequenceId: number | undefined = action.sequenceId;
+          if (!resolvedSequenceId && action.sequenceName) {
+            const sequences = await storage.getFollowUpSequences();
+            const match = sequences.find((s: any) =>
+              s.name?.toLowerCase() === (action.sequenceName as string).toLowerCase()
+            );
+            resolvedSequenceId = match?.id;
+          }
+          if (resolvedSequenceId) {
+            await storage.createSequenceEnrollment({
+              sequenceId: resolvedSequenceId,
+              contactId,
+              dealId,
+              status: "active",
+              nextActionAt: new Date(),
+              currentStep: 0,
+            });
+            logEntries.push({ step: i + 1, action: "enroll_sequence", sequenceId: resolvedSequenceId, sequenceName: action.sequenceName, status: "completed", timestamp: new Date().toISOString() });
+          } else {
+            logEntries.push({ step: i + 1, action: "enroll_sequence", status: "skipped", reason: "Sequence not found or not specified", timestamp: new Date().toISOString() });
+          }
         } else {
-          logEntries.push({ step: i + 1, action: "enroll_sequence", status: "skipped", reason: "Missing sequenceId or contactId", timestamp: new Date().toISOString() });
+          logEntries.push({ step: i + 1, action: "enroll_sequence", status: "skipped", reason: "Missing contactId", timestamp: new Date().toISOString() });
         }
+
+      } else if (action.type === "pause_enrollments" && contactId) {
+        const paused = await storage.pauseAllActiveEnrollments(contactId);
+        logEntries.push({ step: i + 1, action: "pause_enrollments", paused, status: "completed", timestamp: new Date().toISOString() });
 
       } else if (action.type === "request_review" && contactId) {
         if (isGhlConfigured()) {
@@ -335,6 +351,8 @@ export async function triggerWorkflowsByEvent(
     const matchingWorkflows = await storage.getWorkflowsByTrigger(event);
     const activeWorkflows = matchingWorkflows.filter(w => w.enabled);
 
+    const eventClassification = ctx.data?.classification?.intent as string | undefined;
+
     for (const wf of activeWorkflows) {
       if (triggerConfig && wf.triggerConfig) {
         const wfConfig = wf.triggerConfig as Record<string, any>;
@@ -346,6 +364,15 @@ export async function triggerWorkflowsByEvent(
           }
         }
         if (!configMatch) continue;
+      }
+
+      if (wf.triggerConditions) {
+        const conditions = wf.triggerConditions as Record<string, any>;
+        if (conditions.classification) {
+          if (!eventClassification || eventClassification !== conditions.classification) {
+            continue;
+          }
+        }
       }
 
       const actions = (wf.actions as any[]) || [];
@@ -364,10 +391,10 @@ export async function triggerWorkflowsByEvent(
           action: "workflow_auto_triggered",
           entityType: ctx.entityType || "system",
           entityId: ctx.entityId || result.runId,
-          details: { event, workflowName: wf.name, status: result.status, actionsCount: actions.length },
+          details: { event, workflowName: wf.name, status: result.status, actionsCount: actions.length, classification: eventClassification },
         });
 
-        console.log(`[Workflow] Auto-triggered "${wf.name}" on ${event} - ${result.status} (${actions.length} actions)`);
+        console.log(`[Workflow] Auto-triggered "${wf.name}" on ${event}${eventClassification ? ` [${eventClassification}]` : ""} - ${result.status} (${actions.length} actions)`);
       } catch (execErr: any) {
         console.error(`[Workflow] Failed to execute "${wf.name}":`, execErr.message);
         results.push({
@@ -376,6 +403,28 @@ export async function triggerWorkflowsByEvent(
           runId: 0,
           status: "error",
         });
+      }
+    }
+
+    if (event === "inbound_message" && eventClassification === "unsubscribe" && ctx.entityId) {
+      const contactId = ctx.entityType === "contact" ? ctx.entityId : undefined;
+      if (contactId) {
+        try {
+          await storage.updateContact(contactId, { consentEmail: false, consentSms: false });
+          await storage.pauseAllActiveEnrollments(contactId);
+
+          const contact = await storage.getContact(contactId);
+          if (contact?.ghlContactId) {
+            const { enrollInGhlWorkflow } = await import("./ghl-workflows");
+            enrollInGhlWorkflow({ workflowKey: "unsubscribe", ghlContactId: contact.ghlContactId }).catch(
+              (err: any) => console.warn("[Workflow] GHL unsubscribe enrollment failed (non-blocking):", err?.message)
+            );
+          }
+
+          console.log(`[Workflow] Unsubscribe compliance applied for contact ${contactId}: consent revoked, enrollments paused`);
+        } catch (unsubErr: any) {
+          console.error("[Workflow] Unsubscribe compliance steps failed:", unsubErr.message);
+        }
       }
     }
   } catch (err) {

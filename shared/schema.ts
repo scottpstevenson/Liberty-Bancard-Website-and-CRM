@@ -348,6 +348,7 @@ export const workflows = pgTable("workflows", {
   name: text("name").notNull(),
   triggerType: text("trigger_type").notNull(),
   triggerConfig: jsonb("trigger_config"),
+  triggerConditions: jsonb("trigger_conditions"),
   actions: jsonb("actions"),
   enabled: boolean("enabled").default(true),
   createdAt: timestamp("created_at").defaultNow(),

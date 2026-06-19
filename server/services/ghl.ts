@@ -685,16 +685,28 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
       });
 
       if (messageClassification.intent === "unsubscribe") {
-        await storage.updateContact(contact.id, { doNotContact: true });
+        await storage.updateContact(contact.id, {
+          doNotContact: true,
+          consentEmail: false,
+          consentSms: false,
+        });
+        await storage.pauseAllActiveEnrollments(contact.id);
         await storage.createAuditLog({
           action: "contact_unsubscribed",
           entityType: "contact",
           entityId: contact.id,
           details: { source: "ghl_inbound_message", channel },
         });
+
+        if (contact.ghlContactId) {
+          const { enrollInGhlWorkflow } = await import("./ghl-workflows");
+          enrollInGhlWorkflow({ workflowKey: "unsubscribe", ghlContactId: contact.ghlContactId }).catch(
+            (err: any) => console.warn("[GHL Webhook] GHL unsubscribe enrollment failed (non-blocking):", err?.message)
+          );
+        }
       }
 
-      if (messageClassification.intent === "interested" && contactDeal) {
+      if (messageClassification.intent === "positive_reply" && contactDeal) {
         if (["New Lead", "Contacted"].includes(contactDeal.stage)) {
           const { advanceDealStage } = await import("./deal-stage-service");
           await advanceDealStage(contactDeal.id, "Engaged", "ghl_inbound_interested");
@@ -718,7 +730,7 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
         });
       }
 
-      if (messageClassification.intent === "callback") {
+      if (messageClassification.intent === "booking_intent") {
         await storage.createTask({
           title: `CALLBACK REQUEST: ${contact.firstName} ${contact.lastName}`,
           assignedTo: contactDeal?.owner || "Unassigned",
@@ -1257,7 +1269,7 @@ async function handleTagRemoved(payload: any): Promise<void> {
 }
 
 function classifyInboundMessage(message: string): {
-  intent: "interested" | "unsubscribe" | "question" | "support" | "callback" | "neutral";
+  intent: "positive_reply" | "unsubscribe" | "question" | "support" | "booking_intent" | "objection" | "neutral";
   priority: "high" | "medium" | "low";
   keywords: string[];
 } {
@@ -1265,22 +1277,26 @@ function classifyInboundMessage(message: string): {
   const keywords: string[] = [];
 
   const unsubWords = ["unsubscribe", "stop", "opt out", "remove me", "do not contact", "take me off"];
-  const interestWords = ["interested", "tell me more", "sounds good", "let's talk", "sign me up", "ready", "i want", "let's do it", "i'm in"];
-  const callbackWords = ["call me", "give me a call", "phone me", "call back", "callback", "ring me"];
+  const interestWords = ["interested", "tell me more", "sounds good", "let's talk", "sign me up", "ready", "i want", "let's do it", "i'm in", "yes please", "send it over"];
+  const bookingWords = ["call me", "give me a call", "phone me", "call back", "callback", "ring me", "book a call", "schedule a call", "set up a call", "let's meet", "book a time", "calendar", "when can we talk"];
+  const objectionWords = ["not interested", "too expensive", "happy with", "not looking", "already have", "no thanks", "no thank you", "pass", "not now", "maybe later", "do not have time", "don't have time", "not the right time", "can't afford"];
   const supportWords = ["problem", "issue", "not working", "broken", "help", "complaint", "frustrated", "error", "charge", "refund"];
   const questionWords = ["how much", "what is", "how does", "when can", "pricing", "rates", "cost", "?"];
 
   for (const w of unsubWords) { if (lower.includes(w)) keywords.push(w); }
   if (keywords.length > 0) return { intent: "unsubscribe", priority: "high", keywords };
 
-  for (const w of callbackWords) { if (lower.includes(w)) keywords.push(w); }
-  if (keywords.length > 0) return { intent: "callback", priority: "high", keywords };
+  for (const w of bookingWords) { if (lower.includes(w)) keywords.push(w); }
+  if (keywords.length > 0) return { intent: "booking_intent", priority: "high", keywords };
+
+  for (const w of objectionWords) { if (lower.includes(w)) keywords.push(w); }
+  if (keywords.length > 0) return { intent: "objection", priority: "medium", keywords };
 
   for (const w of supportWords) { if (lower.includes(w)) keywords.push(w); }
   if (keywords.length > 0) return { intent: "support", priority: "high", keywords };
 
   for (const w of interestWords) { if (lower.includes(w)) keywords.push(w); }
-  if (keywords.length > 0) return { intent: "interested", priority: "medium", keywords };
+  if (keywords.length > 0) return { intent: "positive_reply", priority: "medium", keywords };
 
   for (const w of questionWords) { if (lower.includes(w)) keywords.push(w); }
   if (keywords.length > 0) return { intent: "question", priority: "medium", keywords };

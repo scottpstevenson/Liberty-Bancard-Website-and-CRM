@@ -247,5 +247,26 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
     );
   }
 
+  async pauseAllActiveEnrollments(contactId: number): Promise<number> {
+    const active = await db.select({ id: sequenceEnrollments.id })
+      .from(sequenceEnrollments)
+      .where(
+        and(
+          eq(sequenceEnrollments.contactId, contactId),
+          eq(sequenceEnrollments.status, "active")
+        )
+      );
+    if (active.length === 0) return 0;
+    await db.update(sequenceEnrollments)
+      .set({ status: "paused", pausedAt: new Date(), updatedAt: new Date() })
+      .where(
+        and(
+          eq(sequenceEnrollments.contactId, contactId),
+          eq(sequenceEnrollments.status, "active")
+        )
+      );
+    return active.length;
+  }
+
   }
   

@@ -323,6 +323,7 @@ export interface IStorage {
   createSequenceEnrollment(enrollment: InsertSequenceEnrollment): Promise<typeof sequenceEnrollments.$inferSelect>;
   updateSequenceEnrollment(id: number, updates: Partial<InsertSequenceEnrollment>): Promise<typeof sequenceEnrollments.$inferSelect | undefined>;
   getActiveEnrollments(): Promise<typeof sequenceEnrollments.$inferSelect[]>;
+  pauseAllActiveEnrollments(contactId: number): Promise<number>;
 
   getSunbizEntities(listId?: number, params?: PaginationParams): Promise<PaginatedResult<SunbizEntity>>;
   getSunbizEntity(id: number): Promise<SunbizEntity | undefined>;

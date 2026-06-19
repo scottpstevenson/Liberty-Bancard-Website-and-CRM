@@ -366,6 +366,11 @@ app.use((req, res, next) => {
         console.error("[Seed] Failed to seed Scott sending identity:", err);
       });
 
+      const { seedInboundMessageWorkflows } = await import("./services/seed-inbound-workflows");
+      seedInboundMessageWorkflows().catch(err => {
+        console.error("[Seed] Failed to seed inbound message workflows:", err);
+      });
+
       startDailyMaintenanceScheduler();
 
       // Task #179 — Content Engine: scheduled blog publish + LinkedIn drafts
