@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Search, Plus, MoreHorizontal, UserPlus, Mail, MessageSquare, Zap, AlertTriangle, Sparkles, Activity, ArrowRight, Clock, TrendingUp, Ticket, Download, CheckSquare, ExternalLink, Users, Merge, ChevronRight, Archive, RotateCcw } from "lucide-react";
+import { Search, Plus, MoreHorizontal, UserPlus, Mail, MessageSquare, Zap, AlertTriangle, Sparkles, Activity, ArrowRight, Clock, TrendingUp, Ticket, Download, CheckSquare, ExternalLink, Users, Merge, ChevronRight, Archive, RotateCcw, Star } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useLocation } from "wouter";
 import { useForm } from "react-hook-form";
@@ -819,6 +819,14 @@ export default function Contacts() {
                           {contact.firstName[0]}{contact.lastName[0]}
                         </div>
                         <span className={isArchived ? "line-through" : ""}>{contact.firstName} {contact.lastName}</span>
+                        {(contact as any).isDecisionMaker && (
+                          <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400 shrink-0" aria-label="Decision Maker" data-testid={`badge-dm-${contact.id}`} />
+                        )}
+                        {(contact as any).emailStatus && (contact as any).emailStatus !== "active" && (
+                          <span className={`text-xs px-1 py-0.5 rounded ${(contact as any).emailStatus === "bounced" || (contact as any).emailStatus === "invalid" ? "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300" : "bg-slate-100 text-slate-600"}`} data-testid={`badge-email-status-${contact.id}`}>
+                            {(contact as any).emailStatus}
+                          </span>
+                        )}
                         {isArchived && (
                           <Badge variant="outline" className="text-xs no-default-hover-elevate no-default-active-elevate" data-testid={`badge-archived-contact-${contact.id}`}>
                             <Archive className="w-3 h-3 mr-1" /> Archived

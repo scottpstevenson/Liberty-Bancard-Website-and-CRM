@@ -352,6 +352,16 @@ export async function runFullSlaLoop(): Promise<void> {
     console.error("[SlaLoop] checkAbTestWinners error:", err);
   }
 
+  try {
+    const { runBounceFeedback } = await import("./bounce-feedback");
+    const result = await runBounceFeedback();
+    if (result.updated > 0) {
+      console.log(`[SlaLoop] BounceFeedback: ${result.updated} contacts marked bounced`);
+    }
+  } catch (err) {
+    console.error("[SlaLoop] runBounceFeedback error:", err);
+  }
+
   if (fullLoopCycleCount % FULL_LOOP_STAGE_PROGRESSION_EVERY_N === 0) {
     try {
       const { runStageProgressionSweep } = await import("./stage-progression");

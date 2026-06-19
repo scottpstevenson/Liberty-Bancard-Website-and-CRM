@@ -22,7 +22,7 @@ import {
   Activity, Link2, Trash2, Star,
   RefreshCw, CheckCircle2, AlertCircle, Linkedin, FolderOpen, Info,
   ChevronDown, ChevronUp, Brain, AlertOctagon, ShieldCheck, GitFork, Bot, MapPin, Store,
-  FileSearch2,
+  FileSearch2, Merge,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import Comments from "@/components/Comments";
@@ -48,6 +48,7 @@ import { ChangeHistoryTab } from "./contact-detail-tabs/ChangeHistoryTab";
 import { GhlSyncStatus } from "./contact-detail-tabs/GhlSyncStatus";
 import { RelationshipsTab } from "./contact-detail-tabs/RelationshipsTab";
 import { LocationsTab } from "./contact-detail-tabs/LocationsTab";
+import { CompanyIntelligenceTab } from "./contact-detail-tabs/CompanyIntelligenceTab";
 
 // ── Churn Risk Panel ──────────────────────────────────────────────────────────
 type MerchantHealthScore = {
@@ -911,6 +912,20 @@ export default function ContactDetail() {
                   <Store className="h-3 w-3 mr-1" /> Parent Account
                 </Badge>
               )}
+              {(contact as any).isDecisionMaker && (
+                <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200 border-0" data-testid="badge-decision-maker">
+                  <Star className="h-3 w-3 mr-1 fill-amber-500 text-amber-500" /> Decision Maker
+                </Badge>
+              )}
+              {(contact as any).emailStatus && (contact as any).emailStatus !== "active" && (
+                <Badge
+                  className={`border-0 ${(contact as any).emailStatus === "bounced" || (contact as any).emailStatus === "invalid" ? "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200" : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"}`}
+                  data-testid="badge-email-status"
+                >
+                  <AlertCircle className="h-3 w-3 mr-1" />
+                  Email {(contact as any).emailStatus}
+                </Badge>
+              )}
               {parentAccount && (
                 <button
                   className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
@@ -1212,6 +1227,10 @@ export default function ContactDetail() {
             <Brain className="h-3.5 w-3.5 mr-1" />
             Churn Risk
           </TabsTrigger>
+          <TabsTrigger value="company-intelligence" data-testid="tab-company-intelligence">
+            <Merge className="h-3.5 w-3.5 mr-1" />
+            Intelligence
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" data-testid="tab-content-overview">
@@ -1288,6 +1307,10 @@ export default function ContactDetail() {
 
         <TabsContent value="churn-risk" data-testid="tab-content-churn-risk">
           <ChurnRiskPanel contactId={contactId} isManagerOrAdmin={isManagerOrAdmin} />
+        </TabsContent>
+
+        <TabsContent value="company-intelligence" data-testid="tab-content-company-intelligence">
+          <CompanyIntelligenceTab contactId={contactId} />
         </TabsContent>
       </Tabs>
 

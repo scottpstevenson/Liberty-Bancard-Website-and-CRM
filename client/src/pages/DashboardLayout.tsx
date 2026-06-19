@@ -130,6 +130,7 @@ const menuItems: MenuItem[] = [
 const sdrItems: MenuItem[] = [
   { icon: RocketIcon, label: "Activation Panel", href: "/dashboard/activation", roles: ["admin"] },
   { icon: Bot, label: "AI SDR", href: "/dashboard/sdr", roles: ["admin", "manager"] },
+  { icon: MessageSquare, label: "Conversation AI", href: "/dashboard/conversation-ai", roles: ["admin", "manager"] },
   { icon: Activity, label: "Operator Dashboard", href: "/dashboard/operator", roles: ["admin", "manager"], badgeKey: "jobAlerts" },
   { icon: Mailbox, label: "Inbox Health", href: "/dashboard/inbox-health", roles: ["admin", "manager"] },
 ];

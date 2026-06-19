@@ -121,6 +121,7 @@ const NotFound = lazy(() => import("@/pages/not-found"));
 const Overview = lazy(() => import("@/pages/dashboard/Overview"));
 const Contacts = lazy(() => import("@/pages/dashboard/Contacts"));
 const Chat = lazy(() => import("@/pages/dashboard/Chat"));
+const ConversationAI = lazy(() => import("@/pages/dashboard/ConversationAI"));
 const Pipeline = lazy(() => import("@/pages/dashboard/Pipeline"));
 const Onboarding = lazy(() => import("@/pages/dashboard/Onboarding"));
 const Tickets = lazy(() => import("@/pages/dashboard/Tickets"));
@@ -599,6 +600,9 @@ function Router() {
         </Route>
         <Route path="/dashboard/round-robin">
           <ProtectedRoute component={RoundRobinAdmin} />
+        </Route>
+        <Route path="/dashboard/conversation-ai">
+          <ProtectedRoute component={ConversationAI} />
         </Route>
         <Route path="/dashboard/inbox-health">
           <ProtectedRoute component={InboxHealth} />

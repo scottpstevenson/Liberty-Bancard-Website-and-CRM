@@ -166,6 +166,23 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
         let contact: any = null;
         if (enrollment.contactId) {
           contact = await storage.getContact(enrollment.contactId);
+          // Bounce guard: skip email steps for bounced/invalid contacts
+          if (contact && (contact.emailStatus === "bounced" || contact.emailStatus === "invalid")) {
+            await storage.updateSequenceEnrollment(enrollment.id, {
+              status: "completed",
+              completedAt: new Date(),
+            });
+            console.log(`[SequenceWorker] Skipped enrollment ${enrollment.id} — contact #${contact.id} email status: ${contact.emailStatus}`);
+            await storage.createAuditLog({
+              action: "sequence_enrollment_skipped_bounce",
+              entityType: "contact",
+              entityId: contact.id,
+              actorType: "system",
+              details: { enrollmentId: enrollment.id, emailStatus: contact.emailStatus, sequenceId: enrollment.sequenceId },
+            });
+            processed++;
+            continue;
+          }
         }
 
         let deal: any = null;

@@ -82,6 +82,11 @@ export const contacts = pgTable("contacts", {
   isParentAccount: boolean("is_parent_account").default(false),
   parentContactId: integer("parent_contact_id"),
   locationName: text("location_name"),
+  emailStatus: text("email_status").default("active"),
+  contactBouncedAt: timestamp("contact_bounced_at"),
+  isDecisionMaker: boolean("is_decision_maker").default(false),
+  decisionMakerConfidence: integer("decision_maker_confidence").default(0),
+  managementType: text("management_type").default("unknown"),
 }, (table) => [
   uniqueIndex("contacts_email_unique_idx").on(table.email).where(sql`archived_at IS NULL`),
   index("contacts_phone_idx").on(table.phone),
@@ -108,6 +113,7 @@ export const companies = pgTable("companies", {
   volumeRange: text("volume_range"),
   currentProvider: text("current_provider"),
   notes: text("notes"),
+  managementType: text("management_type").default("unknown"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -3979,3 +3985,60 @@ export const insertPushSubscriptionSchema = createInsertSchema(pushSubscriptions
 
 export type PushSubscription = typeof pushSubscriptions.$inferSelect;
 export type InsertPushSubscription = z.infer<typeof insertPushSubscriptionSchema>;
+
+// ─── Bot Contexts (GHL AI Bot Management) ────────────────────────────────────
+export const botContexts = pgTable("bot_contexts", {
+  id: serial("id").primaryKey(),
+  contextId: text("context_id").notNull(),
+  name: text("name").notNull(),
+  systemPrompt: text("system_prompt").notNull(),
+  faqItems: jsonb("faq_items").default([]),
+  active: boolean("active").default(true),
+  autoReplyEnabled: boolean("auto_reply_enabled").default(false),
+  autoReplyDelaySeconds: integer("auto_reply_delay_seconds").default(180),
+  confidenceThreshold: integer("confidence_threshold").default(60),
+  channel: text("channel").default("all"),
+  verticalKey: text("vertical_key"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("bot_contexts_context_id_idx").on(table.contextId),
+]);
+
+export const insertBotContextSchema = createInsertSchema(botContexts).omit({ id: true, createdAt: true, updatedAt: true });
+export type BotContextRecord = typeof botContexts.$inferSelect;
+export type InsertBotContextRecord = z.infer<typeof insertBotContextSchema>;
+
+// ─── Handoff Rules ────────────────────────────────────────────────────────────
+export const handoffRules = pgTable("handoff_rules", {
+  id: serial("id").primaryKey(),
+  pattern: text("pattern").notNull(),
+  type: text("type").notNull(),
+  active: boolean("active").default(true),
+  description: text("description"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertHandoffRuleSchema = createInsertSchema(handoffRules).omit({ id: true, createdAt: true });
+export type HandoffRule = typeof handoffRules.$inferSelect;
+export type InsertHandoffRule = z.infer<typeof insertHandoffRuleSchema>;
+
+// ─── M&A Events ───────────────────────────────────────────────────────────────
+export const maEvents = pgTable("ma_events", {
+  id: serial("id").primaryKey(),
+  entityType: text("entity_type").notNull(),
+  entityId: integer("entity_id").notNull(),
+  eventType: text("event_type").notNull(),
+  counterpartyName: text("counterparty_name"),
+  counterpartyContactId: integer("counterparty_contact_id").references(() => contacts.id),
+  eventDate: timestamp("event_date"),
+  note: text("note"),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("ma_events_entity_idx").on(table.entityType, table.entityId),
+]);
+
+export const insertMaEventSchema = createInsertSchema(maEvents).omit({ id: true, createdAt: true });
+export type MaEvent = typeof maEvents.$inferSelect;
+export type InsertMaEvent = z.infer<typeof insertMaEventSchema>;
