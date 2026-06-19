@@ -396,7 +396,7 @@ export function registerConversationAiConfigRoutes(app: Express) {
     }
   });
 
-  app.post("/api/ma-events", isDashboardUser, async (req, res) => {
+  app.post("/api/ma-events", requireRole("admin", "manager"), async (req, res) => {
     try {
       const schema = z.object({
         entityType: z.enum(["contact", "company"]),
