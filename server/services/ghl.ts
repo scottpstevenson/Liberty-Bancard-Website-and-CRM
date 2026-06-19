@@ -842,7 +842,7 @@ async function generateAiAutoReply(params: {
 }): Promise<{ subject?: string; body: string } | null> {
   const { contact, deal, channel, inboundMessage, classification } = params;
 
-  const noReplyIntents = ["unsubscribe", "callback", "neutral"];
+  const noReplyIntents = ["unsubscribe", "booking_intent", "neutral"];
   if (noReplyIntents.includes(classification.intent)) return null;
 
   if (contact.doNotContact) return null;
@@ -1276,10 +1276,10 @@ function classifyInboundMessage(message: string): {
   const lower = message.toLowerCase();
   const keywords: string[] = [];
 
-  const unsubWords = ["unsubscribe", "stop", "opt out", "remove me", "do not contact", "take me off"];
-  const interestWords = ["interested", "tell me more", "sounds good", "let's talk", "sign me up", "ready", "i want", "let's do it", "i'm in", "yes please", "send it over"];
-  const bookingWords = ["call me", "give me a call", "phone me", "call back", "callback", "ring me", "book a call", "schedule a call", "set up a call", "let's meet", "book a time", "calendar", "when can we talk"];
-  const objectionWords = ["not interested", "too expensive", "happy with", "not looking", "already have", "no thanks", "no thank you", "pass", "not now", "maybe later", "do not have time", "don't have time", "not the right time", "can't afford"];
+  const unsubWords = ["unsubscribe", "stop", "opt out", "remove me", "do not contact", "take me off", "don't contact", "stop contacting", "stop emailing", "stop texting"];
+  const interestWords = ["interested", "tell me more", "sounds good", "let's talk", "sign me up", "ready", "i want", "let's do it", "i'm in", "yes please", "send it over", "want to switch", "looking to switch", "want to learn more", "open to it", "open to switching", "absolutely", "definitely interested", "yes i'm", "yes i am", "count me in", "move forward"];
+  const bookingWords = ["call me", "give me a call", "phone me", "call back", "callback", "ring me", "book a call", "book a meeting", "schedule a call", "set up a call", "let's meet", "book a time", "calendar", "when can we talk", "let's schedule", "want to schedule", "set up a meeting", "schedule a meeting", "schedule time", "grab a time", "pick a time", "find a time", "set up a demo", "book a demo", "let's connect", "can we chat", "hop on a call"];
+  const objectionWords = ["not interested", "too expensive", "too pricey", "too costly", "way too much", "happy with", "not looking", "already have", "no thanks", "no thank you", "pass", "not now", "maybe later", "do not have time", "don't have time", "not the right time", "can't afford", "not in the budget", "out of budget", "stick with", "staying with", "going to stay", "not ready", "not a good time", "wrong time"];
   const supportWords = ["problem", "issue", "not working", "broken", "help", "complaint", "frustrated", "error", "charge", "refund"];
   const questionWords = ["how much", "what is", "how does", "when can", "pricing", "rates", "cost", "?"];
 
