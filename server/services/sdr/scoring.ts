@@ -1,5 +1,5 @@
 import type { SdrLeadState } from "@shared/schema";
-import { processorSignals, adSignals } from "@shared/schema";
+import { processorSignals, adSignals, sdrMerchants } from "@shared/schema";
 import { db } from "../../db";
 import { eq } from "drizzle-orm";
 import OpenAI from "openai";
@@ -405,6 +405,12 @@ export function scoreReachability(lead: SdrLeadState): ScoreResult {
     score += 5;
   }
 
+  const enrichmentData = lead.enrichmentData as Record<string, any> | null;
+  if (enrichmentData?.legalNameConfirmed || enrichmentData?.registrySource) {
+    factors.legalNameConfirmed = 3;
+    score += 3;
+  }
+
   score = Math.max(0, Math.min(100, score));
   return { score, factors };
 }
@@ -447,7 +453,10 @@ export function scoreProcessor(processorData: { vendors: string[]; hasProcessor:
   return { score, factors };
 }
 
-export function scoreGrowth(growthData: { isRunningAds: boolean; adPlatforms: string[]; hasBooking: boolean; hasEcommerce: boolean }): ScoreResult {
+export function scoreGrowth(
+  growthData: { isRunningAds: boolean; adPlatforms: string[]; hasBooking: boolean; hasEcommerce: boolean },
+  yearsInBusiness?: number | null
+): ScoreResult {
   const factors: Record<string, number> = {};
   let score = 0;
 
@@ -477,6 +486,19 @@ export function scoreGrowth(growthData: { isRunningAds: boolean; adPlatforms: st
   if (growthData.adPlatforms.length > 1) {
     factors.multiChannelAds = 10;
     score += 10;
+  }
+
+  if (yearsInBusiness !== null && yearsInBusiness !== undefined) {
+    if (yearsInBusiness >= 5) {
+      factors.yearsInBusiness = 6;
+      score += 6;
+    } else if (yearsInBusiness >= 3) {
+      factors.yearsInBusiness = 4;
+      score += 4;
+    } else if (yearsInBusiness < 1) {
+      factors.yearsInBusiness = -2;
+      score -= 2;
+    }
   }
 
   score = Math.max(0, Math.min(100, score));
@@ -523,18 +545,21 @@ export function calculatePriority(
   return { priorityScore, priorityBucket };
 }
 
-export function scoreLeadFull(lead: SdrLeadState, processorData?: { vendors: string[]; hasProcessor: boolean }, growthData?: { isRunningAds: boolean; adPlatforms: string[]; hasBooking: boolean; hasEcommerce: boolean }): FullScoreResult {
+export function scoreLeadFull(lead: SdrLeadState, processorData?: { vendors: string[]; hasProcessor: boolean }, growthData?: { isRunningAds: boolean; adPlatforms: string[]; hasBooking: boolean; hasEcommerce: boolean; yearsInBusiness?: number | null }): FullScoreResult {
   const fit = scoreFit(lead);
   const revenue = scoreRevenue(lead);
   const reachability = scoreReachability(lead);
 
   const processor = scoreProcessor(processorData || { vendors: [], hasProcessor: false });
-  const growth = scoreGrowth(growthData || {
-    isRunningAds: false,
-    adPlatforms: [],
-    hasBooking: !!lead.hasBookingSystem,
-    hasEcommerce: !!lead.hasEcommerce,
-  });
+  const growth = scoreGrowth(
+    growthData || {
+      isRunningAds: false,
+      adPlatforms: [],
+      hasBooking: !!lead.hasBookingSystem,
+      hasEcommerce: !!lead.hasEcommerce,
+    },
+    growthData?.yearsInBusiness
+  );
 
   const priority = scorePriority(lead);
 
@@ -565,9 +590,22 @@ export async function getLeadProcessorData(businessId: number | null | undefined
   }
 }
 
-export async function getLeadGrowthData(businessId: number | null | undefined, lead: SdrLeadState): Promise<{ isRunningAds: boolean; adPlatforms: string[]; hasBooking: boolean; hasEcommerce: boolean }> {
-  const base = { isRunningAds: false, adPlatforms: [] as string[], hasBooking: !!lead.hasBookingSystem, hasEcommerce: !!lead.hasEcommerce };
-  if (!businessId) return base;
+export async function getLeadGrowthData(businessId: number | null | undefined, lead: SdrLeadState): Promise<{ isRunningAds: boolean; adPlatforms: string[]; hasBooking: boolean; hasEcommerce: boolean; yearsInBusiness: number | null }> {
+  const base = { isRunningAds: false, adPlatforms: [] as string[], hasBooking: !!lead.hasBookingSystem, hasEcommerce: !!lead.hasEcommerce, yearsInBusiness: null as number | null };
+
+  let yearsInBusiness: number | null = null;
+  if (lead.merchantId) {
+    try {
+      const merchant = await db.select({ yearsInBusiness: sdrMerchants.yearsInBusiness })
+        .from(sdrMerchants)
+        .where(eq(sdrMerchants.id, lead.merchantId))
+        .limit(1);
+      yearsInBusiness = merchant[0]?.yearsInBusiness ?? null;
+    } catch {
+    }
+  }
+
+  if (!businessId) return { ...base, yearsInBusiness };
   try {
     const signals = await db.select().from(adSignals).where(eq(adSignals.businessId, businessId));
     const runningAds = signals.filter(s => s.isRunningAds);
@@ -576,9 +614,10 @@ export async function getLeadGrowthData(businessId: number | null | undefined, l
       adPlatforms: runningAds.map(s => s.platform),
       hasBooking: !!lead.hasBookingSystem,
       hasEcommerce: !!lead.hasEcommerce,
+      yearsInBusiness,
     };
   } catch {
-    return base;
+    return { ...base, yearsInBusiness };
   }
 }
 

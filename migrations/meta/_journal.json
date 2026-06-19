@@ -253,6 +253,13 @@
       "when": 1781700000000,
       "tag": "0030_workflow_trigger_conditions",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1781800000000,
+      "tag": "0031_registry_import",
+      "breakpoints": true
     }
   ]
 }

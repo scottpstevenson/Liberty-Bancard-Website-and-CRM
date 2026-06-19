@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -17,7 +17,7 @@ import {
   Activity, AlertTriangle, ArrowUpRight, BarChart3, Calendar, CheckCircle2,
   Clock, Loader2, Mail, MessageSquare, Phone, RefreshCw, Send, Shield,
   Target, TrendingUp, Users, XCircle, Zap, Eye, Filter, ChevronRight, Server, GitMerge,
-  Bot, DollarSign, Hash, Play, Flag, ShieldCheck, FileText,
+  Bot, DollarSign, Hash, Play, Flag, ShieldCheck, FileText, Upload, Database,
 } from "lucide-react";
 import StatementChainPanel from "@/components/operator/StatementChainPanel";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell, Legend, LineChart, Line } from "recharts";
@@ -2005,6 +2005,9 @@ export default function OperatorDashboard() {
           <TabsTrigger value="comm-health" data-testid="tab-comm-health" className="flex items-center gap-1">
             <Mail className="w-3.5 h-3.5" /> Email Health
           </TabsTrigger>
+          <TabsTrigger value="registry-import" data-testid="tab-registry-import" className="flex items-center gap-1">
+            <Database className="w-3.5 h-3.5" /> Registry Import
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="job-health">
@@ -2061,7 +2064,350 @@ export default function OperatorDashboard() {
         <TabsContent value="comm-health">
           <CommHealthPanel />
         </TabsContent>
+        <TabsContent value="registry-import">
+          <RegistryImportPanel />
+        </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+interface ImportHistoryRow {
+  import_id: string;
+  source: string;
+  state: string;
+  total: string;
+  matched: string;
+  unmatched: string;
+  skipped: string;
+  created_at: string;
+}
+
+interface ImportSummary {
+  importId: string;
+  total: number;
+  matched: number;
+  updated: number;
+  unmatched: number;
+  skipped: number;
+}
+
+const PRIORITY_STATES = ["FL", "TX", "CA", "NY", "GA", "NC", "AZ", "IL"];
+const LICENSE_BOARD_TYPES = ["dental", "medical", "cosmetology", "veterinary"];
+
+const MAPPING_FIELD_LABELS: Record<string, string> = {
+  businessName: "Business Name",
+  legalName: "Legal Name",
+  ownerFirstName: "Owner First Name",
+  ownerLastName: "Owner Last Name",
+  ownerName: "Owner Full Name",
+  formationDate: "Formation / License Date",
+  address: "Street Address",
+  city: "City",
+  state: "State",
+  zip: "ZIP Code",
+  phone: "Phone",
+  licenseNumber: "License Number",
+};
+
+type ColumnMapping = Record<string, string>;
+
+function RegistryImportPanel() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [file, setFile] = useState<File | null>(null);
+  const [sourceType, setSourceType] = useState<"registry" | "license">("registry");
+  const [state, setState] = useState("FL");
+  const [subType, setSubType] = useState("dental");
+  const [lastSummary, setLastSummary] = useState<ImportSummary | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [columnMapping, setColumnMapping] = useState<ColumnMapping>({});
+  const [mappingLoaded, setMappingLoaded] = useState(false);
+
+  const { data: allMappings } = useQuery<{ registryMappings: Record<string, ColumnMapping>; licenseMappings: Record<string, ColumnMapping>; states: string[]; licenseBoardTypes: string[] }>({
+    queryKey: ["/api/admin/registry-import/mappings"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/registry-import/mappings", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load mappings");
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  useEffect(() => {
+    if (!allMappings) return;
+    let defaultMapping: ColumnMapping = {};
+    if (sourceType === "registry") {
+      defaultMapping = allMappings.registryMappings[state] || {};
+    } else {
+      defaultMapping = allMappings.licenseMappings[subType] || {};
+    }
+    setColumnMapping({ ...defaultMapping });
+    setMappingLoaded(true);
+  }, [sourceType, state, subType, allMappings]);
+
+  const { data: history = [], isLoading: historyLoading, refetch: refetchHistory } = useQuery<ImportHistoryRow[]>({
+    queryKey: ["/api/admin/registry-import/history"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/registry-import/history", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch import history");
+      return res.json();
+    },
+  });
+
+  const handleUpload = async () => {
+    if (!file) {
+      toast({ title: "No file selected", variant: "destructive" });
+      return;
+    }
+    setIsUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("sourceType", sourceType);
+      formData.append("state", state);
+      if (sourceType === "license") formData.append("subType", subType);
+      formData.append("columnMapping", JSON.stringify(columnMapping));
+
+      const res = await fetch("/api/admin/registry-import", {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Upload failed");
+
+      setLastSummary(data.summary);
+      toast({ title: "Import complete", description: data.message });
+      refetchHistory();
+      setFile(null);
+    } catch (err: any) {
+      toast({ title: "Import failed", description: err.message, variant: "destructive" });
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const mappingEntries = Object.entries(MAPPING_FIELD_LABELS);
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Upload className="w-5 h-5" />
+            Bulk Registry & License Board Import
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <p className="text-sm text-muted-foreground">
+            Upload state business registry CSVs or professional license board exports to enrich
+            merchant records with legal names, owner names, formation dates, and license numbers.
+            Matching uses fuzzy name similarity + address + phone fallback.
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Source Type</label>
+              <Select value={sourceType} onValueChange={(v) => setSourceType(v as "registry" | "license")} data-testid="select-source-type">
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="registry">State Business Registry</SelectItem>
+                  <SelectItem value="license">Professional License Board</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-sm font-medium">State</label>
+              <Select value={state} onValueChange={setState} data-testid="select-state">
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PRIORITY_STATES.map((s) => (
+                    <SelectItem key={s} value={s}>{s}</SelectItem>
+                  ))}
+                  <SelectItem value="OTHER">Other (custom mapping)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {sourceType === "license" && (
+              <div className="space-y-1">
+                <label className="text-sm font-medium">Board Type</label>
+                <Select value={subType} onValueChange={setSubType} data-testid="select-sub-type">
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {LICENSE_BOARD_TYPES.map((b) => (
+                      <SelectItem key={b} value={b}>{b.charAt(0).toUpperCase() + b.slice(1)}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-sm font-medium">CSV File</label>
+            <div className="flex items-center gap-3">
+              <Input
+                type="file"
+                accept=".csv"
+                onChange={(e) => setFile(e.target.files?.[0] || null)}
+                className="max-w-sm"
+                data-testid="input-registry-csv"
+              />
+              {file && (
+                <span className="text-sm text-muted-foreground">{file.name} ({(file.size / 1024).toFixed(1)} KB)</span>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium">Column Mapping</label>
+              <span className="text-xs text-muted-foreground">Edit CSV header names to match your export</span>
+            </div>
+            <div className="border rounded-md overflow-hidden" data-testid="column-mapping-editor">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-muted/50 border-b">
+                    <th className="text-left py-2 px-3 text-xs font-medium text-muted-foreground w-1/2">Target Field</th>
+                    <th className="text-left py-2 px-3 text-xs font-medium text-muted-foreground w-1/2">CSV Column Header</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {mappingEntries.map(([fieldKey, fieldLabel]) => (
+                    <tr key={fieldKey} className="border-b last:border-0 hover:bg-muted/30">
+                      <td className="py-1.5 px-3 text-xs text-muted-foreground font-medium">{fieldLabel}</td>
+                      <td className="py-1 px-2">
+                        <Input
+                          value={columnMapping[fieldKey] || ""}
+                          onChange={(e) => setColumnMapping((prev) => ({ ...prev, [fieldKey]: e.target.value }))}
+                          placeholder={`leave blank to skip`}
+                          className="h-7 text-xs font-mono"
+                          data-testid={`mapping-input-${fieldKey}`}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {!mappingLoaded && (
+              <p className="text-xs text-muted-foreground">Loading default mapping…</p>
+            )}
+          </div>
+
+          <Button
+            onClick={handleUpload}
+            disabled={!file || isUploading}
+            data-testid="button-run-registry-import"
+          >
+            {isUploading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
+            Run Import
+          </Button>
+        </CardContent>
+      </Card>
+
+      {lastSummary && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Last Import Results</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+              {[
+                { label: "Total Rows", value: lastSummary.total, color: "text-blue-600" },
+                { label: "Matched", value: lastSummary.matched, color: "text-green-600" },
+                { label: "Updated", value: lastSummary.updated, color: "text-emerald-600" },
+                { label: "Unmatched", value: lastSummary.unmatched, color: "text-orange-600" },
+                { label: "Skipped", value: lastSummary.skipped, color: "text-gray-500" },
+              ].map(({ label, value, color }) => (
+                <div key={label} className="text-center p-3 rounded border" data-testid={`stat-${label.toLowerCase().replace(" ", "-")}`}>
+                  <div className={`text-2xl font-bold ${color}`}>{value}</div>
+                  <div className="text-xs text-muted-foreground mt-1">{label}</div>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground mt-3">
+              Import ID: <code className="bg-muted px-1 rounded">{lastSummary.importId}</code> — Unmatched rows are stored in the import log for review.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between text-base">
+            <span>Import History</span>
+            <Button variant="outline" size="sm" onClick={() => refetchHistory()} data-testid="button-refresh-history">
+              <RefreshCw className="w-3.5 h-3.5 mr-1" /> Refresh
+            </Button>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {historyLoading ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : history.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-8">No imports yet. Upload a CSV above to get started.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-muted-foreground text-xs">
+                    <th className="text-left py-2 px-3">Date</th>
+                    <th className="text-left py-2 px-3">Source</th>
+                    <th className="text-left py-2 px-3">State</th>
+                    <th className="text-right py-2 px-3">Total</th>
+                    <th className="text-right py-2 px-3">Matched</th>
+                    <th className="text-right py-2 px-3">Unmatched</th>
+                    <th className="text-right py-2 px-3">Skipped</th>
+                    <th className="text-right py-2 px-3">Match Rate</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.map((row) => {
+                    const total = parseInt(row.total) || 0;
+                    const matched = parseInt(row.matched) || 0;
+                    const matchRate = total > 0 ? Math.round((matched / total) * 100) : 0;
+                    return (
+                      <tr key={row.import_id} className="border-b hover:bg-muted/50" data-testid={`row-import-${row.import_id}`}>
+                        <td className="py-2 px-3 text-xs text-muted-foreground">
+                          {new Date(row.created_at).toLocaleDateString()}
+                        </td>
+                        <td className="py-2 px-3">
+                          <Badge variant={row.source === "registry" ? "default" : "secondary"} className="text-xs">
+                            {row.source}
+                          </Badge>
+                        </td>
+                        <td className="py-2 px-3 font-mono text-xs">{row.state}</td>
+                        <td className="py-2 px-3 text-right">{row.total}</td>
+                        <td className="py-2 px-3 text-right text-green-600 font-medium">{row.matched}</td>
+                        <td className="py-2 px-3 text-right text-orange-600">{row.unmatched}</td>
+                        <td className="py-2 px-3 text-right text-gray-500">{row.skipped}</td>
+                        <td className="py-2 px-3 text-right">
+                          <Badge variant={matchRate >= 50 ? "default" : matchRate >= 20 ? "secondary" : "destructive"} className="text-xs">
+                            {matchRate}%
+                          </Badge>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

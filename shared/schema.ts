@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb, varchar, real, numeric, index, uniqueIndex, unique } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, jsonb, varchar, real, numeric, index, uniqueIndex, unique, date } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -2559,6 +2559,12 @@ export const sdrMerchants = pgTable("sdr_merchants", {
   ghlOpportunityId: text("ghl_opportunity_id"),
   existingCustomerFlag: boolean("existing_customer_flag").default(false),
   doNotContactFlag: boolean("do_not_contact_flag").default(false),
+  ownerFirstName: text("owner_first_name"),
+  ownerLastName: text("owner_last_name"),
+  formationDate: date("formation_date"),
+  yearsInBusiness: integer("years_in_business"),
+  registrySource: text("registry_source"),
+  licenseNumber: text("license_number"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
@@ -2573,6 +2579,28 @@ export const insertSdrMerchantSchema = createInsertSchema(sdrMerchants).omit({
 
 export type SdrMerchant = typeof sdrMerchants.$inferSelect;
 export type InsertSdrMerchant = z.infer<typeof insertSdrMerchantSchema>;
+
+export const registryImportLog = pgTable("registry_import_log", {
+  id: serial("id").primaryKey(),
+  importId: text("import_id").notNull(),
+  source: text("source").notNull(),
+  state: text("state").notNull(),
+  rawRow: jsonb("raw_row").notNull(),
+  matchedMerchantId: integer("matched_merchant_id").references(() => sdrMerchants.id),
+  status: text("status").notNull().default("unmatched"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("registry_import_log_import_id_idx").on(table.importId),
+  index("registry_import_log_status_idx").on(table.status),
+]);
+
+export const insertRegistryImportLogSchema = createInsertSchema(registryImportLog).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type RegistryImportLog = typeof registryImportLog.$inferSelect;
+export type InsertRegistryImportLog = z.infer<typeof insertRegistryImportLogSchema>;
 
 export const sdrMerchantContacts = pgTable("sdr_merchant_contacts", {
   id: serial("id").primaryKey(),
