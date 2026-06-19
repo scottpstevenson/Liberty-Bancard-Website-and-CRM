@@ -4,6 +4,7 @@ import { searchOutscraperByVerticalMetro, isOutscraperConfigured } from "./outsc
 import { searchApifyByVerticalMetro, isApifyConfigured } from "./apify";
 import { searchApolloForDiscovery, isApolloConfigured } from "./apollo";
 import { isSerperConfigured } from "../serper";
+import { isChainBusiness } from "./chain-blocklist";
 
 const DEFAULT_VERTICALS = [
   "auto repair",
@@ -23,7 +24,7 @@ const DEFAULT_METROS = [
   "Jacksonville",
 ];
 
-const DEFAULT_SOURCES = ["outscraper", "serper"];
+const DEFAULT_SOURCES = ["outscraper", "serper", "osm", "yellowpages", "bbb"];
 
 interface SearchMatrixConfig {
   verticals: string[];
@@ -385,6 +386,7 @@ async function dedupeAndInsert(
 
   for (const biz of businesses) {
     if (!biz.businessName || biz.businessName.length < 2) continue;
+    if (isChainBusiness(biz.businessName)) { duplicatesSkipped++; continue; }
 
     const normalizedName = normalizeBusinessName(biz.businessName);
     const cityKey = (biz.city || "").toLowerCase();
@@ -450,6 +452,17 @@ async function dedupeAndInsert(
 
     if (existing) {
       await mergeApolloContact(existing.id, biz);
+      const existingSourcedVia = (existing as any).sourcedVia as string | null;
+      const confirmedSourcesExact = existingSourcedVia
+        ? existingSourcedVia.split(",").map((s: string) => s.trim()).filter(Boolean)
+        : [];
+      if (!confirmedSourcesExact.includes(biz.source)) {
+        confirmedSourcesExact.push(biz.source);
+        await storage.updateSdrMerchant(existing.id, {
+          sourceCount: confirmedSourcesExact.length,
+          sourcedVia: confirmedSourcesExact.join(","),
+        } as any);
+      }
       resultRecords.push({
         jobId,
         source: biz.source,
@@ -485,6 +498,20 @@ async function dedupeAndInsert(
 
     if (fuzzyExisting) {
       await mergeApolloContact(fuzzyExisting.id, biz);
+      const fuzzyFullRecord = await storage.findSdrMerchantByNameCity(fuzzyExisting.businessName, biz.city);
+      if (fuzzyFullRecord) {
+        const fuzzySourcedVia = (fuzzyFullRecord as any).sourcedVia as string | null;
+        const confirmedSourcesFuzzy = fuzzySourcedVia
+          ? fuzzySourcedVia.split(",").map((s: string) => s.trim()).filter(Boolean)
+          : [];
+        if (!confirmedSourcesFuzzy.includes(biz.source)) {
+          confirmedSourcesFuzzy.push(biz.source);
+          await storage.updateSdrMerchant(fuzzyExisting.id, {
+            sourceCount: confirmedSourcesFuzzy.length,
+            sourcedVia: confirmedSourcesFuzzy.join(","),
+          } as any);
+        }
+      }
       resultRecords.push({
         jobId,
         source: biz.source,
@@ -624,6 +651,196 @@ async function dedupeAndInsert(
   return { newInserted, duplicatesSkipped, enrichmentQueued, results: resultRecords };
 }
 
+export async function dedupeAndInsertFree(
+  businesses: Array<{
+    businessName: string;
+    phone: string | null;
+    email: string | null;
+    website: string | null;
+    address: string | null;
+    city: string | null;
+    state: string | null;
+    zip: string | null;
+    vertical: string;
+    metro: string;
+    source: string;
+    rawData: Record<string, any>;
+    rating: number | null;
+    reviewCount: number | null;
+    placeId: string | null;
+  }>,
+  jobId?: number
+): Promise<{ newInserted: number; duplicatesSkipped: number }> {
+  let newInserted = 0;
+  let duplicatesSkipped = 0;
+
+  const seenExact = new Set<string>();
+  const seenByCity = new Map<string, string[]>();
+  const cityMerchantsCache = new Map<string, Array<{ id: number; businessName: string }>>();
+  const resultRecords: import("@shared/schema").InsertLeadDiscoveryResult[] = [];
+
+  async function getCityMerchants(city: string): Promise<Array<{ id: number; businessName: string }>> {
+    const key = city.toLowerCase();
+    if (!cityMerchantsCache.has(key)) {
+      const rows = await storage.getSdrMerchantsByCity(city);
+      cityMerchantsCache.set(key, rows.map(r => ({ id: r.id, businessName: r.businessName })));
+    }
+    return cityMerchantsCache.get(key)!;
+  }
+
+  for (const biz of businesses) {
+    if (!biz.businessName || biz.businessName.length < 2) continue;
+    if (isChainBusiness(biz.businessName)) { duplicatesSkipped++; continue; }
+
+    const normalizedName = normalizeBusinessName(biz.businessName);
+    const cityKey = (biz.city || "").toLowerCase();
+    const dedupeKey = `${normalizedName}|${cityKey}`;
+
+    if (seenExact.has(dedupeKey)) { duplicatesSkipped++; continue; }
+
+    const citySeenNames = seenByCity.get(cityKey) || [];
+    if (citySeenNames.some(n => jaroWinkler(n, normalizedName) >= FUZZY_THRESHOLD)) {
+      duplicatesSkipped++;
+      continue;
+    }
+
+    seenExact.add(dedupeKey);
+    citySeenNames.push(normalizedName);
+    seenByCity.set(cityKey, citySeenNames);
+
+    const existing = await storage.findSdrMerchantByNameCity(biz.businessName, biz.city);
+    if (existing) {
+      const existingSourcedVia = (existing as any).sourcedVia as string | null;
+      const confirmedSources = existingSourcedVia
+        ? existingSourcedVia.split(",").map((s: string) => s.trim()).filter(Boolean)
+        : [];
+      if (!confirmedSources.includes(biz.source)) {
+        confirmedSources.push(biz.source);
+        await storage.updateSdrMerchant(existing.id, {
+          sourceCount: confirmedSources.length,
+          sourcedVia: confirmedSources.join(","),
+        } as any);
+      }
+      if (jobId) {
+        resultRecords.push({
+          jobId,
+          source: biz.source,
+          vertical: biz.vertical,
+          metro: biz.metro,
+          businessName: biz.businessName,
+          phone: biz.phone,
+          email: biz.email,
+          website: biz.website,
+          address: biz.address,
+          city: biz.city,
+          state: biz.state,
+          zip: biz.zip,
+          rating: biz.rating,
+          reviewCount: biz.reviewCount,
+          placeId: biz.placeId,
+          rawData: biz.rawData,
+          status: "duplicate_existing",
+          merchantId: existing.id,
+          dedupReason: "existing_merchant",
+        });
+      }
+      duplicatesSkipped++;
+      continue;
+    }
+
+    if (biz.city) {
+      const candidates = await getCityMerchants(biz.city);
+      if (candidates.some(m => jaroWinkler(normalizeBusinessName(m.businessName), normalizedName) >= FUZZY_THRESHOLD)) {
+        duplicatesSkipped++;
+        continue;
+      }
+    }
+
+    try {
+      const resolvedVertical = classifyVertical(null, biz.businessName) !== "Other"
+        ? classifyVertical(null, biz.businessName)
+        : biz.vertical;
+
+      const merchantData: InsertSdrMerchant = {
+        businessName: biz.businessName,
+        website: biz.website,
+        domain: biz.website,
+        mainPhone: biz.phone,
+        mainEmail: biz.email,
+        address: biz.address,
+        city: biz.city,
+        state: biz.state,
+        zip: biz.zip,
+        vertical: resolvedVertical,
+        source: `discovery_${biz.source}`,
+        sourceRef: biz.placeId || undefined,
+        sourcedVia: biz.source,
+      };
+
+      const merchant = await storage.createSdrMerchant(merchantData);
+
+      const leadStateData: InsertSdrLeadState = {
+        merchantId: merchant.id,
+        currentStage: "DISCOVERED",
+        stage: "DISCOVERED",
+        companyName: biz.businessName,
+        email: biz.email || undefined,
+        phone: biz.phone || undefined,
+        website: biz.website || undefined,
+        vertical: resolvedVertical,
+        city: biz.city || undefined,
+        state: biz.state || undefined,
+      };
+      await storage.createSdrLeadState(leadStateData);
+
+      const newEntry = { id: merchant.id, businessName: biz.businessName };
+      if (biz.city) {
+        const cityKey2 = biz.city.toLowerCase();
+        const cached = cityMerchantsCache.get(cityKey2);
+        if (cached) cached.push(newEntry);
+        else cityMerchantsCache.set(cityKey2, [newEntry]);
+      }
+
+      if (jobId) {
+        resultRecords.push({
+          jobId,
+          source: biz.source,
+          vertical: resolvedVertical,
+          metro: biz.metro,
+          businessName: biz.businessName,
+          phone: biz.phone,
+          email: biz.email,
+          website: biz.website,
+          address: biz.address,
+          city: biz.city,
+          state: biz.state,
+          zip: biz.zip,
+          rating: biz.rating,
+          reviewCount: biz.reviewCount,
+          placeId: biz.placeId,
+          rawData: biz.rawData,
+          status: "inserted",
+          merchantId: merchant.id,
+        });
+      }
+
+      newInserted++;
+    } catch (err) {
+      console.error(`[LeadFinder/Free] Error inserting ${biz.businessName}:`, err);
+    }
+  }
+
+  if (jobId && resultRecords.length > 0) {
+    try {
+      await storage.createLeadDiscoveryResultsBulk(resultRecords);
+    } catch (err) {
+      console.error("[LeadFinder/Free] Error writing result records:", err);
+    }
+  }
+
+  return { newInserted, duplicatesSkipped };
+}
+
 let discoveryRunning = false;
 export function isDiscoveryRunning(): boolean {
   return discoveryRunning;
@@ -668,6 +885,7 @@ export async function runLeadDiscovery(
         const allBusinesses: NormalizedBusiness[] = [];
 
         for (const source of dataSources) {
+          if (["osm", "yellowpages", "bbb"].includes(source)) continue;
           try {
             let results: NormalizedBusiness[] = [];
 
@@ -709,6 +927,54 @@ export async function runLeadDiscovery(
         });
 
         await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    }
+
+    if (dataSources.includes("osm")) {
+      try {
+        console.log("[LeadFinder] Running OSM Overpass discovery...");
+        const { runOsmDiscoveryJob } = await import("./osm-discovery");
+        const osmCounts = await runOsmDiscoveryJob(job.id);
+        totalRawFound += osmCounts.found;
+        totalNewInserted += osmCounts.newInserted;
+        totalDuplicatesSkipped += osmCounts.duplicatesSkipped;
+      } catch (err) {
+        const msg = `Error running OSM discovery: ${err}`;
+        console.error(`[LeadFinder] ${msg}`);
+        errorMessages.push(msg);
+        totalErrors++;
+      }
+    }
+
+    if (dataSources.includes("yellowpages")) {
+      try {
+        console.log("[LeadFinder] Running Yellow Pages discovery...");
+        const { runYellowPagesDiscoveryJob } = await import("./yellowpages-discovery");
+        const ypCounts = await runYellowPagesDiscoveryJob(job.id);
+        totalRawFound += ypCounts.found;
+        totalNewInserted += ypCounts.newInserted;
+        totalDuplicatesSkipped += ypCounts.duplicatesSkipped;
+      } catch (err) {
+        const msg = `Error running Yellow Pages discovery: ${err}`;
+        console.error(`[LeadFinder] ${msg}`);
+        errorMessages.push(msg);
+        totalErrors++;
+      }
+    }
+
+    if (dataSources.includes("bbb")) {
+      try {
+        console.log("[LeadFinder] Running BBB discovery...");
+        const { runBBBDiscoveryJob } = await import("./bbb-discovery");
+        const bbbCounts = await runBBBDiscoveryJob(job.id);
+        totalRawFound += bbbCounts.found;
+        totalNewInserted += bbbCounts.newInserted;
+        totalDuplicatesSkipped += bbbCounts.duplicatesSkipped;
+      } catch (err) {
+        const msg = `Error running BBB discovery: ${err}`;
+        console.error(`[LeadFinder] ${msg}`);
+        errorMessages.push(msg);
+        totalErrors++;
       }
     }
 

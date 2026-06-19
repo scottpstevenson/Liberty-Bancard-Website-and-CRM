@@ -2565,6 +2565,9 @@ export const sdrMerchants = pgTable("sdr_merchants", {
   yearsInBusiness: integer("years_in_business"),
   registrySource: text("registry_source"),
   licenseNumber: text("license_number"),
+  bbbAccredited: boolean("bbb_accredited").default(false),
+  sourceCount: integer("source_count").default(1),
+  sourcedVia: text("sourced_via"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [

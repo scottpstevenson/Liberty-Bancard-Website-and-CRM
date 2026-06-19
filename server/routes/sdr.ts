@@ -774,6 +774,9 @@ export function registerSdrRoutes(app: Express) {
         outscraper: { configured: outscrConfigured, usage: outscrUsage },
         apify: { configured: apifyConfigured, usage: apifyUsage },
         apollo: { configured: apolloConfigured, usage: apolloUsage },
+        osm: { configured: true, free: true, description: "OpenStreetMap Overpass — no key required" },
+        yellowpages: { configured: true, free: true, description: "YP.com scraper — no key required" },
+        bbb: { configured: true, free: true, description: "BBB.org accreditation listings — no key required" },
       });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
