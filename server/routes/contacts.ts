@@ -140,6 +140,24 @@ export function registerContactsRoutes(app: Express) {
     }
   });
 
+  app.get("/api/contacts/email-health-summary", isDashboardUser, async (req, res) => {
+    try {
+      const result = await pool.query(`
+        SELECT
+          COUNT(*)::int AS total,
+          COUNT(*) FILTER (WHERE COALESCE(email_status, 'active') = 'active')::int   AS active,
+          COUNT(*) FILTER (WHERE email_status = 'bounced')::int                       AS bounced,
+          COUNT(*) FILTER (WHERE email_status = 'invalid')::int                       AS invalid,
+          COUNT(*) FILTER (WHERE email_status = 'opted_out')::int                     AS opted_out
+        FROM contacts
+        WHERE archived_at IS NULL
+      `);
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/contacts/:id", isDashboardUser, async (req, res) => {
     try {
       const contact = await storage.getContact(Number(req.params.id));

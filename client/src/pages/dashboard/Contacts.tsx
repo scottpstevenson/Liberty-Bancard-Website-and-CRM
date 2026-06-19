@@ -503,6 +503,13 @@ export default function Contacts() {
     return acc;
   }, {} as Record<string, number>);
 
+  const { data: emailHealthSummary, isLoading: summaryLoading } = useQuery<{
+    total: number; active: number; bounced: number; invalid: number; opted_out: number;
+  }>({
+    queryKey: ["/api/contacts/email-health-summary"],
+    refetchInterval: 60_000,
+  });
+
   const contactsFilterState = { searchTerm, statusFilter, emailHealthFilter, showArchived: String(showArchived) };
 
   const handleApplySavedFilter = (filters: Record<string, unknown>) => {
@@ -578,8 +585,100 @@ export default function Contacts() {
     return <DashboardErrorState title="Failed to load contacts" onRetry={() => refetch()} />;
   }
 
+  const summaryTotal = emailHealthSummary?.total ?? 0;
+  const healthStats = [
+    {
+      key: "active",
+      label: "Active",
+      value: emailHealthSummary?.active ?? 0,
+      idleColor: "text-emerald-600 dark:text-emerald-400",
+      selectedBg: "bg-emerald-100 dark:bg-emerald-900/40 border-emerald-400 dark:border-emerald-600",
+      selectedText: "text-emerald-700 dark:text-emerald-300",
+    },
+    {
+      key: "bounced",
+      label: "Bounced",
+      value: emailHealthSummary?.bounced ?? 0,
+      idleColor: "text-red-600 dark:text-red-400",
+      selectedBg: "bg-red-100 dark:bg-red-900/40 border-red-400 dark:border-red-600",
+      selectedText: "text-red-700 dark:text-red-300",
+    },
+    {
+      key: "invalid",
+      label: "Invalid",
+      value: emailHealthSummary?.invalid ?? 0,
+      idleColor: "text-orange-600 dark:text-orange-400",
+      selectedBg: "bg-orange-100 dark:bg-orange-900/40 border-orange-400 dark:border-orange-600",
+      selectedText: "text-orange-700 dark:text-orange-300",
+    },
+    {
+      key: "opted_out",
+      label: "Opted Out",
+      value: emailHealthSummary?.opted_out ?? 0,
+      idleColor: "text-slate-500 dark:text-slate-400",
+      selectedBg: "bg-slate-200 dark:bg-slate-700 border-slate-400 dark:border-slate-500",
+      selectedText: "text-slate-700 dark:text-slate-200",
+    },
+  ] as const;
+
   return (
     <div className="space-y-6">
+      {/* Email Health Stats Bar */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2" data-testid="email-health-stats-bar">
+        {/* Total */}
+        <button
+          onClick={() => setEmailHealthFilter("")}
+          data-testid="stat-email-health-all"
+          className={`flex flex-col items-center justify-center px-3 py-2.5 rounded-lg border transition-all cursor-pointer ${
+            emailHealthFilter === ""
+              ? "bg-primary/10 border-primary/50 text-primary shadow-sm"
+              : "bg-muted/50 border-border hover:bg-muted text-foreground"
+          }`}
+        >
+          {summaryLoading ? (
+            <Skeleton className="h-6 w-10 mb-1" />
+          ) : (
+            <span className="text-xl font-bold leading-tight" data-testid="stat-count-all">{summaryTotal.toLocaleString()}</span>
+          )}
+          <span className="text-[11px] font-medium text-muted-foreground mt-0.5">Total Contacts</span>
+        </button>
+
+        {/* Per-status stats */}
+        {healthStats.map((stat) => {
+          const pct = summaryTotal > 0 ? Math.round((stat.value / summaryTotal) * 100) : 0;
+          const isActive = emailHealthFilter === stat.key;
+          return (
+            <button
+              key={stat.key}
+              onClick={() => setEmailHealthFilter(isActive ? "" : stat.key)}
+              data-testid={`stat-email-health-${stat.key}`}
+              className={`flex flex-col items-center justify-center px-3 py-2.5 rounded-lg border transition-all cursor-pointer ${
+                isActive
+                  ? `${stat.selectedBg} shadow-sm`
+                  : "bg-muted/50 border-border hover:bg-muted"
+              }`}
+            >
+              {summaryLoading ? (
+                <Skeleton className="h-6 w-10 mb-1" />
+              ) : (
+                <span
+                  className={`text-xl font-bold leading-tight ${isActive ? stat.selectedText : stat.idleColor}`}
+                  data-testid={`stat-count-${stat.key}`}
+                >
+                  {stat.value.toLocaleString()}
+                </span>
+              )}
+              <span className={`text-[11px] font-medium mt-0.5 ${isActive ? stat.selectedText : stat.idleColor}`}>
+                {stat.label}
+              </span>
+              {!summaryLoading && summaryTotal > 0 && (
+                <span className="text-[10px] text-muted-foreground" data-testid={`stat-pct-${stat.key}`}>{pct}%</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
       <div className="flex flex-col sm:flex-row justify-between gap-4">
         <div className="relative w-full sm:w-96">
           <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
