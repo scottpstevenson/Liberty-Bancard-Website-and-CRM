@@ -11,6 +11,28 @@ import { eq, and, isNotNull, isNull, inArray, gte } from "drizzle-orm";
 let lastRunAt: Date | null = null;
 
 /**
+ * Score a job title to determine if the contact is likely a decision-maker.
+ * Returns isDecisionMaker and a confidence score (0–100).
+ * confidence === 100 is reserved for manual overrides via the PATCH route.
+ */
+export function scoreDecisionMaker(title: string): { isDecisionMaker: boolean; confidence: number } {
+  const t = title.toLowerCase();
+  // Tier 1 — definitive owners/founders
+  if (/\b(owner|ceo|chief executive|founder|co-founder|president|proprietor|principal)\b/.test(t)) {
+    return { isDecisionMaker: true, confidence: 95 };
+  }
+  // Tier 2 — senior management
+  if (/\b(managing partner|general manager|gm|managing director|managing member|partner)\b/.test(t)) {
+    return { isDecisionMaker: true, confidence: 80 };
+  }
+  // Tier 3 — functional leaders
+  if (/\b(director|vp|vice president|head of|controller|chief financial|cfo|coo|chief operating)\b/.test(t)) {
+    return { isDecisionMaker: true, confidence: 60 };
+  }
+  return { isDecisionMaker: false, confidence: 0 };
+}
+
+/**
  * Bounce feedback write-back.
  *
  * Uses outbound_messages.bounced_at (set when a specific message is known to have
