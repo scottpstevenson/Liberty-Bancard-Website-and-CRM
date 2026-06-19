@@ -166,9 +166,8 @@ export function registerRateReviewRoutes(app: Express) {
         </div>
       `;
 
-      const ghlWorkflowId = process.env.GHL_WORKFLOW_RATE_REVIEW_CONFIRMATION;
-      if (ghlWorkflowId && isGhlConfigured() && contact.ghlContactId) {
-        enrollInGhlWorkflow({ workflowKey: "GHL_WORKFLOW_RATE_REVIEW_CONFIRMATION", ghlContactId: contact.ghlContactId }).catch(err =>
+      if (contact.ghlContactId) {
+        enrollInGhlWorkflow({ workflowKey: "rate_review_confirmation", ghlContactId: contact.ghlContactId }).catch(err =>
           console.error("[RateReview] GHL workflow enrollment error:", err)
         );
       } else if (contact.email && isSmtpConfigured()) {

@@ -293,6 +293,13 @@ export async function handleAppointmentBooked(webhookData: {
     decisionReason: `Appointment booked — advanced to MEETING_SET from ${oldStage || "unknown"}`,
   });
 
+  if (merchant.ghlContactId) {
+    const { enrollInGhlWorkflow } = await import("../ghl-workflows");
+    enrollInGhlWorkflow({ workflowKey: "booking_confirmation", ghlContactId: merchant.ghlContactId, metadata: { meetingId, startTime: webhookData.startTime } }).catch(err =>
+      console.error(`[Scheduling] GHL booking_confirmation enrollment error for merchant ${merchant.id}:`, err)
+    );
+  }
+
   console.log(`[Scheduling] Appointment booked for merchant ${merchant.id}: ${meetingId}`);
 }
 
@@ -348,6 +355,13 @@ export async function handleAppointmentCanceled(webhookData: {
     decisionReason: "Appointment canceled — triggered no-show recovery sequence",
   });
 
+  if (merchant.ghlContactId) {
+    const { enrollInGhlWorkflow } = await import("../ghl-workflows");
+    enrollInGhlWorkflow({ workflowKey: "no_show_reschedule", ghlContactId: merchant.ghlContactId, metadata: { canceledAppointmentId: webhookData.appointmentId || webhookData.id } }).catch(err =>
+      console.error(`[Scheduling] GHL no_show_reschedule enrollment error for merchant ${merchant.id}:`, err)
+    );
+  }
+
   console.log(`[Scheduling] Appointment canceled for merchant ${merchant.id}`);
 }
 
@@ -370,14 +384,18 @@ export async function sendReminders(merchantId: number): Promise<boolean> {
   }
 
   try {
-    const reminderWorkflowId = process.env.GHL_WORKFLOW_REMINDER;
-    if (!reminderWorkflowId) {
-      throw new Error("GHL_WORKFLOW_REMINDER environment variable is not set. Cannot trigger appointment reminder workflow.");
+    const { enrollInGhlWorkflow: enrollReminder } = await import("../ghl-workflows");
+    const reminderResult = await enrollReminder({ workflowKey: "booking_reminder_24h", ghlContactId: merchant.ghlContactId, metadata: { meetingId: state.meetingId } });
+    if (!reminderResult.success) {
+      const reminderWorkflowId = process.env.GHL_WORKFLOW_REMINDER;
+      if (!reminderWorkflowId) {
+        throw new Error("GHL_WORKFLOW_REMINDER / booking_reminder_24h not configured. Cannot trigger appointment reminder workflow.");
+      }
+      await triggerWorkflow({
+        workflowId: reminderWorkflowId,
+        contactId: merchant.ghlContactId,
+      });
     }
-    await triggerWorkflow({
-      workflowId: reminderWorkflowId,
-      contactId: merchant.ghlContactId,
-    });
 
     await db.insert(sdrLeadEvents).values({
       merchantId,

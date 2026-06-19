@@ -39,6 +39,9 @@ export const GHL_WORKFLOW_REGISTRY: GhlWorkflowConfig[] = [
   { id: "merchant_approved", name: "Merchant Approved — Portal Welcome", category: "onboarding", triggerType: "merchant_approved", envKey: "GHL_WORKFLOW_MERCHANT_APPROVED", description: "Triggered when a merchant profile is approved. Sends portal access email with MID and next steps. Falls back to direct GHL email if workflow ID is not set." },
   { id: "proposal_viewed", name: "Proposal Viewed", category: "nurture", triggerType: "proposal_viewed", envKey: "GHL_WORKFLOW_PROPOSAL_VIEWED", description: "Triggered on first view of a co-branded proposal." },
   { id: "proposal_accepted", name: "Proposal Accepted", category: "nurture", triggerType: "proposal_accepted", envKey: "GHL_WORKFLOW_PROPOSAL_ACCEPTED", description: "Triggered when a merchant accepts a co-branded proposal." },
+
+  { id: "rate_review_confirmation", name: "Rate Review Confirmation", category: "inbound_lead", triggerType: "rate_review_submitted", envKey: "GHL_WORKFLOW_RATE_REVIEW_CONFIRMATION", description: "Triggered when a merchant submits a rate review request via the merchant portal. Sends confirmation email with next steps and analysis timeline." },
+  { id: "onboarding_reminder", name: "Onboarding Document Reminder", category: "onboarding", triggerType: "onboarding_reminder", envKey: "GHL_WORKFLOW_ONBOARDING_REMINDER", description: "Triggered when onboarding documents are overdue (>2 days pending). Sends reminder to merchant to complete outstanding checklist items." },
 ];
 
 export async function getWorkflowId(workflowKey: string): Promise<string | null> {

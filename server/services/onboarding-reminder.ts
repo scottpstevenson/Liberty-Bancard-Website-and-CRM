@@ -46,13 +46,11 @@ export async function runOnboardingReminderTick(): Promise<{ processed: number; 
 
         const contact = deal.contactId ? await storage.getContact(deal.contactId) : null;
 
-        if (contact?.ghlContactId && isGhlConfigured()) {
-          const workflowId = await getWorkflowId("GHL_WORKFLOW_ONBOARDING_REMINDER");
-          if (workflowId) {
-            const { enrollInGhlWorkflow } = await import("./ghl");
-            await enrollInGhlWorkflow(contact.ghlContactId, workflowId);
-            console.log(`[OnboardingReminder] Enrolled contact ${contact.id} in GHL workflow ${workflowId} for deal ${deal.id}`);
-          }
+        if (contact?.ghlContactId) {
+          const { enrollInGhlWorkflow } = await import("./ghl-workflows");
+          enrollInGhlWorkflow({ workflowKey: "onboarding_reminder", ghlContactId: contact.ghlContactId, metadata: { dealId: deal.id, pendingCount: stalePendingItems.length } }).catch(err =>
+            console.error(`[OnboardingReminder] GHL enrollment error for deal ${deal.id}:`, err)
+          );
         }
 
         await storage.createNotification({

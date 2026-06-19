@@ -8,6 +8,7 @@ import { db } from "../db";
 import { getDocumentStatus, sendDocumentForEsign } from "../services/ghl";
 import { computeOrderEconomics } from "../services/terminal-economics";
 import { syncMerchantApplicationToGhl } from "../services/ghl-form-sync";
+import { enrollInGhlWorkflow } from "../services/ghl-workflows";
 import { createContactGhlFirst } from "../services/contact-writer";
 import { sendMerchantWelcomeEmail, sendMerchantPortalWelcomeEmail } from "../services/merchant-welcome";
 import { sendApplicationApprovedEmail, sendApplicationDeclinedEmail } from "../services/merchant-application-status";
@@ -108,6 +109,11 @@ export function registerMerchantsRoutes(app: Express) {
           syncMerchantApplicationToGhl(application.id, contact.id).catch(err =>
             console.error("GHL merchant app sync error:", err)
           );
+          if (contact.ghlContactId) {
+            enrollInGhlWorkflow({ workflowKey: "merchant_app", ghlContactId: contact.ghlContactId, metadata: { applicationId: application.id } }).catch(err =>
+              console.error("[MerchantApp] GHL workflow enrollment error:", err)
+            );
+          }
           scanApplicationRisk(contact.id, application.id).then((result) => {
             if (result.hasRisk) {
               console.warn(

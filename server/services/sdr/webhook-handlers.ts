@@ -246,6 +246,13 @@ export async function handleCallOutcome(rawPayload: unknown): Promise<void> {
     }
   }
 
+  if (ghlContactId && merchant) {
+    const { enrollInGhlWorkflow } = await import("../ghl-workflows");
+    enrollInGhlWorkflow({ workflowKey: "post_call_review", ghlContactId, metadata: { callId: (payload as any).callId, disposition: (payload as any).status, merchantId: merchant.id } }).catch(err =>
+      console.error(`[SDR Webhook] GHL post_call_review enrollment error for contact ${ghlContactId}:`, err)
+    );
+  }
+
   console.log(`[SDR Webhook] call-outcome processed for GHL contact ${ghlContactId}`);
 }
 

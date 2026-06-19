@@ -537,6 +537,12 @@ Guidelines:
             lb_referral_code: partner.affiliateCode || "",
           },
         }).catch(err => console.error("GHL affiliate sync error:", err));
+        if (affiliateContact.ghlContactId) {
+          const { enrollInGhlWorkflow } = await import("../services/ghl-workflows");
+          enrollInGhlWorkflow({ workflowKey: "affiliate_welcome", ghlContactId: affiliateContact.ghlContactId, metadata: { affiliateCode: partner.affiliateCode || code, partnerId: partner.id } }).catch(err =>
+            console.error("[Affiliate] GHL affiliate_welcome enrollment error:", err)
+          );
+        }
       }
       syncAffiliateSignupToGhl({
         firstName,

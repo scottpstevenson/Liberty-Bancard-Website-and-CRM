@@ -5,6 +5,7 @@ import { z } from "zod";
 import { and } from "drizzle-orm";
 import { insertTaskSchema, insertTicketCommentSchema, insertTicketSchema } from "@shared/schema";
 import { triggerWorkflowsByEvent } from "../services/workflow-executor";
+import { enrollInGhlWorkflow } from "../services/ghl-workflows";
 import { createPreferenceAwareNotification } from "../services/digest-service";
 import { parse } from "csv-parse/sync";
 
@@ -28,6 +29,15 @@ export function registerTicketsTasksRoutes(app: Express) {
       await storage.createAuditLog({ action: "ticket_created", entityType: "ticket", entityId: ticket.id, details: { category: ticket.category, priority: ticket.priority } });
       await createPreferenceAwareNotification({ channel: "internal", title: `New ${ticket.priority} Support Ticket`, message: `${ticket.subject} - Category: ${ticket.category}`, type: ticket.priority === "Urgent" ? "urgent" : "info", metadata: { ticketId: ticket.id, eventType: "ticket_created" } }, "ticket_created");
       triggerWorkflowsByEvent("ticket_created", { entityType: "ticket", entityId: ticket.id }).catch(err => console.error("Workflow trigger error:", err));
+      if (ticket.contactId) {
+        storage.getContact(ticket.contactId).then(contact => {
+          if (contact?.ghlContactId) {
+            enrollInGhlWorkflow({ workflowKey: "support_ticket", ghlContactId: contact.ghlContactId, metadata: { ticketId: ticket.id, priority: ticket.priority, category: ticket.category } }).catch(err =>
+              console.error("[Tickets] GHL workflow enrollment error:", err)
+            );
+          }
+        }).catch(() => {});
+      }
       res.status(201).json(ticket);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
