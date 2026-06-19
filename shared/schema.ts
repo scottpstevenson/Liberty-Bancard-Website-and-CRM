@@ -82,11 +82,11 @@ export const contacts = pgTable("contacts", {
   isParentAccount: boolean("is_parent_account").default(false),
   parentContactId: integer("parent_contact_id"),
   locationName: text("location_name"),
-  emailStatus: text("email_status").default("active"),
-  contactBouncedAt: timestamp("contact_bounced_at"),
-  isDecisionMaker: boolean("is_decision_maker").default(false),
-  decisionMakerConfidence: integer("decision_maker_confidence").default(0),
-  managementType: text("management_type").default("unknown"),
+  emailStatus: text("email_status").notNull().default("active"),
+  bouncedAt: timestamp("bounced_at"),
+  isDecisionMaker: boolean("is_decision_maker").notNull().default(false),
+  decisionMakerConfidence: integer("decision_maker_confidence").notNull().default(0),
+  managementType: text("management_type").notNull().default("unknown"),
 }, (table) => [
   uniqueIndex("contacts_email_unique_idx").on(table.email).where(sql`archived_at IS NULL`),
   index("contacts_phone_idx").on(table.phone),
@@ -113,7 +113,7 @@ export const companies = pgTable("companies", {
   volumeRange: text("volume_range"),
   currentProvider: text("current_provider"),
   notes: text("notes"),
-  managementType: text("management_type").default("unknown"),
+  managementType: text("management_type").notNull().default("unknown"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -390,6 +390,29 @@ export type UpdateContactRequest = Partial<InsertContact>;
 
 export type Company = typeof companies.$inferSelect;
 export type InsertCompany = z.infer<typeof insertCompanySchema>;
+
+export const maEvents = pgTable("ma_events", {
+  id: serial("id").primaryKey(),
+  entityType: text("entity_type").notNull(),
+  entityId: integer("entity_id").notNull(),
+  eventType: text("event_type").notNull(),
+  counterpartyName: text("counterparty_name"),
+  counterpartyContactId: integer("counterparty_contact_id").references(() => contacts.id),
+  eventDate: timestamp("event_date"),
+  note: text("note"),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("ma_events_entity_idx").on(table.entityType, table.entityId),
+]);
+
+export const insertMaEventSchema = createInsertSchema(maEvents).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type MaEvent = typeof maEvents.$inferSelect;
+export type InsertMaEvent = z.infer<typeof insertMaEventSchema>;
 
 export type Deal = typeof deals.$inferSelect;
 export type InsertDeal = z.infer<typeof insertDealSchema>;
@@ -4022,23 +4045,3 @@ export const handoffRules = pgTable("handoff_rules", {
 export const insertHandoffRuleSchema = createInsertSchema(handoffRules).omit({ id: true, createdAt: true });
 export type HandoffRule = typeof handoffRules.$inferSelect;
 export type InsertHandoffRule = z.infer<typeof insertHandoffRuleSchema>;
-
-// ─── M&A Events ───────────────────────────────────────────────────────────────
-export const maEvents = pgTable("ma_events", {
-  id: serial("id").primaryKey(),
-  entityType: text("entity_type").notNull(),
-  entityId: integer("entity_id").notNull(),
-  eventType: text("event_type").notNull(),
-  counterpartyName: text("counterparty_name"),
-  counterpartyContactId: integer("counterparty_contact_id").references(() => contacts.id),
-  eventDate: timestamp("event_date"),
-  note: text("note"),
-  createdBy: text("created_by"),
-  createdAt: timestamp("created_at").defaultNow(),
-}, (table) => [
-  index("ma_events_entity_idx").on(table.entityType, table.entityId),
-]);
-
-export const insertMaEventSchema = createInsertSchema(maEvents).omit({ id: true, createdAt: true });
-export type MaEvent = typeof maEvents.$inferSelect;
-export type InsertMaEvent = z.infer<typeof insertMaEventSchema>;

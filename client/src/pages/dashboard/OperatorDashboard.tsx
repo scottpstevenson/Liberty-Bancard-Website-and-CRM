@@ -475,10 +475,26 @@ function OperatorKpiPanel() {
   );
 }
 
+interface BounceFeedbackIdentity {
+  emailAddress: string;
+  label: string;
+  inboxBouncesToday: number;
+}
+
+interface BounceFeedbackSummary {
+  contactsWrittenBackToday: number;
+  identities: BounceFeedbackIdentity[];
+}
+
 function SendMonitoringPanel() {
   const { data, isLoading, isError, refetch } = useQuery<SendMonitoringData>({
     queryKey: ["/api/sdr/operator/send-monitoring"],
     refetchInterval: 15000,
+  });
+
+  const { data: bounceFeedback } = useQuery<BounceFeedbackSummary>({
+    queryKey: ["/api/sdr/operator/bounce-feedback-summary"],
+    refetchInterval: 60000,
   });
 
   if (isLoading) {
@@ -512,11 +528,18 @@ function SendMonitoringPanel() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         <KpiCard label="Total Identities" value={agg?.totalIdentities || 0} icon={Mail} color="text-blue-600" />
         <KpiCard label="Active" value={agg?.activeIdentities || 0} icon={Activity} color="text-green-600" />
         <KpiCard label="Sent Today" value={agg?.totalSentToday || 0} icon={Send} color="text-purple-600" subtext={`of ${agg?.totalDailyLimit || 0} limit`} />
         <KpiCard label="Cap Used" value={agg?.overallCapUtilization || 0} icon={BarChart3} color="text-orange-600" suffix="%" />
+        <KpiCard
+          label="Contacts Written Back"
+          value={bounceFeedback?.contactsWrittenBackToday ?? 0}
+          icon={AlertTriangle}
+          color="text-red-600"
+          subtext="bounced today (CRM)"
+        />
       </div>
 
       <div className="space-y-3">
@@ -547,7 +570,7 @@ function SendMonitoringPanel() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm mb-3">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 text-sm mb-3">
                 <div>
                   <div className="text-xs text-muted-foreground">Today</div>
                   <div className="font-medium">{identity.sentToday} / {identity.dailyLimit}</div>
@@ -563,6 +586,18 @@ function SendMonitoringPanel() {
                 <div>
                   <div className="text-xs text-muted-foreground">7d Replied</div>
                   <div className="font-medium text-green-600">{identity.week.replied} ({identity.week.replyRate}%)</div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">Inbox Bounces Today</div>
+                  {(() => {
+                    const entry = bounceFeedback?.identities?.find(b => b.emailAddress === identity.emailAddress);
+                    const count = entry?.inboxBouncesToday ?? 0;
+                    return (
+                      <div className={`font-medium ${count > 0 ? "text-red-600" : "text-muted-foreground"}`} data-testid={`bounce-contacts-${identity.id}`}>
+                        {count}
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
 

@@ -1142,9 +1142,13 @@ export default function ContactDetail() {
                   >
                     <div className="flex flex-wrap items-center gap-2">
                       <Building2 className="h-4 w-4 text-muted-foreground" />
-                      <span className="font-medium" data-testid={`text-company-name-${cc.id}`}>
+                      <button
+                        className="font-medium text-left hover:text-primary hover:underline"
+                        onClick={() => setLocation(`/dashboard/companies/${cc.companyId}`)}
+                        data-testid={`link-company-detail-${cc.id}`}
+                      >
                         {company?.legalName || `Company #${cc.companyId}`}
-                      </span>
+                      </button>
                       {company?.dba && (
                         <span className="text-sm text-muted-foreground" data-testid={`text-company-dba-${cc.id}`}>
                           (DBA: {company.dba})
@@ -1227,10 +1231,12 @@ export default function ContactDetail() {
             <Brain className="h-3.5 w-3.5 mr-1" />
             Churn Risk
           </TabsTrigger>
-          <TabsTrigger value="company-intelligence" data-testid="tab-company-intelligence">
-            <Merge className="h-3.5 w-3.5 mr-1" />
-            Intelligence
-          </TabsTrigger>
+          {contact.isParentAccount && (
+            <TabsTrigger value="company-intelligence" data-testid="tab-company-intelligence">
+              <Store className="h-3.5 w-3.5 mr-1" />
+              Co. Intelligence
+            </TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="overview" data-testid="tab-content-overview">
@@ -1309,9 +1315,11 @@ export default function ContactDetail() {
           <ChurnRiskPanel contactId={contactId} isManagerOrAdmin={isManagerOrAdmin} />
         </TabsContent>
 
-        <TabsContent value="company-intelligence" data-testid="tab-content-company-intelligence">
-          <CompanyIntelligenceTab contactId={contactId} />
-        </TabsContent>
+        {contact.isParentAccount && (
+          <TabsContent value="company-intelligence" data-testid="tab-content-company-intelligence">
+            <CompanyIntelligenceTab contact={contact} />
+          </TabsContent>
+        )}
       </Tabs>
 
       <CreateDialogs

@@ -1704,6 +1704,17 @@ export function registerSdrRoutes(app: Express) {
     }
   });
 
+  app.get("/api/sdr/operator/bounce-feedback-summary", isAdmin, async (_req, res) => {
+    try {
+      const { getBounceFeedbackSummary } = await import("../services/bounce-feedback");
+      const data = await getBounceFeedbackSummary();
+      res.json(data);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
   app.post("/api/sdr/operator/send-daily-digest", isAuthenticated, async (req, res) => {
     if (!['admin', 'manager'].includes((req.user as any)?.role)) return res.status(403).json({ message: "Admin only" });
     try {

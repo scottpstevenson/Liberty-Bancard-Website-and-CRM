@@ -168,17 +168,19 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
           contact = await storage.getContact(enrollment.contactId);
           // Bounce guard: skip email steps for bounced/invalid contacts
           if (contact && (contact.emailStatus === "bounced" || contact.emailStatus === "invalid")) {
-            await storage.updateSequenceEnrollment(enrollment.id, {
-              status: "completed",
-              completedAt: new Date(),
-            });
-            console.log(`[SequenceWorker] Skipped enrollment ${enrollment.id} — contact #${contact.id} email status: ${contact.emailStatus}`);
+            await storage.updateSequenceEnrollment(enrollment.id, { status: "paused" });
             await storage.createAuditLog({
-              action: "sequence_enrollment_skipped_bounce",
+              action: "sequence_enrollment_skipped_bad_email",
               entityType: "contact",
-              entityId: contact.id,
+              entityId: enrollment.contactId,
               actorType: "system",
-              details: { enrollmentId: enrollment.id, emailStatus: contact.emailStatus, sequenceId: enrollment.sequenceId },
+              details: {
+                enrollmentId: enrollment.id,
+                sequenceId: sequence.id,
+                sequenceName: sequence.name,
+                emailStatus: contact.emailStatus,
+                reason: `Contact email status is '${contact.emailStatus}' — enrollment paused`,
+              },
             });
             processed++;
             continue;

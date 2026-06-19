@@ -382,6 +382,8 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
       if (d.mid) midSet.add(d.mid);
     }
 
+    const [parent] = await db.select({ managementType: contacts.managementType }).from(contacts).where(eq(contacts.id, parentContactId));
+
     return {
       locationCount: children.length,
       totalDeals: groupDeals.length,
@@ -389,6 +391,7 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
       totalVolume,
       activeMids: midSet.size,
       locationIds: allIds,
+      managementType: parent?.managementType ?? "unknown",
     };
   }
 }

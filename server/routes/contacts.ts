@@ -565,6 +565,45 @@ export function registerContactsRoutes(app: Express) {
     }
   });
 
+  app.get("/api/companies/:id", isDashboardUser, async (req, res) => {
+    try {
+      const companyId = Number(req.params.id);
+      const company = await storage.getCompany(companyId);
+      if (!company) return res.status(404).json({ message: "Not found" });
+      res.json(company);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/companies/:id/contacts", isDashboardUser, async (req, res) => {
+    try {
+      const companyId = Number(req.params.id);
+      const { db } = await import("../db");
+      const { contactCompanies, contacts: contactsTable } = await import("@shared/schema");
+      const { eq, isNull } = await import("drizzle-orm");
+      const rows = await db
+        .select({
+          id: contactsTable.id,
+          firstName: contactsTable.firstName,
+          lastName: contactsTable.lastName,
+          email: contactsTable.email,
+          emailStatus: contactsTable.emailStatus,
+          isDecisionMaker: contactsTable.isDecisionMaker,
+          decisionMakerConfidence: contactsTable.decisionMakerConfidence,
+          title: contactsTable.title,
+          companyName: contactsTable.companyName,
+          bouncedAt: contactsTable.bouncedAt,
+        })
+        .from(contactsTable)
+        .innerJoin(contactCompanies, eq(contactCompanies.contactId, contactsTable.id))
+        .where(eq(contactCompanies.companyId, companyId));
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.put("/api/companies/:id", isDashboardUser, async (req, res) => {
     try {
       const companyId = Number(req.params.id);
@@ -584,6 +623,173 @@ export function registerContactsRoutes(app: Express) {
       res.json(company);
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === DECISION MAKER MANUAL OVERRIDE ===
+  app.patch("/api/contacts/:id/decision-maker", isDashboardUser, async (req, res) => {
+    try {
+      const contactId = Number(req.params.id);
+      const { isDecisionMaker } = z.object({ isDecisionMaker: z.boolean() }).parse(req.body);
+      const contact = await storage.getContact(contactId);
+      if (!contact) return res.status(404).json({ message: "Contact not found" });
+      const updated = await storage.updateContact(contactId, {
+        isDecisionMaker,
+        decisionMakerConfidence: isDecisionMaker ? 100 : 0,
+      }, { actorType: "user", userId: (req.user as any)?.id ?? null });
+      res.json(updated);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === MANAGEMENT TYPE ===
+  app.patch("/api/contacts/:id/management-type", isDashboardUser, async (req, res) => {
+    try {
+      const contactId = Number(req.params.id);
+      const { managementType } = z.object({ managementType: z.enum(["unified", "per_location", "unknown"]) }).parse(req.body);
+      const contact = await storage.getContact(contactId);
+      if (!contact) return res.status(404).json({ message: "Contact not found" });
+      const updated = await storage.updateContact(contactId, { managementType }, { actorType: "user", userId: (req.user as any)?.id ?? null });
+      res.json(updated);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/companies/:id/management-type", isDashboardUser, async (req, res) => {
+    try {
+      const companyId = Number(req.params.id);
+      const { managementType } = z.object({ managementType: z.enum(["unified", "per_location", "unknown"]) }).parse(req.body);
+      const company = await storage.getCompany(companyId);
+      if (!company) return res.status(404).json({ message: "Company not found" });
+      const updated = await storage.updateCompany(companyId, { managementType } as any);
+      res.json(updated);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === M&A EVENTS ===
+  app.get("/api/ma-events", isDashboardUser, async (req, res) => {
+    try {
+      const entityType = req.query.entityType as string | undefined;
+      const entityId = req.query.entityId ? Number(req.query.entityId) : undefined;
+      const { db } = await import("../db");
+      const { maEvents } = await import("@shared/schema");
+      const { eq, and, desc } = await import("drizzle-orm");
+
+      let rows;
+      if (entityType && entityId) {
+        rows = await db.select().from(maEvents).where(
+          and(eq(maEvents.entityType, entityType), eq(maEvents.entityId, entityId))
+        ).orderBy(desc(maEvents.eventDate));
+      } else {
+        rows = await db.select().from(maEvents).orderBy(desc(maEvents.eventDate));
+      }
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/ma-events", isDashboardUser, async (req, res) => {
+    try {
+      const { maEvents, insertMaEventSchema, entityRelationships } = await import("@shared/schema");
+      const { db } = await import("../db");
+      const input = insertMaEventSchema.parse({
+        ...req.body,
+        eventDate: req.body.eventDate ? new Date(req.body.eventDate) : new Date(),
+        createdBy: (req.user as any)?.username ?? "system",
+      });
+
+      const [event] = await db.insert(maEvents).values(input).returning();
+
+      const relTypeMap: Record<string, string> = {
+        acquired: "acquired_by",
+        merged_into: "merged_into",
+        rebranded: "rebranded_as",
+        closed: "closed",
+      };
+      const relType = relTypeMap[input.eventType] ?? input.eventType;
+
+      if (input.counterpartyContactId) {
+        const { sql } = await import("drizzle-orm");
+        await db.insert(entityRelationships).values({
+          sourceEntityType: input.entityType,
+          sourceEntityId: input.entityId,
+          targetEntityType: "contact",
+          targetEntityId: input.counterpartyContactId,
+          relationshipType: relType,
+          source: "ma_event",
+          note: input.note ?? undefined,
+        }).onConflictDoNothing();
+      }
+
+      await storage.createAuditLog({
+        userId: (req.user as any)?.id ?? null,
+        actorType: "user",
+        action: "ma_event_created",
+        entityType: input.entityType,
+        entityId: input.entityId,
+        details: { eventType: input.eventType, counterpartyName: input.counterpartyName, eventDate: input.eventDate },
+      });
+
+      res.json(event);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/ma-events/:id", isDashboardUser, async (req, res) => {
+    try {
+      const eventId = Number(req.params.id);
+      const { maEvents } = await import("@shared/schema");
+      const { db } = await import("../db");
+      const { eq } = await import("drizzle-orm");
+      await db.delete(maEvents).where(eq(maEvents.id, eventId));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === COMPANY INTELLIGENCE EMAIL HEALTH ===
+  app.get("/api/contacts/:id/email-health", isDashboardUser, async (req, res) => {
+    try {
+      const parentId = Number(req.params.id);
+      const children = await storage.getChildLocations(parentId);
+      const allIds = [parentId, ...children.map(c => c.id)];
+      const { db } = await import("../db");
+      const { contacts: contactsTable } = await import("@shared/schema");
+      const { inArray, isNull, and } = await import("drizzle-orm");
+      const allContacts = await db.select({
+        id: contactsTable.id,
+        email: contactsTable.email,
+        emailStatus: contactsTable.emailStatus,
+        firstName: contactsTable.firstName,
+        lastName: contactsTable.lastName,
+        companyName: contactsTable.companyName,
+      }).from(contactsTable).where(
+        and(inArray(contactsTable.id, allIds), isNull(contactsTable.archivedAt))
+      );
+
+      const summary = {
+        total: allContacts.length,
+        active: allContacts.filter(c => c.emailStatus === "active").length,
+        bounced: allContacts.filter(c => c.emailStatus === "bounced").length,
+        invalid: allContacts.filter(c => c.emailStatus === "invalid").length,
+        optedOut: allContacts.filter(c => c.emailStatus === "opted-out").length,
+        roleBased: allContacts.filter(c => c.emailStatus === "role-based").length,
+        contacts: allContacts,
+      };
+      res.json(summary);
+    } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
   });

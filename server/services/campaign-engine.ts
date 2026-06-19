@@ -192,6 +192,21 @@ export async function processSendQueue(maxToSend?: number): Promise<{ sent: numb
         continue;
       }
 
+      if (prospect.contactId) {
+        const contact = await storage.getContact(prospect.contactId);
+        if (contact && (contact.emailStatus === "bounced" || contact.emailStatus === "invalid")) {
+          await storage.updateOutboundMessage(msg.id, { status: "skipped", error: `Email status: ${contact.emailStatus}` });
+          await storage.createAuditLog({
+            actorType: "system",
+            action: "campaign_send_skipped_bad_email",
+            entityType: "contact",
+            entityId: prospect.contactId,
+            details: { emailStatus: contact.emailStatus, messageId: msg.id, reason: "contact email status blocks send" },
+          });
+          continue;
+        }
+      }
+
       const campaign = msg.campaignId ? await storage.getCampaign(msg.campaignId) : null;
       let subject = msg.subject || "";
       let body = msg.body || "";

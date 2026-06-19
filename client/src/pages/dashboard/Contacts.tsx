@@ -868,7 +868,7 @@ export default function Contacts() {
                       />
                     </TableCell>
                     <TableCell className="font-medium">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-bold shrink-0">
                           {contact.firstName[0]}{contact.lastName[0]}
                         </div>
@@ -884,6 +884,16 @@ export default function Contacts() {
                         {isArchived && (
                           <Badge variant="outline" className="text-xs no-default-hover-elevate no-default-active-elevate" data-testid={`badge-archived-contact-${contact.id}`}>
                             <Archive className="w-3 h-3 mr-1" /> Archived
+                          </Badge>
+                        )}
+                        {contact.isDecisionMaker && (
+                          <Badge variant="default" className="text-xs bg-amber-500 text-white border-0 no-default-hover-elevate no-default-active-elevate" data-testid={`badge-dm-${contact.id}`}>
+                            DM
+                          </Badge>
+                        )}
+                        {contact.emailStatus === "bounced" && (
+                          <Badge variant="destructive" className="text-xs no-default-hover-elevate no-default-active-elevate" data-testid={`badge-bounced-${contact.id}`}>
+                            Bounced
                           </Badge>
                         )}
                       </div>

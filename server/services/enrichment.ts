@@ -123,6 +123,30 @@ Scoring criteria:
   }
 }
 
+export function computeDecisionMakerConfidence(title: string): { isDecisionMaker: boolean; confidence: number } {
+  const t = title.toLowerCase();
+  if (/\b(owner|ceo|chief executive|president|principal)\b/.test(t)) {
+    return { isDecisionMaker: true, confidence: 95 };
+  }
+  if (/\b(managing member|managing partner|partner)\b/.test(t)) {
+    return { isDecisionMaker: true, confidence: 80 };
+  }
+  if (/\b(director|vp|vice president)\b/.test(t)) {
+    return { isDecisionMaker: true, confidence: 60 };
+  }
+  if (/\bmanager\b/.test(t)) {
+    return { isDecisionMaker: false, confidence: 40 };
+  }
+  return { isDecisionMaker: false, confidence: 0 };
+}
+
+export async function applyDecisionMakerDetection(contactId: number, title: string): Promise<void> {
+  try {
+    const { isDecisionMaker, confidence } = computeDecisionMakerConfidence(title);
+    await storage.updateContact(contactId, { isDecisionMaker, decisionMakerConfidence: confidence });
+  } catch {}
+}
+
 export async function enrichProspect(prospectId: number): Promise<Prospect | null> {
   const prospect = await storage.getProspect(prospectId);
   if (!prospect) return null;
@@ -197,6 +221,9 @@ export async function enrichProspect(prospectId: number): Promise<Prospect | nul
         detectAds(contact.businessId).catch(err =>
           console.error(`[Enrichment] Ad detection failed for business ${contact.businessId}:`, err)
         );
+      }
+      if (contact && contact.title) {
+        await applyDecisionMakerDetection(contact.id, contact.title);
       }
     } catch {}
   }

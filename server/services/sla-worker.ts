@@ -353,13 +353,13 @@ export async function runFullSlaLoop(): Promise<void> {
   }
 
   try {
-    const { runBounceFeedback } = await import("./bounce-feedback");
-    const result = await runBounceFeedback();
+    const { runBounceFeedbackWriteback } = await import("./bounce-feedback");
+    const result = await runBounceFeedbackWriteback();
     if (result.updated > 0) {
-      console.log(`[SlaLoop] BounceFeedback: ${result.updated} contacts marked bounced`);
+      console.log(`[SlaLoop:BounceFeedback] Marked ${result.updated} contacts as bounced`);
     }
   } catch (err) {
-    console.error("[SlaLoop] runBounceFeedback error:", err);
+    console.error("[SlaLoop] runBounceFeedbackWriteback error:", err);
   }
 
   if (fullLoopCycleCount % FULL_LOOP_STAGE_PROGRESSION_EVERY_N === 0) {

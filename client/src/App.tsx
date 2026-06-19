@@ -119,6 +119,7 @@ const NotFound = lazy(() => import("@/pages/not-found"));
 
 // ─── Dashboard Pages ──────────────────────────────────────────────────────────
 const Overview = lazy(() => import("@/pages/dashboard/Overview"));
+const CompanyDetail = lazy(() => import("@/pages/dashboard/CompanyDetail"));
 const Contacts = lazy(() => import("@/pages/dashboard/Contacts"));
 const Chat = lazy(() => import("@/pages/dashboard/Chat"));
 const ConversationAI = lazy(() => import("@/pages/dashboard/ConversationAI"));
@@ -400,6 +401,9 @@ function Router() {
         {/* Dashboard Routes */}
         <Route path="/dashboard">
           <ProtectedRoute component={Overview} />
+        </Route>
+        <Route path="/dashboard/companies/:id">
+          <ProtectedRoute component={CompanyDetail} />
         </Route>
         <Route path="/dashboard/contacts/:id">
           <ProtectedRoute component={ContactDetail} />
