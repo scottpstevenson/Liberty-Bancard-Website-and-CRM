@@ -7,6 +7,7 @@ import type { PartnerOrganization, Deal, Contact } from "@shared/schema";
 import { contacts } from "@shared/schema";
 import { isGhlConfigured, sendGhlEmailForMerchant } from "./ghl";
 import { sendSmtpEmail } from "./smtp-email";
+import { addNote } from "./sdr/ghl-client";
 
 export interface CoBrandedProposalInput {
   partnerOrgId: number;
