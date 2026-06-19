@@ -22,17 +22,17 @@ const SEQUENCES: SequenceSeed[] = sequencesData as unknown as SequenceSeed[];
 export async function seedSequences() {
   try {
     const existingSequences = await storage.getFollowUpSequences();
-    const existingNames = new Set(existingSequences.map((s: any) => s.name));
+    const existingByName = new Map(existingSequences.map((s: any) => [s.name, s]));
 
-    const toSeed = SEQUENCES.filter(seq => !existingNames.has(seq.name));
+    // --- Pass 1: Create sequences missing from the DB entirely ---
+    const toSeed = SEQUENCES.filter(seq => !existingByName.has(seq.name));
     if (toSeed.length === 0) {
-      console.log(`[Seed] All ${existingSequences.length} sequences already exist, skipping new seed.`);
+      console.log(`[Seed] All ${existingSequences.length} sequences already exist, checking for stubs...`);
     } else {
       console.log(`[Seed] Seeding ${toSeed.length} drip campaign sequences (${existingSequences.length} already exist)...`);
     }
 
     for (const seq of toSeed) {
-
       const created = await storage.createFollowUpSequence({
         name: seq.name,
         description: seq.description,
@@ -57,6 +57,38 @@ export async function seedSequences() {
       }
 
       console.log(`[Seed] Created sequence: "${seq.name}" (${seq.steps.length} steps)`);
+    }
+
+    // --- Pass 2: Hydrate existing stub sequences (totalSteps === 0) ---
+    const stubs = SEQUENCES.filter(seq => {
+      const existing = existingByName.get(seq.name);
+      return existing && (existing as any).totalSteps === 0 && seq.steps.length > 0;
+    });
+
+    if (stubs.length > 0) {
+      console.log(`[Seed] Hydrating ${stubs.length} stub sequences with seed steps...`);
+      for (const seq of stubs) {
+        const existing = existingByName.get(seq.name) as any;
+        for (const step of seq.steps) {
+          await storage.createSequenceStep({
+            sequenceId: existing.id,
+            stepOrder: step.stepOrder,
+            actionType: step.actionType,
+            delayDays: step.delayDays,
+            delayHours: step.delayHours,
+            subject: step.subject || null,
+            body: step.body || null,
+            templateId: null,
+            config: step.config || null,
+          });
+        }
+        await storage.updateFollowUpSequence(existing.id, {
+          totalSteps: seq.steps.length,
+        });
+        console.log(`[Seed] Hydrated stub sequence: "${seq.name}" (${seq.steps.length} steps added)`);
+      }
+    } else {
+      console.log(`[Seed] No stub sequences found — all seeded sequences have steps.`);
     }
 
     console.log("[Seed] All sequences seeded successfully.");

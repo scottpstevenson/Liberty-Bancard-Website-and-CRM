@@ -2403,5 +2403,1284 @@
         "body": "{{firstName}}, last message from Liberty Bancard — no pressure at all. If you ever want that free review, I'm here: https://api.leadconnectorhq.com/widget/bookings/libertybancard — Scott"
       }
     ]
+  },
+  {
+    "name": "Inbound Confirmation",
+    "description": "Immediate response sequence for all new inbound leads from web forms, GHL webhooks, or tag triggers. Sends confirmation, booking link, and SDR task.",
+    "triggerType": "manual",
+    "triggerConfig": {
+      "category": "inbound",
+      "vertical": "all"
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "email",
+        "delayDays": 0,
+        "delayHours": 0,
+        "subject": "{{firstName}}, we got your request — Liberty Bancard",
+        "body": "<p>Hi {{firstName}},</p><p>Thanks for reaching out to Liberty Bancard. We received your request and someone from our team will be in touch shortly.</p><p>In the meantime, you can book a quick 10-minute call to get your free savings analysis:</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a Free 10-Minute Call</a></p><p>Talk soon,<br/>The Liberty Bancard Team</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "sms",
+        "delayDays": 0,
+        "delayHours": 0,
+        "body": "Hi {{firstName}}, Liberty Bancard here — got your request! We'll reach out shortly. Want to skip the wait and book a 10-min call? https://api.leadconnectorhq.com/widget/bookings/libertybancard — Reply STOP to opt out"
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "call_reminder",
+        "delayDays": 0,
+        "delayHours": 0,
+        "body": "New inbound lead — call {{firstName}} at {{companyName}} within 15 minutes. They just submitted a form or triggered an inbound tag. Qualify: volume, current processor, pain points."
+      }
+    ]
+  },
+  {
+    "name": "Switch & Save (Core Sales)",
+    "description": "Core consultative sales sequence for pre-qualified switch prospects. Builds urgency around switching processors with value-first messaging.",
+    "triggerType": "manual",
+    "triggerConfig": {
+      "category": "sales",
+      "vertical": "all"
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "email",
+        "delayDays": 0,
+        "delayHours": 0,
+        "subject": "Liberty Bancard × {{companyName}} — here's why merchants switch",
+        "body": "<p>Hi {{firstName}},</p><p>Most merchants switch processors for one of three reasons:</p><ul><li>They found out they were paying way more than they should</li><li>They got hit with a funding hold or reserve they didn't expect</li><li>Their processor stopped being responsive when problems came up</li></ul><p>We offer a free side-by-side comparison of your current setup vs. what we can provide. No fluff — just the actual numbers.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Get Your Free Comparison</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "sms",
+        "delayDays": 3,
+        "delayHours": 0,
+        "body": "Hey {{firstName}}, quick follow-up — we can usually find {{estimatedSavings}} in savings vs. your current processor. Upload a statement for a free exact breakdown: https://api.leadconnectorhq.com/widget/bookings/libertybancard — Liberty Bancard. Reply STOP to opt out"
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "email",
+        "delayDays": 7,
+        "delayHours": 0,
+        "subject": "{{firstName}} — making the switch easier than you think",
+        "body": "<p>Hi {{firstName}},</p><p>The #1 reason merchants don't switch: they think it's a hassle.</p><p>Here's the reality:</p><ul><li>We handle everything — hardware, setup, processor handoff</li><li>Most merchants are live within 3–5 business days</li><li>No downtime. No interruption to your business.</li><li>No long-term contracts or early termination fees</li></ul><p>If you'd like a no-pressure comparison of your current setup, we're ready when you are.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a 10-Minute Call</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      }
+    ]
+  },
+  {
+    "name": "V-Retail: SDR Outbound Prospecting",
+    "description": "Vertical-specific SDR outbound for retail merchants. Focuses on fast checkout, tip prompts, inventory POS integration, and chargeback reduction.",
+    "triggerType": "manual",
+    "triggerConfig": {
+      "category": "sdr",
+      "vertical": "retail"
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "email",
+        "delayDays": 0,
+        "delayHours": 0,
+        "subject": "Liberty Bancard × {{companyName}} — lower your retail processing costs",
+        "body": "<p>Hi {{firstName}},</p><p>We work with retail businesses on payment processing — especially merchants dealing with high transaction volume, inventory POS integration, and chargeback exposure.</p><p>3 things we commonly improve for retail merchants:</p><ul><li>Effective rate on card-present transactions</li><li>POS integration that syncs with inventory</li><li>Chargeback prevention with better receipt and return documentation</li></ul><p>Free 10-minute statement review — most retail merchants find $200–$400/month in savings.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Get Your Free Review</a></p><p>— {{agentName}}, Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "email",
+        "delayDays": 3,
+        "delayHours": 0,
+        "subject": "Retail POS setup that actually saves you money, {{firstName}}",
+        "body": "<p>Hi {{firstName}},</p><p>The right retail payment setup means:</p><ul><li>Fast chip + tap checkout that keeps lines moving</li><li>Tip prompts that increase average transaction value</li><li>Clear reporting that matches your inventory system</li><li>Dispute protection with digital receipts and clear return policies</li></ul><p>We'll map the best setup for your store format and volume.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">See a Better Setup</a></p><p>— {{agentName}}, Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "call_reminder",
+        "delayDays": 7,
+        "delayHours": 0,
+        "body": "Call {{firstName}} at {{companyName}} (retail vertical). Goal: book a statement review or qualify volume. Key talking points: effective rate, POS integration, chargeback reduction. Estimated savings: {{estimatedSavings}}."
+      }
+    ]
+  },
+  {
+    "name": "V-Retail: Inbound Lead Nurture",
+    "description": "Nurture sequence for retail merchants who came in through inbound channels. Warm, educational, and conversion-focused.",
+    "triggerType": "manual",
+    "triggerConfig": {
+      "category": "inbound",
+      "vertical": "retail"
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "email",
+        "delayDays": 0,
+        "delayHours": 0,
+        "subject": "{{firstName}}, welcome — Liberty Bancard for retail merchants",
+        "body": "<p>Hi {{firstName}},</p><p>Thanks for reaching out! We specialize in payment processing for retail businesses and we're ready to help {{companyName}}.</p><p>To get started, the fastest path is uploading a recent processing statement. We'll have a full savings breakdown ready within 24 hours:</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Upload Statement / Book a Call</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "sms",
+        "delayDays": 1,
+        "delayHours": 0,
+        "body": "Hi {{firstName}}, Liberty Bancard — just following up on your inquiry. We work with retail businesses like {{companyName}} to lower processing costs and improve checkout. Ready when you are: https://api.leadconnectorhq.com/widget/bookings/libertybancard — Reply STOP to opt out"
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "email",
+        "delayDays": 3,
+        "delayHours": 0,
+        "subject": "{{firstName}}, what most retail merchants overpay for",
+        "body": "<p>Hi {{firstName}},</p><p>Retail merchants most commonly overpay in three areas:</p><ul><li>Interchange markup above standard rates</li><li>Monthly fees that add up quietly</li><li>Downgraded transactions (swiped instead of dipped)</li></ul><p>A quick statement review tells us exactly where {{companyName}} stands.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Get Your Review</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      }
+    ]
+  },
+  {
+    "name": "V-Retail: Account Management Ops",
+    "description": "Ongoing account management touchpoints for active retail merchants. Quarterly check-ins and relationship maintenance.",
+    "triggerType": "manual",
+    "triggerConfig": {
+      "category": "operations",
+      "vertical": "retail"
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "call_reminder",
+        "delayDays": 14,
+        "delayHours": 0,
+        "body": "Quarterly check-in call for retail merchant {{firstName}} at {{companyName}}. Review: transaction volume trends, any chargeback issues, POS hardware needs, satisfaction with funding speed. Log notes in CRM."
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "email",
+        "delayDays": 30,
+        "delayHours": 0,
+        "subject": "{{firstName}}, quick check-in from Liberty Bancard",
+        "body": "<p>Hi {{firstName}},</p><p>Just checking in on {{companyName}}. A few things worth reviewing this quarter:</p><ul><li>Are your processing rates still competitive?</li><li>Any chargeback or dispute issues we can help address?</li><li>Hardware working well — any terminals needing replacement?</li></ul><p>We're here if anything comes up. Just reply or book a quick call.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a Check-In Call</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "call_reminder",
+        "delayDays": 60,
+        "delayHours": 0,
+        "body": "60-day ops call for retail merchant {{firstName}} at {{companyName}}. Check volume trends, upsell opportunities (tip prompts, loyalty, cash discount), and referral potential. Keep under 10 minutes."
+      }
+    ]
+  },
+  {
+    "name": "V-Auto: SDR Outbound Prospecting",
+    "description": "Vertical-specific SDR outbound for auto dealerships. Focuses on F&I payments, large ticket financing, reserve accounts, and high-volume card acceptance.",
+    "triggerType": "manual",
+    "triggerConfig": {
+      "category": "sdr",
+      "vertical": "auto"
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "email",
+        "delayDays": 0,
+        "delayHours": 0,
+        "subject": "Liberty Bancard × {{companyName}} — processing for auto dealers",
+        "body": "<p>Hi {{firstName}},</p><p>Auto dealerships have unique payment processing needs — high-ticket transactions, F&I payments, trade-in credits, and reserve account management.</p><p>We work with dealers to:</p><ul><li>Reduce effective rate on large vehicle and service transactions</li><li>Set up proper F&I payment workflows</li><li>Manage reserve accounts to avoid funding disruptions</li><li>Improve dispute documentation on service department charges</li></ul><p>Free 10-minute review — most dealers in your volume range find meaningful savings.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Get Your Free Review</a></p><p>— {{agentName}}, Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "email",
+        "delayDays": 3,
+        "delayHours": 0,
+        "subject": "F&I payment setup for dealers, {{firstName}}",
+        "body": "<p>Hi {{firstName}},</p><p>F&I payment handling is where most dealers lose money:</p><ul><li>Large transactions flagged for review if not set up correctly</li><li>Reserve holds that impact dealer cash flow</li><li>Downgraded transactions on key-entered payments</li></ul><p>We build dealer-specific payment workflows that handle all of this cleanly.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a Dealer Review</a></p><p>— {{agentName}}, Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "call_reminder",
+        "delayDays": 7,
+        "delayHours": 0,
+        "body": "Call {{firstName}} at {{companyName}} (auto dealer vertical). Key talking points: effective rate on large transactions, F&I payment workflows, reserve account management, service department disputes. Estimated savings: {{estimatedSavings}}."
+      }
+    ]
+  },
+  {
+    "name": "V-Auto: Inbound Lead Nurture",
+    "description": "Nurture sequence for auto dealer inbound leads. Warm, educational messaging about dealer-specific payment needs.",
+    "triggerType": "manual",
+    "triggerConfig": {
+      "category": "inbound",
+      "vertical": "auto"
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "email",
+        "delayDays": 0,
+        "delayHours": 0,
+        "subject": "{{firstName}}, thanks for reaching out — Liberty Bancard for dealers",
+        "body": "<p>Hi {{firstName}},</p><p>Thanks for your interest in Liberty Bancard. We specialize in payment processing for auto dealerships and we understand the unique challenges of dealer payments.</p><p>To prepare a tailored comparison for {{companyName}}, upload a recent processing statement and we'll have a full analysis ready within 24 hours:</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Upload Statement / Book a Call</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "sms",
+        "delayDays": 1,
+        "delayHours": 0,
+        "body": "Hi {{firstName}}, Liberty Bancard — following up on your inquiry for {{companyName}}. We handle dealer payment setups daily. Ready to show you what we can do: https://api.leadconnectorhq.com/widget/bookings/libertybancard — Reply STOP to opt out"
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "email",
+        "delayDays": 3,
+        "delayHours": 0,
+        "subject": "{{firstName}}, reserve accounts and dealer payment risk",
+        "body": "<p>Hi {{firstName}},</p><p>Reserve accounts and funding holds are the #1 pain point we hear from auto dealers.</p><p>We help dealers set up their merchant accounts correctly from the start — with volume declarations, proper business descriptions, and reserve account terms that are transparent and fair.</p><p>Want us to review your current setup?</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a Review</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      }
+    ]
+  },
+  {
+    "name": "V-Auto: Account Management Ops",
+    "description": "Ongoing ops touchpoints for active auto dealer merchants. Focuses on volume reviews, reserve account health, and service department support.",
+    "triggerType": "manual",
+    "triggerConfig": {
+      "category": "operations",
+      "vertical": "auto"
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "call_reminder",
+        "delayDays": 14,
+        "delayHours": 0,
+        "body": "Quarterly check-in for auto dealer {{firstName}} at {{companyName}}. Review: monthly volume vs. declared volume, reserve account status, any large-ticket transaction flags, service department chargeback ratio."
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "email",
+        "delayDays": 30,
+        "delayHours": 0,
+        "subject": "{{firstName}}, dealer account check-in — Liberty Bancard",
+        "body": "<p>Hi {{firstName}},</p><p>Quick account check-in for {{companyName}}. Worth reviewing this quarter:</p><ul><li>Is your declared monthly volume still accurate?</li><li>Any reserve account questions or concerns?</li><li>Service department disputes or chargeback issues?</li></ul><p>We're a call away. Let us know how things are running.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a Check-In</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "call_reminder",
+        "delayDays": 60,
+        "delayHours": 0,
+        "body": "60-day ops call for auto dealer {{firstName}} at {{companyName}}. Check reserve account status, upsell service department text-to-pay, referral to other dealers in the network."
+      }
+    ]
+  },
+  {
+    "name": "V-Medical: SDR Outbound Prospecting",
+    "description": "Vertical-specific SDR outbound for medical practices. Focuses on card-on-file, co-pay collection, recurring billing, and patient experience.",
+    "triggerType": "manual",
+    "triggerConfig": {
+      "category": "sdr",
+      "vertical": "medical"
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "email",
+        "delayDays": 0,
+        "delayHours": 0,
+        "subject": "Liberty Bancard × {{companyName}} — patient payment workflow",
+        "body": "<p>Hi {{firstName}},</p><p>Medical practices have specific payment needs that most processors don't handle well — co-pay collection, card-on-file for recurring visits, and no-show fee enforcement.</p><p>We help practices:</p><ul><li>Set up compliant card-on-file with proper patient consent</li><li>Reduce front-desk time on payment collection</li><li>Prevent chargebacks on no-show fees with signed authorization</li><li>Offer patient financing for larger balances</li></ul><p>Free 10-minute patient payment workflow review.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book Your Free Review</a></p><p>— {{agentName}}, Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "email",
+        "delayDays": 3,
+        "delayHours": 0,
+        "subject": "Card-on-file best practices for medical offices, {{firstName}}",
+        "body": "<p>Hi {{firstName}},</p><p>Medical card-on-file done right requires:</p><ul><li>Signed patient authorization with clear terms</li><li>Explicit consent for each charge type (co-pay, balance, no-show fee)</li><li>Secure tokenized storage (no raw card numbers stored)</li><li>Clear receipt language that matches what was signed</li></ul><p>We help practices implement this correctly from day one to avoid disputes.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Get Set Up Correctly</a></p><p>— {{agentName}}, Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "call_reminder",
+        "delayDays": 7,
+        "delayHours": 0,
+        "body": "Call {{firstName}} at {{companyName}} (medical vertical). Key topics: card-on-file setup, co-pay collection efficiency, no-show fee chargebacks, patient financing options. Estimated savings: {{estimatedSavings}}."
+      }
+    ]
+  },
+  {
+    "name": "V-Medical: Inbound Lead Nurture",
+    "description": "Nurture for medical practice inbound leads. Warm, HIPAA-aware messaging focused on patient payment experience and practice efficiency.",
+    "triggerType": "manual",
+    "triggerConfig": {
+      "category": "inbound",
+      "vertical": "medical"
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "email",
+        "delayDays": 0,
+        "delayHours": 0,
+        "subject": "{{firstName}}, welcome — Liberty Bancard for medical practices",
+        "body": "<p>Hi {{firstName}},</p><p>Thanks for reaching out! We work with medical practices across Florida on patient payment workflows, co-pay collection, and processing cost reduction.</p><p>Next step — upload a recent processing statement and we'll have a comparison ready within 24 hours:</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Upload Statement / Book a Call</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "sms",
+        "delayDays": 1,
+        "delayHours": 0,
+        "body": "Hi {{firstName}}, Liberty Bancard — following up on {{companyName}}'s inquiry. We specialize in medical practice payment workflows. Ready when you are: https://api.leadconnectorhq.com/widget/bookings/libertybancard — Reply STOP to opt out"
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "email",
+        "delayDays": 3,
+        "delayHours": 0,
+        "subject": "{{firstName}}, reducing front-desk payment friction",
+        "body": "<p>Hi {{firstName}},</p><p>Front-desk payment collection is one of the biggest time sinks for medical practices. The right setup reduces it significantly:</p><ul><li>Text-to-pay for outstanding balances (patients pay from their phone)</li><li>Card-on-file for future visits (one-time setup, no card needed each visit)</li><li>Clear statements patients recognize (reduces \"I didn't authorize this\" calls)</li></ul><p>We'll map the right workflow for your practice.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Get a Workflow Review</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      }
+    ]
+  },
+  {
+    "name": "V-Medical: Account Management Ops",
+    "description": "Ongoing account management for active medical practice merchants. Quarterly health checks focused on billing efficiency and compliance.",
+    "triggerType": "manual",
+    "triggerConfig": {
+      "category": "operations",
+      "vertical": "medical"
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "call_reminder",
+        "delayDays": 14,
+        "delayHours": 0,
+        "body": "Quarterly ops call for medical practice {{firstName}} at {{companyName}}. Review: card-on-file adoption rate, co-pay collection improvement, chargeback ratio, any no-show fee disputes. Log outcome."
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "email",
+        "delayDays": 30,
+        "delayHours": 0,
+        "subject": "{{firstName}}, practice payment check-in — Liberty Bancard",
+        "body": "<p>Hi {{firstName}},</p><p>Quick quarterly check-in for {{companyName}}:</p><ul><li>Is card-on-file working well for your patients?</li><li>Any chargeback or dispute issues we should look at?</li><li>Interested in patient financing options?</li></ul><p>We're here to help. Reply or grab a call time below.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a Check-In</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "call_reminder",
+        "delayDays": 60,
+        "delayHours": 0,
+        "body": "60-day ops call for medical practice {{firstName}} at {{companyName}}. Check patient financing adoption, upsell text-to-pay for balance collection, referral opportunities to specialist colleagues."
+      }
+    ]
+  },
+  {
+    "name": "V-Med Spa: SDR Outbound Prospecting",
+    "description": "Vertical-specific SDR outbound for med spas. Focuses on membership billing, deposits, card-on-file, and package payments.",
+    "triggerType": "manual",
+    "triggerConfig": {
+      "category": "sdr",
+      "vertical": "medspa"
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "email",
+        "delayDays": 0,
+        "delayHours": 0,
+        "subject": "Liberty Bancard × {{companyName}} — membership & package payments",
+        "body": "<p>Hi {{firstName}},</p><p>Med spas have a unique payment mix — memberships, treatment packages, deposits, and high-value single treatments. Most processors aren't set up to handle this well.</p><p>We help med spas:</p><ul><li>Set up membership billing with card updater to reduce involuntary churn</li><li>Collect deposits properly to eliminate no-show losses</li><li>Process package payments without triggering disputes</li><li>Offer patient financing for premium treatments</li></ul><p>Free payment workflow review — usually finds $300–$800/month in improvements.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book Your Free Review</a></p><p>— {{agentName}}, Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "email",
+        "delayDays": 3,
+        "delayHours": 0,
+        "subject": "Membership churn from failed payments, {{firstName}}",
+        "body": "<p>Hi {{firstName}},</p><p>Failed membership payments are one of the top reasons med spas lose clients. Card updater auto-refreshes expired cards before they fail — dramatically cutting involuntary churn.</p><p>Combined with smart retry logic, most spas recover 60–80% of failed charges that would otherwise be lost.</p><p>Worth a 10-minute call to see what this looks like for your membership base?</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a Review</a></p><p>— {{agentName}}, Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "call_reminder",
+        "delayDays": 7,
+        "delayHours": 0,
+        "body": "Call {{firstName}} at {{companyName}} (med spa vertical). Key topics: membership billing setup, deposit collection for no-show reduction, card-on-file, package payment workflows. Estimated savings: {{estimatedSavings}}."
+      }
+    ]
+  },
+  {
+    "name": "V-Med Spa: Inbound Lead Nurture",
+    "description": "Nurture for med spa inbound leads. Focuses on membership and package payment optimization.",
+    "triggerType": "manual",
+    "triggerConfig": {
+      "category": "inbound",
+      "vertical": "medspa"
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "email",
+        "delayDays": 0,
+        "delayHours": 0,
+        "subject": "{{firstName}}, welcome — Liberty Bancard for med spas",
+        "body": "<p>Hi {{firstName}},</p><p>Thanks for reaching out! We specialize in payment setups for med spas — memberships, packages, deposits, and high-value treatment collections.</p><p>Upload a recent statement and we'll have a tailored comparison for {{companyName}} within 24 hours:</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Upload Statement / Book a Call</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "sms",
+        "delayDays": 1,
+        "delayHours": 0,
+        "body": "Hi {{firstName}}, Liberty Bancard — following up on your med spa inquiry. We work with spas on memberships, deposits, and card-on-file. Ready to help: https://api.leadconnectorhq.com/widget/bookings/libertybancard — Reply STOP to opt out"
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "email",
+        "delayDays": 3,
+        "delayHours": 0,
+        "subject": "{{firstName}}, deposit protection for no-shows",
+        "body": "<p>Hi {{firstName}},</p><p>No-shows are one of the biggest hidden costs for med spas. A properly configured card-on-file deposit policy — with signed consent — eliminates most of it.</p><p>We set this up for spas across Florida. Takes about a day to implement and immediately protects your booking value.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Set Up Deposit Protection</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      }
+    ]
+  },
+  {
+    "name": "V-Med Spa: Account Management Ops",
+    "description": "Ongoing account management for active med spa merchants. Quarterly reviews focused on membership health and upsell opportunities.",
+    "triggerType": "manual",
+    "triggerConfig": {
+      "category": "operations",
+      "vertical": "medspa"
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "call_reminder",
+        "delayDays": 14,
+        "delayHours": 0,
+        "body": "Quarterly ops call for med spa {{firstName}} at {{companyName}}. Review: membership billing health, failed payment recovery rate, deposit collection compliance, no-show chargeback issues. Log outcome in CRM."
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "email",
+        "delayDays": 30,
+        "delayHours": 0,
+        "subject": "{{firstName}}, med spa account check-in — Liberty Bancard",
+        "body": "<p>Hi {{firstName}},</p><p>Quarterly check-in for {{companyName}}:</p><ul><li>Is membership billing running smoothly?</li><li>Any failed payment recovery issues?</li><li>Deposit collection protecting your no-show slots?</li></ul><p>We're here to help optimize. Book a quick call anytime.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a Check-In</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "call_reminder",
+        "delayDays": 60,
+        "delayHours": 0,
+        "body": "60-day ops call for med spa {{firstName}} at {{companyName}}. Review patient financing adoption, upsell treatment package payment links, referral opportunity to other aesthetic practices."
+      }
+    ]
+  },
+  {
+    "name": "V-Dental: SDR Outbound Prospecting",
+    "description": "Vertical-specific SDR outbound for dental practices. Focuses on patient balance collection, text-to-pay, payment plans, and front-desk efficiency.",
+    "triggerType": "manual",
+    "triggerConfig": {
+      "category": "sdr",
+      "vertical": "dental"
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "email",
+        "delayDays": 0,
+        "delayHours": 0,
+        "subject": "Liberty Bancard × {{companyName}} — patient balance collection",
+        "body": "<p>Hi {{firstName}},</p><p>Dental practices lose significant revenue to uncollected patient balances — and front-desk teams spend too much time chasing them.</p><p>We help dental offices:</p><ul><li>Collect balances via text-to-pay (patients pay directly from their phone)</li><li>Set up payment plans for larger treatments</li><li>Reduce front-desk collection time</li><li>Lower processing costs on high-volume patient payments</li></ul><p>Free 10-minute patient payment review.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book Your Free Review</a></p><p>— {{agentName}}, Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "email",
+        "delayDays": 3,
+        "delayHours": 0,
+        "subject": "Text-to-pay for dental patient balances, {{firstName}}",
+        "body": "<p>Hi {{firstName}},</p><p>Text-to-pay changes how dental offices collect outstanding balances:</p><ul><li>Patient receives a text with a payment link</li><li>They pay in seconds from their phone — no portal login</li><li>Collection rates typically jump 15–25% within 90 days</li><li>Front desk gets notified instantly when payment is made</li></ul><p>Setup integrates with most practice management systems and takes about a day.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">See How It Works</a></p><p>— {{agentName}}, Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "call_reminder",
+        "delayDays": 7,
+        "delayHours": 0,
+        "body": "Call {{firstName}} at {{companyName}} (dental vertical). Key topics: text-to-pay for balances, payment plan setup, front-desk time savings, processing cost comparison. Estimated savings: {{estimatedSavings}}."
+      }
+    ]
+  },
+  {
+    "name": "V-Dental: Inbound Lead Nurture",
+    "description": "Nurture for dental practice inbound leads. Educational and efficiency-focused messaging.",
+    "triggerType": "manual",
+    "triggerConfig": {
+      "category": "inbound",
+      "vertical": "dental"
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "email",
+        "delayDays": 0,
+        "delayHours": 0,
+        "subject": "{{firstName}}, welcome — Liberty Bancard for dental practices",
+        "body": "<p>Hi {{firstName}},</p><p>Thanks for reaching out! We work with dental offices on patient payment collection, text-to-pay, and processing cost reduction.</p><p>Upload a recent statement and we'll have a tailored analysis for {{companyName}} ready within 24 hours:</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Upload Statement / Book a Call</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "sms",
+        "delayDays": 1,
+        "delayHours": 0,
+        "body": "Hi {{firstName}}, Liberty Bancard — following up on your dental office inquiry. We help practices collect patient balances faster and reduce processing costs. Let's connect: https://api.leadconnectorhq.com/widget/bookings/libertybancard — Reply STOP to opt out"
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "email",
+        "delayDays": 3,
+        "delayHours": 0,
+        "subject": "{{firstName}}, payment plans for larger dental treatments",
+        "body": "<p>Hi {{firstName}},</p><p>Patient financing and payment plans help dental offices close more treatment acceptance — especially for larger cases like orthodontics, implants, or cosmetic procedures.</p><p>We offer built-in payment plan options that don't require a third-party finance company for every patient.</p><p>Worth a 10-minute conversation to see how this fits your practice?</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Learn More</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      }
+    ]
+  },
+  {
+    "name": "V-Dental: Account Management Ops",
+    "description": "Ongoing ops touchpoints for active dental practice merchants. Quarterly reviews focused on collection efficiency and referral potential.",
+    "triggerType": "manual",
+    "triggerConfig": {
+      "category": "operations",
+      "vertical": "dental"
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "call_reminder",
+        "delayDays": 14,
+        "delayHours": 0,
+        "body": "Quarterly ops call for dental practice {{firstName}} at {{companyName}}. Review: text-to-pay adoption, outstanding balance collection rate, payment plan usage, any chargeback issues. Log outcome."
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "email",
+        "delayDays": 30,
+        "delayHours": 0,
+        "subject": "{{firstName}}, dental practice check-in — Liberty Bancard",
+        "body": "<p>Hi {{firstName}},</p><p>Quarterly check-in for {{companyName}}:</p><ul><li>Is text-to-pay improving your balance collections?</li><li>Any payment plan or financing questions?</li><li>Processing rates still competitive?</li></ul><p>Happy to help with any of the above — reply or grab a quick call.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a Check-In</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "call_reminder",
+        "delayDays": 60,
+        "delayHours": 0,
+        "body": "60-day ops call for dental practice {{firstName}} at {{companyName}}. Check treatment plan financing adoption, referral opportunity to other dental offices or specialists in the network."
+      }
+    ]
+  },
+  {
+    "name": "V-Auto Repair: SDR Outbound Prospecting",
+    "description": "Vertical-specific SDR outbound for auto repair shops. Focuses on deposit workflows, large repair tickets, text-to-pay, and dispute prevention.",
+    "triggerType": "manual",
+    "triggerConfig": {
+      "category": "sdr",
+      "vertical": "autorepair"
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "email",
+        "delayDays": 0,
+        "delayHours": 0,
+        "subject": "Liberty Bancard × {{companyName}} — lower your shop's processing costs",
+        "body": "<p>Hi {{firstName}},</p><p>Auto repair shops deal with payment challenges most processors ignore — large repair tickets, parts deposits, keyed-in payments when customers are off-site, and disputes when customers \"change their mind.\"</p><p>We help shops:</p><ul><li>Set up deposit + partial payment workflows cleanly</li><li>Reduce disputes with better receipt documentation</li><li>Enable text-to-pay for invoices over $500</li><li>Lower effective processing rate on large tickets</li></ul><p>Free 10-minute statement review — most shops find $200–$500/month.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book Your Free Review</a></p><p>— {{agentName}}, Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "email",
+        "delayDays": 3,
+        "delayHours": 0,
+        "subject": "Deposit workflows for auto shops, {{firstName}}",
+        "body": "<p>Hi {{firstName}},</p><p>Deposit handling is where most auto shops have problems:</p><ul><li>Deposits collected without proper authorization (chargeback risk)</li><li>No clear receipt showing it's a deposit vs. final payment</li><li>Refunding deposits incorrectly when jobs fall through</li></ul><p>A clean deposit workflow with signed authorization and clear receipt language prevents most disputes. We set this up in a day.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Fix Your Deposit Workflow</a></p><p>— {{agentName}}, Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "call_reminder",
+        "delayDays": 7,
+        "delayHours": 0,
+        "body": "Call {{firstName}} at {{companyName}} (auto repair vertical). Key topics: deposit workflow cleanup, large-ticket effective rate, text-to-pay for invoices, dispute prevention documentation. Estimated savings: {{estimatedSavings}}."
+      }
+    ]
+  },
+  {
+    "name": "V-Auto Repair: Inbound Lead Nurture",
+    "description": "Nurture for auto repair shop inbound leads. Focuses on common pain points — high ticket fees, deposits, disputes.",
+    "triggerType": "manual",
+    "triggerConfig": {
+      "category": "inbound",
+      "vertical": "autorepair"
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "email",
+        "delayDays": 0,
+        "delayHours": 0,
+        "subject": "{{firstName}}, welcome — Liberty Bancard for auto repair shops",
+        "body": "<p>Hi {{firstName}},</p><p>Thanks for reaching out! We work with auto repair shops, tire centers, and collision shops on payment processing, deposit workflows, and cost reduction.</p><p>Upload a recent statement and we'll have a comparison ready for {{companyName}} within 24 hours:</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Upload Statement / Book a Call</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "sms",
+        "delayDays": 1,
+        "delayHours": 0,
+        "body": "Hi {{firstName}}, Liberty Bancard — following up on your auto shop inquiry. We handle deposit workflows, large-ticket processing, and chargeback prevention for shops. Ready to help: https://api.leadconnectorhq.com/widget/bookings/libertybancard — Reply STOP to opt out"
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "email",
+        "delayDays": 3,
+        "delayHours": 0,
+        "subject": "{{firstName}}, the 3 payment issues we solve for auto shops",
+        "body": "<p>Hi {{firstName}},</p><p>Here's what we most commonly fix for shops like {{companyName}}:</p><ol><li><strong>High effective rate on large tickets</strong> — You may qualify for better interchange on repair invoices over $500.</li><li><strong>Deposit chargebacks</strong> — A signed authorization + proper receipt language prevents most of them.</li><li><strong>Keyed-in transaction fees</strong> — Remote payments via text-to-pay often cost less and create better documentation.</li></ol><p>Want to see what's possible for your shop?</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a Review</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      }
+    ]
+  },
+  {
+    "name": "V-Auto Repair: Account Management Ops",
+    "description": "Ongoing ops touchpoints for active auto repair merchant accounts. Quarterly reviews focused on chargeback health and upsell opportunities.",
+    "triggerType": "manual",
+    "triggerConfig": {
+      "category": "operations",
+      "vertical": "autorepair"
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "call_reminder",
+        "delayDays": 14,
+        "delayHours": 0,
+        "body": "Quarterly ops call for auto repair shop {{firstName}} at {{companyName}}. Review: chargeback ratio, deposit workflow compliance, text-to-pay adoption, any large-ticket processing issues. Log outcome."
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "email",
+        "delayDays": 30,
+        "delayHours": 0,
+        "subject": "{{firstName}}, shop account check-in — Liberty Bancard",
+        "body": "<p>Hi {{firstName}},</p><p>Quarterly check-in for {{companyName}}:</p><ul><li>Any chargeback or dispute issues we should address?</li><li>Deposit workflow running smoothly?</li><li>Text-to-pay being used for large invoices?</li></ul><p>We're here to help — reply or book a quick call.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a Check-In</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "call_reminder",
+        "delayDays": 60,
+        "delayHours": 0,
+        "body": "60-day ops call for auto repair shop {{firstName}} at {{companyName}}. Check surcharge/cash discount program fit, referral to other shops in the area, upsell text-to-pay for larger invoices."
+      }
+    ]
+  },
+  {
+    "name": "V-Salon: SDR Outbound Prospecting",
+    "description": "Vertical-specific SDR outbound for salon and beauty businesses. Focuses on tip prompts, package payments, recurring memberships, and gratuity reporting.",
+    "triggerType": "manual",
+    "triggerConfig": {
+      "category": "sdr",
+      "vertical": "salon"
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "email",
+        "delayDays": 0,
+        "delayHours": 0,
+        "subject": "Liberty Bancard × {{companyName}} — better payments for salons",
+        "body": "<p>Hi {{firstName}},</p><p>Salon and beauty businesses need payment setups that handle tips cleanly, support service packages, and make checkout fast for clients.</p><p>We help salons:</p><ul><li>Set up tip prompts that increase average gratuity without awkward interactions</li><li>Process service packages and gift cards correctly</li><li>Reduce processing costs on high-volume small transactions</li><li>Set up memberships with reliable recurring billing</li></ul><p>Free 10-minute review for {{companyName}}.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book Your Free Review</a></p><p>— {{agentName}}, Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "email",
+        "delayDays": 3,
+        "delayHours": 0,
+        "subject": "Tip optimization for salons, {{firstName}}",
+        "body": "<p>Hi {{firstName}},</p><p>Tip prompt settings make a real difference for salon revenue:</p><ul><li>Smart tip prompts (15%, 20%, 25% buttons) increase average tips by 15–20%</li><li>Tip-adjust capability for post-swipe additions</li><li>Clean gratuity reporting for payroll and tax</li></ul><p>Combined with competitive processing rates on high-frequency transactions, most salons save significantly.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Optimize Your Setup</a></p><p>— {{agentName}}, Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "call_reminder",
+        "delayDays": 7,
+        "delayHours": 0,
+        "body": "Call {{firstName}} at {{companyName}} (salon/beauty vertical). Key topics: tip prompts, package/gift card handling, membership billing, processing cost on small frequent transactions. Estimated savings: {{estimatedSavings}}."
+      }
+    ]
+  },
+  {
+    "name": "V-Salon: Inbound Lead Nurture",
+    "description": "Nurture for salon and beauty inbound leads. Focused on fast checkout, tip experience, and service packages.",
+    "triggerType": "manual",
+    "triggerConfig": {
+      "category": "inbound",
+      "vertical": "salon"
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "email",
+        "delayDays": 0,
+        "delayHours": 0,
+        "subject": "{{firstName}}, welcome — Liberty Bancard for salons & beauty",
+        "body": "<p>Hi {{firstName}},</p><p>Thanks for reaching out! We specialize in payment setups for salons, spas, and beauty businesses — tip handling, package payments, membership billing, and competitive processing rates.</p><p>Upload a recent statement and we'll have a tailored comparison for {{companyName}} within 24 hours:</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Upload Statement / Book a Call</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "sms",
+        "delayDays": 1,
+        "delayHours": 0,
+        "body": "Hi {{firstName}}, Liberty Bancard — following up on your salon inquiry. We help beauty businesses with tip prompts, package payments, and lower processing costs. Ready when you are: https://api.leadconnectorhq.com/widget/bookings/libertybancard — Reply STOP to opt out"
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "email",
+        "delayDays": 3,
+        "delayHours": 0,
+        "subject": "{{firstName}}, membership billing for salons",
+        "body": "<p>Hi {{firstName}},</p><p>Salon membership programs are a great revenue stabilizer — monthly recurring billing that keeps clients coming back.</p><p>To work well, membership billing needs:</p><ul><li>Card updater to prevent failed monthly charges</li><li>Clear consent and receipt language (prevents chargebacks)</li><li>Easy cancellation process (actually reduces disputes)</li></ul><p>We set all of this up correctly for salons. Want to see how it works for {{companyName}}?</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Learn More</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      }
+    ]
+  },
+  {
+    "name": "V-Salon: Account Management Ops",
+    "description": "Ongoing ops touchpoints for active salon and beauty merchant accounts.",
+    "triggerType": "manual",
+    "triggerConfig": {
+      "category": "operations",
+      "vertical": "salon"
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "call_reminder",
+        "delayDays": 14,
+        "delayHours": 0,
+        "body": "Quarterly ops call for salon {{firstName}} at {{companyName}}. Review: tip prompt performance, membership billing health, package payment disputes, processing rate vs. volume. Log outcome."
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "email",
+        "delayDays": 30,
+        "delayHours": 0,
+        "subject": "{{firstName}}, salon account check-in — Liberty Bancard",
+        "body": "<p>Hi {{firstName}},</p><p>Quick check-in for {{companyName}}:</p><ul><li>Tip prompts performing well for your stylists?</li><li>Any membership billing or package payment issues?</li><li>Would gift card programs be a good fit?</li></ul><p>We're here when you need us — reply or book a quick call.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a Check-In</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "call_reminder",
+        "delayDays": 60,
+        "delayHours": 0,
+        "body": "60-day ops call for salon {{firstName}} at {{companyName}}. Upsell gift card program, cash discount for walk-in clients, referral to other beauty businesses in the area."
+      }
+    ]
+  },
+  {
+    "name": "V-Gym: SDR Outbound Prospecting",
+    "description": "Vertical-specific SDR outbound for gyms and fitness studios. Focuses on recurring membership billing, failed payment recovery, and card updater.",
+    "triggerType": "manual",
+    "triggerConfig": {
+      "category": "sdr",
+      "vertical": "gym"
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "email",
+        "delayDays": 0,
+        "delayHours": 0,
+        "subject": "Liberty Bancard × {{companyName}} — membership billing that actually works",
+        "body": "<p>Hi {{firstName}},</p><p>Gyms and fitness studios live and die by membership billing — and failed payments are a silent revenue killer.</p><p>We help fitness businesses:</p><ul><li>Reduce failed monthly charges with card updater</li><li>Recover failed payments with smart retry logic</li><li>Prevent membership chargebacks with proper authorization</li><li>Lower processing costs on high-volume recurring billing</li></ul><p>Free 10-minute billing health review for {{companyName}}.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book Your Free Review</a></p><p>— {{agentName}}, Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "email",
+        "delayDays": 3,
+        "delayHours": 0,
+        "subject": "Failed membership payments are costing you, {{firstName}}",
+        "body": "<p>Hi {{firstName}},</p><p>For every 100 members, the average gym loses 3–5 per month to failed payments — not because members want to leave, but because their card expired or the bank flagged the charge.</p><p>Card updater auto-refreshes expired cards before billing. Smart retry logic times recovery attempts for maximum success. Most gyms recover 70–80% of charges that would otherwise fail.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Reduce Your Failed Payments</a></p><p>— {{agentName}}, Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "call_reminder",
+        "delayDays": 7,
+        "delayHours": 0,
+        "body": "Call {{firstName}} at {{companyName}} (gym/fitness vertical). Key topics: membership billing health, failed payment rate, card updater setup, chargeback ratio on recurring charges. Estimated savings: {{estimatedSavings}}."
+      }
+    ]
+  },
+  {
+    "name": "V-Gym: Inbound Lead Nurture",
+    "description": "Nurture for gym and fitness studio inbound leads. Recurring billing and member retention focused.",
+    "triggerType": "manual",
+    "triggerConfig": {
+      "category": "inbound",
+      "vertical": "gym"
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "email",
+        "delayDays": 0,
+        "delayHours": 0,
+        "subject": "{{firstName}}, welcome — Liberty Bancard for gyms & fitness",
+        "body": "<p>Hi {{firstName}},</p><p>Thanks for reaching out! We specialize in payment setups for gyms and fitness studios — membership billing, failed payment recovery, and processing cost optimization.</p><p>Upload a recent statement and we'll have a comparison ready for {{companyName}} within 24 hours:</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Upload Statement / Book a Call</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "sms",
+        "delayDays": 1,
+        "delayHours": 0,
+        "body": "Hi {{firstName}}, Liberty Bancard — following up on your gym inquiry. We help fitness businesses recover failed member payments and reduce billing costs. Ready when you are: https://api.leadconnectorhq.com/widget/bookings/libertybancard — Reply STOP to opt out"
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "email",
+        "delayDays": 3,
+        "delayHours": 0,
+        "subject": "{{firstName}}, day pass and drop-in payment setup",
+        "body": "<p>Hi {{firstName}},</p><p>Beyond memberships, the right setup for a gym also handles:</p><ul><li>Day pass and drop-in payments (QR code or mobile checkout)</li><li>Personal training session billing</li><li>Merchandise and supplement sales</li><li>Event or class registration fees</li></ul><p>All of this in one unified system with clean reporting. Want to see how it works for {{companyName}}?</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Get a Full Setup Review</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      }
+    ]
+  },
+  {
+    "name": "V-Gym: Account Management Ops",
+    "description": "Ongoing ops touchpoints for active gym and fitness studio merchant accounts.",
+    "triggerType": "manual",
+    "triggerConfig": {
+      "category": "operations",
+      "vertical": "gym"
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "call_reminder",
+        "delayDays": 14,
+        "delayHours": 0,
+        "body": "Quarterly ops call for gym {{firstName}} at {{companyName}}. Review: membership billing health, failed payment recovery rate, chargeback ratio, card updater status. Log outcome."
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "email",
+        "delayDays": 30,
+        "delayHours": 0,
+        "subject": "{{firstName}}, fitness studio check-in — Liberty Bancard",
+        "body": "<p>Hi {{firstName}},</p><p>Quick check-in for {{companyName}}:</p><ul><li>Membership billing running smoothly?</li><li>Failed payment recovery rate where you want it?</li><li>Any chargeback or dispute issues?</li></ul><p>Happy to review anything. Reply or book a quick call.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a Check-In</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "call_reminder",
+        "delayDays": 60,
+        "delayHours": 0,
+        "body": "60-day ops call for gym {{firstName}} at {{companyName}}. Upsell cash discount for drop-in payments, referral to other fitness studios or personal trainers in the area."
+      }
+    ]
+  },
+  {
+    "name": "V-Hotel: SDR Outbound Prospecting",
+    "description": "Vertical-specific SDR outbound for hotels and hospitality. Focuses on pre-auth, reservation deposits, chargeback defense, and F&B payments.",
+    "triggerType": "manual",
+    "triggerConfig": {
+      "category": "sdr",
+      "vertical": "hotel"
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "email",
+        "delayDays": 0,
+        "delayHours": 0,
+        "subject": "Liberty Bancard × {{companyName}} — hospitality payment solutions",
+        "body": "<p>Hi {{firstName}},</p><p>Hotels and hospitality businesses have unique payment challenges — pre-authorization holds, reservation deposits, incidental charges, and high chargeback exposure from card-not-present bookings.</p><p>We help hospitality businesses:</p><ul><li>Set up pre-auth correctly to avoid hold disputes</li><li>Process reservation deposits with proper authorization</li><li>Reduce chargebacks from online bookings with better documentation</li><li>Unify F&B, rooms, and ancillary payments in one system</li></ul><p>Free 10-minute review for {{companyName}}.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book Your Free Review</a></p><p>— {{agentName}}, Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "email",
+        "delayDays": 3,
+        "delayHours": 0,
+        "subject": "Pre-auth and hotel chargebacks, {{firstName}}",
+        "body": "<p>Hi {{firstName}},</p><p>Pre-authorization disputes are a major pain point for hotels:</p><ul><li>Hold amounts unclear to guests (leads to \"I didn't authorize this\" disputes)</li><li>Pre-auth captured too early or too late</li><li>Incidental charges without proper disclosure</li></ul><p>The right pre-auth setup — with clear guest communication and proper release timing — prevents most of these disputes.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Fix Your Pre-Auth Setup</a></p><p>— {{agentName}}, Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "call_reminder",
+        "delayDays": 7,
+        "delayHours": 0,
+        "body": "Call {{firstName}} at {{companyName}} (hotel/hospitality vertical). Key topics: pre-auth setup, reservation deposit workflow, chargeback ratio on CNP bookings, F&B payment unification. Estimated savings: {{estimatedSavings}}."
+      }
+    ]
+  },
+  {
+    "name": "V-Hotel: Inbound Lead Nurture",
+    "description": "Nurture for hotel and hospitality inbound leads. Focuses on reservation payment flow and chargeback protection.",
+    "triggerType": "manual",
+    "triggerConfig": {
+      "category": "inbound",
+      "vertical": "hotel"
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "email",
+        "delayDays": 0,
+        "delayHours": 0,
+        "subject": "{{firstName}}, welcome — Liberty Bancard for hospitality",
+        "body": "<p>Hi {{firstName}},</p><p>Thanks for reaching out! We specialize in payment processing for hotels and hospitality businesses — pre-auth, reservation deposits, F&B payments, and chargeback reduction.</p><p>Upload a recent statement and we'll prepare a tailored analysis for {{companyName}} within 24 hours:</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Upload Statement / Book a Call</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "sms",
+        "delayDays": 1,
+        "delayHours": 0,
+        "body": "Hi {{firstName}}, Liberty Bancard — following up on your hospitality inquiry. We work with hotels on pre-auth, reservation deposits, and chargeback reduction. Ready when you are: https://api.leadconnectorhq.com/widget/bookings/libertybancard — Reply STOP to opt out"
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "email",
+        "delayDays": 3,
+        "delayHours": 0,
+        "subject": "{{firstName}}, unified payments for hotels",
+        "body": "<p>Hi {{firstName}},</p><p>Hotels with unified payment systems — rooms, F&B, spa, and ancillary in one platform — have significantly lower chargeback rates and much easier reconciliation.</p><p>We build hotel payment setups that handle all revenue centers in one clear system.</p><p>Worth a 10-minute conversation to explore what this looks like for {{companyName}}?</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a Review</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      }
+    ]
+  },
+  {
+    "name": "V-Hotel: Account Management Ops",
+    "description": "Ongoing ops touchpoints for active hotel and hospitality merchant accounts.",
+    "triggerType": "manual",
+    "triggerConfig": {
+      "category": "operations",
+      "vertical": "hotel"
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "call_reminder",
+        "delayDays": 14,
+        "delayHours": 0,
+        "body": "Quarterly ops call for hotel {{firstName}} at {{companyName}}. Review: chargeback ratio by department, pre-auth dispute count, reservation deposit compliance, F&B payment reconciliation. Log outcome."
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "email",
+        "delayDays": 30,
+        "delayHours": 0,
+        "subject": "{{firstName}}, hospitality account check-in — Liberty Bancard",
+        "body": "<p>Hi {{firstName}},</p><p>Quarterly check-in for {{companyName}}:</p><ul><li>Pre-auth disputes under control?</li><li>Chargeback ratio where you want it?</li><li>F&B and room payment reporting clear and reconciled?</li></ul><p>We're a call away for anything. Reply or book a quick check-in.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a Check-In</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "call_reminder",
+        "delayDays": 60,
+        "delayHours": 0,
+        "body": "60-day ops call for hotel {{firstName}} at {{companyName}}. Upsell ancillary revenue payment links (tours, upgrades), referral to partner hotels or event venues."
+      }
+    ]
+  },
+  {
+    "name": "V-Landscaping: SDR Outbound Prospecting",
+    "description": "Vertical-specific SDR outbound for landscaping and lawn care businesses. Focuses on invoice collection, seasonal billing, and text-to-pay.",
+    "triggerType": "manual",
+    "triggerConfig": {
+      "category": "sdr",
+      "vertical": "landscaping"
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "email",
+        "delayDays": 0,
+        "delayHours": 0,
+        "subject": "Liberty Bancard × {{companyName}} — get paid faster for landscaping work",
+        "body": "<p>Hi {{firstName}},</p><p>Landscaping businesses often struggle with slow invoice collection — especially for seasonal contracts and one-time jobs where customers take weeks to pay.</p><p>We help landscaping businesses:</p><ul><li>Send text-to-pay invoices customers pay in seconds</li><li>Set up automatic recurring billing for maintenance contracts</li><li>Collect deposits before scheduling to protect against cancellations</li><li>Lower effective processing rate on service invoices</li></ul><p>Free 10-minute review for {{companyName}}.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book Your Free Review</a></p><p>— {{agentName}}, Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "email",
+        "delayDays": 3,
+        "delayHours": 0,
+        "subject": "Text-to-pay for landscaping invoices, {{firstName}}",
+        "body": "<p>Hi {{firstName}},</p><p>Landscaping customers who receive a text payment link pay an average of 3x faster than those getting paper invoices or email PDFs.</p><p>No app download for your customer — they click the link, tap their card, done. You get paid immediately and a receipt is sent automatically.</p><p>This works great for one-time jobs, seasonal contracts, and after-service billing.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Set Up Text-to-Pay</a></p><p>— {{agentName}}, Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "call_reminder",
+        "delayDays": 7,
+        "delayHours": 0,
+        "body": "Call {{firstName}} at {{companyName}} (landscaping vertical). Key topics: invoice collection speed, text-to-pay for one-time jobs, recurring billing for maintenance contracts, deposit collection. Estimated savings: {{estimatedSavings}}."
+      }
+    ]
+  },
+  {
+    "name": "V-Landscaping: Inbound Lead Nurture",
+    "description": "Nurture for landscaping and lawn care inbound leads. Cash flow and fast payment collection focused.",
+    "triggerType": "manual",
+    "triggerConfig": {
+      "category": "inbound",
+      "vertical": "landscaping"
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "email",
+        "delayDays": 0,
+        "delayHours": 0,
+        "subject": "{{firstName}}, welcome — Liberty Bancard for landscaping businesses",
+        "body": "<p>Hi {{firstName}},</p><p>Thanks for reaching out! We work with landscaping and lawn care businesses on faster invoice collection, recurring contract billing, and processing cost reduction.</p><p>Upload a recent statement and we'll have a tailored analysis for {{companyName}} within 24 hours:</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Upload Statement / Book a Call</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "sms",
+        "delayDays": 1,
+        "delayHours": 0,
+        "body": "Hi {{firstName}}, Liberty Bancard — following up on your inquiry. We help landscaping businesses collect faster with text-to-pay and reduce billing costs. Let's connect: https://api.leadconnectorhq.com/widget/bookings/libertybancard — Reply STOP to opt out"
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "email",
+        "delayDays": 3,
+        "delayHours": 0,
+        "subject": "{{firstName}}, recurring billing for maintenance contracts",
+        "body": "<p>Hi {{firstName}},</p><p>Recurring maintenance contracts are easier to manage with automatic billing:</p><ul><li>Monthly charges run automatically on the agreed date</li><li>Card updater prevents failures when customer cards expire</li><li>Clear invoices emailed to customers so they recognize every charge</li><li>Easy cancellation process that reduces disputes</li></ul><p>We set this up for landscaping businesses across Florida. Want to see how it works for {{companyName}}?</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Learn More</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      }
+    ]
+  },
+  {
+    "name": "V-Landscaping: Account Management Ops",
+    "description": "Ongoing ops touchpoints for active landscaping and lawn care merchant accounts.",
+    "triggerType": "manual",
+    "triggerConfig": {
+      "category": "operations",
+      "vertical": "landscaping"
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "call_reminder",
+        "delayDays": 14,
+        "delayHours": 0,
+        "body": "Quarterly ops call for landscaping business {{firstName}} at {{companyName}}. Review: invoice collection speed with text-to-pay, recurring contract billing health, deposit compliance. Log outcome."
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "email",
+        "delayDays": 30,
+        "delayHours": 0,
+        "subject": "{{firstName}}, landscaping account check-in — Liberty Bancard",
+        "body": "<p>Hi {{firstName}},</p><p>Quarterly check-in for {{companyName}}:</p><ul><li>Text-to-pay helping you collect faster?</li><li>Contract billing running smoothly?</li><li>Any seasonal volume changes we should know about?</li></ul><p>We're here to help — reply or grab a quick call.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a Check-In</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "call_reminder",
+        "delayDays": 60,
+        "delayHours": 0,
+        "body": "60-day ops call for landscaping business {{firstName}} at {{companyName}}. Upsell cash discount for in-person payments, referral to other landscaping contractors or property management companies."
+      }
+    ]
+  },
+  {
+    "name": "V-Construction: SDR Outbound Prospecting",
+    "description": "Vertical-specific SDR outbound for construction and trades. Focuses on large job invoices, subcontractor pay, material financing, and lien waiver workflows.",
+    "triggerType": "manual",
+    "triggerConfig": {
+      "category": "sdr",
+      "vertical": "construction"
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "email",
+        "delayDays": 0,
+        "delayHours": 0,
+        "subject": "Liberty Bancard × {{companyName}} — payment tools for contractors",
+        "body": "<p>Hi {{firstName}},</p><p>Construction and trades businesses deal with payment challenges most processors aren't built for — large job invoices, change orders, subcontractor pay, and material financing.</p><p>We help contractors:</p><ul><li>Collect faster on large job invoices with text-to-pay</li><li>Set up virtual terminal for remote change order payments</li><li>Access material financing to close larger projects</li><li>Reduce processing costs on high-ticket transactions</li></ul><p>Free 10-minute review — most FL contractors find $300–$800/month.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book Your Free Review</a></p><p>— {{agentName}}, Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "email",
+        "delayDays": 3,
+        "delayHours": 0,
+        "subject": "Get paid faster on construction invoices, {{firstName}}",
+        "body": "<p>Hi {{firstName}},</p><p>Contractors with text-to-pay for invoice collection see collection times drop from 14+ days to under 3 days on average.</p><p>Combined with proper lien waiver documentation and signed authorization for deposits, most contractors also see chargeback rates cut in half.</p><p>Worth a 10-minute review to see what this looks like for {{companyName}}?</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a Review</a></p><p>— {{agentName}}, Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "call_reminder",
+        "delayDays": 7,
+        "delayHours": 0,
+        "body": "Call {{firstName}} at {{companyName}} (construction/trades vertical). Key topics: large invoice collection speed, text-to-pay for change orders, material financing, subcontractor pay workflows. Estimated savings: {{estimatedSavings}}."
+      }
+    ]
+  },
+  {
+    "name": "V-Construction: Inbound Lead Nurture",
+    "description": "Nurture for construction and trades inbound leads. Focused on cash flow, invoice collection, and large-ticket payment efficiency.",
+    "triggerType": "manual",
+    "triggerConfig": {
+      "category": "inbound",
+      "vertical": "construction"
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "email",
+        "delayDays": 0,
+        "delayHours": 0,
+        "subject": "{{firstName}}, welcome — Liberty Bancard for contractors",
+        "body": "<p>Hi {{firstName}},</p><p>Thanks for reaching out! We specialize in payment processing for construction and trades businesses — large job invoices, change orders, deposits, and material financing.</p><p>Upload a recent statement and we'll have a tailored analysis for {{companyName}} within 24 hours:</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Upload Statement / Book a Call</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "sms",
+        "delayDays": 1,
+        "delayHours": 0,
+        "body": "Hi {{firstName}}, Liberty Bancard — following up on your contractor inquiry. We help construction businesses collect faster on large job payments and cut processing costs. Ready: https://api.leadconnectorhq.com/widget/bookings/libertybancard — Reply STOP to opt out"
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "email",
+        "delayDays": 3,
+        "delayHours": 0,
+        "subject": "{{firstName}}, material financing for contractors",
+        "body": "<p>Hi {{firstName}},</p><p>Material financing helps contractors take on larger projects without tying up working capital:</p><ul><li>Purchase materials upfront, pay over time</li><li>Preserve cash flow for labor and operating costs</li><li>Take on larger jobs that would otherwise strain cash</li></ul><p>We offer material financing options for qualifying contractors. Want to see what's available for {{companyName}}?</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Explore Financing Options</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      }
+    ]
+  },
+  {
+    "name": "V-Construction: Account Management Ops",
+    "description": "Ongoing ops touchpoints for active construction and trades merchant accounts.",
+    "triggerType": "manual",
+    "triggerConfig": {
+      "category": "operations",
+      "vertical": "construction"
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "call_reminder",
+        "delayDays": 14,
+        "delayHours": 0,
+        "body": "Quarterly ops call for contractor {{firstName}} at {{companyName}}. Review: invoice collection speed, text-to-pay adoption, material financing usage, large-ticket processing rate. Log outcome."
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "email",
+        "delayDays": 30,
+        "delayHours": 0,
+        "subject": "{{firstName}}, contractor account check-in — Liberty Bancard",
+        "body": "<p>Hi {{firstName}},</p><p>Quarterly check-in for {{companyName}}:</p><ul><li>Invoice collection speed improved with text-to-pay?</li><li>Any large project financing needs?</li><li>Processing costs still competitive for your volume?</li></ul><p>We're here to help — reply or book a quick call.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a Check-In</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "call_reminder",
+        "delayDays": 60,
+        "delayHours": 0,
+        "body": "60-day ops call for contractor {{firstName}} at {{companyName}}. Upsell surcharge program for credit card payments on large invoices, referral to other contractors, subcontractors, or suppliers."
+      }
+    ]
+  },
+  {
+    "name": "V-Legal: SDR Outbound Prospecting",
+    "description": "Vertical-specific SDR outbound for law firms and professional services. Focuses on retainer billing, trust account compliance, and payment plan setup.",
+    "triggerType": "manual",
+    "triggerConfig": {
+      "category": "sdr",
+      "vertical": "legal"
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "email",
+        "delayDays": 0,
+        "delayHours": 0,
+        "subject": "Liberty Bancard × {{companyName}} — payment processing for legal professionals",
+        "body": "<p>Hi {{firstName}},</p><p>Law firms and professional services firms have specific payment requirements — retainer billing, IOLTA trust account compliance, payment plans for clients, and protection against chargebacks on services already rendered.</p><p>We help legal professionals:</p><ul><li>Set up retainer billing correctly with proper authorization</li><li>Implement IOLTA-compliant payment workflows</li><li>Offer structured payment plans for larger matters</li><li>Reduce chargebacks with proper engagement agreement documentation</li></ul><p>Free 10-minute payment workflow review for {{companyName}}.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book Your Free Review</a></p><p>— {{agentName}}, Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply. IOLTA account rules vary by state bar association — consult your bar's ethics guidelines.</p>"
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "email",
+        "delayDays": 3,
+        "delayHours": 0,
+        "subject": "Chargeback protection for legal fees, {{firstName}}",
+        "body": "<p>Hi {{firstName}},</p><p>Chargebacks on legal fees are painful — and increasingly common. Clients dispute charges claiming \"services not rendered\" even when work was done.</p><p>The best protection is documentation at the payment point:</p><ul><li>Signed engagement agreements referencing the specific service charged</li><li>Itemized invoices that match what was discussed</li><li>Clear billing descriptors on statements (not just a company name)</li><li>Timely billing that doesn't surprise clients weeks after service</li></ul><p>We help firms implement payment workflows that reduce dispute exposure significantly.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Get Dispute Protection</a></p><p>— {{agentName}}, Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "call_reminder",
+        "delayDays": 7,
+        "delayHours": 0,
+        "body": "Call {{firstName}} at {{companyName}} (legal/professional services vertical). Key topics: retainer billing setup, IOLTA trust compliance, chargeback protection documentation, payment plan options for clients. Estimated savings: {{estimatedSavings}}."
+      }
+    ]
+  },
+  {
+    "name": "V-Legal: Inbound Lead Nurture",
+    "description": "Nurture for law firm and professional services inbound leads. Compliance and trust-focused messaging.",
+    "triggerType": "manual",
+    "triggerConfig": {
+      "category": "inbound",
+      "vertical": "legal"
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "email",
+        "delayDays": 0,
+        "delayHours": 0,
+        "subject": "{{firstName}}, welcome — Liberty Bancard for legal professionals",
+        "body": "<p>Hi {{firstName}},</p><p>Thanks for reaching out! We work with law firms and professional services businesses on retainer billing, IOLTA-compliant payment flows, and processing cost reduction.</p><p>Upload a recent statement and we'll prepare a tailored analysis for {{companyName}} within 24 hours:</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Upload Statement / Book a Call</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "sms",
+        "delayDays": 1,
+        "delayHours": 0,
+        "body": "Hi {{firstName}}, Liberty Bancard — following up on your inquiry for {{companyName}}. We specialize in legal payment workflows — retainer billing, IOLTA compliance, and dispute protection. Ready: https://api.leadconnectorhq.com/widget/bookings/libertybancard — Reply STOP to opt out"
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "email",
+        "delayDays": 3,
+        "delayHours": 0,
+        "subject": "{{firstName}}, client payment plans for legal services",
+        "body": "<p>Hi {{firstName}},</p><p>Structured payment plans help law firms close more cases while protecting cash flow:</p><ul><li>Client pays a retainer upfront, balance over time</li><li>Automatic monthly billing with proper authorization</li><li>Signed payment plan agreement reduces dispute exposure</li><li>Card on file for ongoing billing without re-requesting card each time</li></ul><p>We set this up for law firms in compliance with bar association guidelines. Want to see how it works for {{companyName}}?</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Get a Payment Plan Setup</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply. Consult your state bar for IOLTA requirements.</p>"
+      }
+    ]
+  },
+  {
+    "name": "V-Legal: Account Management Ops",
+    "description": "Ongoing ops touchpoints for active law firm and professional services merchant accounts.",
+    "triggerType": "manual",
+    "triggerConfig": {
+      "category": "operations",
+      "vertical": "legal"
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "call_reminder",
+        "delayDays": 14,
+        "delayHours": 0,
+        "body": "Quarterly ops call for law firm {{firstName}} at {{companyName}}. Review: retainer billing compliance, chargeback ratio, payment plan adoption, IOLTA workflow health. Log outcome in CRM."
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "email",
+        "delayDays": 30,
+        "delayHours": 0,
+        "subject": "{{firstName}}, legal practice account check-in — Liberty Bancard",
+        "body": "<p>Hi {{firstName}},</p><p>Quarterly check-in for {{companyName}}:</p><ul><li>Retainer billing and payment plans working smoothly?</li><li>Any chargeback or dispute issues we should review?</li><li>Processing rates still competitive for your billing volume?</li></ul><p>We're here to help — reply or book a quick call.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\" style=\"display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;\">Book a Check-In</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "call_reminder",
+        "delayDays": 60,
+        "delayHours": 0,
+        "body": "60-day ops call for law firm {{firstName}} at {{companyName}}. Upsell text-to-pay for client balance collection, referral opportunity to other attorneys or professional services firms in the network."
+      }
+    ]
   }
 ]

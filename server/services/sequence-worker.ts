@@ -3,6 +3,8 @@ import { sendGhlEmail, sendGhlSms, isGhlConfigured } from "./ghl";
 import { getEmailSignatureHtml } from "./email-signatures";
 import { createPreferenceAwareNotification } from "./digest-service";
 import { enrollContactInGhlWorkflow, tagContactForInboxOrganization } from "./ghl-workflow-enrollment";
+import { addNote as ghlAddNote, addTag as ghlAddTag, triggerWorkflow as ghlTriggerWorkflow, isSdrGhlConfigured } from "./sdr/ghl-client";
+import { getWorkflowEnvValue } from "./ghl-workflows";
 import type { VoiceBotMode } from "./sdr/voice-orchestrator";
 import type { AbTestConfig, AbTestResults } from "@shared/schema";
 
@@ -568,15 +570,15 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
               try {
                 await storage.createTask({
                   title: `Voicemail Drop — ${firstName} ${lastName}`,
-                  description: `GHL Voicemail Drop for sequence "${sequence.name}" Step ${step.stepOrder}.\n\nScript (record and upload to GHL Voicemail Drops library):\n${vmScript}\n\n${ghlNote}`,
+                  description: `GHL Voicemail Drop for sequence "${sequence.name}" Step ${step.stepOrder}.\n\nScript (record and upload to GHL Voicemail Drops library):\n${vmScript}\n\n${ghlNote}\n\nInstruction: In GHL workflow, add a Voicemail Drop action node and select the pre-recorded audio for this script. Tag 'vm-drop-pending' on the contact signals it is ready to trigger.`,
                   assignedTo: sequence.createdBy || "Unassigned",
                   priority: "medium",
                   dueDate: new Date(Date.now() + 60000),
                   contactId: enrollment.contactId,
                   dealId: enrollment.dealId || undefined,
                 });
-              } catch (noteErr) {
-                console.warn(`[Sequence Worker] Voicemail drop task creation failed:`, noteErr);
+              } catch (taskErr) {
+                console.warn(`[Sequence Worker] Voicemail drop task creation failed:`, taskErr);
               }
               try {
                 await storage.createNote({
@@ -586,7 +588,42 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                   authorName: "Liberty Bancard SDR",
                 });
               } catch (noteErr) {
-                console.warn(`[Sequence Worker] Voicemail drop note creation failed:`, noteErr);
+                console.warn(`[Sequence Worker] Voicemail drop local note creation failed:`, noteErr);
+              }
+
+              if (isSdrGhlConfigured() && contact?.ghlContactId) {
+                const scriptPreview = vmScript.length > 120 ? vmScript.slice(0, 117) + "..." : vmScript;
+                try {
+                  await ghlAddTag({ contactId: contact.ghlContactId, tags: ["vm-drop-pending"] });
+                } catch (tagErr) {
+                  console.warn(`[Sequence Worker] GHL tag 'vm-drop-pending' failed:`, tagErr);
+                }
+                try {
+                  await ghlAddNote({
+                    contactId: contact.ghlContactId,
+                    body: `voicemail_drop_pending: ${scriptPreview}`,
+                  });
+                } catch (noteErr) {
+                  console.warn(`[Sequence Worker] GHL voicemail note failed:`, noteErr);
+                }
+                try {
+                  const vmWorkflowId = await getWorkflowEnvValue("GHL_WORKFLOW_VOICEMAIL_DROP");
+                  if (vmWorkflowId) {
+                    await ghlTriggerWorkflow({
+                      workflowId: vmWorkflowId,
+                      contactId: contact.ghlContactId,
+                      metadata: {
+                        sequenceId: sequence.id,
+                        sequenceName: sequence.name,
+                        stepOrder: step.stepOrder,
+                        scriptPreview,
+                      },
+                    });
+                    console.log(`[Sequence Worker] GHL_WORKFLOW_VOICEMAIL_DROP triggered for contact ${contact.ghlContactId}`);
+                  }
+                } catch (wfErr) {
+                  console.warn(`[Sequence Worker] GHL_WORKFLOW_VOICEMAIL_DROP trigger failed:`, wfErr);
+                }
               }
             }
             stepExecuted = true;
