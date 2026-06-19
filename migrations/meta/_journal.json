@@ -239,6 +239,13 @@
                         "when": 1781500000000,
                         "tag": "0028_outreach_intelligence",
                         "breakpoints": true
+                },
+                {
+                        "idx": 32,
+                        "version": "7",
+                        "when": 1781600000000,
+                        "tag": "0029_contacts_email_status_fix",
+                        "breakpoints": true
                 }
         ]
 }
