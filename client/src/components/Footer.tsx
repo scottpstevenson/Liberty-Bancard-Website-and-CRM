@@ -13,6 +13,7 @@ export function Footer() {
     { label: "Help Center", href: "/help" },
     { label: "Merchant Application", href: "/merchant-application" },
     { label: "Affiliate Program", href: "/affiliate" },
+    { label: "Areas We Serve", href: "/areas-served" },
   ];
 
   const growWithUsLinks = [
@@ -38,6 +39,7 @@ export function Footer() {
     { label: "Compare Rates", href: "/compare-rates" },
     { label: "vs Square", href: "/compare/square" },
     { label: "vs Stripe", href: "/compare/stripe" },
+    { label: "vs Clover", href: "/compare/clover" },
     { label: "vs Toast", href: "/compare/toast" },
     { label: "Terminal Shop", href: "/shop" },
   ];

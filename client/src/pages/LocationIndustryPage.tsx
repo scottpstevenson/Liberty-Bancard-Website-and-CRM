@@ -35,15 +35,27 @@ interface LocationIndustryData {
   faqs: { question: string; answer: string }[];
 }
 
-const cities = [
+export const cities = [
   { slug: "miami", name: "Miami" },
   { slug: "fort-lauderdale", name: "Fort Lauderdale" },
   { slug: "tampa", name: "Tampa" },
   { slug: "orlando", name: "Orlando" },
   { slug: "jacksonville", name: "Jacksonville" },
+  { slug: "gainesville", name: "Gainesville" },
+  { slug: "pensacola", name: "Pensacola" },
+  { slug: "houston", name: "Houston" },
+  { slug: "dallas", name: "Dallas" },
+  { slug: "atlanta", name: "Atlanta" },
+  { slug: "las-vegas", name: "Las Vegas" },
+  { slug: "phoenix", name: "Phoenix" },
+  { slug: "nashville", name: "Nashville" },
+  { slug: "charlotte", name: "Charlotte" },
+  { slug: "denver", name: "Denver" },
+  { slug: "austin", name: "Austin" },
+  { slug: "chicago", name: "Chicago" },
 ];
 
-const topVerticals = [
+export const topVerticals = [
   { slug: "restaurant", name: "Restaurant", industryPageSlug: "restaurant-payment-processing" },
   { slug: "auto-repair", name: "Auto Repair", industryPageSlug: "auto-repair-payment-processing" },
   { slug: "healthcare", name: "Healthcare", industryPageSlug: "healthcare-payment-processing" },
@@ -58,6 +70,18 @@ function generateLocationData(city: typeof cities[0], vertical: typeof topVertic
     tampa: { businesses: "9,200+", metro: "3.2 million" },
     orlando: { businesses: "10,800+", metro: "2.7 million" },
     jacksonville: { businesses: "7,600+", metro: "1.6 million" },
+    gainesville: { businesses: "3,500+", metro: "400,000" },
+    pensacola: { businesses: "4,200+", metro: "500,000" },
+    houston: { businesses: "85,000+", metro: "7.3 million" },
+    dallas: { businesses: "65,000+", metro: "7.7 million" },
+    atlanta: { businesses: "55,000+", metro: "6.2 million" },
+    "las-vegas": { businesses: "35,000+", metro: "2.3 million" },
+    phoenix: { businesses: "75,000+", metro: "5.0 million" },
+    nashville: { businesses: "30,000+", metro: "2.0 million" },
+    charlotte: { businesses: "40,000+", metro: "2.7 million" },
+    denver: { businesses: "45,000+", metro: "2.9 million" },
+    austin: { businesses: "55,000+", metro: "2.3 million" },
+    chicago: { businesses: "120,000+", metro: "9.5 million" },
   };
 
   const verticalData: Record<string, {

@@ -52,6 +52,7 @@ const FreeAnalysis = lazy(() => import("@/pages/FreeAnalysis"));
 const FreeAnalysisGuaranteed = lazy(() => import("@/pages/FreeAnalysisGuaranteed"));
 const SalesToolsHub = lazy(() => import("@/pages/SalesToolsHub"));
 const CompareVs = lazy(() => import("@/pages/CompareVs"));
+const AreasServed = lazy(() => import("@/pages/AreasServed"));
 const AssetPage = lazy(() => import("@/pages/AssetPage"));
 
 // ─── Legal / Compliance Pages ─────────────────────────────────────────────────
@@ -385,6 +386,9 @@ function Router() {
 
         {/* Industry Pages */}
         <Route path="/industries/:slug" component={IndustryPage} />
+
+        {/* Areas Served Hub */}
+        <Route path="/areas-served" component={AreasServed} />
 
         {/* Location × Industry Pages */}
         <Route path="/locations/:city/:industry" component={LocationIndustryPage} />
