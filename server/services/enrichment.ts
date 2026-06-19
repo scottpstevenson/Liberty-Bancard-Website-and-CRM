@@ -10,6 +10,7 @@ import { detectProcessors } from "./sdr/processor-detector";
 import { detectAds } from "./sdr/ad-detector";
 import { updateContactGhlFirst } from "./contact-writer";
 import { logAiCall } from "./ai-audit-logger";
+import { scoreDecisionMaker } from "./bounce-feedback";
 
 function getOpenAI() {
   return new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
@@ -319,43 +320,57 @@ export async function enrichContactBatch(
           const needsEmail = !contact.email;
           const needsPhone = !contact.phone;
           const needsWebsite = !contact.website;
+          const needsSerper = needsEmail || needsPhone || needsWebsite;
 
-          if (!needsEmail && !needsPhone && !needsWebsite) {
-            processed++;
-            continue;
-          }
-
-          if (!isSerperConfigured()) {
-            errors++;
-            continue;
-          }
-
-          const serperResult = await searchBusiness(companyName, contact.city || undefined, contact.state || "FL");
           const updates: Record<string, any> = {};
 
-          if (serperResult.website && needsWebsite) {
-            updates.website = serperResult.website;
-            websitesFound++;
-          }
-          if (serperResult.emails.length > 0 && needsEmail) {
-            updates.email = serperResult.emails[0];
-            emailsFound++;
-          }
-          if (serperResult.phones.length > 0 && needsPhone) {
-            updates.phone = serperResult.phones[0];
-            phonesFound++;
+          if (needsSerper) {
+            if (!isSerperConfigured()) {
+              errors++;
+              continue;
+            }
+
+            const serperResult = await searchBusiness(companyName, contact.city || undefined, contact.state || "FL");
+
+            if (serperResult.website && needsWebsite) {
+              updates.website = serperResult.website;
+              websitesFound++;
+            }
+            if (serperResult.emails.length > 0 && needsEmail) {
+              updates.email = serperResult.emails[0];
+              emailsFound++;
+            }
+            if (serperResult.phones.length > 0 && needsPhone) {
+              updates.phone = serperResult.phones[0];
+              phonesFound++;
+            }
+
+            if (needsEmail && !updates.email && serperResult.website) {
+              const emailResult = await searchBusinessEmail(companyName, serperResult.website, contact.city || undefined);
+              if (emailResult.emails.length > 0) {
+                updates.email = emailResult.emails[0];
+                emailsFound++;
+              }
+            }
           }
 
-          if (needsEmail && !updates.email && serperResult.website) {
-            const emailResult = await searchBusinessEmail(companyName, serperResult.website, contact.city || undefined);
-            if (emailResult.emails.length > 0) {
-              updates.email = emailResult.emails[0];
-              emailsFound++;
+          const currentTitle = contact.title ?? null;
+          const manuallySet = (contact as any).decisionMakerConfidence === 100;
+          if (!manuallySet && currentTitle) {
+            const dm = scoreDecisionMaker(currentTitle);
+            const currentIsDm = (contact as any).isDecisionMaker ?? false;
+            const currentConf = (contact as any).decisionMakerConfidence ?? 0;
+            if (dm.isDecisionMaker !== currentIsDm || dm.confidence !== currentConf) {
+              updates.isDecisionMaker = dm.isDecisionMaker;
+              updates.decisionMakerConfidence = dm.confidence;
             }
           }
 
           if (Object.keys(updates).length > 0) {
             await updateContactGhlFirst(contactId, updates);
+          } else {
+            processed++;
+            continue;
           }
 
           try {
