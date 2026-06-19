@@ -1,4 +1,4 @@
-import { File, FileImage, FileText, Activity, Mail, MessageSquare, UserPlus, TrendingUp, ArrowRight, Ticket, Sparkles, AlertTriangle, Zap } from "lucide-react";
+import { File, FileImage, FileText, Activity, Mail, MessageSquare, UserPlus, TrendingUp, ArrowRight, Ticket, Sparkles, AlertTriangle, Zap, PhoneIncoming } from "lucide-react";
 import type { Contact, Deal, Ticket as TicketType, Task as TaskType, Note } from "@shared/schema";
 
 export interface ActivityEvent {
@@ -7,7 +7,7 @@ export interface ActivityEvent {
   action: string;
   entityType: string;
   entityId: number;
-  details: Record<string, string>;
+  details: Record<string, any>;
   createdAt: string;
 }
 
@@ -43,6 +43,65 @@ export function formatDate(dateStr: string | Date | null | undefined): string {
   return new Date(dateStr).toLocaleDateString();
 }
 
+const INTENT_DISPLAY: Record<string, string> = {
+  booking_intent: "Booking Intent",
+  positive_reply: "Positive Reply",
+  interested: "Interested",
+  meeting_intent: "Meeting Intent",
+  unsubscribe: "Unsubscribe",
+  stop: "Opt-Out",
+  opt_out: "Opt-Out",
+  not_interested: "Not Interested",
+  angry: "Hostile",
+  objection: "Objection",
+  question: "Question",
+  later: "Not Now",
+  unclear: "Unclear",
+  support: "Support",
+  pricing_question: "Pricing Question",
+};
+
+function intentColorClass(intent: string): string {
+  const green = ["booking_intent", "positive_reply", "interested", "meeting_intent"];
+  const red = ["unsubscribe", "stop", "opt_out", "not_interested", "angry"];
+  if (green.includes(intent)) return "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200";
+  if (red.includes(intent)) return "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200";
+  return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200";
+}
+
+export function getIntentFromEvent(event: ActivityEvent): string | null {
+  if (!event.details) return null;
+  if (event.action === "inbound_message_processed") {
+    const cls = event.details.classification;
+    if (cls && typeof cls === "object" && cls.intent) return cls.intent as string;
+    if (typeof cls === "string") return cls;
+  }
+  if (event.action === "workflow_auto_triggered" && event.details.classification) {
+    return event.details.classification as string;
+  }
+  return null;
+}
+
+export function getTriggeredWorkflowName(event: ActivityEvent): string | null {
+  if (event.action === "workflow_auto_triggered" && event.details.workflowName) {
+    return event.details.workflowName as string;
+  }
+  return null;
+}
+
+export function ClassificationBadge({ intent }: { intent: string }) {
+  const label = INTENT_DISPLAY[intent] || intent.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+  const colorClass = intentColorClass(intent);
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${colorClass}`}
+      data-testid={`classification-badge-${intent}`}
+    >
+      {label}
+    </span>
+  );
+}
+
 export function getActionMeta(event: ActivityEvent): { icon: typeof Activity; label: string } {
   if (event.type === "ghl") {
     if (event.action === "email") {
@@ -62,13 +121,26 @@ export function getActionMeta(event: ActivityEvent): { icon: typeof Activity; la
     case "ticket_created": return { icon: Ticket, label: "Ticket Created" };
     case "ticket_ai_classified": return { icon: Sparkles, label: "AI Classified" };
     case "sla_breach": return { icon: AlertTriangle, label: "SLA Breach" };
-    case "workflow_triggered": return { icon: Zap, label: "Workflow Triggered" };
+    case "workflow_triggered":
+    case "workflow_auto_triggered": return { icon: Zap, label: "Workflow Triggered" };
+    case "inbound_message_processed": {
+      const channel = event.details?.channel;
+      if (channel === "sms") return { icon: PhoneIncoming, label: "Inbound SMS Classified" };
+      if (channel === "email") return { icon: Mail, label: "Inbound Email Classified" };
+      return { icon: PhoneIncoming, label: "Inbound Message Classified" };
+    }
     default: return { icon: Activity, label: event.action };
   }
 }
 
 export function getDetailText(event: ActivityEvent): string | null {
   if (!event.details) return null;
+  if (event.action === "inbound_message_processed") {
+    return event.details.messagePreview ? String(event.details.messagePreview) : null;
+  }
+  if (event.action === "workflow_auto_triggered") {
+    return event.details.workflowName ? `Rule: ${event.details.workflowName}` : null;
+  }
   if (event.details.subject) return event.details.subject;
   if (event.details.name) return event.details.name;
   if (event.details.stageName) return `Stage: ${event.details.stageName}`;

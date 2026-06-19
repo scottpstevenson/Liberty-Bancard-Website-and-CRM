@@ -1,5 +1,5 @@
 import { Card, CardContent } from "@/components/ui/card";
-import { type ActivityEvent, formatRelativeTime, getActionMeta, getDetailText } from "./shared";
+import { type ActivityEvent, formatRelativeTime, getActionMeta, getDetailText, getIntentFromEvent, ClassificationBadge } from "./shared";
 
 export function ActivityTimelineFull({ events }: { events: ActivityEvent[] }) {
   const displayEvents = events.slice(0, 50);
@@ -21,6 +21,7 @@ export function ActivityTimelineFull({ events }: { events: ActivityEvent[] }) {
           {displayEvents.map((event, index) => {
             const { icon: Icon, label } = getActionMeta(event);
             const detail = getDetailText(event);
+            const intent = getIntentFromEvent(event);
             const isLast = index === displayEvents.length - 1;
 
             return (
@@ -36,11 +37,16 @@ export function ActivityTimelineFull({ events }: { events: ActivityEvent[] }) {
                   {!isLast && <div className="w-px flex-1 bg-border mt-1" />}
                 </div>
                 <div className="flex-1 min-w-0 pt-0.5">
-                  <p className="text-sm font-medium" data-testid={`activity-label-${event.id}`}>
-                    {label}
-                  </p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-medium" data-testid={`activity-label-${event.id}`}>
+                      {label}
+                    </p>
+                    {intent && (
+                      <ClassificationBadge intent={intent} />
+                    )}
+                  </div>
                   {detail && (
-                    <p className="text-xs text-muted-foreground truncate" data-testid={`activity-detail-${event.id}`}>
+                    <p className="text-xs text-muted-foreground truncate mt-0.5" data-testid={`activity-detail-${event.id}`}>
                       {detail}
                     </p>
                   )}
