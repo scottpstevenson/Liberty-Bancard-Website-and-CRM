@@ -658,6 +658,22 @@ export default function Contacts() {
           <Button variant="outline" size="sm" className="gap-2" onClick={() => setDuplicatesOpen(true)} data-testid="button-find-duplicates">
             <Users className="w-4 h-4" /> Find Duplicates
           </Button>
+          {(emailHealthFilter === "bounced" || emailHealthFilter === "invalid" || emailHealthFilter === "opted_out") && (
+            <Button variant="outline" size="sm" className="gap-2 border-red-300 text-red-700 hover:bg-red-50 dark:border-red-700 dark:text-red-300 dark:hover:bg-red-900/20" onClick={() => exportToCSV(filteredContacts || [], `contacts_${emailHealthFilter}`, [
+              { key: "firstName", label: "First Name" },
+              { key: "lastName", label: "Last Name" },
+              { key: "email", label: "Email" },
+              { key: "phone", label: "Phone" },
+              { key: "companyName", label: "Company" },
+              { key: "status", label: "Status" },
+              { key: "emailStatus", label: "Email Status" },
+              { key: "bouncedAt", label: "Bounced At" },
+              { key: "leadScore", label: "Lead Score" },
+              { key: "createdAt", label: "Created At" },
+            ])} data-testid="button-export-bounced-contacts">
+              <Download className="w-4 h-4" /> Export {emailHealthFilter === "opted_out" ? "Opted-Out" : emailHealthFilter === "invalid" ? "Invalid" : "Bounced"}
+            </Button>
+          )}
           <Button variant="outline" size="sm" className="gap-2" onClick={() => exportToCSV(filteredContacts || [], "contacts", [
             { key: "firstName", label: "First Name" },
             { key: "lastName", label: "Last Name" },
@@ -665,6 +681,8 @@ export default function Contacts() {
             { key: "phone", label: "Phone" },
             { key: "companyName", label: "Company" },
             { key: "status", label: "Status" },
+            { key: "emailStatus", label: "Email Status" },
+            { key: "bouncedAt", label: "Bounced At" },
             { key: "leadScore", label: "Lead Score" },
             { key: "createdAt", label: "Created At" },
           ])} data-testid="button-export-contacts">
