@@ -205,6 +205,7 @@ const PartnerEmbedWidget = lazy(() => import("@/pages/PartnerEmbedWidget"));
 const ColdLeads = lazy(() => import("@/pages/dashboard/ColdLeads"));
 const OnboardingBoard = lazy(() => import("@/pages/dashboard/OnboardingBoard"));
 const UnderwritingPage = lazy(() => import("@/pages/dashboard/Underwriting"));
+const ConversationAIPage = lazy(() => import("@/pages/dashboard/ConversationAI"));
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -658,6 +659,10 @@ function Router() {
 
         <Route path="/dashboard/underwriting">
           <ProtectedRoute component={UnderwritingPage} allowedRoles={["admin", "manager"]} />
+        </Route>
+
+        <Route path="/dashboard/conversation-ai">
+          <ProtectedRoute component={ConversationAIPage} allowedRoles={["admin", "manager"]} />
         </Route>
 
         <Route component={NotFound} />

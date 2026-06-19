@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { contacts, systemSettings } from "@shared/schema";
+import { contacts, systemSettings, identityPerformanceDaily } from "@shared/schema";
 import { eq, and, isNull, or, ne, gte } from "drizzle-orm";
 import { storage } from "../storage";
 
@@ -31,22 +31,38 @@ export async function runBounceFeedback(): Promise<{ updated: number; skipped: n
   try {
     const lastRun = await getLastRun();
 
-    const bouncedRows: { to_email: string; sending_identity_id: number }[] = await db.execute(
-      `SELECT to_email, MIN(sending_identity_id::int) as sending_identity_id
+    // Early-exit optimisation: skip expensive queries if no performance records
+    // show any bounces since lastRun.
+    const recentPerf = await db.select().from(identityPerformanceDaily)
+      .where(gte(identityPerformanceDaily.date, lastRun))
+      .catch(() => [] as any[]);
+
+    if (!recentPerf.length) {
+      await setLastRun();
+      return { updated, skipped };
+    }
+
+    const identitiesWithBounces = recentPerf.filter((p: any) => (p.bounced || 0) > 0);
+    if (!identitiesWithBounces.length) {
+      await setLastRun();
+      return { updated, skipped };
+    }
+
+    const bouncedRows = await db.execute(
+      `SELECT to_email, MIN(sending_identity_id) as sending_identity_id
        FROM outbound_messages
        WHERE status = 'bounced' AND sent_at >= $1
-       GROUP BY to_email`
-        .trim() as any,
+       GROUP BY to_email`,
       [lastRun]
-    ).then((r: any) => r.rows || []).catch(() => [] as any[]);
+    ).catch(() => ({ rows: [] as any[] }));
 
-    if (!bouncedRows.length) {
+    if (!(bouncedRows as any).rows?.length) {
       await setLastRun();
       return { updated, skipped };
     }
 
     const bouncedEmails = new Map<string, number>();
-    for (const row of bouncedRows) {
+    for (const row of (bouncedRows as any).rows || []) {
       if (row.to_email) bouncedEmails.set(row.to_email.toLowerCase(), row.sending_identity_id);
     }
 
@@ -67,7 +83,7 @@ export async function runBounceFeedback(): Promise<{ updated: number; skipped: n
       if (identityId === undefined) { skipped++; continue; }
 
       await db.update(contacts)
-        .set({ emailStatus: "bounced", contactBouncedAt: new Date() } as any)
+        .set({ emailStatus: "bounced", contactBouncedAt: new Date(), updatedAt: new Date() } as any)
         .where(eq(contacts.id, contact.id));
 
       await storage.createAuditLog({
@@ -82,6 +98,7 @@ export async function runBounceFeedback(): Promise<{ updated: number; skipped: n
           previousStatus: contact.emailStatus || "active",
         },
       });
+
       updated++;
     }
 
@@ -107,6 +124,9 @@ export function scoreDecisionMaker(title: string | null | undefined): { isDecisi
   }
   if (/\b(director|vp|vice president|head of|controller)\b/.test(t)) {
     return { isDecisionMaker: true, confidence: 60 };
+  }
+  if (/\b(manager|supervisor|lead)\b/.test(t)) {
+    return { isDecisionMaker: false, confidence: 40 };
   }
   return { isDecisionMaker: false, confidence: 0 };
 }

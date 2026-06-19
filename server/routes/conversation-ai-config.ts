@@ -3,8 +3,9 @@ import { isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { db } from "../db";
 import { storage } from "../storage";
 import { botContexts, handoffRules, maEvents, entityRelationships, companies, ghlActivityLog, contacts, systemSettings } from "@shared/schema";
-import { eq, and, desc, gte } from "drizzle-orm";
+import { eq, and, desc, gte, inArray } from "drizzle-orm";
 import { z } from "zod";
+import { getAllBotContexts } from "../services/sdr/conversation-ai";
 import { addTag, updateCustomFields, disableConversationAi, isSdrGhlConfigured } from "../services/sdr/ghl-client";
 
 const DEFAULT_BOT_SEEDS = [
@@ -53,7 +54,13 @@ Key talking points:
 - Online ordering and delivery integration
 - Lower rates than typical restaurant processors
 
+Qualification questions:
+- How many locations do you have?
+- What POS system do you currently use?
+- What's your approximate monthly card volume?
+
 NEVER quote specific rates. Always offer a free savings analysis.
+Capture: business name, contact name, email, phone.
 Compliance: "By providing your information, you consent to being contacted by Liberty Bancard."`,
     faqItems: [],
     autoReplyEnabled: false,
@@ -396,6 +403,7 @@ export function registerConversationAiConfigRoutes(app: Express) {
     }
   });
 
+  // Security: M&A event creation restricted to admin/manager only
   app.post("/api/ma-events", requireRole("admin", "manager"), async (req, res) => {
     try {
       const schema = z.object({
@@ -512,32 +520,20 @@ export function registerConversationAiConfigRoutes(app: Express) {
       const contact = await storage.getContact(contactId);
       if (!contact) return res.status(404).json({ message: "Not found" });
 
-      const maEventsData = await db.select().from(maEvents)
-        .where(and(eq(maEvents.entityType, "contact"), eq(maEvents.entityId, contactId)))
-        .orderBy(desc(maEvents.createdAt));
+      const [maEventsData, allContacts] = await Promise.all([
+        db.select().from(maEvents).where(and(eq(maEvents.entityType, "contact"), eq(maEvents.entityId, contactId))).orderBy(desc(maEvents.createdAt)),
+        contact.isParentAccount
+          ? storage.getContacts({ limit: 500 }).then(r => (r.data || r).filter((c: any) => c.parentContactId === contactId || c.id === contactId))
+          : Promise.resolve([contact]),
+      ]);
 
-      let childLocations: any[] = [];
-      if (contact.isParentAccount) {
-        const allContacts = await db.select({
-          id: contacts.id,
-          firstName: contacts.firstName,
-          lastName: contacts.lastName,
-          companyName: contacts.companyName,
-          locationName: contacts.locationName,
-          email: contacts.email,
-          emailStatus: contacts.emailStatus,
-          parentContactId: contacts.parentContactId,
-        }).from(contacts).where(eq(contacts.parentContactId, contactId));
-
-        childLocations = allContacts.map(c => ({
-          id: c.id,
-          name: `${c.firstName || ""} ${c.lastName || ""}`.trim(),
-          companyName: c.companyName,
-          locationName: c.locationName,
-          emailStatus: c.emailStatus || "active",
-          email: c.email,
-        }));
-      }
+      const emailHealthSummary = {
+        total: allContacts.length,
+        active: allContacts.filter((c: any) => !c.emailStatus || c.emailStatus === "active").length,
+        bounced: allContacts.filter((c: any) => c.emailStatus === "bounced").length,
+        invalid: allContacts.filter((c: any) => c.emailStatus === "invalid").length,
+        optedOut: allContacts.filter((c: any) => c.emailStatus === "opted-out" || c.doNotContact).length,
+      };
 
       res.json({
         contactId,
@@ -546,8 +542,16 @@ export function registerConversationAiConfigRoutes(app: Express) {
         emailStatus: (contact as any).emailStatus ?? "active",
         managementType: (contact as any).managementType ?? "unknown",
         isParentAccount: contact.isParentAccount ?? false,
+        emailHealthSummary,
         maEvents: maEventsData,
-        childLocations,
+        childLocations: allContacts.filter((c: any) => c.id !== contactId).map((c: any) => ({
+          id: c.id,
+          name: `${c.firstName || ""} ${c.lastName || ""}`.trim(),
+          companyName: c.companyName,
+          locationName: c.locationName,
+          emailStatus: c.emailStatus || "active",
+          email: c.email,
+        })),
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
