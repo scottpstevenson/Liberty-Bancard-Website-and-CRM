@@ -1,0 +1,66 @@
+what are all the free merchant lead ssouces
+
+6:50 PM
+Based on everything we verified today, here's the complete honest list — organized by what's truly free vs what has limits:
+
+Truly Unlimited — No Cost Ever
+
+OpenStreetMap / Overpass API — no key, no rate limit, no cost, forever. Query by business type across any geographic bounding box. Best for rural and suburban coverage that Google misses. Dentists, auto shops, jewelers, vets all have OSM tags.
+
+50-State Business Registries — every US state publishes business registration data as free bulk CSV downloads. Gives you legal entity name, registered agent (owner name), formation date, address. Florida Sunbiz you already have. All 50 states are free — some require a web form to request the download, others are direct links. Filter by SIC/NAICS code for your verticals.
+
+State Professional License Boards — dental boards, medical boards, cosmetology boards, optometry boards, chiropractic boards all publish free licensee CSVs. This is gold for dentists and MedSpas specifically because you get the owner's legal name directly from their license, plus license date which tells you how long they've been in business.
+
+USPS Business Customer Gateway — free address validation API after a free registration. Normalizes all addresses to ZIP+4 which makes deduplication across sources dramatically more accurate.
+
+Google Business Profile (GBP) public data — any business with a Google listing is publicly visible. Playwright scraper hits Google Maps search by vertical + city. No API key, no cost, completely unlimited if you're polite with rate limits.
+
+Yelp public search pages — Yelp killed their free API but their search pages are still public. Playwright scraper hits yelp.com/search by category + city. Gives you price tier (
+–
+–$$$) which is a critical signal for high-ticket merchants.
+
+Yellow Pages / Superpages — yp.com and superpages.com are publicly scrapeable. Good secondary coverage for auto shops and service businesses. Phone numbers are often more accurate here than Google.
+
+BBB (Better Business Bureau) — bbb.org publishes accreditation status and business categories publicly. BBB-accredited businesses are more established and make faster payment decisions. Scrapeable by category and state.
+
+SBA Small Business Data — sba.gov publishes datasets of small businesses including NAICS codes, size classification, and location. Free bulk download. Good for cross-referencing and filling gaps.
+
+SEC / state-level corporate filings — for any merchant that's an LLC or corporation you can find registration info through state databases. Supplements the business registry data.
+
+Contact page email scraper (DIY) — once you have a business website URL from any source, BeautifulSoup + requests visits the /contact and /about pages and extracts emails via regex. Free forever. Your best source of direct owner email.
+
+LinkedIn public profiles — searching "{business name} owner" on LinkedIn and extracting the owner profile via Playwright. Slow and requires careful rate limiting but gives you owner name, sometimes email, and business context. Use only for high-score leads.
+
+Facebook Business Pages — public pages are scrapeable via Playwright. Business name, phone, category, sometimes owner name in the About section. Also shows you whether they're active on social — a signal for MedSpas and jewelry stores.
+
+Data.gov datasets — federal government publishes numerous business datasets for free. Includes Census Bureau business data, SBA loan recipients, and various industry-specific datasets.
+
+Free With Caps — Use Strategically
+
+Google Places API — 10,000 free Nearby Search calls per month after March 2025 pricing change. Use as a structured supplement to the Playwright scraper. Set a hard quota limit in GCP Console so you never accidentally get charged.
+
+Hunter.io — 25 free domain searches per month. Use only on your top hot leads to find owner email patterns from business domains.
+
+Numverify — 250 free phone validations per month. Use to verify phone numbers before pushing to GHL to avoid wasting sequence touches on bad numbers.
+
+Clearbit — has a limited free tier for domain enrichment. Returns company size, industry, social profiles from a domain name.
+
+Foursquare — 500 free Pro API calls per month as of June 2026. Too limited to be a primary source but useful for spot-checking specific verticals in specific cities.
+
+High-Value Niche Sources by Vertical
+
+For dentists specifically: the ADA (American Dental Association) publishes dentist locator data, and every state dental board publishes licensee lists free. Cross-referencing both gives you the most complete dentist database possible.
+
+For auto shops: NHTSA publishes inspection station data for states that require vehicle inspections. Not all states but covers TX, NY, PA, NJ, VA, MD well.
+
+For MedSpas: state medical boards publish MD and NP licenses. State nursing boards publish RN licenses. MedSpas are typically run by one of these — matching the license to an address finds the owner.
+
+For jewelry: Jewelers Board of Trade (JBT) publishes some public data. State jewelry association directories are often public.
+
+For vets: AVMA (American Veterinary Medical Association) has a practice finder. State veterinary licensing boards publish licensee lists free.
+
+The Stack Priority
+
+The way to think about it: OSM and state registries give you the widest coverage at zero cost. Google Maps Playwright scraper gives you the richest data per record (phone, rating, reviews, hours). Yelp Playwright scraper adds the price tier signal you can't get anywhere else. State license boards give you owner names for your highest-value verticals. Everything else is enrichment layered on top.
+
+Running all of these together through the dedup engine means each merchant record gets confirmed and enriched by multiple independent sources — which is what pushes your data quality score up and your scoring engine's accuracy higher over time.
