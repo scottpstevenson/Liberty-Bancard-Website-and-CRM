@@ -267,6 +267,13 @@
       "when": 1782000000000,
       "tag": "0032_free_discovery_sources",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1782100000000,
+      "tag": "0033_free_contact_enrichment",
+      "breakpoints": true
     }
   ]
 }

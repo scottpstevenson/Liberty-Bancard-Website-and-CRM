@@ -2,7 +2,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Loader2, AlertTriangle, BarChart3, Search, MapPin, Building2, Zap, Settings, Play, Square, CheckCircle2, XCircle, RefreshCw, Clock, TrendingUp } from "lucide-react";
+import { Loader2, AlertTriangle, BarChart3, Search, MapPin, Building2, Zap, Settings, Play, Square, CheckCircle2, XCircle, RefreshCw, Clock, TrendingUp, Mail } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useState } from "react";
@@ -69,6 +69,11 @@ export function DiscoveryDashboard() {
 
   const { data: sourceStatus } = useQuery<SourceStatusData>({
     queryKey: ["/api/sdr/discovery/source-status"],
+  });
+
+  const { data: ownerCoverage } = useQuery<{ totalMerchants: number; merchantsWithEmail: number; coveragePct: number }>({
+    queryKey: ["/api/sdr/discovery/owner-coverage"],
+    refetchInterval: 60000,
   });
 
   const { data: jobs, isError: jobsError, refetch: refetchJobs } = useQuery<DiscoveryJob[]>({
@@ -216,7 +221,7 @@ export function DiscoveryDashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
         <Card data-testid="card-discovery-raw">
           <CardContent className="p-4">
             <div className="flex items-center gap-2 mb-2">
@@ -269,6 +274,22 @@ export function DiscoveryDashboard() {
               <span className="text-xs text-muted-foreground">This Week</span>
             </div>
             <div className="text-2xl font-bold" data-testid="value-discovery-week">{weekStats.newInserted}</div>
+          </CardContent>
+        </Card>
+        <Card data-testid="card-owner-coverage">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Mail className="w-4 h-4 text-teal-600" />
+              <span className="text-xs text-muted-foreground">Owner Email</span>
+            </div>
+            <div className="text-2xl font-bold" data-testid="value-owner-coverage">
+              {ownerCoverage ? `${ownerCoverage.coveragePct}%` : "—"}
+            </div>
+            {ownerCoverage && (
+              <div className="text-xs text-muted-foreground mt-0.5" data-testid="value-owner-coverage-detail">
+                {ownerCoverage.merchantsWithEmail} / {ownerCoverage.totalMerchants}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

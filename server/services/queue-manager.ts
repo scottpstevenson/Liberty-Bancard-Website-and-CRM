@@ -293,6 +293,8 @@ class QueueManager {
         case QUEUE_NAMES.ENRICHMENT: {
           if (_job.name === "statement-blueprint" && typeof _job.data?.dealId === "number") {
             await runStatementBlueprintJob(_job.data.dealId);
+          } else if (_job.name === "free-contact-enrichment" && typeof _job.data?.merchantId === "number") {
+            await runFreeContactEnrichmentForMerchant(_job.data.merchantId);
           } else {
             await runEnrichmentTick();
           }
@@ -615,6 +617,111 @@ async function runEnrichmentTick(): Promise<void> {
   const { processSunbizEnrichmentQueue } = await import("./sunbiz-enrichment");
   await processEnrichmentQueue();
   await processSunbizEnrichmentQueue(5).catch(err => console.error("[Queue:enrichment] Sunbiz enrichment error (best-effort):", err));
+  await runFreeContactEnrichmentTick().catch(err => console.error("[Queue:enrichment] Free contact enrichment error (best-effort):", err));
+}
+
+async function runFreeContactEnrichmentTick(): Promise<void> {
+  const BATCH = 20;
+  const { db } = await import("../db");
+  const { sdrMerchants } = await import("@shared/schema");
+  const { sql, and } = await import("drizzle-orm");
+
+  const pending = await db
+    .select({ id: sdrMerchants.id })
+    .from(sdrMerchants)
+    .where(
+      and(
+        sql`(${sdrMerchants.domain} IS NOT NULL OR ${sdrMerchants.website} IS NOT NULL)`,
+        sql`${sdrMerchants.ownerEnrichmentStatus} = 'pending'`,
+        sql`${sdrMerchants.doNotContactFlag} IS NOT TRUE`,
+        sql`NOT EXISTS (SELECT 1 FROM sdr_merchant_contacts mc WHERE mc.merchant_id = ${sdrMerchants.id} AND mc.email IS NOT NULL)`,
+      )
+    )
+    .limit(BATCH);
+
+  if (pending.length === 0) return;
+
+  const qm = await getQueueManager();
+  const enrichmentQueue = qm.getQueue(QUEUE_NAMES.ENRICHMENT);
+  if (!enrichmentQueue) {
+    console.warn("[FreeEnrich] Enrichment queue not found — skipping job enqueue");
+    return;
+  }
+
+  for (const m of pending) {
+    await enrichmentQueue.add(
+      "free-contact-enrichment",
+      { merchantId: m.id },
+      {
+        jobId: `free-contact-enrichment-${m.id}`,
+        attempts: 3,
+        backoff: { type: "exponential", delay: 5000 },
+        removeOnComplete: { count: 50 },
+        removeOnFail: { count: 100 },
+      }
+    ).catch(err => console.error(`[FreeEnrich] Failed to enqueue merchant ${m.id}:`, err));
+  }
+
+  console.log(`[FreeEnrich] Enqueued ${pending.length} per-merchant enrichment jobs`);
+}
+
+async function runFreeContactEnrichmentForMerchant(merchantId: number): Promise<void> {
+  const { db } = await import("../db");
+  const { sdrMerchants } = await import("@shared/schema");
+  const { eq } = await import("drizzle-orm");
+  const { runRdapEnrichment } = await import("./sdr/rdap-enrichment");
+  const { runJsonLdEnrichment } = await import("./sdr/jsonld-enrichment");
+  const { runContactPageEnrichment } = await import("./sdr/contactpage-enrichment");
+
+  let emailFound = false;
+  let transientError: Error | null = null;
+
+  try {
+    const rdap = await runRdapEnrichment(merchantId);
+    if (rdap.emailFound) { emailFound = true; }
+  } catch (err) {
+    const e = err instanceof Error ? err : new Error(String(err));
+    console.error(`[FreeEnrich] RDAP transient failure for merchant ${merchantId}:`, e.message);
+    transientError = e;
+  }
+
+  if (!emailFound) {
+    try {
+      const jld = await runJsonLdEnrichment(merchantId);
+      if (jld.emailFound) { emailFound = true; }
+    } catch (err) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      console.error(`[FreeEnrich] JSON-LD transient failure for merchant ${merchantId}:`, e.message);
+      if (!transientError) transientError = e;
+    }
+  }
+
+  if (!emailFound) {
+    try {
+      const cp = await runContactPageEnrichment(merchantId);
+      if (cp.enriched) { emailFound = true; }
+    } catch (err) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      console.error(`[FreeEnrich] ContactPage transient failure for merchant ${merchantId}:`, e.message);
+      if (!transientError) transientError = e;
+    }
+  }
+
+  if (emailFound) {
+    await db.update(sdrMerchants)
+      .set({ ownerEnrichmentStatus: "enriched", updatedAt: new Date() })
+      .where(eq(sdrMerchants.id, merchantId))
+      .catch(e => console.error(`[FreeEnrich] Status update failed for merchant ${merchantId}:`, e));
+    console.log(`[FreeEnrich] Merchant ${merchantId}: enriched`);
+  } else if (transientError) {
+    throw new Error(`[FreeEnrich] Transient enrichment failure for merchant ${merchantId}: ${transientError.message}`);
+  } else {
+    await db.update(sdrMerchants)
+      .set({ ownerEnrichmentStatus: "failed", updatedAt: new Date() })
+      .where(eq(sdrMerchants.id, merchantId))
+      .catch(e => console.error(`[FreeEnrich] Status update failed for merchant ${merchantId}:`, e));
+    console.log(`[FreeEnrich] Merchant ${merchantId}: failed (no email found by any source)`);
+  }
 }
 
 /**

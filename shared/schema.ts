@@ -2568,6 +2568,7 @@ export const sdrMerchants = pgTable("sdr_merchants", {
   bbbAccredited: boolean("bbb_accredited").default(false),
   sourceCount: integer("source_count").default(1),
   sourcedVia: text("sourced_via"),
+  ownerEnrichmentStatus: text("owner_enrichment_status").default("pending"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
@@ -2614,6 +2615,7 @@ export const sdrMerchantContacts = pgTable("sdr_merchant_contacts", {
   mobile: text("mobile"),
   directPhone: text("direct_phone"),
   roleGuess: text("role_guess"),
+  emailConfidence: integer("email_confidence").default(0),
   primaryContactFlag: boolean("primary_contact_flag").default(false),
   consentSms: boolean("consent_sms").default(false),
   consentEmail: boolean("consent_email").default(false),

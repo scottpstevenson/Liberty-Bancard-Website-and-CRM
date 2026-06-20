@@ -755,6 +755,17 @@ export function registerSdrRoutes(app: Express) {
     }
   });
 
+  app.get("/api/sdr/discovery/owner-coverage", isAuthenticated, async (_req, res) => {
+    try {
+      const { getOwnerEmailCoverage } = await import("../services/sdr/contactpage-enrichment");
+      const coverage = await getOwnerEmailCoverage();
+      res.json(coverage);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
   app.get("/api/sdr/discovery/source-status", isAuthenticated, async (_req, res) => {
     try {
       const { isOutscraperConfigured, getOutscraperUsage } = await import("../services/sdr/outscraper");
