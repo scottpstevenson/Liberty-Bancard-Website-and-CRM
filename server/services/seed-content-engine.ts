@@ -1,6 +1,158 @@
 import { storage } from "../storage";
 import type { InsertContentAuthor, InsertSocialPost } from "@shared/schema";
 
+const KB_SALES_SCRIPTS: Array<{ title: string; category: string; content: string; tags: string[]; isPublished: boolean }> = [
+  {
+    title: "The 5-Minute Comparison Call Script",
+    category: "Sales Scripts",
+    tags: ["call script", "comparison call", "statement review", "sales"],
+    isPublished: true,
+    content: `# The 5-Minute Comparison Call Script
+
+Use this script on every comparison call. The goal is to get the merchant's current effective rate, show the math on what they'd save, and close for a statement upload or next-step commitment — all within 5 minutes.
+
+---
+
+## OPENING (30 seconds)
+
+"Hi {{firstName}}, this is {{agentName}} from Liberty Bancard — thanks for taking a few minutes. Real quick, I want to make sure this is worth your time before we dive in. Do you currently accept credit and debit cards at your business?"
+
+[Yes] → "Great. And roughly how much volume are you running through your processor each month? Ballpark is fine."
+
+[Get a number] → "Perfect. And do you know offhand what your current effective rate is — meaning the actual percentage you're paying after all fees, not just the advertised rate?"
+
+- If they know: note it and proceed.
+- If they don't know: "No worries — most merchants don't. That's actually what I'm going to show you today."
+
+---
+
+## STATEMENT REVIEW (2 minutes)
+
+"So here's the thing — most processors quote you one rate, but when you add up all the fees on your statement, the real number is usually 0.3% to 1% higher than what you think you're paying."
+
+"For example, if you're on 2.6% flat and your actual effective rate after all fees is 3.2%, on $[their monthly volume] a month, that gap alone is $[calculate: volume × 0.006]/month — or $[annualize] a year."
+
+CALCULATION TIP: If they're doing $80K/month and paying 3.2% effective vs. an ideal 2.2%, that's $800/month or $9,600/year.
+
+"What I want to do is pull up your last statement with you — or if you can forward it to me — and show you your real effective rate, line by line. No smoke and mirrors."
+
+---
+
+## THE COMPARISON (1 minute)
+
+"Here's how our pricing works. We use interchange-plus pricing — that means you pay the actual Visa/Mastercard interchange rate plus a small, fixed markup. No bundled rates, no tiered surprises."
+
+"For a business like yours, our all-in effective rate would typically run about [give range based on vertical: retail 1.9–2.3%, restaurant 2.0–2.4%, healthcare 1.8–2.2%, high-ticket 1.7–2.1%]. Compare that to what you're currently paying."
+
+"And if you're open to a cash discount or dual-pricing program, we can get your net processing cost to near zero — legally, with full card-brand approval. That's a separate conversation if it's interesting."
+
+---
+
+## THE CLOSE (30 seconds)
+
+Choose based on where the merchant is:
+
+**If they're engaged and motivated:**
+"The easiest next step is to forward me your last processing statement — PDF, photo of the paper, whatever you have. I'll do the full analysis overnight and send you a side-by-side comparison. Takes you 2 minutes. Does that work?"
+
+**If they're interested but cautious:**
+"I'm not going to push you to make any decisions today. Let me just show you the numbers — if it makes sense, great; if not, at least you'll know exactly what you're paying. Can we get 10 minutes on the calendar this week?"
+
+**If they want to think about it:**
+"Totally understand. One quick question before I let you go — is it the timing that's not right, or is there something specific that would need to change for this to make sense?"
+
+---
+
+## OBJECTION HANDLING
+
+**"I'm in a contract."**
+"What's your early termination fee?"
+[They answer] → "If switching saves you $[X]/month, your breakeven is [ETF ÷ monthly savings] months. Most early terminations pay for themselves in 2–4 months. Worth running the math?"
+
+**"Need to think about it."**
+"Of course. What specifically would you want to think through? If it's the numbers, I can have the full comparison to you by tomorrow — that might make the decision easier."
+
+**"Happy with my current processor."**
+"That's great — and I'm not here to fix something that isn't broken. But when's the last time you had an independent look at your effective rate? Even happy customers are often surprised. If the analysis confirms you're getting a good deal, you'll have peace of mind. If it doesn't — you'll be glad you looked."
+
+**"Need to talk to my partner / accountant."**
+"Absolutely. Would it help if I put together a one-page summary of the numbers that you could share with them? That way they have all the facts in front of them when you discuss it."`,
+  },
+  {
+    title: "Handling the 5 Most Common Merchant Objections",
+    category: "Sales Scripts",
+    tags: ["objections", "sales", "rebuttals", "closing"],
+    isPublished: true,
+    content: `# Handling the 5 Most Common Merchant Objections
+
+Each objection below includes a reframe (what's really going on) and a suggested reply. Use the reply verbatim or adapt it to your voice.
+
+---
+
+## OBJECTION 1: "I'm in a contract / I'll have an early termination fee."
+
+**Reframe:** The merchant assumes switching costs more than staying. They haven't done the breakeven math — and neither have you yet. Make them do the math together.
+
+**Suggested Reply:**
+"What's your early termination fee? Because if we can save you $400–$800 a month, even a $495 ETF pays for itself in 30–60 days. Most merchants who switch mid-contract are cash-flow positive by month two. Can I run the breakeven on your statement?"
+
+---
+
+## OBJECTION 2: "I'm happy with my current processor."
+
+**Reframe:** Satisfaction doesn't mean they're getting a good deal — it usually means they haven't compared. Happy is not the same as optimized.
+
+**Suggested Reply:**
+"That's great — I'm not here to create a problem where there isn't one. But here's the thing: most merchants who tell me they're happy haven't looked at their effective rate in over a year. If an independent review confirms you're on good pricing, you'll know for sure. If it doesn't — you'll have missed $600–$1,200/month you could have kept. Would you let me do a 24-hour analysis, no strings attached?"
+
+---
+
+## OBJECTION 3: "Your rates seem about the same as what I'm paying now."
+
+**Reframe:** They're comparing advertised rates, not effective rates. The gap between the two is where merchants lose the most money.
+
+**Suggested Reply:**
+"The advertised rate is almost never the real number. What you're actually paying is your effective rate — that's total fees divided by total volume on your statement. Most merchants think they're at 2.5% and find out they're actually at 3.1–3.4% when you include all the fees. I can calculate your exact effective rate from your last statement in under 24 hours. Want me to show you the real number?"
+
+---
+
+## OBJECTION 4: "I need to talk to my partner / accountant first."
+
+**Reframe:** This is a legitimate request, not a brush-off. Make it easy for them to have the conversation by giving them the right materials.
+
+**Suggested Reply:**
+"Absolutely — I'd encourage that. Would it help if I put together a one-page savings summary showing your current effective rate versus what you'd pay with us, plus the annual dollar difference? Something concrete they can review without having to ask you to remember the details. That way the conversation with your partner or accountant is about the numbers, not the concept."
+
+---
+
+## OBJECTION 5: "I already tried switching processors once — it was a hassle."
+
+**Reframe:** They had a bad experience and are risk-averse. Don't dismiss the experience. Validate it, then differentiate your process.
+
+**Suggested Reply:**
+"That's completely fair — a bad setup experience can cost you days of disruption. What went wrong last time? [Listen.] Here's what we do differently: we handle the equipment setup, merchant account transfer, and software integration. Your team doesn't have to touch the technical side. Most switches we do are live within 48–72 hours, and we do a same-day call after go-live to make sure everything is clean. I can also put you in touch with two or three current clients who switched from [their processor] if that would help."`,
+  },
+];
+
+async function seedKnowledgeBaseScripts() {
+  try {
+    const existing = await storage.getKnowledgeBaseArticles();
+    const existingTitles = new Set(existing.map((a: any) => a.title));
+    for (const article of KB_SALES_SCRIPTS) {
+      if (!existingTitles.has(article.title)) {
+        await storage.createKnowledgeBaseArticle({
+          ...article,
+          viewCount: 0,
+          helpfulCount: 0,
+        });
+        console.log(`[Seed:KB] Created article: ${article.title}`);
+      }
+    }
+  } catch (err: any) {
+    console.error("[Seed:KB] Sales Scripts seeding failed:", err.message);
+  }
+}
+
 const AUTHORS: InsertContentAuthor[] = [
   {
     slug: "liberty-bancard-team",
@@ -214,6 +366,9 @@ let didSeed = false;
 export async function seedContentEngine() {
   if (didSeed) return;
   didSeed = true;
+
+  // Sales Scripts KB articles
+  await seedKnowledgeBaseScripts();
 
   // Authors
   for (const author of AUTHORS) {

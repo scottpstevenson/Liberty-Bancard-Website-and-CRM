@@ -201,6 +201,7 @@ const VirtualTerminal = lazy(() => import("@/pages/dashboard/VirtualTerminal"));
 const PartnerOrgs = lazy(() => import("@/pages/dashboard/PartnerOrgs"));
 const CoBrandedProposals = lazy(() => import("@/pages/dashboard/CoBrandedProposals"));
 const GhlSequenceGuide = lazy(() => import("@/pages/dashboard/GhlSequenceGuide"));
+const MarketingPlaybook = lazy(() => import("@/pages/dashboard/MarketingPlaybook"));
 const GrowthPlaybook = lazy(() => import("@/pages/dashboard/GrowthPlaybook"));
 const GrowthKPI = lazy(() => import("@/pages/dashboard/GrowthKPI"));
 const WidgetGenerator = lazy(() => import("@/pages/dashboard/WidgetGenerator"));
@@ -652,6 +653,9 @@ function Router() {
         </Route>
         <Route path="/dashboard/ghl-sequence-guide">
           <ProtectedRoute component={GhlSequenceGuide} />
+        </Route>
+        <Route path="/dashboard/marketing-playbook">
+          <ProtectedRoute component={MarketingPlaybook} />
         </Route>
         <Route path="/dashboard/growth-playbook">
           <ProtectedRoute component={GrowthPlaybook} />

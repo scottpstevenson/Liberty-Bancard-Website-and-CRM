@@ -9,6 +9,11 @@ export interface VerticalTemplate {
     body: string;
   };
   followUpSms: string;
+  thirdEmail?: {
+    subject: string;
+    body: string;
+  };
+  thirdSms?: string;
 }
 
 export const VERTICAL_OUTREACH_TEMPLATES: Record<string, VerticalTemplate> = {
@@ -150,22 +155,21 @@ Liberty Bancard`,
 
   Dental: {
     email: {
-      subject: "Are dental software payment fees costing your practice thousands?",
+      subject: "On $80K/month in dental volume, 3% vs. 2% = $9,600/year — is your practice on the right side?",
       body: `Hi {{firstName}},
 
-If you're processing payments through Dentrix, Eaglesoft, or another dental management system, there's a good chance you're paying a premium for that convenience.
+Dentrix and Eaglesoft are excellent practice management systems — but their built-in payment processors charge 2.5–3.5% flat rates while interchange-plus pricing delivers the same seamless integration at 1.8–2.1% for most dental card types.
 
-Built-in dental software processors typically charge flat rates of 2.5–3.5% — while the actual interchange cost on most patient payments is significantly lower.
+On $80K/month in card transactions, the difference between 3% flat and 2% interchange-plus is $800/month — $9,600 a year back to your practice.
 
-At Liberty Bancard, we work exclusively with healthcare and dental practices. We offer:
+At Liberty Bancard, we integrate with Dentrix, Eaglesoft, and all major dental practice management platforms without changing your front-desk workflow:
 
-✓ Interchange-plus pricing — the lowest transparent option in the industry
-✓ Integration with all major dental software (no workflow changes)
-✓ Patient payment plan billing — built in, at no extra cost
+✓ Interchange-plus pricing — no bundled flat rates, full transparency
+✓ Drop-in integration with Dentrix, Eaglesoft, Carestream, and others
+✓ Patient payment plan billing — recurring, built in, no extra cost
+✓ HSA/FSA card support
 ✓ Same-day funding
-✓ Free equipment and setup
-
-For a dental practice doing $80K/month in card transactions, moving from 3% to 2% effective rate saves $800/month — that's $9,600 a year back to the practice.
+✓ Free equipment and setup — no disruption to how you work today
 
 I'd love to run a complimentary analysis on your current statement. Can we schedule 10 minutes this week?
 
@@ -173,65 +177,37 @@ I'd love to run a complimentary analysis on your current statement. Can we sched
 Liberty Bancard
 {{agentPhone}}`,
     },
-    sms: "Hi {{firstName}}, {{agentName}} from Liberty Bancard. We help dental practices cut processing fees and integrate with Dentrix/Eaglesoft. Free analysis — could be $800+/mo in savings. Worth a quick call?",
+    sms: "Hi {{firstName}}, {{agentName}} from Liberty Bancard. On $80K/mo in dental volume, 3% vs 2% = $800/mo difference. We integrate with Dentrix/Eaglesoft and cut fees without changing your workflow. Free analysis — worth a call?",
     followUpEmail: {
-      subject: "Dentrix/Eaglesoft processing vs. interchange-plus — the number",
+      subject: "Dentrix/Eaglesoft processing vs. interchange-plus — the $9,600 number",
       body: `Hi {{firstName}},
 
-Quick number: on $80K/month in card volume, the difference between 3% flat (typical for dental software payments) and 2% interchange-plus is $800/month — or $9,600 a year.
+Quick number: on $80K/month in card volume, the difference between 3% flat (the rate most dental software processors charge) and 2% interchange-plus is $800/month — or $9,600 a year.
 
-Most practices we work with were paying that gap without realizing it. The switch takes about a day and doesn't change your front-desk workflow.
+Most practices we work with were paying that gap without realizing it. The switch takes about a day and doesn't change your front-desk workflow in Dentrix or Eaglesoft — we integrate directly.
 
 Forward your last processing statement to {{agentEmail}} and I'll have a line-by-line breakdown back within 24 hours.
 
 {{agentName}}
 Liberty Bancard`,
     },
-    followUpSms: "Hey {{firstName}}, following up! Forwarding your last processing statement to {{agentEmail}} could reveal $500–$1,200/mo in savings for your practice. Takes 2 min — worth it?",
-  },
-
-  "Med Spa": {
-    email: {
-      subject: "Payment processing built for med spas — save $700–$2,500/month",
+    followUpSms: "Hey {{firstName}}, following up! Forwarding your last processing statement to {{agentEmail}} could reveal $800+/mo in savings for your practice. We integrate with Dentrix/Eaglesoft — no workflow changes. Takes 2 min!",
+    thirdEmail: {
+      subject: "Last note — your Dentrix/Eaglesoft processing cost",
       body: `Hi {{firstName}},
 
-Running a med spa means managing high-dollar treatments, package sales, recurring memberships, and clients who expect a seamless experience — including at checkout.
+I'll keep this short — this is my last note on the subject.
 
-Most med spas are processing through Square, Vagaro, or Jane at flat rates of 2.5–3%+. When your average ticket is $400–$1,200, those rates add up fast.
+If your practice is processing $60K–$100K/month through your dental software's built-in payment system, there's a very good chance you're paying $600–$1,000/month more than you need to.
 
-At Liberty Bancard, we specialize in aesthetic and med spa payment processing:
+The math is simple, the switch is painless (we integrate with your PMS directly), and the analysis is completely free.
 
-✓ Interchange-plus pricing — dramatically lower on high-ticket transactions
-✓ Package and membership recurring billing
-✓ Chargeback protection for prepaid treatment packages
-✓ Integration with Jane, Vagaro, Mindbody, and Zenoti
-✓ Same-day funding
-
-Med spas doing $80K–$150K/month in card volume typically save $700–$2,500/month after switching. That's real money you can reinvest in staff, equipment, or marketing.
-
-Can I run a free analysis on your current statement?
-
-{{agentName}}
-Liberty Bancard
-{{agentPhone}}`,
-    },
-    sms: "Hi {{firstName}}, {{agentName}} from Liberty Bancard. We help med spas reduce processing fees on high-ticket treatments and memberships. Most save $700–$2,500/mo. Free analysis — interested?",
-    followUpEmail: {
-      subject: "Your med spa processing — free savings analysis",
-      body: `Hi {{firstName}},
-
-Following up from my earlier email — I wanted to make sure you had all the information.
-
-Quick example: a med spa doing 200 treatments at an average $600 ticket is running $120K/month through their processor. At 2.7% flat, that's $3,240/month in fees. With interchange-plus, the same volume typically costs $1,800–$2,200.
-
-That $1,000–$1,400/month difference is real money — it could fund a new laser treatment head, cover a full-time esthetician, or simply improve margins.
-
-Can you send your most recent processing statement to {{agentEmail}}? I'll have a complete med spa analysis back to you within 24 hours.
+If you ever want to know where you stand: {{agentEmail}}
 
 {{agentName}}
 Liberty Bancard`,
     },
-    followUpSms: "Hi {{firstName}}, quick follow-up from Liberty Bancard! A free processing review of your med spa could show $1K+/mo in savings. Just forward your statement to {{agentEmail}}. No commitment! 💆",
+    thirdSms: "Hi {{firstName}}, last check-in from Liberty Bancard. If you ever want a free look at your dental processing costs vs. what you could pay, just email your statement to {{agentEmail}}. No pressure — we're here when it makes sense.",
   },
 
   "Auto Repair": {
@@ -523,6 +499,245 @@ Forward your last processing statement to {{agentEmail}} and I'll put together a
 Liberty Bancard`,
     },
     followUpSms: "Hi {{firstName}}, following up from Liberty Bancard. IOLTA-compliant processing at lower rates than LawPay — most firms save $400–$1,200/mo. Free analysis at {{agentEmail}} — worth a look! ⚖️",
+  },
+
+  "Auto Shop": {
+    email: {
+      subject: "Auto shops on Square or Clover are overpaying — here's the math",
+      body: `Hi {{firstName}},
+
+If your auto shop is running on Square or Clover, you're likely paying 2.6–2.75% on every transaction — including your biggest repair invoices.
+
+On a $2,500 transmission job, that's $65 in processing fees. On a $4,000 brake and suspension job, it's $110. Multiply that across your monthly volume and it's a significant line item on your P&L.
+
+At Liberty Bancard, we've helped dozens of independent auto shops and service centers cut that cost:
+
+✓ Interchange-plus pricing — dramatically lower on large, high-ticket invoices
+✓ Cash discount / dual-pricing program — eliminate your processing fees entirely (compliant, card-brand-approved)
+✓ Free modern terminal or integration with your shop management software
+✓ Same-day or next-day funding — critical when you're fronting parts costs
+✓ No long-term contract required
+
+For a shop doing $70K/month in card volume, switching from 2.65% flat to interchange-plus saves $400–$700/month. The cash discount option can push that to $1,500+/month.
+
+Can I run a free comparison on your statement?
+
+{{agentName}}
+Liberty Bancard
+{{agentPhone}}`,
+    },
+    sms: "Hi {{firstName}}, {{agentName}} from Liberty Bancard. Auto shops on Square or Clover usually overpay on big repair invoices. We offer interchange-plus + cash discount programs — most shops save $400–$1,000/mo. Free analysis, no obligation?",
+    followUpEmail: {
+      subject: "Auto shop processing — the cash discount angle",
+      body: `Hi {{firstName}},
+
+One thing I didn't highlight in my first email: for auto shops, the cash discount program is often the biggest win.
+
+Here's how it works: customers paying by credit card see a price that includes the processing cost built in. Customers paying cash get a discount (typically 3–4%). The net result is that your processing cost drops to near zero — legally, and with full card-brand approval.
+
+Many shops we work with eliminate $1,000–$2,500/month in processing fees with this structure. The customer experience is clean, the signage is simple, and the ROI shows up on day one.
+
+Forward your last processing statement to {{agentEmail}} and I'll show you exactly what both options — interchange-plus and cash discount — would look like for your volume.
+
+{{agentName}}
+Liberty Bancard`,
+    },
+    followUpSms: "Hey {{firstName}}, quick follow-up from Liberty Bancard! For auto shops, our cash discount program can eliminate processing fees almost entirely. Free analysis at {{agentEmail}} — your statement, 24hr turnaround. Worth a look?",
+    thirdEmail: {
+      subject: "Last note for {{businessName}} — processing cost review",
+      body: `Hi {{firstName}},
+
+I'll wrap up here — I know you're busy running the shop.
+
+Quick summary of what I've been trying to say: most independent auto shops are paying $500–$1,500/month more than they need to in processing fees, primarily because Square and Clover use flat-rate pricing that isn't optimized for large repair invoices.
+
+If that number sounds meaningful to your business, I'm happy to run the comparison for free: {{agentEmail}}
+
+No commitment, no obligation — just the numbers.
+
+{{agentName}}
+Liberty Bancard`,
+    },
+    thirdSms: "Hi {{firstName}}, last message from Liberty Bancard. If your shop ever wants a free processing cost review, send your last statement to {{agentEmail}}. Most auto shops find $400–$1,000/mo in savings. No pressure — take care!",
+  },
+
+  Jewelry: {
+    email: {
+      subject: "Jewelry retailers: First Data and Fiserv are expensive — there's a better option",
+      body: `Hi {{firstName}},
+
+Jewelry stores have some of the highest average transaction values in retail — and that makes your choice of payment processor a high-stakes decision. If you're on First Data, Fiserv, or a similar legacy processor, you're likely paying bundled or tiered rates that don't reflect the true interchange cost on your high-value sales.
+
+Here's the opportunity: interchange-plus pricing, combined with a cash discount or dual-pricing program, can dramatically reduce what you're paying on every sale.
+
+At Liberty Bancard, we specialize in high-ticket retail:
+
+✓ Interchange-plus pricing — transparent, no hidden markups on premium cards
+✓ Cash discount / dual-pricing program — shift processing cost to card-paying customers (legal, compliant)
+✓ High-limit authorization support for large purchases ($5K–$50K)
+✓ Layaway and installment billing support
+✓ Chargeback protection — critical for high-value item disputes
+✓ Same-day funding so your cash flow matches your sales pace
+
+For a jewelry retailer doing $120K/month in card volume, the difference between 2.8% bundled and interchange-plus can be $800–$1,400/month. The cash discount option can add another $1,500–$2,500/month back to the business.
+
+Can I run a free analysis on your current statement?
+
+{{agentName}}
+Liberty Bancard
+{{agentPhone}}`,
+    },
+    sms: "Hi {{firstName}}, {{agentName}} from Liberty Bancard. Jewelry retailers on First Data/Fiserv typically overpay on high-ticket sales. We offer interchange-plus + cash discount programs built for luxury retail — most save $800–$2,000/mo. Free analysis?",
+    followUpEmail: {
+      subject: "Jewelry retail processing — cash discount + high-ticket auth",
+      body: `Hi {{firstName}},
+
+Following up on my earlier note. Two things I wanted to highlight specifically for jewelry retail:
+
+1. Cash discount program: On a $3,000 diamond ring, a 3.5% processing fee is $105. A properly structured cash discount program shifts that cost to card-paying customers — entirely legally. Most jewelry stores implementing this recover $1,500–$3,000/month in what were previously processing fees.
+
+2. High-ticket authorization support: Sales over $5K require specific authorization handling to minimize declines and downgrade risks. We configure this correctly from day one.
+
+Send your last processing statement to {{agentEmail}} and I'll put together a full comparison within 24 hours — including what the cash discount program would look like for your volume.
+
+{{agentName}}
+Liberty Bancard`,
+    },
+    followUpSms: "Hi {{firstName}}, quick follow-up from Liberty Bancard! Cash discount + interchange-plus is a powerful combo for jewelry retail. Most stores recover $1,500–$3,000/mo in fees. Free analysis at {{agentEmail}} — takes 2 min!",
+    thirdEmail: {
+      subject: "Final note — jewelry processing cost review",
+      body: `Hi {{firstName}},
+
+This is my last note — I don't want to be a nuisance.
+
+The short version: if your jewelry store is doing $80K+/month in card volume on First Data, Fiserv, or a similar legacy processor, there is almost certainly $800–$2,000/month in savings available — either through better pricing, a cash discount program, or both.
+
+If the timing is ever right: {{agentEmail}}
+
+{{agentName}}
+Liberty Bancard`,
+    },
+    thirdSms: "Hi {{firstName}}, last message from Liberty Bancard. Whenever you're ready to review your jewelry store's processing costs, send your statement to {{agentEmail}}. Most clients we work with save $800–$2,000/mo. No pressure!",
+  },
+
+  Veterinary: {
+    email: {
+      subject: "Vet practices on VetPay or Square are usually overpaying — here's the math",
+      body: `Hi {{firstName}},
+
+Veterinary practices deal with a unique payment mix: emergency visits with large, unexpected invoices, routine care, pet insurance reimbursements, and an increasing share of premium rewards credit cards — which carry some of the highest interchange rates in the industry.
+
+If you're processing through VetPay, Square, or your practice management software's built-in payments, you're likely on a flat rate of 2.6–3.2% that doesn't account for this mix.
+
+At Liberty Bancard, we work with independent vet practices and specialty animal hospitals:
+
+✓ Interchange-plus pricing — optimized for your specific transaction mix
+✓ Large emergency invoice support — high-ticket authorizations handled correctly
+✓ Care credit / payment plan integration support
+✓ Integration with Avimark, eVetPractice, Cornerstone, and other vet PMS platforms
+✓ Same-day funding — critical when you're managing supply and medication costs
+✓ No long-term contract required
+
+For a vet practice doing $80K/month in card volume, moving from 2.9% flat to interchange-plus typically saves $500–$900/month. That's money that can go toward equipment, staffing, or simply improving margin.
+
+Can I run a free analysis on your current processing statement?
+
+{{agentName}}
+Liberty Bancard
+{{agentPhone}}`,
+    },
+    sms: "Hi {{firstName}}, {{agentName}} from Liberty Bancard. Vet practices on VetPay or Square typically overpay on large emergency invoices and premium reward cards. We offer interchange-plus tailored for veterinary — most save $500–$900/mo. Free analysis?",
+    followUpEmail: {
+      subject: "Veterinary practice processing — the premium card problem",
+      body: `Hi {{firstName}},
+
+Following up on my earlier message — one thing worth highlighting for vet practices specifically:
+
+Your clients are increasingly paying with premium rewards credit cards (Chase Sapphire, Amex Platinum, etc.). These cards carry some of the highest interchange rates in the system — often 2.3–2.5% just for interchange before processor markup.
+
+On a flat-rate processor at 2.75%, you're paying about the same whether the card is a basic debit card or an Amex Gold. With interchange-plus, your debit and standard cards come in significantly cheaper, which brings your blended effective rate down.
+
+For a practice doing $80K/month in cards, that optimization alone is often $400–$700/month.
+
+Forward your last processing statement to {{agentEmail}} and I'll show you exactly where the savings are for your specific card mix.
+
+{{agentName}}
+Liberty Bancard`,
+    },
+    followUpSms: "Hey {{firstName}}, following up from Liberty Bancard! Premium reward cards cost vet practices extra on flat-rate processors. Interchange-plus fixes that — most practices save $500–$900/mo. Free analysis at {{agentEmail}}. Worth a look?",
+    thirdEmail: {
+      subject: "Last note — processing cost review for your practice",
+      body: `Hi {{firstName}},
+
+Last note from me — I don't want to overstay my welcome.
+
+If your veterinary practice ever wants an independent look at what you're paying in processing fees vs. what you should be paying, I'm here: {{agentEmail}}
+
+Most vet practices we work with save $500–$900/month. The analysis is free, takes 24 hours, and comes with no obligation.
+
+{{agentName}}
+Liberty Bancard`,
+    },
+    thirdSms: "Hi {{firstName}}, last message from Liberty Bancard. If you ever want a free processing review for your vet practice, email your statement to {{agentEmail}}. Most practices find $500–$900/mo in savings. Take care!",
+  },
+
+  MedSpa: {
+    email: {
+      subject: "Med spas on Square or Stripe are losing $700–$2,500/month — here's why",
+      body: `Hi {{firstName}},
+
+Med spas run some of the highest average ticket sizes in the service industry — Botox, filler, laser treatments, and membership packages at $300–$1,500 per visit. That makes your payment processor choice one of the highest-impact financial decisions in your business.
+
+If you're using Square or Stripe at 2.6–2.9% flat, you're paying the same rate on a $1,200 Sculptra appointment as you would on a $10 coffee. That flat-rate math doesn't work in your favor.
+
+At Liberty Bancard, we build payment programs specifically for med spas and aesthetic practices:
+
+✓ Interchange-plus pricing — lower effective rate on high-ticket treatments
+✓ Cash discount program — shift processing cost to card-paying clients (primary hook for high-AOV practices)
+✓ Membership and package recurring billing — tokenized, PCI-compliant
+✓ Chargeback protection for prepaid treatment packages
+✓ Integration with Jane, Vagaro, Mindbody, Zenoti, and Aesthetic Record
+✓ Same-day funding
+
+Med spas doing $80K–$150K/month typically save $700–$2,500/month after switching. The cash discount option alone can add $2,000–$4,000/month back to the business.
+
+Can I run a free analysis on your current statement?
+
+{{agentName}}
+Liberty Bancard
+{{agentPhone}}`,
+    },
+    sms: "Hi {{firstName}}, {{agentName}} from Liberty Bancard. Med spas on Square or Stripe typically overpay on high-ticket treatments. Cash discount + interchange-plus can save $700–$2,500/mo. Free analysis — interested?",
+    followUpEmail: {
+      subject: "Med spa cash discount — the $2,000/month opportunity",
+      body: `Hi {{firstName}},
+
+Following up on my earlier email. For med spas specifically, the cash discount program is often the highest-ROI move.
+
+Here's the math: a practice doing 150 treatments at an average $700 ticket runs $105K/month through their processor. At 2.7% flat, that's $2,835/month in fees. With a properly structured cash discount program, that cost shifts to card-paying clients — your effective cost drops to near zero.
+
+That $2,835/month could fund a new laser head, cover a part-time esthetician's salary, or simply improve your margin on every appointment.
+
+Send your last processing statement to {{agentEmail}} and I'll put together a complete side-by-side within 24 hours — showing both the interchange-plus savings and the full cash discount scenario.
+
+{{agentName}}
+Liberty Bancard`,
+    },
+    followUpSms: "Hi {{firstName}}, quick follow-up from Liberty Bancard! Cash discount programs for med spas can recover $2,000+/mo in processing fees. Free analysis at {{agentEmail}} — your statement, 24hr turnaround, no commitment. 💆",
+    thirdEmail: {
+      subject: "Last note — med spa processing cost",
+      body: `Hi {{firstName}},
+
+Wrapping up here — I know your inbox is full.
+
+The short version: if your med spa is doing $80K+/month in card volume on Square or Stripe, there's likely $700–$2,500/month in savings available through better pricing or a cash discount program.
+
+Whenever it makes sense: {{agentEmail}}
+
+{{agentName}}
+Liberty Bancard`,
+    },
+    thirdSms: "Hi {{firstName}}, last message from Liberty Bancard. Whenever you're ready to review your med spa's processing costs, send your statement to {{agentEmail}}. Most practices find $700–$2,500/mo in savings. No pressure — we're here!",
   },
 };
 

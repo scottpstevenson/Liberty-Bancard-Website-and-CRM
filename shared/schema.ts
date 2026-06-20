@@ -1961,6 +1961,7 @@ export const KB_CATEGORIES = [
   "PCI Compliance",
   "Account Management",
   "Troubleshooting",
+  "Sales Scripts",
 ] as const;
 
 export const reviewRequests = pgTable("review_requests", {
