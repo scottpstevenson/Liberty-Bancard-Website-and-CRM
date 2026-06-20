@@ -640,7 +640,6 @@ Return JSON: { "websiteQuality": "...", "businessMaturity": "..." }`,
         model: "gpt-5-mini",
         messages: websiteMessages,
         response_format: { type: "json_object" },
-        temperature: 0.3,
         max_tokens: 100,
       }));
 

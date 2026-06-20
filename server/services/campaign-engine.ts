@@ -71,7 +71,6 @@ Return JSON: { "subject": "...", "body": "..." }`;
           model: "gpt-5-mini",
           messages: campaignMessages,
           response_format: { type: "json_object" },
-          temperature: 0.7,
         })
       );
 

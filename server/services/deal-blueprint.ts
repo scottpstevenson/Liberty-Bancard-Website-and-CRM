@@ -99,7 +99,6 @@ COMPLIANCE RULES:
         model: "gpt-5-mini",
         messages: blueprintMessages,
         response_format: { type: "json_object" },
-        temperature: 0.4,
       })
     );
 

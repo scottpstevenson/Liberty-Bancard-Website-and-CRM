@@ -96,7 +96,6 @@ Scoring criteria:
         model: "gpt-5-mini",
         messages: enrichMessages,
         response_format: { type: "json_object" },
-        temperature: 0.3,
       })
     );
 

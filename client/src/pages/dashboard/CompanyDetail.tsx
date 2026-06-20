@@ -191,7 +191,7 @@ export default function CompanyDetail() {
       entityType: "company",
       entityId: companyId,
       eventType: maForm.eventType,
-      counterpartyName: counterparty?.name ?? maForm.counterpartyName || null,
+      counterpartyName: (counterparty?.name ?? maForm.counterpartyName) || null,
       counterpartyContactId: counterparty?.id ?? null,
       eventDate: maForm.eventDate,
       note: maForm.note || null,

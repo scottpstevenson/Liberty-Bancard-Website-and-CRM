@@ -470,6 +470,373 @@ Questions? Reply here or call me directly.
       "Register GHL Workflow ID in platform at /dashboard/ghl-workflows",
     ],
   },
+  {
+    id: "onboarding",
+    name: "Workflow 6 — Merchant Welcome & App Completion",
+    goal: "Get the merchant through the application and document collection within 5 business days of closing.",
+    trigger: "Deal stage moves to 'Closed Won' OR tag LB-CLOSED-WON is applied. Fire immediately.",
+    triggerTag: "LB-CLOSED-WON",
+    color: "border-emerald-500",
+    steps: [
+      {
+        num: 1, channel: "email", delay: "Immediately after Closed Won",
+        subject: "Welcome to Liberty Bancard, {{contact.firstName}} — here's what happens next",
+        copy: `Hi {{contact.firstName}},
+
+Welcome to Liberty Bancard. We're glad to have you.
+
+Here's exactly what happens from here:
+
+1. Complete your merchant application (takes 5–10 minutes): [Application Link]
+2. Our team reviews and approves your account — typically within 1–2 business days.
+3. We ship your terminal or configure your payment gateway.
+4. You go live. We monitor your first statement and confirm your savings.
+
+A few things to have handy when you fill out the application:
+• EIN or SSN
+• Voided check or bank letter (for deposits)
+• Government-issued ID
+
+If you have questions at any point, reply here or call (888) 555-0100.
+
+Looking forward to saving you money.
+
+— Scott Allen, Liberty Bancard`,
+        ghlNote: "GHL: Send Email immediately on LB-CLOSED-WON tag. Use Liberty Bancard welcome template. Attach application link as a GHL custom value.",
+      },
+      {
+        num: 2, channel: "sms", delay: "5 minutes after email",
+        copy: `Hi {{contact.firstName}} — welcome to Liberty Bancard! 🎉 Your application link: [App Link]. Takes 5–10 min. Let us know if you have questions. Reply STOP to opt out.`,
+        ghlNote: "GHL: Send SMS 5 minutes after Step 1. Short and action-focused — the email has the detail, the SMS is the push.",
+      },
+      {
+        num: 3, channel: "task", delay: "Day 1 — internal",
+        copy: `New merchant onboarding started: {{contact.firstName}} {{contact.lastName}} — {{contact.companyName}}\nDeal value: {{opportunity.monetaryValue}}\nAssigned rep: {{user.firstName}}\n\nAction items:\n• Confirm application link was received (check delivery)\n• Verify contact has EIN / voided check ready\n• Note any special requirements from sales call in contact record\n• Set reminder for Day 3 if app not submitted`,
+        ghlNote: "GHL: Create Task → assign to deal owner. High priority. Set due date = tomorrow.",
+      },
+      {
+        num: 4, channel: "email", delay: "Day 3 — if application NOT yet submitted",
+        subject: "Quick check — did you get the application link?",
+        copy: `Hi {{contact.firstName}},
+
+Just checking in — wanted to make sure the application link came through okay.
+
+Here it is again: [Application Link]
+
+Most merchants finish in under 10 minutes. If you hit any questions on the form, reply here and I'll walk you through it.
+
+— Scott Allen`,
+        ghlNote: "GHL: Add If/Else condition before this step — check if tag LB-APP-SUBMITTED exists. If yes, skip this step and go to Step 5. If no, send this email.",
+      },
+      {
+        num: 5, channel: "sms", delay: "Day 4 — if application still not submitted",
+        copy: `Hi {{contact.firstName}} — just a quick nudge on your Liberty Bancard application. Any questions? Reply here or call us at (888) 555-0100. Direct link: [App Link]. Reply STOP to opt out.`,
+        ghlNote: "GHL: Same condition as Step 4 — only send if LB-APP-SUBMITTED tag is NOT present.",
+      },
+      {
+        num: 6, channel: "call", delay: "Day 5 — if application still not submitted (GHL Voice AI — onboarding_assist mode)",
+        copy: `"Hi {{contact.firstName}}, this is Liberty Bancard calling about your merchant application. We sent it over a few days ago and wanted to make sure you didn't hit any snags. I can answer questions about the form, or connect you with your account manager right now. Is there anything I can help with to get you started?"`,
+        branch: "Submitted/submitting → tag LB-APP-SUBMITTED, exit | Needs help → create task for rep | Not ready yet → log note, stay in workflow",
+        ghlNote: "GHL: Voice AI → onboarding_assist mode. Business hours only. Disposition: submitted → LB-APP-SUBMITTED; needs_help → create priority task.",
+      },
+    ],
+    exitConditions: [
+      "Application submitted → tag LB-APP-SUBMITTED → stop sequence → enroll in Workflow 7 (Approval & Go-Live)",
+      "STOP reply → tag LB-DNC → stop immediately",
+      "No app after Day 7 → tag LB-ONBOARDING-STALLED → alert assigned rep",
+    ],
+    checklist: [
+      "Create GHL Workflow — trigger: Contact Tag Added = LB-CLOSED-WON",
+      "Set application link as a GHL custom value (reusable across all templates)",
+      "Step 1 email fires immediately — zero wait delay",
+      "Step 2 SMS fires 5 minutes after Step 1",
+      "Add If/Else branches on Steps 4–6: check for LB-APP-SUBMITTED tag before sending",
+      "Configure Voice AI → onboarding_assist script",
+      "Set application submission webhook: when app submitted → tag LB-APP-SUBMITTED → exit workflow → enroll WF7",
+      "Register GHL Workflow ID in platform at /dashboard/ghl-workflows",
+    ],
+  },
+  {
+    id: "golive",
+    name: "Workflow 7 — Approval, Go-Live & Terminal Setup",
+    goal: "Take the merchant from approved application to first live transaction. Confirm savings on first statement.",
+    trigger: "Merchant application approved by underwriting. Platform applies tag LB-MERCHANT-APPROVED.",
+    triggerTag: "LB-MERCHANT-APPROVED",
+    color: "border-teal-500",
+    steps: [
+      {
+        num: 1, channel: "email", delay: "Immediately on approval",
+        subject: "You're approved! Here's your next step, {{contact.firstName}}",
+        copy: `Hi {{contact.firstName}},
+
+Great news — your Liberty Bancard merchant account has been approved.
+
+Your Merchant ID (MID): {{custom.merchantId}}
+
+Here's what happens next:
+
+If you're using a physical terminal:
+→ Your equipment will ship within 1–2 business days. Track it here: [Tracking Link]
+→ Setup takes about 15 minutes. We'll send a step-by-step guide when it ships.
+
+If you're using a payment gateway (online):
+→ Your gateway credentials are in the Merchant Portal: [Portal Link]
+→ Our team will schedule a 30-minute integration call with you.
+
+Merchant Portal access (manage transactions, view statements, update banking):
+[Portal Link] — Password reset link was sent to this email address.
+
+First question or issue: call (888) 555-0100 or reply here. We answer fast.
+
+— Scott Allen, Liberty Bancard`,
+        ghlNote: "GHL: Send Email immediately on LB-MERCHANT-APPROVED. Use custom value for merchantId and portal link. This email must fire within minutes of approval — merchant is expecting it.",
+      },
+      {
+        num: 2, channel: "sms", delay: "10 minutes after approval email",
+        copy: `{{contact.firstName}} — you're approved! 🎉 MID: {{custom.merchantId}}. Portal: [Link]. Terminal ships in 1–2 days. Questions? Call (888) 555-0100. Reply STOP to opt out.`,
+        ghlNote: "GHL: 10-minute delay after Step 1. Short confirmation with MID — merchants screenshot this.",
+      },
+      {
+        num: 3, channel: "email", delay: "Day 2 — terminal shipped (conditional)",
+        subject: "Your terminal shipped — {{contact.companyName}} setup guide inside",
+        copy: `Hi {{contact.firstName}},
+
+Your payment terminal shipped today. Tracking: [Tracking Link]
+
+Once it arrives, here's how to get set up in 15 minutes:
+
+1. Plug in the terminal (power + ethernet or WiFi)
+2. Follow the on-screen setup wizard — it will auto-configure your merchant settings
+3. Run a $1.00 test transaction with your own card to confirm it's processing
+4. Call us at (888) 555-0100 if anything looks off
+
+You'll process your first live transaction with Liberty Bancard rates from the moment it's configured. Your first statement will arrive in about 30 days — we'll send a savings summary at that point.
+
+[Video: How to set up your terminal — 4 min]
+
+— Liberty Bancard Onboarding Team`,
+        ghlNote: "GHL: Fire when terminal label is created/shipped. If gateway-only merchant, replace this step with a 'gateway credentials' email instead. Use If/Else on custom field: terminal_type = physical → send this email; gateway → send gateway setup email.",
+      },
+      {
+        num: 4, channel: "task", delay: "Day 3 — internal",
+        copy: `Go-Live Check: {{contact.firstName}} at {{contact.companyName}}\n• Confirm terminal delivered or gateway access granted\n• Check merchant portal — has the merchant logged in?\n• Any open support tickets?\n• If no activity 3 days post-ship, call merchant proactively`,
+        ghlNote: "GHL: Create Task → assign to onboarding rep. Due = Day 3 after approval.",
+      },
+      {
+        num: 5, channel: "sms", delay: "Day 5 — go-live confirmation",
+        copy: `Hi {{contact.firstName}} — checking in! Have you run your first transaction yet? Reply YES and you're all set. Need help? Call (888) 555-0100 or reply here. Reply STOP to opt out.`,
+        ghlNote: "GHL: Day 5. If first transaction detected (via webhook or manual tag LB-FIRST-TXN), skip this step. Otherwise send.",
+      },
+      {
+        num: 6, channel: "email", delay: "Day 32 — first statement follow-up",
+        subject: "Your first Liberty Bancard statement — here's your savings breakdown",
+        copy: `Hi {{contact.firstName}},
+
+Your first full month of processing with Liberty Bancard is done. Here's a summary:
+
+• Volume processed: {{custom.month1Volume}}
+• Your effective rate this month: {{custom.month1Rate}}%
+• Estimated savings vs. your previous processor: \${{custom.month1Savings}}
+
+You can see the full statement breakdown in your Merchant Portal: [Portal Link]
+
+A couple of things to note:
+• If your volume was lower this month than expected, your effective rate may be slightly higher — interchange is tiered.
+• If you have high-ticket transactions (over $500), we can review the card mix and see if there's more to optimize.
+
+We're working for you every month. Let me know if you have any questions.
+
+— Scott Allen, Liberty Bancard`,
+        ghlNote: "GHL: Fire on Day 32 after LB-MERCHANT-APPROVED. Requires custom values month1Volume, month1Rate, month1Savings populated from the platform's statement reconciliation data. If data isn't ready, delay to Day 35.",
+      },
+    ],
+    exitConditions: [
+      "First transaction processed → tag LB-FIRST-TXN → mark onboarding complete",
+      "Day 32 savings email sent → tag LB-MERCHANT-ACTIVE → enroll in Workflow 8 (Retention)",
+      "Merchant unreachable after Day 7 → tag LB-GOLIVE-STALLED → escalate to manager",
+      "STOP reply → tag LB-DNC → stop immediately",
+    ],
+    checklist: [
+      "Create GHL Workflow — trigger: Contact Tag Added = LB-MERCHANT-APPROVED",
+      "Set custom values: merchantId, portalLink, trackingLink, month1Volume, month1Rate, month1Savings",
+      "Step 1 fires immediately — test with a sample approval to confirm sub-minute delivery",
+      "Add If/Else on Step 3: terminal_type field → physical vs. gateway → different email content",
+      "Connect shipping webhook: label created → tag LB-TERMINAL-SHIPPED → trigger Step 3",
+      "Day 32 email requires statement reconciliation data — coordinate with platform data feed",
+      "After Day 32 email: apply tag LB-MERCHANT-ACTIVE → auto-enroll in Workflow 8",
+      "Register GHL Workflow ID in platform at /dashboard/ghl-workflows",
+    ],
+  },
+  {
+    id: "retention",
+    name: "Workflow 8 — Retention, NPS & Referral",
+    goal: "Keep active merchants engaged, identify at-risk accounts, and generate referrals from satisfied merchants.",
+    trigger: "Tag LB-MERCHANT-ACTIVE applied after first statement delivered (Day 32+ post-go-live).",
+    triggerTag: "LB-MERCHANT-ACTIVE",
+    color: "border-sky-500",
+    steps: [
+      {
+        num: 1, channel: "email", delay: "Day 30 — NPS survey",
+        subject: "Quick question about your first month, {{contact.firstName}}",
+        copy: `Hi {{contact.firstName}},
+
+You've been processing with Liberty Bancard for about a month now — I wanted to check in.
+
+On a scale of 0–10, how likely are you to recommend Liberty Bancard to another business owner?
+
+[0–6] [7–8] [9–10]
+
+(Click your score — takes 10 seconds. We read every response.)
+
+If anything isn't working the way you expected, reply here and I'll personally make sure it's resolved.
+
+— Scott Allen, Liberty Bancard`,
+        ghlNote: "GHL: Send NPS email at Day 30. Connect NPS link to a GHL survey or external NPS tool. Set If/Else on score: 9–10 → tag LB-NPS-PROMOTER → enroll in referral sequence (Step 3). 7–8 → tag LB-NPS-PASSIVE. 0–6 → tag LB-NPS-DETRACTOR → create urgent task for account manager.",
+      },
+      {
+        num: 2, channel: "task", delay: "Day 30 — NPS detractor alert (conditional)",
+        copy: `⚠️ NPS DETRACTOR — Immediate follow-up required\n{{contact.firstName}} at {{contact.companyName}} scored 0–6 on NPS survey.\nContact within 24 hours — identify the issue and resolve it before they churn.\nCheck: terminal issues, unexpected fees, settlement timing, support ticket history.`,
+        ghlNote: "GHL: This task only fires if NPS score is 0–6 (tag LB-NPS-DETRACTOR applied). Assign to account manager. High priority. Due = today.",
+      },
+      {
+        num: 3, channel: "email", delay: "Day 60 — savings recap",
+        subject: "Your 60-day savings report — {{contact.companyName}}",
+        copy: `Hi {{contact.firstName}},
+
+Two months in. Here's how your savings are stacking up:
+
+• Total savings since switching: \${{custom.cumulativeSavings}}
+• Your average effective rate: {{custom.avgRate}}%
+• Transactions processed: {{custom.txnCount}}
+
+Annualized, you're on track to save approximately \${{custom.annualProjection}} this year vs. your previous processor.
+
+One thing worth knowing: if your volume grows, your rate doesn't. You're already on our best interchange-plus pricing.
+
+If you know another business owner who's been complaining about their processing fees, we'll handle their statement review and you'll earn a referral bonus when they switch.
+
+[Refer a merchant → earn \${{custom.referralBonus}}]
+
+— Scott Allen, Liberty Bancard`,
+        ghlNote: "GHL: Day 60. Requires custom values cumulativeSavings, avgRate, txnCount, annualProjection, referralBonus from platform data feed. If data unavailable, send a simplified 'checking in' version without the numbers.",
+      },
+      {
+        num: 4, channel: "sms", delay: "Day 90 — referral push",
+        copy: `Hi {{contact.firstName}} — 3 months in and going strong! Know a business owner who could save on processing? Reply REFER and I'll send you the details on our referral program. Reply STOP to opt out.`,
+        ghlNote: "GHL: Day 90 SMS. Short and conversational. If they reply REFER → apply tag LB-REFERRAL-INTERESTED → assign task to rep to send referral program details.",
+      },
+      {
+        num: 5, channel: "email", delay: "Day 180 — 6-month check-in",
+        subject: "6 months with Liberty Bancard — a quick check-in",
+        copy: `Hi {{contact.firstName}},
+
+Six months in — and your account is in great shape.
+
+Running total saved: \${{custom.cumulativeSavings}}
+
+A few things we're monitoring for you:
+• Your card mix is {{custom.cardMix}}% premium cards — we're watching for any interchange creep
+• Chargeback rate: {{custom.chargebackRate}}% (industry average: 0.6%)
+
+If your business has grown and you're processing significantly more volume now, it's worth a quick call to review your setup. Volume thresholds can unlock additional rate improvements.
+
+Reply here or call (888) 555-0100.
+
+— Scott Allen, Liberty Bancard`,
+        ghlNote: "GHL: Day 180 from LB-MERCHANT-ACTIVE. Continue on 90-day cadence after this: Day 270, Day 360 (annual review). Requires platform data feed for metrics.",
+      },
+    ],
+    exitConditions: [
+      "NPS Detractor (0–6) → tag LB-NPS-DETRACTOR → urgent task + stay in sequence",
+      "NPS Promoter (9–10) → tag LB-NPS-PROMOTER → referral outreach added",
+      "Account cancellation → tag LB-MERCHANT-CHURNED → exit → enroll in Workflow 9 (Win-Back)",
+      "STOP reply → tag LB-DNC → stop immediately",
+    ],
+    checklist: [
+      "Create GHL Workflow — trigger: Contact Tag Added = LB-MERCHANT-ACTIVE",
+      "Day 30 NPS email — connect NPS score click to If/Else branches in GHL",
+      "NPS Detractor (0–6) branch: apply LB-NPS-DETRACTOR → high-priority task → rep contacts within 24h",
+      "NPS Promoter (9–10) branch: apply LB-NPS-PROMOTER → referral email sequence",
+      "Day 60/180 emails require platform data feed for savings figures — set up custom values",
+      "Day 90 SMS: REFER reply detection → tag LB-REFERRAL-INTERESTED → rep task",
+      "Churn detection: cancellation event → tag LB-MERCHANT-CHURNED → exit WF8 → enroll WF9",
+      "Continue sequence on 90-day cadence after Day 180 (quarterly touch)",
+      "Register GHL Workflow ID in platform at /dashboard/ghl-workflows",
+    ],
+  },
+  {
+    id: "winback",
+    name: "Workflow 9 — Win-Back (Churned Merchant)",
+    goal: "Re-engage churned merchants within 90 days of cancellation. Target: 15% win-back rate.",
+    trigger: "Merchant account cancelled or ported away. Platform applies tag LB-MERCHANT-CHURNED.",
+    triggerTag: "LB-MERCHANT-CHURNED",
+    color: "border-rose-500",
+    steps: [
+      {
+        num: 1, channel: "email", delay: "Day 3 after churn — cooling-off period",
+        subject: "We're sorry to see you go — and we want to make it right",
+        copy: `Hi {{contact.firstName}},
+
+We saw that your Liberty Bancard account has been closed. I'm not going to pretend that's not disappointing — but I do want to understand what happened.
+
+If there was something we could have done better — a fee that surprised you, a support issue we didn't resolve, or a competitor offer we should have matched — I'd genuinely like to know.
+
+Reply to this email. I read every response personally.
+
+If it's a rate issue: I'd like 10 minutes to show you what we can do.
+If it's a service issue: I want to fix it, even if you don't come back.
+
+No pitch. Just a conversation.
+
+— Scott Allen, Liberty Bancard
+(888) 555-0100`,
+        ghlNote: "GHL: 3-day delay after LB-MERCHANT-CHURNED. Do NOT send immediately — give the merchant cooling-off time. Tone is empathetic, not sales-focused. Reply detection → tag LB-WINBACK-REPLIED → create priority task for account manager.",
+      },
+      {
+        num: 2, channel: "task", delay: "Day 3 — internal",
+        copy: `Churned merchant — review exit reason\n{{contact.firstName}} at {{contact.companyName}} cancelled their account.\nAction: Review contact record for recent support tickets, complaint notes, or fee disputes.\nIdentify exit reason BEFORE any win-back outreach.\nGoal: personalize the re-engagement if we attempt it.`,
+        ghlNote: "GHL: Create Task simultaneously with Step 1. Assign to original rep or account manager.",
+      },
+      {
+        num: 3, channel: "email", delay: "Day 14 — competitive offer",
+        subject: "One thing before you're fully set up elsewhere, {{contact.firstName}}",
+        copy: `Hi {{contact.firstName}},
+
+I know you've moved on, and I respect that. But I'd feel like I wasn't doing my job if I didn't share one thing first.
+
+We've recently renegotiated our interchange-plus pricing floor. The rate we can offer you today is lower than what we had you on when you left.
+
+I'm not asking you to cancel your new setup. But if you haven't fully ported over yet, or if you want to run a quick side-by-side on what your statement would look like with our current pricing, I'm happy to do that — no obligation, takes 20 minutes.
+
+If the answer is still no, I understand. I'll leave you alone after this.
+
+But if there's any chance the numbers work: [Calendar Link]
+
+— Scott Allen, Liberty Bancard`,
+        ghlNote: "GHL: Day 14. If LB-WINBACK-REPLIED tag is already present (they responded to Step 1), replace this with a more personalized follow-up from the rep directly — not this automated email. Add If/Else check.",
+      },
+      {
+        num: 4, channel: "sms", delay: "Day 30 — final touch",
+        copy: `Hi {{contact.firstName}} — one last message from Liberty Bancard. If you ever want to revisit your processing costs, we're here. Our rates have improved since you left. No pressure — just keeping the door open. www.libertybancard.com. Reply STOP to opt out.`,
+        ghlNote: "GHL: Day 30. This is the final automated touchpoint. After this: tag LB-WINBACK-EXHAUSTED. Remove from all active sequences. Note in contact record: win-back attempted, not recovered.",
+      },
+    ],
+    exitConditions: [
+      "Reply received → tag LB-WINBACK-REPLIED → rep handles manually → exit sequence",
+      "Re-signs / reactivates → tag LB-MERCHANT-APPROVED → enroll in WF7 → exit",
+      "STOP reply → tag LB-DNC → stop immediately",
+      "No response after Day 30 → tag LB-WINBACK-EXHAUSTED → move to annual nurture",
+    ],
+    checklist: [
+      "Create GHL Workflow — trigger: Contact Tag Added = LB-MERCHANT-CHURNED",
+      "Step 1 email has a 3-day delay — do NOT fire immediately on churn tag",
+      "Reply detection on Step 1: LB-WINBACK-REPLIED → create urgent rep task → stop automation",
+      "Step 3 If/Else: if LB-WINBACK-REPLIED exists → skip automated email (rep handles manually)",
+      "After Day 30 SMS: apply LB-WINBACK-EXHAUSTED → log outcome in contact record",
+      "Churn reason tracking: ensure reps complete the exit reason field before closing account",
+      "Register GHL Workflow ID in platform at /dashboard/ghl-workflows",
+    ],
+  },
 ];
 
 // ─── GHL Build Checklist (global) ─────────────────────────────────────────────
@@ -524,17 +891,30 @@ const GLOBAL_CHECKLIST = [
 // ─── Tag reference ─────────────────────────────────────────────────────────────
 
 const TAG_TABLE = [
-  { tag: "LB-INBOUND-NEW",         trigger: "Any form submission / chat inbound",         workflow: "Workflow 1" },
-  { tag: "LB-COLD-OUTBOUND",       trigger: "SDR enrichment / manual upload / bulk import", workflow: "Workflow 2" },
-  { tag: "LB-SDR-REPLY-ENGAGED",   trigger: "Any inbound email or SMS reply",              workflow: "Workflow 3" },
-  { tag: "LB-SDR-STATEMENT-CHASE", trigger: "Prospect agreed to send statement",           workflow: "Workflow 4" },
-  { tag: "LB-SDR-PROPOSAL",        trigger: "Analysis/proposal sent to prospect",          workflow: "Workflow 5" },
-  { tag: "LB-BOOKING-READY",       trigger: "Appointment booked (any channel)",            workflow: "EXIT — stop all sequences" },
-  { tag: "LB-STATEMENT-RECEIVED",  trigger: "Statement uploaded to platform",              workflow: "EXIT — trigger review workflow" },
-  { tag: "LB-VERBAL-COMMIT",       trigger: "Prospect verbally agreed to proceed",         workflow: "EXIT — move to closing" },
-  { tag: "LB-CLOSED-WON",          trigger: "Deal closed / approved",                     workflow: "Enroll onboarding sequence" },
-  { tag: "LB-CLOSED-LOST",         trigger: "Deal lost / not interested",                 workflow: "EXIT — long-term nurture" },
-  { tag: "LB-DNC",                 trigger: "STOP reply / manual DNC",                   workflow: "GLOBAL STOP — all sequences" },
+  { tag: "LB-INBOUND-NEW",           trigger: "Any form submission / chat inbound",              workflow: "Workflow 1 — Speed-to-Lead" },
+  { tag: "LB-COLD-OUTBOUND",         trigger: "SDR enrichment / manual upload / bulk import",    workflow: "Workflow 2 — Cold Outbound" },
+  { tag: "LB-SDR-REPLY-ENGAGED",     trigger: "Any inbound email or SMS reply",                  workflow: "Workflow 3 — Reply Engaged" },
+  { tag: "LB-SDR-STATEMENT-CHASE",   trigger: "Prospect agreed to send statement",               workflow: "Workflow 4 — Statement Chase" },
+  { tag: "LB-SDR-PROPOSAL",          trigger: "Analysis/proposal sent to prospect",              workflow: "Workflow 5 — Proposal Follow-Up" },
+  { tag: "LB-BOOKING-READY",         trigger: "Appointment booked (any channel)",                workflow: "EXIT — stop all active sequences" },
+  { tag: "LB-STATEMENT-RECEIVED",    trigger: "Statement uploaded to platform",                  workflow: "EXIT — trigger review workflow" },
+  { tag: "LB-VERBAL-COMMIT",         trigger: "Prospect verbally agreed to proceed",             workflow: "EXIT — move to closing" },
+  { tag: "LB-CLOSED-WON",            trigger: "Deal closed / approved",                         workflow: "Workflow 6 — Merchant Welcome" },
+  { tag: "LB-CLOSED-LOST",           trigger: "Deal lost / not interested",                     workflow: "EXIT — long-term nurture" },
+  { tag: "LB-APP-SUBMITTED",         trigger: "Merchant completes application form",             workflow: "EXIT WF6 → Workflow 7 — Go-Live" },
+  { tag: "LB-ONBOARDING-STALLED",    trigger: "No app submitted after 7 days",                  workflow: "Alert — rep follow-up required" },
+  { tag: "LB-MERCHANT-APPROVED",     trigger: "Underwriting approves merchant account",          workflow: "Workflow 7 — Approval & Go-Live" },
+  { tag: "LB-FIRST-TXN",             trigger: "First live transaction processed",                workflow: "Onboarding milestone — log only" },
+  { tag: "LB-GOLIVE-STALLED",        trigger: "No terminal activity 7 days post-approval",      workflow: "Alert — escalate to manager" },
+  { tag: "LB-MERCHANT-ACTIVE",       trigger: "Day 32 post-go-live — first statement delivered", workflow: "Workflow 8 — Retention & NPS" },
+  { tag: "LB-NPS-PROMOTER",          trigger: "NPS score 9–10",                                 workflow: "Referral outreach sequence" },
+  { tag: "LB-NPS-PASSIVE",           trigger: "NPS score 7–8",                                  workflow: "Passive — continue nurture" },
+  { tag: "LB-NPS-DETRACTOR",         trigger: "NPS score 0–6",                                  workflow: "URGENT — rep contacts within 24h" },
+  { tag: "LB-REFERRAL-INTERESTED",   trigger: "Merchant replies REFER to SMS",                  workflow: "Rep sends referral program details" },
+  { tag: "LB-MERCHANT-CHURNED",      trigger: "Account cancelled / ported away",                workflow: "Workflow 9 — Win-Back" },
+  { tag: "LB-WINBACK-REPLIED",       trigger: "Churned merchant replies to win-back outreach",   workflow: "EXIT automation — rep handles" },
+  { tag: "LB-WINBACK-EXHAUSTED",     trigger: "No response after Day 30 win-back",              workflow: "Annual nurture — no further outreach" },
+  { tag: "LB-DNC",                   trigger: "STOP reply / manual DNC flag",                   workflow: "GLOBAL STOP — all sequences forever" },
 ];
 
 // ─── CopyBlock ────────────────────────────────────────────────────────────────
@@ -710,6 +1090,45 @@ function WorkflowPanel({ wf }: { wf: Workflow }) {
   );
 }
 
+// ─── Admin Setup checklist section ─────────────────────────────────────────────
+
+function AdminCheckSection({ sectionIndex, title, color, items }: {
+  sectionIndex: number;
+  title: string;
+  color: string;
+  items: string[];
+}) {
+  const [checked, setChecked] = useState<Record<number, boolean>>({});
+  const done = Object.values(checked).filter(Boolean).length;
+  return (
+    <Card className={`border-l-4 ${color}`}>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center justify-between gap-2">
+          <span>{title}</span>
+          <Badge variant="secondary">{done}/{items.length}</Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <ul className="space-y-2">
+          {items.map((item, ii) => (
+            <li
+              key={ii}
+              className="flex items-start gap-2.5 cursor-pointer"
+              onClick={() => setChecked(prev => ({ ...prev, [ii]: !prev[ii] }))}
+              data-testid={`admin-check-${sectionIndex}-${ii}`}
+            >
+              <div className={`h-4 w-4 rounded border flex items-center justify-center shrink-0 mt-0.5 transition-colors ${checked[ii] ? "bg-green-500 border-green-500" : "border-muted-foreground/40"}`}>
+                {checked[ii] && <CheckCircle2 className="h-3 w-3 text-white" />}
+              </div>
+              <span className={`text-xs leading-relaxed ${checked[ii] ? "line-through text-muted-foreground" : ""}`}>{item}</span>
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function GhlSequenceGuide() {
@@ -726,7 +1145,7 @@ export default function GhlSequenceGuide() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">GHL Workflow Build Guide</h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            Step-by-step instructions for building the 5 merchant acquisition workflows in GoHighLevel.
+            The complete customer journey — 9 workflows covering prospecting, qualifying, closing, onboarding, go-live, retention, and win-back.
             All execution happens natively in GHL — this platform handles enrollment triggers only.
           </p>
         </div>
@@ -763,20 +1182,33 @@ export default function GhlSequenceGuide() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center gap-1 flex-wrap text-xs">
-            {[
-              { label: "New Lead", color: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" },
-              { label: "→ WF1 Inbound / WF2 Cold Outbound", color: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300" },
-              { label: "→ Reply?", color: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300" },
-              { label: "→ WF3 Reply Engaged", color: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300" },
-              { label: "→ Statement?", color: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300" },
-              { label: "→ WF4 Statement Chase", color: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300" },
-              { label: "→ Proposal Sent", color: "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300" },
-              { label: "→ WF5 Proposal Follow-Up", color: "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300" },
-              { label: "→ Closed Won 🎉", color: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300" },
-            ].map((node, i) => (
-              <span key={i} className={`px-2 py-1 rounded-md font-medium ${node.color}`}>{node.label}</span>
-            ))}
+          <div className="space-y-2">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Acquisition → Closing</p>
+            <div className="flex items-center gap-1 flex-wrap text-xs">
+              {[
+                { label: "New Lead", color: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" },
+                { label: "→ WF1 Inbound / WF2 Cold Outbound", color: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300" },
+                { label: "→ Reply → WF3", color: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300" },
+                { label: "→ Statement → WF4", color: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300" },
+                { label: "→ Proposal → WF5", color: "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300" },
+                { label: "→ Closed Won", color: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300" },
+              ].map((node, i) => (
+                <span key={i} className={`px-2 py-1 rounded-md font-medium ${node.color}`}>{node.label}</span>
+              ))}
+            </div>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1 mt-3">Onboarding → Retention → Win-Back</p>
+            <div className="flex items-center gap-1 flex-wrap text-xs">
+              {[
+                { label: "Closed Won", color: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300" },
+                { label: "→ WF6 Welcome & App", color: "bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300" },
+                { label: "→ WF7 Approval & Go-Live", color: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300" },
+                { label: "→ WF8 Retention & NPS", color: "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300" },
+                { label: "Churned? → WF9 Win-Back", color: "bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300" },
+                { label: "Re-engagement at 60/90/120 days", color: "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300" },
+              ].map((node, i) => (
+                <span key={i} className={`px-2 py-1 rounded-md font-medium ${node.color}`}>{node.label}</span>
+              ))}
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -789,9 +1221,14 @@ export default function GhlSequenceGuide() {
           <TabsTrigger value="wf3" data-testid="tab-wf3">WF3 — Reply Engaged</TabsTrigger>
           <TabsTrigger value="wf4" data-testid="tab-wf4">WF4 — Statement Chase</TabsTrigger>
           <TabsTrigger value="wf5" data-testid="tab-wf5">WF5 — Proposal</TabsTrigger>
+          <TabsTrigger value="wf6" data-testid="tab-wf6">WF6 — Onboarding</TabsTrigger>
+          <TabsTrigger value="wf7" data-testid="tab-wf7">WF7 — Go-Live</TabsTrigger>
+          <TabsTrigger value="wf8" data-testid="tab-wf8">WF8 — Retention</TabsTrigger>
+          <TabsTrigger value="wf9" data-testid="tab-wf9">WF9 — Win-Back</TabsTrigger>
           <TabsTrigger value="reengage" data-testid="tab-reengage">Re-engagement</TabsTrigger>
           <TabsTrigger value="tags" data-testid="tab-tags">Tag Reference</TabsTrigger>
           <TabsTrigger value="global" data-testid="tab-global">Global Setup</TabsTrigger>
+          <TabsTrigger value="admin-setup" data-testid="tab-admin-setup">GHL Admin Setup</TabsTrigger>
         </TabsList>
 
         {WORKFLOWS.map(wf => (
@@ -1197,6 +1634,235 @@ Eligibility, underwriting, and card brand rules apply. Individual results vary.`
                     </Link>
                   </Button>
                   <Button asChild size="sm" variant="outline" data-testid="btn-open-ghl-global">
+                    <a href="https://app.gohighlevel.com" target="_blank" rel="noopener noreferrer">
+                      <ExternalLink className="h-4 w-4 mr-1.5" /> Open GHL
+                    </a>
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
+        {/* GHL Admin Setup */}
+        <TabsContent value="admin-setup" className="mt-4">
+          <div className="space-y-4">
+            <Card className="border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20">
+              <CardContent className="pt-4 flex gap-3">
+                <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                <div className="text-sm text-amber-700 dark:text-amber-300">
+                  <strong>Do this first — before building any workflow.</strong> The steps below configure the GHL account foundation that all 9 workflows depend on. Complete them in order. Each section has a progress tracker — check items off as you go.
+                </div>
+              </CardContent>
+            </Card>
+
+            {[
+              {
+                title: "1. Account & Sub-Account Setup",
+                color: "border-l-blue-500",
+                items: [
+                  "Log in to GHL Agency Dashboard → Sub-Accounts → Create or select the Liberty Bancard sub-account",
+                  "Set sub-account name: 'Liberty Bancard' | Timezone: Eastern | Business hours: Mon–Fri 9 AM–5 PM",
+                  "Upload Liberty Bancard logo (Settings → Business Profile)",
+                  "Set company email: the from-address for all GHL emails (e.g. scott@libertybancard.com)",
+                  "Configure company phone number (Twilio) — this is the SMS from-number for all outbound texts",
+                  "Verify the from-domain is authenticated in Settings → Email Services → SMTP/Mailgun",
+                ],
+              },
+              {
+                title: "2. Pipeline Setup — Match Platform Stage Names",
+                color: "border-l-green-500",
+                items: [
+                  "Go to GHL → Pipelines → Create New Pipeline: 'Liberty Bancard Sales'",
+                  "Create stages IN ORDER: New Lead → Statement Received → Review In Progress → Call Booked → Proposal Sent → Negotiation / Follow-Up → Verbal Commit → Closed Won → Closed Lost",
+                  "These stage names must match the platform exactly — the platform syncs deal stage changes to GHL by name",
+                  "Create a second pipeline: 'Merchant Onboarding' with stages: App Sent → App Submitted → Under Review → Approved → Terminal Shipped → Live → Churned",
+                  "Set pipeline currency to USD",
+                ],
+              },
+              {
+                title: "3. Custom Fields — Contact Record",
+                color: "border-l-purple-500",
+                items: [
+                  "Go to Settings → Custom Fields → Contacts → Create the following fields:",
+                  "Text field: 'Merchant ID' (key: merchantId) — populated on approval",
+                  "Text field: 'Processing Volume' (key: processingVolume) — monthly card volume",
+                  "Text field: 'Current Processor' (key: currentProcessor) — incumbent name",
+                  "Number field: 'Current Effective Rate' (key: currentRate) — as decimal, e.g. 0.0285",
+                  "Number field: 'LB Quoted Rate' (key: lbRate) — Liberty Bancard rate",
+                  "Number field: 'Monthly Savings' (key: monthlySavings) — dollar amount",
+                  "Number field: 'Annual Savings' (key: annualSavings) — dollar amount",
+                  "Text field: 'Vertical' (key: vertical) — business type, e.g. Restaurant",
+                  "Text field: 'Terminal Type' (key: terminalType) — physical or gateway",
+                  "Text field: 'Lead Source' (key: leadSource) — inbound/cold/referral/partner",
+                  "Text field: 'Referral Code' (key: referralCode) — affiliate/partner referral",
+                  "Number field: 'Month 1 Volume' (key: month1Volume) — first statement volume",
+                  "Number field: 'Month 1 Rate' (key: month1Rate) — first statement rate",
+                  "Number field: 'Cumulative Savings' (key: cumulativeSavings) — running total",
+                  "Number field: 'Referral Bonus' (key: referralBonus) — $ amount earned per referral",
+                ],
+              },
+              {
+                title: "4. Custom Values (Global Tokens for Emails/SMS)",
+                color: "border-l-yellow-500",
+                items: [
+                  "Go to Settings → Custom Values → Create the following global values:",
+                  "Application Link: [paste your merchant application URL]",
+                  "Statement Upload Link: [paste your upload page URL, e.g. libertybancard.com/upload-statement]",
+                  "Calendar Link: [paste your GHL calendar booking link]",
+                  "Merchant Portal Link: [paste your merchant portal URL]",
+                  "Support Phone: (888) 555-0100",
+                  "Support Email: support@libertybancard.com",
+                  "These appear as {{custom.applicationLink}}, etc. in all workflow templates",
+                  "Test each custom value by previewing an email template before going live",
+                ],
+              },
+              {
+                title: "5. SMS / A2P 10DLC Registration",
+                color: "border-l-red-500",
+                items: [
+                  "Go to Settings → Phone Numbers → A2P Registration — this is REQUIRED before sending any bulk SMS",
+                  "Register Brand: Legal Business Name = Liberty Bancard LLC | EIN = [your EIN] | Type = LLC",
+                  "Register Campaign: Use Case = Mixed | Description = 'Merchant services outreach, rate analysis follow-ups, and customer onboarding for payment processing business'",
+                  "Sample Message 1: 'Hi [name], Scott with Liberty Bancard. Want a free review of your processing costs? Reply YES. Reply STOP to opt out.'",
+                  "Sample Message 2: 'Your Liberty Bancard merchant account is approved. MID: [id]. Portal: [link]. Reply STOP to opt out.'",
+                  "Add opt-in language to ALL web forms: 'By submitting, you consent to receive SMS messages from Liberty Bancard. Reply STOP to unsubscribe.'",
+                  "A2P approval takes 2–5 business days — do not send bulk SMS before approval",
+                  "After approval: verify in GHL → Phone Numbers → your number shows 'A2P Registered'",
+                ],
+              },
+              {
+                title: "6. Voice AI Employee Setup (Phone Channel)",
+                color: "border-l-violet-500",
+                items: [
+                  "Go to Settings → AI Employee → Create New → Select 'Phone' channel",
+                  "Name: 'Liberty Bancard AI — Voice'",
+                  "Paste the Voice AI system prompt from /dashboard/ghl-workflows → AI Prompts tab",
+                  "Set business hours: Mon–Fri 9 AM–5 PM (contact local timezone)",
+                  "Connect GHL Calendar for live appointment booking during calls",
+                  "Human handoff triggers: 'real person', 'speak to someone', 'manager', 'not interested', frustration detected",
+                  "Create 4 call modes (GHL calls these 'Personas' or use If/Else routing): intro_qualification | cold_outbound | follow_up_callback | proposal_reminder | onboarding_assist | statement_chase",
+                  "Enable call recording for all AI voice calls (compliance + coaching)",
+                  "Test: call the GHL number and verify the AI introduces itself as Liberty Bancard — NOT as ChatGPT or 'an AI'",
+                ],
+              },
+              {
+                title: "7. AI SMS Employee Setup (Text Channel)",
+                color: "border-l-fuchsia-500",
+                items: [
+                  "Go to Settings → AI Employee → Create New → Select 'SMS/Text' channel",
+                  "Name: 'Liberty Bancard AI — SMS'",
+                  "Paste the SMS AI system prompt from /dashboard/ghl-workflows → AI Prompts tab (Conversation AI System Prompt section)",
+                  "Human handoff triggers: 'real person', 'agent', 'speak to someone', 'human', 'ready to apply'",
+                  "Connect GHL Calendar for appointment booking via SMS",
+                  "Set knowledge base: attach Liberty Bancard FAQ document (create in GHL → Documents)",
+                  "Enable on Workflow 1 Step 9 (Day 3 AI Conversation) — not earlier",
+                  "Test: send a test SMS with 'I want to lower my processing fees' — verify AI responds correctly",
+                ],
+              },
+              {
+                title: "8. Voicemail Drop Recording & Upload",
+                color: "border-l-orange-500",
+                items: [
+                  "Record 6 short audio files (under 25 seconds each) — use a phone recording app or a studio mic:",
+                  "VM-1 (Inbound): 'Hi [name], this is Scott with Liberty Bancard calling about the request you just submitted. Give me a call back at 888-555-0100 or reply to the text we just sent. Talk soon.'",
+                  "VM-2 (Cold Outbound): 'Hi [name], Scott with Liberty Bancard. Sent you a couple emails about your merchant processing — just wanted to put a voice to the name. Call me at 888-555-0100 or reply to my email.'",
+                  "VM-3 (Reply Engaged): 'Hi [name], Scott from Liberty Bancard. Just making sure you didn't fall through the cracks — you reached out and I want to take care of you. 888-555-0100 or grab a time on my calendar. Sending the link now.'",
+                  "VM-4 (Statement Chase): 'Hi [name], Scott from Liberty Bancard. Following up on the statement review — if you want to send it, just reply to one of my texts with a photo or PDF. Hope to hear from you soon.'",
+                  "VM-5 (Proposal): 'Hi [name], Scott from Liberty Bancard. Wanted to touch base on the analysis I sent — there's a real opportunity here and I don't want you to miss it. Call me at 888-555-0100 or grab a time on my calendar.'",
+                  "VM-6 (Onboarding): 'Hi [name], Scott from Liberty Bancard checking in on your application — just want to make sure you don't hit any snags. Call me at 888-555-0100 or reply to any of my messages.'",
+                  "Upload all files: GHL → Marketing → Files & Media → Upload Audio",
+                  "In each workflow's voicemail step: Actions → Voicemail Drop → select the matching audio file",
+                ],
+              },
+              {
+                title: "9. GHL Calendar Configuration",
+                color: "border-l-teal-500",
+                items: [
+                  "Go to Calendars → Create Calendar → 'Liberty Bancard — Statement Review Call'",
+                  "Duration: 15 minutes | Buffer after: 5 minutes",
+                  "Availability: Mon–Fri 9 AM–5 PM Eastern (or rep's local timezone)",
+                  "Confirmation email: auto-send with GHL template; include statement upload link in confirmation",
+                  "Reminder: SMS 1 hour before + email 24 hours before",
+                  "No-show automation: if appointment no-show → apply tag LB-NO-SHOW → enroll in No-Show Recovery workflow",
+                  "Connect to Voice AI Employee so AI can book appointments during calls",
+                  "Paste calendar booking URL into the 'Calendar Link' custom value (Step 4 above)",
+                  "Test: book a test appointment and verify all confirmation/reminder messages fire",
+                ],
+              },
+              {
+                title: "10. Smart Lists — Lead Prioritization Views",
+                color: "border-l-sky-500",
+                items: [
+                  "Go to Contacts → Smart Lists → Create the following views:",
+                  "🔥 Hot Inbound (Today): Tag = LB-INBOUND-NEW AND Tag added date = today",
+                  "💬 Replied — Needs Response: Tag = LB-SDR-REPLY-ENGAGED AND Tag added = last 48h",
+                  "📄 Statement Pending: Tag = LB-SDR-STATEMENT-CHASE (active, no LB-STATEMENT-RECEIVED)",
+                  "📊 Proposal Out: Pipeline Stage = Proposal Sent",
+                  "❄️ Cold Active: Tag = LB-COLD-OUTBOUND AND does NOT have tag LB-COLD-EXIT",
+                  "🏗️ Onboarding Active: Tag = LB-CLOSED-WON AND does NOT have tag LB-MERCHANT-APPROVED",
+                  "⚠️ Onboarding Stalled: Tag = LB-ONBOARDING-STALLED",
+                  "📈 Active Merchants: Tag = LB-MERCHANT-ACTIVE",
+                  "😞 At Risk (NPS Detractors): Tag = LB-NPS-DETRACTOR",
+                  "🛑 DNC (Never Contact): Tag = LB-DNC — review this list periodically to confirm",
+                ],
+              },
+              {
+                title: "11. Register All Workflow IDs in the Platform",
+                color: "border-l-emerald-500",
+                items: [
+                  "After building each workflow in GHL: go to Automations → your workflow → Settings → copy the Workflow ID",
+                  "Go to /dashboard/ghl-workflows in this platform",
+                  "Paste each workflow ID next to its sequence name:",
+                  "WF1 (Speed-to-Lead) → sequence name: 'Inbound Confirmation'",
+                  "WF2 (Cold Outbound) → sequence name: 'Switch & Save — Statement Audit'",
+                  "WF3 (Reply Engaged) → sequence name: 'SDR: Reply Engaged'",
+                  "WF4 (Statement Chase) → sequence name: 'SDR: Statement Chase'",
+                  "WF5 (Proposal) → sequence name: 'SDR: Proposal Follow-Up'",
+                  "WF6 (Merchant Welcome) → sequence name: '3. Fast Approval — Application Completion'",
+                  "WF7 (Go-Live) → env var: GHL_WORKFLOW_MERCHANT_APPROVED (set in Replit Secrets)",
+                  "WF8 (Retention) → create new sequence name: 'Merchant Retention — NPS'",
+                  "WF9 (Win-Back) → create new sequence name: 'Merchant Win-Back'",
+                  "Re-engagement → sequence name: '19. Reactivation — Cold Lead Revival'",
+                  "Test each: manually apply trigger tag to a test contact → verify GHL fires the workflow within 30 seconds",
+                ],
+              },
+              {
+                title: "12. Go-Live Final Check",
+                color: "border-l-rose-500",
+                items: [
+                  "A2P SMS registration approved ✓",
+                  "All 9 workflows built and tested with a test contact ✓",
+                  "All voicemail drop audio files uploaded ✓",
+                  "Voice AI Employee tested — introduces as Liberty Bancard, not ChatGPT ✓",
+                  "SMS AI Employee tested — handles objections, books appointments ✓",
+                  "All custom values populated (application link, calendar, portal, upload links) ✓",
+                  "All GHL Workflow IDs registered in the platform at /dashboard/ghl-workflows ✓",
+                  "DNC handling tested — STOP reply stops all sequences immediately ✓",
+                  "Go to /dashboard/activation → enable SDR sequences → flip SDR_ENABLED to ON ✓",
+                  "Monitor /dashboard/operator for the first 48 hours — watch for bounce spikes or anomalies ✓",
+                ],
+              },
+            ].map((section, si) => (
+              <AdminCheckSection key={si} sectionIndex={si} title={section.title} color={section.color} items={section.items} />
+            ))}
+
+            <Card className="border-dashed">
+              <CardContent className="pt-4 flex items-center justify-between gap-4 flex-wrap">
+                <div className="flex items-center gap-3">
+                  <Zap className="h-8 w-8 text-muted-foreground" />
+                  <div>
+                    <p className="text-sm font-medium">Ready to activate?</p>
+                    <p className="text-xs text-muted-foreground">Once all 12 sections are complete, flip the master switch in the Activation Panel.</p>
+                  </div>
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  <Button asChild size="sm" data-testid="btn-activation-panel">
+                    <Link href="/dashboard/activation">
+                      <Zap className="h-4 w-4 mr-1.5" /> Activation Panel
+                    </Link>
+                  </Button>
+                  <Button asChild size="sm" variant="outline" data-testid="btn-ghl-admin-external">
                     <a href="https://app.gohighlevel.com" target="_blank" rel="noopener noreferrer">
                       <ExternalLink className="h-4 w-4 mr-1.5" /> Open GHL
                     </a>

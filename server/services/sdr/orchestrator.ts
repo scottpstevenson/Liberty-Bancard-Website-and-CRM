@@ -487,7 +487,6 @@ async function personalizeWithAI(template: string, lead: SdrLeadState, channel: 
       () => openai.chat.completions.create({
         model: "gpt-5-mini",
         messages: orchMessages,
-        temperature: 0.7,
         max_tokens: channel === "sms" ? 100 : 300,
       }));
 

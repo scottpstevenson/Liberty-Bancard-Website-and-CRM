@@ -88,7 +88,6 @@ export async function classifyIntent(
       () => openai.chat.completions.create({
         model: "gpt-5-mini",
         messages: classifyMessages,
-        temperature: 0.1,
         max_tokens: 200,
         response_format: { type: "json_object" },
       })
