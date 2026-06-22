@@ -210,6 +210,7 @@ const ColdLeads = lazy(() => import("@/pages/dashboard/ColdLeads"));
 const OnboardingBoard = lazy(() => import("@/pages/dashboard/OnboardingBoard"));
 const UnderwritingPage = lazy(() => import("@/pages/dashboard/Underwriting"));
 const ConversationAIPage = lazy(() => import("@/pages/dashboard/ConversationAI"));
+const SystemReadiness = lazy(() => import("@/pages/dashboard/SystemReadiness"));
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -629,6 +630,9 @@ function Router() {
         </Route>
         <Route path="/dashboard/seo-health">
           <ProtectedRoute component={SeoHealth} />
+        </Route>
+        <Route path="/dashboard/system-readiness">
+          <ProtectedRoute component={SystemReadiness} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/training">
           <ProtectedRoute component={Training} />

@@ -3,6 +3,7 @@ import { storage } from "../../storage";
 import { sendingIdentities, dailyFunnelMetrics, identityPerformanceDaily, sdrLeadState } from "@shared/schema";
 import { sql } from "drizzle-orm";
 import { isGhlConfigured, sendGhlEmailForMerchant } from "../ghl";
+import { isSmtpConfigured, sendSmtpEmail } from "../smtp-email";
 
 function getEstDateString(date?: Date): string {
   return (date || new Date()).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
@@ -119,13 +120,7 @@ export async function sendSdrDailyDigest(digest: { html: string; summary: Record
     return;
   }
 
-  if (!isGhlConfigured()) {
-    console.log("[SDR Digest] GHL not configured, skipping email send");
-    return;
-  }
-
   const recipients: string[] = [adminEmail];
-
   const adminUsers = await storage.getUsersByRole(["admin", "manager"]);
   for (const user of adminUsers) {
     if (user.email && !recipients.includes(user.email)) {
@@ -134,15 +129,28 @@ export async function sendSdrDailyDigest(digest: { html: string; summary: Record
   }
 
   for (const email of recipients) {
-    try {
-      await sendGhlEmailForMerchant({
-        email,
-        subject: `SDR Pilot Daily Digest — ${digest.summary.date}`,
-        body: digest.html,
-      });
-      console.log(`[SDR Digest] Sent to ${email}`);
-    } catch (err) {
-      console.error(`[SDR Digest] Failed to send to ${email}:`, err);
+    if (isGhlConfigured()) {
+      try {
+        await sendGhlEmailForMerchant({
+          email,
+          subject: `SDR Pilot Daily Digest — ${digest.summary.date}`,
+          body: digest.html,
+        });
+        console.log(`[SDR Digest] Delivered via GHL to ${email}`);
+        continue;
+      } catch (err) {
+        console.warn(`[SDR Digest] GHL delivery failed for ${email}, trying SMTP:`, err);
+      }
+    }
+    if (isSmtpConfigured()) {
+      const result = await sendSmtpEmail({ to: email, subject: `SDR Pilot Daily Digest — ${digest.summary.date}`, html: digest.html });
+      if (result.success) {
+        console.log(`[SDR Digest] Delivered via SMTP to ${email}`);
+      } else {
+        console.error(`[SDR Digest] SMTP delivery failed for ${email}: ${result.error}`);
+      }
+    } else {
+      console.warn(`[SDR Digest] No delivery channel for ${email} — set GHL workflow IDs or SMTP_PASS`);
     }
   }
 

@@ -77,6 +77,8 @@ function logEnvVarChecklist() {
     { envVar: "APIFY_API_TOKEN",           feature: "Apify Yelp/Facebook business scraping" },
     { envVar: "OUTSCRAPER_API_KEY",        feature: "Outscraper Google Maps bulk data pulls" },
     { envVar: "SMTP_HOST",                 feature: "SMTP email fallback (used when GHL is not configured or contact has no GHL ID)" },
+    { envVar: "SMTP_PASS",                 feature: "SMTP authentication — required alongside SMTP_HOST/USER for actual delivery" },
+    { envVar: "AI_INTEGRATIONS_OPENAI_API_KEY", feature: "AI enrichment, intent classification, blueprint generation, proposal engine" },
   ];
 
   const missing: string[] = [];

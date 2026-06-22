@@ -204,6 +204,7 @@ const agentResourceItems: MenuItem[] = [
 ];
 
 const adminItems: MenuItem[] = [
+  { icon: Activity, label: "System Readiness", href: "/dashboard/system-readiness", roles: ["admin", "manager"] },
   { icon: FolderOpen, label: "Document Vault", href: "/dashboard/document-vault", roles: ["admin", "manager"] },
   { icon: UserCog, label: "User Management", href: "/dashboard/user-management", roles: ["admin"] },
   { icon: ShieldCheck, label: "Permissions Audit", href: "/dashboard/permissions", roles: ["admin"] },

@@ -827,6 +827,139 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // === SYSTEM READINESS ===
+  app.get("/api/admin/system-readiness", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const { isGhlConfigured } = await import("../services/ghl");
+      const { isSmtpConfigured, getSmtpStatus } = await import("../services/smtp-email");
+      const { GHL_WORKFLOW_REGISTRY } = await import("../services/ghl-workflows");
+      const { featureFlags } = await import("../services/feature-flags");
+
+      // GHL status
+      let ghlStatus: "ok" | "expired" | "unconfigured" = "unconfigured";
+      let ghlLocationName: string | undefined;
+      const ghlConfigured = isGhlConfigured();
+      if (ghlConfigured) {
+        try {
+          const { checkGhlHealth } = await import("../services/ghl");
+          const test = await checkGhlHealth();
+          ghlStatus = test.connected ? "ok" : "expired";
+          ghlLocationName = test.locationName;
+        } catch { ghlStatus = "expired"; }
+      }
+
+      // GHL workflow IDs
+      const configuredWorkflows = GHL_WORKFLOW_REGISTRY.filter(
+        w => !!(process.env[w.envKey])
+      );
+      const dbWorkflows: string[] = [];
+      for (const w of GHL_WORKFLOW_REGISTRY) {
+        if (!process.env[w.envKey]) {
+          try {
+            const saved = await storage.getSystemSetting(`ghl_workflow_env_${w.envKey}`);
+            if (saved) dbWorkflows.push(w.envKey);
+          } catch { /* ignore */ }
+        }
+      }
+      const workflowIdsConfigured = configuredWorkflows.length + dbWorkflows.length;
+
+      // SMTP
+      const smtpStatus = getSmtpStatus();
+      const smtpConfigured = isSmtpConfigured();
+
+      // OpenAI
+      const openaiConfigured = !!(process.env.AI_INTEGRATIONS_OPENAI_API_KEY);
+
+      // Redis
+      const redisUrl = process.env.REDIS_URL;
+      const redisReal = !!(redisUrl && redisUrl !== "");
+
+      // Sending identities
+      let sendingIdentityCount = 0;
+      try {
+        const identities = await storage.getSendingIdentities();
+        sendingIdentityCount = identities.filter(i => i.status === "active").length;
+      } catch { /* ignore */ }
+
+      // Feature flags
+      const flags = {
+        sdrEnabled: featureFlags.SDR_ENABLED,
+        orchestratorEnabled: featureFlags.ORCHESTRATOR_ENABLED,
+        legacyOutreachEnabled: featureFlags.LEGACY_OUTREACH_ENABLED,
+        voiceAiEnabled: featureFlags.VOICE_AI_ENABLED,
+        smsEnabled: featureFlags.SMS_ENABLED,
+        nightlyDiscoveryEnabled: featureFlags.NIGHTLY_DISCOVERY_ENABLED,
+      };
+
+      // Key env vars presence
+      const envChecks = {
+        ghlToken: !!(process.env.GHL_PRIVATE_INTEGRATION_TOKEN),
+        ghlLocationId: !!(process.env.GHL_LOCATION_ID),
+        adminEmail: !!(process.env.ADMIN_DIGEST_EMAIL),
+        serperApiKey: !!(process.env.SERPER_API_KEY),
+        apolloApiKey: !!(process.env.APOLLO_API_KEY),
+        apifyToken: !!(process.env.APIFY_API_TOKEN),
+        outscraperKey: !!(process.env.OUTSCRAPER_API_KEY),
+        appUrl: !!(process.env.APP_URL),
+        nmiKey: !!(process.env.NMI_SECURITY_KEY),
+        ghlWebhookSecret: !!(process.env.GHL_WEBHOOK_SECRET),
+        smtpPass: !!(process.env.SMTP_PASS),
+        smtpHost: !!(process.env.SMTP_HOST),
+        smtpUser: !!(process.env.SMTP_USER),
+        ghlDefaultWorkflow: !!(process.env.GHL_DEFAULT_WORKFLOW_ID),
+        ghlBookingLink: !!(process.env.GHL_DEFAULT_BOOKING_LINK),
+      };
+
+      // Build action items
+      const actions: string[] = [];
+      if (!smtpConfigured) {
+        if (!envChecks.smtpHost) actions.push("Set SMTP_HOST to enable email delivery fallback");
+        else if (!envChecks.smtpPass) actions.push("Set SMTP_PASS — SMTP_HOST/USER are set but auth is missing, all transactional emails are silently failing");
+      }
+      if (ghlStatus === "unconfigured") {
+        actions.push("Set GHL_PRIVATE_INTEGRATION_TOKEN and GHL_LOCATION_ID to enable GHL sync, comms, and workflows");
+      } else if (ghlStatus === "expired") {
+        actions.push("GHL token is expired — regenerate in GHL Settings → Private Integrations and update GHL_PRIVATE_INTEGRATION_TOKEN");
+      }
+      if (workflowIdsConfigured < GHL_WORKFLOW_REGISTRY.length) {
+        actions.push(`Configure ${GHL_WORKFLOW_REGISTRY.length - workflowIdsConfigured} GHL Workflow IDs in GHL Workflow ID Manager — all automation is silently failing without them`);
+      }
+      if (!openaiConfigured) {
+        actions.push("Set AI_INTEGRATIONS_OPENAI_API_KEY — AI enrichment, intent classification, blueprint/proposal generation will all fail");
+      }
+      if (sendingIdentityCount < 3) {
+        actions.push(`Add more sending identities — only ${sendingIdentityCount} active (recommend 3+ for inbox rotation)`);
+      }
+      if (!redisReal) {
+        actions.push("Set REDIS_URL for production BullMQ job queue — currently using in-memory fallback (jobs lost on restart)");
+      }
+      if (!envChecks.adminEmail) {
+        actions.push("Set ADMIN_DIGEST_EMAIL — daily/weekly digests have no recipient without it");
+      }
+      if (!envChecks.serperApiKey && flags.legacyOutreachEnabled) {
+        actions.push("Set SERPER_API_KEY — required for deep enrichment in Outreach Command Center");
+      }
+      if (!envChecks.ghlWebhookSecret) {
+        actions.push("Set GHL_WEBHOOK_SECRET — webhook signature validation is disabled (security risk)");
+      }
+
+      res.json({
+        ghl: { status: ghlStatus, configured: ghlConfigured, locationName: ghlLocationName, workflowIdsConfigured, workflowIdsTotal: GHL_WORKFLOW_REGISTRY.length },
+        smtp: { configured: smtpConfigured, ...smtpStatus },
+        openai: { configured: openaiConfigured },
+        redis: { real: redisReal, url: redisReal ? "configured" : "not set (using in-memory mock)" },
+        sdr: flags,
+        sendingIdentities: { activeCount: sendingIdentityCount },
+        env: envChecks,
+        actions,
+        overallHealthy: actions.length === 0,
+        criticalIssues: actions.filter(a => a.toLowerCase().includes("silently failing") || a.toLowerCase().includes("fail") || a.toLowerCase().includes("expired") || a.toLowerCase().includes("security")).length,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // === GHL FAILURES (admin + manager) ===
   app.get("/api/admin/ghl-failures", requireRole("admin", "manager"), async (_req, res) => {
     try {

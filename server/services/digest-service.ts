@@ -1,7 +1,30 @@
 import { storage } from "../storage";
 import { pool } from "../db";
 import { sendGhlEmailForMerchant, isGhlConfigured } from "./ghl";
+import { sendSmtpEmail, isSmtpConfigured } from "./smtp-email";
 import type { InsertNotification } from "@shared/schema";
+
+async function deliverDigestEmail(to: string, subject: string, html: string): Promise<void> {
+  if (isGhlConfigured()) {
+    try {
+      await sendGhlEmailForMerchant({ email: to, subject, body: html });
+      console.log(`[Digest] Delivered via GHL to ${to}`);
+      return;
+    } catch (err) {
+      console.warn(`[Digest] GHL delivery failed for ${to}, trying SMTP fallback:`, err);
+    }
+  }
+  if (isSmtpConfigured()) {
+    const result = await sendSmtpEmail({ to, subject, html });
+    if (result.success) {
+      console.log(`[Digest] Delivered via SMTP to ${to}`);
+    } else {
+      console.error(`[Digest] SMTP delivery also failed for ${to}: ${result.error}`);
+    }
+  } else {
+    console.warn(`[Digest] No delivery channel available for ${to} — GHL not configured and SMTP_PASS not set. Digest stored as internal notification only.`);
+  }
+}
 
 function parseCurrency(v: string | null | undefined): number {
   if (!v) return 0;
@@ -470,20 +493,9 @@ export async function checkAndSendDigests(): Promise<void> {
         metadata: { digestType: "daily", ...summary },
       });
 
-      if (isGhlConfigured()) {
-        const recipients = await getDigestRecipients("daily");
-        for (const email of recipients) {
-          try {
-            await sendGhlEmailForMerchant({
-              email,
-              subject: `Daily Digest — ${summary.date} — Liberty Bancard`,
-              body: html,
-            });
-            console.log("[Digest] Daily digest sent to", email);
-          } catch (emailErr) {
-            console.error(`[Digest] Daily digest email to ${email} failed:`, emailErr);
-          }
-        }
+      const dailyRecipients = await getDigestRecipients("daily");
+      for (const email of dailyRecipients) {
+        await deliverDigestEmail(email, `Daily Digest — ${summary.date} — Liberty Bancard`, html);
       }
 
       await storage.createAuditLog({
@@ -509,20 +521,9 @@ export async function checkAndSendDigests(): Promise<void> {
         metadata: { digestType: "weekly", ...summary },
       });
 
-      if (isGhlConfigured()) {
-        const recipients = await getDigestRecipients("weekly");
-        for (const email of recipients) {
-          try {
-            await sendGhlEmailForMerchant({
-              email,
-              subject: `Weekly KPI Digest — ${summary.period} — Liberty Bancard`,
-              body: html,
-            });
-            console.log("[Digest] Weekly KPI digest sent to", email);
-          } catch (emailErr) {
-            console.error(`[Digest] Weekly digest email to ${email} failed:`, emailErr);
-          }
-        }
+      const weeklyRecipients = await getDigestRecipients("weekly");
+      for (const email of weeklyRecipients) {
+        await deliverDigestEmail(email, `Weekly KPI Digest — ${summary.period} — Liberty Bancard`, html);
       }
 
       await storage.createAuditLog({
