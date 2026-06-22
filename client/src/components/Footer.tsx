@@ -6,7 +6,7 @@ import { CALENDAR_URL } from "@/lib/constants";
 export function Footer() {
   const quickLinks = [
     { label: "Home", href: "/" },
-    { label: "Get Started", href: CALENDAR_URL, external: true },
+    { label: "Get My Free Analysis", href: "/free-analysis" },
     { label: "Upload Statement", href: "/upload-statement" },
     { label: "About & Contact", href: "/about-contact" },
     { label: "Support", href: "/support" },
@@ -30,7 +30,7 @@ export function Footer() {
     { label: "Savings Calculator", href: "/savings-calculator" },
     { label: "Quick Estimate", href: "/estimate" },
     { label: "Upload Statement", href: "/upload-statement" },
-    { label: "Get Started", href: CALENDAR_URL, external: true },
+    { label: "Get My Free Analysis", href: "/free-analysis" },
   ];
 
   const solutionLinks = [
@@ -131,7 +131,9 @@ export function Footer() {
               </li>
               <li>
                 <a
-                  href="/get-started"
+                  href={CALENDAR_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="flex items-center gap-2 text-primary-foreground/70 text-sm hover:text-primary-foreground transition-colors"
                   data-testid="link-footer-book-call"
                 >

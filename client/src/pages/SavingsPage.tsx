@@ -333,7 +333,7 @@ export default function SavingsPage() {
               data-testid="link-apply-now"
             >
               <Rocket className="w-5 h-5" />
-              Get Started — Apply Now
+              Get My Free Analysis
             </a>
 
             <div className="flex items-center gap-3">

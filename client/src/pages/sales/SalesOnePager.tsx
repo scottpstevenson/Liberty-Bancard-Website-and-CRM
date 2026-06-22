@@ -933,7 +933,7 @@ export default function SalesOnePager() {
               <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="button-cta-call">
                 <Button variant="outline" className="gap-2 bg-white/10 border-white/20 text-white backdrop-blur-sm">
                   <Phone className="w-4 h-4" />
-                  Book a 10-Minute Call
+                  Get My Free Analysis
                 </Button>
               </a>
             </div>

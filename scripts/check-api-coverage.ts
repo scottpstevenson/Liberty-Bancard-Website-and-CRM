@@ -83,6 +83,9 @@ const KNOWN_MISMATCHES = new Set<string>([
   // coverage script sees :param because apiRequest uses a template literal with runtime dealId
   "/api/underwriting/deals/:param/approve",
   "/api/underwriting/deals/:param/reject",
+  // GHL workflow ID test — server handler exists at POST /api/admin/ghl-workflows/:workflowId/test
+  // coverage script sees template literal prefix rather than the full resolved path
+  "/api/admin/ghl-workflows/${encodeURIComponent",
 ]);
 
 function main() {

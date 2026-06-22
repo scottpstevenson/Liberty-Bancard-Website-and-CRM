@@ -103,7 +103,7 @@ export default function ThanksEstimate() {
               <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking("thanks_estimate")} data-testid="link-thanks-estimate-book-call">
                 <Button size="lg" variant="outline" className="gap-2">
                   <Calendar className="w-4 h-4" />
-                  Book a 10-Minute Call
+                  Get My Free Analysis
                 </Button>
               </a>
             </div>

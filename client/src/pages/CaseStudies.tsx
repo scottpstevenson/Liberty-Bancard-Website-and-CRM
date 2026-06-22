@@ -621,10 +621,10 @@ export default function CaseStudies() {
                     Upload Statement Now
                   </Button>
                 </Link>
-                <Link href="/get-started" data-testid="link-bottom-get-started">
+                <Link href="/free-analysis" data-testid="link-bottom-get-started">
                   <Button variant="outline" className="gap-2">
                     <ArrowRight className="w-4 h-4" />
-                    Get Started
+                    Get My Free Analysis
                   </Button>
                 </Link>
               </div>

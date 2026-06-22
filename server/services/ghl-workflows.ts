@@ -1,6 +1,10 @@
 import { triggerWorkflow, isSdrGhlConfigured } from "./sdr/ghl-client";
 import { isGhlConfigured } from "./ghl";
 import { storage } from "../storage";
+import { auditChange } from "./audit-change";
+import { db } from "../db";
+import { contacts } from "@shared/schema";
+import { eq } from "drizzle-orm";
 
 export interface GhlWorkflowConfig {
   id: string;
@@ -133,6 +137,27 @@ export async function enrollInGhlWorkflow(params: {
     return { success: true };
   } catch (err: any) {
     console.error(`[GHL Workflows] Enrollment failed for ${params.workflowKey}:`, err.message);
+    let dbContactId: number | undefined;
+    let displayName: string = params.ghlContactId;
+    try {
+      const [match] = await db
+        .select({ id: contacts.id, firstName: contacts.firstName, lastName: contacts.lastName, email: contacts.email })
+        .from(contacts)
+        .where(eq(contacts.ghlContactId, params.ghlContactId))
+        .limit(1);
+      if (match) {
+        dbContactId = match.id;
+        displayName = [match.firstName, match.lastName].filter(Boolean).join(" ") || match.email || params.ghlContactId;
+      }
+    } catch (_) {}
+    await auditChange({
+      entityType: "ghl_sync",
+      entityId: dbContactId,
+      entityKey: displayName,
+      action: "ghl_enrollment_failed",
+      actorType: "system",
+      details: { workflowKey: params.workflowKey, error: err.message, ...params.metadata },
+    }).catch(() => {});
     return { success: false, error: err.message };
   }
 }

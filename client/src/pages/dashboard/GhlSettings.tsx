@@ -23,6 +23,16 @@ interface HealthCheckResult {
   error?: string;
 }
 
+interface AdminHealthResult {
+  status: "ok" | "expired" | "unconfigured";
+  failureCount: number;
+  lastSync: string | null;
+  latencyMs?: number;
+  locationName?: string;
+  error?: string;
+  checkedAt?: string;
+}
+
 interface SyncStatus {
   configured: boolean;
   totalContacts: number;
@@ -68,6 +78,13 @@ export default function GhlSettings() {
 
   const { data: status, isLoading: statusLoading } = useQuery<GhlStatus>({
     queryKey: ["/api/ghl/status"],
+  });
+
+  const { data: adminHealth } = useQuery<AdminHealthResult>({
+    queryKey: ["/api/admin/ghl-health"],
+    refetchInterval: 60_000,
+    retry: false,
+    staleTime: 25_000,
   });
 
   const { data: healthResult } = useQuery<HealthCheckResult>({
@@ -189,6 +206,46 @@ export default function GhlSettings() {
           </Button>
         </div>
       </div>
+
+      {adminHealth && (() => {
+        const triState: "ok" | "degraded" | "down" =
+          adminHealth.status === "ok" && (adminHealth.failureCount ?? 0) === 0 ? "ok" :
+          adminHealth.status === "ok" ? "degraded" : "down";
+        return (
+          <div
+            data-testid="card-ghl-admin-health"
+            className={`flex items-start gap-4 p-4 rounded-lg border text-sm ${
+              triState === "ok"
+                ? "bg-green-50 dark:bg-green-950 border-green-200 dark:border-green-800 text-green-900 dark:text-green-100"
+                : triState === "degraded"
+                ? "bg-amber-50 dark:bg-amber-950 border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-100"
+                : "bg-red-50 dark:bg-red-950 border-red-200 dark:border-red-800 text-red-900 dark:text-red-100"
+            }`}
+          >
+            {triState === "ok"
+              ? <CheckCircle2 className="w-5 h-5 shrink-0 text-green-600 dark:text-green-400 mt-0.5" />
+              : triState === "degraded"
+              ? <AlertTriangle className="w-5 h-5 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+              : <XCircle className="w-5 h-5 shrink-0 text-red-600 dark:text-red-400 mt-0.5" />}
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold">
+                {triState === "ok" ? "GHL Connected — All Systems Healthy" :
+                 triState === "degraded" ? `GHL Connected — ${adminHealth.failureCount} failure${adminHealth.failureCount !== 1 ? "s" : ""} in last 24h` :
+                 adminHealth.status === "unconfigured" ? "GHL Not Configured" : "GHL Token Expired or Rejected"}
+              </p>
+              <div className="flex flex-wrap gap-x-6 gap-y-1 mt-1 text-xs opacity-80">
+                <span>Last sync: {adminHealth.lastSync ? new Date(adminHealth.lastSync).toLocaleString() : "No data yet"}</span>
+                <span>Failures (24h): {adminHealth.failureCount ?? 0}</span>
+                {adminHealth.latencyMs != null && <span>Latency: {adminHealth.latencyMs}ms</span>}
+                {adminHealth.locationName && <span>Location: {adminHealth.locationName}</span>}
+              </div>
+              {adminHealth.status !== "ok" && adminHealth.error && (
+                <p className="text-xs mt-1 opacity-80">{adminHealth.error}</p>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {healthResult && (
         <Alert variant={healthResult.connected ? "default" : "destructive"} data-testid="alert-health-result">

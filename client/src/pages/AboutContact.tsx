@@ -86,7 +86,7 @@ export default function AboutContact() {
                 <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking("about_contact_hero")} data-testid="link-hero-book-call">
                   <Button variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
                     <Calendar className="w-4 h-4" />
-                    Book a 10-Minute Call
+                    Get My Free Analysis
                   </Button>
                 </a>
               </div>
@@ -228,7 +228,7 @@ export default function AboutContact() {
                 <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking("about_contact_footer_cta")} data-testid="link-contact-book-call">
                   <Button className="gap-2">
                     <Calendar className="w-4 h-4" />
-                    Book a 10-Minute Call
+                    Get My Free Analysis
                   </Button>
                 </a>
               </div>

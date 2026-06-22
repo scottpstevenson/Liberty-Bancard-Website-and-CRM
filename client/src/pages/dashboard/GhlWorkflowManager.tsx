@@ -1625,6 +1625,8 @@ export default function GhlWorkflowManager() {
   const { toast } = useToast();
   const [editingIds, setEditingIds] = useState<Record<string, string>>({});
   const [savingSequences, setSavingSequences] = useState<Set<string>>(new Set());
+  const [testingSequences, setTestingSequences] = useState<Set<string>>(new Set());
+  const [testResults, setTestResults] = useState<Record<string, { valid: boolean; active?: boolean; warning?: string; error?: string; name?: string }>>({});
   const [searchQuery, setSearchQuery] = useState("");
 
   const { data: mappings = [], isLoading } = useQuery<WorkflowMapping[]>({
@@ -1653,6 +1655,32 @@ export default function GhlWorkflowManager() {
     const ghlWorkflowId = editingIds[sequenceName] ?? (mappingByName[sequenceName]?.ghlWorkflowId || "");
     setSavingSequences(prev => new Set(prev).add(sequenceName));
     saveMutation.mutate({ sequenceName, ghlWorkflowId, category });
+  };
+
+  const handleTest = async (sequenceName: string) => {
+    const workflowId = getWorkflowId(sequenceName);
+    if (!workflowId || workflowId.trim().length < 8) {
+      toast({ title: "No workflow ID", description: "Enter a GHL workflow ID before testing.", variant: "destructive" });
+      return;
+    }
+    setTestingSequences(prev => new Set(prev).add(sequenceName));
+    try {
+      const res = await apiRequest("POST", `/api/admin/ghl-workflows/${encodeURIComponent(workflowId)}/test`, {});
+      const data = await res.json();
+      setTestResults(prev => ({ ...prev, [sequenceName]: data }));
+      if (data.valid && data.active !== false) {
+        toast({ title: "Workflow found & active ✓", description: `GHL confirmed: "${data.name || workflowId}"` });
+      } else if (data.valid && data.active === false) {
+        toast({ title: "Workflow found — not active", description: data.warning || "Workflow exists but is not published/active. Contacts may not be enrolled.", variant: "destructive" });
+      } else {
+        toast({ title: "Workflow not found", description: data.error || "GHL returned invalid for this ID.", variant: "destructive" });
+      }
+    } catch (err: any) {
+      setTestResults(prev => ({ ...prev, [sequenceName]: { valid: false, error: err.message } }));
+      toast({ title: "Test failed", description: err.message, variant: "destructive" });
+    } finally {
+      setTestingSequences(prev => { const next = new Set(prev); next.delete(sequenceName); return next; });
+    }
   };
 
   const getWorkflowId = (sequenceName: string) => {
@@ -1806,7 +1834,28 @@ export default function GhlWorkflowManager() {
                               {isSaving ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
                               <span className="ml-1 text-xs">{isSaving ? "Saving..." : "Save"}</span>
                             </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={testingSequences.has(seq.name) || !currentId || currentId.trim().length < 8}
+                              onClick={() => handleTest(seq.name)}
+                              className={`shrink-0 h-8 ${testResults[seq.name] ? (testResults[seq.name].valid ? "text-green-600" : "text-destructive") : ""}`}
+                              title="Ping GHL to verify this workflow ID is valid"
+                              data-testid={`button-test-${seq.name.replace(/[^a-zA-Z0-9]/g, "-").toLowerCase()}`}
+                            >
+                              {testingSequences.has(seq.name)
+                                ? <Loader2 className="w-3 h-3 animate-spin" />
+                                : testResults[seq.name]
+                                  ? (testResults[seq.name].valid ? <CheckCircle className="w-3 h-3" /> : <XCircle className="w-3 h-3" />)
+                                  : <Zap className="w-3 h-3" />}
+                              <span className="ml-1 text-xs">{testingSequences.has(seq.name) ? "..." : "Test"}</span>
+                            </Button>
                           </div>
+                          {testResults[seq.name] && !testResults[seq.name].valid && (
+                            <p className="text-xs text-destructive mt-1" data-testid={`text-test-error-${seq.name.replace(/[^a-zA-Z0-9]/g, "-").toLowerCase()}`}>
+                              {testResults[seq.name].error}
+                            </p>
+                          )}
                         </div>
                       </div>
                     </CardContent>

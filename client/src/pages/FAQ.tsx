@@ -525,9 +525,9 @@ export default function FAQ() {
                   Contact Support <ArrowRight className="w-4 h-4" />
                 </span>
               </Link>
-              <Link href="/get-started" data-testid="link-faq-get-started">
+              <Link href="/free-analysis" data-testid="link-faq-get-started">
                 <span className="inline-flex items-center gap-2 px-6 py-3 rounded-md border border-primary-foreground/30 text-primary-foreground font-medium hover:opacity-90 transition-opacity">
-                  Get Started Free
+                  Get My Free Analysis
                 </span>
               </Link>
             </div>

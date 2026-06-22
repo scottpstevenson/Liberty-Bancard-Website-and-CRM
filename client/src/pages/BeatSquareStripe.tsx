@@ -149,7 +149,7 @@ export default function BeatSquareStripe() {
                   </Link>
                   <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking("beat_square_stripe_hero")} data-testid="link-beat-secondary-cta">
                     <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
-                      Book a 10-Minute Call
+                      Get My Free Analysis
                     </Button>
                   </a>
                   <Button
@@ -547,7 +547,7 @@ export default function BeatSquareStripe() {
               </Link>
               <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking("beat_square_stripe_final")} data-testid="link-beat-final-call">
                 <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
-                  Book a 10-Minute Call
+                  Get My Free Analysis
                 </Button>
               </a>
             </div>

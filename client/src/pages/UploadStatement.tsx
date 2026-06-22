@@ -907,7 +907,7 @@ export default function UploadStatement() {
               <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="button-book-call-next">
                 <Button variant="outline" className="gap-2">
                   <Calendar className="w-4 h-4" />
-                  Book a 10-Minute Call
+                  Get My Free Analysis
                 </Button>
               </a>
             </div>
@@ -955,7 +955,7 @@ export default function UploadStatement() {
             <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="button-book-call-secondary">
               <Button className="gap-2">
                 <Calendar className="w-4 h-4" />
-                Book a 10-Minute Call
+                Get My Free Analysis
               </Button>
             </a>
           </div>

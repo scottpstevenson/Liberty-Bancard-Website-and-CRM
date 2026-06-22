@@ -4,6 +4,7 @@ import type { Contact, Deal, Company, Task, Ticket, Note, UpdateContactRequest }
 import { ghlSyncStatus, GHL_PIPELINE_STAGE_MAP, GHL_PIPELINE_STAGE_REVERSE, ACTIVE_DEAL_STAGES } from "@shared/schema";
 import { upsertGhlContact, isGhlConfigured, sendGhlEmail } from "./ghl";
 import { getEmailSignatureHtml } from "./email-signatures";
+import { auditChange } from "./audit-change";
 import { eq } from "drizzle-orm";
 
 const CONFLICT_FIELDS: Array<{ ghlKey: string; contactKey: keyof Contact }> = [
@@ -158,10 +159,26 @@ export async function syncContactToGhl(contactId: number): Promise<{ success: bo
     });
 
     await updateSyncStatusRecord("contacts", "outbound", 1, 0);
+    const displayName = [contact.firstName, contact.lastName].filter(Boolean).join(" ") || contact.email || String(contactId);
+    await auditChange({
+      entityType: "ghl_sync",
+      entityId: contactId,
+      entityKey: displayName,
+      action: "ghl_sync_success",
+      actorType: "system",
+      details: { ghlContactId: ghlId },
+    }).catch(() => {});
     return { success: true, ghlContactId: ghlId };
   } catch (err: any) {
     console.error(`[GHL Sync] Failed to sync contact ${contactId}:`, err.message);
     await updateSyncStatusRecord("contacts", "outbound", 0, 1, err.message);
+    await auditChange({
+      entityType: "ghl_sync",
+      entityId: contactId,
+      action: "ghl_sync_failed",
+      actorType: "system",
+      details: { error: err.message },
+    }).catch(() => {});
     return { success: false, error: err.message };
   }
 }
@@ -845,6 +862,13 @@ export async function syncTagsToGhl(contactId: number): Promise<{ success: boole
   } catch (err: any) {
     console.error(`[GHL Sync] Failed to sync tags for contact ${contactId}:`, err.message);
     await updateSyncStatusRecord("tags", "outbound", 0, 1, err.message);
+    await auditChange({
+      entityType: "ghl_sync",
+      entityId: contactId,
+      action: "ghl_tag_sync_failed",
+      actorType: "system",
+      details: { error: err.message },
+    }).catch(() => {});
     return { success: false, error: err.message };
   }
 }
@@ -863,6 +887,12 @@ export async function syncTagsFromGhl(ghlContactId: string, tags: string[]): Pro
   } catch (err: any) {
     console.error("[GHL Sync] Failed to sync tags from GHL:", err.message);
     await updateSyncStatusRecord("tags", "inbound", 0, 1, err.message);
+    await auditChange({
+      entityType: "ghl_sync",
+      action: "ghl_tag_inbound_failed",
+      actorType: "system",
+      details: { error: err.message },
+    }).catch(() => {});
     return { success: false, error: err.message };
   }
 }

@@ -5,8 +5,8 @@ import { storage } from "../storage";
 import { db } from "../db";
 import { auditChange } from "../services/audit-change";
 import { z } from "zod";
-import { insertAgentMerchantSchema, insertAgentQuotaSchema, insertAgentSchema, insertConsentAuditLogSchema, insertDataDeleteRequestSchema, insertHealthAlertSchema, insertResidualReportSchema, insertReviewRequestSchema, users, contacts } from "@shared/schema";
-import { desc, eq, isNull } from "drizzle-orm";
+import { insertAgentMerchantSchema, insertAgentQuotaSchema, insertAgentSchema, insertConsentAuditLogSchema, insertDataDeleteRequestSchema, insertHealthAlertSchema, insertResidualReportSchema, insertReviewRequestSchema, users, contacts, auditLogs } from "@shared/schema";
+import { desc, eq, isNull, and, gte, or, like, count, not } from "drizzle-orm";
 import { parse } from "csv-parse/sync";
 import path from "path";
 import { publicLeadRateLimit } from "../middleware/public-rate-limit";
@@ -706,6 +706,154 @@ export function registerAdminRoutes(app: Express) {
       res.json({ totalContacts: allCount.length, missingGhlId: nullCount.length });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === GHL HEALTH CHECK (cached 30s) ===
+  let _ghlHealthCache: { data: any; at: number } | null = null;
+  const GHL_HEALTH_TTL_MS = 30_000;
+
+  app.get("/api/admin/ghl-health", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const now = Date.now();
+      if (_ghlHealthCache && now - _ghlHealthCache.at < GHL_HEALTH_TTL_MS) {
+        return res.json({ ..._ghlHealthCache.data, cached: true });
+      }
+      const { checkGhlHealth } = await import("../services/ghl");
+      const result = await checkGhlHealth();
+      const ghlStatus = result.connected ? "ok" : (
+        result.error?.toLowerCase().includes("not configured") ? "unconfigured" : "expired"
+      );
+
+      const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+      const [failureCountRow] = await db
+        .select({ total: count() })
+        .from(auditLogs)
+        .where(and(
+          eq(auditLogs.entityType, "ghl_sync"),
+          or(like(auditLogs.action, "%fail%"), like(auditLogs.action, "%error%")),
+          gte(auditLogs.createdAt, since24h)
+        ));
+
+      const [lastSuccessRow] = await db
+        .select({ createdAt: auditLogs.createdAt })
+        .from(auditLogs)
+        .where(and(
+          eq(auditLogs.entityType, "ghl_sync"),
+          not(like(auditLogs.action, "%fail%")),
+          not(like(auditLogs.action, "%error%"))
+        ))
+        .orderBy(desc(auditLogs.createdAt))
+        .limit(1);
+
+      const payload = {
+        ...result,
+        status: ghlStatus,
+        failureCount: failureCountRow?.total ?? 0,
+        lastSync: lastSuccessRow?.createdAt?.toISOString() ?? null,
+        checkedAt: new Date().toISOString(),
+        cached: false,
+      };
+      _ghlHealthCache = { data: payload, at: now };
+      res.json(payload);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === GHL SYNC RETRY ===
+  app.post("/api/admin/ghl-sync/retry", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const { contactId } = req.body;
+      if (!contactId) return res.status(400).json({ message: "contactId is required" });
+
+      const { isGhlConfigured, upsertGhlContact } = await import("../services/ghl");
+      if (!isGhlConfigured()) {
+        return res.status(503).json({ message: "GHL not configured. Set GHL_API_KEY and GHL_LOCATION_ID." });
+      }
+      const [contact] = await db.select().from(contacts).where(eq(contacts.id, Number(contactId)));
+      if (!contact) return res.status(404).json({ message: "Contact not found" });
+
+      const result = await upsertGhlContact(contact);
+      await auditChange({ entityType: "ghl_sync", entityId: contact.id, entityKey: contact.email || String(contact.id), action: "ghl_sync_retry_success", details: { ghlContactId: result } });
+      res.json({ success: true, ghlContactId: result });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // === GHL WORKFLOW ID TEST ===
+  app.post("/api/admin/ghl-workflows/:workflowId/test", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const { workflowId } = req.params;
+      if (!workflowId || workflowId.length < 8) {
+        return res.status(400).json({ valid: false, error: "Invalid workflow ID format" });
+      }
+      const { isGhlConfigured } = await import("../services/ghl");
+      if (!isGhlConfigured()) {
+        return res.status(503).json({ valid: false, error: "GHL not configured. Set GHL_API_KEY and GHL_LOCATION_ID." });
+      }
+      const apiKey = process.env.GHL_PRIVATE_INTEGRATION_TOKEN || process.env.GHL_API_KEY;
+      const locationId = process.env.GHL_LOCATION_ID;
+      const base = process.env.GHL_API_BASE || "https://services.leadconnectorhq.com";
+      const url = `${base}/workflows/${workflowId}`;
+      const resp = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          Version: "2021-07-28",
+          "Content-Type": "application/json",
+          ...(locationId ? { "location-id": locationId } : {}),
+        },
+      });
+      if (resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        const wf = (data as any)?.workflow ?? data;
+        const name = wf?.name || workflowId;
+        const isActive = wf?.status === "published" || wf?.isActive === true || wf?.status === "active";
+        if (!isActive && wf?.status !== undefined) {
+          return res.json({ valid: true, active: false, name, warning: `Workflow exists but is not active (status: ${wf.status}). Contacts may not be enrolled.` });
+        }
+        return res.json({ valid: true, active: isActive !== false, name });
+      } else if (resp.status === 404) {
+        return res.json({ valid: false, error: "Workflow not found in GHL. Check the ID." });
+      } else if (resp.status === 401 || resp.status === 403) {
+        return res.json({ valid: false, error: "GHL token rejected. Re-authenticate in GHL Settings → Private Integrations." });
+      } else {
+        return res.json({ valid: false, error: `GHL returned HTTP ${resp.status}` });
+      }
+    } catch (err: any) {
+      res.status(500).json({ valid: false, error: err.message });
+    }
+  });
+
+  // === GHL FAILURES (admin + manager) ===
+  app.get("/api/admin/ghl-failures", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const failures = await db
+        .select({
+          id: auditLogs.id,
+          action: auditLogs.action,
+          entityType: auditLogs.entityType,
+          entityId: auditLogs.entityId,
+          entityKey: auditLogs.entityKey,
+          details: auditLogs.details,
+          createdAt: auditLogs.createdAt,
+        })
+        .from(auditLogs)
+        .where(
+          and(
+            eq(auditLogs.entityType, "ghl_sync"),
+            or(like(auditLogs.action, "%fail%"), like(auditLogs.action, "%error%")),
+            gte(auditLogs.createdAt, since24h)
+          )
+        )
+        .orderBy(desc(auditLogs.createdAt))
+        .limit(50);
+      res.json({ logs: failures });
+    } catch (err: any) {
+      res.status(500).json({ logs: [], error: err.message });
     }
   });
 

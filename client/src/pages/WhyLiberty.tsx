@@ -229,7 +229,7 @@ export default function WhyLiberty() {
                 <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking("why_liberty_hero")} data-testid="link-why-book-call">
                   <Button variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
                     <Calendar className="w-4 h-4" />
-                    Book a 10-Minute Call
+                    Get My Free Analysis
                   </Button>
                 </a>
               </div>

@@ -14,7 +14,7 @@ const solutionLinks = [
   { name: "Beat Square & Stripe", href: "/beat-square-stripe", featured: false },
   { name: "Payment Terminals & Equipment", href: "/shop", featured: false },
   { name: "Upload Statement", href: "/upload-statement", featured: false },
-  { name: "Get Started", href: "/get-started", featured: false },
+  { name: "Get My Free Analysis", href: "/free-analysis", featured: false },
 ];
 
 const industryLinks = [

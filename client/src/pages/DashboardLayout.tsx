@@ -230,6 +230,74 @@ function filterByRole(items: MenuItem[], role: UserRole): MenuItem[] {
 
 const TWO_FA_BANNER_KEY = "2fa_banner_dismissed";
 
+function GhlAlertBanner({ role }: { role: UserRole }) {
+  const isPrivileged = role === "admin" || role === "manager";
+  const [dismissed, setDismissed] = useState(false);
+
+  const { data } = useQuery<{ connected: boolean; status: "ok" | "expired" | "unconfigured"; error?: string; locationName?: string }>({
+    queryKey: ["/api/admin/ghl-health"],
+    enabled: isPrivileged && !dismissed,
+    refetchInterval: 60_000,
+    retry: false,
+    staleTime: 25_000,
+  });
+
+  if (!isPrivileged || dismissed || !data || data.status === "ok") return null;
+
+  const isUnconfigured = data.status === "unconfigured";
+
+  return (
+    <div
+      data-testid="banner-ghl-alert"
+      className="flex items-start gap-3 px-4 py-3 text-sm bg-red-50 dark:bg-red-950 text-red-900 dark:text-red-100 border-b border-red-200 dark:border-red-800"
+      role="alert"
+    >
+      <Workflow className="w-4 h-4 shrink-0 mt-0.5 text-red-600 dark:text-red-400" />
+      <span className="flex-1">
+        {isUnconfigured ? (
+          <>
+            <strong>GHL not configured.</strong>{" "}
+            Set <code className="text-xs bg-red-100 dark:bg-red-900 px-1 rounded">GHL_PRIVATE_INTEGRATION_TOKEN</code> and{" "}
+            <code className="text-xs bg-red-100 dark:bg-red-900 px-1 rounded">GHL_LOCATION_ID</code> in Replit Secrets to enable sync.
+          </>
+        ) : (
+          <>
+            <strong>GHL token expired or rejected.</strong>{" "}
+            {data.error && <span className="opacity-80">{data.error}. </span>}
+            To fix: go to{" "}
+            <a
+              href="https://app.gohighlevel.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline font-semibold hover:opacity-80"
+              data-testid="link-ghl-ext-regen"
+            >
+              app.gohighlevel.com
+            </a>
+            {" "}→ Settings → Private Integrations → regenerate token → update{" "}
+            <code className="text-xs bg-red-100 dark:bg-red-900 px-1 rounded">GHL_PRIVATE_INTEGRATION_TOKEN</code>.
+          </>
+        )}
+      </span>
+      <Link
+        href="/dashboard/ghl-settings"
+        data-testid="link-ghl-banner-fix"
+        className="underline underline-offset-2 font-semibold text-red-800 dark:text-red-200 hover:opacity-80 whitespace-nowrap shrink-0"
+      >
+        GHL Settings
+      </Link>
+      <button
+        onClick={() => setDismissed(true)}
+        data-testid="button-ghl-banner-dismiss"
+        aria-label="Dismiss GHL alert until next page load"
+        className="ml-1 p-0.5 rounded hover:opacity-70 shrink-0"
+      >
+        <X className="w-4 h-4" />
+      </button>
+    </div>
+  );
+}
+
 function TwoFaBanner({ role }: { role: UserRole }) {
   const [dismissed, setDismissed] = useState(() =>
     typeof window !== "undefined" && localStorage.getItem(TWO_FA_BANNER_KEY) === "true"
@@ -484,6 +552,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           {user && !user.totpEnabled && (
             <TwoFaBanner role={role} />
           )}
+          <GhlAlertBanner role={role} />
           <main className="flex-1 overflow-auto p-3 sm:p-6 max-w-7xl mx-auto w-full" data-testid="dashboard-main">
             <ErrorBoundary key={location}>
               {children}

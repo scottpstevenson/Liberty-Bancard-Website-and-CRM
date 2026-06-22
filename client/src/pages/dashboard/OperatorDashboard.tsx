@@ -16,7 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Activity, AlertTriangle, ArrowUpRight, BarChart3, Calendar, CheckCircle2,
   Clock, Loader2, Mail, MessageSquare, Phone, RefreshCw, Send, Shield,
-  Target, TrendingUp, Users, XCircle, Zap, Eye, Filter, ChevronRight, Server, GitMerge,
+  Target, TrendingUp, Users, XCircle, Zap, Eye, Filter, ChevronRight, ChevronDown, Server, GitMerge,
   Bot, DollarSign, Hash, Play, Flag, ShieldCheck, FileText, Upload, Database,
 } from "lucide-react";
 import StatementChainPanel from "@/components/operator/StatementChainPanel";
@@ -1932,6 +1932,271 @@ function CommHealthPanel() {
   );
 }
 
+function GhlConnectionPanel() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const [failedOpsOpen, setFailedOpsOpen] = useState(true);
+  const [retryingId, setRetryingId] = useState<number | null>(null);
+
+  const { data, isLoading, isFetching, refetch } = useQuery<{
+    connected: boolean;
+    status: "ok" | "expired" | "unconfigured";
+    latencyMs: number;
+    locationName?: string;
+    error?: string;
+    failureCount: number;
+    lastSync: string | null;
+    checkedAt?: string;
+    cached?: boolean;
+  }>({
+    queryKey: ["/api/admin/ghl-health"],
+    refetchInterval: 60_000,
+    retry: false,
+    staleTime: 25_000,
+  });
+
+  const { data: auditData, refetch: refetchAudit } = useQuery<{
+    logs: Array<{
+      id: number;
+      action: string;
+      entityType: string;
+      entityKey?: string;
+      entityId?: number | null;
+      details?: any;
+      createdAt?: string;
+    }>;
+  }>({
+    queryKey: ["/api/admin/ghl-failures"],
+    retry: false,
+    staleTime: 30_000,
+  });
+
+  const failedOps = auditData?.logs || [];
+
+  async function handleRetry(op: { id: number; entityId?: number | null; entityKey?: string }) {
+    if (!op.entityId) {
+      toast({ title: "Cannot retry", description: "No contact ID available for this log entry.", variant: "destructive" });
+      return;
+    }
+    setRetryingId(op.id);
+    try {
+      const res = await apiRequest("POST", "/api/admin/ghl-sync/retry", { contactId: op.entityId });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.message || body.error || "Retry failed");
+      toast({ title: "GHL sync re-triggered", description: `Contact ${op.entityKey || op.entityId} queued for re-sync.` });
+      refetchAudit();
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/ghl-health"] });
+    } catch (err: any) {
+      toast({ title: "Retry failed", description: err.message, variant: "destructive" });
+    } finally {
+      setRetryingId(null);
+    }
+  }
+
+  return (
+    <div className="space-y-4 mt-4" data-testid="panel-ghl-connection">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-semibold text-base">GHL Connection Status</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Live connectivity check to GoHighLevel. Refreshes every 60 seconds. Results are cached 30s server-side.
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            queryClient.invalidateQueries({ queryKey: ["/api/admin/ghl-health"] });
+            refetch();
+          }}
+          disabled={isFetching}
+          data-testid="button-refresh-ghl-health"
+          aria-label="Refresh GHL health"
+        >
+          {isFetching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+        </Button>
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center justify-center py-10">
+          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+        </div>
+      ) : !data ? (
+        <Card><CardContent className="py-8 text-center text-muted-foreground text-sm">Failed to load GHL health.</CardContent></Card>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <Card data-testid="card-ghl-status">
+            <CardContent className="p-4 flex flex-col gap-2">
+              <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Status</p>
+              {(() => {
+                const triState =
+                  data.status === "ok" && (data.failureCount ?? 0) === 0 ? "ok" :
+                  data.status === "ok" ? "degraded" : "down";
+                return (
+                  <>
+                    {triState === "ok" && (
+                      <div className="flex items-center gap-2 text-green-600">
+                        <CheckCircle2 className="w-5 h-5" />
+                        <span className="font-semibold text-sm">Connected</span>
+                      </div>
+                    )}
+                    {triState === "degraded" && (
+                      <div className="flex items-center gap-2 text-amber-600">
+                        <AlertTriangle className="w-5 h-5" />
+                        <span className="font-semibold text-sm">Degraded</span>
+                      </div>
+                    )}
+                    {triState === "down" && (
+                      <div className="flex items-center gap-2 text-destructive">
+                        <XCircle className="w-5 h-5" />
+                        <span className="font-semibold text-sm capitalize">{data.status}</span>
+                      </div>
+                    )}
+                    {triState === "degraded" && (
+                      <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">
+                        {data.failureCount} sync failure{data.failureCount !== 1 ? "s" : ""} in last 24h
+                      </p>
+                    )}
+                  </>
+                );
+              })()}
+              {data.error && data.status !== "ok" && <p className="text-xs text-destructive/80 mt-1">{data.error}</p>}
+              {data.checkedAt && (
+                <p className="text-xs text-muted-foreground mt-auto">
+                  Checked: {new Date(data.checkedAt).toLocaleTimeString()}
+                  {data.cached && <span className="ml-1 opacity-60">(cached)</span>}
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card data-testid="card-ghl-latency">
+            <CardContent className="p-4 flex flex-col gap-2">
+              <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Latency</p>
+              <p className="text-2xl font-bold tabular-nums">
+                {data.latencyMs ?? "—"}
+                <span className="text-sm font-normal text-muted-foreground ml-1">ms</span>
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {data.latencyMs == null ? "—" : data.latencyMs < 500 ? "Good" : data.latencyMs < 1500 ? "Moderate" : "Slow"}
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card data-testid="card-ghl-last-sync">
+            <CardContent className="p-4 flex flex-col gap-2">
+              <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Last Successful Sync</p>
+              <p className="text-sm font-medium">
+                {data.lastSync ? new Date(data.lastSync).toLocaleString() : "No data yet"}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {data.lastSync ? "Last recorded successful GHL sync" : "Sync audit logs not yet written"}
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card data-testid="card-ghl-failure-count">
+            <CardContent className="p-4 flex flex-col gap-2">
+              <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Failures (24h)</p>
+              <p className={`text-2xl font-bold tabular-nums ${(data.failureCount ?? 0) > 0 ? "text-destructive" : "text-green-600"}`}>
+                {data.failureCount ?? 0}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {(data.failureCount ?? 0) === 0 ? "No failures detected" : "Failed GHL sync operations"}
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      <div data-testid="section-ghl-failed-ops">
+        <button
+          type="button"
+          onClick={() => setFailedOpsOpen(v => !v)}
+          className="w-full flex items-center justify-between py-2 px-0 text-left group"
+          data-testid="button-toggle-failed-ops"
+          aria-expanded={failedOpsOpen}
+        >
+          <h4 className="font-semibold text-sm flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-500" />
+            Failed GHL Operations (Last 24h)
+            {failedOps.length > 0 && (
+              <Badge variant="destructive" className="text-xs ml-1">{failedOps.length}</Badge>
+            )}
+          </h4>
+          <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${failedOpsOpen ? "rotate-180" : ""}`} />
+        </button>
+
+        {failedOpsOpen && (
+          failedOps.length === 0 ? (
+            <Card data-testid="card-no-ghl-failures">
+              <CardContent className="py-8 text-center">
+                <CheckCircle2 className="w-7 h-7 text-green-500 mx-auto mb-2" />
+                <p className="text-sm font-medium">No GHL sync failures in the last 24 hours</p>
+                <p className="text-xs text-muted-foreground mt-1">All GHL operations are succeeding.</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs" data-testid="table-ghl-failures">
+                    <thead>
+                      <tr className="border-b bg-muted/30">
+                        <th className="text-left px-4 py-2 font-medium text-muted-foreground">Contact / Key</th>
+                        <th className="text-left px-4 py-2 font-medium text-muted-foreground">Operation</th>
+                        <th className="text-left px-4 py-2 font-medium text-muted-foreground">Error</th>
+                        <th className="text-left px-4 py-2 font-medium text-muted-foreground">When</th>
+                        <th className="text-left px-4 py-2 font-medium text-muted-foreground">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {failedOps.slice(0, 25).map(f => (
+                        <tr key={f.id} className="border-b hover:bg-muted/20 transition-colors" data-testid={`row-ghl-failure-${f.id}`}>
+                          <td className="px-4 py-2 font-medium">{f.entityKey || `ID ${f.entityId}` || "—"}</td>
+                          <td className="px-4 py-2">
+                            <Badge variant="outline" className="text-xs border-destructive/40 text-destructive">{f.action}</Badge>
+                          </td>
+                          <td className="px-4 py-2 max-w-xs">
+                            <span
+                              className="truncate block max-w-xs text-destructive/80"
+                              title={typeof f.details === "string" ? f.details : JSON.stringify(f.details)}
+                            >
+                              {typeof f.details === "object" && f.details !== null
+                                ? (f.details.error || f.details.message || JSON.stringify(f.details).slice(0, 80))
+                                : String(f.details || "—")}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">
+                            {f.createdAt ? new Date(f.createdAt).toLocaleString() : "—"}
+                          </td>
+                          <td className="px-4 py-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-6 text-xs px-2"
+                              disabled={retryingId === f.id || !f.entityId}
+                              onClick={() => handleRetry(f)}
+                              data-testid={`button-retry-ghl-${f.id}`}
+                              aria-label={`Retry GHL sync for ${f.entityKey || f.entityId}`}
+                            >
+                              {retryingId === f.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Retry"}
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          )
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function OperatorDashboard() {
   const { toast } = useToast();
 
@@ -2008,6 +2273,9 @@ export default function OperatorDashboard() {
           <TabsTrigger value="registry-import" data-testid="tab-registry-import" className="flex items-center gap-1">
             <Database className="w-3.5 h-3.5" /> Registry Import
           </TabsTrigger>
+          <TabsTrigger value="ghl-connection" data-testid="tab-ghl-connection" className="flex items-center gap-1">
+            <Zap className="w-3.5 h-3.5" /> GHL Status
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="job-health">
@@ -2066,6 +2334,9 @@ export default function OperatorDashboard() {
         </TabsContent>
         <TabsContent value="registry-import">
           <RegistryImportPanel />
+        </TabsContent>
+        <TabsContent value="ghl-connection">
+          <GhlConnectionPanel />
         </TabsContent>
       </Tabs>
     </div>

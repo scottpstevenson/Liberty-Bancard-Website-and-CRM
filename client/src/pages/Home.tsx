@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Link } from "wouter";
+import { CALENDAR_URL } from "@/lib/constants";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -1315,7 +1316,9 @@ export default function Home() {
                 <AccordionItem value="q3" data-testid="faq-item-2">
                   <AccordionTrigger data-testid="faq-trigger-2">How fast do I get results?</AccordionTrigger>
                   <AccordionContent data-testid="faq-content-2">
-                    Most reviews are completed during business hours the same day. If you need priority turnaround, book a 10-minute call and let us know your timeline.
+                    Most reviews are completed during business hours the same day. If you need priority turnaround,{" "}
+                    <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" className="underline font-medium">book a 10-minute call</a>{" "}
+                    and let us know your timeline.
                   </AccordionContent>
                 </AccordionItem>
                 <AccordionItem value="q4" data-testid="faq-item-3">
