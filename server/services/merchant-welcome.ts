@@ -269,11 +269,33 @@ export async function sendMerchantWelcomeEmail(contact: Contact, deal: Deal): Pr
   }
 
   if (!ghlContactId) {
-    console.warn(`${TAG} Merchant welcome email skipped — contact #${contact.id} has no GHL contact ID and upsert failed or GHL not configured`);
+    if (contact.email && isSmtpConfigured()) {
+      const firstName = contact.firstName || "there";
+      const companyName = contact.companyName || "your business";
+      const subject = `Welcome to Liberty Bancard, ${firstName} — here's what happens next`;
+      const htmlBody = buildMerchantWelcomeEmail(firstName, companyName);
+      const result = await sendSmtpEmail({ to: contact.email, subject, html: htmlBody });
+      if (result.success) {
+        console.log(`${TAG} Merchant welcome sent via SMTP fallback for contact #${contact.id}`);
+        await storage.createAuditLog({
+          action: "merchant_welcome_sent",
+          entityType: "deal",
+          entityId: deal.id,
+          details: { contactId: contact.id, method: "smtp_fallback" },
+        });
+        enrollInApplicationSequence(contact, deal).catch(err =>
+          console.error("[Closed Won] Application sequence enrollment error:", err)
+        );
+      } else {
+        console.error(`${TAG} SMTP fallback failed for contact #${contact.id}: ${result.error}`);
+      }
+    } else {
+      console.warn(`${TAG} Merchant welcome skipped — no GHL contact ID and SMTP not configured for contact #${contact.id}`);
+    }
     return;
   }
 
-  const ghlWorkflowId = process.env.GHL_WORKFLOW_MERCHANT_APP;
+  const ghlWorkflowId = process.env.GHL_WORKFLOW_MERCHANT_APPROVED;
   let method: "ghl_workflow" | "direct_email" = "direct_email";
 
   try {

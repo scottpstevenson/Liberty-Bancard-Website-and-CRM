@@ -3,6 +3,7 @@ import { sdrLeadState, sdrLeadEvents } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { storage } from "../../storage";
 import { addTag, isSdrGhlConfigured } from "./ghl-client";
+import { createGhlTask } from "../ghl";
 
 export async function handoffToHuman(
   leadId: number,
@@ -36,6 +37,13 @@ export async function handoffToHuman(
       } catch (err) {
         console.error("[HumanHandoff] Failed to add GHL tag:", err);
       }
+      createGhlTask({
+        contactId: lead.ghlContactId,
+        title: `Lead Handoff: ${lead.companyName || "Unknown"} — follow up required`,
+        description: note || "AI automation paused. This lead requires human follow-up.",
+        taskType: "FOLLOW_UP",
+        dueDate: new Date(Date.now() + 4 * 60 * 60 * 1000),
+      }).catch(err => console.warn("[HumanHandoff] createGhlTask failed (non-critical):", err.message));
     }
 
     await db.insert(sdrLeadEvents).values({

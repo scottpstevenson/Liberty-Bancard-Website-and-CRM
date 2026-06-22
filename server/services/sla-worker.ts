@@ -1,5 +1,5 @@
 import { storage } from "../storage";
-import { sendGhlEmail, isGhlConfigured } from "./ghl";
+import { sendGhlEmail, isGhlConfigured, createGhlTask } from "./ghl";
 import { advanceDealStage } from "./deal-stage-service";
 import { processSequenceEnrollments } from "./sequence-worker";
 import { processSendQueue } from "./campaign-engine";
@@ -222,6 +222,15 @@ async function checkDealSla(rule: typeof DEFAULT_SLA_RULES[0]) {
 <p style="font-size:11px;color:#999;">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>`,
         });
       }
+      if (contact?.ghlContactId) {
+        createGhlTask({
+          contactId: contact.ghlContactId,
+          title: `SLA Breach: ${rule.name} — ${contact.companyName || contact.firstName || "Deal #" + deal.id}`,
+          description: `Deal has been in "${rule.stage}" for ${hoursStuck} hours. Immediate action required.`,
+          taskType: "FOLLOW_UP",
+          dueDate: new Date(Date.now() + 2 * 60 * 60 * 1000),
+        }).catch(err => console.warn("[SLA] createGhlTask failed (non-critical):", err.message));
+      }
     }
   }
 }
@@ -273,6 +282,20 @@ async function checkTicketSla() {
       body: `<h3>Ticket SLA Breach</h3><p>Ticket #${ticket.id} "<strong>${ticket.subject}</strong>" has breached SLA by <strong>${minutesPastSla} minutes</strong>.</p><p>Priority: ${ticket.priority}<br/>Category: ${ticket.category}<br/>Assigned: ${ticket.assignedTo || "Unassigned"}</p>`,
       ownerName: ticket.assignedTo,
     }).catch(err => console.error("Ticket SLA breach email error:", err));
+
+    if (isGhlConfigured() && ticket.contactId) {
+      storage.getContact(ticket.contactId).then(ticketContact => {
+        if (ticketContact?.ghlContactId) {
+          createGhlTask({
+            contactId: ticketContact.ghlContactId,
+            title: `Ticket SLA Breach: #${ticket.id} — ${ticket.subject}`,
+            description: `Ticket has breached SLA by ${minutesPastSla} minutes. Priority: ${ticket.priority}.`,
+            taskType: "FOLLOW_UP",
+            dueDate: new Date(Date.now() + 30 * 60 * 1000),
+          }).catch(err => console.warn("[SLA] createGhlTask for ticket failed (non-critical):", err.message));
+        }
+      }).catch(() => {});
+    }
   }
 }
 

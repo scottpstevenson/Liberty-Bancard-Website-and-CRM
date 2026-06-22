@@ -626,6 +626,16 @@ export async function getSendMonitoringData(): Promise<any> {
   const totalSent = identityStats.reduce((s, i) => s + i.sentToday, 0);
   const totalLimit = identityStats.reduce((s, i) => s + i.dailyLimit, 0);
 
+  let smtpFallbacksLast24h = 0;
+  try {
+    const result = await db.execute(sql`
+      SELECT COUNT(*)::int AS count FROM audit_logs
+      WHERE details->>'channel' = 'smtp'
+      AND created_at > NOW() - INTERVAL '24 hours'
+    `);
+    smtpFallbacksLast24h = Number((result.rows?.[0] as any)?.count || 0);
+  } catch (_) {}
+
   return {
     identities: identityStats,
     aggregated: {
@@ -634,6 +644,7 @@ export async function getSendMonitoringData(): Promise<any> {
       totalSentToday: totalSent,
       totalDailyLimit: totalLimit,
       overallCapUtilization: totalLimit > 0 ? Math.round((totalSent / totalLimit) * 100) : 0,
+      smtpFallbacksLast24h,
     },
   };
 }

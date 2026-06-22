@@ -1083,6 +1083,34 @@ export async function getDocumentStatus(documentId: string): Promise<{
   }
 }
 
+export async function createGhlTask(params: {
+  contactId: string;
+  title: string;
+  dueDate?: Date;
+  description?: string;
+  taskType?: "FOLLOW_UP" | "EMAIL" | "CALL";
+}): Promise<{ success: boolean; taskId?: string; error?: string }> {
+  try {
+    if (!isGhlConfigured()) return { success: false, error: "GHL not configured" };
+    const dueDate = params.dueDate || new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const result = await ghlFetch(`/contacts/${params.contactId}/tasks`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: params.title,
+        dueDate: dueDate.toISOString(),
+        description: params.description || "",
+        status: "incompleted",
+        taskType: params.taskType || "FOLLOW_UP",
+      }),
+    });
+    return { success: true, taskId: result?.id };
+  } catch (err: any) {
+    console.error("[GHL] createGhlTask failed:", err.message);
+    return { success: false, error: err.message };
+  }
+}
+
 async function handleContactUpdated(payload: any): Promise<void> {
   try {
     const contactData = payload.contact || payload;

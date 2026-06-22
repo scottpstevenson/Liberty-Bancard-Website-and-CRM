@@ -5,7 +5,7 @@ import { eq, ilike } from "drizzle-orm";
 import { storage } from "../storage";
 import type { PartnerOrganization, Deal, Contact } from "@shared/schema";
 import { contacts } from "@shared/schema";
-import { isGhlConfigured, sendGhlEmailForMerchant } from "./ghl";
+import { isGhlConfigured, sendGhlEmailForMerchant, upsertGhlContact, sendGhlEmail } from "./ghl";
 import { sendSmtpEmail } from "./smtp-email";
 import { addNote } from "./sdr/ghl-client";
 
@@ -602,9 +602,26 @@ export async function sendCoBrandedProposalEmail(proposalId: number, baseUrl: st
   if (!org) throw new Error("Partner org not found");
 
   let merchantEmail: string | null = (proposal as any).merchantEmail || null;
-  if (!merchantEmail && proposal.contactId) {
+  let merchantGhlContactId: string | null = null;
+  if (proposal.contactId) {
     const contact = await storage.getContact(proposal.contactId);
-    merchantEmail = contact?.email || null;
+    if (!merchantEmail) merchantEmail = contact?.email || null;
+    merchantGhlContactId = contact?.ghlContactId || null;
+    if (!merchantGhlContactId && contact?.email && isGhlConfigured()) {
+      try {
+        merchantGhlContactId = await upsertGhlContact({
+          firstName: contact.firstName || "",
+          lastName: contact.lastName || "",
+          email: contact.email,
+        });
+        if (merchantGhlContactId && contact?.id) {
+          await storage.updateContact(contact.id, { ghlContactId: merchantGhlContactId });
+          console.log(`[CoBrandedProposal] Upserted GHL contact for contact #${contact.id}`);
+        }
+      } catch (upsertErr: any) {
+        console.warn("[CoBrandedProposal] GHL contact upsert failed:", upsertErr.message);
+      }
+    }
   }
 
   if (!merchantEmail) {
@@ -629,23 +646,40 @@ export async function sendCoBrandedProposalEmail(proposalId: number, baseUrl: st
 </div>`;
 
   let sent = false;
+  let sentChannel = "none";
 
-  if (isGhlConfigured()) {
+  if (isGhlConfigured() && proposal.contactId && proposal.dealId && merchantGhlContactId) {
+    try {
+      await sendGhlEmail({ contactId: proposal.contactId, dealId: proposal.dealId, subject, body: html });
+      sent = true;
+      sentChannel = "ghl_direct";
+    } catch (err) {
+      console.error("[CoBrandedProposal] GHL direct email failed, trying GHL by-email:", err);
+    }
+  }
+
+  if (!sent && isGhlConfigured() && merchantEmail) {
     try {
       await sendGhlEmailForMerchant({ email: merchantEmail, subject, body: html });
       sent = true;
+      sentChannel = "ghl_email";
     } catch (err) {
-      console.error("[CoBrandedProposal] GHL email failed, trying SMTP:", err);
+      console.error("[CoBrandedProposal] GHL by-email failed, trying SMTP:", err);
     }
   }
 
   if (!sent) {
     try {
-      await sendSmtpEmail({ to: merchantEmail, subject, html });
+      await sendSmtpEmail({ to: merchantEmail!, subject, html });
       sent = true;
+      sentChannel = "smtp";
     } catch (err) {
       console.error("[CoBrandedProposal] SMTP email also failed:", err);
     }
+  }
+
+  if (sent) {
+    console.log(`[CoBrandedProposal] Proposal delivered via ${sentChannel} for proposal #${proposalId}`);
   }
 
   if (sent) {

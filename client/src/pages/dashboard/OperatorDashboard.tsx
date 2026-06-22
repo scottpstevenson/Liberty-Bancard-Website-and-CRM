@@ -271,6 +271,7 @@ interface SendMonitoringData {
     totalSentToday: number;
     totalDailyLimit: number;
     overallCapUtilization: number;
+    smtpFallbacksLast24h?: number;
   };
 }
 
@@ -541,6 +542,20 @@ function SendMonitoringPanel() {
           subtext="bounced today (CRM)"
         />
       </div>
+
+      {(agg?.smtpFallbacksLast24h ?? 0) > 0 && (
+        <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30 p-3" data-testid="banner-smtp-fallback-warning">
+          <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+          <div className="text-sm">
+            <span className="font-semibold text-amber-800 dark:text-amber-300">SMTP Fallback Active: </span>
+            <span className="text-amber-700 dark:text-amber-400">
+              {agg!.smtpFallbacksLast24h} email{agg!.smtpFallbacksLast24h === 1 ? "" : "s"} delivered via SMTP in the last 24 hours.
+              GHL was unavailable for these sends. Check your GHL token in{" "}
+              <a href="/dashboard/system-readiness" className="underline font-medium">System Readiness</a>.
+            </span>
+          </div>
+        </div>
+      )}
 
       <div className="space-y-3">
         {data?.identities.map((identity) => (

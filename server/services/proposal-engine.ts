@@ -531,6 +531,26 @@ export async function sendProposalEmail(dealId: number): Promise<boolean> {
       return false;
     }
 
+    let ghlContactId = contact.ghlContactId;
+    if (!ghlContactId) {
+      try {
+        const { upsertGhlContact, isGhlConfigured: ghlOk } = await import("./ghl");
+        if (ghlOk()) {
+          ghlContactId = await upsertGhlContact({
+            firstName: contact.firstName || "",
+            lastName: contact.lastName || "",
+            email: contact.email,
+          });
+          if (ghlContactId) {
+            await storage.updateContact(contact.id, { ghlContactId });
+            console.log(`[ProposalEngine] GHL contact upserted for contact #${contact.id}`);
+          }
+        }
+      } catch (upsertErr: any) {
+        console.warn("[ProposalEngine] GHL contact upsert failed (non-critical):", upsertErr.message);
+      }
+    }
+
     const proposal = deal.savingsProposal as ProposalPayload;
     const bestPlan = proposal.plans?.find((p) => p.shortName === proposal.recommendedPlan) || proposal.plans?.[0];
     const baseUrl = process.env.APP_URL
@@ -601,6 +621,7 @@ export async function sendProposalEmail(dealId: number): Promise<boolean> {
     const { sendGhlEmailForMerchant, isGhlConfigured } = await import("./ghl");
 
     let emailSent = false;
+    let emailChannel = "none";
     if (isGhlConfigured()) {
       try {
         await sendGhlEmailForMerchant({
@@ -609,6 +630,7 @@ export async function sendProposalEmail(dealId: number): Promise<boolean> {
           body,
         });
         emailSent = true;
+        emailChannel = "ghl";
       } catch (sendErr) {
         console.error("[ProposalEngine] GHL email send error:", sendErr);
       }
@@ -621,6 +643,7 @@ export async function sendProposalEmail(dealId: number): Promise<boolean> {
           const smtpResult = await sendSmtpEmail({ to: contact.email, subject, html: body });
           if (smtpResult.success) {
             emailSent = true;
+            emailChannel = "smtp";
             console.log(`[ProposalEngine] Proposal email sent via SMTP fallback for deal ${dealId}`);
           } else {
             console.warn(`[ProposalEngine] SMTP fallback failed for deal ${dealId}: ${smtpResult.error}`);
@@ -656,6 +679,7 @@ export async function sendProposalEmail(dealId: number): Promise<boolean> {
       details: {
         email: contact.email,
         proposalUrl,
+        channel: emailChannel,
       },
     });
 
@@ -743,6 +767,17 @@ export async function notifyRepWithBriefing(dealId: number): Promise<void> {
         priority: "high",
         description: `Savings proposal auto-sent. Annual savings: $${bestPlan?.annualSavings?.toLocaleString() || "N/A"}. Recommended plan: ${bestPlan?.name || "N/A"}.`,
       });
+
+      if (contact?.ghlContactId) {
+        const { createGhlTask: ghlTask } = await import("./ghl");
+        ghlTask({
+          contactId: contact.ghlContactId,
+          title: `Follow up on proposal — ${contact?.companyName || contact?.firstName || "Unknown"}`,
+          description: `Proposal sent. Projected annual savings: $${bestPlan?.annualSavings?.toLocaleString() || "N/A"}. Plan: ${bestPlan?.name || "N/A"}.`,
+          taskType: "FOLLOW_UP",
+          dueDate: new Date(Date.now() + 4 * 60 * 60 * 1000),
+        }).catch(err => console.warn("[ProposalEngine] createGhlTask (non-critical):", err.message));
+      }
     }
 
     console.log(`[ProposalEngine] Rep notified for deal ${dealId}`);
