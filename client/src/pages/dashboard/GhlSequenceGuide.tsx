@@ -1229,6 +1229,9 @@ export default function GhlSequenceGuide() {
           <TabsTrigger value="tags" data-testid="tab-tags">Tag Reference</TabsTrigger>
           <TabsTrigger value="global" data-testid="tab-global">Global Setup</TabsTrigger>
           <TabsTrigger value="admin-setup" data-testid="tab-admin-setup">GHL Admin Setup</TabsTrigger>
+          <TabsTrigger value="email-library" data-testid="tab-email-library">📧 Email Library</TabsTrigger>
+          <TabsTrigger value="manual-sequences" data-testid="tab-manual-sequences">📋 Manual Sequences</TabsTrigger>
+          <TabsTrigger value="multi-touch" data-testid="tab-multi-touch">🔁 Multi-Touch Map</TabsTrigger>
         </TabsList>
 
         {WORKFLOWS.map(wf => (
@@ -1872,6 +1875,711 @@ Eligibility, underwriting, and card brand rules apply. Individual results vary.`
             </Card>
           </div>
         </TabsContent>
+
+        {/* ── EMAIL LIBRARY ─────────────────────────────────────────────── */}
+        <TabsContent value="email-library" className="mt-4">
+          <div className="space-y-4">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Mail className="h-5 w-5 text-blue-500" /> Email Template Library
+                </CardTitle>
+                <CardDescription>
+                  Every email from all 9 workflows — expand to copy subject + body straight into GHL.
+                  Go to <strong>Marketing → Email Templates → + New Template</strong> for each one.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                  {[
+                    { color: "blue", title: "GHL Location", body: "Marketing → Email Templates → + New" },
+                    { color: "green", title: "Naming Convention", body: "WF[#]-Step[#] — Short Description" },
+                    { color: "purple", title: "Reply-To Address", body: "scott@libertybancard.com" },
+                    { color: "orange", title: "Compliance Footer", body: "Eligibility, underwriting, and card brand rules apply." },
+                  ].map(({ color, title, body }) => (
+                    <div key={title} className={`bg-${color}-50 dark:bg-${color}-900/20 border border-${color}-200 dark:border-${color}-800 rounded p-2`}>
+                      <p className={`font-semibold text-${color}-700 dark:text-${color}-300`}>{title}</p>
+                      <p className={`text-${color}-600 dark:text-${color}-400 mt-0.5`}>{body}</p>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            {WORKFLOWS.map((wf) => {
+              const emailSteps = wf.steps.filter(s => s.channel === "email");
+              if (emailSteps.length === 0) return null;
+              return (
+                <Card key={wf.id}>
+                  <CardHeader className="pb-2">
+                    <div className={`border-l-4 ${wf.color} pl-3`}>
+                      <CardTitle className="text-sm">{wf.name}</CardTitle>
+                      <CardDescription className="text-xs mt-0.5">
+                        {emailSteps.length} email{emailSteps.length !== 1 ? "s" : ""} · Trigger tag: <span className="font-mono">{wf.triggerTag}</span>
+                      </CardDescription>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {emailSteps.map(step => (
+                      <div key={step.num} className="border rounded-lg overflow-hidden">
+                        <div className="flex items-center gap-3 p-3 bg-muted/30 flex-wrap">
+                          <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 text-xs gap-1 shrink-0">
+                            <Mail className="h-3 w-3" /> Step {step.num}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground">{step.delay}</span>
+                          {step.subject && <span className="text-xs font-medium truncate flex-1 italic">"{step.subject}"</span>}
+                        </div>
+                        <div className="p-3 space-y-2">
+                          {step.subject && <CopyBlock text={step.subject} label="Subject Line" />}
+                          <CopyBlock text={step.copy} label="Email Body — paste into GHL HTML editor" />
+                          {step.ghlNote && (
+                            <div className="flex gap-2 p-2 rounded bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+                              <Settings className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                              <p className="text-xs text-blue-700 dark:text-blue-300">{step.ghlNote}</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+              );
+            })}
+
+            <Card className="border-dashed">
+              <CardContent className="pt-4 space-y-2">
+                <p className="text-sm font-semibold">GHL Email Template Quick-Build Steps</p>
+                <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
+                  <li>Go to <strong>Marketing → Email Templates → + New Template</strong></li>
+                  <li>Name it: <code className="bg-muted px-1 rounded">WF1-Step1-Inbound-Confirm</code> (use the naming convention above)</li>
+                  <li>Paste subject line → paste email body in the HTML/source editor</li>
+                  <li>Add Liberty Bancard logo header + signature block + compliance footer</li>
+                  <li>Set Reply-To: <strong>scott@libertybancard.com</strong> in template settings</li>
+                  <li>Save → go to the matching workflow step → <strong>Actions → Send Email → pick this template</strong></li>
+                  <li>Click <strong>Send Test Email</strong> in GHL before activating the workflow</li>
+                </ol>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
+        {/* ── MANUAL SEQUENCES ─────────────────────────────────────────────── */}
+        <TabsContent value="manual-sequences" className="mt-4">
+          <div className="space-y-4">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <ClipboardList className="h-5 w-5 text-slate-500" /> Manual Sequences
+                </CardTitle>
+                <CardDescription>
+                  Rep-driven outreach sequences for situations not covered by the 9 automated workflows.
+                  Build each in GHL under <strong>Automations → + New Workflow</strong> — set trigger to <strong>Manual Trigger</strong> so reps can fire them on demand from a contact record.
+                </CardDescription>
+              </CardHeader>
+            </Card>
+
+            {[
+              {
+                id: "cold-email-blast",
+                name: "Manual — Cold Business Email (Bulk Outbound)",
+                color: "border-sky-500",
+                goal: "One-shot or drip email to a cold list (trade show, purchased list, Sunbiz import). Reps fire this on any contact not yet in WF2.",
+                trigger: "Manual Trigger — rep applies from contact record or Smart List bulk action",
+                triggerTag: "LB-MANUAL-COLD-EMAIL",
+                when: "Sunbiz/Apollo imports, event leads, partner referrals not yet reached",
+                steps: [
+                  { day: "Day 0", type: "Email", subject: "Quick question about your processing costs, {{contact.firstName}}", body: `Hi {{contact.firstName}},
+
+I noticed {{contact.companyName}} and wanted to reach out — we work with businesses in {{contact.city}} to cut payment processing costs, often by 20–40%.
+
+Takes 5 minutes: just send us your last merchant statement and we'll show you exactly what you're paying vs. what you could be paying.
+
+No obligation, no pitch — just numbers.
+
+Worth a look?
+
+— Scott Allen, Liberty Bancard
+📞 (888) 555-0100
+
+Eligibility, underwriting, and card brand rules apply.` },
+                  { day: "Day 3", type: "Email", subject: "Still thinking about it, {{contact.firstName}}?", body: `Hi {{contact.firstName}},
+
+Just following up on my note from a few days ago.
+
+Most business owners we work with were surprised by how much they were overpaying — the average we save is $400–$800/month.
+
+If you'd like a free analysis, just reply with your last processor statement. We'll turn it around in 24 hours.
+
+— Scott Allen, Liberty Bancard
+📞 (888) 555-0100
+
+Eligibility, underwriting, and card brand rules apply.` },
+                  { day: "Day 7", type: "Email", subject: "Last note from me, {{contact.firstName}}", body: `Hi {{contact.firstName}},
+
+I don't want to clutter your inbox, so this will be my last reach-out for now.
+
+If your processing costs ever become a priority, I'm here: scott@libertybancard.com or (888) 555-0100.
+
+We'll have your savings analysis ready within 24 hours of receiving a statement.
+
+Take care,
+— Scott Allen, Liberty Bancard
+
+Eligibility, underwriting, and card brand rules apply.` },
+                ],
+                ghlBuild: [
+                  "Automations → + New Workflow → name: 'Manual — Cold Business Email'",
+                  "Trigger: Manual Trigger (this lets reps fire it from any contact record)",
+                  "Step 1: Send Email → WF-Manual-Cold-Email-1 template → Send immediately",
+                  "Step 2: Wait → 3 days",
+                  "Step 3: IF/ELSE → Contact has tag LB-SDR-REPLY-ENGAGED → YES: apply tag LB-COLD-EXIT and STOP / NO: continue",
+                  "Step 4: Send Email → WF-Manual-Cold-Email-2 template",
+                  "Step 5: Wait → 4 days",
+                  "Step 6: IF/ELSE → Reply engaged? → YES: EXIT / NO: Send Email 3",
+                  "Step 7: Send Email → WF-Manual-Cold-Email-3 (breakup email)",
+                  "Step 8: Apply tag LB-COLD-EXIT → End workflow",
+                  "Activate → save as 'Published'",
+                ],
+              },
+              {
+                id: "event-lead",
+                name: "Manual — Event / Trade Show Lead Nurture",
+                color: "border-emerald-500",
+                goal: "Follow up with contacts met in person at trade shows, networking events, or referral intros. Warmer tone — you've already met.",
+                trigger: "Manual Trigger — rep fires within 24h of meeting the contact",
+                triggerTag: "LB-MANUAL-EVENT-LEAD",
+                when: "After trade shows, BNI meetings, chamber events, in-person demos, partner intros",
+                steps: [
+                  { day: "Day 0", type: "Email", subject: "Great meeting you at {{custom.eventName}}, {{contact.firstName}}", body: `Hi {{contact.firstName}},
+
+Really enjoyed our conversation at {{custom.eventName}} — I meant it when I said there's a real opportunity to lower your processing costs.
+
+Here's what I'd love to do: take a look at your current merchant statement and put together a side-by-side comparison. No cost, no commitment — just a clear picture of what you could save.
+
+When you're ready, just reply and attach it. I'll have your analysis back within 24 hours.
+
+Great meeting you,
+— Scott Allen, Liberty Bancard
+📞 (888) 555-0100
+
+Eligibility, underwriting, and card brand rules apply.` },
+                  { day: "Day 2", type: "SMS", body: "Hi {{contact.firstName}}, Scott from Liberty Bancard — great meeting you! If you find that merchant statement, just reply with a photo or PDF and I'll run your analysis. Reply STOP to opt out." },
+                  { day: "Day 5", type: "Email", subject: "Still here when you're ready, {{contact.firstName}}", body: `Hi {{contact.firstName}},
+
+No pressure at all — just wanted to make sure I stayed on your radar.
+
+When the timing works, I'm one email away. Reply here or grab 15 minutes on my calendar: {{custom.calendarLink}}
+
+— Scott Allen, Liberty Bancard
+
+Eligibility, underwriting, and card brand rules apply.` },
+                ],
+                ghlBuild: [
+                  "Automations → + New Workflow → name: 'Manual — Event Lead Nurture'",
+                  "Trigger: Manual Trigger",
+                  "Step 1: Apply tag LB-MANUAL-EVENT-LEAD",
+                  "Step 2: Send Email → Event Lead Email 1 (Day 0 — warm intro follow-up)",
+                  "Step 3: Wait → 2 days",
+                  "Step 4: IF/ELSE → has tag LB-SDR-REPLY-ENGAGED → EXIT / else: Send SMS",
+                  "Step 5: Wait → 3 days",
+                  "Step 6: IF/ELSE → reply engaged? → EXIT / else: Send Email 2 (Day 5 soft check-in)",
+                  "Step 7: Apply tag LB-COLD-EXIT → End",
+                  "Note: Create a GHL Custom Value 'eventName' so reps can set the event name per contact",
+                ],
+              },
+              {
+                id: "partner-referral",
+                name: "Manual — Partner / ISO Referral Nurture",
+                color: "border-violet-500",
+                goal: "Warm-touch sequence for leads referred by ISOs, CPAs, bookkeepers, or chamber partners. Higher trust — reference the referrer name.",
+                trigger: "Manual Trigger — fired when a referral is logged from a partner",
+                triggerTag: "LB-MANUAL-PARTNER-REFERRAL",
+                when: "Any time a partner submits a referral through the platform or directly to a rep",
+                steps: [
+                  { day: "Day 0", type: "Email", subject: "{{contact.firstName}}, {{custom.referrerName}} suggested we connect", body: `Hi {{contact.firstName}},
+
+{{custom.referrerName}} mentioned you might benefit from a review of your payment processing costs — I work with a lot of businesses in your space and wanted to reach out.
+
+We typically find 20–40% in savings just by analyzing the current statement. No cost, no obligation — just a clear, honest comparison.
+
+Would you be open to a quick look? If you have your last merchant statement handy, just reply and attach it.
+
+Looking forward to connecting,
+— Scott Allen, Liberty Bancard
+📞 (888) 555-0100
+
+Eligibility, underwriting, and card brand rules apply.` },
+                  { day: "Day 3", type: "Email", subject: "Following up on {{custom.referrerName}}'s intro, {{contact.firstName}}", body: `Hi {{contact.firstName}},
+
+I know you're busy — just wanted to make sure my first note didn't get buried.
+
+The analysis takes 24 hours and gives you a clear dollar amount you could save per month. Most business owners find it eye-opening.
+
+Want me to run it? Just reply with your current statement.
+
+— Scott Allen, Liberty Bancard
+
+Eligibility, underwriting, and card brand rules apply.` },
+                  { day: "Day 7", type: "Email", subject: "One last note, {{contact.firstName}}", body: `Hi {{contact.firstName}},
+
+I'll keep this short — if cost savings on processing ever become a priority, I'm at scott@libertybancard.com or (888) 555-0100.
+
+I'll let {{custom.referrerName}} know I tried!
+
+Best,
+— Scott Allen, Liberty Bancard
+
+Eligibility, underwriting, and card brand rules apply.` },
+                ],
+                ghlBuild: [
+                  "Automations → + New Workflow → name: 'Manual — Partner Referral Nurture'",
+                  "Trigger: Manual Trigger",
+                  "Before firing: set Custom Value 'referrerName' on the contact record (partner's name)",
+                  "Step 1: Send Email → Partner Referral Email 1",
+                  "Step 2: Wait → 3 days",
+                  "Step 3: IF/ELSE → reply engaged → EXIT → else: Send Email 2",
+                  "Step 4: Wait → 4 days",
+                  "Step 5: IF/ELSE → reply engaged → EXIT → else: Send Email 3 (wrap-up)",
+                  "Step 6: Apply tag LB-COLD-EXIT → Notify rep via Internal Task → End",
+                  "GHL Custom Values needed: referrerName, calendarLink, applicationLink",
+                ],
+              },
+              {
+                id: "stalled-deal",
+                name: "Manual — Stalled Deal Revival",
+                color: "border-rose-500",
+                goal: "Re-engage a prospect who was in the pipeline (had a conversation, requested analysis) but went quiet. More direct and personal than cold outbound.",
+                trigger: "Manual Trigger — rep fires when deal has had no activity for 14+ days",
+                triggerTag: "LB-MANUAL-STALLED",
+                when: "Deal in pipeline with no response for 14+ days, not in an active automated workflow",
+                steps: [
+                  { day: "Day 0", type: "Email", subject: "Checking in, {{contact.firstName}} — did I lose you?", body: `Hi {{contact.firstName}},
+
+I noticed we haven't connected in a while and wanted to check in.
+
+Last time we spoke, you were looking at [deal context]. I don't want you to miss out on the savings if the timing is right now.
+
+Is there anything I can help clarify or move forward? Happy to jump on a quick call.
+
+— Scott Allen, Liberty Bancard
+📞 (888) 555-0100
+
+Eligibility, underwriting, and card brand rules apply.` },
+                  { day: "Day 3", type: "SMS", body: "Hi {{contact.firstName}}, Scott from Liberty Bancard — sent you an email a couple days ago. Did you want to pick up where we left off? Reply YES or just call me at 888-555-0100. Reply STOP to opt out." },
+                  { day: "Day 6", type: "Email", subject: "Closing out your file, {{contact.firstName}}", body: `Hi {{contact.firstName}},
+
+I want to respect your time, so I'll keep this brief.
+
+If now isn't the right time, I completely understand — I'll close out the file on my end and circle back down the road.
+
+If you do want to revisit, just reply and I'll pick right back up. We can have your analysis ready in 24 hours.
+
+Either way, thanks for the conversation.
+
+— Scott Allen, Liberty Bancard
+
+Eligibility, underwriting, and card brand rules apply.` },
+                ],
+                ghlBuild: [
+                  "Automations → + New Workflow → name: 'Manual — Stalled Deal Revival'",
+                  "Trigger: Manual Trigger",
+                  "Step 1: Apply tag LB-MANUAL-STALLED",
+                  "Step 2: Send Email → Stalled Revival Email 1 (personal check-in)",
+                  "Step 3: Wait → 3 days",
+                  "Step 4: IF/ELSE → reply engaged → EXIT to WF3 (Reply Engaged) → else: Send SMS",
+                  "Step 5: Wait → 3 days",
+                  "Step 6: IF/ELSE → reply engaged → EXIT → else: Send Email 2 (closing email)",
+                  "Step 7: Apply tag LB-COLD-EXIT → Create Internal Task for rep review → End",
+                  "Rep Note: Before firing this, update the deal notes in the platform so the email context is current",
+                ],
+              },
+              {
+                id: "no-show-recovery",
+                name: "Manual — No-Show Appointment Recovery",
+                color: "border-amber-500",
+                goal: "Recover a prospect who booked a call but didn't show. Fast, casual, non-confrontational. Goal is to reschedule within 48 hours.",
+                trigger: "Manual Trigger — fired automatically by GHL no-show tag or by rep within 1h of missed appointment",
+                triggerTag: "LB-NO-SHOW",
+                when: "Any contact who had a confirmed appointment and did not join/answer",
+                steps: [
+                  { day: "Day 0 (within 1hr)", type: "SMS", body: "Hi {{contact.firstName}}, Scott from Liberty Bancard — looks like we missed each other on our call. No worries! Grab a new time here: {{custom.calendarLink}} or just reply and I'll find a slot. Reply STOP to opt out." },
+                  { day: "Day 0 (within 2hr)", type: "Email", subject: "Missed you on our call — want to reschedule?", body: `Hi {{contact.firstName}},
+
+We had a call scheduled today and I wasn't able to reach you — completely understand, things come up.
+
+When you're ready to connect, grab a time that works here: {{custom.calendarLink}}
+
+Or just reply and I'll send a few options.
+
+— Scott Allen, Liberty Bancard
+📞 (888) 555-0100
+
+Eligibility, underwriting, and card brand rules apply.` },
+                  { day: "Day 2", type: "Email", subject: "Still want to show you the numbers, {{contact.firstName}}", body: `Hi {{contact.firstName}},
+
+I still have your savings analysis ready to go — I just need 15 minutes.
+
+Pick a time: {{custom.calendarLink}}
+
+Or call me directly at (888) 555-0100.
+
+— Scott Allen, Liberty Bancard
+
+Eligibility, underwriting, and card brand rules apply.` },
+                ],
+                ghlBuild: [
+                  "Automations → + New Workflow → name: 'Manual — No-Show Recovery'",
+                  "Trigger: Contact Tag Added = LB-NO-SHOW (GHL can auto-fire this from Calendar → No-Show settings)",
+                  "Step 1: Wait → 30 minutes (allow GHL to detect no-show)",
+                  "Step 2: Send SMS → No-Show SMS (reschedule link)",
+                  "Step 3: Wait → 1 hour",
+                  "Step 4: Send Email → No-Show Email 1",
+                  "Step 5: Wait → 2 days",
+                  "Step 6: IF/ELSE → appointment rebooked (tag LB-BOOKING-READY) → EXIT / else: Send Email 2",
+                  "Step 7: Create Internal Task: 'No-show — call prospect directly' → Assign to rep → End",
+                  "Calendar Setup: Calendars → your calendar → Notifications → No-Show → apply tag LB-NO-SHOW",
+                ],
+              },
+            ].map((seq) => (
+              <Card key={seq.id}>
+                <CardHeader className="pb-2">
+                  <div className={`border-l-4 ${seq.color} pl-3`}>
+                    <CardTitle className="text-sm">{seq.name}</CardTitle>
+                    <CardDescription className="text-xs mt-0.5">{seq.goal}</CardDescription>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex flex-wrap gap-2 text-xs">
+                    <Badge variant="outline" className="font-mono gap-1"><Tag className="h-3 w-3" />{seq.triggerTag}</Badge>
+                    <Badge variant="secondary">{seq.trigger}</Badge>
+                  </div>
+                  <div className="bg-muted/40 rounded p-2 text-xs text-muted-foreground">
+                    <span className="font-semibold text-foreground">When to use: </span>{seq.when}
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-semibold mb-2 flex items-center gap-1.5"><Mail className="h-3.5 w-3.5" /> Message Steps</p>
+                    <div className="space-y-2">
+                      {seq.steps.map((step, si) => (
+                        <div key={si} className="border rounded-lg overflow-hidden">
+                          <div className="flex items-center gap-2 p-2 bg-muted/30 flex-wrap">
+                            <Badge variant="outline" className="text-xs">{step.day}</Badge>
+                            <Badge className="text-xs bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">{step.type}</Badge>
+                            {step.subject && <span className="text-xs text-muted-foreground italic truncate">"{step.subject}"</span>}
+                          </div>
+                          <div className="p-2 space-y-1.5">
+                            {"subject" in step && step.subject && <CopyBlock text={step.subject} label="Subject" />}
+                            <CopyBlock text={step.body} label={step.type === "SMS" ? "SMS Text" : "Email Body"} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-semibold mb-2 flex items-center gap-1.5"><Settings className="h-3.5 w-3.5" /> GHL Build Instructions</p>
+                    <div className="bg-muted/30 rounded-md p-3">
+                      <ol className="space-y-1">
+                        {seq.ghlBuild.map((step, si) => (
+                          <li key={si} className="flex gap-2 text-xs text-muted-foreground">
+                            <span className="shrink-0 w-4 text-right font-mono text-muted-foreground/60">{si + 1}.</span>
+                            <span>{step}</span>
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </TabsContent>
+
+        {/* ── MULTI-TOUCH MAP ─────────────────────────────────────────────── */}
+        <TabsContent value="multi-touch" className="mt-4">
+          <div className="space-y-4">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <ListChecks className="h-5 w-5 text-emerald-500" /> Multi-Touch Campaign Map
+                </CardTitle>
+                <CardDescription>
+                  Master reference of every outreach campaign — all 9 automated workflows + 5 manual sequences — showing each touchpoint, channel, timing, and GHL action in one view.
+                  Use this to plan your GHL build order and verify no gaps.
+                </CardDescription>
+              </CardHeader>
+            </Card>
+
+            {/* Build Order Card */}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2"><Zap className="h-4 w-4 text-yellow-500" /> Recommended GHL Build Order</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                  {[
+                    {
+                      phase: "Phase 1 — Foundation (Week 1)",
+                      color: "border-blue-400",
+                      items: [
+                        "✓ A2P SMS Registration (required before any bulk SMS)",
+                        "✓ GHL Calendar setup (15-min Statement Review Call)",
+                        "✓ Custom Values (calendarLink, applicationLink, portalLink)",
+                        "✓ Voicemail Drop recordings uploaded (6 audio files)",
+                        "✓ WF1 — Speed-to-Lead (highest ROI, build first)",
+                        "✓ WF2 — Cold Outbound (main volume driver)",
+                      ],
+                    },
+                    {
+                      phase: "Phase 2 — Conversion (Week 2)",
+                      color: "border-green-400",
+                      items: [
+                        "✓ WF3 — Reply Engaged (critical: handles all inbound replies)",
+                        "✓ WF4 — Statement Chase (converts interested to submitted)",
+                        "✓ WF5 — Proposal Follow-Up (closes deals)",
+                        "✓ Manual: No-Show Recovery (fires from calendar no-show tag)",
+                        "✓ Manual: Stalled Deal Revival",
+                        "✓ All email templates created and tested",
+                      ],
+                    },
+                    {
+                      phase: "Phase 3 — Merchant Lifecycle (Week 3)",
+                      color: "border-purple-400",
+                      items: [
+                        "✓ WF6 — Merchant Welcome (Closed Won trigger)",
+                        "✓ WF7 — Go-Live & Approval",
+                        "✓ WF8 — Retention & NPS (Day 32 post-go-live)",
+                        "✓ WF9 — Win-Back (churned merchants)",
+                        "✓ Manual: Cold Business Email + Event Lead + Partner Referral",
+                        "✓ Voice AI + SMS AI Employees configured and tested",
+                      ],
+                    },
+                  ].map(({ phase, color, items }) => (
+                    <div key={phase} className={`border-l-4 ${color} pl-3 space-y-1`}>
+                      <p className="font-semibold text-xs mb-2">{phase}</p>
+                      {items.map((item, i) => <p key={i} className="text-muted-foreground">{item}</p>)}
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Campaign Touch Table */}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Campaign Touch Timeline — All Automated Workflows</CardTitle>
+              </CardHeader>
+              <CardContent className="overflow-x-auto p-0">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b bg-muted/40">
+                      <th className="text-left p-3 font-semibold w-40">Campaign</th>
+                      <th className="text-left p-3 font-semibold">Trigger Tag</th>
+                      <th className="text-left p-3 font-semibold">Touches</th>
+                      <th className="text-left p-3 font-semibold">Duration</th>
+                      <th className="text-left p-3 font-semibold">Channels</th>
+                      <th className="text-left p-3 font-semibold">Primary Goal</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[
+                      { name: "WF1 Speed-to-Lead", tag: "LB-INBOUND-NEW", touches: "10+", duration: "10 days", channels: "Email, SMS, Voice, VM, AI", goal: "Book call within 60 sec of form submit", color: "bg-blue-500" },
+                      { name: "WF2 Cold Outbound", tag: "LB-COLD-OUTBOUND", touches: "12", duration: "30 days", channels: "Email, SMS, Voice, VM, Task", goal: "Convert cold prospect to statement submission", color: "bg-slate-500" },
+                      { name: "WF3 Reply Engaged", tag: "LB-SDR-REPLY-ENGAGED", touches: "6", duration: "5 days", channels: "Email, SMS, Voice, Task", goal: "Fast-track interested prospect to booked call", color: "bg-green-500" },
+                      { name: "WF4 Statement Chase", tag: "LB-SDR-STATEMENT-CHASE", touches: "8", duration: "14 days", channels: "Email, SMS, Voice, VM", goal: "Get statement uploaded for analysis", color: "bg-yellow-500" },
+                      { name: "WF5 Proposal Follow", tag: "LB-SDR-PROPOSAL", touches: "6", duration: "10 days", channels: "Email, SMS, Voice", goal: "Convert proposal viewed → verbal commit", color: "bg-orange-500" },
+                      { name: "WF6 Merchant Welcome", tag: "LB-CLOSED-WON", touches: "5", duration: "7 days", channels: "Email, SMS, Task", goal: "Welcome → get application submitted", color: "bg-purple-500" },
+                      { name: "WF7 Go-Live", tag: "LB-MERCHANT-APPROVED", touches: "4", duration: "14 days", channels: "Email, SMS, Voice, Task", goal: "Terminal active + first transaction", color: "bg-indigo-500" },
+                      { name: "WF8 Retention & NPS", tag: "LB-MERCHANT-ACTIVE", touches: "5", duration: "45 days", channels: "Email, SMS", goal: "NPS survey + referral ask + upsell", color: "bg-teal-500" },
+                      { name: "WF9 Win-Back", tag: "LB-MERCHANT-CHURNED", touches: "5", duration: "30 days", channels: "Email, SMS, Voice", goal: "Re-win churned merchant", color: "bg-rose-500" },
+                    ].map((row) => (
+                      <tr key={row.name} className="border-b hover:bg-muted/20 transition-colors">
+                        <td className="p-3">
+                          <div className="flex items-center gap-2">
+                            <div className={`h-2 w-2 rounded-full ${row.color} shrink-0`} />
+                            <span className="font-medium">{row.name}</span>
+                          </div>
+                        </td>
+                        <td className="p-3 font-mono text-muted-foreground">{row.tag}</td>
+                        <td className="p-3 font-semibold text-center">{row.touches}</td>
+                        <td className="p-3 text-muted-foreground">{row.duration}</td>
+                        <td className="p-3 text-muted-foreground">{row.channels}</td>
+                        <td className="p-3 text-muted-foreground">{row.goal}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
+
+            {/* Manual Sequences Summary Table */}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Manual Sequences Summary</CardTitle>
+              </CardHeader>
+              <CardContent className="overflow-x-auto p-0">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b bg-muted/40">
+                      <th className="text-left p-3 font-semibold w-48">Sequence</th>
+                      <th className="text-left p-3 font-semibold">When to Fire</th>
+                      <th className="text-left p-3 font-semibold">Touches</th>
+                      <th className="text-left p-3 font-semibold">Duration</th>
+                      <th className="text-left p-3 font-semibold">Channels</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[
+                      { name: "Cold Business Email", when: "Sunbiz/Apollo import, any cold list", touches: "3", duration: "7 days", channels: "Email ×3" },
+                      { name: "Event / Trade Show Lead", when: "Within 24h of in-person meeting", touches: "3", duration: "5 days", channels: "Email ×2, SMS ×1" },
+                      { name: "Partner Referral Nurture", when: "ISO/CPA/bookkeeper referral received", touches: "3", duration: "7 days", channels: "Email ×3" },
+                      { name: "Stalled Deal Revival", when: "Pipeline deal silent 14+ days", touches: "3", duration: "6 days", channels: "Email ×2, SMS ×1" },
+                      { name: "No-Show Recovery", when: "Within 1h of missed appointment", touches: "3", duration: "2 days", channels: "SMS ×1, Email ×2" },
+                    ].map((row) => (
+                      <tr key={row.name} className="border-b hover:bg-muted/20 transition-colors">
+                        <td className="p-3 font-medium">{row.name}</td>
+                        <td className="p-3 text-muted-foreground">{row.when}</td>
+                        <td className="p-3 font-semibold text-center">{row.touches}</td>
+                        <td className="p-3 text-muted-foreground">{row.duration}</td>
+                        <td className="p-3 text-muted-foreground">{row.channels}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
+
+            {/* AI Prompts Quick Reference */}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2"><Bot className="h-4 w-4 text-fuchsia-500" /> AI Employee Prompt Guidelines (GHL)</CardTitle>
+                <CardDescription className="text-xs">Paste these into GHL → Settings → AI Employee when setting up Voice and SMS AI channels.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <CopyBlock label="Voice AI System Prompt (GHL → AI Employee → Phone Channel)" text={`You are a friendly, professional sales representative for Liberty Bancard, a merchant payment processing company based in the United States. Your name is Alex.
+
+IDENTITY RULES:
+- You work FOR Liberty Bancard — do NOT say you are ChatGPT, an AI assistant, or a bot.
+- If asked "Are you a real person?" or "Are you AI?", say: "I'm an AI assistant for Liberty Bancard. I'm here to help answer your questions and connect you with our team."
+- Never deny being an AI when directly and sincerely asked.
+
+YOUR GOAL:
+- Qualify the prospect (do they process credit cards? how much per month? who is their current processor?)
+- Book a 15-minute statement review call with a human rep
+- Collect the prospect's email if not on file
+
+QUALIFICATION QUESTIONS (ask naturally, not as a list):
+1. "Do you currently accept credit card payments in your business?"
+2. "About how much do you process in credit card sales each month?"
+3. "Who is your current payment processor?" (Stripe, Square, Heartland, First Data, etc.)
+4. "Are you happy with your current rates, or have you looked at alternatives?"
+
+BOOKING:
+- If qualified (processes >$5k/month), offer to book a 15-minute call: "I'd love to set up a quick 15-minute call with our team — we can show you exactly what you're paying vs. what you could be paying. Does [day] or [day] work?"
+- Use the GHL calendar integration to book directly during the call.
+
+OBJECTION HANDLING:
+- "I'm happy with my current processor": "That's great — we actually love working with businesses that are already set up. We just want to make sure you're not overpaying. The analysis is free and takes 24 hours."
+- "I'm too busy": "Completely understand. Can I send you a quick email so you have it when you have a moment?"
+- "Not interested": Politely thank them and let a human rep know.
+
+COMPLIANCE:
+- Do not make specific rate guarantees during the call.
+- Always say: "Eligibility, underwriting, and card brand rules apply."
+- End all calls with: "Thanks for your time — have a great day!"`} />
+
+                <CopyBlock label="SMS AI System Prompt (GHL → AI Employee → SMS/Text Channel)" text={`You are a helpful SMS assistant for Liberty Bancard, a payment processing company. Your name is Alex.
+
+IDENTITY:
+- You are an AI assistant for Liberty Bancard.
+- If asked "Is this a real person?" say: "I'm an automated assistant for Liberty Bancard. A real team member can follow up if you prefer — just say 'human' anytime."
+
+YOUR GOALS via SMS:
+1. Answer basic questions about Liberty Bancard services
+2. Qualify the prospect (do they take credit cards? volume?)
+3. Direct them to book a call or upload their statement
+
+KEEP IT SHORT: SMS responses should be 1–3 sentences max. Never send walls of text.
+
+TRIGGERS FOR HUMAN HANDOFF (immediately notify a rep):
+- "real person", "human", "agent", "speak to someone"
+- "ready to apply", "ready to sign up"
+- "not interested", "stop contacting me"
+- Any negative sentiment or frustration detected
+
+BOOKING: If prospect wants to book, send: "Great! You can grab a time here: {{custom.calendarLink}}"
+
+STATEMENT UPLOAD: If prospect wants the analysis, send: "Perfect — just upload your last merchant statement here: {{custom.statementUploadLink}} and we'll have your savings report within 24 hours."
+
+COMPLIANCE:
+- Always include opt-out reminder on first message: "Reply STOP to opt out."
+- Do not make rate guarantees.
+- Eligibility, underwriting, and card brand rules apply.`} />
+              </CardContent>
+            </Card>
+
+            {/* GHL Workflow ID Registry Quick Reference */}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2"><Settings className="h-4 w-4" /> GHL Workflow ID Registry — Quick Reference</CardTitle>
+                <CardDescription className="text-xs">After building each workflow in GHL, copy its Workflow ID and paste it in the platform at <strong>/dashboard/ghl-workflows</strong>. This links the platform to GHL so auto-enrollment works.</CardDescription>
+              </CardHeader>
+              <CardContent className="overflow-x-auto p-0">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b bg-muted/40">
+                      <th className="text-left p-3 font-semibold">Workflow Name in GHL</th>
+                      <th className="text-left p-3 font-semibold">Sequence Name in Platform</th>
+                      <th className="text-left p-3 font-semibold">Trigger Event</th>
+                      <th className="text-left p-3 font-semibold">Env Var (if applicable)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[
+                      { ghl: "LB — Speed-to-Lead (WF1)", platform: "Inbound Confirmation", trigger: "Web form submission", env: "—" },
+                      { ghl: "LB — Cold Outbound (WF2)", platform: "Switch & Save — Statement Audit", trigger: "Tag: LB-COLD-OUTBOUND added", env: "—" },
+                      { ghl: "LB — Reply Engaged (WF3)", platform: "SDR: Reply Engaged", trigger: "Inbound email/SMS reply detected", env: "—" },
+                      { ghl: "LB — Statement Chase (WF4)", platform: "SDR: Statement Chase", trigger: "Tag: LB-SDR-STATEMENT-CHASE", env: "—" },
+                      { ghl: "LB — Proposal Follow-Up (WF5)", platform: "SDR: Proposal Follow-Up", trigger: "Proposal delivered (tag applied)", env: "—" },
+                      { ghl: "LB — Merchant Welcome (WF6)", platform: "3. Fast Approval — Application Completion", trigger: "Deal closed won", env: "—" },
+                      { ghl: "LB — Go-Live & Approval (WF7)", platform: "Set in Replit Secrets (env var)", trigger: "Merchant approved by underwriting", env: "GHL_WORKFLOW_MERCHANT_APPROVED" },
+                      { ghl: "LB — Retention & NPS (WF8)", platform: "Merchant Retention — NPS", trigger: "Day 32 post-go-live", env: "—" },
+                      { ghl: "LB — Win-Back (WF9)", platform: "Merchant Win-Back", trigger: "Account cancelled / ported", env: "—" },
+                      { ghl: "LB — Re-engagement", platform: "19. Reactivation — Cold Lead Revival", trigger: "Cold lead re-engages after 90+ days", env: "—" },
+                      { ghl: "LB — Merchant Application", platform: "Application form trigger", trigger: "Merchant completes application", env: "GHL_WORKFLOW_MERCHANT_APP" },
+                      { ghl: "LB — Partner Welcome", platform: "Partner onboarding trigger", trigger: "Partner approved", env: "GHL_WORKFLOW_PARTNER_WELCOME" },
+                    ].map((row) => (
+                      <tr key={row.ghl} className="border-b hover:bg-muted/20">
+                        <td className="p-3 font-medium">{row.ghl}</td>
+                        <td className="p-3 font-mono text-muted-foreground text-[11px]">{row.platform}</td>
+                        <td className="p-3 text-muted-foreground">{row.trigger}</td>
+                        <td className="p-3 font-mono text-[11px]">{row.env !== "—" ? <Badge variant="outline" className="text-[10px]">{row.env}</Badge> : <span className="text-muted-foreground">—</span>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
+
+            <Card className="border-dashed">
+              <CardContent className="pt-4 flex items-center justify-between gap-4 flex-wrap">
+                <div>
+                  <p className="text-sm font-medium">Everything built? Register your Workflow IDs.</p>
+                  <p className="text-xs text-muted-foreground mt-1">Copy each GHL Workflow ID (Automations → your workflow → Settings → Workflow ID) and paste it into the platform.</p>
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  <Button asChild size="sm" data-testid="btn-ghl-workflows-registry">
+                    <Link href="/dashboard/ghl-workflows"><Settings className="h-4 w-4 mr-1.5" /> GHL Workflow Registry</Link>
+                  </Button>
+                  <Button asChild size="sm" variant="outline" data-testid="btn-open-ghl-mt">
+                    <a href="https://app.gohighlevel.com" target="_blank" rel="noopener noreferrer"><ExternalLink className="h-4 w-4 mr-1.5" /> Open GHL</a>
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
       </Tabs>
     </div>
   );
