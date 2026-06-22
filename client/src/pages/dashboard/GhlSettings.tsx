@@ -1,10 +1,11 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2, Settings, CheckCircle2, XCircle, Key, MapPin, Calendar, Activity, Mail, Clock, Zap, ArrowRightLeft, Send, Database, AlertTriangle } from "lucide-react";
+import { Loader2, Settings, CheckCircle2, XCircle, Key, MapPin, Calendar, Activity, Mail, Clock, Zap, ArrowRightLeft, Send, Database, AlertTriangle, RefreshCw } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { GhlActivityLog, MessageTemplate, SlaConfig } from "@shared/schema";
@@ -73,8 +74,19 @@ interface SyncDashboard {
   }>;
 }
 
+interface BackfillStatus {
+  totalContacts: number;
+  missingGhlId: number;
+}
+
+interface BackfillResult {
+  results: { matched: number; notFound: number; errors: number; total: number };
+  log: Array<{ id: number; email: string; status: string; ghlId?: string; error?: string }>;
+}
+
 export default function GhlSettings() {
   const { toast } = useToast();
+  const [backfillResult, setBackfillResult] = useState<BackfillResult | null>(null);
 
   const { data: status, isLoading: statusLoading } = useQuery<GhlStatus>({
     queryKey: ["/api/ghl/status"],
@@ -146,6 +158,27 @@ export default function GhlSettings() {
       queryClient.invalidateQueries({ queryKey: ["/api/ghl/sync-status"] });
     },
     onError: () => toast({ title: "Error", variant: "destructive" }),
+  });
+
+  const { data: backfillStatus, refetch: refetchBackfillStatus } = useQuery<BackfillStatus>({
+    queryKey: ["/api/admin/backfill-ghl-contacts/status"],
+    refetchInterval: 0,
+  });
+
+  const backfillMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/admin/backfill-ghl-contacts");
+      return res.json() as Promise<BackfillResult>;
+    },
+    onSuccess: (data) => {
+      setBackfillResult(data);
+      refetchBackfillStatus();
+      toast({
+        title: "Backfill Complete",
+        description: `${data.results.matched} matched, ${data.results.notFound} not in GHL, ${data.results.errors} errors`,
+      });
+    },
+    onError: () => toast({ title: "Backfill Failed", description: "Could not run GHL contact ID backfill", variant: "destructive" }),
   });
 
   if (statusLoading) {
@@ -586,6 +619,68 @@ export default function GhlSettings() {
                 ))}
               </TableBody>
             </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card data-testid="card-ghl-backfill">
+        <CardHeader>
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2">
+              <Database className="w-4 h-4 text-muted-foreground" />
+              <CardTitle className="text-base">GHL Contact ID Backfill</CardTitle>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => backfillMutation.mutate()}
+              disabled={backfillMutation.isPending || (backfillStatus?.missingGhlId === 0)}
+              className="gap-2"
+              data-testid="button-run-backfill"
+            >
+              {backfillMutation.isPending
+                ? <Loader2 className="w-4 h-4 animate-spin" />
+                : <RefreshCw className="w-4 h-4" />}
+              {backfillMutation.isPending ? "Running…" : "Run Backfill"}
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Looks up existing GHL contacts by email for any local contacts missing a GHL Contact ID.
+            Run this once after importing contacts or rotating your GHL token.
+          </p>
+          {backfillStatus && (
+            <div className="flex gap-6 text-sm">
+              <span data-testid="text-backfill-total">Total contacts: <strong>{backfillStatus.totalContacts}</strong></span>
+              <span data-testid="text-backfill-missing">
+                Missing GHL ID:{" "}
+                <strong className={backfillStatus.missingGhlId > 0 ? "text-amber-600" : "text-green-600"}>
+                  {backfillStatus.missingGhlId}
+                </strong>
+              </span>
+            </div>
+          )}
+          {backfillResult && (
+            <div className="rounded-md border p-3 bg-muted/30 space-y-2" data-testid="card-backfill-result">
+              <div className="flex gap-4 text-sm font-medium flex-wrap">
+                <span className="text-green-600">✓ Matched: {backfillResult.results.matched}</span>
+                <span className="text-muted-foreground">Not found: {backfillResult.results.notFound}</span>
+                {backfillResult.results.errors > 0 && (
+                  <span className="text-red-600">Errors: {backfillResult.results.errors}</span>
+                )}
+                <span className="text-muted-foreground">Total scanned: {backfillResult.results.total}</span>
+              </div>
+              {backfillResult.results.errors > 0 && (
+                <div className="max-h-40 overflow-y-auto space-y-1">
+                  {backfillResult.log
+                    .filter(l => l.status === "error")
+                    .map((l, i) => (
+                      <p key={i} className="text-xs text-red-600">{l.email}: {l.error}</p>
+                    ))}
+                </div>
+              )}
+            </div>
           )}
         </CardContent>
       </Card>

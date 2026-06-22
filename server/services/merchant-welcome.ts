@@ -245,8 +245,31 @@ export async function sendMerchantPortalWelcomeEmail(profile: MerchantProfile): 
 }
 
 export async function sendMerchantWelcomeEmail(contact: Contact, deal: Deal): Promise<void> {
-  if (!contact.ghlContactId) {
-    console.warn(`[Closed Won] Merchant welcome email skipped — contact #${contact.id} has no GHL contact ID`);
+  const TAG = "[Closed Won]";
+  let ghlContactId = contact.ghlContactId;
+
+  if (!ghlContactId && isSdrGhlConfigured()) {
+    console.log(`${TAG} Contact #${contact.id} has no GHL contact ID — attempting upsert via email`);
+    try {
+      ghlContactId = await upsertContact({
+        firstName: contact.firstName || "",
+        lastName: contact.lastName || "",
+        email: contact.email || "",
+        phone: contact.phone || undefined,
+        companyName: contact.companyName || undefined,
+        tags: ["merchant", "closed-won"],
+      });
+      if (ghlContactId) {
+        await storage.updateContact(contact.id, { ghlContactId });
+        console.log(`${TAG} GHL contact created/found for contact #${contact.id}: ${ghlContactId}`);
+      }
+    } catch (upsertErr) {
+      console.error(`${TAG} Failed to upsert GHL contact for contact #${contact.id}:`, upsertErr);
+    }
+  }
+
+  if (!ghlContactId) {
+    console.warn(`${TAG} Merchant welcome email skipped — contact #${contact.id} has no GHL contact ID and upsert failed or GHL not configured`);
     return;
   }
 
@@ -257,7 +280,7 @@ export async function sendMerchantWelcomeEmail(contact: Contact, deal: Deal): Pr
     if (ghlWorkflowId) {
       await triggerWorkflow({
         workflowId: ghlWorkflowId,
-        contactId: contact.ghlContactId,
+        contactId: ghlContactId,
         metadata: {
           dealId: deal.id,
           contactId: contact.id,
@@ -276,7 +299,7 @@ export async function sendMerchantWelcomeEmail(contact: Contact, deal: Deal): Pr
       const htmlBody = buildMerchantWelcomeEmail(firstName, companyName);
 
       await sendEmailReply({
-        contactId: contact.ghlContactId,
+        contactId: ghlContactId,
         subject,
         htmlBody,
       });
