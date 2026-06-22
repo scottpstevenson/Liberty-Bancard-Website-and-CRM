@@ -650,9 +650,13 @@ export async function sendCoBrandedProposalEmail(proposalId: number, baseUrl: st
 
   if (isGhlConfigured() && proposal.contactId && proposal.dealId && merchantGhlContactId) {
     try {
-      await sendGhlEmail({ contactId: proposal.contactId, dealId: proposal.dealId, subject, body: html });
-      sent = true;
-      sentChannel = "ghl_direct";
+      const ghlDirectResult = await sendGhlEmail({ contactId: proposal.contactId, dealId: proposal.dealId, subject, body: html });
+      if (ghlDirectResult.success) {
+        sent = true;
+        sentChannel = "ghl_direct";
+      } else {
+        console.warn(`[CoBrandedProposal] GHL direct email returned failure: ${ghlDirectResult.error}`);
+      }
     } catch (err) {
       console.error("[CoBrandedProposal] GHL direct email failed, trying GHL by-email:", err);
     }
@@ -660,9 +664,13 @@ export async function sendCoBrandedProposalEmail(proposalId: number, baseUrl: st
 
   if (!sent && isGhlConfigured() && merchantEmail) {
     try {
-      await sendGhlEmailForMerchant({ email: merchantEmail, subject, body: html });
-      sent = true;
-      sentChannel = "ghl_email";
+      const ghlEmailResult = await sendGhlEmailForMerchant({ email: merchantEmail, subject, body: html });
+      if (ghlEmailResult.success) {
+        sent = true;
+        sentChannel = "ghl_email";
+      } else {
+        console.warn(`[CoBrandedProposal] GHL by-email returned failure: ${ghlEmailResult.error}`);
+      }
     } catch (err) {
       console.error("[CoBrandedProposal] GHL by-email failed, trying SMTP:", err);
     }

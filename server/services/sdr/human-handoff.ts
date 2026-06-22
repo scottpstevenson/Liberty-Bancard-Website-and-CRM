@@ -42,6 +42,7 @@ export async function handoffToHuman(
         title: `Lead Handoff: ${lead.companyName || "Unknown"} — follow up required`,
         description: note || "AI automation paused. This lead requires human follow-up.",
         taskType: "FOLLOW_UP",
+        assignedTo: assignedUserId,
         dueDate: new Date(Date.now() + 4 * 60 * 60 * 1000),
       }).catch(err => console.warn("[HumanHandoff] createGhlTask failed (non-critical):", err.message));
     }

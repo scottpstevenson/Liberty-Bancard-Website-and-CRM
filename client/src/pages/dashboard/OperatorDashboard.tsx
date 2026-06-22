@@ -272,6 +272,7 @@ interface SendMonitoringData {
     totalDailyLimit: number;
     overallCapUtilization: number;
     smtpFallbacksLast24h?: number;
+    ghlSendsLast24h?: number;
   };
 }
 
@@ -550,11 +551,45 @@ function SendMonitoringPanel() {
             <span className="font-semibold text-amber-800 dark:text-amber-300">SMTP Fallback Active: </span>
             <span className="text-amber-700 dark:text-amber-400">
               {agg!.smtpFallbacksLast24h} email{agg!.smtpFallbacksLast24h === 1 ? "" : "s"} delivered via SMTP in the last 24 hours.
-              GHL was unavailable for these sends. Check your GHL token in{" "}
-              <a href="/dashboard/system-readiness" className="underline font-medium">System Readiness</a>.
+              GHL was unavailable for these sends. Check the{" "}
+              <a href="/dashboard/operator" className="underline font-medium">Email Health tab</a>.
             </span>
           </div>
         </div>
+      )}
+
+      {((agg?.ghlSendsLast24h ?? 0) > 0 || (agg?.smtpFallbacksLast24h ?? 0) > 0) && (
+        <Card data-testid="card-channel-breakdown">
+          <CardHeader className="pb-2 pt-4 px-4">
+            <CardTitle className="text-sm font-semibold">Communication Channel (24h)</CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-4">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left font-medium text-muted-foreground pb-1.5">Channel</th>
+                  <th className="text-right font-medium text-muted-foreground pb-1.5">Sends</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-b last:border-0">
+                  <td className="py-2 flex items-center gap-2">
+                    <span className="inline-block w-2 h-2 rounded-full bg-green-500" />
+                    GHL (all channels)
+                  </td>
+                  <td className="py-2 text-right font-medium" data-testid="channel-count-ghl">{agg?.ghlSendsLast24h ?? 0}</td>
+                </tr>
+                <tr>
+                  <td className="py-2 flex items-center gap-2">
+                    <span className="inline-block w-2 h-2 rounded-full bg-amber-500" />
+                    SMTP Fallback
+                  </td>
+                  <td className="py-2 text-right font-medium" data-testid="channel-count-smtp">{agg?.smtpFallbacksLast24h ?? 0}</td>
+                </tr>
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
       )}
 
       <div className="space-y-3">

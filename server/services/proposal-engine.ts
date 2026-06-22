@@ -624,13 +624,17 @@ export async function sendProposalEmail(dealId: number): Promise<boolean> {
     let emailChannel = "none";
     if (isGhlConfigured()) {
       try {
-        await sendGhlEmailForMerchant({
+        const ghlResult = await sendGhlEmailForMerchant({
           email: contact.email,
           subject,
           body,
         });
-        emailSent = true;
-        emailChannel = "ghl";
+        if (ghlResult.success) {
+          emailSent = true;
+          emailChannel = "ghl";
+        } else {
+          console.warn(`[ProposalEngine] GHL send returned failure for deal ${dealId}: ${ghlResult.error}`);
+        }
       } catch (sendErr) {
         console.error("[ProposalEngine] GHL email send error:", sendErr);
       }
@@ -775,6 +779,7 @@ export async function notifyRepWithBriefing(dealId: number): Promise<void> {
           title: `Follow up on proposal — ${contact?.companyName || contact?.firstName || "Unknown"}`,
           description: `Proposal sent. Projected annual savings: $${bestPlan?.annualSavings?.toLocaleString() || "N/A"}. Plan: ${bestPlan?.name || "N/A"}.`,
           taskType: "FOLLOW_UP",
+          assignedTo: deal.owner || undefined,
           dueDate: new Date(Date.now() + 4 * 60 * 60 * 1000),
         }).catch(err => console.warn("[ProposalEngine] createGhlTask (non-critical):", err.message));
       }

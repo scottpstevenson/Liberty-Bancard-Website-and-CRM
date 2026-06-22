@@ -228,6 +228,7 @@ async function checkDealSla(rule: typeof DEFAULT_SLA_RULES[0]) {
           title: `SLA Breach: ${rule.name} — ${contact.companyName || contact.firstName || "Deal #" + deal.id}`,
           description: `Deal has been in "${rule.stage}" for ${hoursStuck} hours. Immediate action required.`,
           taskType: "FOLLOW_UP",
+          assignedTo: deal.owner || undefined,
           dueDate: new Date(Date.now() + 2 * 60 * 60 * 1000),
         }).catch(err => console.warn("[SLA] createGhlTask failed (non-critical):", err.message));
       }
@@ -291,6 +292,7 @@ async function checkTicketSla() {
             title: `Ticket SLA Breach: #${ticket.id} — ${ticket.subject}`,
             description: `Ticket has breached SLA by ${minutesPastSla} minutes. Priority: ${ticket.priority}.`,
             taskType: "FOLLOW_UP",
+            assignedTo: ticket.assignedTo || undefined,
             dueDate: new Date(Date.now() + 30 * 60 * 1000),
           }).catch(err => console.warn("[SLA] createGhlTask for ticket failed (non-critical):", err.message));
         }

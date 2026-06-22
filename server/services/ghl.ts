@@ -1089,20 +1089,23 @@ export async function createGhlTask(params: {
   dueDate?: Date;
   description?: string;
   taskType?: "FOLLOW_UP" | "EMAIL" | "CALL";
+  assignedTo?: string;
 }): Promise<{ success: boolean; taskId?: string; error?: string }> {
   try {
     if (!isGhlConfigured()) return { success: false, error: "GHL not configured" };
     const dueDate = params.dueDate || new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const body: Record<string, unknown> = {
+      title: params.title,
+      dueDate: dueDate.toISOString(),
+      description: params.description || "",
+      status: "incompleted",
+      taskType: params.taskType || "FOLLOW_UP",
+    };
+    if (params.assignedTo) body.assignedTo = params.assignedTo;
     const result = await ghlFetch(`/contacts/${params.contactId}/tasks`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: params.title,
-        dueDate: dueDate.toISOString(),
-        description: params.description || "",
-        status: "incompleted",
-        taskType: params.taskType || "FOLLOW_UP",
-      }),
+      body: JSON.stringify(body),
     });
     return { success: true, taskId: result?.id };
   } catch (err: any) {

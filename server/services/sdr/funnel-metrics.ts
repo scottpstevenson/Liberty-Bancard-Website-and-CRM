@@ -627,13 +627,21 @@ export async function getSendMonitoringData(): Promise<any> {
   const totalLimit = identityStats.reduce((s, i) => s + i.dailyLimit, 0);
 
   let smtpFallbacksLast24h = 0;
+  let ghlSendsLast24h = 0;
   try {
-    const result = await db.execute(sql`
+    const smtpResult = await db.execute(sql`
       SELECT COUNT(*)::int AS count FROM audit_logs
-      WHERE details->>'channel' = 'smtp'
+      WHERE details->>'channel' LIKE 'smtp%'
       AND created_at > NOW() - INTERVAL '24 hours'
     `);
-    smtpFallbacksLast24h = Number((result.rows?.[0] as any)?.count || 0);
+    smtpFallbacksLast24h = Number((smtpResult.rows?.[0] as any)?.count || 0);
+
+    const ghlResult = await db.execute(sql`
+      SELECT COUNT(*)::int AS count FROM audit_logs
+      WHERE details->>'channel' LIKE 'ghl%'
+      AND created_at > NOW() - INTERVAL '24 hours'
+    `);
+    ghlSendsLast24h = Number((ghlResult.rows?.[0] as any)?.count || 0);
   } catch (_) {}
 
   return {
@@ -645,6 +653,7 @@ export async function getSendMonitoringData(): Promise<any> {
       totalDailyLimit: totalLimit,
       overallCapUtilization: totalLimit > 0 ? Math.round((totalSent / totalLimit) * 100) : 0,
       smtpFallbacksLast24h,
+      ghlSendsLast24h,
     },
   };
 }

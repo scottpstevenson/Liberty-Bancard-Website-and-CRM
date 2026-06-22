@@ -11,7 +11,7 @@ import fs from "fs";
 import { storage } from "../storage";
 import { syncContactToGhl, syncDealToGhl } from "./ghl-sync";
 import { syncStatementUploadToGhl } from "./ghl-form-sync";
-import { isGhlConfigured } from "./ghl";
+import { isGhlConfigured, createGhlTask } from "./ghl";
 import { isSmtpConfigured, sendSmtpEmail } from "./smtp-email";
 import { autoGenerateProposal } from "./proposal-engine";
 import { generateDealBlueprint } from "./deal-blueprint";
@@ -339,6 +339,22 @@ export async function runStatementUploadChain(
                     type: "alert",
                     metadata: { dealId: capturedDealId, decision: result.decision, score: result.score, link: `/dashboard/underwriting`, eventType: "underwriting_flagged" },
                   });
+                  if (isGhlConfigured() && deal.contactId) {
+                    storage.getContact(deal.contactId).then(uwContact => {
+                      if (uwContact?.ghlContactId) {
+                        createGhlTask({
+                          contactId: uwContact.ghlContactId,
+                          title: result.decision === "hold"
+                            ? `Underwriting HOLD — Deal #${capturedDealId} needs immediate review`
+                            : `Underwriting Review Required — Deal #${capturedDealId}`,
+                          description: result.reasons[0] ?? "Deal flagged for manual review.",
+                          taskType: "FOLLOW_UP",
+                          assignedTo: deal.owner || undefined,
+                          dueDate: new Date(Date.now() + 2 * 60 * 60 * 1000),
+                        }).catch(err => console.warn("[Underwriting] createGhlTask (non-critical):", err.message));
+                      }
+                    }).catch(() => {});
+                  }
                 }
                 console.log(`[Underwriting] Deal #${capturedDealId} decision=${result.decision} score=${result.score}`);
               }
@@ -444,6 +460,17 @@ export async function runStatementUploadChain(
         eventType: "statement_uploaded",
       },
     });
+
+    if (isGhlConfigured() && contact?.ghlContactId) {
+      createGhlTask({
+        contactId: contact.ghlContactId,
+        title: `New Statement Uploaded — ${merchantName}`,
+        description: `${merchantName} uploaded a processing statement and is ready for review.`,
+        taskType: "FOLLOW_UP",
+        assignedTo: deal?.owner || repName || undefined,
+        dueDate: new Date(Date.now() + 2 * 60 * 60 * 1000),
+      }).catch(err => console.warn("[StatementChain] createGhlTask (non-critical):", err.message));
+    }
 
     // Email to rep — awaited so delivery failures are surfaced in step result
     let emailChannel = "in-app-only";
