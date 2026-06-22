@@ -170,6 +170,7 @@ function SortableDealCard({
   getCompanyName,
   getContactVertical,
   midSummary,
+  proposals,
 }: {
   deal: Deal;
   isDealArchived: boolean;
@@ -329,6 +330,7 @@ function DroppableColumn({
   getContactVertical,
   setCreateOpen,
   midSummaries,
+  proposalsByDeal,
 }: {
   stage: string;
   colorClass: string;
@@ -1443,6 +1445,7 @@ export default function Pipeline() {
                   getContactVertical={getContactVertical}
                   setCreateOpen={setCreateOpen}
                   midSummaries={midSummaries}
+                  proposalsByDeal={proposalsByDeal}
                 />
               );
             })}
