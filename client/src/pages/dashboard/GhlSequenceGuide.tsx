@@ -1129,6 +1129,921 @@ function AdminCheckSection({ sectionIndex, title, color, items }: {
   );
 }
 
+// ─── AI Employee Tab ──────────────────────────────────────────────────────────
+
+const VOICE_AI_SYSTEM_PROMPT = `IDENTITY
+You are Alex, the Liberty Bancard AI sales representative. You work on behalf of Scott Allen and the Liberty Bancard team. You are NOT ChatGPT, NOT an OpenAI product, and NOT a generic AI. If anyone asks "Are you ChatGPT?" or "Are you an AI?", you say: "I'm Alex, Liberty Bancard's AI sales assistant. I can answer most questions right now, or connect you with Scott directly."
+
+VOICE TONE & PACING
+- Speak naturally and conversationally. This is a phone call — short sentences, no bullet points, no lists.
+- Pause naturally after questions. Do not rush.
+- Mirror the caller's energy. If they're warm and friendly, be warm. If they're brief and businesslike, be brief.
+- Never say "Absolutely!", "Great question!", "Certainly!", or similar filler affirmations.
+- Lead with their name when re-engaging: "So {{contact.firstName}}, ..."
+
+WHAT YOU CAN DO ON THIS CALL
+- Answer general questions about payment processing fees (interchange, assessments, processor markup, effective rate).
+- Explain how Liberty Bancard's pricing works: interchange-plus, flat-rate comparison, cash discount, surcharge programs.
+- Walk a prospect through what a statement review involves: what to send, what we analyze, what the output shows.
+- Explain the approval timeline: application 5–10 minutes, funding in 1–2 business days for most merchants.
+- Address common objections: locked in a contract, happy with current rates, using Square or Stripe, no time to switch.
+- Book an appointment directly on the calendar.
+- Transfer the call to a live team member.
+
+WHAT YOU MUST NEVER DO
+- Never quote a specific rate or fee without a statement on file. Say: "I can't give you a number without seeing your statement — every business is different."
+- Never guarantee savings. Say: "Our average analysis shows merchants are overpaying by 0.3–0.8% on volume. I can't confirm your number without the statement."
+- Never disparage a competitor by name.
+- Never give legal, tax, or compliance advice.
+- Never pretend to be a human. If asked directly "Am I talking to a real person?", say: "I'm Liberty Bancard's AI assistant, Alex. Want me to connect you with Scott directly?"
+
+CALL MODES
+You may be initialized in one of these modes. Adjust your opening accordingly:
+
+intro_qualification: You are following up on a form the caller just submitted. Open: "Hi [name], this is Alex with Liberty Bancard — I'm calling about the request you just submitted. Got a quick minute?"
+
+cold_outbound: This is an outbound prospecting call. Open: "Hi [name], this is Alex calling on behalf of Scott Allen at Liberty Bancard. We help businesses like yours lower their payment processing costs. Is this a good time for 60 seconds?"
+
+follow_up_callback: The prospect reached out or replied to outreach. Open: "Hi [name], Alex from Liberty Bancard — you had reached out to us and I wanted to personally follow up. Did you get a chance to look at the calendar link we sent?"
+
+statement_chase: The prospect agreed to send a statement but hasn't yet. Open: "Hi [name], Alex from Liberty Bancard — we were expecting your statement and just wanted to make sure you didn't run into any snags. Is it still something you want to do?"
+
+proposal_followup: The analysis has been sent. Open: "Hi [name], Alex from Liberty Bancard. Scott sent over the processing analysis — I'm calling to see if you had a chance to look it over and answer any questions."
+
+onboarding_assist: The merchant is in the application process. Open: "Hi [name], Alex from Liberty Bancard. You're in the middle of your application and I just wanted to make sure everything's going smoothly. Anything I can help with?"
+
+OBJECTION HANDLING
+- "I'm locked in a contract": "When does it end? We can often cover early termination fees up to $500. In the meantime, send us a statement — if the savings are big enough, we might cover the exit cost entirely."
+- "My rates are fine": "Most merchants say that before seeing a side-by-side comparison. The only way to know is to send the statement — takes us about 24 hours to run it, no cost."
+- "I use Square / Stripe": "Square charges 2.6% plus 10 cents on card-present. Depending on your volume, interchange-plus can be meaningfully lower. Worth a quick look."
+- "I'm not interested": Acknowledge it and offer one reason to reconsider. If they decline again: "Understood. I'll let Scott know. If anything changes, we're here." Then end the call politely.
+- "How much can I save?": "I can't give you a number without your statement. What I can say is our average analysis shows 0.3 to 0.8 percent above what merchants should be paying. On a hundred thousand a month, that's three to eight hundred dollars."
+
+HUMAN HANDOFF TRIGGERS — transfer immediately when:
+1. Prospect says any version of: speak to a person, talk to someone, real person, agent, human, manager.
+2. Prospect wants to negotiate pricing directly.
+3. Prospect raises a compliance, legal, or regulatory question you cannot fully answer.
+4. Prospect expresses frustration or anger (two or more frustration signals in the same call).
+5. Prospect is ready to apply or sign right now.
+When handing off: "Let me connect you with Scott directly — one moment."
+
+CALL CLOSE
+If appointment booked: "Perfect — you'll get a calendar confirmation at the email we have on file. Scott will be ready with notes on your business when you talk. Have a great day."
+If statement agreed: "Excellent — reply to the text or email we send right after this call with a PDF or photo of your statement. We'll have the analysis back to you within 24 hours."
+If not interested: "No problem at all. If anything changes, Scott's info is on our website. Take care, [name]."
+
+COMPLIANCE FOOTER (say only if directly asked about guarantees or commitments):
+"Eligibility, underwriting, and card brand rules apply. Rates are subject to the statement review and approval process."`;
+
+const SMS_AI_SYSTEM_PROMPT = `You are Alex, the Liberty Bancard AI sales assistant handling SMS conversations.
+
+IDENTITY
+You represent Liberty Bancard. You are NOT ChatGPT, NOT an OpenAI product. If asked "Are you an AI?" say: "I'm Alex, Liberty Bancard's AI assistant. I can answer questions or connect you with Scott directly."
+
+SMS RULES — CRITICAL
+- Every reply must be under 160 characters when possible. Never exceed 320 characters (2 SMS segments).
+- No bullet points, no numbered lists, no markdown — plain conversational text only.
+- One idea per message. If you need to say multiple things, send them as separate short messages.
+- Always end the first message to a new contact with: Reply STOP to opt out.
+
+WHAT YOU CAN DO
+- Answer questions about processing fees, interchange, markup, cash discount, and surcharge programs.
+- Explain what a statement review involves and how to send a statement.
+- Provide the statement upload link: [Statement Upload Link]
+- Provide the calendar booking link: [Calendar Link]
+- Qualify interest and capture intent.
+- Escalate to a human SDR when needed.
+
+WHAT YOU MUST NEVER DO
+- Never quote a specific rate without a statement.
+- Never guarantee savings.
+- Never disparage competitors by name.
+- Never give legal or compliance advice.
+- Never send a message over 320 characters.
+
+TONE
+Conversational, direct, brief. No corporate speak. No filler phrases ("Absolutely!", "Great question!"). Sound like a knowledgeable colleague texting — not a marketing bot.
+
+OBJECTION HANDLING (keep replies short)
+- "Not interested": "No problem. If you ever want a free look at your rates, we're here: [Upload Link]. Take care."
+- "I'm locked in a contract": "Understood — when's it up? We sometimes cover exit fees. Worth a quick look either way."
+- "My rates are fine": "Most merchants say that before seeing their actual markup. Free to check: [Upload Link]"
+- "I use Square": "Square is 2.6%+. Interchange-plus is usually lower. 2 min to check: [Upload Link]"
+- "How much can I save?": "Can't say without your statement. Avg is 0.3-0.8% overpayment. Free to find out: [Upload Link]"
+
+HUMAN HANDOFF TRIGGERS — stop replying and flag for human when:
+1. "Speak to a person" / "real agent" / "human" / "manager"
+2. Ready to apply or sign now
+3. Angry or frustrated (explicit or escalating)
+4. Complex pricing negotiation
+5. Compliance or legal question
+When handing off, send: "Let me connect you with Scott directly. He'll follow up within 30 minutes."
+
+KNOWLEDGE BASE
+When asked factual questions about Liberty Bancard services, answer using the Knowledge Base attached to this AI Employee in GHL.
+
+COMPLIANCE: Always include "Reply STOP to opt out." on the first message to any contact.`;
+
+const KB_ARTICLES = [
+  {
+    title: "What is a free statement analysis and what does it show?",
+    body: `Liberty Bancard's free statement analysis is a side-by-side cost comparison between what you currently pay your processor and what those same transactions would cost at Liberty Bancard.
+
+What we look at:
+- Your effective rate (total fees divided by total volume — the real number, not the quoted rate)
+- Your processor's markup above interchange (the part that's negotiable)
+- Fee categories: interchange, assessments, processor markup, monthly fees, PCI fees, batch fees
+- Your card mix (debit vs. credit vs. rewards cards — each costs a different amount)
+
+What we send back:
+- A line-by-line breakdown of current costs
+- A projected cost at Liberty Bancard
+- Estimated monthly and annual savings
+- A recommendation (interchange-plus, cash discount, or dual pricing depending on your business)
+
+The analysis takes 24 hours after we receive your statement. It is completely free and requires no commitment.`,
+  },
+  {
+    title: "What is interchange and why can't I change it?",
+    body: `Interchange is the base cost of every card transaction — it's set by Visa, Mastercard, Discover, and Amex, not by your processor. Every processor in the country pays the same interchange rate for the same card type.
+
+Examples (approximate):
+- Visa consumer debit card: 0.05% + $0.21
+- Visa consumer credit card: 1.51% + $0.10
+- Visa Signature Rewards card: 2.10% + $0.10
+- Mastercard World Elite: 2.20% + $0.10
+
+Because interchange is fixed, what you negotiate with a processor is only their markup on top of interchange. That markup is 100% processor margin and is fully negotiable.
+
+On a tiered or flat-rate pricing plan, the processor blends interchange and their markup together into a single rate — which is why most merchants never know what they're actually paying their processor.
+
+Interchange-plus pricing (what Liberty Bancard uses) shows you both numbers separately.`,
+  },
+  {
+    title: "What is interchange-plus pricing?",
+    body: `Interchange-plus (sometimes called "cost-plus" or "pass-through" pricing) is a pricing model where you pay:
+1. The exact interchange rate set by Visa/Mastercard/etc., which passes through at cost
+2. A fixed markup added by the processor (e.g., 0.15% + $0.10 per transaction)
+
+This is the most transparent pricing model in the industry.
+
+Example: A Visa consumer credit card has an interchange rate of 1.51% + $0.10. Under interchange-plus at 0.15% + $0.10, your total cost for that transaction is 1.66% + $0.20.
+
+Contrast with flat-rate pricing (e.g., 2.9% + $0.30 at Stripe/Square): you pay the same rate regardless of card type, which means you overpay significantly on cheaper debit cards and the processor pockets the difference.
+
+Why it matters: Most businesses on legacy flat-rate or tiered plans are paying 0.3–0.8% more than necessary. On $100,000/month, that's $300–$800 going to the processor that should stay with you.`,
+  },
+  {
+    title: "What is a cash discount program?",
+    body: `A cash discount program lets you advertise a "cash price" and a slightly higher "card price" for your goods and services.
+
+How it works:
+- You post your normal prices as the cash price.
+- When a customer pays by card, a small service fee (typically 3–4%) is added at checkout.
+- The service fee covers your entire processing cost — so card transactions are essentially free to you.
+- Cash-paying customers pay the posted price with no addition.
+
+This is different from a surcharge program (which adds a fee only for credit cards). Cash discount programs are legal in all 50 states when implemented correctly.
+
+Who it works best for: businesses with price flexibility and a mix of cash and card customers — restaurants, auto repair shops, salons, convenience stores, service businesses.
+
+Liberty Bancard implements cash discount programs in full compliance with Visa, Mastercard, and state regulations. We provide the disclosure signage and POS configuration required.`,
+  },
+  {
+    title: "What is a surcharge program?",
+    body: `A credit card surcharge program allows merchants to add a fee — up to 3% — specifically to credit card transactions. Unlike cash discount, surcharges do not apply to debit card transactions.
+
+Key rules:
+- Surcharges are allowed on credit cards only. Never on debit or prepaid cards.
+- Maximum surcharge: 3% of the transaction amount (as of current card brand rules).
+- Required disclosures: signage at the store entrance and point of sale; disclosure on receipts.
+- Processors must be notified 30 days before implementing a surcharge program.
+- State restrictions apply: Connecticut and Massachusetts currently prohibit credit card surcharging. Puerto Rico also has restrictions.
+
+Liberty Bancard handles all the compliance setup for surcharge programs, including disclosure materials, terminal programming, and processor notification.`,
+  },
+  {
+    title: "How long does approval take?",
+    body: `Most merchant accounts are approved within 1–2 business days of submitting a complete application.
+
+What speeds up approval:
+- Complete application with no missing fields
+- Voided check or bank letter for deposit account verification
+- Valid EIN (or SSN for sole proprietors)
+- Clean processing history (no excessive chargebacks)
+
+What can slow approval:
+- Missing documents
+- High-risk business categories (adult, firearms, pharmaceuticals, high-value collectibles)
+- Chargeback history above 1% in the past 12 months
+- New business with no processing history (may require additional review)
+
+For most standard retail, restaurant, and service businesses, the process is: application submitted → underwriting review (same day or next business day) → approval email with MID → terminal ships within 1–2 business days → first transactions within the week.`,
+  },
+  {
+    title: "What is PCI compliance and do I need to worry about it?",
+    body: `PCI DSS (Payment Card Industry Data Security Standard) is a set of security requirements for any business that accepts card payments. It applies to every merchant — regardless of size.
+
+What PCI compliance means in practice:
+- Your terminals and payment software must be on the approved PCI-compliant hardware/software list.
+- You must complete an annual Self-Assessment Questionnaire (SAQ) — usually SAQ B or SAQ B-IP for small merchants using terminals.
+- You must not store full card numbers, CVV codes, or PINs.
+- Your network must meet basic security requirements.
+
+Liberty Bancard provides:
+- PCI-compliant terminals (EMV, NFC/contactless)
+- Guided SAQ completion support
+- P2PE (point-to-point encryption) terminals that significantly reduce your PCI scope
+
+Most small merchants with compliant terminals qualify for the simplest SAQ type. The annual process takes about 20–30 minutes.
+
+Note: non-compliance fees charged by some processors ($15–$30/month) go away when you complete your SAQ. Liberty Bancard does not charge non-compliance fees while you are in the guided completion process.`,
+  },
+  {
+    title: "Are there any contracts or early termination fees?",
+    body: `Liberty Bancard offers flexible contract terms. We do not require long-term contracts for most standard merchant accounts.
+
+Month-to-month accounts: available for most businesses. No early termination fee. You can close your account at any time with 30 days notice.
+
+Equipment: if you received a free terminal as part of your account setup, the terminal is yours to keep after 12 months of active processing. Early cancellation within 12 months may require return of leased equipment or a nominal equipment fee — this will be disclosed in your merchant agreement before you sign.
+
+If you are currently in a contract with another processor: we can often help cover early termination fees (ETF) up to $500 depending on your volume and savings potential. Your account manager will review your contract and advise before you make any switch.
+
+The specifics of your agreement will always be disclosed in writing before you are asked to sign anything.`,
+  },
+  {
+    title: "What equipment options are available?",
+    body: `Liberty Bancard offers a range of payment terminals and POS hardware. Equipment is provided free with qualifying accounts — there is no upfront cost for standard terminal placement.
+
+Terminal options:
+- Countertop terminal (EMV + NFC/tap-to-pay): standard for most retail and service businesses
+- Wireless/mobile terminal: for food trucks, farmers markets, trade shows, field service
+- Clover POS systems: full POS with inventory, employee management, and reporting
+- Toast (restaurant): GHL does not have a native integration, but we work with Toast-integrated accounts
+- Virtual terminal: for phone orders and keyed-entry payments — no hardware required
+- Payment links: for invoice-based businesses — customers pay via email or text link
+
+Most terminals support:
+- EMV chip cards
+- Tap-to-pay (Visa, Mastercard, Amex, Google Pay, Apple Pay)
+- Tip on screen
+- Cash discount / dual pricing programs
+
+Specific availability depends on your business type and processing volume. Your account manager will recommend the right equipment configuration before setup.`,
+  },
+  {
+    title: "How does the Merchant Portal work?",
+    body: `Every Liberty Bancard merchant gets access to the self-service Merchant Portal after approval.
+
+What you can do in the portal:
+- View real-time transaction data and settlement reports
+- Download monthly statements (PDF)
+- Manage dispute and chargeback responses
+- Update banking information for deposits
+- View and download 1099-K forms
+- Manage users (add staff with limited access)
+- Submit support tickets
+
+Portal access is provided by email after your account is approved. The email will include a link to set your password. Your Merchant ID (MID) is required to log in.
+
+First login: check the email from Liberty Bancard titled "Your account is approved — portal access." It arrives within minutes of approval.
+
+Support: if you cannot log in, call (888) 555-0100 or email support@libertybancard.com.`,
+  },
+  {
+    title: "What happens after I sign up?",
+    body: `Here is the step-by-step from application to first transaction:
+
+1. Application submitted (5–10 minutes)
+   - You'll receive an immediate confirmation email.
+
+2. Underwriting review (same day or next business day)
+   - We verify your business, banking information, and processing history.
+   - Approval email arrives with your Merchant ID (MID).
+
+3. Equipment setup (1–2 business days after approval)
+   - If using a physical terminal: it ships within 1–2 business days. Setup guide included.
+   - If using a payment gateway: credentials are emailed. We schedule an integration call.
+
+4. First transaction (typically within the first week)
+   - Your terminal or gateway is active. Run a test transaction.
+   - Funds settle to your bank account next business day.
+
+5. First statement (30 days after activation)
+   - A detailed PDF statement arrives by email showing volume, fee breakdown, and effective rate.
+   - Your account manager reviews it with you to confirm everything is as expected.
+
+Questions at any point: call (888) 555-0100 or reply to any email you receive from us.`,
+  },
+  {
+    title: "What processing volume do I need to qualify?",
+    body: `There is no minimum monthly volume required to apply for a Liberty Bancard merchant account.
+
+However, volume does affect the value of switching:
+
+Low volume ($0–$5,000/month): the savings from switching may be modest. We'll run the analysis honestly — if the numbers don't make sense for you, we'll tell you.
+
+Mid volume ($5,000–$30,000/month): typically where interchange-plus starts showing clear savings over flat-rate processors. Most merchants in this range save $50–$300/month.
+
+Higher volume ($30,000+/month): the savings compound. A 0.4% rate reduction on $50,000/month is $200/month, $2,400/year. On $200,000/month, that's $800/month.
+
+Very high volume ($500,000+/month): custom pricing and dedicated relationship manager. Volume discounts on processor markup apply.
+
+New businesses with no history: approved on a standard plan with a lower monthly volume cap initially. The cap increases automatically after 3–6 months of good standing.`,
+  },
+  {
+    title: "How do next-day deposits work?",
+    body: `Liberty Bancard offers next-business-day funding for most approved merchant accounts.
+
+How it works:
+- Transactions batched and settled by 10 PM ET are deposited to your bank account the next business day.
+- Weekday transactions settle on the next business day. Weekend batches may settle Monday or Tuesday depending on your bank.
+- ACH deposits (standard): funds arrive by 5 PM on the next business day.
+- Same-day funding: available for some business types at an additional fee — ask your account manager.
+
+What can delay funding:
+- Risk holds: new accounts may have a 3–5 business day hold on the first few batches while the risk model calibrates.
+- Rolling reserve: some higher-risk business types have a percentage of volume held in reserve (disclosed at approval).
+- Large transactions: transactions above your approved high-ticket threshold may require manual review.
+
+Most standard businesses (retail, restaurant, service) on good standing receive next-business-day deposits without interruption.`,
+  },
+  {
+    title: "What are chargebacks and how do I handle them?",
+    body: `A chargeback is when a cardholder disputes a transaction with their bank and the bank initiates a reversal. You have the opportunity to respond with evidence.
+
+Common chargeback reasons:
+- "I didn't authorize this transaction" (fraud)
+- "I cancelled and was still charged" (subscription/service merchants)
+- "Services/goods not as described"
+- "I returned the item but wasn't refunded"
+- "I don't recognize this charge" (friendly fraud — the most common)
+
+How to respond:
+1. You receive a chargeback notification by email with a response deadline (typically 7–21 days).
+2. Log into the Merchant Portal → Disputes tab.
+3. Upload evidence: receipts, signed agreements, delivery confirmation, communication logs.
+4. Submit before the deadline.
+
+Winning rate: merchants who respond with complete documentation win approximately 40–60% of representment cases.
+
+Prevention: clear business name on statements, clear cancellation policies, confirmation emails, signed agreements for services — these all reduce "I didn't recognize it" disputes.
+
+Liberty Bancard's chargeback ratio threshold: 1% of transactions. Accounts above 1% may receive a warning. Above 1.5% triggers a mandatory review.`,
+  },
+  {
+    title: "Does Liberty Bancard integrate with my POS or software?",
+    body: `Liberty Bancard integrates with most major POS systems, restaurant platforms, and business software.
+
+Confirmed integrations:
+- Clover (native — we are a Clover reseller)
+- Square (migration path — we can port your data)
+- Toast (via payment gateway integration)
+- Heartland, TSYS, First Data accounts (migration support)
+- QuickBooks (via virtual terminal or gateway)
+- WooCommerce, Shopify (payment gateway)
+- Most NMI-compatible platforms
+
+For specialty software (dental, veterinary, property management, etc.):
+- We verify compatibility before you commit to anything.
+- If your software supports a third-party payment gateway, we can almost always integrate.
+
+How to check your specific system: tell your account manager what software you use. They will confirm compatibility within 1 business day.
+
+Note: switching processors rarely requires changing your POS software. In most cases, we reprogram your existing terminal or add a new gateway credential without touching your other systems.`,
+  },
+];
+
+const HANDOFF_TRIGGERS = [
+  { category: "Explicit Human Request", phrases: [
+    "speak to a person",
+    "talk to someone",
+    "real person",
+    "actual person",
+    "live person",
+    "human agent",
+    "real agent",
+    "talk to a human",
+    "get me a rep",
+    "connect me to someone",
+    "transfer me",
+    "I want to talk to Scott",
+    "stop the bot",
+    "not a bot",
+    "is this a real person",
+    "am I talking to a person",
+  ]},
+  { category: "Angry / Frustrated Intent", phrases: [
+    "this is ridiculous",
+    "this is a waste of my time",
+    "you're useless",
+    "scam",
+    "rip-off",
+    "I'll sue",
+    "attorney general",
+    "Better Business Bureau",
+    "worst company",
+    "cancel everything",
+    "done with you",
+    "I'm going to report you",
+  ]},
+  { category: "Complex Pricing / Negotiation", phrases: [
+    "what are your exact rates",
+    "give me your rate sheet",
+    "I want to negotiate",
+    "beat my current rate",
+    "match what I'm paying",
+    "basis points",
+    "interchange plus plus",
+    "flat rate comparison",
+    "batch fee",
+    "PCI non-compliance fee",
+    "early termination fee",
+    "what's in the contract",
+  ]},
+  { category: "Ready to Apply / Sign", phrases: [
+    "I want to sign up",
+    "let's do it",
+    "send me the application",
+    "where do I apply",
+    "I'm ready",
+    "how do I get started",
+    "I want to switch",
+    "sign me up",
+  ]},
+  { category: "Low Confidence / Confusion", phrases: [
+    "I don't understand",
+    "that doesn't make sense",
+    "you're not answering my question",
+    "you already said that",
+    "I'm going in circles",
+    "this is confusing",
+    "what do you mean",
+    "can you explain that again",
+  ]},
+];
+
+const VERTICAL_OVERRIDES = [
+  {
+    name: "Restaurant",
+    icon: "🍽️",
+    color: "border-orange-500",
+    opening: "Hi [name], this is Alex with Liberty Bancard — we work with a lot of restaurants in [city] and I wanted to reach out about your processing costs. Tip adjustments and POS integration are usually the big ones for restaurants. Do you have a quick minute?",
+    tone: "Casual and direct. Restaurants are busy — respect their time. Lead with POS system compatibility and tip workflow.",
+    painPoints: [
+      "Tip adjustment fees and card brand compliance — many restaurants use a non-compliant tip workflow and don't know it.",
+      "POS integration: Toast, Square, Clover. Many restaurant owners don't know they can keep their POS and switch processors.",
+      "High debit card volume from lunch customers — surcharge or cash discount programs significantly reduce cost.",
+      "Online ordering transaction fees compound quickly — 2.6% on $50 delivery orders adds up fast.",
+    ],
+    offerPaths: "Cash Discount or Dual Pricing first. Interchange-plus as fallback.",
+  },
+  {
+    name: "Med Spa",
+    icon: "💆",
+    color: "border-pink-500",
+    opening: "Hi [name], Alex with Liberty Bancard — we work with a number of med spas and aesthetics practices, and the processing costs in your space tend to be higher than they should be because of the luxury card types your clients use. Is now a good time for 60 seconds?",
+    tone: "Professional and numbers-focused. Med spa owners are sophisticated — lead with the financial case, not features.",
+    painPoints: [
+      "Luxury card types (Amex Platinum, Visa Infinite, World Elite) dominate med spa clientele and carry premium interchange — tiered processors bury this.",
+      "High average tickets ($200–$800) mean even 0.2% overpayment is $400–$1,600/month at typical volumes.",
+      "Chargebacks from disputed cosmetic results — documentation and consent form workflows matter.",
+      "Tip adjustments on service bills must be card-brand compliant — non-compliant workflow is a chargeback risk.",
+    ],
+    offerPaths: "Dual Pricing or Interchange-Plus. Mention Amex OptBlue for practices processing significant Amex volume.",
+  },
+  {
+    name: "Dental",
+    icon: "🦷",
+    color: "border-blue-500",
+    opening: "Hi [name], Alex from Liberty Bancard — we work with dental practices and there's a specific issue we see a lot in your space: practices paying retail interchange rates when they should be qualifying for standard rates. Takes us about 24 hours to check. Is that worth a look?",
+    tone: "Clinical and precise. Dentists respond to specific, data-driven arguments. Mention practice management software compatibility early.",
+    painPoints: [
+      "Dental-specific processors charge a premium for the vertical branding — underlying interchange is identical to any other processor.",
+      "High average tickets ($500–$5,000 procedures) amplify the cost of high effective rates.",
+      "Many dental offices unknowingly key-enter transactions (card-not-present) and pay higher interchange as a result.",
+      "In-house payment plans and stored credentials require proper authorization documentation to prevent chargebacks.",
+    ],
+    offerPaths: "Interchange-Plus primary. Mention P2PE terminals to reduce PCI scope.",
+  },
+  {
+    name: "Auto Repair",
+    icon: "🔧",
+    color: "border-slate-500",
+    opening: "Hi [name], Alex with Liberty Bancard — we work with auto shops and the cash discount program tends to be a big hit in your space. A lot of your customers pay cash anyway, and the ones who pay card — you'd basically process for free. Got 60 seconds?",
+    tone: "Practical and cash-focused. Auto repair owners are pragmatic — lead with the cash discount framing. Mention coverage of early termination fees if they're locked in.",
+    painPoints: [
+      "Variable ticket sizes ($80 oil change to $3,000 transmission) make flat-rate pricing expensive on large jobs.",
+      "Customers dispute charges when repairs exceed the estimate — 'unauthorized amount' chargebacks are common. Clear written estimates help.",
+      "Debit-heavy customer base makes cash discount programs ideal — customers are used to cash and respond well to the discount.",
+      "Fleet cards (WEX, Voyager) require separate acceptance — do not promise fleet card acceptance without verifying underwriting.",
+    ],
+    offerPaths: "Cash Discount first. Interchange-Plus fallback. Flag fleet card acceptance for separate underwriting review.",
+  },
+  {
+    name: "Salon",
+    icon: "✂️",
+    color: "border-purple-500",
+    opening: "Hi [name], Alex from Liberty Bancard — most salons on Square are paying 2.6% plus 10 cents per transaction. Depending on your volume, interchange-plus typically runs about a third less. We'd show you the comparison before you commit to anything. Worth 2 minutes?",
+    tone: "Lead with the Square comparison — it's concrete and relatable. Tip-on-screen feature parity is important to mention early.",
+    painPoints: [
+      "Square is dominant in this space at 2.6%+ — many salon owners don't realize the markup gap.",
+      "Tip on screen: our terminals support the same tip-on-screen experience as Square — zero disruption to checkout flow.",
+      "Booth rental complexity: booth renters are separate legal entities. Do not co-mingle MIDs.",
+      "Stored credentials for no-show fee enforcement requires written cardholder consent — this is a common compliance gap.",
+    ],
+    offerPaths: "Cash Discount or Interchange-Plus. Mention stored credential support for no-show fee programs.",
+  },
+  {
+    name: "Gym",
+    icon: "🏋️",
+    color: "border-green-500",
+    opening: "Hi [name], Alex with Liberty Bancard — we work with gyms and one thing that usually surprises owners is how much they can save by moving monthly dues to ACH instead of cards. We're talking $0.25 per transaction versus 2.5%. Is that worth exploring?",
+    tone: "Lead with the ACH angle for recurring dues — it's the highest-impact switch for gyms. Address the chargeback concern head-on.",
+    painPoints: [
+      "Recurring membership billing on cards costs 2–2.5%/transaction. ACH costs $0.25–$0.50 flat — massive savings at scale.",
+      "Chargeback risk from 'I cancelled and was still charged' — this is a documentation issue, not a processor issue. We advise on cancellation workflows.",
+      "Some gym software (Mindbody, ABC Fitness) resells processing at a markup — merchants can often keep the software and switch processors.",
+      "January volume spikes are normal in this vertical — our underwriting team accounts for seasonal patterns explicitly.",
+    ],
+    offerPaths: "ACH for recurring dues + Interchange-Plus for retail/day passes. Note that gyms are a moderate-risk vertical — rolling reserve may apply.",
+  },
+];
+
+const TEST_SCRIPT = [
+  { turn: 1, speaker: "Tester", msg: "Hello?" },
+  { turn: 2, speaker: "Alex (expected)", msg: "Hi — this is Alex with Liberty Bancard. Is this [name]? [wait for response] Great — I'm calling about the request you submitted on our website. Do you have a quick minute?" },
+  { turn: 3, speaker: "Tester", msg: "Yes, but I'm not sure what this is about. I just filled out a form." },
+  { turn: 4, speaker: "Alex (expected)", msg: "Totally — you submitted a request about your merchant processing costs. We do a free review of your statement that shows exactly what you're paying your processor versus what you should be paying. The analysis takes about 24 hours and there's no cost or commitment. Does that sound like something you'd want to see?" },
+  { turn: 5, speaker: "Tester", msg: "I'm pretty happy with my current rates. I use Square." },
+  { turn: 6, speaker: "Alex (expected)", msg: "Square works well — they're at 2.6% plus 10 cents on card-present. Most merchants in your range are at meaningfully lower rates on interchange-plus. I can't give you a specific number without the statement, but if you send it over we'll show you side-by-side. It's genuinely free — no sales pitch until you've seen the numbers." },
+  { turn: 7, speaker: "Tester", msg: "Are you a real person or is this a robot?" },
+  { turn: 8, speaker: "Alex (expected)", msg: "I'm Alex, Liberty Bancard's AI assistant. I can answer most questions right now — or I can connect you with Scott directly if you prefer a person. Which would you like?" },
+  { turn: 9, speaker: "Tester", msg: "Okay, how much can I save?" },
+  { turn: 10, speaker: "Alex (expected)", msg: "I can't give you a number without your statement — every business is different. What I can tell you is our average analysis shows merchants are overpaying by 0.3 to 0.8 percent on their volume. On $50,000 a month, that's $150 to $400. The only way to know your number is to send the statement. Takes 24 hours and it's free. Want me to send the upload link right now?" },
+  { turn: 11, speaker: "Tester — HANDOFF TEST", msg: "I want to speak to a real person right now." },
+  { turn: 12, speaker: "Alex (expected)", msg: "Of course — let me connect you with Scott directly. One moment." },
+];
+
+const GOLIVE_CHECKLIST_ITEMS = [
+  "Identity test passed — AI introduces itself as 'Alex, Liberty Bancard's AI assistant' (NOT 'ChatGPT', NOT 'an AI language model', NOT 'OpenAI')",
+  "Voice AI tested — call the GHL number, go through all 6 call modes (intro_qualification, cold_outbound, follow_up_callback, statement_chase, proposal_followup, onboarding_assist)",
+  "SMS AI tested — send 'I want to lower my processing fees' and verify AI responds with an offer to review statement, not a generic reply",
+  "Handoff test passed — say 'I want to speak to a real person' and verify transfer fires correctly in both Voice and SMS channels",
+  "Calendar booking test passed — say 'I want to book a call' during a Voice AI session and verify calendar link or GHL calendar widget fires",
+  "Knowledge Base attached — GHL → AI Employee → SMS channel → Knowledge Base → confirm all 15 FAQ articles are attached and active",
+  "Recording enabled — GHL → Settings → AI Employee → Voice channel → Recording toggle is ON",
+  "All 6 vertical bot contexts pasted — GHL → AI Employee → for each vertical sub-persona, confirm the opening line and tone notes are in the persona configuration",
+  "Human handoff triggers configured — GHL → AI Employee → Handoff Triggers → all 5 categories of phrases entered (explicit request, angry, complex pricing, ready to apply, low confidence)",
+  "Compliance footer verified — first SMS in any conversation includes 'Reply STOP to opt out'",
+  "Business hours enforced — Voice AI set to Mon–Fri 9 AM–5 PM contact local timezone; no AI calls outside these hours",
+  "Go live — flip AI Employee status to Active in GHL Settings → AI Employee for both Voice and SMS channels",
+];
+
+function VerticalCard({ v, index }: { v: typeof VERTICAL_OVERRIDES[0]; index: number }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Card className={`border-l-4 ${v.color}`}>
+      <button
+        className="w-full flex items-start justify-between gap-3 p-4 hover:bg-muted/30 transition-colors text-left"
+        onClick={() => setOpen(!open)}
+        data-testid={`btn-vertical-${index}`}
+        aria-label={`Toggle ${v.name} vertical details`}
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-lg">{v.icon}</span>
+          <div>
+            <p className="text-sm font-semibold">{v.name}</p>
+            <p className="text-xs text-muted-foreground">Opening line · Tone · Pain points · Offer path</p>
+          </div>
+        </div>
+        {open ? <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0 mt-1" /> : <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0 mt-1" />}
+      </button>
+      {open && (
+        <CardContent className="pt-0 pb-4 space-y-3 border-t">
+          <div className="pt-3">
+            <CopyBlock label="Opening Line — paste as vertical persona intro" text={v.opening} />
+          </div>
+          <div className="p-3 rounded-md bg-muted/40 border">
+            <p className="text-xs font-semibold mb-1">Tone Guidance</p>
+            <p className="text-xs text-muted-foreground">{v.tone}</p>
+          </div>
+          <div>
+            <p className="text-xs font-semibold mb-2 uppercase tracking-wide text-muted-foreground">Vertical Pain Points (for Knowledge Base / AI context)</p>
+            <ul className="space-y-1.5">
+              {v.painPoints.map((pt, pi) => (
+                <li key={pi} className="flex items-start gap-2 text-xs text-muted-foreground">
+                  <ArrowRight className="h-3 w-3 shrink-0 mt-0.5 text-muted-foreground/60" /> {pt}
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="flex gap-2 p-3 rounded-md bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800">
+            <Zap className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 mb-0.5">Recommended Offer Path</p>
+              <p className="text-xs text-emerald-700 dark:text-emerald-400">{v.offerPaths}</p>
+            </div>
+          </div>
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
+function KbArticle({ article, index }: { article: typeof KB_ARTICLES[0]; index: number }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Card>
+      <button
+        className="w-full flex items-start justify-between gap-3 p-3 hover:bg-muted/30 transition-colors text-left"
+        onClick={() => setOpen(!open)}
+        data-testid={`btn-kb-${index}`}
+        aria-label={`Toggle KB article: ${article.title}`}
+      >
+        <div className="flex items-start gap-2.5">
+          <span className="flex items-center justify-center h-5 w-5 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 text-xs font-bold shrink-0 mt-0.5">{index + 1}</span>
+          <p className="text-xs font-medium leading-relaxed">{article.title}</p>
+        </div>
+        {open ? <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" /> : <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />}
+      </button>
+      {open && (
+        <CardContent className="pt-0 pb-3 border-t">
+          <div className="pt-3">
+            <CopyBlock label={`KB Article ${index + 1} — paste as GHL Knowledge Base article body`} text={`${article.title}\n\n${article.body}`} />
+          </div>
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
+function AiEmployeeTab() {
+  const [goLiveChecked, setGoLiveChecked] = useState<Record<number, boolean>>({});
+  const doneLive = Object.values(goLiveChecked).filter(Boolean).length;
+
+  return (
+    <div className="space-y-6">
+      {/* Overview callout */}
+      <div className="flex gap-3 p-4 rounded-lg border border-violet-200 dark:border-violet-800 bg-violet-50 dark:bg-violet-900/20">
+        <Bot className="h-5 w-5 text-violet-600 dark:text-violet-400 shrink-0 mt-0.5" />
+        <div className="text-sm">
+          <p className="font-semibold text-violet-700 dark:text-violet-300 mb-1">What this tab is for</p>
+          <p className="text-violet-700 dark:text-violet-400">
+            Everything you need to build, configure, and test GHL's Voice AI and SMS AI Employees in a single session.
+            Copy each prompt, paste it into GHL, configure the settings listed, run the test script, check off the go-live list.
+          </p>
+        </div>
+      </div>
+
+      {/* ── VOICE AI ─────────────────────────────────────────────── */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Phone className="h-5 w-5 text-violet-500" /> Voice AI Employee — "Alex"
+          </CardTitle>
+          <CardDescription>
+            GHL → Settings → AI Employee → + New → Phone channel. Name: <strong>Liberty Bancard AI — Voice</strong>.
+            Paste the system prompt below into the "System Prompt" or "Instructions" field.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <CopyBlock label="Voice AI System Prompt — paste into GHL AI Employee (Phone channel)" text={VOICE_AI_SYSTEM_PROMPT} />
+
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">GHL Setup Steps — Voice AI Employee</p>
+            {[
+              { step: "1", text: "GHL → Settings → AI Employee → + Create New → select Phone channel" },
+              { step: "2", text: "Name: 'Liberty Bancard AI — Voice'. Display name: 'Alex'" },
+              { step: "3", text: "Paste the system prompt above into the Instructions / System Prompt field" },
+              { step: "4", text: "Business Hours: Mon–Fri 9 AM – 5 PM. Timezone: Contact's local timezone (GHL auto-detects this)" },
+              { step: "5", text: "Connect GHL Calendar: Settings → Calendar → select your booking calendar. This enables Alex to book appointments live on the call." },
+              { step: "6", text: "Handoff Triggers: enter all phrases from the Handoff Triggers section below (all 5 categories)" },
+              { step: "7", text: "Recording: toggle ON. Required for compliance review and sales coaching." },
+              { step: "8", text: "Call Modes (Personas): if GHL supports multiple personas, create one per call mode listed in the prompt (intro_qualification, cold_outbound, follow_up_callback, statement_chase, proposal_followup, onboarding_assist). Otherwise, the single prompt handles all modes via the CALL MODES section." },
+              { step: "9", text: "Test: call your GHL number → verify Alex introduces itself as 'Alex, Liberty Bancard's AI assistant' — NOT 'ChatGPT' or 'an AI language model'" },
+            ].map(({ step, text }) => (
+              <div key={step} className="flex items-start gap-2.5 text-xs">
+                <span className="flex items-center justify-center h-5 w-5 rounded-full bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300 font-bold shrink-0 mt-0.5 text-[10px]">{step}</span>
+                <span className="text-muted-foreground">{text}</span>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ── SMS AI ─────────────────────────────────────────────── */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <MessageSquare className="h-5 w-5 text-green-500" /> SMS AI Employee — "Alex"
+          </CardTitle>
+          <CardDescription>
+            GHL → Settings → AI Employee → + New → SMS/Text channel. Name: <strong>Liberty Bancard AI — SMS</strong>.
+            Paste the prompt below. Keep all AI SMS replies under 160 characters — configure max response length in GHL.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex gap-3 p-3 rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20">
+            <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <div className="text-xs text-amber-700 dark:text-amber-400">
+              <strong>SMS character limit:</strong> One SMS segment = 160 characters. Two segments = 320 characters. Configure GHL's SMS AI to keep responses under 160 characters wherever possible. Long AI replies feel spammy and reduce reply rates. The prompt instructs Alex accordingly, but verify in testing.
+            </div>
+          </div>
+          <CopyBlock label="SMS AI System Prompt — paste into GHL AI Employee (SMS/Text channel)" text={SMS_AI_SYSTEM_PROMPT} />
+
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">GHL Setup Steps — SMS AI Employee</p>
+            {[
+              { step: "1", text: "GHL → Settings → AI Employee → + Create New → select SMS/Text channel" },
+              { step: "2", text: "Name: 'Liberty Bancard AI — SMS'. Display name: 'Alex'" },
+              { step: "3", text: "Paste the SMS system prompt above into the Instructions field" },
+              { step: "4", text: "Max Response Length: set to 'Short' or configure 160 character limit if the option is available" },
+              { step: "5", text: "Handoff Triggers: same phrases as Voice AI (Handoff Triggers section below)" },
+              { step: "6", text: "Knowledge Base: click 'Attach Knowledge Base' → select your Liberty Bancard KB → attach all 15 FAQ articles from the Knowledge Base section below" },
+              { step: "7", text: "Calendar: connect your GHL calendar so Alex can send booking links inline during SMS conversations" },
+              { step: "8", text: "Activate on Workflow 1, Step 9 only (Day 3 AI Conversation). Do not activate earlier in the sequence — let the human rep handle the first 2 days." },
+              { step: "9", text: "Test: send a test SMS 'How much can I save on credit card fees?' → verify Alex responds with the correct savings framing and does NOT quote a specific rate" },
+            ].map(({ step, text }) => (
+              <div key={step} className="flex items-start gap-2.5 text-xs">
+                <span className="flex items-center justify-center h-5 w-5 rounded-full bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 font-bold shrink-0 mt-0.5 text-[10px]">{step}</span>
+                <span className="text-muted-foreground">{text}</span>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ── KNOWLEDGE BASE ─────────────────────────────────────── */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <ClipboardList className="h-5 w-5 text-blue-500" /> Knowledge Base Articles (15)
+          </CardTitle>
+          <CardDescription>
+            GHL → Documents (or Knowledge Base) → + New Document. Create one article per item below.
+            Attach the completed Knowledge Base to your SMS AI Employee.
+            Each article should be pasted as a separate document with the title as the document name.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2">
+            {KB_ARTICLES.map((article, i) => (
+              <KbArticle key={i} article={article} index={i} />
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ── HANDOFF TRIGGERS ─────────────────────────────────── */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Users className="h-5 w-5 text-red-500" /> Handoff Trigger Phrases
+          </CardTitle>
+          <CardDescription>
+            GHL → Settings → AI Employee → (select your AI employee) → Handoff Triggers.
+            Enter each phrase below exactly as written. GHL matches on partial phrases — enter the key words, not the full sentence.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {HANDOFF_TRIGGERS.map((cat, ci) => (
+              <div key={ci}>
+                <div className="flex items-center gap-2 mb-2">
+                  <Badge variant="outline" className="text-xs">{cat.category}</Badge>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <tbody>
+                      {cat.phrases.map((phrase, pi) => (
+                        <tr key={pi} className="border-b last:border-0 hover:bg-muted/20">
+                          <td className="py-1.5 pr-3 font-mono text-muted-foreground">{phrase}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="mt-2">
+                  <CopyBlock
+                    label={`${cat.category} — copy all phrases`}
+                    text={cat.phrases.join("\n")}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ── VERTICAL BOT CONTEXTS ─────────────────────────────── */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Tag className="h-5 w-5 text-fuchsia-500" /> Vertical Bot Contexts
+          </CardTitle>
+          <CardDescription>
+            One collapsible section per vertical. Each contains the opening line to paste into GHL as a vertical-specific
+            persona or sub-workflow intro, the tone guidance, vertical-specific pain points for the Knowledge Base, and the recommended offer path.
+            In GHL, create a separate AI persona or workflow branch per vertical, or add a routing If/Else before the AI action.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            {VERTICAL_OVERRIDES.map((v, i) => (
+              <VerticalCard key={i} v={v} index={i} />
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ── TEST SCRIPT ─────────────────────────────────────────── */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <ListChecks className="h-5 w-5 text-teal-500" /> 10-Message Test Script
+          </CardTitle>
+          <CardDescription>
+            Run this conversation against the Voice AI (or SMS AI) before going live. Each line is what the tester says and what Alex should respond.
+            The test covers: intro, objection handling, identity disclosure, no-guarantee policy, and human handoff.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2">
+            {TEST_SCRIPT.map((turn) => {
+              const isAlex = turn.speaker.startsWith("Alex");
+              const isHandoff = turn.speaker.includes("HANDOFF");
+              return (
+                <div
+                  key={turn.turn}
+                  className={`rounded-md p-3 text-xs border ${
+                    isHandoff
+                      ? "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800"
+                      : isAlex
+                      ? "bg-violet-50 dark:bg-violet-900/20 border-violet-200 dark:border-violet-800"
+                      : "bg-muted/40 border-muted"
+                  }`}
+                >
+                  <p className={`font-semibold mb-0.5 ${isHandoff ? "text-red-600 dark:text-red-400" : isAlex ? "text-violet-700 dark:text-violet-300" : "text-muted-foreground"}`}>
+                    Turn {turn.turn} — {turn.speaker}
+                  </p>
+                  <p className={isAlex ? "text-violet-700 dark:text-violet-400" : "text-foreground"}>
+                    {turn.msg}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-4 flex gap-3 p-3 rounded-md border border-teal-200 dark:border-teal-800 bg-teal-50 dark:bg-teal-900/20">
+            <Info className="h-4 w-4 text-teal-600 dark:text-teal-400 shrink-0 mt-0.5" />
+            <p className="text-xs text-teal-700 dark:text-teal-400">
+              <strong>What to verify:</strong> Turn 2 uses the Liberty Bancard name (not ChatGPT). Turn 8 identifies as AI correctly. Turn 10 does not quote a specific savings number. Turn 12 fires the handoff and does not continue the conversation.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ── GO-LIVE CHECKLIST ─────────────────────────────────── */}
+      <Card className="border-2 border-emerald-300 dark:border-emerald-700">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center justify-between gap-2">
+            <span className="flex items-center gap-2">
+              <CheckCircle2 className="h-5 w-5 text-emerald-500" /> Go-Live Checklist
+            </span>
+            <Badge variant="secondary">{doneLive}/{GOLIVE_CHECKLIST_ITEMS.length} done</Badge>
+          </CardTitle>
+          <CardDescription>
+            Do not flip the AI Employee to Active until every item below is checked. These are the minimum verifications required before going live.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ul className="space-y-2.5">
+            {GOLIVE_CHECKLIST_ITEMS.map((item, i) => (
+              <li
+                key={i}
+                className="flex items-start gap-2.5 cursor-pointer"
+                onClick={() => setGoLiveChecked(prev => ({ ...prev, [i]: !prev[i] }))}
+                data-testid={`check-golive-${i}`}
+              >
+                <div className={`h-4 w-4 rounded border flex items-center justify-center shrink-0 mt-0.5 transition-colors ${goLiveChecked[i] ? "bg-emerald-500 border-emerald-500" : "border-muted-foreground/40"}`}>
+                  {goLiveChecked[i] && <CheckCircle2 className="h-3 w-3 text-white" />}
+                </div>
+                <span className={`text-xs leading-relaxed ${goLiveChecked[i] ? "line-through text-muted-foreground" : ""}`}>{item}</span>
+              </li>
+            ))}
+          </ul>
+          {doneLive === GOLIVE_CHECKLIST_ITEMS.length && (
+            <div className="mt-4 flex gap-3 p-3 rounded-md bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+              <p className="text-xs text-emerald-700 dark:text-emerald-400 font-medium">All checks passed — your AI Employee is ready to go live.</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function GhlSequenceGuide() {
@@ -1232,6 +2147,7 @@ export default function GhlSequenceGuide() {
           <TabsTrigger value="email-library" data-testid="tab-email-library">📧 Email Library</TabsTrigger>
           <TabsTrigger value="manual-sequences" data-testid="tab-manual-sequences">📋 Manual Sequences</TabsTrigger>
           <TabsTrigger value="multi-touch" data-testid="tab-multi-touch">🔁 Multi-Touch Map</TabsTrigger>
+          <TabsTrigger value="ai-employee" data-testid="tab-ai-employee">🤖 AI Employee</TabsTrigger>
           <TabsTrigger value="signatures" data-testid="tab-signatures">✍️ Signatures</TabsTrigger>
         </TabsList>
 
@@ -2579,6 +3495,11 @@ COMPLIANCE:
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+
+        {/* ── AI EMPLOYEE ─────────────────────────────────────────────────────── */}
+        <TabsContent value="ai-employee" className="mt-4">
+          <AiEmployeeTab />
         </TabsContent>
 
         {/* ── EMAIL SIGNATURES ─────────────────────────────────────────────── */}
