@@ -287,7 +287,7 @@ function MaEventsSection({ contactId }: { contactId: number }) {
       entityType: "contact",
       entityId: contactId,
       eventType: form.eventType,
-      counterpartyName: counterparty?.name ?? form.counterpartyName || null,
+      counterpartyName: counterparty?.name ?? (form.counterpartyName || null),
       counterpartyContactId: counterparty?.id ?? null,
       eventDate: form.eventDate,
       note: form.note || null,

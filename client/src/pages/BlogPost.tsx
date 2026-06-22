@@ -344,7 +344,7 @@ export default function BlogPost() {
               </Link>
               <Link href="/free-analysis" data-testid="link-blogpost-cta-analysis">
                 <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
-                  Get Free Analysis
+                  Get My Free Analysis
                   <ArrowRight className="w-4 h-4" />
                 </Button>
               </Link>

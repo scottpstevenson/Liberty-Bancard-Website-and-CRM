@@ -261,7 +261,7 @@ export default function Testimonials() {
               <Link href="/upload-statement" data-testid="link-testimonials-cta">
                 <Button size="lg" className="gap-2">
                   <Upload className="w-4 h-4" />
-                  Get Your Free Analysis
+                  Get My Free Analysis
                 </Button>
               </Link>
               <Link href="/testimonials/submit" data-testid="link-testimonials-submit">

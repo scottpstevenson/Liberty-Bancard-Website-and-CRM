@@ -60,6 +60,29 @@ export function registerAnalyticsRoutes(app: Express) {
     }
   });
 
+  // Upload attribution by utm_content — shows which agent-shared tool links drove statement uploads
+  app.get("/api/analytics/tool-upload-attribution", isAuthenticated, async (req, res) => {
+    try {
+      const rows = await db
+        .select({
+          utmContent: contacts.utmContent,
+          uploads: count(contacts.id),
+        })
+        .from(contacts)
+        .where(
+          and(
+            eq(contacts.utmSource, "agent"),
+            sql`${contacts.utmContent} IS NOT NULL`
+          )
+        )
+        .groupBy(contacts.utmContent)
+        .orderBy(desc(count(contacts.id)));
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // === KPI DASHBOARD ===
   app.get("/api/kpi/summary", isAuthenticated, async (req, res) => {
     try {

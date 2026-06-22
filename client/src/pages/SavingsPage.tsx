@@ -133,7 +133,7 @@ export default function SavingsPage() {
               className="text-sm text-blue-300 hover:text-white transition-colors flex items-center gap-1"
               data-testid="link-header-upload"
             >
-              Get Free Analysis <ExternalLink className="w-3 h-3" />
+              Get My Free Analysis <ExternalLink className="w-3 h-3" />
             </a>
           </div>
         </header>

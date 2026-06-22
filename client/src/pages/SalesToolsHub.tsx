@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { SEO } from "@/components/SEO";
@@ -22,6 +23,7 @@ import {
   ExternalLink,
   ArrowRight,
   Zap,
+  TrendingUp,
 } from "lucide-react";
 
 const BASE_URL = "https://libertybancard.com";
@@ -174,7 +176,29 @@ function trackToolClick(tool: SalesTool) {
   }).catch(() => {});
 }
 
+interface UploadAttribution {
+  utmContent: string | null;
+  uploads: number;
+}
+
+// Map utm_content slugs to human-readable tool names
+const TOOL_LABEL: Record<string, string> = {
+  "savings-calculator": "Savings Calculator",
+  "rate-comparison": "Rate Comparison Table",
+  "beat-square-stripe": "Beat Square & Stripe",
+  "cost-quiz": "Processing Cost Quiz",
+  "upload-statement": "Upload Statement",
+  "estimate": "Get a Free Estimate",
+  "equipment": "Equipment Catalog",
+  "sales-onepager": "Industry One-Pagers",
+};
+
 export default function SalesToolsHub() {
+  const { data: uploadAttribution } = useQuery<UploadAttribution[]>({
+    queryKey: ["/api/analytics/tool-upload-attribution"],
+    staleTime: 60_000,
+  });
+
   return (
     <div className="min-h-screen flex flex-col font-body">
       <SEO
@@ -275,6 +299,37 @@ export default function SalesToolsHub() {
             </div>
           </div>
         </section>
+
+        {uploadAttribution && uploadAttribution.length > 0 && (
+          <section className="py-10 bg-muted/20 border-t border-border">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+              <div className="flex items-center gap-2 mb-5">
+                <TrendingUp className="w-4 h-4 text-primary" />
+                <h2 className="text-base font-display font-semibold text-foreground" data-testid="text-attribution-heading">
+                  Statement Uploads from Your Shared Links
+                </h2>
+              </div>
+              <p className="text-sm text-muted-foreground mb-5">
+                Contacts who submitted a statement after clicking a link you shared via the Sales Tools Hub.
+              </p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3" data-testid="grid-upload-attribution">
+                {uploadAttribution.map((row) => {
+                  const label = row.utmContent ? (TOOL_LABEL[row.utmContent] ?? row.utmContent) : "Unknown";
+                  return (
+                    <div
+                      key={row.utmContent ?? "unknown"}
+                      className="bg-background border border-border rounded-lg p-3 text-center"
+                      data-testid={`card-attribution-${row.utmContent ?? "unknown"}`}
+                    >
+                      <p className="text-2xl font-bold text-foreground">{row.uploads}</p>
+                      <p className="text-[11px] text-muted-foreground mt-1 leading-snug">{label}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </section>
+        )}
 
         <section className="py-12 bg-muted/30 border-t border-border">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
