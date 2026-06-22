@@ -1232,6 +1232,7 @@ export default function GhlSequenceGuide() {
           <TabsTrigger value="email-library" data-testid="tab-email-library">📧 Email Library</TabsTrigger>
           <TabsTrigger value="manual-sequences" data-testid="tab-manual-sequences">📋 Manual Sequences</TabsTrigger>
           <TabsTrigger value="multi-touch" data-testid="tab-multi-touch">🔁 Multi-Touch Map</TabsTrigger>
+          <TabsTrigger value="signatures" data-testid="tab-signatures">✍️ Signatures</TabsTrigger>
         </TabsList>
 
         {WORKFLOWS.map(wf => (
@@ -2574,6 +2575,273 @@ COMPLIANCE:
                   <Button asChild size="sm" variant="outline" data-testid="btn-open-ghl-mt">
                     <a href="https://app.gohighlevel.com" target="_blank" rel="noopener noreferrer"><ExternalLink className="h-4 w-4 mr-1.5" /> Open GHL</a>
                   </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
+        {/* ── EMAIL SIGNATURES ─────────────────────────────────────────────── */}
+        <TabsContent value="signatures" className="mt-4">
+          <div className="space-y-4">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Mail className="h-5 w-5 text-blue-500" /> Email Signature Templates
+                </CardTitle>
+                <CardDescription>
+                  Copy-paste ready signatures for Gmail, Outlook, GHL email templates, and SMS. Use the right format for each channel — never paste HTML into a plain text field.
+                </CardDescription>
+              </CardHeader>
+            </Card>
+
+            {/* Plain Text */}
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <Badge className="bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">Plain Text</Badge>
+                    Primary Email Signature
+                  </CardTitle>
+                  <span className="text-xs text-muted-foreground">Gmail · Outlook · Apple Mail · GHL plain email</span>
+                </div>
+                <CardDescription className="text-xs">Use this as your default signature in Gmail and Outlook. Settings → General → Signature → paste below.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <CopyBlock label="Primary Signature — Plain Text" text={`Scott Allen
+Business Development | Liberty Bancard
+────────────────────────────────
+📞 Direct:  (888) 555-0100
+📧 Email:   scott@libertybancard.com
+🌐 Website: www.libertybancard.com
+📅 Book:    calendly.com/libertybancard
+
+Save money on credit card processing.
+Free statement analysis — results in 24 hours.
+────────────────────────────────
+Eligibility, underwriting, and card brand rules apply.
+This email and any attachments are confidential. If received in error, please delete and notify us.`} />
+                <div className="text-xs text-muted-foreground bg-muted/30 rounded p-2">
+                  <span className="font-medium">Gmail setup:</span> Settings (gear) → See all settings → General → Signature → + Create new → paste above → Save Changes
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Short / Mobile */}
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <Badge className="bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300">Short</Badge>
+                    Mobile / Reply Signature
+                  </CardTitle>
+                  <span className="text-xs text-muted-foreground">SMS follow-ups · Quick replies · Mobile app</span>
+                </div>
+                <CardDescription className="text-xs">Use for replies and SMS-like contexts where brevity is important.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <CopyBlock label="Short Signature — Reply / Mobile" text={`— Scott Allen | Liberty Bancard
+(888) 555-0100 | scott@libertybancard.com
+www.libertybancard.com`} />
+                <CopyBlock label="Ultra Short — SMS Sender ID" text={`Scott Allen, Liberty Bancard · (888) 555-0100`} />
+              </CardContent>
+            </Card>
+
+            {/* Formal / Letter */}
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <Badge className="bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">Formal</Badge>
+                    Proposal / Letter Closing
+                  </CardTitle>
+                  <span className="text-xs text-muted-foreground">Proposals · Partner letters · Merchant agreements</span>
+                </div>
+                <CardDescription className="text-xs">Use on proposals, formal follow-ups, and partner welcome letters.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <CopyBlock label="Formal Closing Block" text={`Respectfully,
+
+Scott Allen
+Business Development Representative
+Liberty Bancard | Payment Processing Solutions
+
+Direct Line:  (888) 555-0100
+Email:        scott@libertybancard.com
+Website:      www.libertybancard.com
+Schedule:     calendly.com/libertybancard
+
+Liberty Bancard | 123 Main Street | Fort Lauderdale, FL 33301
+
+Eligibility, underwriting, and card brand rules apply. This communication is intended for the
+named recipient only and may contain proprietary information. If received in error, please
+notify us immediately and delete this message.`} />
+              </CardContent>
+            </Card>
+
+            {/* HTML Signature */}
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">HTML</Badge>
+                    Rich HTML Email Signature
+                  </CardTitle>
+                  <span className="text-xs text-muted-foreground">Gmail HTML mode · Outlook HTML · GHL rich email templates</span>
+                </div>
+                <CardDescription className="text-xs">Paste into Gmail's signature editor while in <strong>HTML source mode</strong>, or into GHL email template HTML editor. Renders with Liberty Bancard branding and navy color scheme.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <CopyBlock label="HTML Signature — paste into Gmail source / GHL HTML editor" text={`<table cellpadding="0" cellspacing="0" border="0" style="font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#333333;line-height:1.5;">
+  <tr>
+    <td style="padding-right:16px;vertical-align:top;border-right:3px solid #1e3a5f;">
+      <div style="font-size:16px;font-weight:bold;color:#1e3a5f;white-space:nowrap;">Scott Allen</div>
+      <div style="font-size:12px;color:#555555;margin-top:2px;">Business Development</div>
+      <div style="font-size:12px;font-weight:bold;color:#1e3a5f;margin-top:1px;">LIBERTY BANCARD</div>
+    </td>
+    <td style="padding-left:16px;vertical-align:top;">
+      <table cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td style="padding-bottom:3px;">
+            <span style="color:#1e3a5f;font-weight:bold;">&#128222;</span>&nbsp;
+            <a href="tel:8885550100" style="color:#333333;text-decoration:none;">(888) 555-0100</a>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding-bottom:3px;">
+            <span style="color:#1e3a5f;font-weight:bold;">&#9993;</span>&nbsp;
+            <a href="mailto:scott@libertybancard.com" style="color:#1e3a5f;text-decoration:none;">scott@libertybancard.com</a>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding-bottom:3px;">
+            <span style="color:#1e3a5f;font-weight:bold;">&#127760;</span>&nbsp;
+            <a href="https://www.libertybancard.com" style="color:#1e3a5f;text-decoration:none;">www.libertybancard.com</a>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <span style="color:#1e3a5f;font-weight:bold;">&#128197;</span>&nbsp;
+            <a href="https://calendly.com/libertybancard" style="color:#1e3a5f;text-decoration:none;">Book a free analysis</a>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2" style="padding-top:10px;border-top:1px solid #e5e7eb;margin-top:10px;">
+      <span style="font-size:10px;color:#999999;">
+        Eligibility, underwriting, and card brand rules apply.
+        This email is confidential. If received in error, please delete and notify the sender.
+      </span>
+    </td>
+  </tr>
+</table>`} />
+                <div className="text-xs text-muted-foreground bg-muted/30 rounded p-2 space-y-1">
+                  <p className="font-medium">Gmail HTML signature setup:</p>
+                  <ol className="list-decimal list-inside space-y-0.5">
+                    <li>Settings → See all settings → General → Signature → + Create new</li>
+                    <li>Click the <strong>&lt;&gt; source</strong> icon in the signature editor toolbar</li>
+                    <li>Delete all existing content and paste the HTML above</li>
+                    <li>Click <strong>&lt;&gt;</strong> again to switch back — preview your signature</li>
+                    <li>Set as default for New emails and Replies → Save Changes</li>
+                  </ol>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* GHL Email Footer */}
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <Badge className="bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300">GHL</Badge>
+                    GHL Email Template Footer
+                  </CardTitle>
+                  <span className="text-xs text-muted-foreground">GHL Marketing → Email Templates → every template</span>
+                </div>
+                <CardDescription className="text-xs">Paste this footer at the bottom of every GHL email template you create. Includes unsubscribe variable and compliance language required for commercial email.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <CopyBlock label="GHL Email Footer — paste at bottom of every template" text={`---
+
+Scott Allen | Liberty Bancard
+📞 (888) 555-0100 | scott@libertybancard.com | www.libertybancard.com
+
+Eligibility, underwriting, and card brand rules apply. Not all businesses qualify.
+
+You're receiving this because you expressed interest in merchant payment services or submitted a request through our website. To stop receiving emails, click here: {{contact.unsubscribe_url}}`} />
+                <CopyBlock label="GHL Email Footer — HTML version (richer format)" text={`<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e5e7eb;font-family:Arial,sans-serif;font-size:11px;color:#888888;line-height:1.6;">
+  <strong style="color:#1e3a5f;font-size:12px;">Scott Allen</strong> &bull; Liberty Bancard<br/>
+  <a href="tel:8885550100" style="color:#888888;text-decoration:none;">(888) 555-0100</a>
+  &bull;
+  <a href="mailto:scott@libertybancard.com" style="color:#888888;text-decoration:none;">scott@libertybancard.com</a>
+  &bull;
+  <a href="https://www.libertybancard.com" style="color:#888888;text-decoration:none;">www.libertybancard.com</a>
+  <br/><br/>
+  Eligibility, underwriting, and card brand rules apply. Not all businesses qualify.
+  <br/>
+  You're receiving this because you expressed interest in merchant payment services.
+  <a href="{{contact.unsubscribe_url}}" style="color:#888888;">Unsubscribe</a>
+</div>`} />
+                <div className="text-xs text-muted-foreground bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded p-2">
+                  <span className="font-medium text-amber-700 dark:text-amber-300">GHL variable note:</span>
+                  <span className="text-amber-700 dark:text-amber-400"> <code>{"{{contact.unsubscribe_url}}"}</code> is auto-filled by GHL when the email is sent. It adds a legally compliant unsubscribe link to every email — required for CAN-SPAM compliance. Do not remove it.</span>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* SMS Sign-offs */}
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <Badge className="bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300">SMS</Badge>
+                    SMS Sender Sign-Offs
+                  </CardTitle>
+                  <span className="text-xs text-muted-foreground">Append to first SMS in any sequence or manual outreach</span>
+                </div>
+                <CardDescription className="text-xs">GHL auto-handles STOP/UNSUBSCRIBE. These are conversational sign-offs for outbound SMS. Always include the opt-out notice on the first message to a contact.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <CopyBlock label="First-touch SMS — must include opt-out notice" text={`— Scott Allen, Liberty Bancard (888) 555-0100. Reply STOP to opt out.`} />
+                <CopyBlock label="Follow-up SMS — shorter (opt-out already given)" text={`— Scott, Liberty Bancard · (888) 555-0100`} />
+                <CopyBlock label="Cold outbound first SMS — full identity + opt-out" text={`This is Scott Allen from Liberty Bancard. We help businesses like yours lower payment processing costs — often by $400–$800/month. Worth a quick look? Reply YES and I'll send details. Reply STOP to opt out.`} />
+              </CardContent>
+            </Card>
+
+            {/* Quick Reference Card */}
+            <Card className="border-dashed">
+              <CardContent className="pt-4">
+                <p className="text-sm font-semibold mb-3">Which signature to use where?</p>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b bg-muted/30">
+                        <th className="text-left p-2 font-medium">Channel / Use Case</th>
+                        <th className="text-left p-2 font-medium">Signature to Use</th>
+                        <th className="text-left p-2 font-medium">Notes</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[
+                        { channel: "Gmail / Outlook — new email", sig: "Plain Text or HTML", note: "Set HTML as default; Gmail will render it correctly" },
+                        { channel: "Gmail / Outlook — reply", sig: "Short / Reply", note: "Long signature on replies looks cluttered" },
+                        { channel: "GHL email template", sig: "GHL Footer (HTML)", note: "Add to every template — includes unsubscribe URL variable" },
+                        { channel: "GHL AI Employee emails", sig: "GHL Footer (plain)", note: "AI Employee may not render HTML — use plain text footer" },
+                        { channel: "SMS (first touch)", sig: "First-touch SMS sign-off", note: "CAN-SPAM/TCPA: opt-out notice required on first message" },
+                        { channel: "SMS (follow-up)", sig: "Short SMS sign-off", note: "Keep it brief — opt-out already given" },
+                        { channel: "Proposals / Letters", sig: "Formal Closing Block", note: "Use for proposals, merchant agreements, partner letters" },
+                        { channel: "Partner welcome emails", sig: "Formal or HTML", note: "High-touch — use the polished version" },
+                      ].map((row) => (
+                        <tr key={row.channel} className="border-b hover:bg-muted/20">
+                          <td className="p-2 font-medium">{row.channel}</td>
+                          <td className="p-2"><Badge variant="outline" className="text-xs">{row.sig}</Badge></td>
+                          <td className="p-2 text-muted-foreground">{row.note}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </CardContent>
             </Card>

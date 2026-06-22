@@ -714,6 +714,13 @@ export function registerPartnersRoutes(app: Express) {
       const input = insertReferralSchema.parse(req.body);
       const referral = await storage.createReferral(input);
       res.status(201).json(referral);
+
+      // ── Auto-enroll referred prospect in GHL partner-referral workflow ─────
+      if (referral.referredEmail) {
+        autoEnrollPartnerReferral(referral).catch(err =>
+          console.error("[Referrals] Partner referral auto-enroll error:", err.message)
+        );
+      }
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join(".") });
       res.status(400).json({ message: err.message });
@@ -872,4 +879,85 @@ export function registerPartnersRoutes(app: Express) {
       res.status(500).json({ message: err.message });
     }
   });
+}
+
+// ── Partner referral auto-enrollment helper ────────────────────────────────────
+// Fires fire-and-forget after POST /api/referrals when referredEmail is present.
+// Finds or creates the prospect contact, tags them LB-PARTNER-REFERRAL in GHL,
+// adds a note with the referring partner's name, and enrolls in SDR: Reply Engaged.
+async function autoEnrollPartnerReferral(referral: {
+  id: number;
+  partnerId?: number | null;
+  referredEmail?: string | null;
+  referredName?: string | null;
+  referredPhone?: string | null;
+  referredCompany?: string | null;
+}): Promise<void> {
+  if (!referral.referredEmail) return;
+
+  const email = referral.referredEmail.toLowerCase();
+  const nameParts = (referral.referredName || "Prospect").split(" ");
+  const firstName = nameParts[0] || "Prospect";
+  const lastName = nameParts.slice(1).join(" ") || "";
+
+  let contact = await storage.getContactByEmail(email);
+
+  if (!contact) {
+    const { createContactGhlFirst } = await import("../services/contact-writer");
+    const created = await createContactGhlFirst({
+      firstName,
+      lastName,
+      email,
+      phone: referral.referredPhone || undefined,
+      companyName: referral.referredCompany || undefined,
+      status: "Active",
+      tags: ["LB-PARTNER-REFERRAL", "src_partner_referral"],
+    });
+    if (!created) {
+      console.warn(`[Referrals] Could not create contact for ${email} — partner referral enrollment skipped`);
+      return;
+    }
+    contact = created;
+  }
+
+  if (contact.doNotContact) {
+    console.log(`[Referrals] Contact ${contact.id} is DNC — partner referral enrollment skipped`);
+    return;
+  }
+
+  const { isSdrGhlConfigured, addTag, addNote } = await import("../services/sdr/ghl-client");
+
+  if (contact.ghlContactId && isSdrGhlConfigured()) {
+    let referrerName = "a partner";
+    if (referral.partnerId) {
+      try {
+        const partner = await storage.getPartner(referral.partnerId);
+        if (partner) referrerName = partner.contactName || partner.companyName || partner.email || referrerName;
+      } catch (_) {}
+    }
+
+    await addTag({ contactId: contact.ghlContactId, tags: ["LB-PARTNER-REFERRAL", "LB-SDR", "src_partner_referral"] }).catch(() => {});
+    await addNote({
+      contactId: contact.ghlContactId,
+      body: `Partner referral received from: ${referrerName}\nReferred contact: ${referral.referredName || email}\nCompany: ${referral.referredCompany || "Unknown"}\nSource: Liberty Bancard Partner Program\nReferral ID: ${referral.id}`,
+    }).catch(() => {});
+  }
+
+  const sequences = await storage.getSequences();
+  const seq = sequences.find((s: { name: string }) =>
+    s.name === "SDR: Reply Engaged" || s.name === "1. Switch & Save — Statement Audit"
+  );
+  if (!seq) {
+    console.warn("[Referrals] Could not find SDR: Reply Engaged sequence — partner referral enrollment incomplete");
+    return;
+  }
+
+  const { enrollContactInGhlWorkflow } = await import("../services/ghl-workflow-enrollment");
+  const result = await enrollContactInGhlWorkflow({
+    contactId: contact.id,
+    sequenceName: seq.name,
+    sequenceId: seq.id,
+  });
+
+  console.log(`[Referrals] Partner referral auto-enrolled contact ${contact.id} (${email}) — method: ${result.method}, enrolled: ${result.enrolled}`);
 }

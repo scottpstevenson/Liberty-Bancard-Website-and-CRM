@@ -1248,9 +1248,62 @@ async function handleTagAdded(payload: any): Promise<void> {
     const { syncTagsFromGhl } = await import("./ghl-sync");
     await syncTagsFromGhl(ghlContactId, tags);
     console.log(`[GHL Webhook] Tags added from GHL: ${tags.join(", ")}`);
+
+    // ── Auto-enrollment triggers based on GHL tag events ───────────────────
+    // No-Show Recovery: when GHL calendar fires LB-NO-SHOW, auto-enroll
+    if (tags.some((t: string) => t === "LB-NO-SHOW")) {
+      autoEnrollNoShowRecovery(ghlContactId).catch(err =>
+        console.error("[GHL Webhook] No-show auto-enroll error:", err.message)
+      );
+    }
+
+    // DNC: when LB-DNC is added from GHL side, mark contact do-not-contact
+    if (tags.some((t: string) => t === "LB-DNC")) {
+      autoDncContact(ghlContactId).catch(err =>
+        console.error("[GHL Webhook] DNC auto-flag error:", err.message)
+      );
+    }
   } catch (err: any) {
     console.error("[GHL Webhook] Error handling tag added:", err.message);
   }
+}
+
+async function autoEnrollNoShowRecovery(ghlContactId: string): Promise<void> {
+  const { storage } = await import("../storage");
+  const { data: contacts } = await storage.getContacts({ limit: 1000 });
+  const contact = contacts.find((c: { ghlContactId?: string | null }) => c.ghlContactId === ghlContactId);
+  if (!contact) {
+    console.warn(`[GHL Webhook] No-show tag received for unknown GHL contact: ${ghlContactId}`);
+    return;
+  }
+  if (contact.doNotContact) {
+    console.log(`[GHL Webhook] No-show: contact ${contact.id} is DNC — skipping enrollment`);
+    return;
+  }
+  const sequences = await storage.getSequences();
+  const seq = sequences.find((s: { name: string }) =>
+    s.name === "SDR: No-Show Recovery" || s.name === "No-Show Reschedule"
+  );
+  if (!seq) {
+    console.warn("[GHL Webhook] No-show: could not find 'SDR: No-Show Recovery' sequence in DB — skipping enrollment");
+    return;
+  }
+  const { enrollContactInGhlWorkflow } = await import("./ghl-workflow-enrollment");
+  const result = await enrollContactInGhlWorkflow({
+    contactId: contact.id,
+    sequenceName: seq.name,
+    sequenceId: seq.id,
+  });
+  console.log(`[GHL Webhook] No-show auto-enrolled contact ${contact.id} — method: ${result.method}, enrolled: ${result.enrolled}`);
+}
+
+async function autoDncContact(ghlContactId: string): Promise<void> {
+  const { storage } = await import("../storage");
+  const { data: contacts } = await storage.getContacts({ limit: 1000 });
+  const contact = contacts.find((c: { ghlContactId?: string | null }) => c.ghlContactId === ghlContactId);
+  if (!contact) return;
+  await storage.updateContact(contact.id, { doNotContact: true });
+  console.log(`[GHL Webhook] DNC auto-flagged contact ${contact.id} (${contact.email}) from GHL tag`);
 }
 
 async function handleTagRemoved(payload: any): Promise<void> {
