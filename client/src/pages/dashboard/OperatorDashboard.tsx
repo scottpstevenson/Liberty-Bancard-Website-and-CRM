@@ -263,6 +263,13 @@ interface SendMonitoringIdentity {
   };
 }
 
+interface RecentSend {
+  action: string;
+  channel: string;
+  entityId: number | null;
+  sentAt: string;
+}
+
 interface SendMonitoringData {
   identities: SendMonitoringIdentity[];
   aggregated: {
@@ -274,6 +281,7 @@ interface SendMonitoringData {
     smtpFallbacksLast24h?: number;
     ghlSendsLast24h?: number;
   };
+  recentSends?: RecentSend[];
 }
 
 interface WebhookEvent {
@@ -586,6 +594,46 @@ function SendMonitoringPanel() {
                   </td>
                   <td className="py-2 text-right font-medium" data-testid="channel-count-smtp">{agg?.smtpFallbacksLast24h ?? 0}</td>
                 </tr>
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      )}
+
+      {(data?.recentSends?.length ?? 0) > 0 && (
+        <Card data-testid="card-recent-sends">
+          <CardHeader className="pb-2 pt-4 px-4">
+            <CardTitle className="text-sm font-semibold">Recent Sends — Communication Channel</CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-4 overflow-x-auto">
+            <table className="w-full text-xs min-w-[400px]">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left font-medium text-muted-foreground pb-1.5">Type</th>
+                  <th className="text-left font-medium text-muted-foreground pb-1.5">Communication Channel</th>
+                  <th className="text-right font-medium text-muted-foreground pb-1.5">Time</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data!.recentSends!.map((s, idx) => {
+                  const channelColor =
+                    s.channel === "GHL-Direct" ? "text-green-600 dark:text-green-400" :
+                    s.channel === "GHL-Workflow" ? "text-blue-600 dark:text-blue-400" :
+                    s.channel === "SMTP-Fallback" ? "text-amber-600 dark:text-amber-400" :
+                    "text-muted-foreground";
+                  const typeLabel =
+                    s.action === "proposal_email_sent" ? "Proposal" :
+                    s.action === "merchant_welcome_sent" ? "Merchant Welcome" :
+                    s.action === "merchant_portal_welcome_sent" ? "Portal Welcome" :
+                    s.action === "co_branded_proposal_sent" ? "Co-Brand Proposal" : s.action;
+                  return (
+                    <tr key={idx} className="border-b last:border-0" data-testid={`recent-send-${idx}`}>
+                      <td className="py-1.5 pr-2 text-muted-foreground">{typeLabel}</td>
+                      <td className={`py-1.5 pr-2 font-medium ${channelColor}`}>{s.channel}</td>
+                      <td className="py-1.5 text-right text-muted-foreground">{new Date(s.sentAt).toLocaleString()}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </CardContent>

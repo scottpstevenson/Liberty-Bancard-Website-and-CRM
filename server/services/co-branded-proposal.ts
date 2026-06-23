@@ -678,11 +678,15 @@ export async function sendCoBrandedProposalEmail(proposalId: number, baseUrl: st
 
   if (!sent) {
     try {
-      await sendSmtpEmail({ to: merchantEmail!, subject, html });
-      sent = true;
-      sentChannel = "smtp";
+      const smtpResult = await sendSmtpEmail({ to: merchantEmail!, subject, html });
+      if (smtpResult.success) {
+        sent = true;
+        sentChannel = "SMTP-Fallback";
+      } else {
+        console.error(`[CoBrandedProposal] SMTP-Fallback failed for proposal #${proposalId}: ${smtpResult.error}`);
+      }
     } catch (err) {
-      console.error("[CoBrandedProposal] SMTP email also failed:", err);
+      console.error(`[CoBrandedProposal] SMTP-Fallback threw for proposal #${proposalId}:`, err);
     }
   }
 
@@ -715,7 +719,7 @@ export async function sendCoBrandedProposalEmail(proposalId: number, baseUrl: st
         action: "co_branded_proposal_sent",
         entityType: "deal",
         entityId: proposal.dealId,
-        details: { proposalId, merchantEmail, partnerOrgId: proposal.partnerOrgId },
+        details: { proposalId, merchantEmail, partnerOrgId: proposal.partnerOrgId, channel: sentChannel },
       });
     }
   }

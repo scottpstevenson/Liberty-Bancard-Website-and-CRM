@@ -618,25 +618,46 @@ export async function sendProposalEmail(dealId: number): Promise<boolean> {
 </div>
 </div>`;
 
-    const { sendGhlEmailForMerchant, isGhlConfigured } = await import("./ghl");
+    const { sendGhlEmail, sendGhlEmailForMerchant, isGhlConfigured } = await import("./ghl");
 
     let emailSent = false;
     let emailChannel = "none";
     if (isGhlConfigured()) {
+      // GHL-Direct: contact ID-based send (upserts GHL contact internally)
       try {
-        const ghlResult = await sendGhlEmailForMerchant({
-          email: contact.email,
+        const ghlDirectResult = await sendGhlEmail({
+          contactId: contact.id,
+          dealId,
           subject,
           body,
         });
-        if (ghlResult.success) {
+        if (ghlDirectResult.success) {
           emailSent = true;
-          emailChannel = "ghl";
+          emailChannel = "GHL-Direct";
         } else {
-          console.warn(`[ProposalEngine] GHL send returned failure for deal ${dealId}: ${ghlResult.error}`);
+          console.warn(`[ProposalEngine] GHL-Direct returned failure for deal ${dealId}: ${ghlDirectResult.error}`);
         }
       } catch (sendErr) {
-        console.error("[ProposalEngine] GHL email send error:", sendErr);
+        console.error("[ProposalEngine] GHL-Direct email error:", sendErr);
+      }
+
+      // GHL-Workflow: by-email fallback when direct fails
+      if (!emailSent) {
+        try {
+          const ghlResult = await sendGhlEmailForMerchant({
+            email: contact.email,
+            subject,
+            body,
+          });
+          if (ghlResult.success) {
+            emailSent = true;
+            emailChannel = "GHL-Workflow";
+          } else {
+            console.warn(`[ProposalEngine] GHL-Workflow returned failure for deal ${dealId}: ${ghlResult.error}`);
+          }
+        } catch (sendErr) {
+          console.error("[ProposalEngine] GHL-Workflow email error:", sendErr);
+        }
       }
     }
 
@@ -647,13 +668,13 @@ export async function sendProposalEmail(dealId: number): Promise<boolean> {
           const smtpResult = await sendSmtpEmail({ to: contact.email, subject, html: body });
           if (smtpResult.success) {
             emailSent = true;
-            emailChannel = "smtp";
-            console.log(`[ProposalEngine] Proposal email sent via SMTP fallback for deal ${dealId}`);
+            emailChannel = "SMTP-Fallback";
+            console.log(`[ProposalEngine] Proposal email sent via SMTP-Fallback for deal ${dealId}`);
           } else {
-            console.warn(`[ProposalEngine] SMTP fallback failed for deal ${dealId}: ${smtpResult.error}`);
+            console.warn(`[ProposalEngine] SMTP-Fallback failed for deal ${dealId}: ${smtpResult.error}`);
           }
         } catch (smtpErr: any) {
-          console.error(`[ProposalEngine] SMTP fallback threw for deal ${dealId}:`, smtpErr.message);
+          console.error(`[ProposalEngine] SMTP-Fallback threw for deal ${dealId}:`, smtpErr.message);
         }
       } else {
         console.warn(

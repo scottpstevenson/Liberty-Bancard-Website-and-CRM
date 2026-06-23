@@ -628,20 +628,48 @@ export async function getSendMonitoringData(): Promise<any> {
 
   let smtpFallbacksLast24h = 0;
   let ghlSendsLast24h = 0;
-  try {
-    const smtpResult = await db.execute(sql`
-      SELECT COUNT(*)::int AS count FROM audit_logs
-      WHERE details->>'channel' LIKE 'smtp%'
-      AND created_at > NOW() - INTERVAL '24 hours'
-    `);
-    smtpFallbacksLast24h = Number((smtpResult.rows?.[0] as any)?.count || 0);
+  let recentSends: Array<{ action: string; channel: string; entityId: number | null; sentAt: string }> = [];
 
-    const ghlResult = await db.execute(sql`
-      SELECT COUNT(*)::int AS count FROM audit_logs
-      WHERE details->>'channel' LIKE 'ghl%'
-      AND created_at > NOW() - INTERVAL '24 hours'
-    `);
-    ghlSendsLast24h = Number((ghlResult.rows?.[0] as any)?.count || 0);
+  function normalizeChannelLabel(raw: string | null | undefined): string {
+    if (!raw) return "Unknown";
+    const r = raw.toLowerCase();
+    if (r.includes("ghl_workflow") || r.includes("ghl-workflow") || r === "ghl") return "GHL-Workflow";
+    if (r.includes("ghl_direct") || r.includes("direct_email") || r.includes("ghl-direct")) return "GHL-Direct";
+    if (r.includes("smtp") || r.includes("smtp_fallback") || r.includes("smtp-fallback")) return "SMTP-Fallback";
+    if (r.startsWith("ghl")) return "GHL-Workflow";
+    return raw;
+  }
+
+  try {
+    const [smtpRes, ghlRes, recentRes] = await Promise.all([
+      db.execute(sql`
+        SELECT COUNT(*)::int AS count FROM audit_logs
+        WHERE details->>'channel' LIKE 'smtp%'
+        AND created_at > NOW() - INTERVAL '24 hours'
+      `),
+      db.execute(sql`
+        SELECT COUNT(*)::int AS count FROM audit_logs
+        WHERE details->>'channel' LIKE 'GHL%' OR details->>'channel' LIKE 'ghl%'
+        AND created_at > NOW() - INTERVAL '24 hours'
+      `),
+      db.execute(sql`
+        SELECT action, entity_id,
+          COALESCE(details->>'channel', details->>'method') AS channel,
+          created_at
+        FROM audit_logs
+        WHERE action IN ('proposal_email_sent','merchant_welcome_sent','merchant_portal_welcome_sent','co_branded_proposal_sent')
+        ORDER BY created_at DESC
+        LIMIT 25
+      `),
+    ]);
+    smtpFallbacksLast24h = Number((smtpRes.rows?.[0] as any)?.count || 0);
+    ghlSendsLast24h = Number((ghlRes.rows?.[0] as any)?.count || 0);
+    recentSends = (recentRes.rows || []).map((r: any) => ({
+      action: r.action,
+      channel: normalizeChannelLabel(r.channel),
+      entityId: r.entity_id ? Number(r.entity_id) : null,
+      sentAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+    }));
   } catch (_) {}
 
   return {
@@ -655,6 +683,7 @@ export async function getSendMonitoringData(): Promise<any> {
       smtpFallbacksLast24h,
       ghlSendsLast24h,
     },
+    recentSends,
   };
 }
 

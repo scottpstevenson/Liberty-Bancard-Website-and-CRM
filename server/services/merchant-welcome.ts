@@ -189,58 +189,62 @@ export async function sendMerchantPortalWelcomeEmail(profile: MerchantProfile): 
   }
 
   const ghlWorkflowId = process.env.GHL_WORKFLOW_MERCHANT_APPROVED;
-  let method: "ghl_workflow" | "ghl_direct_email" | "smtp" = "smtp";
+  const portalSubject = `Your Liberty Bancard merchant account is approved — here's how to log in`;
+  const portalHtml = buildPortalWelcomeEmail(firstName, companyName, mid, portalUrl);
+  let method: "ghl_workflow" | "ghl_direct_email" | "smtp" | null = null;
 
+  // GHL-Workflow: try first when workflow ID and contact ID are both available
   if (ghlWorkflowId && ghlContactId) {
-    await triggerWorkflow({
-      workflowId: ghlWorkflowId,
-      contactId: ghlContactId,
-      metadata: {
-        profileId: profile.id,
-        contactId: contact.id,
-        merchantMid: mid,
-        portalUrl,
-        source: "merchant_approved",
-        approvedAt: new Date().toISOString(),
-      },
-    });
-    method = "ghl_workflow";
-    console.log(`${TAG} Portal welcome email sent to contact #${contact.id} via ghl_workflow`);
-  } else if (ghlContactId) {
-    const subject = `Your Liberty Bancard merchant account is approved — here's how to log in`;
-    const htmlBody = buildPortalWelcomeEmail(firstName, companyName, mid, portalUrl);
-
-    await sendEmailReply({
-      contactId: ghlContactId,
-      subject,
-      htmlBody,
-    });
-    method = "ghl_direct_email";
-    console.log(`${TAG} Portal welcome email sent to contact #${contact.id} via ghl_direct_email`);
-  } else if (isSmtpConfigured()) {
-    const subject = `Your Liberty Bancard merchant account is approved — here's how to log in`;
-    const htmlBody = buildPortalWelcomeEmail(firstName, companyName, mid, portalUrl);
-
-    const result = await sendSmtpEmail({
-      to: contact.email,
-      subject,
-      html: htmlBody,
-    });
-
-    if (!result.success) {
-      throw new Error(`SMTP fallback failed for contact #${contact.id}: ${result.error}`);
+    try {
+      await triggerWorkflow({
+        workflowId: ghlWorkflowId,
+        contactId: ghlContactId,
+        metadata: {
+          profileId: profile.id,
+          contactId: contact.id,
+          merchantMid: mid,
+          portalUrl,
+          source: "merchant_approved",
+          approvedAt: new Date().toISOString(),
+        },
+      });
+      method = "ghl_workflow";
+      console.log(`${TAG} Portal welcome email sent to contact #${contact.id} via ghl_workflow`);
+    } catch (ghlErr) {
+      console.warn(`${TAG} GHL workflow failed for contact #${contact.id}, falling through to direct email:`, ghlErr);
     }
-    method = "smtp";
-    console.log(`${TAG} Portal welcome email sent to contact #${contact.id} via smtp fallback`);
-  } else {
-    throw new Error(`Cannot send portal welcome email for profile #${profile.id} — no GHL contact ID and SMTP not configured`);
+  }
+
+  // GHL-Direct: direct email via GHL contact ID
+  if (!method && ghlContactId) {
+    try {
+      await sendEmailReply({ contactId: ghlContactId, subject: portalSubject, htmlBody: portalHtml });
+      method = "ghl_direct_email";
+      console.log(`${TAG} Portal welcome email sent to contact #${contact.id} via ghl_direct_email`);
+    } catch (ghlErr) {
+      console.warn(`${TAG} GHL direct email failed for contact #${contact.id}, falling through to SMTP:`, ghlErr);
+    }
+  }
+
+  // SMTP-Fallback: used when GHL is unavailable or unconfigured
+  if (!method) {
+    if (isSmtpConfigured()) {
+      const result = await sendSmtpEmail({ to: contact.email, subject: portalSubject, html: portalHtml });
+      if (!result.success) {
+        throw new Error(`SMTP fallback failed for contact #${contact.id}: ${result.error}`);
+      }
+      method = "smtp";
+      console.log(`${TAG} Portal welcome email sent to contact #${contact.id} via SMTP-Fallback`);
+    } else {
+      throw new Error(`Cannot send portal welcome email for profile #${profile.id} — no delivery path configured`);
+    }
   }
 
   await storage.createAuditLog({
     action: "merchant_portal_welcome_sent",
     entityType: "merchant_profile",
     entityId: profile.id,
-    details: { contactId: contact.id, mid, method },
+    details: { contactId: contact.id, mid, channel: method },
   });
 }
 
@@ -296,7 +300,11 @@ export async function sendMerchantWelcomeEmail(contact: Contact, deal: Deal): Pr
   }
 
   const ghlWorkflowId = process.env.GHL_WORKFLOW_MERCHANT_APPROVED;
-  let method: "ghl_workflow" | "direct_email" = "direct_email";
+  const welcomeFirstName = contact.firstName || "there";
+  const welcomeCompany = contact.companyName || "your business";
+  const welcomeSubject = `Welcome to Liberty Bancard, ${welcomeFirstName} — here's what happens next`;
+  const welcomeHtml = buildMerchantWelcomeEmail(welcomeFirstName, welcomeCompany);
+  let method: "ghl_workflow" | "direct_email" | "smtp_fallback" | null = null;
 
   try {
     if (ghlWorkflowId) {
@@ -315,16 +323,7 @@ export async function sendMerchantWelcomeEmail(contact: Contact, deal: Deal): Pr
       method = "ghl_workflow";
       console.log(`[Closed Won] Merchant welcome email sent to contact #${contact.id} via ghl_workflow`);
     } else {
-      const firstName = contact.firstName || "there";
-      const companyName = contact.companyName || "your business";
-      const subject = `Welcome to Liberty Bancard, ${firstName} — here's what happens next`;
-      const htmlBody = buildMerchantWelcomeEmail(firstName, companyName);
-
-      await sendEmailReply({
-        contactId: ghlContactId,
-        subject,
-        htmlBody,
-      });
+      await sendEmailReply({ contactId: ghlContactId, subject: welcomeSubject, htmlBody: welcomeHtml });
       method = "direct_email";
       console.log(`[Closed Won] Merchant welcome email sent to contact #${contact.id} via direct_email`);
 
@@ -336,18 +335,30 @@ export async function sendMerchantWelcomeEmail(contact: Contact, deal: Deal): Pr
         formData: { lb_sequence_name: APPLICATION_SEQUENCE_NAME },
       }).catch(err => console.error("[Closed Won] GHL form sync error:", err));
     }
+  } catch (err) {
+    console.error(`[Closed Won] GHL merchant welcome failed for contact #${contact.id}, trying SMTP:`, err);
+  }
 
+  // SMTP-Fallback: used when GHL fails
+  if (!method && contact.email && isSmtpConfigured()) {
+    const smtpResult = await sendSmtpEmail({ to: contact.email, subject: welcomeSubject, html: welcomeHtml });
+    if (smtpResult.success) {
+      method = "smtp_fallback";
+      console.log(`[Closed Won] Merchant welcome sent via SMTP-Fallback for contact #${contact.id}`);
+    } else {
+      console.error(`[Closed Won] SMTP-Fallback also failed for contact #${contact.id}: ${smtpResult.error}`);
+    }
+  }
+
+  if (method) {
     await storage.createAuditLog({
       action: "merchant_welcome_sent",
       entityType: "deal",
       entityId: deal.id,
-      details: { contactId: contact.id, method },
+      details: { contactId: contact.id, channel: method },
     });
-
     enrollInApplicationSequence(contact, deal).catch(err =>
       console.error("[Closed Won] Application sequence enrollment error:", err)
     );
-  } catch (err) {
-    console.error(`[Closed Won] Merchant welcome email error for contact #${contact.id}:`, err);
   }
 }
