@@ -309,6 +309,8 @@ export const tasks = pgTable("tasks", {
   status: text("status").default("pending"),
   priority: text("priority").default("normal"),
   completedAt: timestamp("completed_at"),
+  ghlTaskId: text("ghl_task_id"),
+  deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

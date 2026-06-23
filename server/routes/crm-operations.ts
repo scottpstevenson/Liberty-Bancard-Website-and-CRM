@@ -8,6 +8,7 @@ import { parse } from "csv-parse/sync";
 import { isGhlConfigured, upsertGhlContact } from "../services/ghl";
 import { syncContactToGhl, syncDealToGhl } from "../services/ghl-sync";
 import { extractRelationshipsForContact } from "../services/relationship-extractor";
+import { propagateContactDeleteToGhl, propagateDealDeleteToGhl, propagateTaskDeleteToGhl } from "../services/ghl-delete-sync";
 
 export function registerCrmOperationsRoutes(app: Express) {
   // === CONTACT DETAIL AGGREGATE ===
@@ -149,10 +150,14 @@ export function registerCrmOperationsRoutes(app: Express) {
   // === ARCHIVE / RESTORE ===
   app.post("/api/contacts/:id/archive", isAuthenticated, async (req, res) => {
     try {
+      const contactId = Number(req.params.id);
       const auditCtx = { actorType: "user" as const, userId: (req.user as any)?.id ?? null };
-      const result = await storage.archiveContact(Number(req.params.id), auditCtx);
+      const result = await storage.archiveContact(contactId, auditCtx);
       if (!result) return res.status(404).json({ message: "Not found" });
       res.json(result);
+      propagateContactDeleteToGhl(contactId).catch((err: Error) => {
+        console.warn(`[GHL Delete] Failed to propagate contact #${contactId} archive to GHL:`, err.message);
+      });
     } catch (err: any) {
       console.error("Archive contact error:", err.message);
       res.status(500).json({ message: err.message });
@@ -173,10 +178,14 @@ export function registerCrmOperationsRoutes(app: Express) {
 
   app.post("/api/deals/:id/archive", isAuthenticated, async (req, res) => {
     try {
+      const dealId = Number(req.params.id);
       const auditCtx = { actorType: "user" as const, userId: (req.user as any)?.id ?? null };
-      const result = await storage.archiveDeal(Number(req.params.id), auditCtx);
+      const result = await storage.archiveDeal(dealId, auditCtx);
       if (!result) return res.status(404).json({ message: "Not found" });
       res.json(result);
+      propagateDealDeleteToGhl(dealId).catch((err: Error) => {
+        console.warn(`[GHL Delete] Failed to propagate deal #${dealId} archive to GHL:`, err.message);
+      });
     } catch (err: any) {
       console.error("Archive deal error:", err.message);
       res.status(500).json({ message: err.message });
@@ -231,8 +240,21 @@ export function registerCrmOperationsRoutes(app: Express) {
 
   app.delete("/api/tasks/:id", isAuthenticated, async (req, res) => {
     try {
-      await storage.deleteTask(Number(req.params.id));
+      const taskId = Number(req.params.id);
+      const allTasks = await storage.getTasks({ limit: 5000 });
+      const task = allTasks.find(t => t.id === taskId);
+      let ghlTaskId: string | null = null;
+      let ghlContactId: string | null = null;
+      if (task?.ghlTaskId && task.contactId) {
+        const contact = await storage.getContact(task.contactId);
+        ghlTaskId = task.ghlTaskId;
+        ghlContactId = contact?.ghlContactId || null;
+      }
+      await storage.deleteTask(taskId);
       res.json({ success: true });
+      propagateTaskDeleteToGhl(taskId, ghlTaskId, ghlContactId).catch((err: Error) => {
+        console.warn(`[GHL Delete] Failed to propagate task #${taskId} delete to GHL:`, err.message);
+      });
     } catch (err: any) {
       console.error("Delete task error:", err.message);
       res.status(500).json({ message: err.message });

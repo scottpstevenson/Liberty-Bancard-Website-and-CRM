@@ -2295,6 +2295,140 @@ function GhlConnectionPanel() {
   );
 }
 
+interface DeletedRecord {
+  id: number;
+  entityType: string | null;
+  entityId: number | null;
+  entityKey: string | null;
+  action: string;
+  details: any;
+  createdAt: string | null;
+}
+
+const ACTION_LABELS: Record<string, { label: string; variant: "default" | "destructive" | "outline" | "secondary" }> = {
+  ghl_delete_propagated: { label: "Sent to GHL", variant: "default" },
+  ghl_delete_received: { label: "Received from GHL", variant: "secondary" },
+  ghl_delete_detected: { label: "Detected by sync", variant: "outline" },
+  ghl_delete_failed: { label: "Delete Failed", variant: "destructive" },
+};
+
+function DeletedRecordsPanel() {
+  const { data, isLoading, isError, refetch } = useQuery<{ records: DeletedRecord[]; total: number }>({
+    queryKey: ["/api/ghl/deleted-records"],
+    queryFn: async () => {
+      const res = await fetch("/api/ghl/deleted-records?limit=50", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch deleted records");
+      return res.json();
+    },
+    refetchInterval: 60000,
+  });
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardContent className="p-6 flex items-center gap-2">
+          <Loader2 className="w-4 h-4 animate-spin" />
+          <span className="text-muted-foreground text-sm">Loading deleted records…</span>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (isError) {
+    return (
+      <Card>
+        <CardContent className="p-6">
+          <p className="text-destructive text-sm">Failed to load deleted records.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const records = data?.records ?? [];
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between pb-3">
+          <CardTitle className="text-base font-semibold flex items-center gap-2">
+            <XCircle className="w-4 h-4 text-destructive" />
+            Deleted Records
+            <Badge variant="outline" className="ml-1 text-xs">{records.length}</Badge>
+          </CardTitle>
+          <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="button-refresh-deleted-records" aria-label="Refresh deleted records">
+            <RefreshCw className="w-3.5 h-3.5" />
+          </Button>
+        </CardHeader>
+        <CardContent className="p-0">
+          {records.length === 0 ? (
+            <div className="px-6 py-8 text-center text-muted-foreground text-sm" data-testid="text-no-deleted-records">
+              No deleted records logged yet.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm" data-testid="table-deleted-records">
+                <thead>
+                  <tr className="border-b bg-muted/30">
+                    <th className="px-4 py-2 text-left font-medium text-muted-foreground">Entity</th>
+                    <th className="px-4 py-2 text-left font-medium text-muted-foreground">Name / Key</th>
+                    <th className="px-4 py-2 text-left font-medium text-muted-foreground">GHL ID</th>
+                    <th className="px-4 py-2 text-left font-medium text-muted-foreground">Event</th>
+                    <th className="px-4 py-2 text-left font-medium text-muted-foreground">Source</th>
+                    <th className="px-4 py-2 text-left font-medium text-muted-foreground">Direction</th>
+                    <th className="px-4 py-2 text-left font-medium text-muted-foreground">When</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {records.map(r => {
+                    const details = typeof r.details === "object" && r.details !== null ? r.details : {};
+                    const direction = details.direction || "—";
+                    const source = details.source || (direction === "replit_to_ghl" ? "replit" : "—");
+                    const ghlId = details.ghlContactId || details.ghlOpportunityId || details.ghlTaskId || "—";
+                    const meta = ACTION_LABELS[r.action] || { label: r.action, variant: "outline" as const };
+                    return (
+                      <tr key={r.id} className="border-b hover:bg-muted/20 transition-colors" data-testid={`row-deleted-record-${r.id}`}>
+                        <td className="px-4 py-2 capitalize font-medium">{r.entityType || "—"}</td>
+                        <td className="px-4 py-2 text-muted-foreground max-w-[160px] truncate">
+                          {r.entityKey || (r.entityId ? `#${r.entityId}` : "—")}
+                        </td>
+                        <td className="px-4 py-2 text-xs text-muted-foreground font-mono max-w-[120px] truncate" title={ghlId} data-testid={`text-ghl-id-${r.id}`}>
+                          {ghlId}
+                        </td>
+                        <td className="px-4 py-2">
+                          <Badge variant={meta.variant} className="text-xs">{meta.label}</Badge>
+                        </td>
+                        <td className="px-4 py-2 text-xs text-muted-foreground capitalize" data-testid={`text-source-${r.id}`}>
+                          {source === "webhook" ? "Webhook" : source === "sync_tick" ? "Sync tick" : source === "replit" ? "Replit" : source}
+                        </td>
+                        <td className="px-4 py-2 text-xs text-muted-foreground">
+                          {direction === "replit_to_ghl" ? "Replit → GHL" : direction === "ghl_to_replit" ? "GHL → Replit" : direction}
+                        </td>
+                        <td className="px-4 py-2 text-muted-foreground whitespace-nowrap text-xs">
+                          {r.createdAt ? new Date(r.createdAt).toLocaleString() : "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium text-muted-foreground">How it works</CardTitle>
+        </CardHeader>
+        <CardContent className="text-xs text-muted-foreground space-y-1">
+          <p><strong>Replit → GHL:</strong> Archiving a contact or deal, or deleting a task, automatically sends a DELETE request to GHL so the record disappears from both systems.</p>
+          <p><strong>GHL → Replit:</strong> When GHL fires a ContactDelete, OpportunityDelete, or TaskDelete webhook, the local record is soft-deleted (archived) instantly.</p>
+          <p><strong>Sync-tick fallback:</strong> Set <code className="bg-muted px-1 rounded">GHL_SYNC_DELETE_DETECTION=true</code> to detect contacts that vanish from GHL between webhooks and soft-delete them automatically.</p>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 export default function OperatorDashboard() {
   const { toast } = useToast();
 
@@ -2374,6 +2508,9 @@ export default function OperatorDashboard() {
           <TabsTrigger value="ghl-connection" data-testid="tab-ghl-connection" className="flex items-center gap-1">
             <Zap className="w-3.5 h-3.5" /> GHL Status
           </TabsTrigger>
+          <TabsTrigger value="deleted-records" data-testid="tab-deleted-records" className="flex items-center gap-1">
+            <XCircle className="w-3.5 h-3.5" /> Deleted Records
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="job-health">
@@ -2435,6 +2572,9 @@ export default function OperatorDashboard() {
         </TabsContent>
         <TabsContent value="ghl-connection">
           <GhlConnectionPanel />
+        </TabsContent>
+        <TabsContent value="deleted-records">
+          <DeletedRecordsPanel />
         </TabsContent>
       </Tabs>
     </div>

@@ -116,6 +116,11 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
     return contact;
   }
 
+  async getContactByGhlContactId(ghlContactId: string) {
+    const [contact] = await db.select().from(contacts).where(eq(contacts.ghlContactId, ghlContactId));
+    return contact;
+  }
+
 
   async getContactByEmail(email: string) {
     const [contact] = await db.select().from(contacts).where(and(eq(contacts.email, email.toLowerCase()), isNull(contacts.archivedAt)));

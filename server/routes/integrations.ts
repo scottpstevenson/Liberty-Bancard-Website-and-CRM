@@ -629,4 +629,27 @@ export function registerIntegrationsRoutes(app: Express) {
     }
   });
 
+  app.get("/api/ghl/deleted-records", isAuthenticated, async (req, res) => {
+    try {
+      const limit = Math.min(Number(req.query.limit) || 50, 200);
+      const auditLogs = await storage.getAuditLogs();
+      const deleteActions = ["ghl_delete_received", "ghl_delete_detected", "ghl_delete_propagated", "ghl_delete_failed"];
+      const filtered = auditLogs
+        .filter(l => deleteActions.includes(l.action))
+        .slice(0, limit)
+        .map(l => ({
+          id: l.id,
+          entityType: l.entityType,
+          entityId: l.entityId,
+          entityKey: (l as any).entityKey || null,
+          action: l.action,
+          details: l.details,
+          createdAt: l.createdAt,
+        }));
+      res.json({ records: filtered, total: filtered.length });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
 }

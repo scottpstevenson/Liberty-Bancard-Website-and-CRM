@@ -146,6 +146,7 @@ export interface PaginatedResult<T> {
 export interface IStorage {
   getContacts(params?: PaginationParams & { emailStatus?: string }): Promise<PaginatedResult<typeof contacts.$inferSelect>>;
   getContact(id: number): Promise<typeof contacts.$inferSelect | undefined>;
+  getContactByGhlContactId(ghlContactId: string): Promise<typeof contacts.$inferSelect | undefined>;
   getContactByEmail(email: string): Promise<typeof contacts.$inferSelect | undefined>;
   getContactsByIds(ids: number[]): Promise<typeof contacts.$inferSelect[]>;
   getChildLocations(parentContactId: number): Promise<typeof contacts.$inferSelect[]>;
@@ -162,6 +163,7 @@ export interface IStorage {
 
   getDeals(params?: PaginationParams): Promise<PaginatedResult<typeof deals.$inferSelect>>;
   getDeal(id: number): Promise<typeof deals.$inferSelect | undefined>;
+  getDealByGhlOpportunityId(ghlOpportunityId: string): Promise<typeof deals.$inferSelect | undefined>;
   getDealsByIds(ids: number[]): Promise<typeof deals.$inferSelect[]>;
   getDealsByPipeline(pipeline: string, params?: PaginationParams): Promise<PaginatedResult<typeof deals.$inferSelect>>;
   getDealsByContact(contactId: number): Promise<typeof deals.$inferSelect[]>;
@@ -174,8 +176,10 @@ export interface IStorage {
   updateTicket(id: number, ticket: UpdateTicketRequest): Promise<typeof tickets.$inferSelect | undefined>;
 
   getTasks(opts?: { limit?: number; offset?: number }): Promise<typeof tasks.$inferSelect[]>;
+  getTaskByGhlTaskId(ghlTaskId: string): Promise<typeof tasks.$inferSelect | undefined>;
   createTask(task: InsertTask): Promise<typeof tasks.$inferSelect>;
   updateTask(id: number, task: UpdateTaskRequest): Promise<typeof tasks.$inferSelect | undefined>;
+  softDeleteTask(id: number): Promise<void>;
 
   getDocuments(): Promise<typeof documents.$inferSelect[]>;
   getDocumentsByContact(contactId: number): Promise<typeof documents.$inferSelect[]>;

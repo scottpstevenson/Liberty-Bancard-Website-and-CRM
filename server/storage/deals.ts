@@ -114,6 +114,11 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
     return deal;
   }
 
+  async getDealByGhlOpportunityId(ghlOpportunityId: string) {
+    const [deal] = await db.select().from(deals).where(eq(deals.ghlOpportunityId, ghlOpportunityId));
+    return deal;
+  }
+
 
   async getDealsByPipeline(pipeline: string, params?: PaginationParams) {
     const { limit, offset } = normalizePagination(params);

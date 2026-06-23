@@ -102,9 +102,9 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
 
   export class TasksStorage {
     async getTasks(opts?: { limit?: number; offset?: number }) {
-    let query = db.select().from(tasks).orderBy(desc(tasks.createdAt));
-    if (opts?.limit) query = query.limit(opts.limit) as any;
-    if (opts?.offset) query = query.offset(opts.offset) as any;
+    let query = db.select().from(tasks).where(isNull(tasks.deletedAt)).orderBy(desc(tasks.createdAt)) as any;
+    if (opts?.limit) query = query.limit(opts.limit);
+    if (opts?.offset) query = query.offset(opts.offset);
     return await query;
   }
 
@@ -123,6 +123,16 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
 
   async bulkAssignTasks(taskIds: number[], assignedTo: string): Promise<void> {
     await db.update(tasks).set({ assignedTo }).where(inArray(tasks.id, taskIds));
+  }
+
+
+  async getTaskByGhlTaskId(ghlTaskId: string) {
+    const [task] = await db.select().from(tasks).where(eq(tasks.ghlTaskId, ghlTaskId));
+    return task;
+  }
+
+  async softDeleteTask(id: number): Promise<void> {
+    await db.update(tasks).set({ deletedAt: new Date() }).where(eq(tasks.id, id));
   }
 
 

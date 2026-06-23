@@ -663,10 +663,19 @@ export async function syncTaskToGhl(taskId: number): Promise<{ success: boolean;
       contactId: ghlContactId,
     };
 
-    await ghlFetch(`/contacts/${ghlContactId}/tasks`, {
+    const taskData: any = await ghlFetch(`/contacts/${ghlContactId}/tasks`, {
       method: "POST",
       body: JSON.stringify(taskPayload),
     });
+
+    try {
+      const returnedGhlTaskId = taskData?.task?.id || taskData?.id;
+      if (returnedGhlTaskId) {
+        await storage.updateTask(taskId, { ghlTaskId: returnedGhlTaskId } as any);
+      }
+    } catch {
+      // non-critical — task was synced, ID capture failed
+    }
 
     await updateSyncStatusRecord("tasks", "outbound", 1, 0);
     console.log(`[GHL Sync] Task ${taskId} synced to GHL`);
@@ -1342,6 +1351,16 @@ export async function runGhlFullSyncTick(): Promise<void> {
         consecutiveGhlFailures++;
         console.error(`[Queue:ghl-sync] Company ${company.id} sync error:`, e.message);
       }
+    }
+
+    try {
+      const { runDeleteDetectionTick } = await import("./ghl-delete-sync");
+      const deleteResult = await runDeleteDetectionTick();
+      if (deleteResult.contactsDeleted > 0 || deleteResult.dealsDeleted > 0) {
+        console.log(`[Queue:ghl-sync] Delete detection: ${deleteResult.contactsDeleted} contacts, ${deleteResult.dealsDeleted} deals soft-deleted`);
+      }
+    } catch (delErr: any) {
+      console.warn("[Queue:ghl-sync] Delete detection tick failed (non-fatal):", delErr.message);
     }
 
     if (synced > 0 || dealsSynced > 0 || tasksSynced > 0 || companiesSynced > 0) {

@@ -626,6 +626,24 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
     return;
   }
 
+  if (type === "ContactDelete" || type === "contact-delete" || type === "contact-deleted" || type === "ContactDeleted") {
+    const { handleContactDeleteWebhook } = await import("./ghl-delete-sync");
+    await handleContactDeleteWebhook(payload);
+    return;
+  }
+
+  if (type === "OpportunityDelete" || type === "opportunity-delete" || type === "opportunity-deleted" || type === "OpportunityDeleted") {
+    const { handleOpportunityDeleteWebhook } = await import("./ghl-delete-sync");
+    await handleOpportunityDeleteWebhook(payload);
+    return;
+  }
+
+  if (type === "TaskDelete" || type === "task-delete" || type === "task-deleted" || type === "TaskDeleted") {
+    const { handleTaskDeleteWebhook } = await import("./ghl-delete-sync");
+    await handleTaskDeleteWebhook(payload);
+    return;
+  }
+
   if (deliveryStatus && contactId) {
     const { data: contacts } = await storage.getContacts({ limit: 500 });
     const contact = contacts.find(c => c.ghlContactId === contactId);
