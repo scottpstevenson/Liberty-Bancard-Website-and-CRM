@@ -211,6 +211,7 @@ const OnboardingBoard = lazy(() => import("@/pages/dashboard/OnboardingBoard"));
 const UnderwritingPage = lazy(() => import("@/pages/dashboard/Underwriting"));
 const ConversationAIPage = lazy(() => import("@/pages/dashboard/ConversationAI"));
 const SystemReadiness = lazy(() => import("@/pages/dashboard/SystemReadiness"));
+const EmailHealth = lazy(() => import("@/pages/dashboard/EmailHealth"));
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -621,6 +622,9 @@ function Router() {
         </Route>
         <Route path="/dashboard/inbox-health">
           <ProtectedRoute component={InboxHealth} />
+        </Route>
+        <Route path="/dashboard/email-health">
+          <ProtectedRoute component={EmailHealth} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/activation">
           <ProtectedRoute component={ActivationPanel} />

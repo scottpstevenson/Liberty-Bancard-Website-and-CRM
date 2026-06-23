@@ -5,11 +5,13 @@ import { storage } from "../storage";
 import { db } from "../db";
 import { auditChange } from "../services/audit-change";
 import { z } from "zod";
-import { insertAgentMerchantSchema, insertAgentQuotaSchema, insertAgentSchema, insertConsentAuditLogSchema, insertDataDeleteRequestSchema, insertHealthAlertSchema, insertResidualReportSchema, insertReviewRequestSchema, users, contacts, auditLogs } from "@shared/schema";
+import { insertAgentMerchantSchema, insertAgentQuotaSchema, insertAgentSchema, insertConsentAuditLogSchema, insertDataDeleteRequestSchema, insertHealthAlertSchema, insertResidualReportSchema, insertReviewRequestSchema, insertSendingIdentitySchema, ALLOWED_SENDING_DOMAINS, users, contacts, auditLogs } from "@shared/schema";
 import { desc, eq, isNull, and, gte, or, like, count, not } from "drizzle-orm";
 import { parse } from "csv-parse/sync";
 import path from "path";
 import { publicLeadRateLimit } from "../middleware/public-rate-limit";
+import { sendSmtpEmail, getSmtpStatus, isSmtpConfigured } from "../services/smtp-email";
+import { getWorkflowRegistryWithStatus } from "../services/ghl-workflows";
 
 export function registerAdminRoutes(app: Express) {
   // === ADMIN: SESSION MANAGEMENT ===
@@ -987,6 +989,123 @@ export function registerAdminRoutes(app: Express) {
       res.json({ logs: failures });
     } catch (err: any) {
       res.status(500).json({ logs: [], error: err.message });
+    }
+  });
+
+  // === EMAIL HEALTH: SMTP STATUS ===
+  app.get("/api/admin/email-health/smtp-status", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const status = getSmtpStatus();
+      res.json({
+        configured: isSmtpConfigured(),
+        hasHost: !!process.env.SMTP_HOST,
+        hasUser: !!process.env.SMTP_USER,
+        hasPass: !!process.env.SMTP_PASS,
+        host: status.host,
+        port: status.port,
+        user: status.user,
+        from: status.from,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === EMAIL HEALTH: SMTP TEST ===
+  app.post("/api/admin/email-health/test-smtp", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const adminUser = req.user as any;
+      const toEmail = adminUser?.email;
+      if (!toEmail) {
+        return res.status(400).json({ success: false, error: "No email address on your account" });
+      }
+      const result = await sendSmtpEmail({
+        to: toEmail,
+        subject: "Liberty Bancard — SMTP Test",
+        html: `<p>This is a test email sent from the Liberty Bancard Email Health admin panel at ${new Date().toLocaleString()}.</p><p>If you received this, SMTP is configured correctly.</p>`,
+      });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // === EMAIL HEALTH: GHL WORKFLOW STATUS ===
+  app.get("/api/admin/email-health/ghl-status", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const workflows = await getWorkflowRegistryWithStatus();
+      const configuredCount = workflows.filter(w => w.isSet).length;
+      res.json({ workflows, total: workflows.length, configuredCount });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === EMAIL HEALTH: SENDING IDENTITIES CRUD ===
+  app.get("/api/admin/sending-identities", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const identities = await storage.getSendingIdentities();
+      res.json(identities);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  function validateSendingDomain(emailAddress: string | undefined): string | null {
+    if (!emailAddress) return null;
+    const atIdx = emailAddress.lastIndexOf("@");
+    if (atIdx === -1) return "Email address must contain @";
+    const domain = emailAddress.slice(atIdx + 1).toLowerCase();
+    if (!(ALLOWED_SENDING_DOMAINS as readonly string[]).includes(domain)) {
+      return `Domain "${domain}" is not allowed. Permitted domains: ${ALLOWED_SENDING_DOMAINS.join(", ")}`;
+    }
+    return null;
+  }
+
+  app.post("/api/admin/sending-identities", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const parsed = insertSendingIdentitySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid data", errors: parsed.error.flatten() });
+      }
+      const domainError = validateSendingDomain(parsed.data.emailAddress);
+      if (domainError) return res.status(400).json({ message: domainError });
+      const identity = await storage.createSendingIdentity(parsed.data);
+      res.status(201).json(identity);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/admin/sending-identities/:id", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+      const parsed = insertSendingIdentitySchema.partial().safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid data", errors: parsed.error.flatten() });
+      }
+      if (parsed.data.emailAddress) {
+        const domainError = validateSendingDomain(parsed.data.emailAddress);
+        if (domainError) return res.status(400).json({ message: domainError });
+      }
+      const identity = await storage.updateSendingIdentity(id, parsed.data);
+      if (!identity) return res.status(404).json({ message: "Identity not found" });
+      res.json(identity);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/admin/sending-identities/:id", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+      const deleted = await storage.deleteSendingIdentity(id);
+      if (!deleted) return res.status(404).json({ message: "Identity not found" });
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
     }
   });
 

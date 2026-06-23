@@ -145,6 +145,7 @@ const automationItems: MenuItem[] = [
   { icon: Wand2, label: "Blaze.ai Marketing", href: "/dashboard/blaze", roles: ["admin", "manager"] },
   { icon: Settings, label: "GHL Settings", href: "/dashboard/ghl-settings", roles: ["admin"] },
   { icon: Workflow, label: "GHL Workflow IDs", href: "/dashboard/ghl-workflows", roles: ["admin"] },
+  { icon: Mail, label: "Email Health", href: "/dashboard/email-health", roles: ["admin", "manager"] },
   { icon: BookOpen, label: "GHL Sequence Guide", href: "/dashboard/ghl-sequence-guide", roles: ["admin", "manager"] },
   { icon: Megaphone, label: "Marketing Playbook", href: "/dashboard/marketing-playbook", roles: ["admin", "manager", "agent"] },
   { icon: TrendingUp, label: "Growth Playbook", href: "/dashboard/growth-playbook", roles: ["admin", "manager"] },
