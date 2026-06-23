@@ -644,12 +644,12 @@ export async function getSendMonitoringData(): Promise<any> {
     const [smtpRes, ghlRes, recentRes] = await Promise.all([
       db.execute(sql`
         SELECT COUNT(*)::int AS count FROM audit_logs
-        WHERE details->>'channel' LIKE 'smtp%'
+        WHERE LOWER(details->>'channel') LIKE 'smtp%'
         AND created_at > NOW() - INTERVAL '24 hours'
       `),
       db.execute(sql`
         SELECT COUNT(*)::int AS count FROM audit_logs
-        WHERE details->>'channel' LIKE 'GHL%' OR details->>'channel' LIKE 'ghl%'
+        WHERE (LOWER(details->>'channel') LIKE 'ghl%')
         AND created_at > NOW() - INTERVAL '24 hours'
       `),
       db.execute(sql`

@@ -304,10 +304,11 @@ export async function sendMerchantWelcomeEmail(contact: Contact, deal: Deal): Pr
   const welcomeCompany = contact.companyName || "your business";
   const welcomeSubject = `Welcome to Liberty Bancard, ${welcomeFirstName} — here's what happens next`;
   const welcomeHtml = buildMerchantWelcomeEmail(welcomeFirstName, welcomeCompany);
-  let method: "ghl_workflow" | "direct_email" | "smtp_fallback" | null = null;
+  let method: "ghl_workflow" | "smtp_fallback" | null = null;
 
-  try {
-    if (ghlWorkflowId) {
+  // GHL workflow is the required primary path for merchant welcome
+  if (ghlWorkflowId && ghlContactId) {
+    try {
       await triggerWorkflow({
         workflowId: ghlWorkflowId,
         contactId: ghlContactId,
@@ -322,21 +323,11 @@ export async function sendMerchantWelcomeEmail(contact: Contact, deal: Deal): Pr
       });
       method = "ghl_workflow";
       console.log(`[Closed Won] Merchant welcome email sent to contact #${contact.id} via ghl_workflow`);
-    } else {
-      await sendEmailReply({ contactId: ghlContactId, subject: welcomeSubject, htmlBody: welcomeHtml });
-      method = "direct_email";
-      console.log(`[Closed Won] Merchant welcome email sent to contact #${contact.id} via direct_email`);
-
-      syncFormSubmissionToGhl({
-        contactId: contact.id,
-        dealId: deal.id,
-        leadSource: "merchant_application",
-        sequenceName: APPLICATION_SEQUENCE_NAME,
-        formData: { lb_sequence_name: APPLICATION_SEQUENCE_NAME },
-      }).catch(err => console.error("[Closed Won] GHL form sync error:", err));
+    } catch (err) {
+      console.error(`[Closed Won] GHL workflow failed for contact #${contact.id}, trying SMTP-Fallback:`, err);
     }
-  } catch (err) {
-    console.error(`[Closed Won] GHL merchant welcome failed for contact #${contact.id}, trying SMTP:`, err);
+  } else {
+    console.log(`[Closed Won] GHL workflow not available for contact #${contact.id} (workflowId=${ghlWorkflowId || "unset"}, contactId=${ghlContactId || "unset"}) — using SMTP-Fallback`);
   }
 
   // SMTP-Fallback: used when GHL fails
