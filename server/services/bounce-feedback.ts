@@ -104,6 +104,19 @@ export async function runBounceFeedbackWriteback(): Promise<{ updated: number; s
       },
     });
 
+    try {
+      const { processCommunicationEvent } = await import("./communication-feedback");
+      await processCommunicationEvent({
+        type: "email_bounce",
+        contactId: c.id,
+        severity: "hard",
+        metadata: { reason: "outbound_message_bounce", detectedAt: now.toISOString() },
+      });
+    } catch (feedbackErr: unknown) {
+      const msg = feedbackErr instanceof Error ? feedbackErr.message : String(feedbackErr);
+      console.warn(`[BounceFeedback] processCommunicationEvent failed for contact #${c.id}:`, msg);
+    }
+
     updated++;
   }
 

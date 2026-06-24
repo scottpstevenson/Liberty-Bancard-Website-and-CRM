@@ -9,6 +9,7 @@ import { handleCallDisposition, CALL_DISPOSITIONS, type CallDisposition } from "
 import { handleAppointmentBooked as schedulingHandleBooked, handleAppointmentCanceled as schedulingHandleCanceled } from "./scheduling";
 import { enrollInAppointmentWorkflow, tagContactForInboxOrganization } from "../ghl-workflow-enrollment";
 import { checkAndLogCompliance } from "./compliance-engine";
+import { processCommunicationEvent } from "../communication-feedback";
 
 const contactUpdatedSchema = z.object({
   contactId: z.string().optional(),
@@ -134,6 +135,39 @@ export async function handleMessageReceived(rawPayload: unknown): Promise<void> 
     ghlRefId: payload.messageId || ghlContactId,
   });
 
+  const deliveryStatus = (payload as any).status || (payload as any).deliveryStatus || "";
+  const isSmsFailure = channel === "sms" && /failed|undelivered|undeliverable/i.test(deliveryStatus);
+  const isInboundReply = (payload as any).direction === "inbound";
+
+  if (isSmsFailure || isInboundReply) {
+    const [crmContact] = await db.select().from(contacts).where(eq(contacts.ghlContactId, ghlContactId)).limit(1);
+    if (crmContact) {
+      if (isSmsFailure) {
+        processCommunicationEvent({
+          type: "sms_undeliverable",
+          contactId: crmContact.id,
+          metadata: { ghlContactId, deliveryStatus, messageId: payload.messageId },
+        }).catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.warn(`[SDR Webhook] processCommunicationEvent(sms_undeliverable) failed for contact #${crmContact.id}:`, msg);
+        });
+      } else if (isInboundReply) {
+        const replyEventType = channel === "sms" ? "sms_reply" : channel === "email" ? "email_reply" : null;
+        if (replyEventType) {
+          processCommunicationEvent({
+            type: replyEventType,
+            contactId: crmContact.id,
+            channel,
+            metadata: { ghlContactId, messageId: payload.messageId },
+          }).catch((err: unknown) => {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.warn(`[SDR Webhook] processCommunicationEvent(${replyEventType}) failed for contact #${crmContact.id}:`, msg);
+          });
+        }
+      }
+    }
+  }
+
   if (merchant) {
     const [state] = await db.select().from(sdrLeadState).where(eq(sdrLeadState.merchantId, merchant.id));
     if (state) {
@@ -242,6 +276,48 @@ export async function handleCallOutcome(rawPayload: unknown): Promise<void> {
       } catch (err: unknown) {
         const errMsg = err instanceof Error ? err.message : String(err);
         console.error(`[SDR Webhook] Call disposition handling failed for merchant ${merchant.id}:`, errMsg);
+      }
+    }
+  }
+
+  if (ghlContactId) {
+    const [crmContact] = await db.select().from(contacts).where(eq(contacts.ghlContactId, ghlContactId)).limit(1);
+    if (crmContact) {
+      const eventTypeMap: Record<string, string> = {
+        no_answer: "call_no_answer",
+        busy: "call_busy",
+        voicemail_left: "voicemail_left",
+        interested: "call_answered",
+        booked_meeting: "call_answered",
+        promised_statement: "call_answered",
+        callback_requested: "call_answered",
+        not_interested: "call_answered",
+        gatekeeper: "call_answered",
+        wrong_number: "call_no_answer",
+        do_not_call: "call_no_answer",
+      };
+      const rawDisp = (payload.status || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+      const commEventType = eventTypeMap[rawDisp] as Parameters<typeof processCommunicationEvent>[0]["type"] | undefined;
+      if (commEventType) {
+        processCommunicationEvent({
+          type: commEventType,
+          contactId: crmContact.id,
+          metadata: { callId: payload.callId, disposition: payload.status, direction: payload.direction },
+        }).catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.warn(`[SDR Webhook] processCommunicationEvent(${commEventType}) failed for contact #${crmContact.id}:`, msg);
+        });
+      }
+
+      if (payload.direction === "inbound" && commEventType === "call_answered") {
+        processCommunicationEvent({
+          type: "inbound_call",
+          contactId: crmContact.id,
+          metadata: { callId: payload.callId, direction: payload.direction },
+        }).catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.warn(`[SDR Webhook] processCommunicationEvent(inbound_call) failed for contact #${crmContact.id}:`, msg);
+        });
       }
     }
   }

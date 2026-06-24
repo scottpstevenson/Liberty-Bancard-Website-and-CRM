@@ -2165,4 +2165,103 @@ export function registerSdrRoutes(app: Express) {
     }
   });
 
+  app.get("/api/operator/bounce-stats", isAdmin, async (req, res) => {
+    try {
+      const { db } = await import("../db");
+      const { contacts, auditLogs } = await import("@shared/schema");
+      const { gte, eq, like, and, count, inArray, sql } = await import("drizzle-orm");
+
+      const days = Math.min(Math.max(Number(req.query.days) || 7, 1), 90);
+      const windowStart = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+
+      const FAILURE_EVENT_TYPES = [
+        "comm_event_email_bounce",
+        "comm_event_sms_undeliverable",
+        "comm_event_call_no_answer",
+        "comm_event_call_busy",
+        "comm_event_voicemail_left",
+      ];
+
+      const [unreachableCount] = await db
+        .select({ count: count() })
+        .from(contacts)
+        .where(eq(contacts.doNotAutoContact, true));
+
+      const [emailBouncedTotal] = await db
+        .select({ count: count() })
+        .from(contacts)
+        .where(eq(contacts.emailStatus, "bounced"));
+
+      const [smsUndeliverableTotal] = await db
+        .select({ count: count() })
+        .from(contacts)
+        .where(eq(contacts.smsStatus, "undeliverable"));
+
+      const [emailBounceEvents7d] = await db
+        .select({ count: count() })
+        .from(auditLogs)
+        .where(and(eq(auditLogs.action, "comm_event_email_bounce"), gte(auditLogs.createdAt, windowStart)));
+
+      const [emailTotalEvents7d] = await db
+        .select({ count: count() })
+        .from(auditLogs)
+        .where(and(like(auditLogs.action, "comm_event_email_%"), gte(auditLogs.createdAt, windowStart)));
+
+      const [smsFailEvents7d] = await db
+        .select({ count: count() })
+        .from(auditLogs)
+        .where(and(eq(auditLogs.action, "comm_event_sms_undeliverable"), gte(auditLogs.createdAt, windowStart)));
+
+      const [smsTotalEvents7d] = await db
+        .select({ count: count() })
+        .from(auditLogs)
+        .where(and(like(auditLogs.action, "comm_event_sms_%"), gte(auditLogs.createdAt, windowStart)));
+
+      const [todayFailureEvents] = await db
+        .select({ count: count() })
+        .from(auditLogs)
+        .where(and(inArray(auditLogs.action, FAILURE_EVENT_TYPES), gte(auditLogs.createdAt, todayStart)));
+
+      const recentFailureRows = await db
+        .select({ action: auditLogs.action })
+        .from(auditLogs)
+        .where(and(inArray(auditLogs.action, FAILURE_EVENT_TYPES), gte(auditLogs.createdAt, windowStart)))
+        .orderBy(sql`${auditLogs.createdAt} DESC`)
+        .limit(500);
+
+      const failureReasonMap: Record<string, number> = {};
+      for (const row of recentFailureRows) {
+        const label = row.action.replace("comm_event_", "");
+        failureReasonMap[label] = (failureReasonMap[label] ?? 0) + 1;
+      }
+      const topFailureReasons = Object.entries(failureReasonMap)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10)
+        .map(([reason, count]) => ({ reason, count }));
+
+      const emailBounceRate = (emailTotalEvents7d.count || 0) > 0
+        ? Number(((emailBounceEvents7d.count / emailTotalEvents7d.count) * 100).toFixed(1))
+        : 0;
+      const smsFailureRate = (smsTotalEvents7d.count || 0) > 0
+        ? Number(((smsFailEvents7d.count / smsTotalEvents7d.count) * 100).toFixed(1))
+        : 0;
+
+      res.json({
+        windowDays: days,
+        emailBounceRate,
+        smsFailureRate,
+        emailBouncedTotal: emailBouncedTotal.count,
+        smsUndeliverableTotal: smsUndeliverableTotal.count,
+        unreachableContactCount: unreachableCount.count,
+        todayFailureEvents: todayFailureEvents.count,
+        topFailureReasons,
+      });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
 }

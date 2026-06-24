@@ -49,6 +49,7 @@ import { GhlSyncStatus } from "./contact-detail-tabs/GhlSyncStatus";
 import { RelationshipsTab } from "./contact-detail-tabs/RelationshipsTab";
 import { LocationsTab } from "./contact-detail-tabs/LocationsTab";
 import { CompanyIntelligenceTab } from "./contact-detail-tabs/CompanyIntelligenceTab";
+import { CommunicationHealthTab } from "./contact-detail-tabs/CommunicationHealthTab";
 
 // ── Churn Risk Panel ──────────────────────────────────────────────────────────
 type MerchantHealthScore = {
@@ -1231,6 +1232,9 @@ export default function ContactDetail() {
             <Brain className="h-3.5 w-3.5 mr-1" />
             Churn Risk
           </TabsTrigger>
+          <TabsTrigger value="comm-health" data-testid="tab-comm-health">
+            Comm. Health
+          </TabsTrigger>
           {contact.isParentAccount && (
             <TabsTrigger value="company-intelligence" data-testid="tab-company-intelligence">
               <Store className="h-3.5 w-3.5 mr-1" />
@@ -1313,6 +1317,10 @@ export default function ContactDetail() {
 
         <TabsContent value="churn-risk" data-testid="tab-content-churn-risk">
           <ChurnRiskPanel contactId={contactId} isManagerOrAdmin={isManagerOrAdmin} />
+        </TabsContent>
+
+        <TabsContent value="comm-health" data-testid="tab-content-comm-health">
+          <CommunicationHealthTab contactId={contactId} />
         </TabsContent>
 
         {contact.isParentAccount && (

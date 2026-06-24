@@ -812,4 +812,78 @@ export function registerContactsRoutes(app: Express) {
     }
   });
 
+  app.get("/api/contacts/:id/communication-health", isDashboardUser, async (req, res) => {
+    try {
+      const contactId = parseInt(req.params.id);
+      if (isNaN(contactId)) return res.status(400).json({ message: "Invalid contact ID" });
+
+      const contact = await storage.getContact(contactId);
+      if (!contact) return res.status(404).json({ message: "Contact not found" });
+
+      const { db } = await import("../db");
+      const { auditLogs } = await import("@shared/schema");
+      const { desc, eq, and, like } = await import("drizzle-orm");
+
+      const recentEvents = await db
+        .select()
+        .from(auditLogs)
+        .where(
+          and(
+            eq(auditLogs.entityType, "contact"),
+            eq(auditLogs.entityId, contactId),
+            like(auditLogs.action, "comm_event_%")
+          )
+        )
+        .orderBy(desc(auditLogs.createdAt))
+        .limit(10);
+
+      const emailFailed = contact.emailStatus === "bounced";
+      const smsFailed = contact.smsStatus === "undeliverable";
+      const callFailed = (contact.callAttempts ?? 0) >= 5;
+      const allChannelsFailed = emailFailed && smsFailed && callFailed;
+
+      let nextRecommendedAction = "Continue outreach";
+      if (contact.doNotAutoContact) {
+        nextRecommendedAction = "Manual review — all channels failed";
+      } else if (emailFailed && !smsFailed) {
+        nextRecommendedAction = "Escalate to SMS";
+      } else if (smsFailed && !emailFailed) {
+        nextRecommendedAction = "Escalate to email";
+      } else if ((contact.callAttempts ?? 0) >= 3) {
+        nextRecommendedAction = "Switch to email-first strategy";
+      } else if (contact.preferredChannel) {
+        nextRecommendedAction = `Prioritize ${contact.preferredChannel} (preferred channel)`;
+      }
+
+      res.json({
+        contactId,
+        email: {
+          status: contact.emailStatus ?? "active",
+          bouncedAt: contact.bouncedAt ?? null,
+        },
+        sms: {
+          status: contact.smsStatus ?? "active",
+        },
+        call: {
+          attempts: contact.callAttempts ?? 0,
+          lastVoicemailAt: contact.lastVoicemailAt ?? null,
+        },
+        engagementScore: contact.engagementScore ?? 50,
+        reachabilityScore: contact.reachabilityScore ?? 100,
+        preferredChannel: contact.preferredChannel ?? null,
+        doNotAutoContact: contact.doNotAutoContact ?? false,
+        allChannelsFailed,
+        nextRecommendedAction,
+        recentEvents: recentEvents.map(e => ({
+          id: e.id,
+          action: e.action,
+          details: e.details,
+          createdAt: e.createdAt,
+        })),
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
 }

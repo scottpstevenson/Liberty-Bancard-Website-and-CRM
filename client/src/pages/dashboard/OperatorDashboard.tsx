@@ -1864,6 +1864,117 @@ function QueueMetricsPanel() {
   );
 }
 
+interface BounceStats {
+  windowDays: number;
+  emailBounceRate: number;
+  smsFailureRate: number;
+  emailBouncedTotal: number;
+  smsUndeliverableTotal: number;
+  unreachableContactCount: number;
+  todayFailureEvents: number;
+  topFailureReasons: Array<{ reason: string; count: number }>;
+}
+
+function BounceFailurePanel() {
+  const { data, isLoading, isError, refetch } = useQuery<BounceStats>({
+    queryKey: ["/api/operator/bounce-stats"],
+    refetchInterval: 60_000,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-16" data-testid="bounce-failure-loading">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (isError || !data) {
+    return (
+      <div className="flex flex-col items-center py-16 gap-3" data-testid="bounce-failure-error">
+        <AlertTriangle className="w-8 h-8 text-red-500" />
+        <p className="text-sm text-muted-foreground">Failed to load bounce &amp; failure data</p>
+        <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="btn-retry-bounce-failure">
+          <RefreshCw className="w-4 h-4 mr-1" /> Retry
+        </Button>
+      </div>
+    );
+  }
+
+  const bounceRateColor = data.emailBounceRate > 5 ? "text-red-600" : data.emailBounceRate > 2 ? "text-yellow-600" : "text-green-600";
+  const smsRateColor = data.smsFailureRate > 10 ? "text-red-600" : data.smsFailureRate > 5 ? "text-yellow-600" : "text-green-600";
+
+  return (
+    <div className="space-y-4" data-testid="bounce-failure-panel">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <Card data-testid="stat-email-bounced">
+          <CardContent className="pt-4 pb-3 text-center">
+            <Mail className="w-5 h-5 mx-auto text-muted-foreground mb-1" />
+            <p className={`text-2xl font-bold ${bounceRateColor}`} data-testid="email-bounce-rate">{data.emailBounceRate}%</p>
+            <p className="text-xs text-muted-foreground">Email Bounce Rate ({data.windowDays}d)</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{data.emailBouncedTotal} total contacts</p>
+          </CardContent>
+        </Card>
+        <Card data-testid="stat-sms-undeliverable">
+          <CardContent className="pt-4 pb-3 text-center">
+            <MessageSquare className="w-5 h-5 mx-auto text-muted-foreground mb-1" />
+            <p className={`text-2xl font-bold ${smsRateColor}`} data-testid="sms-failure-rate">{data.smsFailureRate}%</p>
+            <p className="text-xs text-muted-foreground">SMS Failure Rate ({data.windowDays}d)</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{data.smsUndeliverableTotal} total contacts</p>
+          </CardContent>
+        </Card>
+        <Card data-testid="stat-unreachable">
+          <CardContent className="pt-4 pb-3 text-center">
+            <Phone className="w-5 h-5 mx-auto text-muted-foreground mb-1" />
+            <p className={`text-2xl font-bold ${data.unreachableContactCount > 0 ? "text-red-600" : "text-green-600"}`} data-testid="unreachable-count">{data.unreachableContactCount}</p>
+            <p className="text-xs text-muted-foreground">Unreachable (auto-paused)</p>
+          </CardContent>
+        </Card>
+        <Card data-testid="stat-today-events">
+          <CardContent className="pt-4 pb-3 text-center">
+            <Activity className="w-5 h-5 mx-auto text-muted-foreground mb-1" />
+            <p className="text-2xl font-bold" data-testid="today-failure-events">{data.todayFailureEvents}</p>
+            <p className="text-xs text-muted-foreground">Failures Today</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {data.topFailureReasons.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium">Top Failure Reasons (Last {data.windowDays} Days — failures only)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2" data-testid="failure-reasons-list">
+              {data.topFailureReasons.map((item, idx) => (
+                <div key={idx} className="flex items-center gap-2" data-testid={`failure-reason-${idx}`}>
+                  <div className="flex-1 text-sm capitalize">{item.reason.replace(/_/g, " ")}</div>
+                  <div className="w-32 bg-muted rounded-full h-2 overflow-hidden">
+                    <div
+                      className="h-full bg-red-400 rounded-full"
+                      style={{ width: `${Math.min(100, (item.count / (data.topFailureReasons[0]?.count || 1)) * 100)}%` }}
+                    />
+                  </div>
+                  <span className="text-xs font-medium text-muted-foreground w-8 text-right">{item.count}</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {data.topFailureReasons.length === 0 && (
+        <Card>
+          <CardContent className="py-10 text-center">
+            <CheckCircle2 className="w-8 h-8 mx-auto text-green-500 mb-2" />
+            <p className="text-sm text-muted-foreground">No communication failures in the last 7 days.</p>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 interface CommHealthData {
   smtp: { configured: boolean; host: string | null; port: number; user: string | null; from: string | null };
   ghl: { emailConfigured: boolean; fullyConfigured: boolean };
@@ -2499,6 +2610,9 @@ export default function OperatorDashboard() {
           <TabsTrigger value="statement-upload" data-testid="tab-statement-upload" className="flex items-center gap-1">
             <AlertTriangle className="w-3.5 h-3.5" /> Upload Failures
           </TabsTrigger>
+          <TabsTrigger value="bounce-failure" data-testid="tab-bounce-failure" className="flex items-center gap-1">
+            <XCircle className="w-3.5 h-3.5" /> Bounce &amp; Failure
+          </TabsTrigger>
           <TabsTrigger value="comm-health" data-testid="tab-comm-health" className="flex items-center gap-1">
             <Mail className="w-3.5 h-3.5" /> Email Health
           </TabsTrigger>
@@ -2563,6 +2677,9 @@ export default function OperatorDashboard() {
         </TabsContent>
         <TabsContent value="statement-upload">
           <StatementUploadFailuresPanel />
+        </TabsContent>
+        <TabsContent value="bounce-failure">
+          <BounceFailurePanel />
         </TabsContent>
         <TabsContent value="comm-health">
           <CommHealthPanel />

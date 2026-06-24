@@ -87,6 +87,11 @@ export const contacts = pgTable("contacts", {
   isDecisionMaker: boolean("is_decision_maker").notNull().default(false),
   decisionMakerConfidence: integer("decision_maker_confidence").notNull().default(0),
   managementType: text("management_type").notNull().default("unknown"),
+  smsStatus: text("sms_status").notNull().default("active"),
+  lastVoicemailAt: timestamp("last_voicemail_at"),
+  reachabilityScore: integer("reachability_score").notNull().default(100),
+  callAttempts: integer("call_attempts").notNull().default(0),
+  doNotAutoContact: boolean("do_not_auto_contact").notNull().default(false),
 }, (table) => [
   uniqueIndex("contacts_email_unique_idx").on(table.email).where(sql`archived_at IS NULL`),
   index("contacts_phone_idx").on(table.phone),
