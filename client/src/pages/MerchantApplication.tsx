@@ -530,12 +530,10 @@ export default function MerchantApplication() {
                       <FileCheck className="w-6 h-6 text-primary" />
                     </div>
                     <h2 className="text-xl font-display font-bold text-foreground mb-2" data-testid="text-esign-pending-heading">
-                      E-Signature Coming Soon
+                      Application Received
                     </h2>
                     <p className="text-muted-foreground mb-4" data-testid="text-esign-pending-description">
-                      Your application has been submitted. Our team will send you a Merchant Processing Agreement 
-                      for electronic signature shortly via email to{" "}
-                      <span className="font-medium text-foreground">{ownerEmail || businessEmail}</span>.
+                      Your application has been submitted successfully. Our team will contact you within 1 business day to complete the e-signature process and finalize your account setup.
                     </p>
                   </CardContent>
                 </Card>
