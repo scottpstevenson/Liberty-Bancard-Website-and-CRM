@@ -1,0 +1,69 @@
+Update Task #573 using the verified repo findings below. Do not build yet.
+
+Required corrections to the task plan:
+
+1. Constants
+PHONE_NUMBER, PHONE_TEL, and CALENDAR_URL live in client/src/lib/constants.ts.
+All CTA components must import and use these constants. Do not hardcode the phone number or booking URL.
+
+2. StickyMobileCTA
+client/src/components/StickyMobileCTA.tsx currently has only Call + Upload and fires no analytics.
+Upgrade it to Call + Book + Upload.
+It must use PHONE_TEL / CALENDAR_URL / upload route constants or existing route patterns.
+It must fire analytics events using the existing tracking pattern.
+
+3. Analytics
+There are two existing analytics files:
+- client/src/lib/tracking.ts = primary named tracking functions
+- client/src/lib/analytics.ts = UTM-aware helper
+
+Do not create a third analytics system.
+Add minimal CTA tracking in the existing pattern only.
+If adding new named events, define them consistently in tracking.ts and preserve UTM context through analytics.ts if that is the existing pattern.
+
+Required events:
+- phone_cta_click
+- booking_cta_click
+- statement_upload_cta_click
+- free_terminal_eligibility_click
+- cash_discount_review_click
+- surcharge_review_click
+
+If existing naming conventions differ, follow the repo convention and document the final names.
+
+4. ZeroPercent kill-line fixes
+client/src/pages/ZeroPercent.tsx already uses Liberty Zero™, but the H1 “Pay $0” is unqualified and must be replaced.
+The trust strip contains unverified claims:
+- PCI DSS Level 1 Certified
+- Registered ISO/MSP
+- 5,000+ Merchants Served
+- $2B+
+- 10+ Years
+
+Do not use these unless there is verified source/config/content support. Replace with neutral trust copy if unverified.
+
+5. FreeSmartTerminal route
+client/src/pages/FreeSmartTerminal.tsx does not exist.
+Add it.
+Register it using App.tsx’s existing lazy import + <Route> pattern.
+Add the route to server/routes/ssr-routes.ts for sitemap/SSR coverage.
+Do not invent backend eligibility logic. Use a lightweight eligibility CTA/quiz only if frontend-only and routes to existing intake path.
+
+6. UploadStatement and FreeAnalysis
+UploadStatement.tsx is 971 lines with an existing upload state machine.
+FreeAnalysis.tsx is 1,256 lines with existing quiz tracking.
+Do not rewrite these pages wholesale.
+Make surgical conversion/trust/CTA/tracking improvements only.
+Preserve existing upload state machine and quiz tracking behavior.
+
+7. Scope protection
+Do not touch backend contactability, PEWC, GHL workflows, SMS, AI voice, ringless voicemail, database schema, or Wave 571A files.
+This is a frontend conversion task only.
+
+Now re-propose the final build task with:
+- exact files to modify
+- exact changes per file
+- verified assumptions
+- kill lines
+- validation plan
+- build readiness verdict

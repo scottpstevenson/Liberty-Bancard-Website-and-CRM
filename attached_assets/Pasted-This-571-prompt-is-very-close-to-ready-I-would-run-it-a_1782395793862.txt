@@ -1,0 +1,163 @@
+This 571 prompt is very close to ready. I would run it after a few surgical fixes. The structure is strong, but there are a few ambiguity traps that could cause the agent to over-block safe channels, over-log, or build too much.
+
+Changes I would make before sending it
+
+1. Fix the task numbering
+
+You call this 571 / Wave 1A, but later say:
+
+Wave 1B / Task #572B
+
+Keep it consistent.
+
+Use:
+
+Follow-up notes for 571B — Minimal Admin Channel Safety Matrix
+
+Do not introduce 572B unless that is intentionally the Replit task number.
+
+⸻
+
+2. Clarify doNotAutoContact
+
+Right now the evaluation order puts doNotAutoContact before the channel check. That may accidentally block manual call tasks or possibly even normal email, depending how Replit interprets it.
+
+You want this:
+
+doNotAutoContact blocks automated outreach channels and automated workflow enrollment. It does not necessarily block creation of a manual human review/manual call task unless doNotContact, call opt-out, DNC, or another suppression rule also applies.
+
+Add this to hard rules:
+
+Manual call task is not the same as automated voice outreach. A manual_call channel may create a human task only; it must never initiate AI voice, ringless voicemail, autodialed calling, or SMS.
+
+That distinction is important.
+
+⸻
+
+3. Change “Florida SB 1120 requires express_written consent for Florida contacts”
+
+This is too broad as written. It could make the agent block all Florida manual calls/emails.
+
+Better:
+
+Florida-specific telephone solicitation risk rule: for Florida contacts, automated SMS, AI voice, ringless voicemail, prerecorded/artificial voice, or autodialed phone outreach must require PEWC / express written consent. Manual human call tasks and compliant email should not be blocked solely because the contact is in Florida unless DNC, opt-out, quiet hours, phone type, or other suppression rules apply.
+
+⸻
+
+4. Be careful with “every allowed automated attempt writes audit log”
+
+Good, but define which channels count as automated.
+
+Add:
+
+Automated channels include email sequence sends, SMS, AI voice, ringless voicemail, GHL workflow enrollment, and any worker-triggered outbound step. Manual call task creation should write a task/audit event if existing patterns support it, but must not be treated as an actual placed call.
+
+⸻
+
+5. Do not force a one-time migration script to run blindly
+
+This line is risky:
+
+run as a one-time migration script on existing contacts
+
+Better:
+
+Create a conservative backfill script. Run it only if the repo’s migration/deploy pattern supports data backfills safely. If not, document the command/manual step and leave it unrun.
+
+You do not want Replit accidentally mutating production-ish data during a task.
+
+⸻
+
+6. Make “rate limits / sender limits” non-blocking if no existing service exists
+
+If no rate-limit service exists, the agent may invent a giant subsystem.
+
+Add:
+
+If a canonical rate-limit/sender-limit service already exists, call it. If not, return `not_evaluated` or document as follow-up. Do not build a new rate-limit system in this task.
+
+⸻
+
+7. Test file name may not match repo patterns
+
+You wrote:
+
+Add scripts/test-contactability.ts
+
+That’s okay if your repo uses script tests, but if it uses Vitest/Jest, this may create an orphan test.
+
+Change to:
+
+Add tests using the repo’s existing test pattern. Prefer existing test directories/naming. Only create `scripts/test-contactability.ts` if script-based validation is the established pattern.
+
+⸻
+
+8. “Verify no unguarded send paths exist” may be too absolute
+
+Good goal, but the agent may not be able to prove every GHL-side workflow from code.
+
+Change to:
+
+Verify all repo-visible send paths are gated. If external GHL-native workflows cannot be inspected from code, document them as Wave 7 external enforcement risk.
+
+⸻
+
+Drop-in patch to add near Hard Rules
+
+Add this:
+
+Channel semantics:
+email = platform-sent email or email sequence step.
+manual_call = creation of a human rep task only; it must not place a call, trigger AI voice, trigger ringless voicemail, trigger autodialing, or send SMS.
+sms = automated or platform-sent text message.
+voice_ai = AI/artificial/prerecorded voice call.
+ringless_vm = voicemail drop / ringless voicemail.
+doNotAutoContact blocks automated outreach and automated workflow enrollment. It does not automatically block manual human task creation unless doNotContact, call opt-out, DNC, or another suppression rule applies.
+
+Drop-in patch to replace Florida rule
+
+Replace:
+
+Florida-specific telephone solicitation risk rule (SB 1120 — requires express_written consent for Florida contacts)
+
+With:
+
+Florida-specific telephone solicitation risk rule — for Florida contacts, automated SMS, AI voice, ringless voicemail, prerecorded/artificial voice, or autodialed phone outreach must require PEWC / express written consent. Do not block compliant email or manual human call tasks solely because the contact is in Florida unless another suppression rule applies.
+
+Drop-in patch for rate limits
+
+Add under evaluation order:
+
+If an existing rate-limit/sender-limit service exists, integrate it. If no canonical service exists, do not invent a new rate-limit subsystem in this task; return/document rate limit status as not_evaluated and list it as a follow-up.
+
+Drop-in patch for backfill
+
+Replace:
+
+run as a one-time migration script on existing contacts
+
+With:
+
+create a conservative backfill script and run it only if the repo’s existing migration/deploy pattern supports safe data backfills. If not safe, document the exact command and leave the backfill as an operator/deploy step.
+
+Drop-in patch for tests
+
+Replace:
+
+Add scripts/test-contactability.ts
+
+With:
+
+Add tests using the repo’s existing test pattern. Prefer existing test directories/naming. Only create scripts/test-contactability.ts if script-based validation is already used in this project.
+
+Final verdict
+
+This is ready after those edits.
+
+The biggest thing to protect is the distinction between:
+
+manual_call = human task
+versus
+voice_ai / ringless_vm = automated telephonic outreach
+
+Without that clarification, the agent may either over-block useful manual sales tasks or accidentally treat manual call as a real outbound call action.

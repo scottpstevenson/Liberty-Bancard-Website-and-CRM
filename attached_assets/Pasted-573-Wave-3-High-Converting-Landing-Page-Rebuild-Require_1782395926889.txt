@@ -1,0 +1,836 @@
+573 — Wave 3: High-Converting Landing Page Rebuild
+
+Required Skills
+
+* frontend-design — premium conversion UX, responsive layout, CTA hierarchy, accessibility
+* copywriting — merchant-facing offer copy, objection-aware messaging, high-intent landing page copy
+* growth-marketing — CRO, paid/organic funnel alignment, CTA architecture, conversion path strategy
+* fullstack-js — React/TypeScript routing, shared components, form/event handlers
+* analytics-engineering — CTA/form/upload event instrumentation using existing analytics patterns
+* compliance-systems — compliant surcharge/cash-discount/free-terminal language, no unsupported claims
+* QA-release-lead — route smoke tests, mobile QA, regression validation
+
+⸻
+
+What & Why
+
+Liberty Bancard’s high-intent public pages must convert more visitors into the four primary revenue actions:
+
+1. Inbound phone calls
+2. Booked appointments
+3. Statement uploads / free analysis requests
+4. Merchant application starts
+
+The current website has the right page inventory, but the conversion system is not yet sharp enough:
+
+* Homepage messaging is too general and needs a more specific merchant value proposition.
+* Mobile users need a clear tap-to-call / book / upload path above the fold and/or sticky access.
+* /beat-square-stripe is useful but too data-heavy and needs stronger conversion routing.
+* /0-percent-processing / Liberty Zero™ language must be tightened so it does not overpromise “free processing.”
+* /free-analysis and /upload-statement exist but need stronger trust proof, clearer next steps, and better mobile flow.
+* /free-smart-terminal does not exist as a dedicated offer page; current CTA behavior routes users generically to /get-started.
+* Competitor, industry, and location pages need consistent high-intent CTA architecture.
+* CTA analytics must fire consistently for phone, booking, upload, and application-intent clicks.
+
+This task rebuilds the high-intent conversion layer without changing core backend CRM/contactability systems.
+
+⸻
+
+Business Goal
+
+Maximize qualified inbound calls, booked appointments, statement uploads, free analysis requests, and merchant application starts while keeping offer language compliant, accurate, and trustworthy.
+
+⸻
+
+Conversion Priority
+
+Every high-intent page should support this CTA hierarchy:
+
+1. Phone Call — fastest path for urgent/high-intent merchants
+2. Book Appointment — best path for scheduled sales conversations
+3. Upload Statement / Free Analysis — best proof-based conversion path
+4. Start Application / Check Eligibility — only where the merchant has enough intent
+
+Do not force every page to use all CTAs with equal visual weight. Each page should have one dominant primary CTA and 1–2 secondary actions based on intent.
+
+⸻
+
+Compliance + Claim Rules
+
+Do not invent or exaggerate claims.
+
+Trust proof rules
+
+Only use trust indicators if they are verified from existing content, config, assets, or business-provided copy.
+
+Do not invent:
+
+* BBB accreditation
+* PCI certification
+* ISO registration/accreditation
+* merchant count
+* years in business
+* partner logos
+* “licensed agents”
+* guaranteed approval
+* guaranteed savings
+
+If a trust signal cannot be verified, use neutral trust copy such as:
+
+* “Secure statement upload”
+* “No obligation review”
+* “Reviewed by a Liberty Bancard specialist”
+* “Transparent rate comparison”
+* “Merchant-focused payment review”
+
+Savings claim rules
+
+Do not make unsupported savings claims.
+
+Allowed:
+
+* “See if Liberty can beat your current rate.”
+* “Compare your current effective rate.”
+* “Find out whether you may be overpaying.”
+* “Upload a statement for a free savings review.”
+* “Savings depend on your current processor, volume, card mix, business type, and pricing plan.”
+
+Blocked unless backed by real calculator/statement data:
+
+* “Save 30%”
+* “Cut your fees in half”
+* “Guaranteed savings”
+* “Lowest rates guaranteed”
+* “Free processing” without qualifier
+
+Liberty Zero™ / fee-offset language rules
+
+Do not use unqualified “free processing” as a standalone claim.
+
+Preferred language:
+
+* “Liberty Zero™ fee-offset program”
+* “Explore compliant cash discount options”
+* “Explore compliant surcharge review”
+* “See whether your business qualifies for a compliant fee-offset setup”
+* “Program availability depends on business type, state rules, card-network rules, disclosure requirements, and underwriting.”
+
+Always include a clear disclaimer on /0-percent-processing above or near the first CTA.
+
+Free smart terminal language rules
+
+Do not imply guaranteed free equipment.
+
+Preferred language:
+
+* “Check if your business qualifies for a free smart terminal.”
+* “Available for approved merchants.”
+* “Terms apply.”
+* “Eligibility may depend on processing volume, business type, underwriting, and equipment program requirements.”
+
+⸻
+
+Page Scope
+
+Update these high-intent pages/templates:
+
+* client/src/pages/Home.tsx
+* client/src/pages/BeatSquareStripe.tsx
+* client/src/pages/ZeroPercent.tsx
+* client/src/pages/FreeAnalysis.tsx
+* client/src/pages/UploadStatement.tsx
+* client/src/pages/CompareVs.tsx
+* client/src/pages/IndustryPage.tsx
+* client/src/pages/LocationIndustryPage.tsx
+* client/src/components/StickyMobileCTA.tsx
+* client/src/App.tsx
+* existing analytics/event utility files as needed
+* existing sitemap/route registration files as needed
+* client/src/pages/AdvertisingDisclosure.tsx only for reference; do not duplicate legal content inconsistently
+
+Create if missing:
+
+* client/src/pages/FreeSmartTerminal.tsx
+
+Strongly prefer shared reusable components/config over repeated hardcoded CTA sections.
+
+Recommended shared components/config if not already present:
+
+* ConversionCTAGroup
+* HighIntentHero
+* TrustProofStrip
+* ComplianceDisclosure
+* OfferCTAConfig
+* upgraded StickyMobileCTA
+
+⸻
+
+Done Looks Like
+
+1. Shared CTA System
+
+A shared CTA pattern exists or is upgraded so high-intent pages use consistent:
+
+* phone CTA
+* booking CTA
+* statement upload CTA
+* application / eligibility CTA where appropriate
+* CTA labels
+* tracking attributes
+* mobile behavior
+* accessibility labels
+
+CTA URLs should preserve or append relevant offer intent where possible:
+
+* ?offer=beat-square
+* ?offer=beat-stripe
+* ?offer=free-terminal
+* ?offer=zero-fee-offset
+* ?offer=statement-analysis
+* ?source_page=<current-route>
+
+Do not break existing UTM capture behavior.
+
+⸻
+
+2. Sticky Mobile CTA Bar
+
+StickyMobileCTA.tsx is upgraded for high-intent pages.
+
+It should include:
+
+* Call
+* Book
+* Upload
+
+Requirements:
+
+* tap-to-call works on mobile
+* booking CTA uses existing GHL/booking URL pattern
+* upload CTA routes to /upload-statement
+* does not cover form submit buttons, file upload controls, cookie banners, or chat widgets
+* respects iPhone safe area using bottom inset spacing
+* includes appropriate bottom page padding where needed
+* has accessible labels
+* is not shown on pages or steps where it would interfere with form completion
+* fires CTA analytics events
+
+⸻
+
+3. Homepage Conversion Upgrade
+
+Home.tsx should have a more specific merchant-focused hero.
+
+Hero should clearly communicate:
+
+* Liberty helps merchants compare and reduce payment processing costs
+* merchants can upload a statement or request a rate review
+* Liberty can review options against processors like Square, Stripe, Clover, Toast, or PayPal where relevant
+
+Primary CTA options:
+
+* “Upload My Statement”
+* “See If We Can Beat My Rate”
+
+Secondary CTA options:
+
+* “Book a 15-Minute Review”
+* “Call for Free Rate Review”
+
+Homepage should include:
+
+* verified trust proof only
+* above-fold mobile call/booking/upload access
+* clear statement-analysis path
+* clear beat-rate path
+* no generic “grow your business” hero as the main message
+* no unsupported savings claims
+
+If an effective-rate calculator/result module already exists on the homepage, add a strong post-result CTA such as:
+
+* “Check My Savings”
+* “Upload Statement for Review”
+* “Book My Rate Review”
+
+Do not build a new calculator from scratch in this task unless one already exists and only needs CTA wiring.
+
+⸻
+
+4. /beat-square-stripe Upgrade
+
+BeatSquareStripe.tsx should be upgraded around comparison intent.
+
+H1:
+
+“Can Liberty Beat Square or Stripe? Let’s Do the Math.”
+
+Must include:
+
+* specific but compliant comparison table
+* “See If We Can Beat Square” CTA
+* “See If We Can Beat Stripe” CTA
+* phone CTA
+* booking CTA
+* statement upload CTA
+* clear disclaimer that actual savings depend on current rates, volume, card mix, business type, and approval
+* no unsupported savings guarantee
+* clear next step after each CTA
+
+⸻
+
+5. /0-percent-processing / Liberty Zero™ Upgrade
+
+ZeroPercent.tsx should replace unqualified “free processing” language with qualified fee-offset language.
+
+Use:
+
+* “Liberty Zero™ fee-offset program”
+* “Compliant cash discount options”
+* “Compliant surcharge review”
+* “Offset or reduce processing costs where allowed”
+
+Add above-fold disclaimer:
+
+“Program availability depends on business type, state rules, card-network rules, disclosure requirements, and underwriting. Liberty Bancard can help review whether a compliant fee-offset option may fit your business.”
+
+CTA options:
+
+* “Explore Compliant Cash Discount”
+* “Request Surcharge Review”
+* “Book a Fee-Offset Review”
+* “Upload Statement for Review”
+
+Do not imply:
+
+* universal free processing
+* guaranteed zero cost
+* no compliance requirements
+* no customer disclosure requirements
+
+⸻
+
+6. /free-analysis Upgrade
+
+FreeAnalysis.tsx should be upgraded for trust, clarity, and completion.
+
+Must include:
+
+* primary CTA: “Check My Savings”
+* clear “free review / no obligation” copy
+* trust copy that does not overclaim
+* step/progress clarity if there is already a multi-step quiz/form
+* clear next step after submit
+* booking CTA after completion or near completion
+* statement upload CTA where appropriate
+
+Preferred copy:
+
+“No obligation — get a clear review path before deciding whether to switch.”
+
+Avoid:
+
+* “No sales call required” if a specialist may follow up
+* “licensed agents” unless verified
+* guaranteed savings claims
+
+⸻
+
+7. /upload-statement Upgrade
+
+UploadStatement.tsx should become the highest-trust proof-based conversion page.
+
+Must include:
+
+* statement security trust copy
+* supported file formats
+* clear upload instructions
+* mobile file picker usability
+* progress state during upload
+* upload success state
+* upload error state
+* clear next step after upload
+* phone CTA
+* booking CTA
+* privacy/security reassurance
+
+Suggested copy:
+
+“Your statement is used only to prepare your Liberty Bancard rate review. It is not sold or shared for unrelated marketing.”
+
+Only use stronger privacy/security language if it matches the actual privacy policy and backend behavior.
+
+Events should fire using existing analytics patterns:
+
+* statement_upload_started
+* statement_upload_completed
+* statement_upload_failed
+* statement_upload_abandoned or existing equivalent, if supported
+
+Do not create a new analytics architecture in this task.
+
+⸻
+
+8. New /free-smart-terminal Page
+
+Create:
+
+client/src/pages/FreeSmartTerminal.tsx
+
+Register route in:
+
+client/src/App.tsx
+
+Add route to sitemap if this project has a route/sitemap registry pattern.
+
+H1:
+
+“Check If Your Business Qualifies for a Free Smart Terminal”
+
+Page must include:
+
+* eligibility-focused hero
+* business-friendly explanation of the terminal offer
+* short eligibility quiz or CTA flow
+* qualification factors such as business type and estimated monthly processing volume
+* disclaimer: available for approved merchants, terms apply, underwriting/equipment program requirements may apply
+* phone CTA
+* booking CTA
+* “Check Free Terminal Eligibility” CTA
+* “Upload Statement” CTA
+* route to /get-started?offer=free-terminal or existing form route with offer=free-terminal
+* no guarantee of approval or free equipment
+
+Eligibility quiz should not collect more information than needed. If building a quiz creates too much new state, use a lightweight CTA card and route to existing /get-started form with offer parameters.
+
+⸻
+
+9. Competitor Compare Pages
+
+Update:
+
+CompareVs.tsx
+
+Every /compare/:competitor page should include:
+
+* competitor-specific H1
+* phone CTA
+* booking CTA
+* statement upload CTA
+* competitor-specific comparison section
+* qualified savings language
+* no unsupported savings guarantee
+* no false claims about competitors
+* clear “upload statement for actual review” path
+
+If a sticky sidebar exists, ensure it is mobile-safe and does not duplicate the sticky mobile CTA bar awkwardly.
+
+⸻
+
+10. Industry Pages
+
+Update:
+
+IndustryPage.tsx
+
+Each industry page should include above-fold:
+
+* industry-specific value proposition
+* phone CTA
+* booking CTA
+* statement upload CTA
+* offer route appropriate to industry
+* no generic merchant copy if industry-specific fields are available
+
+Examples:
+
+* Restaurant: rates, tips, online ordering, terminals, surcharging/cash discount review
+* Retail: terminals, inventory/POS fit, card mix
+* Healthcare: secure payments, recurring billing, patient payments
+* Contractors: mobile payments, invoicing, card-not-present costs
+
+Do not manually edit every generated page if the template can be fixed once.
+
+⸻
+
+11. Location × Industry Pages
+
+Update:
+
+LocationIndustryPage.tsx
+
+Each /locations/:city/:industry page should include above-fold:
+
+* localized H1
+* industry-specific value proposition
+* tap-to-call CTA on mobile
+* booking CTA
+* upload statement CTA
+* city + industry route context preserved in CTA params
+* no thin/generic hero if city/industry data is available
+
+Do not perform the full Wave 4 programmatic SEO uniqueness/content overhaul in this task.
+
+⸻
+
+Analytics Requirements
+
+Use existing analytics utilities/patterns.
+
+Add or verify event firing for CTAs touched in this task:
+
+* phone_cta_click
+* booking_cta_click
+* statement_upload_cta_click
+* application_start_cta_click
+* free_terminal_eligibility_click
+* cash_discount_review_click
+* surcharge_review_click
+* statement_upload_started
+* statement_upload_completed
+* statement_upload_failed
+
+Each event should include where available:
+
+* page path
+* CTA label
+* CTA location
+* offer
+* competitor
+* industry
+* city
+* source page
+* UTM values if existing tracking context already provides them
+
+Do not build the full Wave 8 attribution system here. Only instrument touched CTAs/forms using current patterns.
+
+⸻
+
+Out of Scope
+
+* Full paid landing page A/B variants
+* Full SEO metadata overhaul
+* Full schema/structured-data overhaul
+* New blog content
+* Full analytics attribution architecture
+* GHL workflow changes
+* Contactability engine changes
+* PEWC consent capture redesign
+* SMS, AI voice, or ringless voicemail activation
+* Merchant application backend changes
+* Rebuilding all programmatic SEO content manually
+* Creating unverifiable trust badges or unsupported claims
+
+⸻
+
+Kill Lines
+
+Stop and report before implementation if:
+
+* Any required trust claim cannot be verified from existing business data/content/config.
+* Any page currently says “free processing” as an unqualified standalone claim and the replacement language is unclear.
+* Any proposed savings claim is not backed by calculator/statement data.
+* Any CTA would route users into a broken or missing form.
+* Booking URL source is unclear or missing.
+* Phone number source is unclear or hardcoded inconsistently.
+* Existing UTM capture would be broken by new CTA query params.
+* Sticky mobile CTA overlaps existing form submit buttons, upload controls, cookie banner, or GHL chat widget.
+* The /free-smart-terminal page requires backend eligibility logic that does not exist.
+* Existing upload flow would be broken by progress/error state changes.
+* Compare/industry/location templates are generated in a way that makes direct edits brittle.
+* Adding the new route requires SEO/sitemap infrastructure changes outside this wave.
+* The task requires enabling SMS, AI voice, or ringless voicemail.
+* The task requires changing PEWC/contactability backend logic.
+
+⸻
+
+Implementation Steps
+
+Step 1 — Existing System Inventory
+
+Before changing code, inspect:
+
+* high-intent routes
+* current CTA components
+* current phone number source
+* current booking URL source
+* existing analytics utilities
+* current sticky mobile CTA behavior
+* existing statement upload states
+* existing free analysis form/quiz state
+* current sitemap/route registry pattern
+* existing disclosure/legal copy components
+* current trust proof assets/config
+
+Document any missing source of truth before implementing.
+
+⸻
+
+Step 2 — Shared CTA/Offer Config
+
+Create or upgrade a shared CTA/config layer so all high-intent pages use consistent labels, links, tracking, and mobile behavior.
+
+Include:
+
+* phone CTA
+* booking CTA
+* upload CTA
+* free-terminal CTA
+* fee-offset CTA
+* beat-rate CTA
+
+Avoid repeated hardcoded phone numbers and booking links.
+
+⸻
+
+Step 3 — Sticky Mobile CTA Upgrade
+
+Upgrade StickyMobileCTA.tsx.
+
+Ensure:
+
+* mobile safe-area support
+* no overlap with forms/chat
+* consistent CTA labels
+* consistent event tracking
+* configurable visibility per page
+* accessible labels
+* graceful desktop behavior
+
+⸻
+
+Step 4 — Homepage Upgrade
+
+Update Home.tsx.
+
+Focus on:
+
+* specific H1
+* merchant pain-point value prop
+* statement upload path
+* beat-rate path
+* phone/book/upload CTAs
+* verified trust proof
+* calculator result CTA only if existing calculator/result module exists
+
+⸻
+
+Step 5 — /beat-square-stripe Upgrade
+
+Update BeatSquareStripe.tsx.
+
+Add:
+
+* stronger comparison hero
+* Square-specific CTA
+* Stripe-specific CTA
+* phone CTA
+* booking CTA
+* statement upload CTA
+* qualified savings disclaimer
+
+⸻
+
+Step 6 — /0-percent-processing Upgrade
+
+Update ZeroPercent.tsx.
+
+Replace risky language with Liberty Zero™ fee-offset framing.
+
+Add:
+
+* above-fold disclaimer
+* compliant cash discount CTA
+* surcharge review CTA
+* booking/upload CTAs
+* no unqualified free-processing claims
+
+⸻
+
+Step 7 — /free-analysis Upgrade
+
+Update FreeAnalysis.tsx.
+
+Add:
+
+* clearer savings check CTA
+* no-obligation trust copy
+* progress clarity if existing form supports it
+* booking/upload next steps
+* no “licensed agents” claim unless verified
+
+⸻
+
+Step 8 — /upload-statement Upgrade
+
+Update UploadStatement.tsx.
+
+Add:
+
+* security/privacy reassurance
+* supported formats
+* mobile upload improvements
+* progress state
+* success/error clarity
+* post-upload CTA path
+* event tracking using existing analytics pattern
+
+⸻
+
+Step 9 — New /free-smart-terminal Page
+
+Create FreeSmartTerminal.tsx.
+
+Register route.
+
+Add to sitemap/route registry if this is the existing project pattern.
+
+Use eligibility-focused copy and compliant disclaimers.
+
+Route CTA to existing /get-started?offer=free-terminal or the correct existing intake route.
+
+Do not invent backend eligibility rules if none exist.
+
+⸻
+
+Step 10 — Compare / Industry / Location Template Upgrades
+
+Update:
+
+* CompareVs.tsx
+* IndustryPage.tsx
+* LocationIndustryPage.tsx
+
+Add consistent above-fold CTA groups and tracking.
+
+Do not manually edit hundreds of generated pages if the templates can be fixed once.
+
+⸻
+
+Validation
+
+Use targeted validation.
+
+Static Greps
+
+Run greps for:
+
+* free processing
+* guaranteed
+* save
+* lowest
+* BBB
+* licensed
+* PCI
+* ISO
+* merchant count
+* tel:
+* booking
+* Upload My Statement
+* Check Free Terminal Eligibility
+* Liberty Zero
+* phone_cta_click
+* booking_cta_click
+* statement_upload
+
+Route Smoke
+
+Verify these routes render without errors:
+
+* /
+* /beat-square-stripe
+* /0-percent-processing
+* /free-analysis
+* /upload-statement
+* /free-smart-terminal
+* /compare/square
+* /compare/stripe
+* one industry page
+* one location × industry page
+
+Mobile QA
+
+Test at mobile widths:
+
+* 390px
+* 430px
+* 768px
+
+Verify:
+
+* tap-to-call visible
+* sticky CTA does not cover form/upload/chat/cookie UI
+* upload page remains usable
+* CTA labels are readable
+* no layout overflow
+* no duplicate sticky bars
+* safe-area spacing works
+
+Analytics QA
+
+Verify touched CTAs fire expected events:
+
+* phone CTA
+* booking CTA
+* upload CTA
+* free terminal eligibility CTA
+* cash discount/surcharge CTA
+* statement upload start/success/failure where applicable
+
+Upload Regression
+
+Verify:
+
+* supported file format copy is accurate
+* file picker opens on mobile
+* progress state appears
+* success state appears
+* error state appears on failure
+* existing CRM/upload behavior is not broken
+
+Copy QA
+
+Verify:
+
+* no unqualified “free processing”
+* no unsupported savings guarantee
+* no invented trust badges
+* no “licensed agents” unless verified
+* free terminal page uses eligibility/terms language
+* cash discount/surcharge copy is qualified
+* competitor pages do not make false claims
+
+⸻
+
+Final Report Required
+
+Return:
+
+1. Files changed
+2. Routes added/updated
+3. Shared CTA components/config added or reused
+4. Final CTA hierarchy by page
+5. Copy/compliance changes made
+6. Trust signals used and source/verification
+7. Analytics events added/verified
+8. Mobile sticky CTA behavior
+9. Upload/free-analysis behavior changes
+10. Validation results
+11. Known remaining conversion gaps
+12. Follow-up recommendations for Wave 4 SEO and Wave 8 analytics
+
+⸻
+
+Success Definition
+
+After this task:
+
+* High-intent pages have a clear conversion hierarchy.
+* Mobile users can call, book, or upload without friction.
+* /free-smart-terminal exists as a dedicated eligibility page.
+* /0-percent-processing uses qualified Liberty Zero™ fee-offset language.
+* /beat-square-stripe routes users into comparison-specific CTAs.
+* /free-analysis and /upload-statement feel more trustworthy and action-oriented.
+* Competitor, industry, and location templates expose call/book/upload CTAs above the fold.
+* CTA analytics fire using existing tracking patterns.
+* No unsupported savings claims or unverifiable trust claims are introduced.
+* No SMS, AI voice, ringless voicemail, PEWC, or backend contactability logic is changed.
