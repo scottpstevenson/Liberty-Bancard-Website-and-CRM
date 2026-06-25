@@ -1,0 +1,800 @@
+574 — Wave 4: SEO + Programmatic Page Quality Upgrade
+
+Required Skills
+
+* SEO-strategy — technical SEO, sitemap/indexation strategy, canonicalization, crawl budget, internal linking
+* fullstack-js — React/TypeScript page templates, SSR route generation, sitemap routes, shared SEO component usage
+* frontend-design — visible page hierarchy, H1/heading structure, readable internal-link blocks, alt text quality
+* copywriting — unique location/industry/comparison copy without thin-page filler
+* analytics-engineering — verification of existing SEO audit workflow and route coverage outputs
+* compliance-systems — no misleading LocalBusiness schema, no unsupported location/trust claims
+* QA-release-lead — route smoke tests, sitemap validation, robots validation, structured data validation, regression checks
+
+⸻
+
+Context
+
+Wave 3 has finished and merged cleanly.
+
+The site now includes the high-intent conversion layer, including the new /free-smart-terminal page and upgraded CTA patterns.
+
+Wave 4 must now lock down the SEO and programmatic page quality layer so the site can scale organic traffic without wasting crawl budget on thin, duplicated, misleading, or under-linked pages.
+
+The platform already appears to have:
+
+* sitemap index with sub-sitemaps
+* server-side sitemap/SSR route generation
+* shared SEO component with title/meta/canonical/OG/schema support
+* comparison pages
+* industry pages
+* location × industry programmatic pages
+* FAQ page
+* glossary routes
+* blog routes
+* high-intent offer pages from Wave 3
+
+This task must verify actual repo implementation before changing anything.
+
+⸻
+
+What & Why
+
+Liberty Bancard’s public site needs to rank for high-intent merchant processing searches while preserving trust and crawl quality.
+
+Current known concerns:
+
+* /free-smart-terminal was newly added in Wave 3 and now needs complete SEO integration.
+* Sitemap coverage may not include all critical conversion routes.
+* Location × industry pages may be thin or too templated.
+* Nested pages may lack BreadcrumbList schema.
+* FAQ schema and FAQ content need verification, but FAQ schema must not be overvalued as a rich-result strategy.
+* Internal linking between compare, industry, location, offer, and statement-upload pages needs a crawlable architecture.
+* Location schema must not imply fake offices/branches in cities where Liberty has no real physical presence.
+* Robots rules must allow public conversion/SEO pages and block private dashboard/admin routes.
+* H1s, titles, meta descriptions, canonicals, OG tags, and alt text must be consistent and unique enough to support indexation.
+
+Business goal:
+
+Increase qualified organic traffic to high-intent pages that convert into calls, booked appointments, statement uploads, free analysis requests, and merchant applications.
+
+⸻
+
+Pre-Build Plan Mode Rule
+
+Before implementation, stay in plan mode.
+
+First verify exact repo files, route patterns, sitemap patterns, SEO component props, schema helper functions, route lists, and existing audit scripts.
+
+If any prompt assumption is stale after Wave 3, call it out and adjust the plan before building.
+
+Do not edit code until the planned task has exact files, exact changes, kill lines, and validation steps.
+
+⸻
+
+SEO Principles
+
+1. Visible content first, schema second
+
+Structured data must describe visible page content.
+
+Do not add schema for content that is not visible to users.
+
+Do not add misleading LocalBusiness, FAQ, review, rating, office, location, or trust markup.
+
+2. Do not fake local presence
+
+For /locations/:city/:industry pages:
+
+* Do not create LocalBusiness schema with a city-specific address unless Liberty actually has a verified physical office/branch at that address.
+* Prefer Organization/LocalBusiness schema for the real Liberty Bancard entity.
+* Prefer Service schema with areaServed for city/region targeting when Liberty serves that market but does not have a physical location there.
+* If the existing SEO helper only supports LocalBusiness, adapt it safely or create a Service/areaServed helper.
+
+3. FAQ schema is optional/supportive, not the main SEO win
+
+FAQ content can help users and page relevance.
+
+FAQPage schema may be kept if it accurately mirrors visible FAQ content, but do not treat it as a guaranteed rich-result or ranking feature.
+
+4. Thin-page guard must be careful
+
+Do not blindly 404 existing pages just because they are short.
+
+For programmatic pages:
+
+* If a route is invalid or has no meaningful city/industry match, exclude it from sitemap and return 404.
+* If a route is valid but thin, improve content and internal linking first.
+* If a page cannot be made useful, recommend noindex or sitemap exclusion before destructive route removal.
+* Do not create mass 404s for URLs that may already be indexed without explicitly documenting the impact.
+
+5. Conversion routes must stay indexable
+
+Do not accidentally block:
+
+* homepage
+* /free-smart-terminal
+* /beat-square-stripe
+* /0-percent-processing
+* /free-analysis
+* /upload-statement
+* /get-started
+* /merchant-application
+* /compare/*
+* /industries/*
+* valid /locations/:city/:industry
+* /partners
+* valid glossary/blog/FAQ routes
+
+Dashboard/admin/auth/private routes should not be indexed.
+
+⸻
+
+Done Looks Like
+
+1. Public Route SEO Coverage
+
+Every indexable public route has:
+
+* unique <title>
+* unique meta description
+* canonical URL
+* Open Graph title/description/url/image where supported
+* exactly one primary H1
+* no duplicate generic H1 across key indexable templates
+* valid SEO component usage
+* no obvious missing or broken metadata
+* no unsupported trust/location/savings claims in SEO text
+
+Must be verified through existing SEO audit workflow or a targeted route metadata audit script.
+
+⸻
+
+2. /free-smart-terminal SEO Integration
+
+The Wave 3 /free-smart-terminal page has:
+
+* complete SEO component usage
+* unique title
+* unique meta description
+* canonical
+* OG tags
+* H1 aligned with page intent
+* structured data that accurately reflects visible content
+* internal links to:
+    * /upload-statement
+    * /free-analysis
+    * /get-started?offer=free-terminal or verified intake route
+    * relevant industry pages where natural
+* sitemap inclusion
+* route smoke coverage
+
+Structured data:
+
+* Use Organization/LocalBusiness only for the real Liberty Bancard business entity.
+* Use Service/Offer-style schema where appropriate for terminal eligibility/service offering.
+* Do not claim guaranteed free equipment.
+* Do not invent ratings, reviews, locations, or merchant counts.
+
+⸻
+
+3. Sitemap Completeness
+
+Verify and fix sitemap coverage.
+
+Sitemap index should include all applicable sub-sitemaps currently supported by the repo, such as:
+
+* main/public routes
+* locations
+* blog
+* compare
+* glossary
+* any offer/industry sitemap if present
+
+The sitemap system must include /free-smart-terminal.
+
+Verify coverage for:
+
+* homepage
+* high-intent offer pages
+* compare pages
+* industry pages
+* valid location × industry pages
+* partner pages
+* FAQ
+* glossary
+* blog posts
+
+Do not add private dashboard/admin routes.
+
+Do not create duplicate sitemap entries for the same canonical URL.
+
+⸻
+
+4. Robots.txt Verification
+
+Verify /robots.txt.
+
+It should:
+
+* allow crawl of public SEO/conversion pages
+* block private dashboard/admin/auth-only areas where appropriate
+* not block structured-data pages from Googlebot
+* not block sitemap files
+* reference sitemap index if the current repo pattern supports it
+
+Do not make broad disallow rules that accidentally suppress public pages.
+
+⸻
+
+5. Breadcrumb Schema on Nested Pages
+
+Add or verify BreadcrumbList schema on nested pages:
+
+* /compare/:competitor
+* /industries/:slug
+* /locations/:city/:industry
+* blog detail pages if applicable
+* help/glossary/article detail pages if applicable
+
+Breadcrumb examples:
+
+* Home → Compare → Square
+* Home → Industries → Restaurant Payment Processing
+* Home → Locations → Miami → Restaurant Payment Processing
+* Home → Blog → Article Title
+* Home → Glossary → Term
+
+Breadcrumb schema must match visible or logical breadcrumb hierarchy.
+
+Do not add breadcrumb schema to pages where it does not match the page hierarchy.
+
+⸻
+
+6. FAQ Content + FAQ Schema Verification
+
+Verify /faq.
+
+If FAQ items are visible on the page, add or verify FAQPage schema that exactly mirrors visible questions and answers.
+
+For location and high-intent pages:
+
+* Visible FAQ sections are useful if they answer genuine merchant questions.
+* FAQPage schema is allowed only if the FAQ content is visible on the page and matches the schema.
+* Do not generate fake FAQ content solely for schema.
+* Do not prioritize FAQ schema over page usefulness, internal linking, titles, descriptions, and crawl quality.
+
+If the repo has getFaqSchema() in SEO.tsx, use it only where the visible page has matching FAQ content.
+
+⸻
+
+7. Location × Industry Page Quality
+
+Update LocationIndustryPage.tsx and SSR route generation only after verifying actual data flow.
+
+Each valid /locations/:city/:industry page should have:
+
+* city-specific H1
+* industry-specific H1 wording or subheading
+* unique title
+* unique meta description
+* canonical URL
+* statement upload CTA
+* phone CTA
+* booking CTA if Wave 3 component supports it
+* visible local/industry-specific content
+* internal links to at least 2 nearby city pages where valid
+* internal links to at least 2 related industry pages where valid
+* breadcrumb schema
+* Service schema with areaServed where appropriate
+* FAQ content only if it is visible and meaningfully local/industry-specific
+
+Avoid:
+
+* generic filler paragraphs
+* fake local office claims
+* fake city-specific testimonials
+* fake local business addresses
+* duplicate FAQs across every city with only city names swapped
+* indexable pages for invalid city/industry pairs
+
+⸻
+
+8. Programmatic Thin-Page Guard
+
+Add or improve a thin-page guard in the SSR/sitemap route generator.
+
+The guard should consider:
+
+* valid city exists
+* valid industry exists
+* route combination is allowed
+* page has enough unique visible content
+* page has city/industry-specific metadata
+* page has internal links
+* page has at least one conversion CTA
+* page is not generated solely from an empty/default template
+
+Implementation guidance:
+
+* Exclude invalid/thin routes from sitemap.
+* Return 404 only for invalid route combinations or pages with no meaningful content source.
+* For valid but weak pages, prefer improving the template/content or adding a warning/report rather than mass 404.
+* Document any excluded routes.
+
+Do not create a brittle character-count-only gate. Use content length as one signal, not the only signal.
+
+⸻
+
+9. Internal Linking System
+
+Build or improve internal link blocks.
+
+Required links:
+
+Homepage
+
+Links to top comparison pages:
+
+* Square
+* Stripe
+* Clover
+* Toast
+* PayPal
+
+Links to high-intent offer pages:
+
+* /upload-statement
+* /free-analysis
+* /free-smart-terminal
+* /0-percent-processing
+* /beat-square-stripe
+
+/beat-square-stripe
+
+Links to:
+
+* /compare/square
+* /compare/stripe
+* /upload-statement
+* /free-analysis
+
+Compare Pages
+
+Each /compare/:competitor page links to:
+
+* relevant industry pages
+* upload statement
+* free analysis
+* beat-rate or comparison route where applicable
+
+Industry Pages
+
+Each /industries/:slug page links to:
+
+* top valid city pages for that industry
+* compare pages relevant to that industry
+* upload statement
+* free analysis
+
+Location × Industry Pages
+
+Each location page links to:
+
+* nearby city pages for the same industry
+* related industry pages for the same city or top markets
+* upload statement
+* free analysis
+* free smart terminal where relevant
+
+Use crawlable <a href> links, not only JS click handlers.
+
+⸻
+
+10. Image Alt Text
+
+Audit public page images.
+
+Fix:
+
+* hero images without alt
+* trust badge images without alt
+* decorative images that should have alt=""
+* meaningful images with generic alt like “image” or “icon”
+
+Do not invent unverifiable trust badge labels in alt text.
+
+⸻
+
+11. H1 and Heading Audit
+
+Verify:
+
+* one primary H1 per public route/template
+* H1s are specific to the page intent
+* comparison pages include competitor name
+* industry pages include industry name
+* location pages include city + industry
+* /free-smart-terminal has a unique H1
+* no key indexable page shares the same generic H1
+
+Do not treat repeated components’ internal headings as page H1s.
+
+⸻
+
+Out of Scope
+
+* New blog/article content creation
+* Editorial calendar
+* Paid search A/B landing page variants
+* Wave 3 CTA/design rebuild
+* Backend contactability/compliance changes
+* GHL workflow changes
+* Analytics attribution dashboard
+* Call tracking implementation
+* New business claims, trust claims, or testimonials
+* New city expansion beyond the existing approved city set
+* New industry expansion beyond existing approved industry set
+* Schema for fake offices, fake reviews, fake ratings, fake local branches, or unverifiable trust claims
+
+⸻
+
+Files To Inspect
+
+Verify actual paths before editing.
+
+Start with:
+
+* client/src/components/SEO.tsx
+* server/routes/ssr-routes.ts
+* client/src/pages/FAQ.tsx
+* client/src/pages/FreeSmartTerminal.tsx
+* client/src/pages/CompareVs.tsx
+* client/src/pages/IndustryPage.tsx
+* client/src/pages/LocationIndustryPage.tsx
+* client/src/pages/BlogPost.tsx
+* client/src/pages/HelpArticle.tsx
+* client/src/pages/Home.tsx
+* client/src/pages/BeatSquareStripe.tsx
+* client/src/App.tsx
+* server/routes/glossary.ts
+* existing sitemap route files
+* existing robots.txt route/static file
+* existing SEO audit script/workflow
+* existing route data/config for cities, industries, compare competitors, glossary, blog
+
+⸻
+
+Likely Files To Modify
+
+Modify only after verifying the actual repo structure:
+
+* client/src/components/SEO.tsx
+* server/routes/ssr-routes.ts
+* client/src/pages/FAQ.tsx
+* client/src/pages/FreeSmartTerminal.tsx
+* client/src/pages/CompareVs.tsx
+* client/src/pages/IndustryPage.tsx
+* client/src/pages/LocationIndustryPage.tsx
+* client/src/pages/BlogPost.tsx
+* client/src/pages/HelpArticle.tsx
+* client/src/pages/Home.tsx
+* existing sitemap/robots helpers
+* existing SEO audit script if it needs route coverage update
+
+Do not modify private dashboard/admin files.
+
+Do not modify Wave 571A/583 compliance/backend-contactability files.
+
+⸻
+
+Implementation Steps
+
+Step 1 — SEO Infrastructure Audit
+
+Before making changes, verify:
+
+* SEO component API
+* available schema helpers
+* canonical URL helper
+* OG tag pattern
+* sitemap index implementation
+* sitemap sub-route implementation
+* robots implementation
+* SSR route generator
+* existing SEO audit workflow/command
+* actual route inventory after Wave 3
+
+Report stale assumptions before editing.
+
+⸻
+
+Step 2 — /free-smart-terminal SEO
+
+Add or verify:
+
+* SEO component
+* unique title
+* meta description
+* canonical
+* OG tags
+* accurate structured data
+* sitemap inclusion
+* internal links to upload/free-analysis/get-started
+* route smoke coverage
+
+Do not change the Wave 3 page layout except for SEO/internal-link additions.
+
+⸻
+
+Step 3 — Sitemap + Robots Audit/Fix
+
+Update sitemap generation to include all critical public routes.
+
+Verify:
+
+* sitemap index points to all sub-sitemaps
+* /free-smart-terminal is included
+* valid compare/industry/location/blog/glossary routes are included
+* invalid/thin programmatic routes are excluded or flagged
+* dashboard/admin/auth routes are excluded
+* robots allows public pages and sitemaps
+
+⸻
+
+Step 4 — Breadcrumb Schema
+
+Add or verify BreadcrumbList schema for:
+
+* compare pages
+* industry pages
+* location pages
+* blog posts
+* help/glossary articles if applicable
+
+Use a shared helper if available.
+
+Create a helper only if it avoids duplication and fits existing SEO component patterns.
+
+⸻
+
+Step 5 — FAQ Verification
+
+Update /faq to pass FAQPage schema only if visible FAQs exist.
+
+For other pages, add FAQ schema only when the visible page has matching FAQ content.
+
+Do not add hidden or schema-only FAQs.
+
+Do not build large new FAQ content sets in this task.
+
+⸻
+
+Step 6 — Location × Industry Quality Upgrade
+
+Improve the template and route generator.
+
+Add or verify:
+
+* unique H1
+* unique title/meta
+* areaServed/service schema, not fake city-specific LocalBusiness address
+* nearby-city links
+* related-industry links
+* CTA links from Wave 3
+* visible local/industry-specific content
+* thin-page guard for invalid/empty combinations
+
+Document any location/industry pages excluded from sitemap.
+
+⸻
+
+Step 7 — Internal Linking Blocks
+
+Add reusable link blocks where appropriate:
+
+* Also Compare
+* Related Industries
+* Merchants in Your Area
+* Popular Payment Processing Guides
+* Upload Statement / Free Analysis conversion links
+
+Use existing design patterns.
+
+Keep links crawlable.
+
+Avoid cluttering pages with giant link dumps.
+
+⸻
+
+Step 8 — Alt Text + H1 Audit
+
+Fix missing or poor alt text on public page images.
+
+Verify one H1 per route/template.
+
+Fix duplicate generic H1s.
+
+Do not change page design beyond what is necessary for SEO quality.
+
+⸻
+
+Step 9 — SEO Audit Workflow
+
+Run the existing SEO audit workflow or script.
+
+If no workflow exists, create a lightweight route metadata audit script only if it matches repo conventions.
+
+The audit should check at least:
+
+* title exists
+* meta description exists
+* canonical exists
+* OG title/description exists
+* route included/excluded from sitemap correctly
+* one H1 per route where statically inspectable
+* no obvious duplicate H1/title among key page templates
+* no missing alt on obvious public page images
+* no private dashboard routes in sitemap
+
+Do not build a large crawler framework in this task.
+
+⸻
+
+Kill Lines
+
+Stop and report before build if:
+
+* Wave 3 /free-smart-terminal route cannot be found.
+* SEO component API is unclear.
+* Sitemap index or sitemap route generator cannot be identified.
+* Robots implementation cannot be identified.
+* Existing SEO audit workflow cannot be found and creating one would require a large new framework.
+* The task requires inventing physical locations or city-specific business addresses.
+* The task requires fake reviews, ratings, trust badges, merchant counts, or testimonials.
+* The task requires generating hidden FAQ content only for schema.
+* Thin-page guard would mass-404 existing valid routes without review.
+* Internal linking requires creating new city/industry route data not already approved.
+* The task requires changing Wave 3 conversion design substantially.
+* The task requires backend contactability, GHL, SMS, AI voice, ringless voicemail, or dashboard changes.
+* Any structured data would not match visible page content.
+* /robots.txt changes would block public conversion pages.
+* Sitemap changes would include private dashboard/admin routes.
+
+⸻
+
+Validation
+
+Use targeted validation.
+
+Route Smoke
+
+Verify these render:
+
+* /
+* /free-smart-terminal
+* /beat-square-stripe
+* /0-percent-processing
+* /free-analysis
+* /upload-statement
+* /compare/square
+* /compare/stripe
+* one additional compare page
+* one industry page
+* one valid location × industry page
+* /faq
+* one blog post if data exists
+* one glossary/help article if data exists
+
+Sitemap Validation
+
+Verify:
+
+* /sitemap-index.xml
+* main sitemap
+* locations sitemap
+* compare sitemap
+* blog sitemap
+* glossary sitemap
+
+Confirm:
+
+* /free-smart-terminal included
+* private dashboard routes excluded
+* invalid/thin routes excluded or flagged
+* no duplicate canonical URLs
+
+Robots Validation
+
+Verify:
+
+* public routes allowed
+* dashboard/admin/private routes blocked or not listed
+* sitemap referenced
+* no accidental disallow on public pages/assets needed for rendering
+
+Structured Data Validation
+
+Validate generated JSON-LD shape for:
+
+* /free-smart-terminal
+* /compare/square
+* one industry page
+* one location × industry page
+* /faq
+
+Confirm:
+
+* no fake local addresses
+* no hidden FAQ schema
+* breadcrumb hierarchy correct
+* schema matches visible page content
+* JSON-LD parses
+
+Internal Linking Validation
+
+Verify:
+
+* homepage links to top compare and offer pages
+* compare pages link to relevant industry/offer pages
+* industry pages link to valid city pages
+* location pages link to nearby city and related industry pages
+* links are crawlable <a href> links
+
+Alt/H1 Validation
+
+Verify:
+
+* no public hero image lacks meaningful alt unless decorative
+* no trust badge image has invented alt
+* one primary H1 per target route/template
+* H1 includes competitor/industry/city context where expected
+
+SEO Audit
+
+Run existing SEO audit workflow.
+
+Report:
+
+* command run
+* critical failures
+* warnings
+* routes checked
+* unresolved issues
+
+⸻
+
+Final Report Required
+
+Return:
+
+1. Files changed
+2. SEO infrastructure verified
+3. /free-smart-terminal SEO additions
+4. Sitemap changes
+5. Robots verification
+6. Structured data added/updated
+7. Why chosen schema types are accurate
+8. Location page thin-guard logic
+9. Internal linking blocks added
+10. Alt/H1 fixes
+11. SEO audit command/results
+12. Routes smoke-tested
+13. Known remaining SEO risks
+14. Follow-up recommendations
+
+⸻
+
+Success Definition
+
+After this task:
+
+* /free-smart-terminal is fully integrated into SEO, sitemap, and internal linking.
+* Public route metadata is complete and unique enough for indexation.
+* Sitemap index and sub-sitemaps cover all critical public pages and exclude private routes.
+* Robots does not block conversion pages.
+* Breadcrumb schema exists on nested pages where appropriate.
+* FAQ schema, if used, matches visible FAQs and is not treated as a guaranteed rich-result tactic.
+* Location × industry pages have stronger unique visible content, crawlable internal links, correct schema, and a careful thin-page guard.
+* No fake local presence, fake trust claims, fake reviews, or unsupported schema is introduced.
+* Existing Wave 3 conversion CTAs remain intact.
+* The existing SEO audit workflow passes with zero critical failures or documents remaining warnings clearly.
