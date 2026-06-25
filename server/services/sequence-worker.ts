@@ -48,13 +48,47 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
         }
 
         if (currentStep === 0 && enrollment.contactId) {
+          // Gate (a): Evaluate contactability before GHL workflow enrollment (automated outreach)
+          {
+            const { evaluateContactability } = await import("./contactability");
+            const contactabilityCheck = await evaluateContactability({
+              contactId: enrollment.contactId,
+              channel: "email",
+              campaignType: "sequence_enrollment",
+              mode: "enforcement",
+            });
+            if (!contactabilityCheck.allowed) {
+              await storage.updateSequenceEnrollment(enrollment.id, { status: "paused" });
+              await storage.createAuditLog({
+                action: "sequence_enrollment_blocked_contactability",
+                entityType: "contact",
+                entityId: enrollment.contactId,
+                actorType: "system",
+                details: {
+                  sequenceId: sequence.id,
+                  sequenceName: sequence.name,
+                  channel: "email",
+                  reason: contactabilityCheck.reason,
+                  consentTier: contactabilityCheck.consentTier,
+                  lifecycleStage: contactabilityCheck.lifecycleStage,
+                },
+              });
+              processed++;
+              continue;
+            }
+          }
+
           const triggerConfig = (sequence.triggerConfig as any) || {};
+          // outboundChannels from triggerConfig allows per-sequence channel declaration.
+          // When not set in triggerConfig, defaults to fail-closed (all automated channels).
+          // Email-only sequences should set triggerConfig.outboundChannels = ["email"].
           const enrollResult = await enrollContactInGhlWorkflow({
             contactId: enrollment.contactId,
             sequenceName: sequence.name,
             sequenceId: sequence.id,
             vertical: triggerConfig.vertical,
             dealId: enrollment.dealId || undefined,
+            outboundChannels: triggerConfig.outboundChannels,
           });
 
           if (enrollResult.enrolled && enrollResult.method === "ghl_workflow") {
@@ -245,6 +279,49 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
         };
 
         let stepExecuted = false;
+
+        // Gate (b): Evaluate contactability before any automated send/trigger dispatch
+        {
+          type AutomatedActionChannel = "email" | "sms" | "voice_ai" | "ringless_vm";
+          const automatedChannelMap: Record<string, AutomatedActionChannel> = {
+            email: "email",
+            sms: "sms",
+            call: "voice_ai",
+            voicemail_drop: "ringless_vm",
+          };
+          const automatedChannel = automatedChannelMap[step.actionType];
+          if (automatedChannel && enrollment.contactId) {
+            const { evaluateContactability } = await import("./contactability");
+            const contactabilityCheck = await evaluateContactability({
+              contactId: enrollment.contactId,
+              channel: automatedChannel,
+              campaignType: "sequence_step",
+              mode: "enforcement",
+            });
+            if (!contactabilityCheck.allowed) {
+              await storage.createAuditLog({
+                action: "sequence_step_blocked_contactability",
+                entityType: "contact",
+                entityId: enrollment.contactId,
+                actorType: "system",
+                details: {
+                  enrollmentId: enrollment.id,
+                  sequenceId: sequence.id,
+                  sequenceName: sequence.name,
+                  stepOrder: step.stepOrder,
+                  actionType: step.actionType,
+                  channel: automatedChannel,
+                  reason: contactabilityCheck.reason,
+                  consentTier: contactabilityCheck.consentTier,
+                  lifecycleStage: contactabilityCheck.lifecycleStage,
+                },
+              });
+              await storage.updateSequenceEnrollment(enrollment.id, { status: "paused" });
+              processed++;
+              continue;
+            }
+          }
+        }
 
         switch (step.actionType) {
           case "email": {

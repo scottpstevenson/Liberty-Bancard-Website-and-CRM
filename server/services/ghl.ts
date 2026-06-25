@@ -1354,6 +1354,7 @@ async function autoEnrollNoShowRecovery(ghlContactId: string): Promise<void> {
     contactId: contact.id,
     sequenceName: seq.name,
     sequenceId: seq.id,
+    outboundChannels: ["email"],
   });
   console.log(`[GHL Webhook] No-show auto-enrolled contact ${contact.id} — method: ${result.method}, enrolled: ${result.enrolled}`);
 }

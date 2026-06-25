@@ -1,5 +1,5 @@
 import { db } from "../../db";
-import { sdrComplianceState, sdrMerchants, sdrMerchantContacts, sdrChannelAttempts, sdrLeadEvents, contacts, consentAuditLogs } from "@shared/schema";
+import { sdrComplianceState, sdrMerchants, sdrChannelAttempts, sdrLeadEvents, contacts } from "@shared/schema";
 import { eq, and, gte, sql } from "drizzle-orm";
 import { isWithinBusinessHours, getNextBusinessWindow, getTimezoneFromState } from "./voice-orchestrator";
 
@@ -14,28 +14,6 @@ const STRICT_STATE_CONSENT_REQUIRED = (process.env.STRICT_STATE_CONSENT_REQUIRED
   .map((s) => s.trim().toUpperCase())
   .filter(Boolean);
 
-async function hasExpressWrittenConsent(merchantEmail: string | null | undefined, channel: "sms" | "call"): Promise<boolean> {
-  if (!merchantEmail) return false;
-  const [contact] = await db
-    .select({ id: contacts.id })
-    .from(contacts)
-    .where(eq(contacts.email, merchantEmail))
-    .limit(1);
-  if (!contact) return false;
-  const logs = await db
-    .select({ consentType: consentAuditLogs.consentType })
-    .from(consentAuditLogs)
-    .where(
-      and(
-        eq(consentAuditLogs.contactId, contact.id),
-        eq(consentAuditLogs.channel, channel),
-        eq(consentAuditLogs.consented, true),
-      )
-    )
-    .orderBy(sql`${consentAuditLogs.createdAt} DESC`)
-    .limit(10);
-  return logs.some((l) => l.consentType === "express_written");
-}
 
 const QUIET_HOURS = { start: 9, end: 17 };
 
@@ -110,7 +88,17 @@ export async function checkBeforeSend(
   channel: "sms" | "email" | "call",
   purpose: SendPurpose = "prospecting"
 ): Promise<ComplianceCheckResult> {
-  const [merchant] = await db.select().from(sdrMerchants).where(eq(sdrMerchants.id, merchantId));
+  const [merchant] = await db
+    .select({
+      id: sdrMerchants.id,
+      doNotContactFlag: sdrMerchants.doNotContactFlag,
+      mainEmail: sdrMerchants.mainEmail,
+      mainPhone: sdrMerchants.mainPhone,
+      state: sdrMerchants.state,
+      city: sdrMerchants.city,
+    })
+    .from(sdrMerchants)
+    .where(eq(sdrMerchants.id, merchantId));
   if (!merchant) {
     return { allowed: false, reason: "Merchant not found" };
   }
@@ -119,207 +107,136 @@ export async function checkBeforeSend(
     return { allowed: false, reason: "Merchant flagged as Do Not Contact" };
   }
 
-  const [compliance] = await db.select().from(sdrComplianceState).where(eq(sdrComplianceState.merchantId, merchantId));
+  // ── SDR compliance state (merchant-level suppression) ─────────────────
+  // These suppression flags live on the SDR merchant record and are independent
+  // of the contact-level consent/tier gate that follows. Both layers must pass.
+  const [compliance] = await db
+    .select()
+    .from(sdrComplianceState)
+    .where(eq(sdrComplianceState.merchantId, merchantId));
 
   if (compliance) {
     if (compliance.dncBlock) {
-      return { allowed: false, reason: "DNC block active" };
+      return { allowed: false, reason: "DNC block active (SDR compliance state)" };
     }
     if (compliance.litigationBlock) {
-      return { allowed: false, reason: "Litigation block active" };
+      return { allowed: false, reason: "Litigation block active (SDR compliance state)" };
     }
     if (compliance.complaintBlock) {
-      return { allowed: false, reason: "Complaint block active" };
+      return { allowed: false, reason: "Complaint block active (SDR compliance state)" };
     }
     if (compliance.quietHoursBlock && purpose === "prospecting") {
       return { allowed: false, reason: "Outreach paused (appointment booked or manual pause)" };
     }
 
-    const coolingExpiry = parseCoolingExpiry(compliance.notes);
-    if (coolingExpiry) {
-      if (new Date() < coolingExpiry) {
-        return { allowed: false, reason: `Cooling period active until ${coolingExpiry.toISOString()}`, details: { coolingUntil: coolingExpiry.toISOString() } };
-      } else {
-        await db.update(sdrComplianceState).set({
-          smsAllowed: true,
-          emailAllowed: true,
-          callAllowed: true,
-          notes: `Cooling period expired at ${coolingExpiry.toISOString()} — channels re-enabled`,
-          updatedAt: new Date(),
-        }).where(eq(sdrComplianceState.merchantId, merchantId));
+    // Inline cooling-period check (notes field may encode expiry)
+    if (compliance.notes) {
+      const coolingMatch = compliance.notes.match(
+        /Suppressed \d+ days until (\d{4}-\d{2}-\d{2}T[\d:.]+Z)/
+      );
+      if (coolingMatch) {
+        const coolingExpiry = new Date(coolingMatch[1]);
+        if (!isNaN(coolingExpiry.getTime()) && new Date() < coolingExpiry) {
+          return {
+            allowed: false,
+            reason: `Cooling period active until ${coolingExpiry.toISOString()}`,
+            details: { coolingUntil: coolingExpiry.toISOString() },
+          };
+        } else {
+          // Cooling expired — re-enable channels
+          await db
+            .update(sdrComplianceState)
+            .set({
+              smsAllowed: true,
+              emailAllowed: true,
+              callAllowed: true,
+              notes: `Cooling period expired at ${coolingExpiry.toISOString()} — channels re-enabled`,
+              updatedAt: new Date(),
+            })
+            .where(eq(sdrComplianceState.merchantId, merchantId));
+        }
       }
     }
   }
 
-  if (channel === "sms") {
-    return checkSmsCompliance(merchantId, merchant, compliance);
-  } else if (channel === "email") {
-    return checkEmailCompliance(merchantId, merchant, compliance);
-  } else if (channel === "call") {
-    return checkCallCompliance(merchantId, merchant, compliance);
+  // ── Shared contactability gate — sole decision authority ──────────────
+  // ALL automated channels (email, SMS, voice) require a linked contacts record.
+  // evaluateContactability() is the single source of truth.
+  // If no contacts record can be found, or the bridge lookup fails, we FAIL CLOSED.
+  // There is no legacy fallback — the gate is canonical for every channel.
+
+  const contactabilityChannelMap: Record<"sms" | "email" | "call", import("../contactability").ContactabilityChannel> = {
+    sms: "sms",
+    email: "email",
+    call: "voice_ai",
+  };
+  const contactabilityChannel = contactabilityChannelMap[channel];
+
+  if (!merchant.mainEmail) {
+    console.warn(
+      `[SDR Compliance] Merchant ${merchantId} has no mainEmail — contactability bridge unavailable. Blocking ${channel}.`
+    );
+    return {
+      allowed: false,
+      reason: `Automated ${channel} blocked — merchant ${merchantId} has no email on file; ` +
+        `cannot verify consent via contactability bridge. Add an email and link a contact record.`,
+    };
   }
 
-  return { allowed: false, reason: "Unknown channel" };
-}
+  try {
+    const [linkedContact] = await db
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(eq(contacts.email, merchant.mainEmail))
+      .limit(1);
 
-function parseCoolingExpiry(notes: string | null | undefined): Date | null {
-  if (!notes) return null;
-  const match = notes.match(/Suppressed \d+ days until (\d{4}-\d{2}-\d{2}T[\d:.]+Z)/);
-  if (match) {
-    const d = new Date(match[1]);
-    return isNaN(d.getTime()) ? null : d;
-  }
-  return null;
-}
-
-async function checkSmsCompliance(
-  merchantId: number,
-  merchant: typeof sdrMerchants.$inferSelect,
-  compliance: typeof sdrComplianceState.$inferSelect | undefined
-): Promise<ComplianceCheckResult> {
-  if (compliance?.smsAllowed === false) {
-    return { allowed: false, reason: "SMS not allowed — merchant opted out or STOP received" };
-  }
-
-  const merchantContacts = await db.select().from(sdrMerchantContacts)
-    .where(and(
-      eq(sdrMerchantContacts.merchantId, merchantId),
-      eq(sdrMerchantContacts.primaryContactFlag, true)
-    ));
-
-  const primaryContact = merchantContacts[0];
-  if (!primaryContact || !primaryContact.consentSms) {
-    return { allowed: false, reason: primaryContact ? "No SMS consent on primary contact record" : "No primary contact with SMS consent found" };
-  }
-
-  const merchantState = (merchant.state || "").toUpperCase();
-  if (STRICT_STATE_CONSENT_REQUIRED.includes(merchantState)) {
-    const hasPewc = await hasExpressWrittenConsent(merchant.mainEmail, "sms");
-    if (!hasPewc) {
+    if (!linkedContact) {
+      // Fail closed — no contacts record means we cannot verify consent for any channel
+      console.warn(
+        `[SDR Compliance] No contacts record found for merchant ${merchantId} (email: ${merchant.mainEmail}). ` +
+        `Blocking all automated channels (${channel}) — create a contact record first.`
+      );
       return {
         allowed: false,
-        reason: `Florida Mini-TCPA (SB 1120): prior express written consent required before automated SMS to ${merchantState} contacts — general opt-in is insufficient`,
-        details: { state: merchantState, requiredConsentType: "express_written" },
+        reason: `Automated ${channel} blocked — no contacts record found for merchant ${merchantId}. ` +
+          `All automated outreach requires a linked contact record; create one first.`,
       };
     }
-  }
 
-  const timezone = getTimezoneFromState(merchant.state, merchant.city);
-  if (!isWithinQuietHours(timezone)) {
-    const nextWindow = getNextBusinessWindow(timezone);
-    return {
-      allowed: false,
-      reason: "Outside quiet hours (TCPA: 9 AM - 5 PM local time, no weekends/holidays)",
-      nextValidWindow: nextWindow,
-    };
-  }
+    const { evaluateContactability } = await import("../contactability");
+    const evalResult = await evaluateContactability({
+      contactId: linkedContact.id,
+      channel: contactabilityChannel,
+      campaignType: purpose,
+      state: merchant.state ?? undefined,
+      mode: "enforcement",
+      sdrMerchantId: merchantId,
+    });
 
-  const dailyCount = await getDailyChannelCount(merchantId, "sms");
-  if (dailyCount >= DAILY_SMS_LIMIT) {
-    return {
-      allowed: false,
-      reason: `Daily SMS limit reached (${dailyCount}/${DAILY_SMS_LIMIT})`,
-      details: { dailyCount, limit: DAILY_SMS_LIMIT },
-    };
-  }
-
-  return { allowed: true, reason: "All SMS compliance checks passed" };
-}
-
-async function checkEmailCompliance(
-  merchantId: number,
-  merchant: typeof sdrMerchants.$inferSelect,
-  compliance: typeof sdrComplianceState.$inferSelect | undefined
-): Promise<ComplianceCheckResult> {
-  if (compliance?.emailAllowed === false) {
-    return { allowed: false, reason: "Email not allowed — merchant unsubscribed" };
-  }
-
-  const bounceEvents = await db.select().from(sdrLeadEvents)
-    .where(and(
-      eq(sdrLeadEvents.merchantId, merchantId),
-      eq(sdrLeadEvents.eventType, "email_bounced")
-    ));
-
-  if (bounceEvents.length >= 2) {
-    return {
-      allowed: false,
-      reason: `Email blocked — ${bounceEvents.length} bounce(s) recorded`,
-      details: { bounceCount: bounceEvents.length },
-    };
-  }
-
-  const timezone = getTimezoneFromState(merchant.state, merchant.city);
-  if (!isWithinQuietHours(timezone)) {
-    const nextWindow = getNextBusinessWindow(timezone);
-    return {
-      allowed: false,
-      reason: "Outside quiet hours for email (9 AM - 5 PM local time, no weekends/holidays)",
-      nextValidWindow: nextWindow,
-    };
-  }
-
-  const dailyCount = await getDailyChannelCount(merchantId, "email");
-  if (dailyCount >= DAILY_EMAIL_LIMIT) {
-    return {
-      allowed: false,
-      reason: `Daily email limit reached (${dailyCount}/${DAILY_EMAIL_LIMIT})`,
-      details: { dailyCount, limit: DAILY_EMAIL_LIMIT },
-    };
-  }
-
-  return { allowed: true, reason: "All email compliance checks passed" };
-}
-
-async function checkCallCompliance(
-  merchantId: number,
-  merchant: typeof sdrMerchants.$inferSelect,
-  compliance: typeof sdrComplianceState.$inferSelect | undefined
-): Promise<ComplianceCheckResult> {
-  if (compliance?.callAllowed === false) {
-    return { allowed: false, reason: "Call not allowed — merchant on DNC list" };
-  }
-
-  if (!merchant.mainPhone) {
-    return { allowed: false, reason: "No callable phone number on file" };
-  }
-
-  const merchantState = (merchant.state || "").toUpperCase();
-  if (STRICT_STATE_CONSENT_REQUIRED.includes(merchantState)) {
-    const hasPewc = await hasExpressWrittenConsent(merchant.mainEmail, "call");
-    if (!hasPewc) {
-      return {
-        allowed: false,
-        reason: `Florida Mini-TCPA (SB 1120): prior express written consent required before automated calls to ${merchantState} contacts — general opt-in is insufficient`,
-        details: { state: merchantState, requiredConsentType: "express_written" },
-      };
+    if (!evalResult.allowed) {
+      return { allowed: false, reason: evalResult.reason };
     }
-  }
 
-  const timezone = getTimezoneFromState(merchant.state, merchant.city);
-  if (!isWithinBusinessHours(timezone)) {
-    const nextWindow = getNextBusinessWindow(timezone);
+    if (evalResult.rateLimitStatus === "limit_reached") {
+      return { allowed: false, reason: `Daily ${channel} limit reached` };
+    }
+
+    return { allowed: true, reason: "All compliance checks passed (shared gate)" };
+
+  } catch (err) {
+    // Bridge lookup error — fail CLOSED for all channels
+    console.warn("[SDR Compliance] Contactability bridge lookup failed:", err);
     return {
       allowed: false,
-      reason: "Outside business hours (TCPA: 9 AM - 5 PM local time, no weekends/holidays)",
-      nextValidWindow: nextWindow,
+      reason: `Automated ${channel} blocked — contactability bridge error for merchant ${merchantId}. ` +
+        `Cannot proceed without verified consent check.`,
     };
   }
-
-  const dailyCount = await getDailyChannelCount(merchantId, "call");
-  if (dailyCount >= DAILY_CALL_LIMIT) {
-    return {
-      allowed: false,
-      reason: `Daily call limit reached (${dailyCount}/${DAILY_CALL_LIMIT})`,
-      details: { dailyCount, limit: DAILY_CALL_LIMIT },
-    };
-  }
-
-  return { allowed: true, reason: "All call compliance checks passed" };
 }
 
-function isWithinQuietHours(timezone: string): boolean {
-  return isWithinBusinessHours(timezone);
+
+export async function getDailyChannelCountForMerchant(merchantId: number, channel: string): Promise<number> {
+  return getDailyChannelCount(merchantId, channel);
 }
 
 async function getDailyChannelCount(merchantId: number, channel: string): Promise<number> {

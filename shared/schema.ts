@@ -92,6 +92,11 @@ export const contacts = pgTable("contacts", {
   reachabilityScore: integer("reachability_score").notNull().default(100),
   callAttempts: integer("call_attempts").notNull().default(0),
   doNotAutoContact: boolean("do_not_auto_contact").notNull().default(false),
+  phoneType: text("phone_type"),
+  consentTier: text("consent_tier").notNull().default("cold_no_consent"),
+  lifecycleStage: text("lifecycle_stage").notNull().default("prospect"),
+  timezone: text("timezone"),
+  sourceCategory: text("source_category"),
 }, (table) => [
   uniqueIndex("contacts_email_unique_idx").on(table.email).where(sql`archived_at IS NULL`),
   index("contacts_phone_idx").on(table.phone),
@@ -2053,6 +2058,10 @@ export const consentAuditLogs = pgTable("consent_audit_logs", {
   ipAddress: text("ip_address"),
   userAgent: text("user_agent"),
   details: jsonb("details"),
+  disclosureVersion: text("disclosure_version"),
+  disclosureText: text("disclosure_text"),
+  formId: text("form_id"),
+  consentedPhone: text("consented_phone"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

@@ -249,21 +249,99 @@ export async function triggerAiCall(
     return { success: false, scheduled: false, reason: "No phone number on file" };
   }
 
-  const { checkAndLogCompliance } = await import("./compliance-engine");
-  const complianceResult = await checkAndLogCompliance(merchantId, "call");
-  if (!complianceResult.allowed) {
-    if (complianceResult.nextValidWindow) {
-      await db.update(sdrLeadState).set({
-        nextAction: `ai_call_${botMode}`,
-        nextActionType: "call",
-        nextActionAt: complianceResult.nextValidWindow,
-        nextActionPayload: { botMode, merchantId },
-        updatedAt: new Date(),
-      }).where(eq(sdrLeadState.merchantId, merchantId));
+  // ── Shared contactability gate (canonical, voice_ai channel) ──────────────
+  // voice_ai REQUIRES PEWC per TCPA. Without a linked contacts record we cannot
+  // verify consent — this is an EXPLICIT BLOCK, not a legacy fallback.
+  //
+  // Decision tree:
+  //   merchant.mainEmail missing → BLOCK (cannot bridge to contacts record)
+  //   bridge lookup error        → BLOCK (conservative; cannot verify PEWC)
+  //   contact not found          → BLOCK (no consent record; must create contact first)
+  //   contact found + allowed    → continue to GHL voice trigger below
+  //   contact found + blocked    → BLOCK (reason from evaluateContactability)
+  if (!merchant.mainEmail) {
+    console.warn(`[Voice Orchestrator] Merchant ${merchantId} has no mainEmail — cannot bridge to contacts for PEWC verification. Blocking voice_ai call.`);
+    await db.insert(sdrLeadEvents).values({
+      merchantId,
+      eventType: "compliance_blocked",
+      channel: "call",
+      actorType: "system",
+      payloadJson: { botMode, reason: "no_email_for_contactability_bridge" },
+      decisionReason: "voice_ai blocked — no mainEmail to bridge to contacts record for PEWC verification",
+    }).catch(() => {});
+    return { success: false, scheduled: false, reason: "AI voice blocked — merchant has no email on file; cannot verify PEWC consent without a linked contact record" };
+  }
 
-      return { success: true, scheduled: true, scheduledAt: complianceResult.nextValidWindow, reason: complianceResult.reason };
+  try {
+    const { db: mainDb } = await import("../../db");
+    const { contacts: contactsTable } = await import("@shared/schema");
+    const { eq: eqOp } = await import("drizzle-orm");
+    const [linkedContact] = await mainDb
+      .select({ id: contactsTable.id })
+      .from(contactsTable)
+      .where(eqOp(contactsTable.email, merchant.mainEmail))
+      .limit(1);
+
+    if (!linkedContact) {
+      // EXPLICIT BLOCK — no contacts record → cannot verify PEWC → not a legacy fallback case
+      console.warn(`[Voice Orchestrator] No contacts record for merchant ${merchantId} (${merchant.mainEmail}). voice_ai requires verified PEWC — BLOCKING.`);
+      await db.insert(sdrLeadEvents).values({
+        merchantId,
+        eventType: "compliance_blocked",
+        channel: "call",
+        actorType: "system",
+        payloadJson: { botMode, reason: "no_contacts_record_for_pewc_verification", email: merchant.mainEmail },
+        decisionReason: "voice_ai blocked — no contacts record found; create a contact and set consentTier=pewc_full_automation first",
+      }).catch(() => {});
+      return {
+        success: false,
+        scheduled: false,
+        reason: `AI voice blocked — no contacts record found for ${merchant.mainEmail}. ` +
+          `voice_ai requires a linked contact with verified PEWC consent. ` +
+          `Create a contact record and set consentTier to 'pewc_full_automation' before enabling AI calls.`,
+      };
     }
-    return { success: false, scheduled: false, reason: complianceResult.reason };
+
+    const { evaluateContactability } = await import("../contactability");
+    const evalResult = await evaluateContactability({
+      contactId: linkedContact.id,
+      channel: "voice_ai",
+      campaignType: `ai_call_${botMode}`,
+      state: merchant.state ?? undefined,
+      mode: "enforcement",
+      sdrMerchantId: merchantId,
+    });
+
+    if (!evalResult.allowed) {
+      await db.insert(sdrLeadEvents).values({
+        merchantId,
+        eventType: "compliance_blocked",
+        channel: "call",
+        actorType: "system",
+        payloadJson: { botMode, reason: evalResult.reason, consentTier: evalResult.consentTier },
+        decisionReason: `Contactability gate blocked voice_ai: ${evalResult.reason}`,
+      }).catch(() => {});
+      return { success: false, scheduled: false, reason: evalResult.reason };
+    }
+
+    // Shared gate passed — proceed to GHL voice trigger below
+
+  } catch (err) {
+    // CONSERVATIVE BLOCK on bridge error — voice_ai must NOT proceed without verified consent
+    console.error("[Voice Orchestrator] Contactability bridge error — blocking voice_ai call (conservative):", err);
+    await db.insert(sdrLeadEvents).values({
+      merchantId,
+      eventType: "compliance_blocked",
+      channel: "call",
+      actorType: "system",
+      payloadJson: { botMode, reason: "contactability_bridge_error", error: String(err) },
+      decisionReason: "voice_ai blocked — contactability bridge error; cannot proceed without verified consent check",
+    }).catch(() => {});
+    return {
+      success: false,
+      scheduled: false,
+      reason: "AI voice blocked — contactability bridge error. Cannot proceed without verified consent check. Retry after resolving the data issue.",
+    };
   }
 
   const timezone = getTimezoneFromState(merchant.state, merchant.city);

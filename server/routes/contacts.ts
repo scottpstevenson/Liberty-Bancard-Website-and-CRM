@@ -812,6 +812,21 @@ export function registerContactsRoutes(app: Express) {
     }
   });
 
+  // === CONTACTABILITY — Wave 1A ===
+  // dryRun mode: no outreach audit logs written; safe to call from dashboards and contact detail pages
+  app.get("/api/contacts/:id/contactability", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const contactId = Number(req.params.id);
+      if (isNaN(contactId)) return res.status(400).json({ message: "Invalid contact ID" });
+
+      const { evaluateAllChannels } = await import("../services/contactability");
+      const result = await evaluateAllChannels(contactId);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/contacts/:id/communication-health", isDashboardUser, async (req, res) => {
     try {
       const contactId = parseInt(req.params.id);

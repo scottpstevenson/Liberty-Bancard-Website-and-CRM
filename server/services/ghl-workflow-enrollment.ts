@@ -206,6 +206,18 @@ export async function enrollContactInGhlWorkflow(params: {
   sequenceId: number;
   vertical?: string;
   dealId?: number;
+  /**
+   * Channels this GHL workflow may trigger. The contactability gate is evaluated
+   * for each channel; enrollment is blocked if ANY channel is blocked.
+   *
+   * When omitted, the gate evaluates ALL automated channels (email, sms, voice_ai,
+   * ringless_vm) — failing closed. Callers that know their workflow is email-only
+   * MUST pass ["email"] explicitly to avoid requiring PEWC unnecessarily.
+   *
+   * Providing ["email", "sms", "voice_ai", "ringless_vm"] explicitly is equivalent
+   * to omitting the parameter (same fail-closed behavior).
+   */
+  outboundChannels?: Array<import("./contactability").ContactabilityChannel>;
 }): Promise<GhlEnrollmentResult> {
   const { contactId, sequenceName, sequenceId, vertical, dealId } = params;
 
@@ -216,6 +228,49 @@ export async function enrollContactInGhlWorkflow(params: {
 
   if (contact.doNotContact) {
     return { enrolled: false, method: "skipped", reason: "Contact is on do-not-contact list" };
+  }
+
+  // Shared contactability gate — enforces doNotAutoContact, consentTier, PEWC,
+  // Florida rule, quiet hours, and channel-specific opt-outs.
+  // Evaluates ALL channels that this workflow may trigger (provided by the caller
+  // via outboundChannels). If ANY channel is blocked, enrollment is blocked.
+  // Defaults to ["email"] for backward compatibility, but callers should specify
+  // all channels the workflow triggers so PEWC enforcement works correctly for
+  // SMS / voice AI / ringless VM paths.
+  {
+    const { evaluateContactability } = await import("./contactability");
+    // Fail-closed default: when caller does not specify channels, treat the workflow
+    // as if it may trigger ALL automated channels (email + SMS + voice AI + ringless VM).
+    // This prevents enrolling contacts that lack PEWC into workflows that could
+    // trigger automated phone/SMS outreach. Callers that are certain their workflow
+    // is email-only MUST pass outboundChannels: ["email"] explicitly.
+    const channelsToCheck: Array<import("./contactability").ContactabilityChannel> =
+      params.outboundChannels ?? ["email", "sms", "voice_ai", "ringless_vm"];
+
+    for (const ch of channelsToCheck) {
+      const contactabilityCheck = await evaluateContactability({
+        contactId,
+        channel: ch,
+        campaignType: "ghl_workflow_enrollment",
+        mode: "enforcement",
+      });
+      if (!contactabilityCheck.allowed) {
+        await storage.createAuditLog({
+          action: "ghl_enrollment_blocked_contactability",
+          entityType: "contact",
+          entityId: contactId,
+          details: {
+            sequenceName,
+            sequenceId,
+            channel: ch,
+            channelsChecked: channelsToCheck,
+            reason: contactabilityCheck.reason,
+            consentTier: contactabilityCheck.consentTier,
+          },
+        }).catch(() => {});
+        return { enrolled: false, method: "skipped", reason: contactabilityCheck.reason };
+      }
+    }
   }
 
   const contactTags = contact.tags || [];
