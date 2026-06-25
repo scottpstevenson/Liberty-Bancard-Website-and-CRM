@@ -128,10 +128,10 @@ const menuItems: MenuItem[] = [
 ];
 
 const sdrItems: MenuItem[] = [
-  { icon: RocketIcon, label: "Activation Panel", href: "/dashboard/activation", roles: ["admin"] },
+  { icon: RocketIcon, label: "Go-Live Controls", href: "/dashboard/activation", roles: ["admin"] },
   { icon: Bot, label: "AI SDR", href: "/dashboard/sdr", roles: ["admin", "manager"] },
-  { icon: MessageCircle, label: "Conversation AI", href: "/dashboard/conversation-ai", roles: ["admin", "manager"] },
-  { icon: Activity, label: "Operator Dashboard", href: "/dashboard/operator", roles: ["admin", "manager"], badgeKey: "jobAlerts" },
+  { icon: MessageCircle, label: "Chat Bot Settings", href: "/dashboard/conversation-ai", roles: ["admin", "manager"] },
+  { icon: Activity, label: "System Monitor", href: "/dashboard/operator", roles: ["admin", "manager"], badgeKey: "jobAlerts" },
   { icon: Mailbox, label: "Inbox Health", href: "/dashboard/inbox-health", roles: ["admin", "manager"] },
 ];
 
@@ -149,7 +149,7 @@ const automationItems: MenuItem[] = [
   { icon: BookOpen, label: "GHL Sequence Guide", href: "/dashboard/ghl-sequence-guide", roles: ["admin", "manager"] },
   { icon: Megaphone, label: "Marketing Playbook", href: "/dashboard/marketing-playbook", roles: ["admin", "manager", "agent"] },
   { icon: TrendingUp, label: "Growth Playbook", href: "/dashboard/growth-playbook", roles: ["admin", "manager"] },
-  { icon: BarChart3, label: "Growth KPI", href: "/dashboard/growth-kpi", roles: ["admin", "manager"] },
+  { icon: BarChart3, label: "Growth Metrics", href: "/dashboard/growth-kpi", roles: ["admin", "manager"] },
   { icon: Settings, label: "Settings → Integrations", href: "/dashboard/settings/integrations", roles: ["admin"] },
 ];
 
@@ -162,8 +162,8 @@ const leadGenItems: MenuItem[] = [
   { icon: Sparkles, label: "Lead Intelligence", href: "/dashboard/lead-intelligence", roles: ["admin", "manager"] },
   { icon: FileBarChart, label: "Statement Review", href: "/dashboard/statement-review", roles: ["admin", "manager"] },
   { icon: BarChart2, label: "Outreach Analytics", href: "/dashboard/outreach-analytics", roles: ["admin", "manager"] },
-  { icon: RefreshCw, label: "Cold Lead Re-engagement", href: "/dashboard/cold-leads", roles: ["admin", "manager"] },
-  { icon: CreditCard, label: "BIN Lookup", href: "/dashboard/bin-lookup", roles: ["admin", "manager", "agent"] },
+  { icon: RefreshCw, label: "Outreach Prospects", href: "/dashboard/cold-leads", roles: ["admin", "manager"] },
+  { icon: CreditCard, label: "Card BIN Lookup", href: "/dashboard/bin-lookup", roles: ["admin", "manager", "agent"] },
 ];
 
 const toolsItems: MenuItem[] = [

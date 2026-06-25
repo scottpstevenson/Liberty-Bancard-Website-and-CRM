@@ -516,7 +516,7 @@ ${template}`,
     const { completion: response, flagged: orchFlagged, reviewQueueId: orchReviewId } = await logAiCall(
       { triggerType: "outbound-copy", actorType: "system", rawPrompt: JSON.stringify(orchMessages) },
       () => openai.chat.completions.create({
-        model: "gpt-5-mini",
+        model: "gpt-4o-mini",
         messages: orchMessages,
         max_tokens: channel === "sms" ? 100 : 300,
       }));
@@ -565,6 +565,7 @@ async function isContactExcludedFromSdr(lead: SdrLeadState): Promise<boolean> {
     if (tags.includes("LB-ACTIVE-PIPELINE")) return true;
     if (tags.includes("LB-DO-NOT-AUTO")) return true;
     if (contact.doNotContact) return true;
+    if (contact.doNotAutoContact) return true;
 
     const deals = await storage.getDealsByContact(contact.id);
     const activeStages = [

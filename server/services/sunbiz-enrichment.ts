@@ -511,7 +511,7 @@ Provide JSON:
 
   try {
     const response = await getOpenAI().chat.completions.create({
-      model: "gpt-5-mini",
+      model: "gpt-4o-mini",
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
     });
@@ -1129,7 +1129,7 @@ Only return the JSON, no explanation.`;
 
   try {
     const response = await getOpenAI().chat.completions.create({
-      model: "gpt-5-mini",
+      model: "gpt-4o-mini",
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
       max_tokens: 2000,

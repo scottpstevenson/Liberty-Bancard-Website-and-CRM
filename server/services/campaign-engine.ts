@@ -68,7 +68,7 @@ Return JSON: { "subject": "...", "body": "..." }`;
       const { completion: response, flagged: campFlagged, reviewQueueId: campReviewId } = await logAiCall(
         { triggerType: "outbound-copy", actorType: "system", rawPrompt: JSON.stringify(campaignMessages) },
         () => getOpenAI().chat.completions.create({
-          model: "gpt-5-mini",
+          model: "gpt-4o-mini",
           messages: campaignMessages,
           response_format: { type: "json_object" },
         })

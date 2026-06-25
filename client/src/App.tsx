@@ -299,6 +299,7 @@ function Router() {
         <Route path="/beat-square-stripe" component={BeatSquareStripe} />
         <Route path="/about-contact" component={AboutContact} />
         <Route path="/contact" component={AboutContact} />
+        {/* /contact is kept as a redirect alias for external links pointing to /contact */}
         <Route path="/estimate" component={Estimate} />
         <Route path="/support" component={Support} />
         <Route path="/privacy-policy" component={PrivacyPolicy} />

@@ -96,7 +96,7 @@ COMPLIANCE RULES:
     const { completion: response } = await logAiCall(
       { triggerType: "blueprint", actorType: "system", rawPrompt: JSON.stringify(blueprintMessages) },
       () => getOpenAI().chat.completions.create({
-        model: "gpt-5-mini",
+        model: "gpt-4o-mini",
         messages: blueprintMessages,
         response_format: { type: "json_object" },
       })

@@ -93,7 +93,7 @@ Scoring criteria:
     const { completion: response, flagged: enrichFlagged, reviewQueueId: enrichReviewId } = await logAiCall(
       { triggerType: "enrichment", actorType: "system", rawPrompt: JSON.stringify(enrichMessages) },
       () => getOpenAI().chat.completions.create({
-        model: "gpt-5-mini",
+        model: "gpt-4o-mini",
         messages: enrichMessages,
         response_format: { type: "json_object" },
       })

@@ -637,7 +637,7 @@ Return JSON: { "websiteQuality": "...", "businessMaturity": "..." }`,
     const { completion: response } = await logAiCall(
       { triggerType: "website-quality", actorType: "system", rawPrompt: JSON.stringify(websiteMessages) },
       () => openai.chat.completions.create({
-        model: "gpt-5-mini",
+        model: "gpt-4o-mini",
         messages: websiteMessages,
         response_format: { type: "json_object" },
         max_tokens: 100,

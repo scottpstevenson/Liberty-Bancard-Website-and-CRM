@@ -2,8 +2,8 @@ import type { Express, RequestHandler } from "express";
 import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
-import { and, eq } from "drizzle-orm";
-import { insertEquipmentOrderSchema, insertMerchantApplicationSchema, insertMerchantProfileSchema, insertOnboardingStepSchema, deals } from "@shared/schema";
+import { and, eq, or } from "drizzle-orm";
+import { insertEquipmentOrderSchema, insertMerchantApplicationSchema, insertMerchantProfileSchema, insertOnboardingStepSchema, deals, merchantApplications } from "@shared/schema";
 import { db } from "../db";
 import { getDocumentStatus, sendDocumentForEsign } from "../services/ghl";
 import { computeOrderEconomics } from "../services/terminal-economics";
@@ -85,6 +85,29 @@ export function registerMerchantsRoutes(app: Express) {
       if (_shareToken && typeof _shareToken === "string" && !input.dealId) {
         const [matchedDeal] = await db.select({ id: deals.id }).from(deals).where(eq(deals.shareToken, _shareToken));
         if (matchedDeal) resolvedDealId = matchedDeal.id;
+      }
+
+      const emailToCheck = input.ownerEmail || input.businessEmail;
+      const einToCheck = input.ein;
+      if (emailToCheck || einToCheck) {
+        const conditions = [];
+        if (emailToCheck) {
+          conditions.push(eq(merchantApplications.ownerEmail, emailToCheck));
+          conditions.push(eq(merchantApplications.businessEmail, emailToCheck));
+        }
+        if (einToCheck) conditions.push(eq(merchantApplications.ein, einToCheck));
+        const [existing] = await db
+          .select({ id: merchantApplications.id, status: merchantApplications.status })
+          .from(merchantApplications)
+          .where(or(...conditions))
+          .limit(1);
+        if (existing) {
+          return res.status(409).json({
+            message: "An application for this business already exists.",
+            existingApplicationId: existing.id,
+            existingStatus: existing.status,
+          });
+        }
       }
 
       const application = await storage.createMerchantApplication(
