@@ -1,5 +1,5 @@
 import type { Express, Request as ExpressRequest } from "express";
-import { isAuthenticated, isAdmin, isDashboardUser } from "../replit_integrations/auth";
+import { isAuthenticated, isAdmin, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { db, pool } from "../db";
 import { z } from "zod";
@@ -146,15 +146,13 @@ export function registerSdrRoutes(app: Express) {
   });
 
   // === GLOBAL PAUSE / RESUME ===
-  app.post("/api/sdr/pause-all", isAuthenticated, (req, res) => {
-    if ((req.user as any)?.role !== "admin") return res.status(403).json({ message: "Admin only" });
+  app.post("/api/sdr/pause-all", requireRole("admin"), (req, res) => {
     const reason = req.body?.reason || "Manual pause from admin panel";
     pauseAll(reason);
     res.json({ success: true, paused: true, reason });
   });
 
-  app.post("/api/sdr/resume-all", isAuthenticated, (req, res) => {
-    if ((req.user as any)?.role !== "admin") return res.status(403).json({ message: "Admin only" });
+  app.post("/api/sdr/resume-all", requireRole("admin"), (req, res) => {
     resumeAll();
     res.json({ success: true, paused: false });
   });

@@ -109,14 +109,26 @@ export function getGhlStatus() {
   };
 }
 
+function isLocalhostEnv(): boolean {
+  const appUrl = process.env.APP_URL || "";
+  const host = process.env.HOST || "";
+  // Only use host/URL signals — never NODE_ENV, which can be "development" on deployed Replit envs
+  return (
+    appUrl.includes("localhost") ||
+    appUrl.includes("127.0.0.1") ||
+    host === "localhost" ||
+    host === "127.0.0.1"
+  );
+}
+
 export function validateGhlWebhookSignature(payload: string, signature: string): boolean {
   const secret = process.env.GHL_WEBHOOK_SECRET;
   if (!secret) {
-    if (process.env.NODE_ENV === "production") {
-      console.error("[GHL] GHL_WEBHOOK_SECRET not set in production — rejecting webhook");
+    if (!isLocalhostEnv()) {
+      console.error("[GHL] GHL_WEBHOOK_SECRET not set in non-localhost environment — rejecting webhook");
       return false;
     }
-    console.warn("[GHL] GHL_WEBHOOK_SECRET not set — skipping signature verification (dev mode)");
+    console.warn("[GHL] GHL_WEBHOOK_SECRET not set — skipping signature verification (localhost dev mode only)");
     return true;
   }
 

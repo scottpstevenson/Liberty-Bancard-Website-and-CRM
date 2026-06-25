@@ -10,8 +10,7 @@ import {
   ArrowRight, Calendar, Shield, User
 } from "lucide-react";
 import { trackCalendarBooking } from "@/lib/tracking";
-
-const CALENDAR_URL = import.meta.env.VITE_GHL_CALENDAR_URL || "https://api.leadconnectorhq.com/widget/booking/liberty-bancard";
+import { CALENDAR_URL } from "@/lib/constants";
 
 export default function ThanksApplication() {
   const [applicationId, setApplicationId] = useState<string | null>(null);

@@ -968,7 +968,7 @@ export default function FreeAnalysis() {
                       data-testid="checkbox-consent"
                     />
                     <label htmlFor="consent" className="text-xs text-muted-foreground leading-relaxed cursor-pointer">
-                      I agree to receive communications from Liberty Bancard including SMS messages. Standard rates apply. You can opt out at any time. See our{" "}
+                      By submitting, I agree to receive calls, texts, and email marketing communications from Liberty Bancard regarding payment processing services. Reply STOP to opt out. Message &amp; data rates may apply. See our{" "}
                       <Link href="/privacy-policy" className="underline">Privacy Policy</Link> and{" "}
                       <Link href="/sms-terms" className="underline">SMS Terms</Link>.
                     </label>

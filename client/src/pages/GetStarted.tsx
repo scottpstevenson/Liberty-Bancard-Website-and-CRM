@@ -677,7 +677,9 @@ export default function GetStarted() {
                           data-testid="checkbox-consent"
                         />
                         <label htmlFor="consent" className="text-sm text-muted-foreground leading-relaxed cursor-pointer">
-                          I agree to receive calls, texts, and emails from Liberty Bancard regarding my account and promotional offers. Message and data rates may apply. Reply STOP to opt out. This consent is not required to obtain services.
+                          By submitting, I agree to receive calls, texts, and email marketing communications from Liberty Bancard regarding payment processing services. Consent is not required to obtain services. Reply STOP to opt out. Message &amp; data rates may apply. See our{" "}
+                          <a href="/privacy-policy" className="underline">Privacy Policy</a> and{" "}
+                          <a href="/sms-terms" className="underline">SMS Terms</a>.
                         </label>
                       </div>
                     </div>

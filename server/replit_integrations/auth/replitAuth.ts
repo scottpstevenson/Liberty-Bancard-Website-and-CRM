@@ -142,9 +142,9 @@ async function seedAdminUser() {
     );
   }
 
-  const passwordHash = await bcrypt.hash(adminPassword, 12);
   const existing = await authStorage.getUserByEmail(adminEmail);
   if (!existing) {
+    const passwordHash = await bcrypt.hash(adminPassword, 12);
     await authStorage.upsertUser({
       email: adminEmail,
       firstName: "Scott",
@@ -155,11 +155,21 @@ async function seedAdminUser() {
     });
     console.log(`[Auth] Admin user seeded: ${adminEmail}`);
   } else {
+    // Safe default: do NOT overwrite an existing admin password from env vars.
+    // This prevents an env var leak from silently re-hashing the admin password on every boot.
+    // Set ADMIN_SEED_FORCE_UPDATE=true only in controlled dev environments to opt back into sync behavior.
+    const forceUpdate = process.env.ADMIN_SEED_FORCE_UPDATE === "true";
+    if (!forceUpdate) {
+      console.log(`[Auth] Admin seeding skipped — existing admin password preserved (set ADMIN_SEED_FORCE_UPDATE=true to overwrite): ${adminEmail}`);
+      return;
+    }
+    // Only reached when ADMIN_SEED_FORCE_UPDATE=true is explicitly set
+    const passwordHash = await bcrypt.hash(adminPassword, 12);
     await db
       .update(users)
       .set({ passwordHash, updatedAt: new Date() })
       .where(eq(users.email, adminEmail.toLowerCase()));
-    console.log(`[Auth] Admin password synced from env: ${adminEmail}`);
+    console.log(`[Auth] Admin password force-updated from env (ADMIN_SEED_FORCE_UPDATE=true): ${adminEmail}`);
   }
 }
 

@@ -128,6 +128,10 @@ export function registerAdminRoutes(app: Express) {
         userId: (req.user as any)?.id ?? null,
         actorType: "user",
       }).catch(() => {});
+      // Invalidate all existing sessions immediately — the user must re-login to get the new role
+      authStorage.invalidateAllUserSessions(updated.id).catch((err) =>
+        console.error("[Admin] Failed to invalidate sessions after role change:", err)
+      );
       const { passwordHash, ...safeUser } = updated;
       res.json(safeUser);
     } catch (err: any) {

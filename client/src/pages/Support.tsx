@@ -390,7 +390,9 @@ export default function Support() {
                             </FormControl>
                             <div className="space-y-1 leading-none">
                               <FormLabel className="text-sm font-normal text-muted-foreground">
-                                I consent to receive text/email communications from Liberty Bancard.
+                              By submitting, I agree to receive SMS and email communications from Liberty Bancard regarding my support request and related services. Reply STOP to opt out. Message &amp; data rates may apply. See our{" "}
+                              <a href="/privacy-policy" className="underline">Privacy Policy</a> and{" "}
+                              <a href="/sms-terms" className="underline">SMS Terms</a>.
                               </FormLabel>
                               <FormMessage />
                             </div>

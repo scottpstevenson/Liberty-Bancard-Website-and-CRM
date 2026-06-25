@@ -4,6 +4,7 @@ import type { SdrMerchant } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { onStageChange, onOptOut } from "./ghl-sync-rules";
 import { logAiCall } from "../ai-audit-logger";
+import { AI_MODELS } from "../../config/ai-models";
 
 export const INTENT_LABELS = [
   "interested",
@@ -105,7 +106,7 @@ export async function classifyIntent(
         rawPrompt: JSON.stringify(classifyMessages),
       },
       () => openai.chat.completions.create({
-        model: "gpt-4o-mini",
+        model: AI_MODELS.fast,
         messages: classifyMessages,
         max_tokens: 200,
         response_format: { type: "json_object" },
@@ -342,7 +343,7 @@ export async function executeIntentAction(
       action: action.actionType,
     },
     decisionReason: `Intent: ${classification.intent} (${(classification.confidence * 100).toFixed(0)}%) → Action: ${action.actionType}`,
-    modelVersion: "gpt-4o-mini",
+    modelVersion: AI_MODELS.fast,
   });
 
   if (action.actionType === "immediate_suppression") {
