@@ -1,0 +1,179 @@
+Verdict
+
+601 is very close, but not build-ready yet.
+
+The preflight is excellent. It correctly fixed the big stale assumptions:
+
+campaigns table → wrong
+follow_up_sequences → correct
+manual_call_task → wrong
+task → correct
+server/routes/sequences.ts → wrong
+server/routes/campaigns.ts → correct
+POST /api/sequences/:id/enroll → wrong
+POST /api/sequence-enrollments → correct
+seed status active → dangerous
+Wave 6 seeds must be paused → correct
+
+But there is one P0 issue and three important P1 clarifications before Build mode.
+
+⸻
+
+P0 — Task/manual call steps cannot fully bypass contactability
+
+This line is unsafe:
+
+Confirm "task" steps pass through without contactability check
+
+I understand the intent: task is a human CRM task, not an automated call. That part is correct.
+
+But a task can still be a contact attempt. If someone becomes doNotContact, DNC, opted out, or otherwise suppressed after enrollment, the worker should not keep creating manual call tasks for them.
+
+Wave 1A already has the correct channel for this:
+
+manual_call
+
+That channel allows manual human tasks when doNotAutoContact is true, but still blocks true DNC/doNotContact/hard suppression.
+
+So the worker should not treat task as “no check.” It should map:
+
+task → manual_call
+
+before creating a CRM task.
+
+Required patch
+
+Worker Gate (b) must include task → manual_call mapping before task creation.
+Manual call task semantics:
+- task does not place a call
+- task does not invoke AI voice
+- task does not invoke autodialing
+- task does not trigger ringless voicemail
+- but task creation must still pass evaluateContactability(contact, "manual_call", { mode: "enforcement", source: "sequence_worker" })
+This ensures doNotContact/DNC/opted-out contacts do not keep receiving manual follow-up tasks after enrollment.
+
+This is release-blocking. Without it, a contact who opts out after enrollment could still get new “call this person” CRM tasks.
+
+⸻
+
+P1 — Mixed-channel sequences need optional SMS semantics
+
+Some families are valid for both warm_no_pewc and pewc_full_automation, but include optional SMS steps.
+
+Example:
+
+statement-uploaded
+booked-appointment
+no-show-recovery
+proposal-sent
+application-abandoned
+
+These should allow warm leads into the sequence for email/task steps, while SMS steps get skipped by Wave 1A.
+
+So the enrollment guard must not blindly say:
+
+campaign has sms in channelsAllowed
+→ warm_no_pewc blocked
+
+That would over-block useful sequences.
+
+Required patch
+
+channelsAllowed means the sequence may contain templates for those channels, not that every enrolled contact must qualify for every channel.
+Enrollment guard should block warm_no_pewc only when the sequence is PEWC-only or SMS-only.
+For mixed sequences:
+- warm_no_pewc may enroll
+- email/task steps may execute if allowed
+- sms steps are skipped/blocked at worker execution by evaluateContactability()
+
+Optional metadata if needed:
+
+smsPolicy: "optional_pewc_only"
+
+or simply use explicit eligibleConsentTiers + worker gate.
+
+⸻
+
+P1 — Paused seeds vs enrollment tests need clarity
+
+Wave 6 seeds should be created as:
+
+status = "paused"
+
+Correct.
+
+But the existing enrollment route blocks non-active sequences:
+
+status !== "active" → block
+
+Also correct.
+
+So validation should not expect direct enrollment into newly seeded paused sequences unless the test activates a test copy.
+
+Required patch
+
+Seeded Wave 6 families must remain paused.
+Enrollment guard tests should either:
+1. use a test fixture sequence with status = "active", or
+2. temporarily activate a test copy in the test setup.
+Do not change the production seed status to active just to make enrollment tests pass.
+
+⸻
+
+P1 — channelsAllowed / triggerConfig.outboundChannels must stay consistent
+
+Preflight says existing worker reads:
+
+triggerConfig.outboundChannels
+
+The new schema adds:
+
+channelsAllowed
+
+This creates possible drift.
+
+Required patch
+
+When seeding Wave 6 families, keep followUpSequences.channelsAllowed and triggerConfig.outboundChannels identical.
+If both exist, the worker remains backward-compatible with triggerConfig.outboundChannels, while the dashboard and guard can read the normalized channelsAllowed field.
+Add validation that mismatches are flagged or normalized.
+
+⸻
+
+Final build clarification to send Replit
+
+Final build clarifications for Task #601:
+
+The preflight plan is approved only with these patches:
+
+1. Worker task steps must not fully bypass contactability. Map task actionType to Wave 1A channel manual_call before creating the CRM task. A task is human-only and must never trigger telephony, AI voice, autodialing, or RVM, but it still must be blocked for doNotContact/DNC/opted-out contacts at execution time.
+2. Mixed-channel sequences must support warm_no_pewc enrollment when SMS steps are optional. channelsAllowed means the sequence may contain those channels; it does not mean every enrolled contact must qualify for every channel. Warm leads may enroll in mixed email/task/SMS-template sequences, but SMS steps must be skipped/blocked by evaluateContactability() at worker execution.
+3. Wave 6 seeds must remain status: "paused". Enrollment guard tests should use an active test fixture or activate a test copy in setup. Do not make production Wave 6 seeds active to satisfy tests.
+4. Keep followUpSequences.channelsAllowed and triggerConfig.outboundChannels consistent in the seed data. The worker may continue using triggerConfig.outboundChannels, while the dashboard/guard can read normalized metadata. Flag or normalize mismatches.
+5. Use task as the only manual call actionType. Do not invent manual_call_task.
+6. Patch POST /api/sequence-enrollments before createSequenceEnrollment() and write storage.createAuditLog({ action: "sequence_enrollment_blocked_consent", ... }) on blocked attempts.
+7. Do not add auto-enrollment from offer route. Only add suggestions.
+8. Do not add GHL workflows, SMS enablement, AI voice, ringless voicemail, or new event automation for no-show/application-abandon.
+
+After these patches are reflected, proceed with Build mode.
+
+Final verdict
+
+Not build-ready until the P0 task-step contactability patch is added.
+
+After that patch, I would approve 601.
+
+The corrected architecture should be:
+
+Enrollment guard:
+contact + sequence compatibility before enrollment
+Worker gate:
+email → evaluateContactability(email)
+sms → evaluateContactability(sms)
+task → evaluateContactability(manual_call), then create CRM task only
+Offer route:
+suggest sequence only, never auto-enroll
+Seed:
+10 paused families, idempotent, no voice/RVM
+
+That is the safe Wave 6 implementation.
