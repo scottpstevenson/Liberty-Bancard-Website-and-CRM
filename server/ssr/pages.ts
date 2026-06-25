@@ -1,4 +1,13 @@
 import { ssrHtmlShell } from "../ssrShared";
+import {
+  FST_TITLE_FULL,
+  FST_DESCRIPTION,
+  FST_KEYWORDS,
+  FST_PATH,
+  FST_SERVICE_NAME,
+  FST_SERVICE_DESCRIPTION,
+  fstFaqItems,
+} from "@shared/free-smart-terminal-content";
 
 const BASE_URL = "https://libertybancard.com";
 
@@ -1397,6 +1406,106 @@ export function getFreeAnalysisGuaranteedHtml(): string {
     canonical: "/free-analysis-guaranteed",
     keywords: "free merchant statement analysis, guaranteed savings, payment processing review, hidden fees, merchant services benchmark",
     schemaJsons: [faqSchema, serviceSchema],
+    body,
+  });
+}
+
+export function getFreeSmartTerminalHtml(): string {
+  const serviceSchema = {
+    "@context": "https://schema.org",
+    "@type": "Service",
+    name: FST_SERVICE_NAME,
+    description: FST_SERVICE_DESCRIPTION,
+    url: `${BASE_URL}${FST_PATH}`,
+    provider: { "@type": "Organization", name: "Liberty Bancard", url: BASE_URL },
+    areaServed: { "@type": "Country", name: "United States" },
+  };
+
+  const breadcrumbSchema = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      { "@type": "ListItem", position: 1, name: "Home", item: BASE_URL },
+      { "@type": "ListItem", position: 2, name: "Free Smart Terminal", item: `${BASE_URL}${FST_PATH}` },
+    ],
+  };
+
+  const faqSchema = {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: fstFaqItems.map((item) => ({
+      "@type": "Question",
+      name: item.question,
+      acceptedAnswer: { "@type": "Answer", text: item.answer },
+    })),
+  };
+
+  const body = `
+  <div class="ssr-hero">
+    <div class="ssr-hero-inner">
+      <div class="ssr-breadcrumb"><a href="/">Home</a><span>/</span><span>Free Smart Terminal</span></div>
+      <div class="ssr-hero-badge">📱 Smart Terminal Program</div>
+      <h1>See If Your Business Qualifies for a Smart Terminal at No Upfront Cost</h1>
+      <p class="ssr-hero-subtitle">Qualifying merchants who open a Liberty Bancard processing account may receive terminal placement with no purchase cost. We review your statement to confirm eligibility — no guesswork, no pressure.</p>
+      <div class="ssr-hero-buttons">
+        <a href="/get-started?offer=free-terminal" class="ssr-btn-primary">📋 Check My Eligibility</a>
+        <a href="/upload-statement" class="ssr-btn-outline">📤 Upload Statement First</a>
+      </div>
+    </div>
+  </div>
+
+  <section class="ssr-section ssr-section-muted">
+    <div class="ssr-section-inner">
+      <h2 class="ssr-section-heading">Terminal Eligibility Requirements</h2>
+      <div class="ssr-grid-2" style="max-width:48rem;margin:0 auto;">
+        <div class="ssr-card"><div class="ssr-card-title">✅ New Processing Account</div><div class="ssr-card-text">Open a new Liberty Bancard processing account to qualify for terminal placement.</div></div>
+        <div class="ssr-card"><div class="ssr-card-title">💳 Monthly Volume $5,000+</div><div class="ssr-card-text">Merchants processing at least $5,000/month in card volume typically qualify.</div></div>
+        <div class="ssr-card"><div class="ssr-card-title">🔓 No Active Equipment Lease</div><div class="ssr-card-text">Not currently under an existing equipment lease or locked-in terminal contract.</div></div>
+        <div class="ssr-card"><div class="ssr-card-title">📋 Standard Underwriting</div><div class="ssr-card-text">Approved through standard merchant underwriting — same process as any new account.</div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="ssr-section">
+    <div class="ssr-section-inner">
+      <h2 class="ssr-section-heading">Available Smart Terminals</h2>
+      <div class="ssr-grid-2" style="max-width:40rem;margin:0 auto;">
+        <div class="ssr-card" style="text-align:center;"><div style="font-size:2rem;margin-bottom:0.5rem;">📱</div><div class="ssr-card-title">Clover Flex 3</div><div class="ssr-card-text">Portable smart terminal with built-in receipt printer. Ideal for table-side, counter, and mobile use.</div></div>
+        <div class="ssr-card" style="text-align:center;"><div style="font-size:2rem;margin-bottom:0.5rem;">📟</div><div class="ssr-card-title">PAX A920</div><div class="ssr-card-text">All-in-one Android smart terminal with touchscreen. Accepts tap, chip, and swipe payments.</div></div>
+      </div>
+      <p style="text-align:center;margin-top:1.5rem;font-size:0.9rem;color:#6b7280;">Terminal model confirmed after statement review based on your business type and volume.</p>
+    </div>
+  </section>
+
+  <section class="ssr-section ssr-section-muted">
+    <div class="ssr-section-inner">
+      <h2 class="ssr-section-heading">Frequently Asked Questions</h2>
+      <div class="ssr-faq-wrapper">
+        ${fstFaqItems.map((item) => `<div class="ssr-faq-item"><div class="ssr-faq-q">${item.question}</div><div class="ssr-faq-a">${item.answer}</div></div>`).join("\n        ")}
+      </div>
+    </div>
+  </section>
+
+  <section class="ssr-section">
+    <div class="ssr-section-inner">
+      <h3 style="text-align:center;font-size:0.95rem;font-weight:600;color:#6b7280;margin-bottom:1rem;">Also useful:</h3>
+      <div style="display:flex;flex-wrap:wrap;gap:1.5rem;justify-content:center;font-size:0.9rem;">
+        <a href="/upload-statement" style="color:#3b82f6;">Upload Your Statement for a Free Review</a>
+        <a href="/free-analysis" style="color:#3b82f6;">Get a Free Processing Analysis</a>
+        <a href="/industries/restaurant-payment-processing" style="color:#3b82f6;">Restaurant Payment Processing</a>
+        <a href="/industries/retail-payment-processing" style="color:#3b82f6;">Retail Payment Processing</a>
+      </div>
+    </div>
+  </section>
+
+  ${ctaSection("Check Your Eligibility Today", "Upload your statement and we'll confirm whether your business qualifies for terminal placement at no upfront cost.")}`;
+
+  return ssrHtmlShell({
+    title: FST_TITLE_FULL,
+    description: FST_DESCRIPTION,
+    canonical: FST_PATH,
+    keywords: FST_KEYWORDS,
+    schemaJsons: [serviceSchema, breadcrumbSchema, faqSchema],
     body,
   });
 }

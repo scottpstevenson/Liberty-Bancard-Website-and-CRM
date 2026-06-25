@@ -30,7 +30,6 @@ export function Footer() {
     { label: "Savings Calculator", href: "/savings-calculator" },
     { label: "Quick Estimate", href: "/estimate" },
     { label: "Upload Statement", href: "/upload-statement" },
-    { label: "Get My Free Analysis", href: "/free-analysis" },
   ];
 
   const solutionLinks = [

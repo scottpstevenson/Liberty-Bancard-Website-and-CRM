@@ -1,4 +1,4 @@
-import { SEO, getServiceSchema } from "@/components/SEO";
+import { SEO, getServiceSchema, getFAQSchema } from "@/components/SEO";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
@@ -31,6 +31,15 @@ import { PHONE_TEL, PHONE_NUMBER, CALENDAR_URL } from "@/lib/constants";
 import { trackFreeTerminalEligibilityClick, trackStatementUploadCtaClick, trackBookingCtaClick, trackPhoneCtaClick } from "@/lib/tracking";
 import imgCloverFlex3 from "@assets/images/terminal-clover-flex-3.png";
 import imgPaxA920 from "@assets/images/terminal-pax-a920.png";
+import {
+  FST_TITLE,
+  FST_DESCRIPTION,
+  FST_KEYWORDS,
+  FST_PATH,
+  FST_SERVICE_NAME,
+  FST_SERVICE_DESCRIPTION,
+  fstFaqItems,
+} from "@shared/free-smart-terminal-content";
 
 const eligibilityItems = [
   "New merchant opening a processing account with Liberty Bancard",
@@ -46,33 +55,6 @@ const terminalFeatures = [
   { icon: Monitor, label: "Clear receipts", desc: "Compliant receipts with dual-pricing disclosure built in" },
 ];
 
-const faqItems = [
-  {
-    question: "Is the terminal actually free?",
-    answer:
-      "Terminal placement (no upfront purchase cost) is available for qualifying merchants who open a Liberty Bancard processing account and meet minimum volume requirements. Standard underwriting and account approval applies. Details are confirmed during your statement review.",
-  },
-  {
-    question: "Which terminals are available?",
-    answer:
-      "Commonly placed terminals include the Clover Flex 3 and PAX A920 smart terminals, depending on your business type and volume. Terminal availability and model may vary. We confirm which best fits your setup after reviewing your statement.",
-  },
-  {
-    question: "What if I'm already in a lease?",
-    answer:
-      "If you're currently locked into an equipment lease with another processor, we'll note that during your review and discuss your options. We do not make lease buyout guarantees — but we can show you the full cost picture.",
-  },
-  {
-    question: "How long does it take to get the terminal?",
-    answer:
-      "After account approval, most terminals are configured and shipped within 2–3 business days. Go-live support is included.",
-  },
-  {
-    question: "Do I have to sign a long-term contract?",
-    answer:
-      "Liberty Bancard does not require long-term processing contracts. Your month-to-month agreement means you're staying because it works, not because you're locked in.",
-  },
-];
 
 export default function FreeSmartTerminal() {
   const containerRef = useScrollReveal();
@@ -80,16 +62,14 @@ export default function FreeSmartTerminal() {
   return (
     <div className="min-h-screen flex flex-col font-body pb-[72px] md:pb-0">
       <SEO
-        title="Free Smart Terminal for Qualifying Merchants | Liberty Bancard"
-        description="Explore whether your business qualifies for terminal placement at no upfront cost with a Liberty Bancard processing account. Upload your statement for a free eligibility review."
-        path="/free-smart-terminal"
-        keywords="free credit card terminal, free payment terminal, smart terminal, clover flex, pax terminal, merchant services terminal, payment processing terminal"
+        title={FST_TITLE}
+        description={FST_DESCRIPTION}
+        path={FST_PATH}
+        keywords={FST_KEYWORDS}
+        breadcrumbs={[{ name: "Free Smart Terminal", path: FST_PATH }]}
         structuredData={[
-          getServiceSchema(
-            "Smart Terminal Placement Program",
-            "Terminal placement at no upfront purchase cost for qualifying merchants who open a Liberty Bancard processing account. Subject to underwriting and eligibility review.",
-            "/free-smart-terminal"
-          ),
+          getServiceSchema(FST_SERVICE_NAME, FST_SERVICE_DESCRIPTION, FST_PATH),
+          getFAQSchema(fstFaqItems),
         ]}
       />
       <Navbar />
@@ -382,6 +362,28 @@ export default function FreeSmartTerminal() {
             </p>
           </div>
         </section>
+
+        {/* Internal navigation links — crawlable */}
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 border-t border-border" data-testid="section-internal-links">
+          <p className="text-sm text-muted-foreground mb-3 font-medium">Also useful:</p>
+          <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
+            <Link href="/upload-statement" className="text-primary hover:underline" data-testid="link-internal-upload-statement">
+              Upload Your Statement for a Free Review
+            </Link>
+            <Link href="/free-analysis" className="text-primary hover:underline" data-testid="link-internal-free-analysis">
+              Get a Free Processing Analysis
+            </Link>
+            <Link href="/industries/restaurant-payment-processing" className="text-primary hover:underline" data-testid="link-internal-industry-restaurant">
+              Restaurant Payment Processing
+            </Link>
+            <Link href="/industries/retail-payment-processing" className="text-primary hover:underline" data-testid="link-internal-industry-retail">
+              Retail Payment Processing
+            </Link>
+            <Link href="/industries/healthcare-payment-processing" className="text-primary hover:underline" data-testid="link-internal-industry-healthcare">
+              Healthcare Payment Processing
+            </Link>
+          </div>
+        </div>
       </main>
 
       <Footer />

@@ -871,12 +871,15 @@ export default function Home() {
                   <li className="flex items-start gap-3"><CheckCircle2 className="w-5 h-5 text-primary mt-0.5 shrink-0" /><span className="text-muted-foreground">Tip adjust, batch close, and on-device reporting</span></li>
                   <li className="flex items-start gap-3"><CheckCircle2 className="w-5 h-5 text-primary mt-0.5 shrink-0" /><span className="text-muted-foreground">Free for qualifying merchants*</span></li>
                 </ul>
-                <Link href="/upload-statement?terminal=yes" data-testid="link-terminal-showcase-cta">
-                  <Button className="gap-2">
-                    Check Terminal Eligibility
-                    <ArrowRight className="w-4 h-4" />
-                  </Button>
-                </Link>
+                <div className="flex flex-wrap items-center gap-3">
+                  <Link href="/upload-statement?terminal=yes" data-testid="link-terminal-showcase-cta">
+                    <Button className="gap-2">
+                      Check Terminal Eligibility
+                      <ArrowRight className="w-4 h-4" />
+                    </Button>
+                  </Link>
+                  <Link href="/free-smart-terminal" className="text-sm text-primary hover:underline" data-testid="link-terminal-showcase-eligibility">See eligibility details →</Link>
+                </div>
                 <p className="text-xs text-muted-foreground mt-3">*Eligibility, underwriting, card brand rules, and applicable laws apply.</p>
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -1355,6 +1358,18 @@ export default function Home() {
             </div>
           </div>
         </section>
+
+        {/* Compare by Processor — crawlable internal link row */}
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 border-t border-border" data-testid="section-compare-links">
+          <p className="text-sm text-muted-foreground mb-3 font-medium">Compare by processor:</p>
+          <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
+            <Link href="/compare/square" className="text-primary hover:underline" data-testid="link-compare-square">Liberty vs Square</Link>
+            <Link href="/compare/stripe" className="text-primary hover:underline" data-testid="link-compare-stripe">Liberty vs Stripe</Link>
+            <Link href="/compare/clover" className="text-primary hover:underline" data-testid="link-compare-clover">Liberty vs Clover</Link>
+            <Link href="/compare/toast" className="text-primary hover:underline" data-testid="link-compare-toast">Liberty vs Toast</Link>
+            <Link href="/compare/paypal" className="text-primary hover:underline" data-testid="link-compare-paypal">Liberty vs PayPal</Link>
+          </div>
+        </div>
 
         {/* SECTION 11.5: Quick Callback Form */}
         <section className="bg-background bg-grid py-20" data-testid="section-callback">

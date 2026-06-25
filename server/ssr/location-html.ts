@@ -1,5 +1,9 @@
 import { getCityData, getVerticalData, CITIES, VERTICALS } from "./location-data";
 
+export function isValidLocationCombination(citySlug: string, verticalSlug: string): boolean {
+  return !!getCityData(citySlug) && !!getVerticalData(verticalSlug);
+}
+
 export function getLocationHtml(citySlug: string, verticalSlug: string): string | null {
   const city = getCityData(citySlug);
   const vertical = getVerticalData(verticalSlug);

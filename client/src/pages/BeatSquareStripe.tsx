@@ -574,6 +574,15 @@ export default function BeatSquareStripe() {
             </div>
           </div>
         </section>
+
+        {/* Compare page crawlable links */}
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 border-t border-border" data-testid="section-beat-compare-links">
+          <p className="text-sm text-muted-foreground mb-3 font-medium">Detailed comparisons:</p>
+          <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
+            <Link href="/compare/square" className="text-primary hover:underline" data-testid="link-beat-compare-square">Liberty vs Square — Full Comparison</Link>
+            <Link href="/compare/stripe" className="text-primary hover:underline" data-testid="link-beat-compare-stripe">Liberty vs Stripe — Full Comparison</Link>
+          </div>
+        </div>
       </main>
 
       <Footer />

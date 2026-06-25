@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { getIndustryHtml } from "../ssr/industries";
 import { getCompareHtml } from "../ssr/compare";
 import { getLocationHtml, getCityHubHtml } from "../ssr/locations";
+import { isValidLocationCombination } from "../ssr/location-html";
 import { getHomeHtml } from "../ssr/home";
 import {
   getUploadStatementHtml,
@@ -20,6 +21,7 @@ import {
   getTestimonialsHtml,
   getTestimonialsSubmitHtml,
   getIntegrationsHtml,
+  getFreeSmartTerminalHtml,
 } from "../ssr/pages";
 import { CITIES, VERTICALS } from "../ssr/location-data";
 import { storage } from "../storage";
@@ -183,6 +185,7 @@ export function registerSsrRoutes(app: Express) {
       xml += `  </url>\n`;
 
       for (const vertical of VERTICALS) {
+        if (!isValidLocationCombination(city.slug, vertical.slug)) continue;
         xml += `  <url>\n`;
         xml += `    <loc>${baseUrl}/locations/${city.slug}/${vertical.slug}</loc>\n`;
         xml += `    <lastmod>${date}</lastmod>\n`;
@@ -277,6 +280,14 @@ export function registerSsrRoutes(app: Express) {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Cache-Control", PAGE_CACHE);
     res.send(getFaqHtml());
+  });
+
+  app.get("/free-smart-terminal", (req, res, next) => {
+    if (!isCrawler(req.headers["user-agent"])) return next();
+    const html = getFreeSmartTerminalHtml();
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Cache-Control", PAGE_CACHE);
+    res.send(html);
   });
 
   app.get("/testimonials", (_req, res) => {

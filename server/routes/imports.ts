@@ -326,6 +326,7 @@ Guidelines:
     xml += `  <sitemap><loc>${baseUrl}/sitemap-core.xml</loc><lastmod>${today}</lastmod></sitemap>\n`;
     xml += `  <sitemap><loc>${baseUrl}/sitemap-blog.xml</loc><lastmod>${today}</lastmod></sitemap>\n`;
     xml += `  <sitemap><loc>${baseUrl}/sitemap-locations.xml</loc><lastmod>${today}</lastmod></sitemap>\n`;
+    xml += `  <sitemap><loc>${baseUrl}/sitemap-compare.xml</loc><lastmod>${today}</lastmod></sitemap>\n`;
     xml += `</sitemapindex>`;
 
     res.set("Content-Type", "application/xml");
@@ -360,11 +361,6 @@ Guidelines:
       { url: "/testimonials", priority: "0.8", changefreq: "monthly" },
       { url: "/testimonials/submit", priority: "0.5", changefreq: "monthly" },
       { url: "/integrations", priority: "0.8", changefreq: "monthly" },
-      { url: "/compare/square", priority: "0.8", changefreq: "monthly" },
-      { url: "/compare/stripe", priority: "0.8", changefreq: "monthly" },
-      { url: "/compare/clover", priority: "0.8", changefreq: "monthly" },
-      { url: "/compare/toast", priority: "0.8", changefreq: "monthly" },
-      { url: "/compare/paypal", priority: "0.8", changefreq: "monthly" },
       ...INDUSTRY_SLUGS.map(slug => ({ url: `/industries/${slug}`, priority: "0.8", changefreq: "monthly" })),
       { url: "/privacy-policy", priority: "0.3", changefreq: "yearly" },
       { url: "/terms", priority: "0.3", changefreq: "yearly" },

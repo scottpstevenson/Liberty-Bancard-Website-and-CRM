@@ -89,6 +89,7 @@ export const SEO_ROUTE_DEFAULTS: Record<string, SeoRouteDefault> = {
   "/refund-policy": { title: "Refund & Cancellation Policy | Liberty Bancard", description: "Refund eligibility for Liberty Bancard subscription, equipment, and services. Account cancellation procedures and early termination details.", inSitemap: true },
   "/california-privacy": { title: "California Privacy Rights (CCPA/CPRA) | Liberty", description: "Liberty Bancard's CCPA/CPRA disclosures for California consumers. Exercise your rights to access, delete, or opt out of data sharing.", inSitemap: true },
   "/ada-compliance": { title: "ADA & WCAG Compliance Notice | Liberty Bancard", description: "Liberty Bancard's ADA compliance commitment and accommodation request process. We follow WCAG 2.1 guidelines for digital accessibility.", inSitemap: true },
+  "/free-smart-terminal": { title: "Free Smart Terminal for Qualifying Merchants", description: "See if your business qualifies for terminal placement at no upfront cost. Open a Liberty Bancard account and upload your statement for a free eligibility review.", keywords: "free credit card terminal, free payment terminal, smart terminal, clover flex, pax terminal, merchant services terminal", ogTemplate: "service", inSitemap: true },
 };
 
 export const PUBLIC_ROUTE_PATHS = Object.keys(SEO_ROUTE_DEFAULTS);
