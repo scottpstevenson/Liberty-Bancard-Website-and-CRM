@@ -150,6 +150,7 @@ export default function MerchantApplication() {
   const [esignSending, setEsignSending] = useState(false);
   const [esignStatus, setEsignStatus] = useState<string | null>(null);
   const [reviewConfirmed, setReviewConfirmed] = useState(false);
+  const [pewcConsent, setPewcConsent] = useState(false);
 
   useEffect(() => {
     const saved = localStorage.getItem(DRAFT_KEY);
@@ -360,7 +361,7 @@ export default function MerchantApplication() {
           (terminalNeeded === false || (terminalType !== "" && terminalQuantity.trim() !== ""))
         );
       case 6:
-        return reviewConfirmed;
+        return reviewConfirmed && pewcConsent;
       default:
         return false;
     }
@@ -428,6 +429,7 @@ export default function MerchantApplication() {
         ecommerceNeeded: ecommerceNeeded === true,
         preferredProgram,
         esignStatus: "pending",
+        pewcConsent,
         ...(shareToken ? { _shareToken: shareToken } : {}),
         ...getStoredUTMParams(),
       });
@@ -1280,6 +1282,19 @@ export default function MerchantApplication() {
                         <span className="text-sm text-foreground leading-relaxed">
                           I confirm that all information provided is accurate and complete. I understand that a Merchant Processing 
                           Agreement will be sent to my email via GoHighLevel for electronic signature after submission.
+                        </span>
+                      </label>
+                      <label className="flex items-start gap-3 cursor-pointer" data-testid="checkbox-pewc-consent">
+                        <Checkbox
+                          checked={pewcConsent}
+                          onCheckedChange={(checked) => setPewcConsent(checked === true)}
+                          className="mt-0.5"
+                        />
+                        <span className="text-sm text-foreground leading-relaxed">
+                          <strong>Prior Express Written Consent (TCPA):</strong> I expressly authorize Liberty Bancard and its 
+                          agents to contact me via automated calls, prerecorded messages, and automated text messages at the phone 
+                          number(s) provided. I understand this consent is not required to obtain services. Message and data rates 
+                          may apply. Reply STOP to opt out at any time.
                         </span>
                       </label>
                     </div>

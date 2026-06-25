@@ -830,6 +830,7 @@ Guidelines:
           channel: "sms",
           action: "opt_in",
           consented: true,
+          consentType: "general_optin",
           source: "free_analysis_quiz",
           ipAddress: req.ip || req.socket.remoteAddress || "unknown",
           userAgent: req.headers["user-agent"] || "unknown",

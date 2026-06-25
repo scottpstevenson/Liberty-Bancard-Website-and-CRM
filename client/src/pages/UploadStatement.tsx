@@ -664,7 +664,7 @@ export default function UploadStatement() {
                           </FormControl>
                           <div className="space-y-1 leading-none">
                             <FormLabel className="text-sm font-normal text-muted-foreground">
-                              I consent to receive text/email communications from Liberty Bancard.
+                              I consent to receive calls, texts, and emails from Liberty Bancard regarding my account and promotional offers. Message and data rates may apply. Reply STOP to opt out. This consent is not required to obtain services.
                             </FormLabel>
                             <FormMessage />
                           </div>

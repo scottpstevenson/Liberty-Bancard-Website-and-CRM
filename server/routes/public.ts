@@ -217,13 +217,14 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
 
       if (!contact) throw new Error("Could not resolve contact record");
 
-      // SMS consent audit log
+      // SMS consent audit log — general opt-in only (not PEWC)
       if (parseBool(consentSms)) {
         await storage.createConsentAuditLog({
           contactId: contact.id,
           channel: "sms",
           action: "opt_in",
           consented: true,
+          consentType: "general_optin",
           source: "website_form",
           ipAddress: req.ip || req.socket.remoteAddress || "unknown",
           userAgent: req.headers["user-agent"] || "unknown",
@@ -345,6 +346,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
           channel: "sms",
           action: "opt_in",
           consented: true,
+          consentType: "general_optin",
           source: "website_form",
           ipAddress: req.ip || req.socket.remoteAddress || "unknown",
           userAgent: req.headers["user-agent"] || "unknown",
@@ -432,6 +434,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
           channel: "sms",
           action: "opt_in",
           consented: true,
+          consentType: "general_optin",
           source: "website_form",
           ipAddress: req.ip || req.socket.remoteAddress || "unknown",
           userAgent: req.headers["user-agent"] || "unknown",

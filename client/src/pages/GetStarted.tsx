@@ -677,7 +677,7 @@ export default function GetStarted() {
                           data-testid="checkbox-consent"
                         />
                         <label htmlFor="consent" className="text-sm text-muted-foreground leading-relaxed cursor-pointer">
-                          I agree to receive calls, texts, and emails from Liberty Bancard. Message and data rates may apply. Reply STOP to opt out.
+                          I agree to receive calls, texts, and emails from Liberty Bancard regarding my account and promotional offers. Message and data rates may apply. Reply STOP to opt out. This consent is not required to obtain services.
                         </label>
                       </div>
                     </div>

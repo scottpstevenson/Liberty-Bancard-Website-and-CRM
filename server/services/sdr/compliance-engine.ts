@@ -1,5 +1,5 @@
 import { db } from "../../db";
-import { sdrComplianceState, sdrMerchants, sdrMerchantContacts, sdrChannelAttempts, sdrLeadEvents } from "@shared/schema";
+import { sdrComplianceState, sdrMerchants, sdrMerchantContacts, sdrChannelAttempts, sdrLeadEvents, contacts, consentAuditLogs } from "@shared/schema";
 import { eq, and, gte, sql } from "drizzle-orm";
 import { isWithinBusinessHours, getNextBusinessWindow, getTimezoneFromState } from "./voice-orchestrator";
 
@@ -8,6 +8,34 @@ export { getTimezoneFromState } from "./voice-orchestrator";
 const DAILY_SMS_LIMIT = parseInt(process.env.SDR_DAILY_SMS_LIMIT || "50", 10);
 const DAILY_EMAIL_LIMIT = parseInt(process.env.SDR_DAILY_EMAIL_LIMIT || "200", 10);
 const DAILY_CALL_LIMIT = parseInt(process.env.SDR_DAILY_CALL_LIMIT || "30", 10);
+
+const STRICT_STATE_CONSENT_REQUIRED = (process.env.STRICT_STATE_CONSENT_REQUIRED || "FL")
+  .split(",")
+  .map((s) => s.trim().toUpperCase())
+  .filter(Boolean);
+
+async function hasExpressWrittenConsent(merchantEmail: string | null | undefined, channel: "sms" | "call"): Promise<boolean> {
+  if (!merchantEmail) return false;
+  const [contact] = await db
+    .select({ id: contacts.id })
+    .from(contacts)
+    .where(eq(contacts.email, merchantEmail))
+    .limit(1);
+  if (!contact) return false;
+  const logs = await db
+    .select({ consentType: consentAuditLogs.consentType })
+    .from(consentAuditLogs)
+    .where(
+      and(
+        eq(consentAuditLogs.contactId, contact.id),
+        eq(consentAuditLogs.channel, channel),
+        eq(consentAuditLogs.consented, true),
+      )
+    )
+    .orderBy(sql`${consentAuditLogs.createdAt} DESC`)
+    .limit(10);
+  return logs.some((l) => l.consentType === "express_written");
+}
 
 const QUIET_HOURS = { start: 9, end: 17 };
 
@@ -153,15 +181,27 @@ async function checkSmsCompliance(
     return { allowed: false, reason: "SMS not allowed — merchant opted out or STOP received" };
   }
 
-  const contacts = await db.select().from(sdrMerchantContacts)
+  const merchantContacts = await db.select().from(sdrMerchantContacts)
     .where(and(
       eq(sdrMerchantContacts.merchantId, merchantId),
       eq(sdrMerchantContacts.primaryContactFlag, true)
     ));
 
-  const primaryContact = contacts[0];
+  const primaryContact = merchantContacts[0];
   if (!primaryContact || !primaryContact.consentSms) {
     return { allowed: false, reason: primaryContact ? "No SMS consent on primary contact record" : "No primary contact with SMS consent found" };
+  }
+
+  const merchantState = (merchant.state || "").toUpperCase();
+  if (STRICT_STATE_CONSENT_REQUIRED.includes(merchantState)) {
+    const hasPewc = await hasExpressWrittenConsent(merchant.mainEmail, "sms");
+    if (!hasPewc) {
+      return {
+        allowed: false,
+        reason: `Florida Mini-TCPA (SB 1120): prior express written consent required before automated SMS to ${merchantState} contacts — general opt-in is insufficient`,
+        details: { state: merchantState, requiredConsentType: "express_written" },
+      };
+    }
   }
 
   const timezone = getTimezoneFromState(merchant.state, merchant.city);
@@ -242,6 +282,18 @@ async function checkCallCompliance(
 
   if (!merchant.mainPhone) {
     return { allowed: false, reason: "No callable phone number on file" };
+  }
+
+  const merchantState = (merchant.state || "").toUpperCase();
+  if (STRICT_STATE_CONSENT_REQUIRED.includes(merchantState)) {
+    const hasPewc = await hasExpressWrittenConsent(merchant.mainEmail, "call");
+    if (!hasPewc) {
+      return {
+        allowed: false,
+        reason: `Florida Mini-TCPA (SB 1120): prior express written consent required before automated calls to ${merchantState} contacts — general opt-in is insufficient`,
+        details: { state: merchantState, requiredConsentType: "express_written" },
+      };
+    }
   }
 
   const timezone = getTimezoneFromState(merchant.state, merchant.city);

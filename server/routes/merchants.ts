@@ -115,6 +115,8 @@ export function registerMerchantsRoutes(app: Express) {
         { actorType: "user", userId: (req.user as any)?.id ?? null },
       );
 
+      const pewcConsent = req.body.pewcConsent === true;
+
       const contactEmail = application.ownerEmail || application.businessEmail;
       if (contactEmail) {
         const contact = await createContactGhlFirst({
@@ -129,6 +131,30 @@ export function registerMerchantsRoutes(app: Express) {
         }).catch(() => null);
 
         if (contact) {
+          if (pewcConsent) {
+            storage.createConsentAuditLog({
+              contactId: contact.id,
+              channel: "sms",
+              action: "opt_in",
+              consented: true,
+              consentType: "express_written",
+              source: "merchant_application",
+              ipAddress: req.ip || req.socket.remoteAddress || "unknown",
+              userAgent: req.headers["user-agent"] || "unknown",
+              details: { formType: "merchant_application", applicationId: application.id },
+            }).catch(err => console.error("[MerchantApp] Consent log (sms) error:", err));
+            storage.createConsentAuditLog({
+              contactId: contact.id,
+              channel: "call",
+              action: "opt_in",
+              consented: true,
+              consentType: "express_written",
+              source: "merchant_application",
+              ipAddress: req.ip || req.socket.remoteAddress || "unknown",
+              userAgent: req.headers["user-agent"] || "unknown",
+              details: { formType: "merchant_application", applicationId: application.id },
+            }).catch(err => console.error("[MerchantApp] Consent log (call) error:", err));
+          }
           syncMerchantApplicationToGhl(application.id, contact.id).catch(err =>
             console.error("GHL merchant app sync error:", err)
           );

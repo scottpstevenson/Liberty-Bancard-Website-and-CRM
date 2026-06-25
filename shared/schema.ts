@@ -2048,6 +2048,7 @@ export const consentAuditLogs = pgTable("consent_audit_logs", {
   channel: text("channel").notNull(),
   action: text("action").notNull(),
   consented: boolean("consented").notNull(),
+  consentType: text("consent_type").default("general_optin"),
   source: text("source"),
   ipAddress: text("ip_address"),
   userAgent: text("user_agent"),
