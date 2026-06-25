@@ -1,0 +1,705 @@
+583 — Wave 1B: Minimal Admin Channel Safety Matrix
+
+Required Skills
+
+* fullstack-js — React, TypeScript, Express routes, TanStack Query, shared schema/types
+* backend-architecture — summary APIs, batch evaluation, source-of-truth preservation
+* frontend-design — premium dashboard UX, status cards, matrix layout, responsive admin UI
+* compliance-systems — channel eligibility visibility, no rule duplication, no unsafe controls
+* analytics-engineering — audit log aggregation, blocked-reason summaries
+* QA-release-lead — route/API validation, role guard checks, no audit-log pollution
+
+⸻
+
+What & Why
+
+Wave 1A created the backend contactability engine: the canonical source of truth for whether a contact can receive email, manual call tasks, SMS, AI voice, or ringless voicemail.
+
+Operators now need minimum viable visibility into that engine before Liberty scales outreach.
+
+This task builds a lean Channel Safety Matrix inside the existing admin/dashboard area. It shows what the backend contactability engine is allowing, blocking, and why — without waiting for the full Operator Command Center in Wave 9.
+
+This is a visibility layer only.
+
+It must read from the Wave 1A contactability logic and enforcement audit logs. It must not define channel permission rules itself.
+
+⸻
+
+Core Principle
+
+The UI displays backend truth. It does not create backend truth.
+
+Replit’s evaluateContactability() / Wave 1A contactability service remains the only authority for channel permission logic.
+
+The Channel Safety Matrix must not duplicate, fork, override, or reinterpret contactability rules.
+
+⸻
+
+Prerequisite
+
+Do not start this task unless Wave 1A is merged or available in the current branch.
+
+Verify first:
+
+* server/services/contactability.ts exists
+* evaluateContactability() exists
+* dry-run mode exists and does not write outreach audit logs
+* contacts have consentTier, lifecycleStage, phoneType, timezone, leadSource, and sourceCategory or verified equivalents
+* enforcement-mode audit logs exist for allowed/blocked decisions
+* admin/manager auth guard pattern exists for dashboard APIs
+
+If any prerequisite is missing, stop and report.
+
+⸻
+
+Done Looks Like
+
+A read-only Channel Safety Matrix is visible in the existing admin dashboard, preferably in /dashboard/activation or the existing Compliance / Channel Safety area if one already exists.
+
+The view includes:
+
+1. Source Category × Consent Tier Matrix
+
+Shows contact counts grouped by:
+
+* sourceCategory
+* consentTier
+
+Minimum rows:
+
+* scraped
+* inbound
+* referral
+* partner
+* merchant
+* manual_import
+* ghl_import
+* unknown
+
+Minimum columns:
+
+* cold_no_consent
+* warm_no_pewc
+* pewc_full_automation
+* opted_out
+* do_not_contact
+
+Purpose:
+
+Operators can immediately see how many contacts are cold, warm, consented, opted out, or globally suppressed by lead source.
+
+⸻
+
+2. Live Channel Eligibility Counts
+
+Shows how many contacts are currently eligible for each channel according to the Wave 1A contactability engine.
+
+Channels:
+
+* Email
+* Manual Call Task
+* SMS
+* AI Voice
+* Ringless Voicemail
+
+Each channel card should show:
+
+* eligible count
+* blocked count
+* primary block reason, if available
+* feature flag state, where relevant
+* last refreshed time
+
+Important:
+
+Eligibility must be computed using Wave 1A dry-run contactability logic or a shared batch helper that delegates to the same underlying rule evaluator.
+
+Do not reimplement the rules with separate SQL-only logic unless the SQL query is only used for coarse grouping and the final eligibility decision still comes from the contactability engine.
+
+⸻
+
+3. Blocked Automation Counts — Last 24 Hours
+
+Shows blocked enforcement attempts from the Wave 1A audit logs.
+
+Group by reason/category where available:
+
+* no PEWC
+* DNC
+* doNotAutoContact
+* doNotContact
+* opt-out / STOP
+* quiet hours
+* feature flag off
+* Florida telephone solicitation rule
+* invalid phone / phoneType
+* email bounced/invalid
+* unknown / other
+
+Also show:
+
+* total unsafe attempts blocked in last 24h
+* last blocked attempt timestamp
+* most common blocked channel
+* most common blocked reason
+
+Use the actual audit log table/event schema created by Wave 1A. Do not assume the table is named audit_logs if the implementation uses a different table.
+
+⸻
+
+4. Florida-Specific Breakdown
+
+Shows contacts with state = 'FL' grouped by consentTier.
+
+Minimum display:
+
+* Florida cold_no_consent
+* Florida warm_no_pewc
+* Florida pewc_full_automation
+* Florida opted_out
+* Florida do_not_contact
+
+Also show a short admin note:
+
+“Florida automated SMS, AI voice, ringless voicemail, prerecorded/artificial voice, or autodialed outreach requires PEWC. Manual human call tasks and compliant email are not blocked solely because a contact is in Florida.”
+
+This is informational only. Do not add new rules in the UI.
+
+⸻
+
+5. Feature Flag Status
+
+Shows live status badges for:
+
+* SMS_ENABLED
+* VOICE_AI_ENABLED
+* RINGLESS_VM_ENABLED
+* SDR_ENABLED
+* NIGHTLY_DISCOVERY_ENABLED
+* ORCHESTRATOR_ENABLED
+
+Status badges:
+
+* green = enabled
+* red = disabled
+* yellow = unknown / unavailable
+
+Do not allow toggling flags in this task.
+
+If a flag source is unavailable, show Unknown and document it.
+
+⸻
+
+6. Read-Only Safety Notice
+
+The page should clearly communicate:
+
+“This dashboard is read-only. Channel permissions are computed by the backend contactability engine. Changing feature flags or GHL workflows is outside this view.”
+
+No override buttons.
+No enable buttons.
+No workflow launch buttons.
+No per-contact action buttons.
+No SMS/voice/RVM activation.
+
+⸻
+
+API Requirements
+
+Create or extend:
+
+GET /api/admin/channel-safety-summary
+
+Access:
+
+* admin
+* manager
+
+Response shape should include:
+
+{
+  generatedAt: string
+  sourceConsentMatrix: Array<{
+    sourceCategory: string
+    cold_no_consent: number
+    warm_no_pewc: number
+    pewc_full_automation: number
+    opted_out: number
+    do_not_contact: number
+    total: number
+  }>
+  channelEligibility: Array<{
+    channel: 'email' | 'manual_call' | 'sms' | 'voice_ai' | 'ringless_vm'
+    eligibleCount: number
+    blockedCount: number
+    topBlockReason: string | null
+    featureFlag: string | null
+    featureFlagEnabled: boolean | null
+    status: 'eligible' | 'flag_gated' | 'blocked' | 'unknown'
+  }>
+  blockedAttempts24h: {
+    total: number
+    lastBlockedAt: string | null
+    byReason: Array<{
+      reason: string
+      count: number
+    }>
+    byChannel: Array<{
+      channel: string
+      count: number
+    }>
+  }
+  floridaBreakdown: {
+    total: number
+    byConsentTier: Array<{
+      consentTier: string
+      count: number
+    }>
+  }
+  featureFlags: Array<{
+    key: string
+    enabled: boolean | null
+    status: 'enabled' | 'disabled' | 'unknown'
+  }>
+  warnings: string[]
+}
+
+⸻
+
+Backend Implementation Rules
+
+Rule 1 — Do not duplicate contactability logic
+
+The summary endpoint must not create its own version of channel rules.
+
+Allowed approaches:
+
+1. Use a Wave 1A batch/dry-run helper if one exists.
+2. Add a small summarizeChannelSafety() helper in server/services/contactability.ts that reuses the same internal evaluator as evaluateContactability().
+3. Query contacts in batches and run dry-run evaluations through the same contactability service.
+
+Blocked approach:
+
+* Writing separate SQL conditions like “SMS eligible = consentTier = PEWC AND SMS_ENABLED = true” as the final authority.
+
+SQL grouping may be used for coarse counts, but final channel eligibility must come from the contactability engine.
+
+Rule 2 — Dry-run only
+
+The summary endpoint must not write outreach audit logs.
+
+If it needs to evaluate eligibility, it must use dry-run mode.
+
+Opening or refreshing the dashboard must never create compliance/audit noise.
+
+Rule 3 — Performance guard
+
+Do not load unbounded full contact records into memory if the contacts table can be large.
+
+Use one of:
+
+* aggregate SQL for simple source/consent counts
+* paginated/batched contactability dry-run evaluation
+* an existing summary/cache pattern if the repo has one
+
+If exact per-contact dry-run counts are too expensive for the current repo, implement a safe bounded approach and return a warning explaining the limitation.
+
+Do not build a new queue/caching system in this task.
+
+Rule 4 — Audit log schema verification
+
+Before aggregating blocked attempts, inspect the actual Wave 1A audit log structure.
+
+Use whatever table/event fields Wave 1A created.
+
+Do not assume:
+
+* table name is audit_logs
+* event type is exactly channel_blocked
+* reason field name is exactly reason
+
+If the audit log schema differs, adapt to the actual implementation and document the mapping.
+
+⸻
+
+Frontend UI Requirements
+
+Add the Channel Safety Matrix to the existing admin area.
+
+Preferred location:
+
+1. Existing /dashboard/activation panel if it already has compliance/go-live sections
+2. Existing Compliance / Channel Safety tab if present
+3. New section within the nearest existing dashboard/admin page
+
+Do not create a completely separate dashboard system unless no appropriate page exists.
+
+UI Sections
+
+A. Header
+
+Title:
+
+Channel Safety Matrix
+
+Subtitle:
+
+“Read-only visibility into which channels the backend contactability engine allows or blocks.”
+
+Include:
+
+* last refreshed timestamp
+* manual Refresh button
+* auto-refresh note
+
+B. Feature Flag Strip
+
+Small badge row showing:
+
+* SDR
+* Orchestrator
+* Nightly Discovery
+* SMS
+* AI Voice
+* Ringless VM
+
+C. Unsafe Attempts Blocked
+
+Prominent card:
+
+* total blocked attempts in last 24h
+* top blocked reason
+* last blocked timestamp
+
+D. Channel Eligibility Cards
+
+Cards for:
+
+* Email
+* Manual Call Task
+* SMS
+* AI Voice
+* Ringless VM
+
+Each card should show:
+
+* eligible count
+* blocked count
+* top block reason
+* feature flag state if relevant
+* status color
+
+Use clear labels:
+
+* “Manual Call Task” not “Manual Call” if the backend channel represents task creation only
+
+E. Source × Consent Matrix
+
+Readable table:
+
+Rows = source categories
+Columns = consent tiers
+
+Use compact counts and totals.
+
+F. Florida Breakdown
+
+Small table or card showing Florida contacts by consent tier.
+
+Include the informational note from above.
+
+G. Warnings / Unknowns
+
+If backend returns warnings, show them visibly but not as fatal page errors.
+
+Examples:
+
+* “Rate limit status not evaluated — no canonical outbound rate-limit service exists.”
+* “External GHL-native workflow internals are Wave 7 risk and cannot be inspected from this dashboard.”
+* “Feature flag source unavailable.”
+
+⸻
+
+Auto-Refresh
+
+Use existing TanStack Query pattern.
+
+Requirements:
+
+* refresh every 60 seconds
+* manual Refresh button
+* loading state
+* error state
+* empty state
+* stale data display does not crash the page
+
+Do not add WebSockets or real-time infrastructure.
+
+⸻
+
+Out of Scope
+
+* Full Operator Command Center
+* GHL sync of permission fields
+* GHL workflow editing or enforcement
+* External GHL-native workflow inspection
+* Per-contact drill-down UI
+* Contact detail page changes
+* Enabling or disabling feature flags
+* SDR sequence dashboard
+* Conversion analytics dashboard
+* New queue/caching system
+* New contactability rules
+* New consent rules
+* PEWC form UX changes
+* SMS, AI voice, or ringless voicemail activation
+* Workflow launch controls
+* Admin override controls
+
+⸻
+
+Files To Inspect
+
+Start with these, but verify actual paths before editing:
+
+* server/services/contactability.ts
+* server/routes/operator.ts
+* server/routes/admin.ts
+* server/routes/contacts.ts
+* server/services/featureFlags.ts or actual feature flag source
+* shared/schema.ts
+* client/src/pages/dashboard/ActivationPanel.tsx
+* existing dashboard tab/component files
+* existing TanStack Query usage in dashboard pages
+* existing auth/role guard middleware
+* existing audit log service/table from Wave 1A
+
+⸻
+
+Likely Files To Modify
+
+Modify only after confirming actual repo structure:
+
+* server/routes/operator.ts or server/routes/admin.ts
+* server/services/contactability.ts if adding summarizeChannelSafety()
+* client/src/pages/dashboard/ActivationPanel.tsx or existing dashboard compliance tab
+* shared type file if the repo has one for API response types
+
+Do not modify:
+
+* sequence worker
+* SDR orchestrator
+* GHL workflow enrollment
+* voice orchestrator
+* public landing pages
+* schema/migrations unless Wave 1A missed a required read field and you stop/report first
+* feature flag values
+* GHL workflow definitions
+
+⸻
+
+Implementation Steps
+
+Step 1 — Verify Wave 1A Outputs
+
+Confirm:
+
+* contactability service path
+* dry-run behavior
+* audit log table/event structure
+* contact fields
+* feature flag source
+* role guard pattern
+* existing dashboard location
+
+Stop if these do not exist.
+
+Step 2 — Backend Summary Helper
+
+Implement a read-only summary helper.
+
+Preferred:
+
+server/services/contactability.ts
+
+Add:
+
+summarizeChannelSafety()
+
+It should:
+
+* group contacts by sourceCategory × consentTier
+* compute channel eligibility counts using the Wave 1A evaluator in dry-run mode or shared internal evaluator
+* aggregate blocked enforcement attempts from audit logs over the last 24h
+* compute Florida breakdown
+* read feature flag status
+* return warnings for unknown/not_evaluated states
+
+Do not write audit logs.
+
+Step 3 — Admin Summary API
+
+Create:
+
+GET /api/admin/channel-safety-summary
+
+Requirements:
+
+* admin/manager only
+* calls summary helper
+* returns typed response
+* handles errors safely
+* no side effects
+* no outreach triggers
+* no flag changes
+
+Step 4 — Dashboard UI
+
+Add Channel Safety Matrix section to existing Activation Panel or existing Compliance tab.
+
+Use existing dashboard design system/components.
+
+Do not create a totally separate dashboard architecture.
+
+Step 5 — Auto Refresh
+
+Use existing TanStack Query pattern.
+
+Set:
+
+* refetchInterval: 60000
+* manual Refresh button
+* loading/error/empty states
+
+Step 6 — Final Warnings
+
+Ensure UI displays backend warnings such as:
+
+* rate limits not evaluated
+* external GHL workflow internals not inspectable
+* feature flag source unknown
+
+⸻
+
+Kill Lines
+
+Stop and report before build if:
+
+* Wave 1A contactability service is missing.
+* Dry-run mode writes audit logs.
+* The dashboard would need to duplicate channel rules instead of reusing Wave 1A logic.
+* The audit log table/event schema cannot be identified.
+* Admin/manager role guard pattern cannot be found.
+* Existing dashboard location cannot be identified.
+* Feature flag source cannot be found and no safe unknown fallback is possible.
+* Computing live eligibility requires loading an unsafe number of contacts into memory.
+* The task would require schema changes.
+* The task would require enabling or disabling feature flags.
+* The task would require editing GHL workflows.
+* The task would require changing contactability rules.
+* The UI would add override/action buttons that can trigger outreach.
+* External GHL-native workflow internals are required to complete this task.
+
+⸻
+
+Validation
+
+Use targeted validation.
+
+Backend Validation
+
+Verify:
+
+* API requires admin/manager
+* non-admin users are rejected
+* endpoint returns expected shape
+* endpoint has no side effects
+* endpoint does not write audit logs
+* blocked attempts aggregate from actual Wave 1A audit logs
+* feature flags return enabled/disabled/unknown
+* warnings are returned when data is unavailable
+* dry-run eligibility does not mutate contacts or audit tables
+
+Frontend Validation
+
+Verify:
+
+* Channel Safety Matrix renders in dashboard
+* loading state appears
+* error state appears
+* empty state appears
+* Refresh button works
+* auto-refresh is configured for 60 seconds
+* feature flag badges render correctly
+* source × consent matrix renders correctly
+* channel eligibility cards render correctly
+* Florida breakdown renders correctly
+* backend warnings render visibly
+* no action/override buttons exist
+
+Greps
+
+Run greps to confirm this task does not touch or enable:
+
+* SMS_ENABLED = true
+* VOICE_AI_ENABLED = true
+* RINGLESS_VM_ENABLED = true
+* triggerWorkflow
+* sendSms
+* voice
+* ringless
+* voicemail
+* sequence-worker
+* orchestrator
+* doNotAutoContact logic changes outside display/summary
+* public landing page files
+
+Manual QA
+
+Open:
+
+* /dashboard/activation
+
+Verify:
+
+* matrix visible to admin/manager
+* not visible to unauthorized users
+* no broken dashboard layout
+* no mobile/tablet overflow
+* no crash when data is empty
+* no crash when feature flag state is unknown
+* no audit log row is created just by viewing/refreshing the page
+
+⸻
+
+Final Report Required
+
+Return:
+
+1. Files changed
+2. Where the Channel Safety Matrix was added
+3. API endpoint created
+4. How channel eligibility counts are computed without duplicating rules
+5. Audit log table/event mapping used
+6. Feature flag source used
+7. Warnings returned/displayed
+8. Role guard validation
+9. Auto-refresh behavior
+10. Validation results
+11. Remaining risks
+12. Follow-up notes for Wave 7 and Wave 9
+
+⸻
+
+Success Definition
+
+After this task:
+
+* Operators can see contactability truth without waiting for Wave 9.
+* The Channel Safety Matrix displays source/consent distribution, channel eligibility, blocked attempts, Florida breakdown, and feature flag status.
+* The view is read-only and cannot trigger outreach or override compliance.
+* The backend summary uses the Wave 1A contactability engine, not duplicated UI rules.
+* Viewing or refreshing the dashboard does not write audit logs.
+* Feature flags are visible but not editable.
+* External GHL-native workflow internals remain documented as a Wave 7 risk.
+* No SMS, AI voice, ringless voicemail, GHL workflow, or contactability rule behavior is enabled or changed.
