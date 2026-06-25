@@ -168,12 +168,31 @@ async function waitForServer(url: string, maxMs = 30_000): Promise<void> {
   while (Date.now() < deadline) {
     try {
       await fetch(url, { signal: AbortSignal.timeout(2000) });
+      // Server responded — give Express another 1.5 s to finish registering all
+      // middleware and route handlers before we start making real API calls.
+      await new Promise((r) => setTimeout(r, 1500));
       return;
     } catch {
       await new Promise((r) => setTimeout(r, 1000));
     }
   }
   throw new Error(`Server at ${url} did not become ready within ${maxMs / 1000}s`);
+}
+
+async function loginWithRetry(email: string, password: string, attempts = 3): Promise<string> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await login(email, password);
+    } catch (err: unknown) {
+      lastErr = err;
+      const msg = err instanceof Error ? err.message : String(err);
+      const isSocket = msg.includes("UND_ERR_SOCKET") || msg.includes("ECONNRESET") || msg.includes("fetch failed");
+      if (!isSocket) throw err;
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+  }
+  throw lastErr;
 }
 
 async function run(): Promise<void> {
@@ -183,13 +202,13 @@ async function run(): Promise<void> {
   let adminCookie: string;
   let merchantCookie: string;
   try {
-    adminCookie = await login(ADMIN_EMAIL, ADMIN_PASSWORD);
+    adminCookie = await loginWithRetry(ADMIN_EMAIL, ADMIN_PASSWORD);
   } catch (err) {
     console.error(`✗ Could not log in seeded admin (${ADMIN_EMAIL}). The login rate-limiter caps attempts at 5 / 15 min — wait or restart the server.\n  ${err instanceof Error ? err.message : err}`);
     process.exit(1);
   }
   try {
-    merchantCookie = await login(MERCHANT_EMAIL, MERCHANT_PASSWORD);
+    merchantCookie = await loginWithRetry(MERCHANT_EMAIL, MERCHANT_PASSWORD);
   } catch (err) {
     console.error(`✗ Could not log in smoke merchant: ${err instanceof Error ? err.message : err}`);
     process.exit(1);
