@@ -97,6 +97,13 @@ export const contacts = pgTable("contacts", {
   lifecycleStage: text("lifecycle_stage").notNull().default("prospect"),
   timezone: text("timezone"),
   sourceCategory: text("source_category"),
+  offerConfidence: integer("offer_confidence"),
+  recommendedNextAction: text("recommended_next_action"),
+  offerReasoning: text("offer_reasoning"),
+  offerRoutingSource: text("offer_routing_source"),
+  processorDetected: text("processor_detected"),
+  offerRoutedAt: timestamp("offer_routed_at"),
+  offerMatchedSignals: jsonb("offer_matched_signals"),
 }, (table) => [
   uniqueIndex("contacts_email_unique_idx").on(table.email).where(sql`archived_at IS NULL`),
   index("contacts_phone_idx").on(table.phone),

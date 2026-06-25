@@ -235,6 +235,21 @@ export async function upsertGhlContact(contact: GhlContactInput): Promise<string
     addCF("current_provider", contact.currentProvider);
     addCF("lb_current_processor", contact.currentProvider);
   }
+  if (contact.primaryOfferPath) {
+    addCF("lb_offer_route", contact.primaryOfferPath);
+  }
+  if (contact.offerConfidence != null) {
+    addCF("lb_offer_confidence", String(contact.offerConfidence));
+  }
+  if (contact.recommendedNextAction) {
+    addCF("lb_recommended_action", contact.recommendedNextAction);
+  }
+  if (contact.offerReasoning) {
+    addCF("lb_offer_reasoning", contact.offerReasoning.slice(0, 500));
+  }
+  if (contact.processorDetected) {
+    addCF("lb_processor_detected", contact.processorDetected);
+  }
   if (contact.painPoints && Array.isArray(contact.painPoints) && contact.painPoints.length > 0) {
     addCF("lb_pain_points", contact.painPoints.join(", "));
   }

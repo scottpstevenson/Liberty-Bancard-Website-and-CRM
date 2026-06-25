@@ -422,6 +422,125 @@ export function registerContactsRoutes(app: Express) {
     }
   });
 
+  // === OFFER ROUTING ===
+
+  app.post("/api/contacts/:id/enrich", isDashboardUser, async (req, res) => {
+    try {
+      const contactId = Number(req.params.id);
+      const contact = await storage.getContact(contactId);
+      if (!contact) return res.status(404).json({ message: "Contact not found" });
+
+      await enrichContactBatch([contactId]);
+
+      const enriched = await storage.getContact(contactId);
+      if (!enriched) return res.status(404).json({ message: "Contact not found after enrichment" });
+
+      const { routeOffer } = await import("../services/offer-router");
+      const result = await routeOffer(enriched);
+
+      let updated = enriched;
+      if (result.shouldUpdateContact) {
+        const persisted = await updateContactGhlFirst(contactId, {
+          primaryOfferPath: result.offerRoute,
+          offerConfidence: result.offerConfidence,
+          recommendedNextAction: result.recommendedNextAction,
+          offerReasoning: result.offerReasoning,
+          offerRoutingSource: result.routingSource,
+          processorDetected: result.processorDetected ?? null,
+          offerRoutedAt: new Date(),
+          offerMatchedSignals: result.matchedSignals,
+        }, { actorType: "system", userId: (req.user as any)?.id ?? null });
+        if (persisted) updated = persisted;
+      }
+
+      res.json({ contact: updated, offerRouting: result });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/contacts/:id/route-offer", isDashboardUser, async (req, res) => {
+    try {
+      const contactId = Number(req.params.id);
+      const { routeOfferBodySchema } = await import("@shared/offer-router-types");
+      const parsed = routeOfferBodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: parsed.error.errors[0].message });
+      }
+      const { dryRun, forceAi, updateContact } = parsed.data;
+
+      const contact = await storage.getContact(contactId);
+      if (!contact) return res.status(404).json({ message: "Contact not found" });
+
+      const { routeOffer } = await import("../services/offer-router");
+      const result = await routeOffer(contact, { forceAi: forceAi ?? false });
+
+      if (updateContact === true && dryRun !== true && result.shouldUpdateContact) {
+        const updated = await updateContactGhlFirst(contactId, {
+          primaryOfferPath: result.offerRoute,
+          offerConfidence: result.offerConfidence,
+          recommendedNextAction: result.recommendedNextAction,
+          offerReasoning: result.offerReasoning,
+          offerRoutingSource: result.routingSource,
+          processorDetected: result.processorDetected ?? null,
+          offerRoutedAt: new Date(),
+          offerMatchedSignals: result.matchedSignals,
+        }, { actorType: "system", userId: (req.user as any)?.id ?? null });
+        return res.json({ contact: updated, offerRouting: result, updated: true });
+      }
+
+      const wasBlocked = updateContact === true && dryRun !== true && !result.shouldUpdateContact;
+      res.json({ offerRouting: result, updated: false, dryRun: dryRun === true || updateContact !== true, skippedManualOverride: wasBlocked });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/contacts/:id/offer-route", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const contactId = Number(req.params.id);
+      const { manualOverrideBodySchema } = await import("@shared/offer-router-types");
+      const parsed = manualOverrideBodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: parsed.error.errors[0].message, errors: parsed.error.errors });
+      }
+      const { offerRoute, recommendedNextAction, reason } = parsed.data;
+
+      const contact = await storage.getContact(contactId);
+      if (!contact) return res.status(404).json({ message: "Contact not found" });
+
+      const prevOfferPath = contact.primaryOfferPath;
+
+      const updated = await storage.updateContact(contactId, {
+        primaryOfferPath: offerRoute,
+        offerRoutingSource: "manual_override",
+        offerRoutedAt: new Date(),
+        recommendedNextAction: recommendedNextAction ?? null,
+        offerConfidence: null,
+        processorDetected: null,
+        offerMatchedSignals: null,
+      }, { actorType: "user", userId: (req.user as any)?.id ?? null });
+
+      if (!updated) return res.status(404).json({ message: "Contact not found" });
+
+      const { auditChange } = await import("../services/audit-change");
+      await auditChange({
+        action: "offer_route_manual_override",
+        entityType: "contact",
+        entityId: contactId,
+        before: { primaryOfferPath: prevOfferPath },
+        after: { primaryOfferPath: offerRoute },
+        details: { reason, role: (req.user as any)?.role },
+        userId: String((req.user as any)?.id ?? ""),
+        actorType: "user",
+      });
+
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // === COMPANIES ===
   app.get("/api/companies", isDashboardUser, async (req, res) => {
     try {

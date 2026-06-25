@@ -465,6 +465,21 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       trackReferral(referralCode, `${firstName} ${lastName}`, email, phone).catch(err => console.error("Referral tracking error:", err));
       scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
+      if (!contact.primaryOfferPath) {
+        import("../services/offer-router").then(({ routeOfferDeterministic }) => {
+          const deterministicResult = routeOfferDeterministic(contact);
+          if (deterministicResult) {
+            storage.updateContact(contact.id, {
+              primaryOfferPath: deterministicResult.offerRoute,
+              offerRoutingSource: deterministicResult.routingSource,
+              offerConfidence: deterministicResult.offerConfidence,
+              offerRoutedAt: new Date(),
+              processorDetected: deterministicResult.processorDetected ?? null,
+              offerMatchedSignals: deterministicResult.matchedSignals,
+            }).catch(err => console.error("[OfferRouter] At-creation routing error:", err));
+          }
+        }).catch(err => console.error("[OfferRouter] Import error:", err));
+      }
       generateDealBlueprint(deal.id).catch(err => console.error("Blueprint gen error:", err));
       autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "get_started" }).catch(err => console.error("Auto-enroll error:", err));
       triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: deal.id }, { formType: "get_started" }).catch(err => console.error("Workflow trigger error:", err));

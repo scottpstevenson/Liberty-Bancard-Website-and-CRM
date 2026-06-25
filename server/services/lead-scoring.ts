@@ -342,13 +342,23 @@ export async function scoreContact(contactId: number): Promise<ScoreBreakdown | 
 
   const quizBonus = calculateQuizBonus(contact);
 
-  const total = revPotential.score + switchability.score + uwConfidence.score + engagement.score + quizBonus.score;
+  // Offer confidence bonus: max +5 pts, applied to UW confidence — manual_override excluded
+  let offerBonus = 0;
+  if (contact.offerRoutingSource !== "manual_override" && contact.offerConfidence != null) {
+    offerBonus = Math.min(5, Math.round(contact.offerConfidence / 20));
+  }
+  const uwConfidenceWithBonus = Math.min(25, uwConfidence.score + offerBonus);
+  const uwConfidenceFactors = offerBonus > 0
+    ? { ...uwConfidence.factors, offerConfidenceBonus: offerBonus }
+    : uwConfidence.factors;
+
+  const total = Math.min(100, revPotential.score + switchability.score + uwConfidenceWithBonus + engagement.score + quizBonus.score);
   const tier = determineTier(total);
 
   const breakdown: ScoreBreakdown = {
     revPotential: { score: revPotential.score, max: 30, factors: revPotential.factors },
     switchability: { score: switchability.score, max: 25, factors: switchability.factors },
-    uwConfidence: { score: uwConfidence.score, max: 25, factors: uwConfidence.factors },
+    uwConfidence: { score: uwConfidenceWithBonus, max: 25, factors: uwConfidenceFactors },
     engagement: { score: engagement.score, max: 20, factors: engagement.factors },
     quizBonus: { score: quizBonus.score, max: 20, factors: quizBonus.factors },
     total,
@@ -364,7 +374,7 @@ export async function scoreContact(contactId: number): Promise<ScoreBreakdown | 
     leadScore: total,
     revPotentialScore: revPotential.score,
     switchabilityScore: switchability.score,
-    uwConfidenceScore: uwConfidence.score,
+    uwConfidenceScore: uwConfidenceWithBonus,
     engagementScore: engagement.score,
     scoreBreakdown: breakdown,
     lastScoredAt: new Date(),

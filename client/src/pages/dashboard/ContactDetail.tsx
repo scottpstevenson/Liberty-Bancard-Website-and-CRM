@@ -50,6 +50,7 @@ import { RelationshipsTab } from "./contact-detail-tabs/RelationshipsTab";
 import { LocationsTab } from "./contact-detail-tabs/LocationsTab";
 import { CompanyIntelligenceTab } from "./contact-detail-tabs/CompanyIntelligenceTab";
 import { CommunicationHealthTab } from "./contact-detail-tabs/CommunicationHealthTab";
+import { OfferIntelligenceTab } from "./contact-detail-tabs/OfferIntelligenceTab";
 
 // ── Churn Risk Panel ──────────────────────────────────────────────────────────
 type MerchantHealthScore = {
@@ -1235,6 +1236,10 @@ export default function ContactDetail() {
           <TabsTrigger value="comm-health" data-testid="tab-comm-health">
             Comm. Health
           </TabsTrigger>
+          <TabsTrigger value="offer-intelligence" data-testid="tab-offer-intelligence">
+            <GitFork className="h-3.5 w-3.5 mr-1" />
+            Offer Intelligence
+          </TabsTrigger>
           {contact.isParentAccount && (
             <TabsTrigger value="company-intelligence" data-testid="tab-company-intelligence">
               <Store className="h-3.5 w-3.5 mr-1" />
@@ -1321,6 +1326,10 @@ export default function ContactDetail() {
 
         <TabsContent value="comm-health" data-testid="tab-content-comm-health">
           <CommunicationHealthTab contactId={contactId} />
+        </TabsContent>
+
+        <TabsContent value="offer-intelligence" data-testid="tab-content-offer-intelligence">
+          <OfferIntelligenceTab contact={contact} isManagerOrAdmin={isManagerOrAdmin} />
         </TabsContent>
 
         {contact.isParentAccount && (

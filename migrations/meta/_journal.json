@@ -302,6 +302,13 @@
       "when": 1782500000000,
       "tag": "0037_contactability_engine",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1782600000000,
+      "tag": "0038_offer_router_fields",
+      "breakpoints": true
     }
   ]
 }
