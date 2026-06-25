@@ -9,7 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Link } from "wouter";
-import { CALENDAR_URL } from "@/lib/constants";
+import { CALENDAR_URL, PHONE_TEL, PHONE_NUMBER } from "@/lib/constants";
+import { trackPhoneCtaClick, trackBookingCtaClick, trackStatementUploadCtaClick } from "@/lib/tracking";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -48,6 +49,7 @@ import {
   Loader2,
   X,
   CheckCircle,
+  Calendar,
 } from "lucide-react";
 import logoBlue from "@assets/logo-blue.png";
 import heroBg from "@assets/images/hero-bg.png";
@@ -155,7 +157,7 @@ export default function Home() {
     } catch (error: any) {
       toast({
         title: "Something went wrong",
-        description: error.message || "Please try again or call us at 954-266-8214.",
+        description: error.message || `Please try again or call us at ${PHONE_NUMBER}.`,
         variant: "destructive",
       });
     } finally {
@@ -243,18 +245,28 @@ export default function Home() {
                   <Link href="/upload-statement" data-testid="link-hero-upload">
                     <Button size="lg" className="gap-2 bg-sky-500 border-sky-500 text-white">
                       <Upload className="w-4 h-4" />
-                      Get My Free Analysis →
+                      Upload My Statement — Free
                     </Button>
                   </Link>
-                  <Link href="/get-started" data-testid="link-hero-quiz">
+                  <Link href="/beat-square-stripe" data-testid="link-hero-compare">
                     <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
-                      Not Sure Where to Start?
+                      See If We Can Beat Your Rate
                       <ArrowRight className="w-4 h-4" />
                     </Button>
                   </Link>
                 </div>
-                <p className="text-xs text-white/55 mt-4 max-w-md" data-testid="text-hero-microcopy">
-                  PDF or photo. 30 seconds. Redact account numbers if you want - we only need totals + fee lines.
+                <div className="flex gap-4 mt-4">
+                  <a href={PHONE_TEL} aria-label="Call Liberty Bancard" className="text-xs text-white/55 hover:text-white/80 flex items-center gap-1.5 transition-colors" data-testid="link-hero-phone" onClick={() => trackPhoneCtaClick({ page: "/", ctaLabel: PHONE_NUMBER, ctaLocation: "hero" })}>
+                    <Phone className="w-3 h-3" />
+                    {PHONE_NUMBER}
+                  </a>
+                  <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" className="text-xs text-white/55 hover:text-white/80 flex items-center gap-1.5 transition-colors" data-testid="link-hero-book" onClick={() => trackBookingCtaClick({ page: "/", ctaLabel: "Book a 10-min call", ctaLocation: "hero" })}>
+                    <Calendar className="w-3 h-3" />
+                    Book a 10-min call
+                  </a>
+                </div>
+                <p className="text-xs text-white/40 mt-2 max-w-md" data-testid="text-hero-microcopy">
+                  PDF or photo. 30 seconds. Redact account numbers if you want — we only need totals + fee lines.
                 </p>
               </div>
 
@@ -290,21 +302,21 @@ export default function Home() {
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex flex-wrap justify-center items-center gap-x-10 gap-y-4">
               <div className="flex flex-col items-center gap-1 text-center" data-testid="trust-badge-years">
-                <span className="text-xl font-display font-bold text-primary">10+</span>
-                <span className="text-xs font-semibold text-foreground">Years in Business</span>
-                <span className="text-[10px] text-muted-foreground">South Florida to nationwide</span>
+                <span className="text-xl font-display font-bold text-primary">FL-Based</span>
+                <span className="text-xs font-semibold text-foreground">South Florida Team</span>
+                <span className="text-[10px] text-muted-foreground">Local reps, real conversations</span>
               </div>
               <div className="w-px h-10 bg-border hidden sm:block" />
               <div className="flex flex-col items-center gap-1 text-center" data-testid="trust-badge-merchants">
-                <span className="text-xl font-display font-bold text-primary">5,000+</span>
-                <span className="text-xs font-semibold text-foreground">Merchants Served</span>
-                <span className="text-[10px] text-muted-foreground">Across every major industry</span>
+                <span className="text-xl font-display font-bold text-primary">Free</span>
+                <span className="text-xs font-semibold text-foreground">Statement Review</span>
+                <span className="text-[10px] text-muted-foreground">Keep the breakdown either way</span>
               </div>
               <div className="w-px h-10 bg-border hidden sm:block" />
               <div className="flex flex-col items-center gap-1 text-center" data-testid="trust-badge-volume">
-                <span className="text-xl font-display font-bold text-primary">$2B+</span>
-                <span className="text-xs font-semibold text-foreground">Annual Processing Volume</span>
-                <span className="text-[10px] text-muted-foreground">Trusted at scale</span>
+                <span className="text-xl font-display font-bold text-primary">I+P</span>
+                <span className="text-xs font-semibold text-foreground">Interchange-Plus Pricing</span>
+                <span className="text-[10px] text-muted-foreground">Transparent, line-item billing</span>
               </div>
               <div className="w-px h-10 bg-border hidden sm:block" />
               <div className="flex flex-col items-center gap-1 text-center" data-testid="trust-badge-uptime">
@@ -1368,7 +1380,7 @@ export default function Home() {
                   ))}
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Or call us directly: <a href="tel:9542668214" className="text-primary font-medium" data-testid="link-callback-phone">954-266-8214</a>
+                  Or call us directly: <a href={PHONE_TEL} className="text-primary font-medium" data-testid="link-callback-phone" onClick={() => trackPhoneCtaClick({ page: "/", ctaLabel: PHONE_NUMBER, ctaLocation: "callback" })}>{PHONE_NUMBER}</a>
                 </p>
               </div>
               <div>

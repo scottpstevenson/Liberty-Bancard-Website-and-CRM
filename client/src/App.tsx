@@ -98,6 +98,7 @@ const PartnerBrandedPage = lazy(() => import("@/pages/PartnerBrandedPage"));
 const PartnerOrgDashboard = lazy(() => import("@/pages/PartnerOrgDashboard"));
 
 // ─── Content Pages ────────────────────────────────────────────────────────────
+const FreeSmartTerminal = lazy(() => import("@/pages/FreeSmartTerminal"));
 const Blog = lazy(() => import("@/pages/Blog"));
 const BlogPost = lazy(() => import("@/pages/BlogPost"));
 const AuthorPage = lazy(() => import("@/pages/AuthorPage"));
@@ -297,6 +298,7 @@ function Router() {
         <Route path="/upload-statement" component={UploadStatement} />
         <Route path="/0-percent-processing" component={ZeroPercent} />
         <Route path="/beat-square-stripe" component={BeatSquareStripe} />
+        <Route path="/free-smart-terminal" component={FreeSmartTerminal} />
         <Route path="/about-contact" component={AboutContact} />
         <Route path="/contact" component={AboutContact} />
         {/* /contact is kept as a redirect alias for external links pointing to /contact */}
@@ -725,13 +727,14 @@ function PublicLayout() {
   const isThanksPage = location.startsWith("/thanks");
   const isAuthPage = location === "/login" || location === "/signup" || location === "/forgot-password" || location === "/reset-password" || location === "/verify-email";
   const isMobile = location.startsWith("/mobile");
+  const isUploadStatement = location.startsWith("/upload-statement");
 
   return (
     <>
       <ErrorBoundary key={location}>
         <Router />
       </ErrorBoundary>
-      {!isDashboard && !isThanksPage && !isAuthPage && !isMobile && <StickyMobileCTA />}
+      {!isDashboard && !isThanksPage && !isAuthPage && !isMobile && !isUploadStatement && <StickyMobileCTA />}
       {!isDashboard && !isAuthPage && !isMobile && <ExitIntentPopup />}
       {!isDashboard && !isThanksPage && !isAuthPage && !isMobile && <ContactBubble />}
       {!isDashboard && !isAuthPage && !isMobile && <CookieConsent />}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { getCsrfToken } from "@/lib/queryClient";
+import { trackStatementUploadStarted, trackStatementUploadFailed, trackPhoneCtaClick, trackBookingCtaClick } from "@/lib/tracking";
 import { SEO, getServiceSchema } from "@/components/SEO";
 import { useLocation, Link } from "wouter";
 import { z } from "zod";
@@ -33,7 +34,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 import { trackStatementUpload, trackFormSubmission } from "@/lib/tracking";
-import { CALENDAR_URL } from "@/lib/constants";
+import { CALENDAR_URL, PHONE_TEL, PHONE_NUMBER } from "@/lib/constants";
 import { trackConversion } from "@/lib/analytics";
 import { getStoredUTMParams } from "@/lib/utm";
 import {
@@ -47,6 +48,7 @@ import {
   ArrowRight,
   Sparkles,
   AlertCircle,
+  Phone,
 } from "lucide-react";
 import imgCloverFlex3 from "@assets/images/terminal-clover-flex-3.png";
 import heroSecure from "@assets/images/hero-secure.jpg";
@@ -278,6 +280,7 @@ export default function UploadStatement() {
     onError: (error: Error) => {
       setUploadProgress(0);
       const msg = error?.message || "";
+      trackStatementUploadFailed({ page: "/upload-statement", errorMessage: msg });
       if (msg.startsWith("429:")) {
         setSubmitError("Too many submissions — please wait a few minutes and try again.");
       } else if (/^5\d{2}:/.test(msg)) {
@@ -290,6 +293,7 @@ export default function UploadStatement() {
 
   const onSubmit = (data: UploadFormData) => {
     setSubmitError(null);
+    trackStatementUploadStarted({ page: "/upload-statement", ctaLocation: "form" });
     submitMutation.mutate(data);
   };
 
@@ -371,12 +375,15 @@ export default function UploadStatement() {
                 Upload Your Statement (<span className="text-sky-400">Secure</span>)
               </h1>
               <p
-                className="text-lg text-white/70 max-w-2xl mx-auto mb-10"
+                className="text-lg text-white/70 max-w-2xl mx-auto mb-4"
                 data-testid="text-upload-subheadline"
               >
-                PDF or photo. Redact account numbers if you want - totals + fee lines are all we need.
+                PDF, JPG, PNG, or CSV. Redact account numbers if you want — totals and fee lines are all we need.
               </p>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 reveal reveal-delay-1">
+              <p className="text-sm text-white/50 max-w-xl mx-auto mb-8" data-testid="text-upload-privacy">
+                Your statement is used only to prepare your Liberty Bancard rate review. It is not sold or shared for unrelated marketing.
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 reveal reveal-delay-1 mb-6">
                 {trustBullets.map((bullet) => (
                   <div
                     key={bullet.text}
@@ -387,6 +394,31 @@ export default function UploadStatement() {
                     <span className="text-sm text-white/80">{bullet.text}</span>
                   </div>
                 ))}
+              </div>
+              <div className="flex flex-col sm:flex-row gap-3 justify-center reveal reveal-delay-2">
+                <a
+                  href={CALENDAR_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  data-testid="link-upload-hero-book"
+                  onClick={() => trackBookingCtaClick({ page: "/upload-statement", ctaLabel: "Book a 10-Min Call", ctaLocation: "hero" })}
+                >
+                  <Button variant="outline" size="sm" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white hover:bg-white/10">
+                    <Calendar className="w-4 h-4" />
+                    Book a 10-Min Call
+                  </Button>
+                </a>
+                <a
+                  href={PHONE_TEL}
+                  aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`}
+                  data-testid="link-upload-hero-phone"
+                  onClick={() => trackPhoneCtaClick({ page: "/upload-statement", ctaLabel: PHONE_NUMBER, ctaLocation: "hero" })}
+                >
+                  <Button variant="ghost" size="sm" className="gap-2 text-white/70 hover:text-white hover:bg-white/10 border border-white/20">
+                    <Phone className="w-4 h-4" />
+                    {PHONE_NUMBER}
+                  </Button>
+                </a>
               </div>
             </div>
           </div>

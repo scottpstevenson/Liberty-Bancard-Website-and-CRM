@@ -26,8 +26,8 @@ import {
   Link2,
 } from "lucide-react";
 
-import { CALENDAR_URL } from "@/lib/constants";
-import { trackCalendarBooking } from "@/lib/tracking";
+import { CALENDAR_URL, PHONE_TEL, PHONE_NUMBER } from "@/lib/constants";
+import { trackBookingCtaClick, trackPhoneCtaClick, trackStatementUploadCtaClick } from "@/lib/tracking";
 import imgCloverFlex3 from "@assets/images/terminal-clover-flex-3.png";
 import imgPaxA920 from "@assets/images/terminal-pax-a920.png";
 
@@ -131,25 +131,46 @@ export default function BeatSquareStripe() {
                   className="text-4xl md:text-5xl font-display font-bold text-white leading-tight mb-6"
                   data-testid="text-beat-heading"
                 >
-                  Flat-Rate Is Convenient - Until You See the <span className="text-sky-400">All-In Cost.</span>
+                  Can Liberty Bancard Beat Your Square or Stripe Rate?{" "}
+                  <span className="text-sky-400">Let's Do the Math.</span>
                 </h1>
                 <p
                   className="text-lg text-white/70 mb-8 leading-relaxed"
                   data-testid="text-beat-subheadline"
                 >
-                  Square/Stripe-style flat pricing can become expensive as volume grows. We run an apples-to-apples comparison using your statement and show the clearest path to reduce total cost - without guesswork.
+                  Flat-rate pricing hides interchange downgrades, monthly fees, and card-mix costs. We run an apples-to-apples comparison on your actual statement — so you see the all-in number, not just the rate you were quoted.
                 </p>
-                <div className="flex flex-col sm:flex-row gap-4 flex-wrap mb-4">
-                  <Link href="/upload-statement" data-testid="link-beat-primary-cta">
+                <div className="flex flex-col sm:flex-row gap-4 flex-wrap mb-3">
+                  <Link
+                    href="/upload-statement?offer=beat-square"
+                    data-testid="link-beat-square-cta"
+                    onClick={() => trackStatementUploadCtaClick({ ctaLabel: "See If We Can Beat Square", offer: "beat-square", page: "/beat-square-stripe" })}
+                  >
                     <Button size="lg" className="gap-2 bg-sky-500 border-sky-500 text-white">
                       <Upload className="w-4 h-4" />
-                      Compare My Statement
-                      <ArrowRight className="w-4 h-4" />
+                      See If We Can Beat Square
                     </Button>
                   </Link>
-                  <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking("beat_square_stripe_hero")} data-testid="link-beat-secondary-cta">
+                  <Link
+                    href="/upload-statement?offer=beat-stripe"
+                    data-testid="link-beat-stripe-cta"
+                    onClick={() => trackStatementUploadCtaClick({ ctaLabel: "See If We Can Beat Stripe", offer: "beat-stripe", page: "/beat-square-stripe" })}
+                  >
                     <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
-                      Get My Free Analysis
+                      <Upload className="w-4 h-4" />
+                      See If We Can Beat Stripe
+                    </Button>
+                  </Link>
+                </div>
+                <div className="flex flex-col sm:flex-row gap-3 flex-wrap mb-4">
+                  <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackBookingCtaClick({ page: "/beat-square-stripe", ctaLabel: "Book a 10-Min Call", ctaLocation: "hero" })} data-testid="link-beat-book-cta">
+                    <Button size="lg" variant="ghost" className="gap-2 text-white/70 hover:text-white hover:bg-white/10 border border-white/20">
+                      Book a 10-Min Call
+                    </Button>
+                  </a>
+                  <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} onClick={() => trackPhoneCtaClick({ page: "/beat-square-stripe", ctaLabel: "Call" })} data-testid="link-beat-phone-cta">
+                    <Button size="lg" variant="ghost" className="gap-2 text-white/70 hover:text-white hover:bg-white/10 border border-white/20">
+                      {PHONE_NUMBER}
                     </Button>
                   </a>
                   <Button
@@ -163,10 +184,10 @@ export default function BeatSquareStripe() {
                   </Button>
                 </div>
                 <p
-                  className="text-sm text-white/50"
+                  className="text-xs text-white/40 mt-2 max-w-lg"
                   data-testid="text-beat-subtext"
                 >
-                  No pressure. You keep the breakdown.
+                  No pressure. You keep the breakdown. Actual savings depend on your card mix, volume, and underwriting — confirmed via statement review.
                 </p>
               </div>
               <div className="flex items-center justify-center">
@@ -545,7 +566,7 @@ export default function BeatSquareStripe() {
                   <ArrowRight className="w-4 h-4" />
                 </Button>
               </Link>
-              <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking("beat_square_stripe_final")} data-testid="link-beat-final-call">
+              <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackBookingCtaClick({ page: "/beat-square-stripe", ctaLabel: "Get My Free Analysis", ctaLocation: "final_cta" })} data-testid="link-beat-final-call">
                 <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
                   Get My Free Analysis
                 </Button>

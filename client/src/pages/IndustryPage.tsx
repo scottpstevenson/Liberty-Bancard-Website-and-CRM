@@ -38,7 +38,10 @@ import {
   Dumbbell,
   Hotel,
   BadgeCheck,
+  Calendar,
 } from "lucide-react";
+import { CALENDAR_URL, PHONE_TEL, PHONE_NUMBER } from "@/lib/constants";
+import { trackPhoneCtaClick, trackBookingCtaClick, trackStatementUploadCtaClick } from "@/lib/tracking";
 
 import verticalRestaurant from "@assets/images/vertical-restaurant.jpg";
 import verticalRetail from "@assets/images/vertical-retail.jpg";
@@ -672,18 +675,24 @@ export default function IndustryPage() {
                 {industry.heroSubtitle}
               </p>
               <div className="flex flex-col sm:flex-row gap-4 flex-wrap">
-                <Link href="/upload-statement" data-testid="link-industry-hero-upload">
+                <Link href="/upload-statement" data-testid="link-industry-hero-upload" onClick={() => trackStatementUploadCtaClick({ page: `/industries/${industry.slug}`, ctaLabel: "Upload Your Statement — Free Review", industry: industry.slug })}>
                   <Button size="lg" className="gap-2 bg-sky-500 border-sky-500 text-white">
                     <Upload className="w-4 h-4" />
                     Upload Your Statement — Free Review
                   </Button>
                 </Link>
-                <Link href="/savings-calculator" data-testid="link-industry-hero-calculator">
+                <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-industry-hero-book" onClick={() => trackBookingCtaClick({ page: `/industries/${industry.slug}`, ctaLabel: "Book a 10-Min Call", ctaLocation: "hero", industry: industry.slug })}>
                   <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
-                    Estimate Your Savings
-                    <ArrowRight className="w-4 h-4" />
+                    <Calendar className="w-4 h-4" />
+                    Book a 10-Min Call
                   </Button>
-                </Link>
+                </a>
+                <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-industry-hero-phone" onClick={() => trackPhoneCtaClick({ page: `/industries/${industry.slug}`, ctaLabel: PHONE_NUMBER, industry: industry.slug })}>
+                  <Button size="lg" variant="ghost" className="gap-2 text-white/70 hover:text-white hover:bg-white/10 border border-white/20">
+                    <Phone className="w-4 h-4" />
+                    {PHONE_NUMBER}
+                  </Button>
+                </a>
               </div>
             </div>
           </div>
@@ -692,11 +701,11 @@ export default function IndustryPage() {
         <div className="bg-muted/50 border-b border-border py-3" data-testid="section-trust-strip">
           <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-1.5 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5 text-emerald-500" /> PCI DSS Level 1 Certified</span>
-              <span className="flex items-center gap-1.5"><BadgeCheck className="w-3.5 h-3.5 text-sky-500" /> Registered ISO/MSP</span>
-              <span className="flex items-center gap-1.5"><Users className="w-3.5 h-3.5 text-primary" /> 5,000+ Merchants Served</span>
-              <span className="flex items-center gap-1.5"><DollarSign className="w-3.5 h-3.5 text-primary" /> $2B+ Annual Volume</span>
-              <span className="flex items-center gap-1.5"><Zap className="w-3.5 h-3.5 text-amber-500" /> 10+ Years in Payments</span>
+              <span className="flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5 text-emerald-500" /> Secure statement review</span>
+              <span className="flex items-center gap-1.5"><BadgeCheck className="w-3.5 h-3.5 text-sky-500" /> No obligation comparison</span>
+              <span className="flex items-center gap-1.5"><Users className="w-3.5 h-3.5 text-primary" /> Industry-specific rate analysis</span>
+              <span className="flex items-center gap-1.5"><DollarSign className="w-3.5 h-3.5 text-primary" /> Line-item cost breakdown</span>
+              <span className="flex items-center gap-1.5"><Zap className="w-3.5 h-3.5 text-amber-500" /> You keep the breakdown</span>
             </div>
           </div>
         </div>

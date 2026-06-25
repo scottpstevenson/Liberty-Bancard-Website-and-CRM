@@ -344,6 +344,7 @@ Guidelines:
       { url: "/free-analysis-guaranteed", priority: "0.9", changefreq: "monthly" },
       { url: "/0-percent-processing", priority: "0.9", changefreq: "monthly" },
       { url: "/beat-square-stripe", priority: "0.8", changefreq: "monthly" },
+      { url: "/free-smart-terminal", priority: "0.9", changefreq: "monthly" },
       { url: "/about-contact", priority: "0.7", changefreq: "monthly" },
       { url: "/estimate", priority: "0.8", changefreq: "monthly" },
       { url: "/support", priority: "0.6", changefreq: "monthly" },

@@ -33,7 +33,11 @@ import {
   BadgeCheck,
   Link2,
   Check,
+  Calendar,
+  Phone,
 } from "lucide-react";
+import { CALENDAR_URL, PHONE_TEL, PHONE_NUMBER } from "@/lib/constants";
+import { trackBookingCtaClick, trackPhoneCtaClick, trackStatementUploadCtaClick } from "@/lib/tracking";
 
 const BASE_URL = "https://libertybancard.com";
 
@@ -520,18 +524,24 @@ export default function CompareVs() {
                 {data.heroDescription}
               </p>
               <div className="flex flex-col sm:flex-row gap-4 justify-center flex-wrap">
-                <Link href="/upload-statement" data-testid="link-vs-hero-upload">
+                <Link href={`/upload-statement?offer=beat-${data.slug}`} data-testid="link-vs-hero-upload" onClick={() => trackStatementUploadCtaClick({ page: `/compare/${data.slug}`, ctaLabel: "Upload Statement - Free Review", competitor: data.slug })}>
                   <Button size="lg" className="gap-2 bg-white text-primary border-white">
                     <Upload className="w-4 h-4" />
                     Upload Statement - Free Review
                   </Button>
                 </Link>
-                <Link href="/savings-calculator" data-testid="link-vs-hero-calc">
+                <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-vs-hero-book" onClick={() => trackBookingCtaClick({ page: `/compare/${data.slug}`, ctaLabel: "Book a 10-Min Call", ctaLocation: "hero", competitor: data.slug })}>
                   <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
-                    <Calculator className="w-4 h-4" />
-                    Try Savings Calculator
+                    <Calendar className="w-4 h-4" />
+                    Book a 10-Min Call
                   </Button>
-                </Link>
+                </a>
+                <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-vs-hero-phone" onClick={() => trackPhoneCtaClick({ page: `/compare/${data.slug}`, ctaLabel: PHONE_NUMBER, competitor: data.slug })}>
+                  <Button size="lg" variant="ghost" className="gap-2 text-white/70 hover:text-white hover:bg-white/10 border border-white/20">
+                    <Phone className="w-4 h-4" />
+                    {PHONE_NUMBER}
+                  </Button>
+                </a>
                 <Button
                   size="lg"
                   variant="ghost"
@@ -542,6 +552,9 @@ export default function CompareVs() {
                   {copied ? <><Check className="w-4 h-4 text-green-400" /> Copied!</> : <><Link2 className="w-4 h-4" /> Share This Page</>}
                 </Button>
               </div>
+              <p className="text-xs text-white/30 mt-4 max-w-xl mx-auto">
+                Actual savings depend on your statement, card mix, volume, and eligibility. No savings claims without a statement review.
+              </p>
             </div>
           </div>
         </section>
@@ -549,11 +562,11 @@ export default function CompareVs() {
         <div className="bg-muted/50 border-b border-border py-3" data-testid="section-trust-strip">
           <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-1.5 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5 text-emerald-500" /> PCI DSS Level 1 Certified</span>
-              <span className="flex items-center gap-1.5"><BadgeCheck className="w-3.5 h-3.5 text-sky-500" /> Registered ISO/MSP</span>
-              <span className="flex items-center gap-1.5"><Users className="w-3.5 h-3.5 text-primary" /> 5,000+ Merchants Served</span>
-              <span className="flex items-center gap-1.5"><DollarSign className="w-3.5 h-3.5 text-primary" /> $2B+ Annual Volume</span>
-              <span className="flex items-center gap-1.5"><Zap className="w-3.5 h-3.5 text-amber-500" /> 10+ Years in Payments</span>
+              <span className="flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5 text-emerald-500" /> Secure statement review</span>
+              <span className="flex items-center gap-1.5"><BadgeCheck className="w-3.5 h-3.5 text-sky-500" /> No obligation comparison</span>
+              <span className="flex items-center gap-1.5"><Users className="w-3.5 h-3.5 text-primary" /> Transparent rate analysis</span>
+              <span className="flex items-center gap-1.5"><DollarSign className="w-3.5 h-3.5 text-primary" /> Line-item cost breakdown</span>
+              <span className="flex items-center gap-1.5"><Zap className="w-3.5 h-3.5 text-amber-500" /> You keep the breakdown</span>
             </div>
           </div>
         </div>

@@ -184,6 +184,128 @@ export function trackStatementUpload() {
   }
 }
 
+export function trackStatementUploadStarted(params?: { page?: string; ctaLocation?: string }) {
+  if (GA_ID) {
+    gtagEvent("event", "statement_upload_started", {
+      event_category: "engagement",
+      event_label: "statement_upload_started",
+      page: params?.page,
+      cta_location: params?.ctaLocation,
+    });
+  }
+  if (FB_PIXEL_ID) {
+    fbqEvent("trackCustom", "StatementUploadStarted", {
+      page: params?.page,
+      cta_location: params?.ctaLocation,
+    });
+  }
+}
+
+export function trackStatementUploadFailed(params?: { page?: string; errorMessage?: string }) {
+  if (GA_ID) {
+    gtagEvent("event", "statement_upload_failed", {
+      event_category: "engagement",
+      event_label: "statement_upload_failed",
+      page: params?.page,
+      error_message: params?.errorMessage,
+    });
+  }
+  if (FB_PIXEL_ID) {
+    fbqEvent("trackCustom", "StatementUploadFailed", {
+      page: params?.page,
+      error_message: params?.errorMessage,
+    });
+  }
+}
+
+export interface CtaTrackParams {
+  page?: string;
+  ctaLabel?: string;
+  ctaLocation?: string;
+  offer?: string;
+  competitor?: string;
+  industry?: string;
+  city?: string;
+}
+
+export function trackPhoneCtaClick(params?: CtaTrackParams) {
+  if (GA_ID) {
+    gtagEvent("event", "phone_cta_click", {
+      event_category: "engagement",
+      event_label: "phone_cta_click",
+      ...params,
+    });
+  }
+  if (FB_PIXEL_ID) {
+    fbqEvent("trackCustom", "PhoneCtaClick", params);
+  }
+}
+
+export function trackBookingCtaClick(params?: CtaTrackParams) {
+  if (GA_ID) {
+    gtagEvent("event", "booking_cta_click", {
+      event_category: "conversion",
+      event_label: "booking_cta_click",
+      ...params,
+    });
+  }
+  if (FB_PIXEL_ID) {
+    fbqEvent("trackCustom", "BookingCtaClick", params);
+  }
+}
+
+export function trackStatementUploadCtaClick(params?: CtaTrackParams) {
+  if (GA_ID) {
+    gtagEvent("event", "statement_upload_cta_click", {
+      event_category: "conversion",
+      event_label: "statement_upload_cta_click",
+      ...params,
+    });
+  }
+  if (FB_PIXEL_ID) {
+    fbqEvent("trackCustom", "StatementUploadCtaClick", params);
+  }
+}
+
+export function trackFreeTerminalEligibilityClick(params?: CtaTrackParams) {
+  if (GA_ID) {
+    gtagEvent("event", "free_terminal_eligibility_click", {
+      event_category: "conversion",
+      event_label: "free_terminal_eligibility_click",
+      ...params,
+    });
+  }
+  if (FB_PIXEL_ID) {
+    fbqEvent("trackCustom", "FreeTerminalEligibilityClick", params);
+  }
+}
+
+export function trackCashDiscountReviewClick(params?: CtaTrackParams) {
+  if (GA_ID) {
+    gtagEvent("event", "cash_discount_review_click", {
+      event_category: "conversion",
+      event_label: "cash_discount_review_click",
+      ...params,
+    });
+  }
+  if (FB_PIXEL_ID) {
+    fbqEvent("trackCustom", "CashDiscountReviewClick", params);
+  }
+}
+
+export function trackSurchargeReviewClick(params?: CtaTrackParams) {
+  if (GA_ID) {
+    gtagEvent("event", "surcharge_review_click", {
+      event_category: "conversion",
+      event_label: "surcharge_review_click",
+      ...params,
+    });
+  }
+  if (FB_PIXEL_ID) {
+    fbqEvent("trackCustom", "SurchargeReviewClick", params);
+  }
+}
+
 export function trackEquipmentOrder(value?: number) {
   if (GA_ID) {
     gtagEvent("event", "purchase", {

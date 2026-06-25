@@ -32,6 +32,8 @@ import {
   MessageSquare,
   Zap,
 } from "lucide-react";
+import { PHONE_TEL, PHONE_NUMBER, CALENDAR_URL } from "@/lib/constants";
+import { trackCashDiscountReviewClick, trackSurchargeReviewClick, trackPhoneCtaClick } from "@/lib/tracking";
 import imgCloverFlex3 from "@assets/images/terminal-clover-flex-3.png";
 import imgPaxA920 from "@assets/images/terminal-pax-a920.png";
 
@@ -116,7 +118,7 @@ export default function ZeroPercent() {
                   className="text-4xl md:text-5xl font-display font-bold text-white leading-tight mb-6"
                   data-testid="text-zero-heading"
                 >
-                  Accept Credit Cards.<br /><span className="text-sky-400">Pay $0 to Process Them.</span>
+                  Accept Credit Cards.<br /><span className="text-sky-400">Explore the Liberty Zero™ Fee-Offset Program.</span>
                 </h1>
                 <p
                   className="text-lg text-white/75 mb-4 leading-relaxed"
@@ -128,13 +130,17 @@ export default function ZeroPercent() {
                   For a merchant processing $10,000/month, that's $250–$350 back in your pocket. Every month.
                 </p>
                 <div className="flex flex-col sm:flex-row gap-4 flex-wrap">
-                  <Link href="/upload-statement" data-testid="link-zero-primary-cta">
+                  <Link
+                    href="/upload-statement"
+                    data-testid="link-zero-primary-cta"
+                    onClick={() => trackCashDiscountReviewClick({ page: "/0-percent-processing", ctaLabel: "Check Eligibility" })}
+                  >
                     <Button size="lg" className="gap-2 bg-sky-500 border-sky-500 text-white">
                       <Upload className="w-4 h-4" />
                       Check Eligibility — Free Review
                     </Button>
                   </Link>
-                  <a href="tel:9542668214" data-testid="link-zero-secondary-cta">
+                  <a href={PHONE_TEL} data-testid="link-zero-secondary-cta">
                     <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
                       <Phone className="w-4 h-4" />
                       Talk to a Specialist
@@ -142,10 +148,16 @@ export default function ZeroPercent() {
                   </a>
                 </div>
                 <p
-                  className="text-xs text-white/40 mt-4"
+                  className="text-sm text-white/60 mt-4 max-w-lg"
+                  data-testid="text-zero-abovefold-disclaimer"
+                >
+                  Program availability depends on business type, state rules, card-network rules, disclosure requirements, and underwriting.
+                </p>
+                <p
+                  className="text-xs text-white/40 mt-2"
                   data-testid="text-zero-microcopy"
                 >
-                  Where permitted by state law and card brand rules. Eligibility confirmed via statement review.
+                  Eligibility confirmed via statement review.
                 </p>
               </div>
 
@@ -177,11 +189,11 @@ export default function ZeroPercent() {
         <div className="bg-muted/50 border-b border-border py-3" data-testid="section-trust-strip">
           <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-1.5 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5 text-emerald-500" /> PCI DSS Level 1 Certified</span>
-              <span className="flex items-center gap-1.5"><BadgeCheck className="w-3.5 h-3.5 text-sky-500" /> Registered ISO/MSP</span>
-              <span className="flex items-center gap-1.5"><Users className="w-3.5 h-3.5 text-primary" /> 5,000+ Merchants Served</span>
-              <span className="flex items-center gap-1.5"><DollarSign className="w-3.5 h-3.5 text-primary" /> $2B+ Annual Volume</span>
-              <span className="flex items-center gap-1.5"><Zap className="w-3.5 h-3.5 text-amber-500" /> 10+ Years in Payments</span>
+              <span className="flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5 text-emerald-500" /> Secure statement review</span>
+              <span className="flex items-center gap-1.5"><BadgeCheck className="w-3.5 h-3.5 text-sky-500" /> No obligation comparison</span>
+              <span className="flex items-center gap-1.5"><Users className="w-3.5 h-3.5 text-primary" /> Transparent rate analysis</span>
+              <span className="flex items-center gap-1.5"><DollarSign className="w-3.5 h-3.5 text-primary" /> Merchant-focused payment review</span>
+              <span className="flex items-center gap-1.5"><Zap className="w-3.5 h-3.5 text-amber-500" /> Eligibility confirmed via statement review</span>
             </div>
           </div>
         </div>
@@ -210,7 +222,15 @@ export default function ZeroPercent() {
                   <p className="text-muted-foreground mb-4 leading-relaxed">
                     Your posted price is the "cash price." Customers who pay by card see a slightly higher price — the difference covers processing. Customers who pay cash get the standard price as a discount.
                   </p>
-                  <p className="text-sm font-medium text-foreground">Best for: Retail, restaurants, service businesses</p>
+                  <p className="text-sm font-medium text-foreground mb-4">Best for: Retail, restaurants, service businesses</p>
+                  <Link
+                    href="/upload-statement"
+                    className="text-sm text-primary underline"
+                    data-testid="link-cash-discount-review"
+                    onClick={() => trackCashDiscountReviewClick({ page: "/0-percent-processing", ctaLabel: "Review My Cash Discount Eligibility" })}
+                  >
+                    Review My Cash Discount Eligibility →
+                  </Link>
                 </CardContent>
               </Card>
 
@@ -226,7 +246,15 @@ export default function ZeroPercent() {
                   <p className="text-muted-foreground mb-4 leading-relaxed">
                     A disclosed service fee is added to eligible credit card transactions at checkout. State law and card brand rules govern where this applies. We verify eligibility before recommending this path.
                   </p>
-                  <p className="text-sm font-medium text-foreground">Best for: Higher-ticket B2B, professional services</p>
+                  <p className="text-sm font-medium text-foreground mb-4">Best for: Higher-ticket B2B, professional services</p>
+                  <Link
+                    href="/upload-statement"
+                    className="text-sm text-primary underline"
+                    data-testid="link-surcharge-review"
+                    onClick={() => trackSurchargeReviewClick({ page: "/0-percent-processing", ctaLabel: "Review My Surcharge Eligibility" })}
+                  >
+                    Review My Surcharge Eligibility →
+                  </Link>
                 </CardContent>
               </Card>
             </div>
@@ -466,10 +494,10 @@ export default function ZeroPercent() {
                         <ArrowRight className="w-4 h-4" />
                       </Button>
                     </Link>
-                    <a href="tel:9542668214" data-testid="link-zero-call-cta">
+                    <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-zero-call-cta" onClick={() => trackPhoneCtaClick({ page: "/0-percent-processing", ctaLabel: PHONE_NUMBER, ctaLocation: "terminal" })}>
                       <Button variant="outline" className="gap-2">
                         <Phone className="w-4 h-4" />
-                        Call 954-266-8214
+                        Call {PHONE_NUMBER}
                       </Button>
                     </a>
                   </div>
@@ -529,7 +557,7 @@ export default function ZeroPercent() {
               className="text-3xl md:text-4xl font-display font-bold text-white mb-4"
               data-testid="text-zero-final-cta-heading"
             >
-              Ready to Pay Zero to Accept Cards?
+              Ready to Reduce Your Processing Cost to $0?
             </h2>
             <p
               className="text-white/60 mb-8 max-w-2xl mx-auto"
@@ -544,10 +572,10 @@ export default function ZeroPercent() {
                   Upload Statement — Check Eligibility
                 </Button>
               </Link>
-              <a href="tel:9542668214" data-testid="link-zero-final-call">
+              <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-zero-final-call" onClick={() => trackPhoneCtaClick({ page: "/0-percent-processing", ctaLabel: PHONE_NUMBER, ctaLocation: "final_cta" })}>
                 <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
                   <Phone className="w-4 h-4" />
-                  Call 954-266-8214
+                  Call {PHONE_NUMBER}
                 </Button>
               </a>
             </div>

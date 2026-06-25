@@ -18,7 +18,10 @@ import {
   MapPin,
   Phone,
   FileText,
+  Calendar,
 } from "lucide-react";
+import { CALENDAR_URL, PHONE_TEL, PHONE_NUMBER } from "@/lib/constants";
+import { trackPhoneCtaClick, trackBookingCtaClick, trackStatementUploadCtaClick } from "@/lib/tracking";
 
 interface LocationIndustryData {
   citySlug: string;
@@ -310,18 +313,25 @@ export default function LocationIndustryPage() {
             <p className="text-white/70 text-lg max-w-2xl mb-8 leading-relaxed" data-testid="text-location-hero-subtitle">
               {data.heroSubtitle}
             </p>
-            <div className="flex flex-col sm:flex-row gap-4">
-              <Link href="/upload-statement" data-testid="link-location-upload">
+            <div className="flex flex-col sm:flex-row gap-4 flex-wrap">
+              <Link href={`/upload-statement?offer=${data.industrySlug}`} data-testid="link-location-upload" onClick={() => trackStatementUploadCtaClick({ page: `/locations/${data.citySlug}/${data.industrySlug}`, ctaLabel: "Get My Free Analysis", city: data.citySlug, industry: data.industrySlug })}>
                 <Button size="lg" className="gap-2 bg-sky-500 border-sky-500 text-white">
                   <Upload className="w-4 h-4" />
                   Get My Free Analysis
                 </Button>
               </Link>
-              <Link href={`/industries/${vertical?.industryPageSlug || ""}`} data-testid="link-location-industry">
+              <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-location-book" onClick={() => trackBookingCtaClick({ page: `/locations/${data.citySlug}/${data.industrySlug}`, ctaLabel: "Book a 10-Min Call", ctaLocation: "hero", city: data.citySlug, industry: data.industrySlug })}>
                 <Button size="lg" variant="outline" className="gap-2 bg-white/5 border-white/20 text-white">
-                  Learn More About {data.industryName} Processing
+                  <Calendar className="w-4 h-4" />
+                  Book a 10-Min Call
                 </Button>
-              </Link>
+              </a>
+              <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-location-hero-phone" onClick={() => trackPhoneCtaClick({ page: `/locations/${data.citySlug}/${data.industrySlug}`, ctaLabel: PHONE_NUMBER, city: data.citySlug, industry: data.industrySlug })}>
+                <Button size="lg" variant="ghost" className="gap-2 text-white/70 hover:text-white hover:bg-white/10 border border-white/20">
+                  <Phone className="w-4 h-4" />
+                  {PHONE_NUMBER}
+                </Button>
+              </a>
             </div>
           </div>
         </section>
@@ -399,16 +409,22 @@ export default function LocationIndustryPage() {
               Upload your most recent processing statement. We'll break it down line-by-line and show you exactly where your money goes. Keep the analysis even if you don't switch.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center flex-wrap">
-              <Link href="/upload-statement" data-testid="link-cta-upload">
+              <Link href="/upload-statement" data-testid="link-cta-upload" onClick={() => trackStatementUploadCtaClick({ page: `/locations/${data.citySlug}/${data.industrySlug}`, ctaLabel: "Upload Statement — Free Review", city: data.cityName, industry: data.industryName })}>
                 <Button size="lg" className="gap-2 bg-sky-500 border-sky-500 text-white">
                   <Upload className="w-4 h-4" />
                   Upload Statement — Free Review
                 </Button>
               </Link>
-              <a href="tel:+19542668214" data-testid="link-cta-call">
+              <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-cta-book" onClick={() => trackBookingCtaClick({ page: `/locations/${data.citySlug}/${data.industrySlug}`, ctaLabel: "Book a 10-Min Call", ctaLocation: "final_cta", city: data.cityName, industry: data.industryName })}>
                 <Button size="lg" variant="outline" className="gap-2 bg-white/5 border-white/20 text-white">
+                  <Calendar className="w-4 h-4" />
+                  Book a 10-Min Call
+                </Button>
+              </a>
+              <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-cta-call" onClick={() => trackPhoneCtaClick({ page: `/locations/${data.citySlug}/${data.industrySlug}`, ctaLabel: PHONE_NUMBER, city: data.cityName, industry: data.industryName })}>
+                <Button size="lg" variant="ghost" className="gap-2 text-white/70 hover:text-white hover:bg-white/10 border border-white/20">
                   <Phone className="w-4 h-4" />
-                  Call (954) 266-8214
+                  {PHONE_NUMBER}
                 </Button>
               </a>
             </div>

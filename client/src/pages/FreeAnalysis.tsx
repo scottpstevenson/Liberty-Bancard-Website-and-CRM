@@ -11,6 +11,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { trackQuizStart, trackQuizStep, trackQuizComplete, trackConversion, trackFormSubmission } from "@/lib/tracking";
 import { trackConversion as trackConversionV2 } from "@/lib/analytics";
+import { CALENDAR_URL, PHONE_TEL, PHONE_NUMBER } from "@/lib/constants";
 import {
   ArrowLeft,
   ArrowRight,
@@ -376,7 +377,7 @@ export default function FreeAnalysis() {
     const msg = typeof error?.message === "string" ? error.message : "";
     if (msg.startsWith("429:")) return "Too many submissions — please wait a few minutes and try again.";
     if (/^5\d{2}:/.test(msg)) return "Something went wrong on our end — please try again shortly.";
-    return msg || "Please try again or call us at 954-266-8214.";
+    return msg || `Please try again or call us at ${PHONE_NUMBER}.`;
   }
 
   const handleSubmit = async () => {
@@ -605,13 +606,13 @@ export default function FreeAnalysis() {
                   <Link href="/upload-statement" data-testid="link-results-upload">
                     <Button size="lg" className="gap-2 w-full">
                       <Upload className="w-4 h-4" />
-                      Upload Statement for Exact Savings
+                      Check My Savings
                     </Button>
                   </Link>
-                  <a href="tel:9542668214" data-testid="link-results-call">
+                  <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-results-book">
                     <Button size="lg" variant="outline" className="gap-2 w-full">
-                      <Phone className="w-4 h-4" />
-                      Schedule a Call
+                      <Calendar className="w-4 h-4" />
+                      Book a 10-Min Call
                     </Button>
                   </a>
                 </div>
@@ -673,7 +674,7 @@ export default function FreeAnalysis() {
                 <CardContent className="p-4 text-center">
                   <Phone className="w-8 h-8 text-primary mx-auto mb-2" />
                   <p className="text-sm font-medium text-foreground">Real Human Support</p>
-                  <p className="text-xs text-muted-foreground">954-266-8214</p>
+                  <p className="text-xs text-muted-foreground">{PHONE_NUMBER}</p>
                 </CardContent>
               </Card>
             </div>
@@ -1025,7 +1026,7 @@ export default function FreeAnalysis() {
                       </>
                     ) : (
                       <>
-                        See My Savings
+                        Check My Savings
                         <ArrowRight className="w-4 h-4" />
                       </>
                     )}
@@ -1214,7 +1215,7 @@ export default function FreeAnalysis() {
                 <CardContent className="p-4 text-center">
                   <Headphones className="w-7 h-7 text-primary mx-auto mb-2" />
                   <p className="text-xs font-semibold text-foreground">Real Human Support</p>
-                  <p className="text-[10px] text-muted-foreground">954-266-8214</p>
+                  <p className="text-[10px] text-muted-foreground">{PHONE_NUMBER}</p>
                 </CardContent>
               </Card>
               <Card data-testid="card-badge-nextday">
@@ -1231,7 +1232,7 @@ export default function FreeAnalysis() {
 
           <div className="mt-8 text-center">
             <p className="text-sm text-muted-foreground mb-3" data-testid="text-bottom-cta">
-              Still have questions? Call us at <a href="tel:9542668214" className="text-primary font-semibold underline">954-266-8214</a> or{" "}
+              Still have questions? Call us at <a href={PHONE_TEL} className="text-primary font-semibold underline">{PHONE_NUMBER}</a> or{" "}
               <Link href="/get-started" className="text-primary font-semibold underline">book a free 10-minute call</Link>.
             </p>
           </div>
@@ -1241,7 +1242,7 @@ export default function FreeAnalysis() {
       <footer className="bg-muted/50 border-t border-border py-6">
         <div className="max-w-2xl mx-auto px-4 text-center">
           <p className="text-xs text-muted-foreground">
-            Liberty Bancard | 954-266-8214 |{" "}
+            Liberty Bancard | {PHONE_NUMBER} |{" "}
             <Link href="/privacy-policy" className="underline" data-testid="link-footer-privacy">Privacy Policy</Link> |{" "}
             <Link href="/terms" className="underline" data-testid="link-footer-terms">Terms</Link>
           </p>
