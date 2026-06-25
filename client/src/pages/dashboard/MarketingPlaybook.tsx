@@ -13,7 +13,8 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import {
   Megaphone, Copy, CheckCircle2, Mail, MessageSquare, Phone, Linkedin,
-  Facebook, Instagram, ChevronDown, ChevronUp, Printer,
+  Facebook, Instagram, ChevronDown, ChevronUp, Printer, Workflow,
+  AlertTriangle, Clock, Upload, Eye, CheckSquare,
 } from "lucide-react";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -29,6 +30,91 @@ interface SocialAdSet {
   instagram: { hook: string; caption: string };
   linkedin: string;
 }
+
+// ─── GHL Workflows ─────────────────────────────────────────────────────────────
+
+interface GhlWorkflow {
+  num: number;
+  name: string;
+  trigger: string;
+  steps: number;
+  timing: string;
+  repRole: string;
+}
+
+const GHL_WORKFLOWS: GhlWorkflow[] = [
+  {
+    num: 1,
+    name: "Speed-to-Lead",
+    trigger: "Form submit / chat",
+    steps: 9,
+    timing: "Mins 1–72h",
+    repRole: "Review AI reply, confirm booking",
+  },
+  {
+    num: 2,
+    name: "Cold Outbound",
+    trigger: "SDR enrichment",
+    steps: 9,
+    timing: "Day 1–12",
+    repRole: "Monitor intent flags, call on day 3",
+  },
+  {
+    num: 3,
+    name: "Reply Engaged",
+    trigger: "Any reply",
+    steps: 6,
+    timing: "Hours",
+    repRole: "Assign to rep within 30 min",
+  },
+  {
+    num: 4,
+    name: "Statement Chase",
+    trigger: "Verbal agreement",
+    steps: 6,
+    timing: "Days 1–7",
+    repRole: "Call on day 2 if no upload",
+  },
+  {
+    num: 5,
+    name: "Proposal Follow-up",
+    trigger: "Proposal sent",
+    steps: 7,
+    timing: "Days 1–10",
+    repRole: "Personal call on day 3",
+  },
+  {
+    num: 6,
+    name: "Long-term Nurture",
+    trigger: "Exhausted sequences",
+    steps: 8,
+    timing: "Monthly ×12",
+    repRole: "Quarterly personal touch",
+  },
+];
+
+const REP_DAILY_ACTIONS = [
+  {
+    icon: AlertTriangle,
+    iconClass: "text-red-500",
+    text: "Check intent flags in Lead Command Center — angry/stop = immediate action required",
+  },
+  {
+    icon: Clock,
+    iconClass: "text-amber-500",
+    text: "Call any leads that replied interested or call_me within 1 hour",
+  },
+  {
+    icon: Upload,
+    iconClass: "text-blue-500",
+    text: "Upload new statements received to the deal file same day",
+  },
+  {
+    icon: Eye,
+    iconClass: "text-purple-500",
+    text: "Review any proposals opened in the last 24h (proposal_viewed intent auto-fires)",
+  },
+];
 
 // ─── Verticals ─────────────────────────────────────────────────────────────────
 
@@ -554,14 +640,41 @@ export default function MarketingPlaybook() {
         <h1 className="text-2xl font-bold" data-testid="heading-marketing-playbook">Marketing Playbook</h1>
       </div>
       <p className="text-sm text-muted-foreground">
-        Ready-to-use email sequences, social ad copy, and sales scripts for the 5 priority verticals. Select a vertical to load the matching content, then copy with one click.
+        The 6-workflow GHL automation framework drives the entire pipeline — from first touch to closed deal. Daily actions, sequence map, content library, and call scripts all in one place.
       </p>
 
-      <Tabs defaultValue="email">
+      {/* ─── Rep Daily Actions ─── */}
+      <Card data-testid="card-rep-daily-actions">
+        <CardHeader className="pb-3">
+          <div className="flex items-center gap-2">
+            <CheckSquare className="w-4 h-4 text-primary" />
+            <CardTitle className="text-base">Rep Daily Actions</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <ul className="space-y-3">
+            {REP_DAILY_ACTIONS.map((action, i) => {
+              const Icon = action.icon;
+              return (
+                <li key={i} className="flex items-start gap-3" data-testid={`daily-action-${i}`}>
+                  <Icon className={`w-4 h-4 mt-0.5 shrink-0 ${action.iconClass}`} />
+                  <span className="text-sm">{action.text}</span>
+                </li>
+              );
+            })}
+          </ul>
+        </CardContent>
+      </Card>
+
+      <Tabs defaultValue="ghl-workflows">
         <TabsList className="flex-wrap h-auto gap-1">
+          <TabsTrigger value="ghl-workflows" data-testid="tab-ghl-workflows">
+            <Workflow className="w-3.5 h-3.5 mr-1.5" />
+            GHL Workflows
+          </TabsTrigger>
           <TabsTrigger value="email" data-testid="tab-email-templates">
             <Mail className="w-3.5 h-3.5 mr-1.5" />
-            Email Templates
+            Content Library
           </TabsTrigger>
           <TabsTrigger value="social" data-testid="tab-social-ads">
             <Facebook className="w-3.5 h-3.5 mr-1.5" />
@@ -577,7 +690,72 @@ export default function MarketingPlaybook() {
           </TabsTrigger>
         </TabsList>
 
-        {/* ─── Email Templates ─── */}
+        {/* ─── GHL Workflows ─── */}
+        <TabsContent value="ghl-workflows" className="mt-4 space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Six automated GHL workflows cover every stage of the pipeline. The system handles timing and sends — reps focus on the actions below.
+          </p>
+
+          {/* Desktop table */}
+          <div className="hidden md:block overflow-x-auto rounded-lg border" data-testid="table-ghl-workflows">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/60">
+                <tr>
+                  <th className="px-4 py-3 text-left font-semibold text-muted-foreground w-8">#</th>
+                  <th className="px-4 py-3 text-left font-semibold text-muted-foreground">Workflow</th>
+                  <th className="px-4 py-3 text-left font-semibold text-muted-foreground">Trigger</th>
+                  <th className="px-4 py-3 text-left font-semibold text-muted-foreground w-16">Steps</th>
+                  <th className="px-4 py-3 text-left font-semibold text-muted-foreground">Timing</th>
+                  <th className="px-4 py-3 text-left font-semibold text-muted-foreground">Rep Action Required</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {GHL_WORKFLOWS.map((wf) => (
+                  <tr key={wf.num} className="hover:bg-muted/30 transition-colors" data-testid={`row-workflow-${wf.num}`}>
+                    <td className="px-4 py-3">
+                      <Badge variant="outline" className="w-7 h-7 rounded-full flex items-center justify-center p-0 text-xs font-bold">
+                        {wf.num}
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-3 font-semibold">{wf.name}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{wf.trigger}</td>
+                    <td className="px-4 py-3">
+                      <Badge variant="secondary">{wf.steps}</Badge>
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground">{wf.timing}</td>
+                    <td className="px-4 py-3">{wf.repRole}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile cards */}
+          <div className="grid gap-3 md:hidden">
+            {GHL_WORKFLOWS.map((wf) => (
+              <Card key={wf.num} data-testid={`card-workflow-${wf.num}`}>
+                <CardContent className="pt-4 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="w-7 h-7 rounded-full flex items-center justify-center p-0 text-xs font-bold shrink-0">
+                      {wf.num}
+                    </Badge>
+                    <span className="font-semibold">{wf.name}</span>
+                    <Badge variant="secondary" className="ml-auto">{wf.steps} steps</Badge>
+                  </div>
+                  <div className="text-xs text-muted-foreground grid grid-cols-2 gap-1">
+                    <span><span className="font-medium">Trigger:</span> {wf.trigger}</span>
+                    <span><span className="font-medium">Timing:</span> {wf.timing}</span>
+                  </div>
+                  <div className="text-xs border-t pt-2">
+                    <span className="font-medium text-primary">Rep:</span> {wf.repRole}
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </TabsContent>
+
+        {/* ─── Content Library (Email Templates) ─── */}
         <TabsContent value="email" className="space-y-4 mt-4">
           <div className="flex items-center gap-3">
             <label className="text-sm font-medium shrink-0">Vertical:</label>

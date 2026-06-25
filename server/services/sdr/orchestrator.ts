@@ -478,10 +478,41 @@ function personalizeTemplate(template: string, lead: SdrLeadState): string {
 async function personalizeWithAI(template: string, lead: SdrLeadState, channel: string): Promise<string> {
   try {
     const openai = getOpenAI();
-    const orchMessages = [{
-      role: "user" as const,
-      content: `Personalize this ${channel} template for a ${lead.vertical || "business"} called "${lead.companyName || "the business"}" in ${lead.city || "their area"}. Keep compliance line intact. Keep it under ${channel === "sms" ? 160 : 200} ${channel === "sms" ? "characters" : "words"}. Do not use emojis.\n\nTemplate:\n${template}\n\nReturn only the personalized text, nothing else.`,
-    }];
+    const isSms = channel === "sms";
+    const lengthRule = isSms ? "160 characters" : "200 words";
+    const detectedProcessor = (lead as any).enrichmentData?.detectedProcessor || "";
+    const serviceType = (lead as any).enrichmentData?.serviceType || "";
+    const ownerFirstName = lead.ownerName?.split(" ")[0] || "";
+    const orchMessages = [
+      {
+        role: "system" as const,
+        content: `You are an expert B2B copywriter specializing in merchant payment processing outreach for Liberty Bancard. You personalize cold outreach templates for specific businesses without inventing facts.
+
+Rules you must never break:
+1. Never alter or remove the compliance/legal disclaimer line at the end.
+2. Never quote specific rates, percentages, or guaranteed savings amounts.
+3. Never add emojis.
+4. Never address the recipient by a generic placeholder like "there" if a real first name is available.
+5. Never change the core call-to-action or booking link.
+6. Output only the final message text — no subject line, no explanation, no markdown.`,
+      },
+      {
+        role: "user" as const,
+        content: `Personalize this ${channel} for:
+Business: ${lead.companyName || "the business"}
+Owner first name: ${ownerFirstName}
+Vertical: ${lead.vertical || "business"}
+City: ${lead.city || ""}
+Current processor (if known): ${detectedProcessor}
+Estimated monthly volume: ${(lead as any).estimatedVolume || ""}
+Service focus: ${serviceType}
+
+Make it feel like it was written specifically for this business — adjust city references, reference their vertical's specific pain points, and make any general phrases more specific. Keep it under ${lengthRule}. Return only the final message.
+
+Template:
+${template}`,
+      },
+    ];
     const { completion: response, flagged: orchFlagged, reviewQueueId: orchReviewId } = await logAiCall(
       { triggerType: "outbound-copy", actorType: "system", rawPrompt: JSON.stringify(orchMessages) },
       () => openai.chat.completions.create({

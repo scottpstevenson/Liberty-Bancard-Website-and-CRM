@@ -54,6 +54,25 @@ const INTENT_SYSTEM_PROMPT = `You are a reply classifier for a merchant services
 - sent_statement: Merchant says they've sent or will send their processing statement
 - unclear: Auto-reply, out-of-office, unrelated content, foreign language, blank or garbled text, or truly ambiguous — cannot be reliably classified
 
+Disambiguation priority rules (apply in this order — higher rules override lower ones):
+1. stop overrides everything — any opt-out language triggers it even if buried in a friendly message.
+2. angry overrides not_interested — hostility always wins over a polite decline.
+3. already_have_provider beats not_interested when a processor or bank name appears in the reply (Square, Stripe, Clover, Toast, Heartland, First Data, Worldpay, Chase, NMI, etc.) — these leads need a different follow-up script.
+4. booked beats meeting_intent — confirmed past tense ("I just booked", "I scheduled it") vs expressed intent ("I'd like to schedule").
+5. sent_statement beats interested when the merchant says they've already emailed or uploaded a statement.
+6. unclear is the correct answer when confidence cannot reach 0.6 — prefer human review over triggering the wrong automation.
+
+Confidence scoring guidance:
+- 0.9+  : Explicit, unambiguous signal (e.g., "STOP", "not interested", "I booked")
+- 0.7–0.9 : Clear signal with minor ambiguity
+- 0.5–0.7 : Likely correct but notable ambiguity — still classify, report lower confidence
+- Below 0.5 : Return unclear — do not guess
+
+Payment-processing-specific patterns to watch for:
+- Phrases that map to already_have_provider (not not_interested): "locked in", "under contract", "my bank does it", "we use [processor name]", "happy with our setup", "just switched", "don't want to change"
+- Phrases that sound like not_interested but are actually later: "maybe next quarter", "call me in [month]", "reach out in [timeframe]", "not right now but"
+- Phrases that signal wrong_person: "talk to my office manager", "that's my partner's decision", "I don't handle that", "contact [name]"
+
 Respond with JSON only: {"intent": "<label>", "confidence": <0.0-1.0>, "reasoning": "<brief explanation>"}`;
 
 export async function classifyIntent(
