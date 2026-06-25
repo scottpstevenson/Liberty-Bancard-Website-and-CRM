@@ -93,6 +93,44 @@ interface ComplianceChannelStatus {
   channels: ComplianceChannel[];
 }
 
+interface ChannelSafetySummary {
+  generatedAt: string;
+  sourceConsentMatrix: Array<{
+    sourceCategory: string;
+    cold_no_consent: number;
+    warm_no_pewc: number;
+    pewc_full_automation: number;
+    opted_out: number;
+    do_not_contact: number;
+    total: number;
+  }>;
+  channelEligibility: Array<{
+    channel: "email" | "manual_call" | "sms" | "voice_ai" | "ringless_vm";
+    eligibleCount: number;
+    blockedCount: number;
+    topBlockReason: string | null;
+    featureFlag: string | null;
+    featureFlagEnabled: boolean | null;
+    status: "eligible" | "flag_gated" | "blocked" | "unknown";
+  }>;
+  blockedAttempts24h: {
+    total: number;
+    lastBlockedAt: string | null;
+    byReason: Array<{ reason: string; count: number }>;
+    byChannel: Array<{ channel: string; count: number }>;
+  };
+  floridaBreakdown: {
+    total: number;
+    byConsentTier: Array<{ consentTier: string; count: number }>;
+  };
+  featureFlags: Array<{
+    key: string;
+    enabled: boolean | null;
+    status: "enabled" | "disabled" | "unknown";
+  }>;
+  warnings: string[];
+}
+
 interface ChannelAttempt {
   id: number;
   sentAt: string | null;
@@ -545,6 +583,7 @@ export default function ActivationPanel() {
   const orchestratorQuery = useQuery<OrchestratorStatusData>({ queryKey: ["/api/sdr/orchestrator/status"] });
   const readinessQuery = useQuery<ReadinessData>({ queryKey: ["/api/operator/readiness-checks"] });
   const complianceQuery = useQuery<ComplianceChannelStatus>({ queryKey: ["/api/sdr/compliance-channel-status"] });
+  const channelSafetyQuery = useQuery<ChannelSafetySummary>({ queryKey: ["/api/admin/channel-safety-summary"], refetchInterval: 60000 });
 
   const pauseMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/sdr/pause-all", { reason: "Manual pause from activation panel" }),
@@ -1318,6 +1357,7 @@ export default function ActivationPanel() {
         </TabsContent>
         <TabsContent value="compliance" className="space-y-4">
           <ComplianceChannelTab data={complianceQuery.data} isLoading={complianceQuery.isLoading} />
+          <ChannelSafetyMatrix query={channelSafetyQuery} />
         </TabsContent>
       </Tabs>
     </div>
@@ -1463,6 +1503,337 @@ function ComplianceChannelTab({ data, isLoading }: { data?: ComplianceChannelSta
       <p className="text-xs text-muted-foreground text-right">
         Last updated: {new Date(data.lastUpdated).toLocaleString()} · Strict-consent states: {data.strictStates.join(", ")}
       </p>
+    </div>
+  );
+}
+
+function ChannelSafetyMatrix({ query }: { query: ReturnType<typeof useQuery<ChannelSafetySummary>> }) {
+  const { data, isLoading, isError, dataUpdatedAt, refetch, isFetching } = query;
+
+  const channelLabel: Record<string, string> = {
+    email: "Email",
+    manual_call: "Manual Call Task",
+    sms: "SMS",
+    voice_ai: "AI Voice",
+    ringless_vm: "Ringless Voicemail",
+  };
+
+  const channelStatusColor = (status: string) => {
+    if (status === "eligible") return "bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800";
+    if (status === "flag_gated") return "bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800";
+    if (status === "blocked") return "bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800";
+    return "bg-muted/30";
+  };
+
+  const channelStatusIcon = (status: string) => {
+    if (status === "eligible") return <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0" />;
+    if (status === "flag_gated") return <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />;
+    if (status === "blocked") return <XCircle className="w-4 h-4 text-red-600 shrink-0" />;
+    return <AlertTriangle className="w-4 h-4 text-muted-foreground shrink-0" />;
+  };
+
+  const flagBadgeVariant = (status: string) => {
+    if (status === "enabled") return "default";
+    if (status === "disabled") return "destructive";
+    return "secondary";
+  };
+
+  const flagBadgeClass = (status: string) => {
+    if (status === "enabled") return "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300 border-green-300";
+    if (status === "disabled") return "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300 border-red-300";
+    return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300 border-yellow-300";
+  };
+
+  if (isLoading) {
+    return (
+      <Card data-testid="channel-safety-matrix-loading">
+        <CardContent className="flex items-center gap-2 py-8 justify-center text-muted-foreground">
+          <Loader2 className="w-4 h-4 animate-spin" /> Loading Channel Safety Matrix…
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (isError) {
+    return (
+      <Card className="border-red-200 dark:border-red-800" data-testid="channel-safety-matrix-error">
+        <CardContent className="py-4 flex items-center gap-2 text-red-700 dark:text-red-400">
+          <XCircle className="w-5 h-5 shrink-0" />
+          <div>
+            <p className="font-semibold text-sm">Channel Safety Matrix unavailable</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Could not load summary data. This endpoint requires admin or manager access.</p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!data) {
+    return (
+      <Card data-testid="channel-safety-matrix-empty">
+        <CardContent className="py-8 text-center text-muted-foreground text-sm">
+          No channel safety data available yet.
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const lastRefreshed = dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString() : "—";
+  const isStale = dataUpdatedAt ? Date.now() - dataUpdatedAt > 90000 : false;
+
+  const consentTierCols: Array<keyof typeof data.sourceConsentMatrix[0]> = [
+    "cold_no_consent", "warm_no_pewc", "pewc_full_automation", "opted_out", "do_not_contact", "total"
+  ];
+  const consentTierLabels: Record<string, string> = {
+    cold_no_consent: "Cold",
+    warm_no_pewc: "Warm",
+    pewc_full_automation: "PEWC",
+    opted_out: "Opted Out",
+    do_not_contact: "DNC",
+    total: "Total",
+  };
+
+  const matrixTotals = consentTierCols.reduce((acc, col) => {
+    acc[col as string] = data.sourceConsentMatrix.reduce((s, r) => s + (Number(r[col]) || 0), 0);
+    return acc;
+  }, {} as Record<string, number>);
+
+  return (
+    <div className="space-y-4" data-testid="channel-safety-matrix">
+      {/* Header */}
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <div className="flex items-center gap-2 flex-1">
+              <Shield className="w-5 h-5 text-primary shrink-0" />
+              <div>
+                <CardTitle className="text-base">Channel Safety Matrix</CardTitle>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Operational visibility · Wave 1B ·{" "}
+                  <span className="font-mono">
+                    {isStale ? <Badge variant="secondary" className="text-xs ml-1">stale</Badge> : `refreshed at ${lastRefreshed}`}
+                  </span>
+                </p>
+              </div>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => refetch()}
+              disabled={isFetching}
+              data-testid="button-refresh-channel-safety"
+              className="shrink-0"
+            >
+              {isFetching ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <RefreshCw className="w-4 h-4 mr-1" />}
+              Refresh
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <div className="rounded-md border border-amber-200 dark:border-amber-700 bg-amber-50/60 dark:bg-amber-950/20 px-4 py-3 flex gap-3 items-start">
+            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+            <p className="text-xs text-amber-800 dark:text-amber-300">
+              Summary counts are operational visibility based on Wave 1A canonical fields. Every actual send or workflow enrollment is still evaluated by <span className="font-mono font-semibold">evaluateContactability()</span> at execution time.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Feature Flag Strip */}
+      <Card data-testid="channel-safety-flags">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Feature Flags</CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <div className="flex flex-wrap gap-2">
+            {data.featureFlags.map((f) => (
+              <Badge
+                key={f.key}
+                variant="outline"
+                className={`text-xs font-mono ${flagBadgeClass(f.status)}`}
+                data-testid={`flag-badge-${f.key}`}
+              >
+                {f.key}: {f.status}
+              </Badge>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Blocked Attempts 24h */}
+      <Card data-testid="channel-safety-blocked-24h">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <XCircle className="w-4 h-4 text-red-500" />
+            Blocked Contactability Attempts — Last 24h
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0 space-y-3">
+          <div className="flex items-center gap-4 text-sm">
+            <span className="font-bold text-2xl">{data.blockedAttempts24h.total}</span>
+            <span className="text-muted-foreground text-xs">total blocked enforcement attempts</span>
+            {data.blockedAttempts24h.lastBlockedAt && (
+              <span className="text-xs text-muted-foreground ml-auto">
+                Last: {new Date(data.blockedAttempts24h.lastBlockedAt).toLocaleString()}
+              </span>
+            )}
+          </div>
+          {data.blockedAttempts24h.byReason.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground mb-1">By Reason</p>
+              <div className="space-y-1">
+                {data.blockedAttempts24h.byReason.slice(0, 5).map((r, i) => (
+                  <div key={i} className="flex items-center gap-2 text-xs" data-testid={`blocked-reason-${i}`}>
+                    <span className="flex-1 truncate text-muted-foreground">{r.reason}</span>
+                    <Badge variant="secondary" className="shrink-0">{r.count}</Badge>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {data.blockedAttempts24h.byChannel.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground mb-1">By Channel</p>
+              <div className="flex flex-wrap gap-2">
+                {data.blockedAttempts24h.byChannel.map((c, i) => (
+                  <Badge key={i} variant="outline" className="text-xs" data-testid={`blocked-channel-${i}`}>
+                    {channelLabel[c.channel] ?? c.channel}: {c.count}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
+          {data.blockedAttempts24h.total === 0 && (
+            <p className="text-xs text-muted-foreground">No blocked attempts in the last 24 hours.</p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Channel Eligibility Cards */}
+      <div>
+        <p className="text-sm font-semibold mb-2">Channel Eligibility (SQL Aggregate)</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {data.channelEligibility.map((ch) => (
+            <Card key={ch.channel} className={`border ${channelStatusColor(ch.status)}`} data-testid={`channel-card-${ch.channel}`}>
+              <CardContent className="py-3 px-4">
+                <div className="flex items-center gap-2 mb-2">
+                  {channelStatusIcon(ch.status)}
+                  <span className="font-semibold text-sm">{channelLabel[ch.channel] ?? ch.channel}</span>
+                  {ch.featureFlag && (
+                    <Badge variant="outline" className={`text-xs ml-auto ${flagBadgeClass(ch.featureFlagEnabled ? "enabled" : "disabled")}`}>
+                      {ch.featureFlag}
+                    </Badge>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-x-2 text-xs">
+                  <span className="text-muted-foreground">Eligible</span>
+                  <span className="font-medium text-green-700 dark:text-green-400">{ch.eligibleCount.toLocaleString()}</span>
+                  <span className="text-muted-foreground">Blocked</span>
+                  <span className="font-medium text-red-700 dark:text-red-400">{ch.blockedCount.toLocaleString()}</span>
+                </div>
+                {ch.topBlockReason && (
+                  <p className="text-xs text-muted-foreground mt-2 line-clamp-2">{ch.topBlockReason}</p>
+                )}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+
+      {/* Source × Consent Matrix Table */}
+      <Card data-testid="channel-safety-source-consent-matrix">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Source × Consent Tier Matrix</CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0">
+          {data.sourceConsentMatrix.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No contact data available.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-1.5 pr-3 font-semibold text-muted-foreground">Source</th>
+                    {consentTierCols.map((col) => (
+                      <th key={col as string} className="text-right py-1.5 px-2 font-semibold text-muted-foreground whitespace-nowrap">
+                        {consentTierLabels[col as string]}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.sourceConsentMatrix.map((row) => (
+                    <tr key={row.sourceCategory} className="border-b last:border-0 hover:bg-muted/30">
+                      <td className="py-1.5 pr-3 font-mono">{row.sourceCategory}</td>
+                      {consentTierCols.map((col) => (
+                        <td key={col as string} className="text-right py-1.5 px-2">
+                          {(Number(row[col]) || 0).toLocaleString()}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                  <tr className="border-t bg-muted/20 font-semibold">
+                    <td className="py-1.5 pr-3">Total</td>
+                    {consentTierCols.map((col) => (
+                      <td key={col as string} className="text-right py-1.5 px-2">
+                        {(matrixTotals[col as string] || 0).toLocaleString()}
+                      </td>
+                    ))}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Florida Breakdown */}
+      <Card data-testid="channel-safety-florida-breakdown">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            Florida (FL) Contact Breakdown
+            <Badge variant="secondary" className="text-xs">{data.floridaBreakdown.total.toLocaleString()} total</Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0 space-y-2">
+          {data.floridaBreakdown.byConsentTier.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No Florida contacts found.</p>
+          ) : (
+            <div className="space-y-1">
+              {data.floridaBreakdown.byConsentTier.map((t) => (
+                <div key={t.consentTier} className="flex items-center gap-2 text-xs">
+                  <span className="font-mono flex-1">{t.consentTier}</span>
+                  <span className="font-medium">{t.count.toLocaleString()}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground border-t pt-2 mt-2">
+            Florida contacts with <span className="font-mono font-semibold">pewc_full_automation</span> tier require verified PEWC audit evidence (express written consent with <span className="font-mono">consentedPhone</span> + <span className="font-mono">disclosureVersion</span>) before any automated phone or SMS outreach can proceed.
+          </p>
+        </CardContent>
+      </Card>
+
+      {/* Warnings */}
+      {data.warnings && data.warnings.length > 0 && (
+        <Card className="border-amber-200 dark:border-amber-700" data-testid="channel-safety-warnings">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-1">
+              <AlertTriangle className="w-4 h-4 text-amber-500" /> Operational Notes
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <ul className="space-y-1.5">
+              {data.warnings.map((w, i) => (
+                <li key={i} className="text-xs text-muted-foreground flex gap-2">
+                  <span className="shrink-0 mt-0.5">•</span>
+                  <span>{w}</span>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

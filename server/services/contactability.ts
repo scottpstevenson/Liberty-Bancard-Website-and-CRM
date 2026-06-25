@@ -9,7 +9,7 @@
 
 import { db } from "../db";
 import { contacts, consentAuditLogs } from "@shared/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, count, gte, sql, not, isNull, inArray } from "drizzle-orm";
 import { featureFlags } from "./feature-flags";
 import {
   isWithinBusinessHours,
@@ -887,5 +887,319 @@ export async function evaluateAllChannels(
         lb_next_best_action: nextBest,
       },
     },
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Wave 1B: Channel Safety Summary (read-only aggregate — no per-contact loops,
+// no audit log writes, no enforcement calls)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ChannelSafetySummary {
+  generatedAt: string;
+  sourceConsentMatrix: Array<{
+    sourceCategory: string;
+    cold_no_consent: number;
+    warm_no_pewc: number;
+    pewc_full_automation: number;
+    opted_out: number;
+    do_not_contact: number;
+    total: number;
+  }>;
+  channelEligibility: Array<{
+    channel: "email" | "manual_call" | "sms" | "voice_ai" | "ringless_vm";
+    eligibleCount: number;
+    blockedCount: number;
+    topBlockReason: string | null;
+    featureFlag: string | null;
+    featureFlagEnabled: boolean | null;
+    status: "eligible" | "flag_gated" | "blocked" | "unknown";
+  }>;
+  blockedAttempts24h: {
+    total: number;
+    lastBlockedAt: string | null;
+    byReason: Array<{ reason: string; count: number }>;
+    byChannel: Array<{ channel: string; count: number }>;
+  };
+  floridaBreakdown: {
+    total: number;
+    byConsentTier: Array<{ consentTier: string; count: number }>;
+  };
+  featureFlags: Array<{
+    key: string;
+    enabled: boolean | null;
+    status: "enabled" | "disabled" | "unknown";
+  }>;
+  warnings: string[];
+}
+
+export async function summarizeChannelSafety(): Promise<ChannelSafetySummary> {
+  const REQUIRED_WARNINGS = [
+    "Channel eligibility counts are SQL-based operational visibility over Wave 1A canonical fields. Every actual send or enrollment is evaluated by evaluateContactability() at execution time.",
+    "Rate limit status is not evaluated in summary view — SDR daily limits apply only at per-contact execution time.",
+    "External GHL-native workflow internals are not inspectable from this dashboard — tracked as Wave 7 risk.",
+  ];
+
+  // ── (a) Source × Consent matrix ──────────────────────────────────────────
+  const matrixRows = await db
+    .select({
+      sourceCategory: contacts.sourceCategory,
+      consentTier: contacts.consentTier,
+      cnt: count(),
+    })
+    .from(contacts)
+    .groupBy(contacts.sourceCategory, contacts.consentTier);
+
+  const matrixMap: Record<string, {
+    cold_no_consent: number;
+    warm_no_pewc: number;
+    pewc_full_automation: number;
+    opted_out: number;
+    do_not_contact: number;
+    total: number;
+  }> = {};
+
+  for (const row of matrixRows) {
+    const src = row.sourceCategory ?? "unknown";
+    if (!matrixMap[src]) {
+      matrixMap[src] = { cold_no_consent: 0, warm_no_pewc: 0, pewc_full_automation: 0, opted_out: 0, do_not_contact: 0, total: 0 };
+    }
+    const tier = row.consentTier as string;
+    const n = Number(row.cnt);
+    matrixMap[src].total += n;
+    if (tier === "cold_no_consent") matrixMap[src].cold_no_consent += n;
+    else if (tier === "warm_no_pewc") matrixMap[src].warm_no_pewc += n;
+    else if (tier === "pewc_full_automation") matrixMap[src].pewc_full_automation += n;
+    else if (tier === "opted_out") matrixMap[src].opted_out += n;
+    else if (tier === "do_not_contact") matrixMap[src].do_not_contact += n;
+  }
+
+  const sourceConsentMatrix = Object.entries(matrixMap).map(([sourceCategory, counts]) => ({
+    sourceCategory,
+    ...counts,
+  }));
+
+  // ── (b) Total non-DNC contacts (denominator for blocked counts) ───────────
+  const [totalRow] = await db
+    .select({ cnt: count() })
+    .from(contacts)
+    .where(eq(contacts.doNotContact, false));
+  const totalContacts = Number(totalRow?.cnt ?? 0);
+
+  // ── (c) Channel eligibility counts ───────────────────────────────────────
+  const [emailRow] = await db
+    .select({ cnt: count() })
+    .from(contacts)
+    .where(
+      and(
+        eq(contacts.doNotContact, false),
+        eq(contacts.doNotAutoContact, false),
+        not(inArray(contacts.emailStatus, ["bounced", "invalid", "opted_out", "unsubscribed"]))
+      )
+    );
+  const emailEligible = Number(emailRow?.cnt ?? 0);
+
+  const [manualCallRow] = await db
+    .select({ cnt: count() })
+    .from(contacts)
+    .where(
+      and(
+        eq(contacts.doNotContact, false),
+        not(isNull(contacts.phone))
+      )
+    );
+  const manualCallEligible = Number(manualCallRow?.cnt ?? 0);
+
+  let smsEligible = 0;
+  if (featureFlags.SMS_ENABLED) {
+    const [smsRow] = await db
+      .select({ cnt: count() })
+      .from(contacts)
+      .where(
+        and(
+          eq(contacts.consentTier, "pewc_full_automation"),
+          eq(contacts.smsStatus, "active"),
+          eq(contacts.doNotContact, false)
+        )
+      );
+    smsEligible = Number(smsRow?.cnt ?? 0);
+  }
+
+  let voiceAiEligible = 0;
+  if (featureFlags.VOICE_AI_ENABLED) {
+    const [voiceRow] = await db
+      .select({ cnt: count() })
+      .from(contacts)
+      .where(
+        and(
+          eq(contacts.consentTier, "pewc_full_automation"),
+          eq(contacts.doNotContact, false)
+        )
+      );
+    voiceAiEligible = Number(voiceRow?.cnt ?? 0);
+  }
+
+  let ringlessVmEligible = 0;
+  if (featureFlags.RINGLESS_VM_ENABLED) {
+    const [ringlessRow] = await db
+      .select({ cnt: count() })
+      .from(contacts)
+      .where(
+        and(
+          eq(contacts.consentTier, "pewc_full_automation"),
+          eq(contacts.doNotContact, false)
+        )
+      );
+    ringlessVmEligible = Number(ringlessRow?.cnt ?? 0);
+  }
+
+  const channelEligibility: ChannelSafetySummary["channelEligibility"] = [
+    {
+      channel: "email",
+      eligibleCount: emailEligible,
+      blockedCount: totalContacts - emailEligible,
+      topBlockReason: null,
+      featureFlag: null,
+      featureFlagEnabled: null,
+      status: emailEligible > 0 ? "eligible" : "blocked",
+    },
+    {
+      channel: "manual_call",
+      eligibleCount: manualCallEligible,
+      blockedCount: totalContacts - manualCallEligible,
+      topBlockReason: null,
+      featureFlag: null,
+      featureFlagEnabled: null,
+      status: manualCallEligible > 0 ? "eligible" : "blocked",
+    },
+    {
+      channel: "sms",
+      eligibleCount: featureFlags.SMS_ENABLED ? smsEligible : 0,
+      blockedCount: featureFlags.SMS_ENABLED ? totalContacts - smsEligible : totalContacts,
+      topBlockReason: featureFlags.SMS_ENABLED ? null : "SMS_ENABLED feature flag is off",
+      featureFlag: "SMS_ENABLED",
+      featureFlagEnabled: featureFlags.SMS_ENABLED,
+      status: featureFlags.SMS_ENABLED ? (smsEligible > 0 ? "eligible" : "blocked") : "flag_gated",
+    },
+    {
+      channel: "voice_ai",
+      eligibleCount: featureFlags.VOICE_AI_ENABLED ? voiceAiEligible : 0,
+      blockedCount: featureFlags.VOICE_AI_ENABLED ? totalContacts - voiceAiEligible : totalContacts,
+      topBlockReason: featureFlags.VOICE_AI_ENABLED ? null : "VOICE_AI_ENABLED feature flag is off",
+      featureFlag: "VOICE_AI_ENABLED",
+      featureFlagEnabled: featureFlags.VOICE_AI_ENABLED,
+      status: featureFlags.VOICE_AI_ENABLED ? (voiceAiEligible > 0 ? "eligible" : "blocked") : "flag_gated",
+    },
+    {
+      channel: "ringless_vm",
+      eligibleCount: featureFlags.RINGLESS_VM_ENABLED ? ringlessVmEligible : 0,
+      blockedCount: featureFlags.RINGLESS_VM_ENABLED ? totalContacts - ringlessVmEligible : totalContacts,
+      topBlockReason: featureFlags.RINGLESS_VM_ENABLED ? null : "RINGLESS_VM_ENABLED feature flag is off",
+      featureFlag: "RINGLESS_VM_ENABLED",
+      featureFlagEnabled: featureFlags.RINGLESS_VM_ENABLED,
+      status: featureFlags.RINGLESS_VM_ENABLED ? (ringlessVmEligible > 0 ? "eligible" : "blocked") : "flag_gated",
+    },
+  ];
+
+  // ── (d) Blocked attempts in last 24h ─────────────────────────────────────
+  const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+  const blockedReasonRows = await db
+    .select({
+      channel: consentAuditLogs.channel,
+      reason: sql<string>`${consentAuditLogs.details}->>'reason'`,
+      cnt: count(),
+    })
+    .from(consentAuditLogs)
+    .where(
+      and(
+        eq(consentAuditLogs.action, "contactability_blocked"),
+        eq(consentAuditLogs.source, "contactability_engine"),
+        gte(consentAuditLogs.createdAt, since24h)
+      )
+    )
+    .groupBy(consentAuditLogs.channel, sql`${consentAuditLogs.details}->>'reason'`);
+
+  const byReasonMap: Record<string, number> = {};
+  const byChannelMap: Record<string, number> = {};
+  let totalBlocked24h = 0;
+
+  for (const row of blockedReasonRows) {
+    const n = Number(row.cnt);
+    totalBlocked24h += n;
+    const reason = row.reason ?? "unknown";
+    const ch = row.channel ?? "unknown";
+    byReasonMap[reason] = (byReasonMap[reason] ?? 0) + n;
+    byChannelMap[ch] = (byChannelMap[ch] ?? 0) + n;
+  }
+
+  const [lastBlockedRow] = await db
+    .select({ createdAt: consentAuditLogs.createdAt })
+    .from(consentAuditLogs)
+    .where(
+      and(
+        eq(consentAuditLogs.action, "contactability_blocked"),
+        eq(consentAuditLogs.source, "contactability_engine"),
+        gte(consentAuditLogs.createdAt, since24h)
+      )
+    )
+    .orderBy(desc(consentAuditLogs.createdAt))
+    .limit(1);
+
+  const blockedAttempts24h: ChannelSafetySummary["blockedAttempts24h"] = {
+    total: totalBlocked24h,
+    lastBlockedAt: lastBlockedRow?.createdAt ? lastBlockedRow.createdAt.toISOString() : null,
+    byReason: Object.entries(byReasonMap)
+      .map(([reason, cnt]) => ({ reason, count: cnt }))
+      .sort((a, b) => b.count - a.count),
+    byChannel: Object.entries(byChannelMap)
+      .map(([channel, cnt]) => ({ channel, count: cnt }))
+      .sort((a, b) => b.count - a.count),
+  };
+
+  // ── (e) Florida breakdown ─────────────────────────────────────────────────
+  const floridaRows = await db
+    .select({
+      consentTier: contacts.consentTier,
+      cnt: count(),
+    })
+    .from(contacts)
+    .where(eq(contacts.state, "FL"))
+    .groupBy(contacts.consentTier);
+
+  const floridaTotal = floridaRows.reduce((acc, r) => acc + Number(r.cnt), 0);
+
+  const floridaBreakdown: ChannelSafetySummary["floridaBreakdown"] = {
+    total: floridaTotal,
+    byConsentTier: floridaRows.map((r) => ({
+      consentTier: r.consentTier ?? "unknown",
+      count: Number(r.cnt),
+    })),
+  };
+
+  // ── (f) Feature flags ─────────────────────────────────────────────────────
+  const flagDefs: Array<{ key: string; value: boolean }> = [
+    { key: "SDR_ENABLED", value: featureFlags.SDR_ENABLED },
+    { key: "ORCHESTRATOR_ENABLED", value: featureFlags.ORCHESTRATOR_ENABLED },
+    { key: "SMS_ENABLED", value: featureFlags.SMS_ENABLED },
+    { key: "VOICE_AI_ENABLED", value: featureFlags.VOICE_AI_ENABLED },
+    { key: "RINGLESS_VM_ENABLED", value: featureFlags.RINGLESS_VM_ENABLED },
+    { key: "NIGHTLY_DISCOVERY_ENABLED", value: featureFlags.NIGHTLY_DISCOVERY_ENABLED },
+  ];
+
+  const featureFlagsResult: ChannelSafetySummary["featureFlags"] = flagDefs.map(({ key, value }) => ({
+    key,
+    enabled: value,
+    status: value ? "enabled" : "disabled",
+  }));
+
+  return {
+    generatedAt: new Date().toISOString(),
+    sourceConsentMatrix,
+    channelEligibility,
+    blockedAttempts24h,
+    floridaBreakdown,
+    featureFlags: featureFlagsResult,
+    warnings: REQUIRED_WARNINGS,
   };
 }

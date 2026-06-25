@@ -12,6 +12,7 @@ import path from "path";
 import { publicLeadRateLimit } from "../middleware/public-rate-limit";
 import { sendSmtpEmail, getSmtpStatus, isSmtpConfigured } from "../services/smtp-email";
 import { getWorkflowRegistryWithStatus } from "../services/ghl-workflows";
+import { summarizeChannelSafety } from "../services/contactability";
 
 export function registerAdminRoutes(app: Express) {
   // === ADMIN: SESSION MANAGEMENT ===
@@ -1108,6 +1109,15 @@ export function registerAdminRoutes(app: Express) {
       const deleted = await storage.deleteSendingIdentity(id);
       if (!deleted) return res.status(404).json({ message: "Identity not found" });
       res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/admin/channel-safety-summary", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const summary = await summarizeChannelSafety();
+      res.json(summary);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
