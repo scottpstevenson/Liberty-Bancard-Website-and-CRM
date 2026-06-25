@@ -365,3 +365,39 @@ export function trackEstimateRequest() {
     });
   }
 }
+
+export function trackPewcConsentGiven(formType: string) {
+  if (GA_ID) {
+    gtagEvent("event", "pewc_consent_given", {
+      event_category: "consent",
+      event_label: formType,
+    });
+  }
+}
+
+export function trackPewcConsentDeclined(formType: string) {
+  if (GA_ID) {
+    gtagEvent("event", "pewc_consent_declined", {
+      event_category: "consent",
+      event_label: formType,
+    });
+  }
+}
+
+export function trackFormViewWithConsent(formType: string) {
+  if (GA_ID) {
+    gtagEvent("event", "form_view_with_consent", {
+      event_category: "consent",
+      event_label: formType,
+    });
+  }
+}
+
+export function trackConsentFieldInteraction(formType: string) {
+  if (GA_ID) {
+    gtagEvent("event", "consent_field_interaction", {
+      event_category: "consent",
+      event_label: formType,
+    });
+  }
+}

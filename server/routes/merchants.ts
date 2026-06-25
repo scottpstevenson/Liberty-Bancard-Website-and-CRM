@@ -13,6 +13,7 @@ import { createContactGhlFirst } from "../services/contact-writer";
 import { sendMerchantWelcomeEmail, sendMerchantPortalWelcomeEmail } from "../services/merchant-welcome";
 import { sendApplicationApprovedEmail, sendApplicationDeclinedEmail } from "../services/merchant-application-status";
 import { scanApplicationRisk } from "../services/relationship-extractor";
+import { recordPewcDecision } from "../services/consent-evidence";
 import { parse } from "csv-parse/sync";
 import path from "path";
 import { publicLeadRateLimit, webhookRateLimit } from "../middleware/public-rate-limit";
@@ -132,28 +133,18 @@ export function registerMerchantsRoutes(app: Express) {
 
         if (contact) {
           if (pewcConsent) {
-            storage.createConsentAuditLog({
+            recordPewcDecision({
               contactId: contact.id,
-              channel: "sms",
-              action: "opt_in",
-              consented: true,
-              consentType: "express_written",
+              checked: true,
               source: "merchant_application",
               ipAddress: req.ip || req.socket.remoteAddress || "unknown",
               userAgent: req.headers["user-agent"] || "unknown",
-              details: { formType: "merchant_application", applicationId: application.id },
-            }).catch(err => console.error("[MerchantApp] Consent log (sms) error:", err));
-            storage.createConsentAuditLog({
-              contactId: contact.id,
-              channel: "call",
-              action: "opt_in",
-              consented: true,
-              consentType: "express_written",
-              source: "merchant_application",
-              ipAddress: req.ip || req.socket.remoteAddress || "unknown",
-              userAgent: req.headers["user-agent"] || "unknown",
-              details: { formType: "merchant_application", applicationId: application.id },
-            }).catch(err => console.error("[MerchantApp] Consent log (call) error:", err));
+              details: {
+                formType: "merchant_application",
+                applicationId: application.id,
+                channelsCovered: ["sms", "calls_and_prerecorded_artificial_voice"],
+              },
+            }).catch(err => console.error("[MerchantApp] PEWC record error:", err));
           }
           syncMerchantApplicationToGhl(application.id, contact.id).catch(err =>
             console.error("GHL merchant app sync error:", err)

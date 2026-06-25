@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Checkbox } from "@/components/ui/checkbox";
+import { PewcCheckbox } from "@/components/PewcCheckbox";
 import {
   Select,
   SelectContent,
@@ -47,9 +47,7 @@ const estimateSchema = z.object({
   totalFees: z.string().min(1, "Total processing fees is required"),
   currentProvider: z.string().optional(),
   notes: z.string().optional(),
-  consent: z.boolean().refine((val) => val === true, {
-    message: "You must consent to receive communications",
-  }),
+  pewcConsent: z.boolean().optional().default(false),
 });
 
 type EstimateFormData = z.infer<typeof estimateSchema>;
@@ -80,7 +78,7 @@ export default function Estimate() {
       totalFees: "",
       currentProvider: "",
       notes: "",
-      consent: false,
+      pewcConsent: false,
     },
   });
 
@@ -105,6 +103,7 @@ export default function Estimate() {
         totalFees: data.totalFees,
         currentProvider: data.currentProvider || undefined,
         notes: data.notes || undefined,
+        pewcConsent: data.pewcConsent ?? false,
         referralCode: refCode,
         ...utmParams,
       });
@@ -358,26 +357,9 @@ export default function Estimate() {
                       )}
                     />
 
-                    <FormField
-                      control={form.control}
-                      name="consent"
-                      render={({ field }) => (
-                        <FormItem className="flex flex-row items-start gap-3 space-y-0">
-                          <FormControl>
-                            <Checkbox
-                              checked={field.value}
-                              onCheckedChange={field.onChange}
-                              data-testid="checkbox-consent"
-                            />
-                          </FormControl>
-                          <div className="space-y-1 leading-none">
-                            <FormLabel className="text-sm font-normal text-muted-foreground">
-                              I consent to receive text/email communications from Liberty Bancard.
-                            </FormLabel>
-                            <FormMessage />
-                          </div>
-                        </FormItem>
-                      )}
+                    <PewcCheckbox
+                      checked={form.watch("pewcConsent") ?? false}
+                      onCheckedChange={(val) => form.setValue("pewcConsent", val)}
                     />
 
                     {submitError && (

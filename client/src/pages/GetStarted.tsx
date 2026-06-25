@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Link } from "wouter";
 import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
+import { PewcCheckbox } from "@/components/PewcCheckbox";
 import { apiRequest } from "@/lib/queryClient";
 import { getStoredUTMParams } from "@/lib/utm";
 import { useToast } from "@/hooks/use-toast";
@@ -161,7 +161,7 @@ export default function GetStarted() {
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-  const [consent, setConsent] = useState(false);
+  const [pewcConsent, setPewcConsent] = useState(false);
   const [promoCode, setPromoCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -177,7 +177,7 @@ export default function GetStarted() {
       case 3: return monthlyVolume !== "";
       case 4: return needTerminal !== null;
       case 5: return interestedIn0 !== null;
-      case 6: return firstName.trim() !== "" && lastName.trim() !== "" && email.trim() !== "" && phone.trim() !== "" && consent;
+      case 6: return firstName.trim() !== "" && lastName.trim() !== "" && email.trim() !== "" && phone.trim() !== "";
       default: return false;
     }
   };
@@ -223,7 +223,7 @@ export default function GetStarted() {
         lastName,
         email,
         phone,
-        consentSms: consent,
+        pewcConsent: pewcConsent,
         referralCode: refCode,
         promoCode: promoCode || undefined,
         ...utmParams,
@@ -669,19 +669,10 @@ export default function GetStarted() {
                           data-testid="input-promo-code"
                         />
                       </div>
-                      <div className="flex items-start gap-3 pt-2">
-                        <Checkbox
-                          id="consent"
-                          checked={consent}
-                          onCheckedChange={(checked) => setConsent(checked === true)}
-                          data-testid="checkbox-consent"
-                        />
-                        <label htmlFor="consent" className="text-sm text-muted-foreground leading-relaxed cursor-pointer">
-                          By submitting, I agree to receive calls, texts, and email marketing communications from Liberty Bancard regarding payment processing services. Consent is not required to obtain services. Reply STOP to opt out. Message &amp; data rates may apply. See our{" "}
-                          <a href="/privacy-policy" className="underline">Privacy Policy</a> and{" "}
-                          <a href="/sms-terms" className="underline">SMS Terms</a>.
-                        </label>
-                      </div>
+                      <PewcCheckbox
+                        checked={pewcConsent}
+                        onCheckedChange={setPewcConsent}
+                      />
                     </div>
                   </div>
                 )}

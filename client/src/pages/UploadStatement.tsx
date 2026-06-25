@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
+import { PewcCheckbox } from "@/components/PewcCheckbox";
 import {
   Select,
   SelectContent,
@@ -64,9 +65,7 @@ const uploadSchema = z.object({
   interestedIn0Percent: z.boolean().default(false),
   needTerminal: z.boolean().default(false),
   notes: z.string().optional(),
-  consentSms: z.boolean().refine((v) => v === true, {
-    message: "You must consent to receive communications",
-  }),
+  pewcConsent: z.boolean().optional().default(false),
 });
 
 type UploadFormData = z.infer<typeof uploadSchema>;
@@ -142,7 +141,7 @@ export default function UploadStatement() {
       interestedIn0Percent: preInterest0,
       needTerminal: preTerminal,
       notes: "",
-      consentSms: false,
+      pewcConsent: false,
     },
   });
 
@@ -208,7 +207,7 @@ export default function UploadStatement() {
       formData.append("interestedIn0Percent", String(data.interestedIn0Percent));
       formData.append("needTerminal", String(data.needTerminal));
       if (data.notes) formData.append("notes", data.notes);
-      formData.append("consentSms", String(data.consentSms));
+      formData.append("pewcConsent", String(data.pewcConsent));
       if (refCode) formData.append("referralCode", refCode);
       Object.entries(utmParams).forEach(([key, value]) => {
         if (value) formData.append(key, String(value));
@@ -682,28 +681,9 @@ export default function UploadStatement() {
                       )}
                     />
 
-                    <FormField
-                      control={form.control}
-                      name="consentSms"
-                      render={({ field }) => (
-                        <FormItem className="flex items-start gap-3">
-                          <FormControl>
-                            <Checkbox
-                              checked={field.value}
-                              onCheckedChange={field.onChange}
-                              data-testid="checkbox-consent"
-                            />
-                          </FormControl>
-                          <div className="space-y-1 leading-none">
-                            <FormLabel className="text-sm font-normal text-muted-foreground">
-                              By submitting, I agree to receive SMS and email marketing communications from Liberty Bancard regarding payment processing services. Consent is not required to obtain services. Reply STOP to opt out. Message &amp; data rates may apply. See our{" "}
-                              <a href="/privacy-policy" className="underline">Privacy Policy</a> and{" "}
-                              <a href="/sms-terms" className="underline">SMS Terms</a>.
-                            </FormLabel>
-                            <FormMessage />
-                          </div>
-                        </FormItem>
-                      )}
+                    <PewcCheckbox
+                      checked={form.watch("pewcConsent") ?? false}
+                      onCheckedChange={(val) => form.setValue("pewcConsent", val)}
                     />
 
                     {submitError && (

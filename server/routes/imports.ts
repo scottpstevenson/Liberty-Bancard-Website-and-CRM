@@ -26,6 +26,8 @@ import bcrypt from "bcryptjs";
 import path from "path";
 import fs from "fs";
 import { uploadLarge, trackReferral, normalizePhoneForImport, classifyVerticalForImport, sendConfirmationSms } from "./helpers";
+import { recordPewcDecision } from "../services/consent-evidence";
+import { evaluateContactability } from "../services/contactability";
 import { syncAffiliateSignupToGhl } from "../services/ghl-form-sync";
 import { publicLeadRateLimit } from "../middleware/public-rate-limit";
 
@@ -715,7 +717,7 @@ Guidelines:
         businessType, industry, monthlyVolume, currentProcessor,
         painPoint, painPoints: painPointsArr,
         firstName, lastName, email, phone, companyName,
-        consentSms, consentEmail, referralCode, promoCode,
+        consentSms, consentEmail, pewcConsent: pewcConsentRaw, referralCode, promoCode,
         utmSource, utmMedium, utmCampaign, utmContent, utmTerm,
       } = req.body;
 
@@ -821,18 +823,16 @@ Guidelines:
         }
       }
 
-      if (consentSms) {
-        await storage.createConsentAuditLog({
+      const pewcConsent = pewcConsentRaw === true;
+      if (pewcConsent) {
+        recordPewcDecision({
           contactId: contact.id,
-          channel: "sms",
-          action: "opt_in",
-          consented: true,
-          consentType: "general_optin",
+          checked: true,
           source: "free_analysis_quiz",
           ipAddress: req.ip || req.socket.remoteAddress || "unknown",
           userAgent: req.headers["user-agent"] || "unknown",
           details: { formType: "free_analysis" },
-        });
+        }).catch(err => console.error("[FreeAnalysis] PEWC record error:", err));
       }
 
       const quizNotes = [
@@ -926,7 +926,11 @@ Guidelines:
         dealId: deal.id,
       }).catch(err => console.error("Auto-enroll quiz error:", err));
 
-      if (consentSms && phone) sendConfirmationSms(contact.id, firstName, "free_analysis_quiz", deal.id).catch(err => console.error("Confirm SMS error:", err));
+      if (pewcConsent && phone) {
+        evaluateContactability({ contactId: contact.id, channel: "sms", campaignType: "confirmation", mode: "enforcement" })
+          .then(r => { if (r.allowed) sendConfirmationSms(contact.id, firstName, "free_analysis_quiz", deal.id).catch(err => console.error("Confirm SMS error:", err)); })
+          .catch(err => console.error("[FreeAnalysis] Contactability check error:", err));
+      }
 
       syncFormSubmissionToGhl({
         contactId: contact.id,

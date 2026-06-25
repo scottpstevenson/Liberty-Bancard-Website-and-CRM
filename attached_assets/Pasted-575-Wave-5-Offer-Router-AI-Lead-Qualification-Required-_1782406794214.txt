@@ -1,0 +1,765 @@
+575 — Wave 5: Offer Router + AI Lead Qualification
+
+Required Skills
+
+* .local/skills/fullstack-js/SKILL.md — TypeScript, Express routes, Drizzle/schema, React dashboard components, API validation
+* .agents/skills/backend-architecture/SKILL.md — deterministic routing, AI fallback design, idempotent updates, auditability
+* .agents/skills/AI-agent-design/SKILL.md — structured JSON outputs, confidence scoring, prompt constraints, deterministic-first AI-assisted routing
+* .agents/skills/CRM-automation/SKILL.md — GHL field sync, contact upsert payloads, custom field safety
+* .agents/skills/growth-marketing/SKILL.md — offer routing, conversion intent mapping, merchant funnel alignment
+* .agents/skills/copywriting/SKILL.md — compliant offer wording, no unsupported savings claims
+* .agents/skills/compliance-systems/SKILL.md — cash discount/surcharge review language, no automation enablement
+* .agents/skills/QA-release-lead/SKILL.md — route tests, deterministic rules, AI output validation, GHL payload verification
+
+⸻
+
+Preflight Requirement
+
+Before build mode, inspect the repo and produce a concise implementation plan from verified code.
+
+Verify:
+
+* whether primaryOfferPath exists on contacts
+* whether offerConfidence, recommendedNextAction, offerReasoning, or equivalent fields exist
+* where Lead Enrichment Agent currently lives
+* where enrichment prompt/output schema lives
+* whether POST /api/contacts/:id/enrich already exists
+* whether contact detail page exists and where
+* whether GHL contact upsert is in server/services/ghl.ts or another file
+* whether GHL custom field mapping already exists
+* whether lead score recalculation exists and where
+* whether processor/current provider fields exist and what they are named
+* whether audit logs exist for manual field overrides
+* current route/auth guard pattern for admin/manager/agent roles
+
+Do not edit code until the final build plan lists exact files, exact fields, exact endpoints, and exact validation commands.
+
+If any prompt assumption is stale, correct it before building.
+
+⸻
+
+What & Why
+
+Every new Liberty Bancard lead should be routed to the offer most likely to convert them.
+
+The platform already has lead enrichment and a primaryOfferPath concept, but offer routing appears inconsistent. Some leads may get AI scoring without a clear offer path surfaced to reps or synced to GHL.
+
+This wave creates a canonical Offer Router that assigns:
+
+* best offer route
+* confidence score
+* recommended next action
+* concise rationale
+* deterministic processor-match reason when obvious
+* AI-assisted reasoning when ambiguous
+
+The goal is to improve conversion by making every contact/deal immediately actionable:
+
+* beat current processor
+* upload statement
+* book call
+* check free terminal eligibility
+* explore compliant fee-offset review
+* start application
+* route to industry-specific review
+
+⸻
+
+Core Principle
+
+Deterministic first. AI second. Human override audited.
+
+Obvious processor matches should not wait for AI.
+
+AI should help with ambiguous leads, not replace hard rules.
+
+Human overrides should be allowed only in the CRM/admin UI, role-gated, and audit logged.
+
+⸻
+
+Canonical Offer Routes
+
+Define one canonical enum-like set.
+
+Use these offer route values unless preflight finds an existing enum to preserve.
+
+type OfferRoute =
+  | "beat_square"
+  | "beat_stripe"
+  | "beat_clover"
+  | "beat_toast"
+  | "beat_paypal"
+  | "free_statement_analysis"
+  | "free_smart_terminal"
+  | "compliant_cash_discount_review"
+  | "compliant_surcharge_review"
+  | "dual_pricing_review"
+  | "industry_specific_rate_review"
+  | "merchant_application"
+  | "partner_referral";
+
+Important language rule:
+
+Use *_review for cash discount, surcharge, and dual pricing. Do not phrase the system as automatically “recommending” surcharge/cash discount as a guaranteed solution. The router may recommend a review path, not legal/payment-program approval.
+
+⸻
+
+Canonical Conversion Intents
+
+type RecommendedNextAction =
+  | "call_now"
+  | "book_appointment"
+  | "upload_statement"
+  | "request_free_analysis"
+  | "check_terminal_eligibility"
+  | "explore_fee_offset_review"
+  | "start_application"
+  | "send_proposal"
+  | "manual_review";
+
+Do not trigger the action automatically in this task.
+
+This wave only assigns recommendation data.
+
+⸻
+
+Offer Route Criteria
+
+Deterministic processor detection
+
+If currentProvider, processor, website tech, statement text, notes, or enrichment fields contain processor signals, assign route deterministically:
+
+* Square → beat_square
+* Stripe → beat_stripe
+* Clover → beat_clover
+* Toast → beat_toast
+* PayPal → beat_paypal
+
+Processor matching should be:
+
+* case-insensitive
+* punctuation-tolerant
+* avoid false positives where possible
+* explain source field used
+* assign high confidence when match is strong
+
+Suggested confidence:
+
+* exact provider field match: 95
+* strong statement/website tech match: 85–90
+* fuzzy text mention: 70–80
+
+Free smart terminal route
+
+Assign or suggest free_smart_terminal when:
+
+* lead requests equipment/terminal/POS
+* needTerminal = true
+* current equipment is missing/old
+* business type strongly benefits from terminals/POS
+* estimated monthly volume suggests potential eligibility
+* source offer/page is /free-smart-terminal or offer=free-terminal
+
+Do not imply guaranteed approval or free equipment.
+
+Recommended next action:
+
+* check_terminal_eligibility
+* book_appointment
+* upload_statement
+
+Free statement analysis route
+
+Assign free_statement_analysis when:
+
+* lead uploaded a statement
+* source page is /upload-statement
+* lead asks for rate review
+* provider is unknown but processing volume exists
+* high-intent inbound without known competitor
+
+Recommended next action:
+
+* upload_statement if no file exists
+* book_appointment if statement exists
+* request_free_analysis
+
+Cash discount / surcharge / dual-pricing review
+
+Assign one of:
+
+* compliant_cash_discount_review
+* compliant_surcharge_review
+* dual_pricing_review
+
+Only as a review path when:
+
+* lead came from /0-percent-processing
+* source offer references Liberty Zero™
+* vertical commonly fits fee-offset review such as restaurant, retail, salon, service business
+* lead asks about reducing/offsetting processing fees
+
+Do not claim this is approved, guaranteed, universally legal, or suitable for every merchant.
+
+Recommended next action:
+
+* explore_fee_offset_review
+* book_appointment
+* upload_statement
+
+Industry-specific rate review
+
+Assign industry_specific_rate_review when:
+
+* vertical is known
+* no strong processor match
+* no terminal/fee-offset signal
+* industry page/source generated the lead
+* merchant type has specific processing needs
+
+Recommended next action:
+
+* book_appointment
+* upload_statement
+* request_free_analysis
+
+Merchant application
+
+Assign merchant_application only when:
+
+* lead is already in application intent
+* source is /merchant-application
+* deal stage indicates verbal commit / application started
+* user explicitly wants to sign up
+
+Do not route cold/incomplete leads directly to application unless intent is explicit.
+
+Partner referral
+
+Assign partner_referral when:
+
+* sourceCategory is partner/referral
+* source page is /partners
+* lead is CPA/bookkeeper/consultant/insurance/affiliate type
+* form is partner signup or referral portal
+
+⸻
+
+Offer Router Output Shape
+
+Create a shared output type if repo patterns support it:
+
+type OfferRoutingResult = {
+  offerRoute: OfferRoute;
+  offerConfidence: number; // 0-100
+  recommendedNextAction: RecommendedNextAction;
+  offerReasoning: string;
+  routingSource: "deterministic_processor" | "deterministic_source" | "deterministic_rules" | "ai_router" | "manual_override";
+  matchedSignals: string[];
+  processorDetected?: string | null;
+  shouldUpdateContact: boolean;
+};
+
+Rules:
+
+* offerConfidence must be clamped 0–100.
+* offerReasoning must be concise and rep-readable.
+* matchedSignals must not include sensitive/raw private data unnecessarily.
+* shouldUpdateContact = false for dry-run/preview endpoints unless update requested.
+
+⸻
+
+Backend Architecture
+
+Shared service
+
+Create or update:
+
+server/services/offer-router.ts
+
+or nearest existing service layer.
+
+Exports:
+
+detectProcessorSignals(input): ProcessorDetectionResult
+routeOfferDeterministic(input): OfferRoutingResult | null
+routeOfferWithAi(input): Promise<OfferRoutingResult>
+routeOffer(input, options): Promise<OfferRoutingResult>
+
+Routing order:
+
+1. explicit manual override, if applicable
+2. deterministic processor match
+3. deterministic source/offer parameter match
+4. deterministic terminal/fee-offset/application/partner signals
+5. AI fallback for ambiguous leads
+6. safe default: free_statement_analysis or industry_specific_rate_review
+
+The service should be reusable by:
+
+* enrichment endpoint
+* contact route-offer endpoint
+* public form creation pipeline
+* future sequence routing
+
+⸻
+
+AI Router Prompt
+
+If using OpenAI/AI enrichment, create or update the prompt in the existing prompt file, likely:
+
+* server/services/sdr/enrichment-prompts.ts
+
+Prompt requirements:
+
+* output strict JSON only
+* use canonical offer route values only
+* use canonical recommended action values only
+* no unsupported savings claims
+* no legal advice
+* no guarantee of free terminal approval
+* cash discount/surcharge/dual pricing routes must be “review” routes
+* include confidence and concise reasoning
+* include matched signals
+* if ambiguous, default to free statement analysis or industry-specific review
+
+AI output must be validated with zod or existing validation pattern.
+
+Invalid AI output must fail safely to a deterministic/default route.
+
+⸻
+
+API Requirements
+
+1. Enrich endpoint upgrade
+
+Update existing:
+
+POST /api/contacts/:id/enrich
+
+Only if verified to exist.
+
+After enrichment:
+
+* run offer routing
+* store route result on contact
+* include route result in response
+
+Must output:
+
+* vertical
+* estimatedProcessingVolume
+* currentProcessorLikelihood
+* riskTier
+* offerRoute
+* offerConfidence
+* recommendedNextAction
+* offerReasoning
+* routingSource
+* matchedSignals
+
+Do not remove existing enrichment fields.
+
+Do not break existing enrichment queue/worker behavior if endpoint delegates to a job.
+
+2. Offer route endpoint
+
+Create:
+
+POST /api/contacts/:id/route-offer
+
+Access:
+
+* admin
+* manager
+* agent if existing policy allows contact enrichment actions
+
+Request:
+
+{
+  dryRun?: boolean;
+  forceAi?: boolean;
+  updateContact?: boolean;
+}
+
+Behavior:
+
+* loads contact
+* runs offer router
+* returns result
+* updates contact only if updateContact = true
+* default should be dry-run or no update unless existing UX requires update
+* no GHL workflow trigger
+* no sequence enrollment
+* no outreach
+
+3. Manual override endpoint
+
+Use existing contact update endpoint if safe, or add:
+
+PATCH /api/contacts/:id/offer-route
+
+Access:
+
+* admin
+* manager
+* agent if allowed
+
+Request:
+
+{
+  offerRoute: OfferRoute;
+  recommendedNextAction?: RecommendedNextAction;
+  reason: string;
+}
+
+Behavior:
+
+* validates canonical offer route
+* writes primaryOfferPath
+* sets offerConfidence = 100 or null/manual
+* sets routingSource = manual_override
+* writes audit log or contact note
+* does not trigger workflows
+* syncs to GHL only through existing contact sync/upsert path if already appropriate
+
+⸻
+
+Schema / Data Requirements
+
+Verify before adding fields.
+
+Required persisted fields on contacts or equivalent table:
+
+* primaryOfferPath
+* offerConfidence
+* recommendedNextAction
+* offerReasoning
+* offerRoutingSource
+* processorDetected
+* offerRoutedAt
+
+If missing, add via migration.
+
+Do not add fields blindly if equivalents already exist.
+
+Use text/number/timestamp fields consistent with existing schema style.
+
+⸻
+
+At-Creation Routing
+
+For public lead/contact creation endpoints, run lightweight deterministic offer routing only.
+
+Do not call AI synchronously in public form submissions.
+
+At creation:
+
+* detect processor from explicit provider/source/page/offer params
+* assign obvious offer route
+* set safe confidence
+* store primaryOfferPath
+* enqueue or defer AI enrichment if existing pattern supports it
+
+Public submit handlers must remain fast and reliable.
+
+⸻
+
+Lead Score Integration
+
+Only modify lead scoring if a scoring service/formula exists and is clearly located.
+
+Add offer confidence as a bounded secondary signal.
+
+Rules:
+
+* do not let offer confidence dominate the score
+* do not inflate low-quality leads solely because route confidence is high
+* document score weight
+* if scoring system is unclear, skip and document follow-up
+
+Suggested maximum contribution:
+
+* offer confidence contributes no more than 5–10% of composite score
+
+⸻
+
+GHL Sync
+
+Update GHL contact upsert payload to include offer fields if GHL custom field mapping exists.
+
+Fields:
+
+* lb_offer_route
+* lb_offer_confidence
+* lb_recommended_action
+* lb_offer_reasoning if field length safe
+* lb_processor_detected
+
+Rules:
+
+* do not create GHL workflows
+* do not enroll workflows
+* do not trigger sequences
+* do not make GHL the source of truth
+* if custom field IDs/names are not available, add mapping only where existing system supports name-based custom fields or document Wave 7 dependency
+* keep payload size reasonable; truncate reasoning if needed
+
+⸻
+
+Frontend: Contact Detail Offer Intelligence Card
+
+Find the actual contact detail page.
+
+Likely:
+
+* client/src/pages/dashboard/ContactDetail.tsx
+
+Add a premium but compact card:
+
+Title:
+
+Offer Intelligence
+
+Displays:
+
+* offer route badge
+* confidence bar
+* recommended next action
+* detected processor if present
+* matched signals, if available
+* concise reasoning
+* routed timestamp
+* routing source
+
+Actions:
+
+* “Refresh Route” — calls route-offer endpoint in update mode or dry-run then confirm, depending existing UX pattern
+* “Override Offer Route” — opens controlled select/modal
+
+Override requirements:
+
+* canonical route select only
+* reason required
+* role-gated by backend
+* audit/contact note written
+* no workflow/sequence trigger
+
+Do not make this card a giant AI chat UI.
+
+⸻
+
+CRM / Dashboard List Visibility
+
+If the contact list/deal card has an existing column/badge pattern, add a small offer route badge.
+
+If doing so would touch too many files or create UI sprawl, leave it as follow-up.
+
+Primary requirement is contact detail card.
+
+⸻
+
+Out of Scope
+
+* Sequence enrollment based on offer route
+* GHL workflow enrollment based on offer route
+* Automated SMS, AI voice, ringless voicemail
+* Changing contactability rules
+* Changing consent capture rules
+* Creating paid landing pages
+* Rewriting the full CRM dashboard
+* Building a full AI chat interface
+* New GHL workflows
+* Offer-specific email sequence content
+* Legal approval of surcharge/cash-discount program
+* Changing product/pricing claims on public pages
+* Full lead score architecture rewrite
+
+⸻
+
+Kill Lines
+
+Stop and report before build if:
+
+* primaryOfferPath cannot be found and schema migration pattern is unclear.
+* Existing enrichment endpoint cannot be found.
+* Current provider/processor fields cannot be identified.
+* Contact detail page cannot be found.
+* GHL custom field mapping cannot be identified and adding fields would require external GHL config.
+* AI output cannot be validated.
+* Public form submit would need synchronous AI calls.
+* Manual override cannot be audit logged or otherwise recorded.
+* The task would trigger sequence enrollment or GHL workflow enrollment.
+* The task would enable SMS, AI voice, or ringless voicemail.
+* Cash discount/surcharge route copy would imply legal approval or guaranteed suitability.
+* Free smart terminal route copy would imply guaranteed equipment approval.
+* Lead scoring formula cannot be located but the task would still modify score behavior blindly.
+* The change would make GHL the source of truth for offer routing.
+
+⸻
+
+Implementation Steps
+
+Step 1 — Preflight Map
+
+Verify:
+
+* schema fields
+* enrichment endpoint
+* enrichment prompts
+* current processor fields
+* public contact creation endpoints
+* GHL sync file/custom field mapping
+* contact detail UI
+* lead score service/formula
+* audit/contact note pattern
+
+Update plan from repo facts before build.
+
+Step 2 — Canonical Types + Service
+
+Create/update offer router service.
+
+Add canonical values, deterministic rules, processor detection, safe defaults, AI fallback, and output validation.
+
+Step 3 — Enrichment Integration
+
+Update enrichment flow to call offer router and persist result.
+
+Preserve existing enrichment behavior.
+
+Step 4 — Route-Offer Endpoint
+
+Add dry-run/update endpoint for contacts.
+
+Validate auth and inputs.
+
+No workflow/sequence triggers.
+
+Step 5 — At-Creation Deterministic Routing
+
+Integrate lightweight deterministic routing into public form/contact creation where safe.
+
+Do not call AI synchronously.
+
+Step 6 — GHL Field Sync
+
+Add offer fields to existing contact upsert payload only if mapping supports it.
+
+No workflow triggers.
+
+Step 7 — Contact Detail Card
+
+Add Offer Intelligence card with refresh and override.
+
+Backend must enforce role/audit requirements.
+
+Step 8 — Lead Score Integration
+
+Integrate offer confidence only if scoring service is verified.
+
+Otherwise document follow-up.
+
+⸻
+
+Validation
+
+Unit Tests
+
+Add tests for:
+
+* Square detection → beat_square
+* Stripe detection → beat_stripe
+* Clover detection → beat_clover
+* Toast detection → beat_toast
+* PayPal detection → beat_paypal
+* free terminal source/need → free_smart_terminal
+* upload statement source → free_statement_analysis
+* Liberty Zero source → fee-offset review route
+* restaurant/retail/salon with fee-offset signal → cash discount/surcharge review
+* unknown provider + known industry → industry_specific_rate_review
+* ambiguous lead → safe default
+* confidence clamped 0–100
+* invalid AI output falls back safely
+* cash discount/surcharge routes use review naming only
+
+API Tests
+
+Verify:
+
+* enrich endpoint returns offer fields
+* route-offer dry-run does not update contact
+* route-offer update mode updates contact
+* manual override validates route and requires reason
+* manual override writes audit/contact note
+* unauthorized users cannot override
+
+GHL Payload Validation
+
+Verify contact upsert payload includes:
+
+* lb_offer_route
+* lb_offer_confidence
+* lb_recommended_action
+* lb_processor_detected
+
+If field mapping unavailable, document rather than fake it.
+
+Frontend QA
+
+Verify:
+
+* Offer Intelligence card renders with existing contact
+* empty state renders for no offer route
+* refresh route works
+* override modal/select works
+* confidence displays correctly
+* reasoning truncates gracefully
+* no layout break on dashboard
+
+Regression Checks
+
+Verify:
+
+* public form submissions still work
+* enrichment still works
+* GHL sync still works
+* no workflow enrollment triggered
+* no sequences triggered
+* no contactability rules changed
+
+⸻
+
+Final Report Required
+
+Return:
+
+1. Files changed
+2. Schema fields added/verified
+3. Canonical offer routes implemented
+4. Deterministic routing rules
+5. AI router prompt/validation
+6. Enrichment integration
+7. At-creation routing behavior
+8. Contact detail UI changes
+9. Manual override audit behavior
+10. GHL sync fields added or skipped with reason
+11. Lead score integration added or skipped with reason
+12. Tests/validation results
+13. Remaining risks
+14. Follow-up recommendations for Wave 6 and Wave 7
+
+⸻
+
+Success Definition
+
+After this task:
+
+* Every enriched lead has a canonical offer route.
+* Obvious processor leads are routed immediately without waiting for AI.
+* Ambiguous leads get AI-assisted routing with validated structured output.
+* Contact records persist offer route, confidence, recommendation, reasoning, source, and timestamp.
+* CRM users can see and override offer routing with auditability.
+* GHL receives offer route fields where supported.
+* No sequences, workflows, SMS, AI voice, or ringless voicemail are triggered.
+* Cash discount/surcharge/free terminal routes remain framed as review/eligibility paths, not guarantees.

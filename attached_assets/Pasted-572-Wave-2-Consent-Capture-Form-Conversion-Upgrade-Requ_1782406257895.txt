@@ -1,0 +1,710 @@
+572 — Wave 2: Consent Capture + Form Conversion Upgrade
+
+Required Skills
+
+* .local/skills/fullstack-js/SKILL.md — React/TypeScript forms, Express routes, Drizzle/schema usage, shared constants, request metadata
+* .agents/skills/frontend-design/SKILL.md — premium form UX, checkbox hierarchy, trust copy, thank-you state polish, mobile usability
+* .agents/skills/copywriting/SKILL.md — clear opt-in disclosure presentation, conversion-safe CTA copy, no coercive language
+* .agents/skills/compliance-systems/SKILL.md — PEWC evidence capture, TCPA/Florida rule support, opt-out distinction, audit trail safety
+* .agents/skills/analytics-engineering/SKILL.md — UTM persistence, GA4/fbq events, existing tracking utilities
+* .agents/skills/qa-release-lead/SKILL.md — form regression, no duplicate consent writes, evidence validation, role/safety checks
+
+⸻
+
+Preflight Requirement
+
+Before build mode, inspect the repo and produce a concise plan update.
+
+Verify exact files, current submit handlers, current consent fields, current consentAuditLogs schema, Wave 1A helper exports, current tracking utilities, and current thank-you routes.
+
+Do not edit code until the plan confirms:
+
+* which forms actually capture a phone number
+* which server endpoints currently create/update contacts
+* how consentAuditLogs is written today
+* where UTM/landingPage data currently lives
+* where phone value is sourced per form
+* whether thank-you pages exist and how routing works
+* whether consentTier update happens directly or through an existing helper/backfill path
+* whether public IP/user-agent capture is available on server request objects
+
+If any prompt assumption is stale, correct it before building.
+
+⸻
+
+What & Why
+
+Wave 1A created the backend contactability engine and consent-tier enforcement. Wave 1B created operator visibility. Now Liberty needs the inbound side: every public form that captures a phone number must clearly and safely capture whether the user granted optional prior express written consent for automated call/text/voicemail channels.
+
+This task upgrades public forms to capture PEWC evidence cleanly while improving conversion clarity.
+
+This is not an automation enablement task. It only captures and stores consent evidence. Wave 1A remains the enforcement authority. Wave 7 will handle GHL permission sync.
+
+⸻
+
+Core Principle
+
+Form submission is not PEWC by default.
+
+A user who submits a form but does not check the PEWC box is a warm inbound lead, not an opted-out contact and not a fully automated-contact lead.
+
+Unchecked PEWC means:
+
+* consentTier = warm_no_pewc
+* email/manual human follow-up may still be allowed if otherwise compliant
+* SMS, AI voice, and ringless voicemail remain blocked by Wave 1A
+* do not set opted_out
+* do not set doNotContact
+* do not set SMS STOP
+* do not treat as DNC
+
+Checked PEWC means:
+
+* write structured consent evidence
+* update contact to pewc_full_automation only when evidence is valid and tied to the submitted phone number
+* Wave 1A can later allow automated channels only if all other gates pass
+
+⸻
+
+Compliance Rules
+
+PEWC checkbox requirements
+
+Every public form that captures a phone number should show an optional PEWC checkbox.
+
+The checkbox must be:
+
+* unchecked by default
+* optional
+* visually separate from required privacy/terms acknowledgement
+* close to the phone field or submit button
+* written in clear language
+* tied to the exact submitted phone number
+* versioned
+* auditable
+
+It must not be required to submit the form.
+
+It must not say or imply that consent is required to purchase or receive the free review.
+
+Counsel-review note
+
+Use the existing/counsel-approved disclosure text if present in the repo.
+
+If no final approved text exists, create a clearly named versioned disclosure constant with safe placeholder language and mark it as requiring legal review before SMS/voice/RVM enablement.
+
+Do not invent aggressive legal claims.
+
+Recommended baseline disclosure language for implementation placeholder:
+
+“I agree Liberty Bancard may contact me at the phone number provided by call, text message, or prerecorded/artificial voice message, including using automated technology, about payment processing services and related offers. Consent is not required to purchase or receive a free review. Message and data rates may apply. I can opt out at any time.”
+
+If Florida-specific or ringless-voicemail-specific language already exists in the repo, preserve the stronger existing language.
+
+⸻
+
+Disclosure Source of Truth
+
+Do not duplicate disclosure text in multiple components.
+
+Create or use a shared source of truth that both client and server can access.
+
+Preferred:
+
+shared/consent-disclosures.ts
+
+Exports:
+
+export const CURRENT_PEWC_DISCLOSURE_VERSION = "2026-v1";
+export const PEWC_DISCLOSURE_TEXT = "...";
+export const PEWC_DISCLOSURE_LINKS = {
+  smsTerms: "/sms-terms",
+  privacy: "/privacy",
+  terms: "/terms",
+  tcpaConsent: "/tcpa-consent"
+};
+
+If the repo cannot import shared/* from both client and server cleanly, use the existing shared config pattern. Do not place the only copy in server/config if the client form must render it independently.
+
+Every consent audit row must store the exact disclosureVersion and exact disclosureText displayed at the time of submission.
+
+⸻
+
+Data Requirements
+
+Use Wave 1A fields and schema.
+
+Do not add schema columns unless preflight proves required fields are missing.
+
+For every PEWC decision on a submitted form, write or update evidence with:
+
+* contactId if available
+* consentedPhone
+* disclosureVersion
+* disclosureText
+* formId
+* ipAddress if available
+* userAgent if available
+* sourceUrl / landing page URL
+* UTM parameters where existing data model supports them
+* whether checkbox was checked
+* timestamp
+* event type/category that clearly distinguishes grant vs declined/not granted
+* details JSONB for request metadata if needed
+
+If the table only has top-level PEWC columns plus details JSONB, use top-level fields for the canonical evidence and details for extra metadata.
+
+Do not store a declined/non-checked event in a way that can be mistaken for consent granted.
+
+⸻
+
+Consent Event Semantics
+
+Use clear event names if the schema supports event type.
+
+Recommended:
+
+* pewc_granted
+* pewc_declined
+* pewc_revoked only for actual revocation/STOP/unsubscribe events, not unchecked form submission
+
+If the schema does not support event type directly, store this in details.eventType.
+
+Rules:
+
+* Checked box → pewc_granted
+* Unchecked box on submitted form → pewc_declined or pewc_not_granted
+* SMS STOP or opt-out → separate opt-out flow, not part of this task unless already wired
+* Form abandonment → analytics only, not consent audit
+
+⸻
+
+Contact Tier Updates
+
+On successful public form submission with phone number:
+
+If PEWC checked and valid
+
+* write pewc_granted audit evidence
+* update contact consentTier = pewc_full_automation
+* preserve/derive lifecycleStage according to the form intent if existing patterns support it
+* do not enable automation flags
+
+If PEWC unchecked
+
+* write pewc_declined / pewc_not_granted audit record only if the product wants a record that the disclosure was shown and not accepted
+* set or preserve consentTier = warm_no_pewc for inbound forms
+* do not set opted-out/DNC/STOP
+* do not block manual human call task or email unless another suppression rule applies
+
+If no phone number
+
+* do not show PEWC checkbox unless the form captures phone later
+* do not write PEWC evidence
+* do not upgrade to PEWC
+
+⸻
+
+Forms In Scope
+
+Verify each form exists before changing.
+
+1. /upload-statement
+
+File likely:
+
+* client/src/pages/UploadStatement.tsx
+
+Required changes:
+
+* add optional PEWC checkbox above submit or near phone field
+* use shared disclosure text/version
+* update primary CTA to: “Upload My Statement — Get Free Savings Estimate”
+* preserve existing upload state machine
+* preserve existing file upload behavior
+* on submit, send PEWC selection and disclosure metadata to the existing server handler
+* server writes consent audit evidence and updates consent tier
+* do not rewrite the 900+ line page wholesale
+
+2. /free-analysis
+
+File likely:
+
+* client/src/pages/FreeAnalysis.tsx
+
+Required changes:
+
+* add optional PEWC checkbox on final phone/contact step only
+* use CTA: “Check My Savings”
+* preserve existing quiz tracking and multi-step state
+* verify UTM data persists through all steps
+* server writes consent audit evidence on final submit
+* do not rewrite the 1,200+ line quiz wholesale
+
+3. /get-started
+
+File likely:
+
+* client/src/pages/GetStarted.tsx
+
+Required changes:
+
+* add optional PEWC checkbox on the final phone/contact step only
+* preserve existing routing, quiz/form state, and GHL/CRM creation
+* pass disclosure version/text/formId with submission
+* set formId = "get-started"
+
+4. /merchant-application
+
+File likely:
+
+* client/src/pages/MerchantApplication.tsx
+
+Required changes:
+
+* preserve existing pewcConsent UX if present
+* make it use shared versioned disclosure text
+* on submit, write structured pewc_granted audit log with evidence
+* include formId = "merchant-application"
+* include consented phone from the application’s owner/business phone field, according to existing logic
+* do not rewrite application flow or underwriting/onboarding logic
+
+5. /estimate
+
+File likely:
+
+* client/src/pages/Estimate.tsx
+
+Required changes:
+
+* add optional PEWC checkbox if phone field exists
+* use shared disclosure text/version
+* write consent audit evidence through existing submit handler
+* set formId = "estimate"
+
+6. Homepage callback / lead form
+
+File likely:
+
+* client/src/pages/Home.tsx
+
+Required changes:
+
+* find actual callback/lead form
+* add optional PEWC checkbox only if the form captures phone number
+* preserve Wave 3 homepage CTA/link changes
+* set appropriate formId, e.g. homepage-callback
+
+7. Thank-you pages
+
+Likely files:
+
+* client/src/pages/ThanksStatement.tsx
+* client/src/pages/ThanksEstimate.tsx
+* client/src/pages/ThanksCall.tsx
+* client/src/pages/ThanksApplication.tsx
+
+Required changes:
+
+* confirmation message
+* clear next-step CTA
+* existing GA4/fbq conversion events verified or added using existing tracking pattern
+* UTM/form context passed where already supported
+* no duplicate conversion events on re-render
+
+⸻
+
+Shared Frontend Component
+
+Create or update:
+
+client/src/components/PewcCheckbox.tsx
+
+or nearest existing components folder.
+
+Props:
+
+type PewcCheckboxProps = {
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+  formId: string;
+  phoneValue?: string;
+  disabled?: boolean;
+  className?: string;
+};
+
+Requirements:
+
+* uses shared disclosure text/version
+* checkbox unchecked by default
+* accessible label
+* clear links to terms/privacy/SMS terms if routes exist
+* small “version” or data-disclosure-version attribute for audit/debug if appropriate
+* fires pewc_checked and pewc_unchecked analytics events using existing tracking utilities
+* does not write server-side evidence by itself; evidence is written on form submit unless an explicit standalone endpoint is used
+
+⸻
+
+Backend Consent Evidence Handling
+
+Prefer integrating consent capture into each existing form submission endpoint, because that ties consent evidence to contact creation/update atomically.
+
+Add shared helper:
+
+server/services/consent-evidence.ts
+
+or nearest existing service layer.
+
+Recommended helper:
+
+recordPewcDecision({
+  contactId,
+  phone,
+  checked,
+  formId,
+  sourceUrl,
+  disclosureVersion,
+  disclosureText,
+  ipAddress,
+  userAgent,
+  utm,
+  details
+})
+
+Behavior:
+
+* validates phone exists before granting PEWC
+* writes consentAuditLogs entry
+* stores canonical top-level fields
+* stores extra metadata in details JSONB
+* updates contact consentTier
+* does not set opted-out/DNC/STOP on unchecked
+* fails safely if checked but phone is missing
+* idempotency guard to avoid duplicate consent rows on retry/double-submit where possible
+
+If no service layer pattern exists, implement minimal helper near existing public route handlers and document follow-up.
+
+⸻
+
+Public Consent Endpoint
+
+Only add:
+
+POST /api/public/consent
+
+if preflight confirms there are legitimate client-side consent captures outside full form submission, such as chat or standalone callback consent.
+
+Do not add this endpoint just because the original prompt mentioned it.
+
+If added, requirements:
+
+* zod validation
+* rate limiting using existing public form rate limiter
+* no auth required but abuse-protected
+* requires phone + formId + disclosureVersion + disclosureText
+* writes audit evidence
+* cannot upgrade a contact unless contact can be safely identified
+* no automation triggered
+
+If no current standalone consent capture exists, leave this endpoint out of scope and document as future.
+
+⸻
+
+Analytics Requirements
+
+Use existing tracking utilities only.
+
+Do not create a third analytics system.
+
+Events to add/verify:
+
+* pewc_checked
+* pewc_unchecked
+* pewc_granted_on_submit
+* pewc_declined_on_submit
+* thank_you_page_view
+* existing form submission/conversion events
+* existing GA4/fbq Lead events where appropriate
+
+Rules:
+
+* checkbox checked/unchecked events may fire on interaction
+* granted/declined events fire only on successful submit
+* thank-you conversion event should fire once per page view, not on every render
+* include formId, pagePath, disclosureVersion, and UTM context if available
+* do not send full phone number to analytics platforms
+
+⸻
+
+UTM / Landing Page Requirements
+
+Verify current UTM utilities before changing.
+
+Every public form submission should preserve:
+
+* utm_source
+* utm_medium
+* utm_campaign
+* utm_content
+* utm_term
+* gclid / fbclid / msclkid if existing system supports them
+* landing page URL
+* referrer where supported
+* source page/path
+
+Do not rewrite attribution architecture; Wave 8 handles full analytics/attribution.
+
+This wave should fix obvious missing UTM pass-through on touched forms only.
+
+⸻
+
+Thank-You Page Requirements
+
+Each thank-you page should have:
+
+* page-specific confirmation copy
+* one dominant next-step CTA
+* secondary CTA where natural
+* no aggressive automation promise
+* one-time conversion event firing
+* UTM/form context preserved where existing routing supports it
+
+Recommended CTA mapping:
+
+* /thanks-statement → “Book Your 15-Minute Review” + “Call Liberty”
+* /thanks-estimate → “Upload Statement for Exact Review” + “Book Review”
+* /thanks-call → “Book a Time” + “Upload Statement”
+* /thanks/application → “Return to Dashboard/Application” or “Call Support” depending existing flow
+
+Do not create new thank-you routes if existing routes differ; adapt to actual repo routes.
+
+⸻
+
+Out of Scope
+
+* Enabling SMS, AI voice, ringless voicemail, or GHL automated workflows
+* Changing Wave 1A contactability rules
+* Changing Wave 1B Channel Safety Matrix
+* GHL permission-field sync
+* Full Wave 8 attribution dashboard
+* Paid landing page variants
+* Full form redesigns
+* New underwriting/onboarding behavior
+* New database columns unless preflight proves missing fields
+* SMS STOP/revocation flows unless already part of existing form submit
+* Legal finalization of disclosure language
+* Rewriting massive pages wholesale
+
+⸻
+
+Kill Lines
+
+Stop and report before build if:
+
+* Wave 1A consent audit columns are missing.
+* consentTier is missing on contacts.
+* Existing form endpoints cannot identify/create a contact.
+* A form captures phone but has no safe way to submit PEWC metadata to the server.
+* Shared disclosure text cannot be used by both client and server without duplication.
+* The task would require making PEWC checkbox required.
+* Unchecked PEWC would be treated as opt-out, STOP, DNC, or doNotContact.
+* A form would upgrade to pewc_full_automation without a phone number.
+* A form would upgrade to pewc_full_automation without storing disclosureVersion and disclosureText.
+* Consent evidence would be written only client-side.
+* Analytics would send raw phone numbers.
+* Thank-you page events would fire repeatedly on re-render.
+* The task would enable SMS, AI voice, ringless voicemail, or GHL workflow automation.
+* Adding /api/public/consent would create an unauthenticated abuse endpoint without existing rate limit protection.
+* The change would rewrite UploadStatement.tsx, FreeAnalysis.tsx, GetStarted.tsx, or MerchantApplication.tsx wholesale instead of surgical upgrades.
+
+⸻
+
+Implementation Steps
+
+Step 1 — Preflight Form + Endpoint Map
+
+Verify:
+
+* public forms with phone fields
+* submit handlers
+* backend endpoints
+* contact creation/update logic
+* existing consent fields
+* existing consentAuditLogs writes
+* existing UTM handling
+* existing thank-you routes
+* existing tracking utilities
+* existing rate limiter for public form endpoints
+
+Produce/update the final build plan from verified repo facts.
+
+Step 2 — Shared Disclosure Source
+
+Create or reuse shared disclosure module.
+
+Ensure both frontend and backend use the same version/text.
+
+Do not duplicate disclosure strings.
+
+Step 3 — Backend Consent Evidence Helper
+
+Create shared helper for PEWC grant/decline evidence.
+
+Integrate into existing form submission endpoints.
+
+Do not add standalone /api/public/consent unless verified necessary.
+
+Step 4 — Shared PEWC Checkbox Component
+
+Create reusable checkbox component.
+
+Wire it to existing forms.
+
+Ensure optional, unchecked by default, accessible, and versioned.
+
+Step 5 — Form Integrations
+
+Surgically update verified in-scope forms:
+
+* upload statement
+* free analysis
+* get started
+* merchant application
+* estimate
+* homepage callback if present
+
+Each integration must preserve existing form behavior and submit payloads while adding PEWC metadata.
+
+Step 6 — Consent Tier Updates
+
+Ensure server-side submit handlers update contact consent tier safely:
+
+* checked + valid evidence → pewc_full_automation
+* unchecked inbound → warm_no_pewc
+* no phone → no PEWC upgrade
+
+Do not bypass Wave 1A evidence requirements.
+
+Step 7 — Thank-You Page Improvements
+
+Update existing thank-you pages only.
+
+Add one-time conversion events and next-step CTAs.
+
+Step 8 — UTM + Analytics Verification
+
+Verify UTM pass-through and add missing touched-form tracking using existing utilities.
+
+Do not build full attribution system.
+
+⸻
+
+Validation
+
+Backend Validation
+
+Verify:
+
+* checked PEWC writes pewc_granted evidence
+* unchecked PEWC writes pewc_declined / pewc_not_granted if supported
+* checked PEWC updates consentTier to pewc_full_automation
+* unchecked PEWC sets/preserves warm_no_pewc
+* unchecked PEWC does not set opt-out/DNC/STOP
+* missing phone cannot create PEWC grant
+* disclosureVersion and disclosureText are stored
+* formId is stored
+* consentedPhone is stored
+* IP/userAgent/sourceUrl stored where available
+* duplicate submit does not create duplicate misleading grants if idempotency is implemented
+* existing form submit behavior still creates the right lead/contact/deal
+
+Frontend Validation
+
+Verify:
+
+* checkbox unchecked by default
+* checkbox optional
+* disclosure text visible
+* links work or are omitted if routes do not exist
+* mobile layout does not break
+* submit works checked
+* submit works unchecked
+* CTA copy updated where specified
+* no full-page regressions on huge forms
+
+Analytics Validation
+
+Verify:
+
+* pewc_checked
+* pewc_unchecked
+* pewc_granted_on_submit
+* pewc_declined_on_submit
+* thank_you_page_view
+* no raw phone sent to analytics
+* thank-you event fires once
+
+UTM Validation
+
+Submit each touched form with sample UTMs.
+
+Verify storage/pass-through where existing model supports it.
+
+Route/Form Smoke
+
+Test:
+
+* /upload-statement
+* /free-analysis
+* /get-started
+* /merchant-application
+* /estimate
+* homepage callback form if present
+* thank-you pages
+
+Contactability Verification
+
+After a checked PEWC submit:
+
+* GET /api/contacts/:id/contactability dry-run should show SMS/voice/RVM potentially eligible only if feature flags and all other gates allow.
+
+After unchecked submit:
+
+* dry-run should show warm_no_pewc and automated channels blocked for no PEWC.
+
+⸻
+
+Final Report Required
+
+Return:
+
+1. Files changed
+2. Forms verified in scope
+3. Forms updated
+4. Forms skipped and why
+5. Shared disclosure source created/used
+6. Exact disclosure version
+7. Consent audit evidence fields written
+8. ConsentTier update behavior
+9. UTM handling summary
+10. Analytics events added/verified
+11. Thank-you pages updated
+12. Validation results
+13. Remaining risks
+14. Follow-up recommendations for Wave 7 and Wave 8
+
+⸻
+
+Success Definition
+
+After this task:
+
+* Every public phone-capture form has an optional, versioned PEWC checkbox.
+* Checked PEWC creates structured, reproducible consent evidence.
+* Unchecked PEWC creates a warm lead, not an opt-out.
+* Consent evidence includes disclosure version/text, form ID, consented phone, source, and request metadata where available.
+* Contacts are upgraded to pewc_full_automation only with valid evidence.
+* Existing forms keep working.
+* Thank-you pages are clearer and fire conversion events safely.
+* No automated SMS, AI voice, ringless voicemail, or GHL workflow behavior is enabled.
+* Wave 1A contactability can now reliably consume inbound PEWC evidence.

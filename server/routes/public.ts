@@ -20,6 +20,8 @@ import path from "path";
 import fs from "fs";
 import { upload, trackReferral, sendConfirmationSms } from "./helpers";
 import { publicLeadRateLimit } from "../middleware/public-rate-limit";
+import { recordPewcDecision } from "../services/consent-evidence";
+import { evaluateContactability } from "../services/contactability";
 import { StatementChainTracker } from "../services/statement-upload-chain";
 
 export function registerPublicRoutes(app: Express) {
@@ -217,19 +219,16 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
 
       if (!contact) throw new Error("Could not resolve contact record");
 
-      // SMS consent audit log — general opt-in only (not PEWC)
-      if (parseBool(consentSms)) {
-        await storage.createConsentAuditLog({
+      const pewcConsent = parseBool(req.body.pewcConsent);
+      if (pewcConsent) {
+        recordPewcDecision({
           contactId: contact.id,
-          channel: "sms",
-          action: "opt_in",
-          consented: true,
-          consentType: "general_optin",
-          source: "website_form",
+          checked: true,
+          source: "statement_upload",
           ipAddress: req.ip || req.socket.remoteAddress || "unknown",
           userAgent: req.headers["user-agent"] || "unknown",
           details: { formType: "statement_upload" },
-        });
+        }).catch(err => console.error("[StatementUpload] PEWC record error:", err));
       }
 
       const statementFileBuffer = req.file?.buffer;
@@ -276,7 +275,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
 
   app.post("/api/public/estimate", publicLeadRateLimit, async (req, res) => {
     try {
-      const { contactName, email, phone, monthlyVolume, totalFees, currentProvider, notes, referralCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, landingPage } = req.body;
+      const { contactName, email, phone, monthlyVolume, totalFees, currentProvider, notes, pewcConsent: estimatePewcRaw, referralCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, landingPage } = req.body;
       const nameParts = (contactName || "").split(" ");
       const firstName = nameParts[0] || "";
       const lastName = nameParts.slice(1).join(" ") || "";
@@ -296,6 +295,17 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         status: "New",
         tags,
       });
+
+      if (estimatePewcRaw === true) {
+        recordPewcDecision({
+          contactId: contact.id,
+          checked: true,
+          source: "estimate",
+          ipAddress: req.ip || req.socket.remoteAddress || "unknown",
+          userAgent: req.headers["user-agent"] || "unknown",
+          details: { formType: "estimate" },
+        }).catch(err => console.error("[Estimate] PEWC record error:", err));
+      }
 
       const deal = await storage.createDeal({
         contactId: contact.id, pipeline: "sales", stage: "New Lead",
@@ -399,7 +409,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
 
   app.post("/api/public/get-started", publicLeadRateLimit, async (req, res) => {
     try {
-      const { goal, vertical, monthlyVolume, needTerminal, interestedIn0Percent, firstName, lastName, email, phone, consentSms, referralCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, landingPage } = req.body;
+      const { goal, vertical, monthlyVolume, needTerminal, interestedIn0Percent, firstName, lastName, email, phone, pewcConsent, referralCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, landingPage } = req.body;
 
       let offerPath = "Not Sure";
       if (goal === "0% interest" || interestedIn0Percent) offerPath = "0% Program";
@@ -417,7 +427,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         vertical, monthlyVolume, primaryOfferPath: offerPath,
         interestedIn0Percent: interestedIn0Percent === true,
         needTerminal: needTerminal === true,
-        consentSms: consentSms === true,
+        consentSms: pewcConsent === true,
         utmSource: utmSource || undefined,
         utmMedium: utmMedium || undefined,
         utmCampaign: utmCampaign || undefined,
@@ -428,18 +438,15 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         tags,
       });
 
-      if (consentSms) {
-        await storage.createConsentAuditLog({
+      if (pewcConsent === true) {
+        recordPewcDecision({
           contactId: contact.id,
-          channel: "sms",
-          action: "opt_in",
-          consented: true,
-          consentType: "general_optin",
-          source: "website_form",
+          checked: true,
+          source: "get_started",
           ipAddress: req.ip || req.socket.remoteAddress || "unknown",
           userAgent: req.headers["user-agent"] || "unknown",
           details: { formType: "get_started" },
-        });
+        }).catch(err => console.error("[GetStarted] PEWC record error:", err));
       }
 
       const deal = await storage.createDeal({
@@ -463,7 +470,11 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: deal.id }, { formType: "get_started" }).catch(err => console.error("Workflow trigger error:", err));
       enrollInInboundConfirmation({ contactId: contact.id, formType: "get_started", dealId: deal.id }).catch(err => console.error("GHL inbound confirmation error:", err));
       if (contact.ghlContactId) enrollInGhlWorkflow({ workflowKey: "inbound_lead", ghlContactId: contact.ghlContactId, metadata: { formType: "get_started", dealId: deal.id } }).catch(err => console.error("[GetStarted] GHL inbound_lead enrollment error:", err));
-      if (!isGhlInboundActive() && consentSms && phone) sendConfirmationSms(contact.id, firstName, "get_started", deal.id).catch(err => console.error("Confirm SMS error:", err));
+      if (!isGhlInboundActive() && pewcConsent === true && phone) {
+        evaluateContactability({ contactId: contact.id, channel: "sms", campaignType: "confirmation", mode: "enforcement" })
+          .then(r => { if (r.allowed) sendConfirmationSms(contact.id, firstName, "get_started", deal.id).catch(err => console.error("Confirm SMS error:", err)); })
+          .catch(err => console.error("[GetStarted] Contactability check error:", err));
+      }
       syncFormSubmissionToGhl({ contactId: contact.id, dealId: deal.id, leadSource: "get_started", formData: { lb_quiz_goal: goal || "", lb_monthly_volume: monthlyVolume || "", lb_interested_0_percent: interestedIn0Percent ? "yes" : "no", lb_terminal_need: needTerminal ? "yes" : "no" } }).catch(err => console.error("GHL form sync error:", err));
       storage.createReviewQueueItem({
         sourceType: "quiz",
@@ -564,7 +575,8 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
   // === CALLBACK REQUEST ===
   app.post("/api/public/callback", publicLeadRateLimit, async (req, res) => {
     try {
-      const { name, phone, bestTime, notes } = req.body;
+      const { name, phone, bestTime, notes, pewcConsent: pewcConsentRaw } = req.body;
+      const pewcConsent = pewcConsentRaw === true;
       const nameParts = (name || "").split(" ");
       const firstName = nameParts[0] || "";
       const lastName = nameParts.slice(1).join(" ") || "";
@@ -586,13 +598,27 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         type: "alert",
       });
 
+      if (pewcConsent) {
+        recordPewcDecision({
+          contactId: contact.id,
+          checked: true,
+          source: "callback",
+          ipAddress: req.ip || req.socket.remoteAddress || "unknown",
+          userAgent: req.headers["user-agent"] || "unknown",
+          details: { formType: "callback" },
+        }).catch(err => console.error("[Callback] PEWC record error:", err));
+      }
       scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
       autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "callback" }).catch(err => console.error("Auto-enroll error:", err));
       triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: deal.id }, { formType: "callback" }).catch(err => console.error("Workflow trigger error:", err));
       enrollInInboundConfirmation({ contactId: contact.id, formType: "callback", dealId: deal.id }).catch(err => console.error("GHL inbound confirmation error:", err));
       if (contact.ghlContactId) enrollInGhlWorkflow({ workflowKey: "callback_request", ghlContactId: contact.ghlContactId, metadata: { dealId: deal.id, bestTime: bestTime || "anytime" } }).catch(err => console.error("[Callback] GHL callback_request enrollment error:", err));
-      if (!isGhlInboundActive() && phone) sendConfirmationSms(contact.id, firstName, "callback", deal.id).catch(err => console.error("Confirm SMS error:", err));
+      if (!isGhlInboundActive() && pewcConsent && phone) {
+        evaluateContactability({ contactId: contact.id, channel: "sms", campaignType: "confirmation", mode: "enforcement" })
+          .then(r => { if (r.allowed) sendConfirmationSms(contact.id, firstName, "callback", deal.id).catch(err => console.error("Confirm SMS error:", err)); })
+          .catch(err => console.error("[Callback] Contactability check error:", err));
+      }
       syncFormSubmissionToGhl({ contactId: contact.id, dealId: deal.id, leadSource: "callback" }).catch(err => console.error("GHL form sync error:", err));
       res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id });
     } catch (err: any) {

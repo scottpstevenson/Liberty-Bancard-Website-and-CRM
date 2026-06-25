@@ -13,6 +13,7 @@ import { CALENDAR_URL, PHONE_TEL, PHONE_NUMBER } from "@/lib/constants";
 import { trackPhoneCtaClick, trackBookingCtaClick, trackStatementUploadCtaClick } from "@/lib/tracking";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { PewcCheckbox } from "@/components/PewcCheckbox";
 import {
   Accordion,
   AccordionContent,
@@ -128,6 +129,7 @@ export default function Home() {
   const [cbBestTime, setCbBestTime] = useState("Morning");
   const [cbSubmitting, setCbSubmitting] = useState(false);
   const [cbSubmitted, setCbSubmitted] = useState(false);
+  const [cbPewcConsent, setCbPewcConsent] = useState(false);
   const [urgencyDismissed, setUrgencyDismissed] = useState(false);
   const { toast } = useToast();
 
@@ -151,7 +153,7 @@ export default function Home() {
     setCbSubmitting(true);
     try {
       await apiRequest("POST", "/api/public/callback", {
-        name: cbName, phone: cbPhone, bestTime: cbBestTime,
+        name: cbName, phone: cbPhone, bestTime: cbBestTime, pewcConsent: cbPewcConsent,
       });
       setCbSubmitted(true);
     } catch (error: any) {
@@ -1435,12 +1437,17 @@ export default function Home() {
                           ))}
                         </div>
                       </div>
+                      <PewcCheckbox
+                        checked={cbPewcConsent}
+                        onCheckedChange={setCbPewcConsent}
+                        id="cb-pewc-consent"
+                      />
                       <Button className="w-full gap-2" onClick={handleCallbackSubmit} disabled={cbSubmitting || !cbName.trim() || !cbPhone.trim()} data-testid="button-callback-submit">
                         {cbSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Phone className="w-4 h-4" />}
                         Request a Callback
                       </Button>
                       <p className="text-[10px] text-muted-foreground text-center">
-                        By submitting, you agree to receive a call from Liberty Bancard. Standard call rates apply.
+                        By submitting, you agree to be contacted by Liberty Bancard. Consent is not required for service.
                       </p>
                     </CardContent>
                   </Card>

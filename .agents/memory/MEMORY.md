@@ -11,3 +11,4 @@
 - [JSX fragment scope in multi-card pages](jsx-fragment-multi-card.md) — when a page section has multiple sibling Cards, the ternary else-branch fragment must close BEFORE the first Card's </CardContent>, not inside a later sibling Card.
 - [Master audit + 12-wave plan](master-audit-2026.md) — Full compliance/conversion audit completed June 25 2026; 6 kill lines found; 12 build wave tasks #571–582; audit report at docs/audit-report-2026-06-25.md.
 - [Contactability Engine (Wave 1A)](contactability-engine.md) — Shared permission gate for all outbound sends; Drizzle journal must be updated for manually-written migrations; PEWC tier requires audit evidence (step 12).
+- [PEWC consent pattern (Wave 2)](pewc-consent-pattern.md) — recordPewcDecision() is the single write path; PewcCheckbox is always optional; Checkbox import must stay when other checkboxes exist in the same form.
