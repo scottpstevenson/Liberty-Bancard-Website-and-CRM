@@ -505,6 +505,18 @@ STATEMENT ANALYSIS RESULTS (use these findings):
         type: "alert",
         metadata: { dealId: deal.id, contactId: deal.contactId },
       });
+      if (contact?.ghlContactId) {
+        const ownerLookup = deal.owner ? await storage.getUserByEmail(deal.owner).catch(() => null) : null;
+        const assignedTo = ownerLookup?.id ?? null;
+        const { createGhlTask: ghlTask } = await import("./ghl");
+        ghlTask({
+          contactId: contact.ghlContactId,
+          title: `Proposal Ready — Review & Send: ${contact.companyName || contact.firstName || "New Lead"}`,
+          body: `AI-generated savings proposal is ready for your review before sending. Open the deal to approve and send.`,
+          assignedTo,
+          dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        }).catch(err => console.warn("[ProposalEngine] GHL task (review-needed, non-critical):", err.message));
+      }
     }
   } catch (err) {
     console.error("[ProposalEngine] Auto-proposal failed:", err);
