@@ -464,10 +464,10 @@ function Router() {
           <ProtectedRoute component={CaseStudyIntake} />
         </Route>
         <Route path="/dashboard/ghl-settings">
-          <ProtectedRoute component={GhlSettings} />
+          <ProtectedRoute component={GhlSettings} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/ghl-workflows">
-          <ProtectedRoute component={GhlWorkflowManager} />
+          <ProtectedRoute component={GhlWorkflowManager} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/automation">
           <ProtectedRoute component={Automation} />
@@ -494,7 +494,7 @@ function Router() {
           <ProtectedRoute component={WinLoss} />
         </Route>
         <Route path="/dashboard/stage-rules">
-          <ProtectedRoute component={StageRules} />
+          <ProtectedRoute component={StageRules} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/sequences">
           <ProtectedRoute component={Sequences} />
@@ -572,16 +572,16 @@ function Router() {
           <ProtectedRoute component={Calendar} />
         </Route>
         <Route path="/dashboard/user-management">
-          <ProtectedRoute component={UserManagement} />
+          <ProtectedRoute component={UserManagement} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/permissions">
-          <ProtectedRoute component={Permissions} />
+          <ProtectedRoute component={Permissions} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/security">
           <ProtectedRoute component={SecuritySettings} />
         </Route>
         <Route path="/dashboard/settings/integrations">
-          <ProtectedRoute component={SettingsIntegrations} />
+          <ProtectedRoute component={SettingsIntegrations} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/forecasting">
           <ProtectedRoute component={Forecasting} />
@@ -593,7 +593,7 @@ function Router() {
           <ProtectedRoute component={DataRequests} />
         </Route>
         <Route path="/dashboard/audit-logs">
-          <ProtectedRoute component={AuditLogs} />
+          <ProtectedRoute component={AuditLogs} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/blog-generator">
           <ProtectedRoute component={BlogGenerator} />
@@ -614,19 +614,19 @@ function Router() {
           <ProtectedRoute component={BinLookup} />
         </Route>
         <Route path="/dashboard/round-robin">
-          <ProtectedRoute component={RoundRobinAdmin} />
+          <ProtectedRoute component={RoundRobinAdmin} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/inbox-health">
-          <ProtectedRoute component={InboxHealth} />
+          <ProtectedRoute component={InboxHealth} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/email-health">
           <ProtectedRoute component={EmailHealth} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/activation">
-          <ProtectedRoute component={ActivationPanel} />
+          <ProtectedRoute component={ActivationPanel} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/operator">
-          <ProtectedRoute component={OperatorDashboard} />
+          <ProtectedRoute component={OperatorDashboard} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/seo-health">
           <ProtectedRoute component={SeoHealth} />
