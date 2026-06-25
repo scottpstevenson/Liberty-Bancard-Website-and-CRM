@@ -9,3 +9,4 @@
 - [GHL token ops](ghl-token-ops.md) — GHL Private Integration Token 401 on all endpoints when expired; authTest in ActivationPanel shows N/A; user must regenerate in GHL Settings → Private Integrations.
 - [Idempotent migration FK pattern](idempotent-migration-fk.md) — duplicate FK migrations: wrap ADD CONSTRAINT with DROP CONSTRAINT IF EXISTS first; both 0020 and 0023 had the same multi_location_fk name.
 - [JSX fragment scope in multi-card pages](jsx-fragment-multi-card.md) — when a page section has multiple sibling Cards, the ternary else-branch fragment must close BEFORE the first Card's </CardContent>, not inside a later sibling Card.
+- [Master audit + 12-wave plan](master-audit-2026.md) — Full compliance/conversion audit completed June 25 2026; 6 kill lines found; 12 build wave tasks #571–582; audit report at docs/audit-report-2026-06-25.md.

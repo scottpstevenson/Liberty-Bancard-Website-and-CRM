@@ -1,0 +1,2135 @@
+Liberty Bancard — Master Replit Audit + Conversion Lifecycle Build Plan
+
+Required Agent Skills
+
+Use the following specialist skills / perspectives throughout this audit and planning pass:
+
+* fullstack-js — React, TypeScript, Express/Node, API routing, database models, workers, queues, integrations
+* frontend-design — premium B2B conversion design, landing page UX, dashboard UX, responsive/mobile QA, visual hierarchy
+* backend-architecture — lifecycle state machines, source-of-truth ownership, queue safety, idempotency, sync conflict handling
+* growth-marketing — paid acquisition, organic SEO, landing page CRO, funnel optimization, lead magnets, CTA architecture
+* SEO-strategy — technical SEO, programmatic SEO, metadata, structured data, internal linking, crawl/index strategy
+* copywriting — conversion copy, merchant pain-point messaging, offer framing, objections, vertical-specific messaging
+* analytics-engineering — GA4, Meta Pixel, event taxonomy, UTM attribution, source tracking, funnel dashboards, conversion reporting
+* CRM-automation — GoHighLevel contact/deal sync, workflow strategy, appointment setting, pipeline automation, tasks, tags, booking
+* compliance-systems — TCPA, Florida SB 1120 / Florida telephone solicitation rules, PEWC, CAN-SPAM, opt-out/DNC handling, channel permissions
+* AI-agent-design — qualification agents, reply intent classification, appointment-setting agents, proposal agents, routing agents
+* QA-release-lead — release-blocking audit, regression strategy, smoke tests, feature flag safety, go-live readiness
+
+⸻
+
+Mission
+
+Perform a full read-only audit and master build plan for the Liberty Bancard AI Business Operating System with one business goal:
+
+Drive the maximum possible number of compliant inbound calls, booked appointments, statement uploads, and merchant signups.
+
+This is not a generic website polish task. Treat Liberty Bancard as a full customer lifecycle operating system for a merchant payment processing ISO.
+
+The platform is built in Replit and already includes a public marketing website, SEO pages, lead forms, GoHighLevel integration, outbound lead discovery, AI scoring, SDR sequences, CRM pipeline, merchant onboarding, partner program, residual reconciliation, AI advisors, dashboards, feature flags, queues, and compliance gates.
+
+The audit must determine whether the current system is correctly structured to move a business through the full lifecycle:
+
+Prospect discovery
+→ AI enrichment
+→ compliant channel gating
+→ paid/organic landing page conversion
+→ offer routing
+→ inbound call / appointment / statement upload
+→ AI qualification
+→ proposal
+→ merchant application
+→ onboarding
+→ MID provisioning
+→ live merchant
+→ retention
+→ referral / partner growth
+→ residual reconciliation
+
+⸻
+
+Core Business Context
+
+Liberty Bancard is a merchant payment processing ISO. It sells payment processing solutions to restaurants, retail stores, healthcare practices, contractors, service businesses, and other merchants.
+
+Primary conversion offers:
+
+1. Beat Square / Stripe / Clover / Toast / PayPal
+    * Positioning: “See if Liberty can beat your current processing rates.”
+    * Primary conversion: upload statement or book a free rate review.
+    * Best for: businesses already using visible competitors.
+2. Free Processing / Cash Discount / Surcharge Program
+    * Must be framed carefully and compliantly.
+    * Preferred language: “Compliant cash discount,” “dual pricing,” “surcharge review,” “offset processing fees,” “see if your business qualifies.”
+    * Do not overpromise “free processing” without compliance qualifiers.
+3. Free Smart Terminal
+    * Positioning: “Check if your business qualifies for a free smart terminal.”
+    * Best for: retail, restaurants, salons, healthcare, mobile service businesses, contractors, small storefronts.
+4. Free Statement Analysis
+    * Universal lead magnet.
+    * Positioning: “Upload your current processing statement and get a free savings analysis.”
+    * This should be the safest and highest-trust conversion path across SEO, paid, cold email, and retargeting.
+
+Primary desired conversions:
+
+* Phone calls
+* Booked appointments
+* Statement uploads
+* Free analysis requests
+* Merchant application starts
+* Completed merchant applications
+* Partner applications
+* Referral submissions
+* Closed Won merchants
+
+⸻
+
+Non-Negotiable Compliance Reality
+
+The system must be designed around compliant channel permissions.
+
+Important rule
+
+Cold scraped leads must not receive automated SMS, AI voice calls, ringless voicemail, autodialed calls, or prerecorded/artificial voice outreach unless Liberty has documented prior express written consent or a counsel-approved lawful basis.
+
+Ringless voicemail must be treated as a regulated automated/prerecorded voice channel, not as a safe cold outreach shortcut.
+
+AI voice must be treated as an artificial/prerecorded voice risk area.
+
+Automated SMS must require documented consent.
+
+Cold B2B email can be used only with CAN-SPAM-compliant controls.
+
+Manual human calls to business lines can be used only through compliance-aware rules, internal DNC, quiet hours, state logic, and opt-out handling.
+
+Do not create any plan that relies on risky automated phone/SMS/voicemail outreach to cold scraped prospects.
+
+⸻
+
+Required Customer Lifecycle Architecture
+
+Audit and plan around three lead permission tiers.
+
+Tier 1 — Cold Prospect / No Consent
+
+Sources:
+
+* Sunbiz
+* Google Maps / Outscraper
+* Yelp / Apify
+* Facebook business scraping
+* Apollo
+* Serper enrichment
+* uploaded CSVs
+* manually imported prospect lists
+* scraped competitor users
+* website-discovered businesses
+
+Allowed channels:
+
+* Compliant cold email
+* Manual human call tasks to business lines
+* Retargeting audiences where platform-compliant
+* Direct mail, if added later
+
+Blocked channels:
+
+* Automated SMS
+* AI voice
+* Ringless voicemail
+* Autodialed/prerecorded calls
+* Automated text-first sequences
+
+Required next-best actions:
+
+* Send compliant cold email
+* Create manual call task
+* Drive to landing page
+* Encourage call, booking, or statement upload
+* Capture consent on inbound form before unlocking SMS/voice/RVM
+
+Tier 2 — Warm Lead / Express Request but No PEWC
+
+Sources:
+
+* Free analysis form
+* Upload statement form
+* Savings calculator
+* Rate estimator
+* Booked call
+* Contact form
+* Inbound phone call
+* Chat widget
+* Partner referral
+* Merchant referral
+* Website lead with no SMS/voice consent checkbox
+
+Allowed channels:
+
+* Email follow-up
+* Manual phone call
+* GHL booking link
+* AI chat/email qualification
+* Rep task creation
+* Statement upload reminders by email
+* Proposal follow-up by email
+
+Blocked unless consent exists:
+
+* Automated SMS
+* AI voice
+* Ringless voicemail
+
+Required next-best actions:
+
+* Call within 5 minutes if high intent
+* Send booking link
+* Ask for statement upload
+* Route to correct offer
+* Assign owner
+* Create CRM deal
+* Generate AI deal blueprint
+* Trigger human follow-up SLA
+
+Tier 3 — PEWC Lead / Full Automation Consent
+
+Sources:
+
+* Any form with explicit counsel-reviewed consent checkbox
+* Merchant application PEWC checkbox
+* Booking form with PEWC
+* Call request form with PEWC
+* Statement upload form with PEWC
+* Chat flow with PEWC capture, if implemented correctly
+
+Allowed channels:
+
+* Email
+* Automated SMS
+* AI appointment-setting text
+* AI voice, if enabled and compliant
+* Ringless voicemail, if enabled and compliant
+* Missed-call text-back
+* Appointment reminders
+* Re-engagement campaigns
+
+Required controls:
+
+* Store disclosure version
+* Store timestamp
+* Store IP address
+* Store user agent
+* Store source URL
+* Store form ID
+* Store phone number consented
+* Store consent language rendered at time of submission
+* Store opt-out events
+* STOP handling
+* DNC handling
+* audit log
+
+⸻
+
+Primary Audit Objective
+
+Audit the entire current Replit codebase and produce a master phased implementation plan that answers:
+
+1. Is the current customer lifecycle complete from cold prospect to live merchant?
+2. Where are conversion leaks happening?
+3. Where is channel compliance too weak or ambiguous?
+4. Where are SEO pages attracting traffic but not converting?
+5. Where are landing pages unclear, generic, or too hard to act on?
+6. Where are forms missing consent capture, attribution, or routing?
+7. Where does GHL own execution but Replit should own permission truth?
+8. Where do automations risk contacting leads on unsafe channels?
+9. Where is AI useful for qualification, appointment-setting, and proposal generation?
+10. Where is AI dangerous because it could trigger noncompliant outreach?
+11. Where are analytics incomplete or not tied to revenue?
+12. What waves should be built first to maximize conversions safely?
+
+⸻
+
+Read-Only Audit Rules
+
+Do not make code changes in this pass.
+
+First inspect the codebase, route structure, database schema, workers, dashboard pages, GHL integration, forms, landing pages, SEO logic, analytics code, feature flags, and existing tests.
+
+Then deliver a full implementation plan.
+
+Do not assume a feature works because a route exists.
+
+Verify:
+
+* actual routes
+* actual forms
+* actual event handlers
+* actual database fields
+* actual GHL sync payloads
+* actual feature flags
+* actual queue workers
+* actual consent checks
+* actual unsubscribe logic
+* actual DNC logic
+* actual role guards
+* actual analytics events
+* actual metadata and structured data
+* actual CTA destinations
+* actual mobile UX
+* actual error states
+* actual fallback behavior
+
+⸻
+
+Source-of-Truth Principle
+
+Replit should own truth and safety.
+
+GHL should own execution and rep workflow.
+
+Replit should own:
+
+* lead source
+* UTM attribution
+* consent state
+* PEWC evidence
+* disclosure versions
+* opt-out status
+* DNC status
+* contactability
+* allowed channels
+* blocked channels
+* AI scoring
+* AI enrichment
+* offer routing
+* lifecycle stage
+* dedupe/canonical business identity
+* processor detection
+* audit logs
+* feature flag evaluation
+* queue safety
+* sync status
+* compliance decision logs
+* next-best compliant action
+
+GHL should own:
+
+* booking calendar
+* contact/deal visibility
+* rep tasks
+* conversation inbox
+* pipeline views
+* workflow execution only after Replit permission gating
+* appointment reminders only when allowed
+* sales team notifications
+* manual call tasks
+* notes and activity history
+
+Hard rule
+
+No GHL workflow should be able to send automated SMS, AI voice, ringless voicemail, or automated phone outreach unless Replit has already marked that exact channel as allowed for that exact contact.
+
+⸻
+
+Required Data Model Audit
+
+Inspect the schema and determine whether the platform has enough fields to safely run lifecycle automation.
+
+If missing, propose exact fields.
+
+At minimum, every lead/contact/prospect/deal should support:
+
+contactability: {
+  email: {
+    address: string | null
+    status: 'unknown' | 'valid' | 'invalid' | 'bounced' | 'unsubscribed' | 'blocked'
+    canEmail: boolean
+    reason: string | null
+  }
+  manualCall: {
+    phone: string | null
+    phoneType: 'unknown' | 'business_landline' | 'mobile' | 'voip' | 'personal' | 'invalid'
+    canManualCall: boolean
+    reason: string | null
+    quietHoursBlocked: boolean
+    stateBlocked: boolean
+    internalDncBlocked: boolean
+  }
+  sms: {
+    phone: string | null
+    consentStatus: 'none' | 'express' | 'pewc' | 'revoked'
+    canSms: boolean
+    reason: string | null
+    stopOptOut: boolean
+  }
+  voiceAi: {
+    consentStatus: 'none' | 'express' | 'pewc' | 'revoked'
+    canVoiceAi: boolean
+    reason: string | null
+  }
+  ringlessVm: {
+    consentStatus: 'none' | 'express' | 'pewc' | 'revoked'
+    canRinglessVm: boolean
+    reason: string | null
+  }
+  consentEvidence: {
+    pewcCapturedAt: string | null
+    sourceUrl: string | null
+    formId: string | null
+    disclosureVersion: string | null
+    disclosureTextSnapshot: string | null
+    ipAddress: string | null
+    userAgent: string | null
+    consentedPhone: string | null
+  }
+  global: {
+    doNotContact: boolean
+    doNotContactReason: string | null
+    internalDnc: boolean
+    state: string | null
+    timezone: string | null
+    allowedChannels: string[]
+    blockedChannels: string[]
+    nextBestCompliantAction: string | null
+  }
+}
+
+Audit whether these fields exist or need migration.
+
+⸻
+
+Required Lifecycle State Machine
+
+Audit existing pipeline stages and propose a canonical lifecycle model.
+
+Use separate concepts for lifecycle stage, sales pipeline stage, consent tier, and channel state.
+
+Lifecycle Stage
+
+* discovered
+* enriched
+* qualified
+* contacted
+* engaged
+* booked
+* statement_received
+* proposal_ready
+* proposal_sent
+* application_started
+* application_submitted
+* underwriting
+* boarded
+* live_merchant
+* retained
+* referred
+* closed_lost
+* do_not_contact
+
+Sales Pipeline Stage
+
+* New Lead
+* Statement Received
+* Review In Progress
+* Call Booked
+* Proposal Sent
+* Negotiation / Follow-Up
+* Verbal Commit
+* Closed Won
+* Closed Lost
+
+Consent Tier
+
+* cold_no_consent
+* warm_no_pewc
+* pewc_full_automation
+* opted_out
+* do_not_contact
+
+Offer Route
+
+* beat_square
+* beat_stripe
+* beat_clover
+* beat_toast
+* beat_paypal
+* free_statement_analysis
+* compliant_cash_discount
+* compliant_surcharge_review
+* free_smart_terminal
+* dual_pricing
+* industry_specific_rate_review
+* partner_referral
+* merchant_referral
+
+Conversion Intent
+
+* call_now
+* book_appointment
+* upload_statement
+* request_analysis
+* start_application
+* request_terminal
+* compare_rates
+* partner_signup
+* referral_submit
+
+⸻
+
+Required Contactability Gate
+
+Audit whether every sending function, GHL workflow trigger, sequence worker, SMS function, voice function, ringless voicemail function, and AI agent has a single shared gate.
+
+If missing, propose one canonical function such as:
+
+evaluateContactability({
+  contactId,
+  channel,
+  campaignType,
+  state,
+  phoneType,
+  source,
+  consentStatus,
+  featureFlags,
+  currentTime,
+  timezone,
+  dncStatus,
+  optOutStatus
+})
+
+The function must return:
+
+{
+  allowed: boolean
+  channel: 'email' | 'manual_call' | 'sms' | 'voice_ai' | 'ringless_vm'
+  reason: string
+  requiredConsent: string | null
+  complianceTier: string
+  auditLogPayload: object
+}
+
+Every blocked attempt must create an audit log entry.
+
+Every allowed automated outreach attempt must create an audit log entry.
+
+No worker should send first and check later.
+
+⸻
+
+Conversion Strategy
+
+The plan must optimize the full funnel around four conversion outcomes.
+
+Outcome 1 — Inbound Calls
+
+Audit and improve:
+
+* sticky call CTA
+* mobile tap-to-call CTA
+* header phone visibility
+* local phone numbers if applicable
+* phone CTA on high-intent pages
+* call tracking numbers
+* call conversion events
+* after-hours call fallback
+* missed-call text-back only if consented
+* phone CTA above the fold
+* phone CTA in comparison pages
+* phone CTA in free terminal pages
+* phone CTA after calculator result
+* phone CTA after statement upload
+* phone CTA in chat handoff
+
+Outcome 2 — Booked Appointments
+
+Audit and improve:
+
+* GHL booking links
+* booking page UX
+* appointment CTA consistency
+* “Book 15-Minute Rate Review” language
+* time-to-book friction
+* calendar embed
+* post-booking confirmation
+* appointment reminders
+* no-show recovery
+* booked-call CRM stage movement
+* attribution from page/source to appointment
+
+Outcome 3 — Statement Uploads
+
+Audit and improve:
+
+* upload statement CTA
+* supported file types
+* trust/security copy
+* progress states
+* upload success page
+* AI savings estimate
+* manual review fallback
+* proposal generation
+* rep task creation
+* UTM/source capture
+* drop-off tracking
+* mobile upload usability
+* error handling
+
+Outcome 4 — Merchant Signups
+
+Audit and improve:
+
+* merchant application flow
+* free terminal qualification path
+* prefilled fields from CRM/contact
+* duplicate EIN/email guard
+* PEWC checkbox
+* e-sign integration
+* underwriting status
+* onboarding tracker
+* Closed Won automation
+* application abandon recovery
+* GHL tasks and alerts
+
+⸻
+
+Website + SEO Audit Scope
+
+Audit every public route and group findings by conversion intent.
+
+Route groups to inspect
+
+* homepage
+* /get-started
+* /upload-statement
+* /free-analysis
+* /0-percent-processing
+* /beat-square-stripe
+* /free-smart-terminal if it exists
+* /compare/square
+* /compare/stripe
+* /compare/clover
+* /compare/toast
+* /compare/paypal
+* /locations/*
+* /industries/*
+* /tools/*
+* /blog/*
+* /faq
+* /testimonials
+* /case-studies
+* /shop
+* /partners
+* /merchant-application
+* legal pages
+
+SEO requirements
+
+Verify:
+
+* unique title per route
+* unique meta description per route
+* canonical tags
+* Open Graph tags
+* index/noindex logic
+* sitemap coverage
+* robots.txt
+* structured data
+* local business schema where appropriate
+* FAQ schema where appropriate
+* SoftwareApplication/Product/Service schema if appropriate
+* BreadcrumbList schema on nested pages
+* internal linking between comparison, industry, and location pages
+* no duplicate programmatic SEO thin pages
+* no empty or low-value city × industry pages
+* no orphan pages
+* correct footer links
+* mobile nav crawlability
+* page speed risks
+* image alt text
+* H1 uniqueness
+* CTA above fold on every SEO landing page
+
+Programmatic SEO quality requirements
+
+For city × industry pages, audit whether each page has enough unique content to justify indexation.
+
+Each location × industry page should ideally include:
+
+* city-specific H1
+* industry-specific pain point
+* localized processing challenges
+* primary offer CTA
+* phone CTA
+* appointment CTA
+* statement upload CTA
+* comparison angle
+* FAQ block
+* internal links to nearby cities or related industries
+* schema
+* unique meta description
+* clear merchant-specific value proposition
+
+Flag any route that appears thin, duplicated, generic, or not conversion-ready.
+
+⸻
+
+UX/UI + Conversion Design Audit Scope
+
+Audit the frontend with a conversion-first lens.
+
+Required UX principles
+
+* One dominant CTA per section
+* Phone call CTA always visible on mobile high-intent pages
+* Book appointment CTA always available
+* Statement upload CTA shown where proof is needed
+* No generic hero copy
+* No vague “learn more” as primary CTA
+* No confusing offer language
+* No “free processing” claims without compliance qualifier
+* Trust indicators above the fold
+* Short forms for cold traffic
+* Longer forms only after intent is established
+* Clear progress states
+* Clear confirmation pages
+* Clear human handoff paths
+* Clear privacy/security explanation for statement upload
+* Strong mobile-first design
+
+Visual design requirements
+
+The public website should feel:
+
+* premium
+* trustworthy
+* financial-services credible
+* local-business friendly
+* not spammy
+* not generic SaaS
+* not low-quality lead gen
+* not overly corporate
+* not cluttered
+
+Design audit should inspect:
+
+* hero hierarchy
+* CTA labels
+* CTA colors/contrast
+* trust badges
+* card design
+* mobile spacing
+* form layout
+* typography
+* comparison tables
+* calculator UI
+* upload component
+* GHL chat widget placement
+* header/nav clarity
+* footer conversion links
+* testimonial placement
+* case study presentation
+* above-fold clarity
+* page-level offer match
+
+⸻
+
+Copywriting Audit Scope
+
+Audit copy across the site, CRM templates, sequences, and forms.
+
+Messaging principles
+
+The copy should speak directly to merchant pain:
+
+* “Are you overpaying for payment processing?”
+* “See if Liberty can beat your current rate.”
+* “Upload your statement for a free savings review.”
+* “Check if you qualify for a free smart terminal.”
+* “Offset processing costs with a compliant cash discount or surcharge program.”
+* “Know what you’re actually paying.”
+* “Get a real comparison before you switch.”
+* “Built for restaurants, retail, healthcare, contractors, and local businesses.”
+
+Avoid
+
+* generic “grow your business” fluff
+* vague “solutions for every business”
+* aggressive “free processing” without qualifiers
+* unsupported savings claims
+* legal overpromises
+* “guaranteed approval”
+* “zero cost” without explanation
+* too much technical payment jargon above fold
+* anything that sounds like spam or robocall bait
+
+Required page-level CTA language
+
+Use specific CTA labels:
+
+* “Call for Free Rate Review”
+* “Book My 15-Minute Review”
+* “Upload My Statement”
+* “Check My Savings”
+* “See If We Can Beat Square”
+* “See If We Can Beat Stripe”
+* “Check Free Terminal Eligibility”
+* “Explore Compliant Cash Discount”
+* “Start Merchant Application”
+
+Do not use generic CTAs like:
+
+* “Submit”
+* “Learn More”
+* “Get Started” without context
+* “Contact Us” as the only CTA
+
+⸻
+
+Paid Acquisition Funnel Audit
+
+Audit whether the site supports high-converting paid traffic campaigns.
+
+Campaign families to support
+
+1. Beat Square
+2. Beat Stripe
+3. Beat Clover
+4. Beat Toast
+5. Free Statement Analysis
+6. Free Smart Terminal
+7. Compliant Cash Discount / Surcharge Review
+8. Restaurant Processing
+9. Retail Processing
+10. Healthcare Processing
+11. Contractor Processing
+12. Local city campaigns
+13. Partner / CPA / Bookkeeper campaigns
+14. Retargeting campaigns
+
+Paid landing page requirements
+
+Each paid landing page should have:
+
+* single clear offer
+* fast-loading above fold
+* phone CTA
+* booking CTA
+* short form
+* trust proof
+* no distracting nav if landing-page mode is used
+* UTM capture
+* conversion event tracking
+* thank-you page or modal
+* CRM/GHL routing
+* consent checkbox if phone/SMS automation may follow
+* source-specific hidden fields
+* Meta/GA4 event firing
+* call tracking support
+* A/B test readiness
+
+Required audit output
+
+Identify which pages should be used for paid traffic now, which need redesign, and which should not receive paid traffic yet.
+
+⸻
+
+Outbound Discovery + SDR Audit
+
+Audit the current outbound discovery engine.
+
+Discovery sources
+
+* Sunbiz
+* Serper.dev
+* Outscraper
+* Apify
+* Apollo.io
+* manual imports
+* GHL imports
+* CSV imports
+
+Required checks
+
+* dedupe quality
+* canonical business identity
+* duplicate prevention before sequence enrollment
+* contact confidence scoring
+* processor detection accuracy
+* industry classification
+* geographic targeting
+* offer routing
+* bad lead suppression
+* opt-out suppression
+* doNotContact enforcement
+* doNotAutoContact enforcement
+* queue retries
+* enrichment failures
+* audit logs
+* lead source preservation
+* UTM/source preservation where applicable
+
+SDR sequence rules
+
+Cold scraped leads:
+
+* email allowed if compliant
+* manual call task allowed if compliant
+* SMS blocked
+* AI voice blocked
+* ringless voicemail blocked
+
+Warm inbound no PEWC:
+
+* email allowed
+* manual call task allowed
+* SMS blocked unless consent exists
+* AI voice blocked unless consent exists
+* ringless voicemail blocked unless consent exists
+
+PEWC leads:
+
+* email allowed
+* SMS allowed if feature flag enabled
+* AI voice allowed if feature flag enabled
+* ringless voicemail allowed if feature flag enabled
+* all with quiet hours, opt-out, and audit logs
+
+⸻
+
+Multi-Touch Outreach Plan
+
+Create separate sequence families by consent tier and intent.
+
+Sequence Family 1 — Cold Email + Manual Call
+
+For cold scraped prospects.
+
+Channels:
+
+* email
+* manual call tasks only
+
+Goal:
+
+* drive to statement upload
+* drive to booked call
+* drive inbound call
+* capture consent through forms
+
+Example steps:
+
+1. Email: “Can Liberty beat your current processor?”
+2. Manual call task
+3. Email: “Most merchants don’t know their effective rate”
+4. Email: free smart terminal / rate review angle
+5. Manual call task
+6. Email: “Should I close your file?”
+
+Sequence Family 2 — Inbound Free Analysis
+
+For form submissions without PEWC.
+
+Channels:
+
+* email
+* manual call task
+
+Goal:
+
+* book appointment
+* upload statement
+* start application
+
+Sequence Family 3 — Statement Uploaded
+
+For statement uploads.
+
+Channels:
+
+* email
+* manual call task
+* SMS only if PEWC exists
+
+Goal:
+
+* schedule review call
+* deliver savings estimate
+* convert to proposal
+
+Sequence Family 4 — Booked Appointment
+
+For booked appointments.
+
+Channels:
+
+* email
+* SMS only if PEWC exists
+* manual task
+
+Goal:
+
+* reduce no-shows
+* collect statement before call
+* prep rep
+
+Sequence Family 5 — No-Show Recovery
+
+Channels based on consent tier.
+
+Goal:
+
+* rebook quickly
+
+Sequence Family 6 — Proposal Sent
+
+Channels based on consent tier.
+
+Goal:
+
+* answer objections
+* close
+
+Sequence Family 7 — Application Started / Abandoned
+
+Channels based on consent tier.
+
+Goal:
+
+* finish merchant application
+
+Sequence Family 8 — Closed Won Onboarding
+
+Goal:
+
+* collect docs
+* board MID
+* activate terminal
+* first batch
+
+Sequence Family 9 — Merchant Referral
+
+Goal:
+
+* generate referrals from live merchants
+
+Sequence Family 10 — Partner Referral
+
+Goal:
+
+* activate CPAs, bookkeepers, consultants, insurance agents
+
+⸻
+
+AI Agent Requirements
+
+Audit existing AI agents and propose the correct agent architecture.
+
+Required AI agents
+
+1. Lead Enrichment Agent
+
+Inputs:
+
+* business name
+* website
+* location
+* industry
+* scraped text
+* reviews
+* processor signals
+* contact data
+
+Outputs:
+
+* vertical
+* estimated processing volume
+* current processor likelihood
+* business size
+* risk tier
+* offer route
+* confidence score
+* recommended next action
+
+2. Offer Router Agent
+
+Chooses best offer:
+
+* beat Square/Stripe/Clover/Toast/PayPal
+* statement analysis
+* free terminal
+* cash discount/surcharge review
+* industry-specific savings audit
+
+3. Reply Intent Agent
+
+Classifies replies:
+
+* meeting_request
+* info_request
+* send_pricing
+* not_interested
+* stop
+* wrong_person
+* out_of_office
+* price_objection
+* already_has_processor
+* statement_attached
+* wants_call
+* wants_application
+* angry_compliance_risk
+* legal_request
+
+4. Appointment Setter Agent
+
+Only active on allowed channels.
+
+Can:
+
+* answer basic questions
+* send booking links
+* qualify merchant
+* ask for statement
+* route to rep
+* create GHL task
+
+Cannot:
+
+* send SMS without consent
+* make AI voice call without consent
+* leave ringless voicemail without consent
+* make unsupported savings promises
+* give legal advice
+* misrepresent Liberty
+
+5. Statement Analysis Agent
+
+Reads processor statement and produces:
+
+* effective rate estimate
+* likely fees
+* savings opportunity
+* recommended plan
+* questions for merchant
+* proposal draft
+* rep call prep
+
+6. Sales Advisor Agent
+
+Helps rep with:
+
+* objections
+* competitive comparison
+* call prep
+* negotiation angle
+* close plan
+* next-step email
+
+7. Compliance Advisor Agent
+
+Flags:
+
+* unsafe channel use
+* missing consent
+* missing disclosure
+* opt-out risk
+* DNC risk
+* bad claim language
+* risky free-processing language
+* missing CAN-SPAM footer
+* missing audit trail
+
+⸻
+
+Analytics System Requirements
+
+Audit current analytics and propose a complete event taxonomy.
+
+Every event should include
+
+* event_name
+* timestamp
+* anonymous_id
+* user_id if known
+* contact_id if known
+* deal_id if known
+* session_id
+* source
+* medium
+* campaign
+* term
+* content
+* landing_page
+* referrer
+* page_type
+* offer_route
+* vertical
+* city
+* industry
+* consent_tier
+* lifecycle_stage
+* device
+* browser
+* gclid/fbclid/msclkid where available
+
+Required public website events
+
+* page_view
+* phone_cta_click
+* booking_cta_click
+* statement_upload_started
+* statement_upload_completed
+* statement_upload_failed
+* free_analysis_form_started
+* free_analysis_form_completed
+* savings_calculator_started
+* savings_calculator_completed
+* rate_estimator_started
+* rate_estimator_completed
+* merchant_application_started
+* merchant_application_submitted
+* partner_signup_started
+* partner_signup_submitted
+* chat_opened
+* chat_qualified
+* ghl_booking_link_clicked
+* appointment_booked
+* consent_checkbox_viewed
+* pewc_checked
+* pewc_unchecked
+* form_abandoned
+* thank_you_page_view
+
+Required CRM/automation events
+
+* lead_created
+* lead_enriched
+* lead_scored
+* offer_route_assigned
+* contactability_evaluated
+* channel_blocked
+* channel_allowed
+* sequence_enrolled
+* sequence_step_sent
+* sequence_step_blocked
+* email_bounced
+* email_replied
+* reply_intent_classified
+* manual_call_task_created
+* appointment_booked
+* statement_received
+* proposal_generated
+* proposal_sent
+* application_started
+* application_submitted
+* deal_stage_changed
+* closed_won
+* closed_lost
+* onboarding_started
+* merchant_boarded
+* first_batch_detected
+* referral_submitted
+* residual_uploaded
+* residual_reconciled
+
+Analytics dashboard requirements
+
+Build or improve dashboard views for:
+
+* traffic by source
+* conversion by page
+* conversion by offer
+* conversion by industry
+* conversion by city
+* conversion by campaign
+* call CTA click rate
+* booking CTA click rate
+* statement upload rate
+* form completion rate
+* PEWC capture rate
+* appointment show rate
+* proposal close rate
+* Closed Won by source
+* CAC proxy by campaign if ad spend data exists
+* revenue/residual by source if available
+* channel block reasons
+* unsafe automation attempts blocked
+* GHL sync failures
+* lead leakage by lifecycle stage
+
+⸻
+
+Dashboard / Operator Control Plane Requirements
+
+Audit existing dashboard pages and propose the ideal operator experience.
+
+Required dashboard modules
+
+1. Lifecycle Command Center
+
+Shows:
+
+* new cold prospects
+* enriched prospects
+* high-intent inbound leads
+* booked calls
+* statement uploads waiting for review
+* proposals waiting for follow-up
+* applications abandoned
+* onboarding blocked
+* live merchants
+* referral opportunities
+
+2. Channel Safety Dashboard
+
+Shows:
+
+* email allowed count
+* manual call allowed count
+* SMS allowed count
+* AI voice allowed count
+* ringless voicemail allowed count
+* blocked due to no PEWC
+* blocked due to DNC
+* blocked due to opt-out
+* blocked due to quiet hours
+* Florida leads by consent tier
+* unsafe attempts blocked
+* feature flag status
+
+3. Conversion Dashboard
+
+Shows:
+
+* visitors
+* calls
+* appointments
+* statement uploads
+* analysis requests
+* applications
+* Closed Won
+* conversion rate by landing page
+* conversion rate by offer
+* conversion rate by source
+* conversion rate by city/industry
+* drop-off points
+
+4. SDR Dashboard
+
+Shows:
+
+* eligible leads
+* enrolled leads
+* paused sequences
+* sent today
+* sender utilization
+* bounces
+* replies
+* intent classifications
+* meetings booked
+* manual calls due
+* blocked steps
+* opt-outs
+
+5. GHL Sync Dashboard
+
+Shows:
+
+* last sync
+* failed syncs
+* stuck records
+* contact conflicts
+* deal conflicts
+* workflow trigger status
+* webhook events
+* retry queue
+* reconciliation actions
+
+6. Go-Live Activation Dashboard
+
+Shows:
+
+* readiness checks
+* feature flags
+* sending identities
+* GHL connection
+* consent system status
+* analytics status
+* sitemap/SEO status
+* queue health
+* worker health
+* latest blocked unsafe attempts
+* daily launch checklist
+
+⸻
+
+Backend / Worker Audit Scope
+
+Inspect all background jobs and queue workers.
+
+Required queues
+
+* ghl-sync
+* sla-checks
+* sequences
+* enrichment
+* discovery
+* digests
+* mid-ingestion
+* analytics-event-processing if present or needed
+* compliance-audit-log if present or needed
+
+Worker requirements
+
+Each worker should have:
+
+* idempotency key
+* retry policy
+* dead-letter behavior
+* audit logging
+* feature flag checks
+* contactability checks where relevant
+* graceful shutdown
+* error reporting
+* dashboard visibility
+* rate limit handling
+* GHL API failure handling
+* partial failure recovery
+
+Sequence worker hard requirements
+
+Before any send:
+
+1. Load latest contact.
+2. Load latest consent/contactability.
+3. Load latest opt-out/DNC.
+4. Load latest feature flags.
+5. Evaluate channel permission.
+6. Write audit log.
+7. Only then send.
+8. Write result.
+9. Sync status to GHL.
+
+⸻
+
+Security / Auth Audit Scope
+
+Audit:
+
+* custom auth
+* session security
+* password reset
+* email verification
+* MFA / TOTP
+* backup codes
+* trusted devices
+* role guards
+* admin/manager/agent/merchant/partner roles
+* dashboard access
+* merchant portal access
+* partner portal access
+* document vault access
+* file upload permissions
+* sensitive data exposure
+* statement PDF access
+* KYC document access
+* audit logging
+* rate limiting
+* public endpoint abuse protection
+
+Required output:
+
+* identify any route that exposes sensitive merchant/prospect data without proper role guard
+* identify any public form vulnerable to spam or abuse
+* identify whether rate limits are appropriate for forms, upload, auth, and APIs
+
+⸻
+
+Merchant Application + Onboarding Audit
+
+Audit:
+
+* /merchant-application
+* PEWC checkbox
+* duplicate guard by EIN + email
+* prefill from contact/deal
+* e-sign integration
+* GHL workflow trigger
+* Closed Won automation
+* onboarding pipeline creation
+* KYC document collection
+* document vault connection
+* MID provisioning
+* boarding status fields
+* terminal shipment/setup
+* first batch tracking
+* onboarding SLA tasks
+* onboarding dashboard visibility
+
+Conversion goal:
+
+Reduce friction from proposal accepted → application submitted → merchant live.
+
+⸻
+
+Partner / Referral Lifecycle Audit
+
+Audit:
+
+* /partners
+* CPA pages
+* bookkeeper pages
+* insurance agent pages
+* consultant pages
+* partner signup
+* residual calculator
+* partner portal
+* affiliate signup
+* cookie attribution
+* referral codes
+* co-branded collateral
+* partner dashboard
+* referred merchant tracking
+* commission visibility
+
+Conversion goal:
+
+Turn merchants and professional partners into a second acquisition channel.
+
+⸻
+
+Residual / Commission Audit
+
+Audit:
+
+* CSV/XLSX upload
+* parser
+* merchant matching
+* variance detection
+* agent assignment
+* payout alerts
+* reconciliation UI
+* audit logs
+* error states
+* duplicate upload prevention
+
+Business goal:
+
+Make revenue attribution visible by source, campaign, rep, partner, and merchant.
+
+⸻
+
+Required Final Output Format
+
+Deliver the audit and plan in this exact format.
+
+1. Executive Verdict
+
+Choose one:
+
+* READY TO SCALE
+* READY AFTER TARGETED FIXES
+* NOT READY TO SCALE
+* NOT SAFE TO SCALE
+
+Explain in 5–8 bullets.
+
+2. Conversion System Summary
+
+Explain the current customer lifecycle as implemented.
+
+Identify the intended highest-converting lifecycle.
+
+Compare current vs ideal.
+
+3. Compliance Risk Summary
+
+Group by:
+
+* P0 — unsafe / must fix before scale
+* P1 — high risk / fix before enabling automation
+* P2 — operational risk / fix soon
+* P3 — polish / monitoring
+
+Must specifically cover:
+
+* ringless voicemail
+* AI voice
+* SMS
+* manual calls
+* cold email
+* PEWC
+* opt-outs
+* DNC
+* quiet hours
+* GHL workflows
+* feature flags
+
+4. Conversion Leak Summary
+
+Group by funnel step:
+
+* SEO visit
+* paid click
+* landing page
+* CTA click
+* form start
+* form submit
+* statement upload
+* appointment booking
+* proposal
+* merchant application
+* onboarding
+* referral
+
+For each leak, include:
+
+* issue
+* affected routes/components
+* likely impact
+* recommended fix
+* priority
+
+5. SEO Audit Findings
+
+Include:
+
+* route coverage
+* metadata
+* structured data
+* sitemap
+* internal linking
+* programmatic page quality
+* duplicate/thin content
+* page-specific CTA gaps
+* indexation risks
+
+6. Website UX/UI Findings
+
+Include:
+
+* desktop
+* mobile
+* landing pages
+* navigation
+* forms
+* comparison pages
+* calculators
+* statement upload
+* trust proof
+* CTA clarity
+* visual polish
+* accessibility
+
+7. Backend / Automation Findings
+
+Include:
+
+* CRM sync
+* GHL ownership
+* sequence workers
+* lead discovery
+* dedupe
+* enrichment
+* AI scoring
+* offer routing
+* queue health
+* failure modes
+* idempotency
+* audit logs
+
+8. Analytics Findings
+
+Include:
+
+* missing events
+* broken attribution
+* UTM gaps
+* call tracking gaps
+* booking attribution gaps
+* source-to-revenue gaps
+* dashboard gaps
+* recommended event taxonomy
+
+9. AI Agent Findings
+
+Include:
+
+* current agents
+* missing agents
+* risky agent behaviors
+* safe agent behaviors
+* recommended system prompts
+* handoff logic
+* channel permission integration
+
+10. Master Build Waves
+
+Create a detailed implementation roadmap with waves.
+
+Each wave must include:
+
+* goal
+* scope
+* files likely touched
+* data model changes
+* frontend changes
+* backend changes
+* GHL changes
+* analytics changes
+* compliance considerations
+* out of scope
+* kill lines
+* done looks like
+* validation / tests
+* priority
+* risk level
+* estimated complexity
+
+⸻
+
+Required Build Waves
+
+At minimum, plan these waves.
+
+Wave 1 — Lifecycle Source of Truth + Contactability Engine
+
+Goal:
+
+Create the canonical customer lifecycle and channel permission engine.
+
+Scope:
+
+* consent tiers
+* lifecycle stages
+* contactability object
+* PEWC evidence
+* allowed/blocked channels
+* next-best compliant action
+* audit logs
+* channel permission function
+* worker integration plan
+
+Done looks like:
+
+Every automated send/trigger checks one shared contactability function before execution.
+
+Wave 2 — Consent Capture + Form Conversion Upgrade
+
+Goal:
+
+Increase form conversion while cleanly capturing consent.
+
+Scope:
+
+* all public forms
+* statement upload
+* free analysis
+* calculator
+* booking
+* merchant application
+* partner/referral forms
+* optional PEWC checkbox
+* disclosure versioning
+* source URL capture
+* IP/user-agent capture
+* CRM/GHL mapping
+* thank-you pages
+
+Done looks like:
+
+Forms are higher-converting and consent evidence is stored for every lead that grants PEWC.
+
+Wave 3 — High-Converting Landing Page Rebuild
+
+Goal:
+
+Turn SEO and paid traffic into calls, appointments, uploads, and signups.
+
+Scope:
+
+* homepage
+* /beat-square-stripe
+* /0-percent-processing
+* /free-analysis
+* /upload-statement
+* /free-smart-terminal
+* compare pages
+* industry pages
+* location pages
+* paid landing page variants
+
+Done looks like:
+
+Every high-intent page has a clear offer, phone CTA, booking CTA, statement CTA, trust proof, and analytics.
+
+Wave 4 — SEO + Programmatic Page Quality Upgrade
+
+Goal:
+
+Improve organic acquisition while avoiding thin/duplicated programmatic pages.
+
+Scope:
+
+* metadata
+* schema
+* sitemap
+* internal linking
+* location × industry pages
+* FAQ schema
+* comparison pages
+* case studies
+* blog strategy
+* local SEO structure
+
+Done looks like:
+
+SEO pages are indexable, unique, useful, and conversion-ready.
+
+Wave 5 — Offer Router + AI Lead Qualification
+
+Goal:
+
+Use AI to route every prospect/lead to the most likely conversion offer.
+
+Scope:
+
+* enrichment prompts
+* offer scoring
+* processor detection
+* savings likelihood
+* free terminal eligibility
+* cash discount fit
+* risk tier
+* CRM card display
+* GHL tags/fields
+
+Done looks like:
+
+Every lead has a recommended offer, reason, confidence score, and next action.
+
+Wave 6 — Compliant SDR Sequence Architecture
+
+Goal:
+
+Scale outreach without unsafe automated channels.
+
+Scope:
+
+* cold email/manual call sequences
+* inbound no-PEWC sequences
+* PEWC sequences
+* statement uploaded sequences
+* booked call sequences
+* no-show recovery
+* proposal follow-up
+* application abandon
+* merchant referral
+* partner referral
+
+Done looks like:
+
+Sequences are separated by consent tier and cannot cross into blocked channels.
+
+Wave 7 — GHL/Replit Sync Authority Hardening
+
+Goal:
+
+Prevent GHL workflows from bypassing Replit permission truth.
+
+Scope:
+
+* GHL custom fields
+* GHL tags
+* workflow trigger rules
+* Replit permission gate
+* sync conflict handling
+* webhook logs
+* task creation
+* booking attribution
+* blocked automation logging
+
+Done looks like:
+
+GHL only executes channel actions that Replit explicitly permits.
+
+Wave 8 — Analytics + Attribution System
+
+Goal:
+
+Know exactly which pages, campaigns, offers, and channels create revenue.
+
+Scope:
+
+* GA4 events
+* Meta Pixel events
+* server-side event logging
+* UTM capture
+* call tracking support
+* booking attribution
+* statement upload attribution
+* CRM event linkage
+* revenue/source reporting
+* dashboard views
+
+Done looks like:
+
+Liberty can see visitor → lead → appointment → statement → proposal → application → Closed Won by source and campaign.
+
+Wave 9 — Operator Command Center
+
+Goal:
+
+Give Liberty a control plane for go-live and daily operation.
+
+Scope:
+
+* lifecycle dashboard
+* channel safety dashboard
+* SDR dashboard
+* conversion dashboard
+* GHL sync dashboard
+* queue dashboard
+* stuck lead alerts
+* launch readiness checklist
+* feature flag visibility
+
+Done looks like:
+
+Admin can see what is working, what is blocked, what is unsafe, what needs human action, and what is converting.
+
+Wave 10 — Merchant Application + Onboarding Conversion
+
+Goal:
+
+Reduce drop-off from interested lead to live merchant.
+
+Scope:
+
+* merchant application UX
+* prefill
+* duplicate guard
+* PEWC
+* document collection
+* e-sign
+* onboarding tracker
+* MID provisioning
+* terminal setup
+* first batch
+* abandoned application recovery
+
+Done looks like:
+
+Closed Won merchants move smoothly into onboarding and live processing.
+
+Wave 11 — Partner + Referral Growth Loop
+
+Goal:
+
+Turn partners and existing merchants into acquisition channels.
+
+Scope:
+
+* partner pages
+* referral portal
+* merchant referral flow
+* residual calculator
+* co-branded proposals
+* referral tracking
+* partner attribution
+* commission visibility
+
+Done looks like:
+
+Liberty has a measurable partner/referral flywheel.
+
+Wave 12 — Release QA + Go-Live Safety
+
+Goal:
+
+Prepare the platform to scale safely.
+
+Scope:
+
+* role guard smoke tests
+* compliance gate tests
+* sequence tests
+* form tests
+* analytics tests
+* GHL sync tests
+* SEO route tests
+* mobile UX screenshots
+* feature flag matrix
+* queue failure tests
+* opt-out tests
+* DNC tests
+* consent evidence tests
+
+Done looks like:
+
+The system can go live without unsafe outreach, lost attribution, broken forms, hidden sync failures, or untracked conversions.
+
+⸻
+
+Priority Rules
+
+Prioritize work in this order:
+
+1. P0 legal/compliance safety blockers
+2. P0 conversion blockers on high-intent pages/forms
+3. P1 attribution and analytics gaps
+4. P1 GHL/Replit ownership conflicts
+5. P1 automation failure modes
+6. P1 SEO crawl/index problems
+7. P2 UX/UI conversion polish
+8. P2 AI scoring/offer quality improvements
+9. P3 dashboard polish
+10. P3 content expansion
+
+⸻
+
+Kill Lines
+
+Stop and flag immediately if:
+
+* Any automated SMS can be sent to a cold scraped lead without PEWC.
+* Any AI voice call can be made without PEWC.
+* Any ringless voicemail can be sent without PEWC.
+* Any GHL workflow can bypass Replit’s channel permission state.
+* Any opt-out does not immediately suppress future outreach.
+* Any DNC contact can be enrolled in a sequence.
+* Any form captures phone number but does not preserve consent state.
+* Any PEWC checkbox exists but does not store disclosure evidence.
+* Any “free processing” page makes unsupported or legally risky claims.
+* Any paid landing page lacks conversion tracking.
+* Any high-intent page lacks call/booking/upload CTAs.
+* Any statement upload succeeds without CRM/deal creation.
+* Any appointment booking cannot be attributed to source/campaign.
+* Any Closed Won deal does not trigger onboarding.
+* Any sensitive document route lacks role protection.
+* Any sequence worker sends before checking latest contactability.
+* Any queue failure is invisible to operators.
+* Any programmatic SEO route is thin, duplicated, or indexable without useful content.
+* Any analytics event loses UTM/source attribution.
+
+⸻
+
+Validation Requirements
+
+For each proposed wave, include exact validation steps.
+
+Use targeted validation by default.
+
+Suggested validation categories:
+
+Static checks
+
+* grep for SMS send functions
+* grep for voice/ringless voicemail functions
+* grep for GHL workflow triggers
+* grep for form submit handlers
+* grep for PEWC fields
+* grep for opt-out handling
+* grep for doNotContact
+* grep for doNotAutoContact
+* grep for sequence worker sends
+* grep for analytics events
+* grep for route metadata
+
+Unit tests
+
+* contactability evaluation
+* consent tier transitions
+* opt-out suppression
+* DNC suppression
+* quiet hours logic
+* feature flag gating
+* sequence eligibility
+* offer routing
+* UTM persistence
+* PEWC evidence storage
+
+Integration tests
+
+* form submit → CRM contact/deal
+* form submit → GHL sync
+* statement upload → analysis → deal stage
+* booking → deal stage
+* sequence enrollment → permission gate
+* opt-out → suppression
+* GHL webhook → local record update
+* Closed Won → onboarding
+* merchant app → duplicate guard
+
+Manual QA
+
+* mobile landing page CTA
+* statement upload
+* free analysis form
+* booking flow
+* phone CTA
+* PEWC checkbox
+* thank-you pages
+* GHL contact fields
+* dashboard channel safety
+* blocked automation logs
+* SEO metadata
+* sitemap
+* structured data
+
+⸻
+
+Deliverable Requirements
+
+The final output must be extremely specific.
+
+Do not say “improve landing pages.” Say exactly which pages, components, CTAs, forms, fields, events, and backend handlers need work.
+
+Do not say “add analytics.” Provide the exact event taxonomy and where each event should fire.
+
+Do not say “ensure compliance.” Identify the exact channel, trigger, worker, GHL workflow, feature flag, and database state that must enforce compliance.
+
+Do not say “AI can qualify leads.” Define which agent does what, what data it reads, what it outputs, and what it is forbidden to do.
+
+Do not say “improve SEO.” Identify specific route groups, metadata, schema, internal links, thin pages, and conversion gaps.
+
+Do not say “use GHL.” Define what Replit owns, what GHL owns, which fields sync, which workflow triggers are allowed, and what happens on sync failure.
+
+⸻
+
+Expected Final Answer Structure
+
+Return:
+
+1. Executive verdict
+2. Current lifecycle map
+3. Ideal lifecycle map
+4. P0/P1/P2/P3 findings
+5. Compliance-safe channel matrix
+6. Conversion funnel diagnosis
+7. SEO diagnosis
+8. Website UX/UI diagnosis
+9. Backend/automation diagnosis
+10. Analytics diagnosis
+11. AI agent diagnosis
+12. GHL/Replit ownership diagnosis
+13. Master build wave roadmap
+14. Per-wave detailed specs
+15. Exact validation checklist
+16. Recommended launch sequence
+17. Final go/no-go criteria
+
+⸻
+
+Final Goal
+
+The final plan should make Liberty Bancard capable of scaling acquisition aggressively while staying safe:
+
+Scrape and qualify prospects at scale
+→ contact cold prospects only through compliant email and manual business call tasks
+→ drive traffic to high-converting offer pages
+→ maximize inbound calls, appointment bookings, statement uploads, and merchant applications
+→ capture PEWC on inbound forms
+→ unlock SMS, AI voice, and ringless voicemail only after documented consent
+→ let AI qualify, route, book, and prepare proposals
+→ let reps handle high-value calls and closes
+→ automate onboarding, retention, referral, and residual reconciliation
+→ give operators a dashboard that clearly shows what is converting, what is blocked, what is unsafe, and what needs human action.

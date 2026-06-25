@@ -263,3 +263,9 @@ id = "p0aeFx7VdRq8di6I9QD3x"
 uri = "file://docs/ghl-workflow-playbook.md"
 type = "text"
 title = "GHL Workflow Playbook — Liberty Bancard (22 Workflows)"
+
+[[outputs]]
+id = "4deTfKdkOKzjSuuu5Uwkh"
+uri = "file://docs/audit-report-2026-06-25.md"
+type = "text"
+title = "Liberty Bancard — Master Audit Report (June 25, 2026)"
