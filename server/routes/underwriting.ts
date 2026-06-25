@@ -205,8 +205,8 @@ export function registerUnderwritingRoutes(app: Express) {
             createGhlTask({
               contactId: contact.ghlContactId,
               title: `Underwriting Approved — Deal #${dealId}: ${deal?.companyName || "Unknown"} — advance to Proposal Sent`,
-              dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-              assignedTo: null,
+              dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
+              assignedTo: undefined,
             }).catch((err: Error) => console.warn("[Underwriting] createGhlTask (approve, non-critical):", err.message));
           }
         }
@@ -275,8 +275,8 @@ export function registerUnderwritingRoutes(app: Express) {
             createGhlTask({
               contactId: contact.ghlContactId,
               title: `Underwriting Rejected — Deal #${dealId}: ${deal?.companyName || "Unknown"} — returned to Review In Progress${note ? ` — Note: ${note}` : ""}`,
-              dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-              assignedTo: null,
+              dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
+              assignedTo: undefined,
             }).catch((err: Error) => console.warn("[Underwriting] createGhlTask (reject, non-critical):", err.message));
           }
         }
