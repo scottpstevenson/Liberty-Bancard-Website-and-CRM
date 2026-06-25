@@ -77,6 +77,7 @@ export default function Sequences() {
   const [editLoadingSteps, setEditLoadingSteps] = useState(false);
   const [originalStepIds, setOriginalStepIds] = useState<number[]>([]);
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [expandedTierId, setExpandedTierId] = useState<number | null>(null);
   const [enrollDialogSeqId, setEnrollDialogSeqId] = useState<number | null>(null);
   const [enrollContactId, setEnrollContactId] = useState("");
   const [enrollDealId, setEnrollDealId] = useState("");
@@ -522,6 +523,20 @@ export default function Sequences() {
                     </div>
                   </div>
 
+                  <div className="mt-2">
+                    <button
+                      className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                      onClick={() => setExpandedTierId(expandedTierId === seq.id ? null : seq.id)}
+                      data-testid={`button-tier-breakdown-${seq.id}`}
+                    >
+                      {expandedTierId === seq.id ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                      Tier Breakdown
+                    </button>
+                    {expandedTierId === seq.id && (
+                      <TierBreakdown seqId={seq.id} eligibleTiers={seq.eligibleConsentTiers || []} />
+                    )}
+                  </div>
+
                   {isExpanded && (
                     <SequenceStepsView sequenceId={seq.id} enrollments={seqEnrollments} />
                   )}
@@ -894,6 +909,57 @@ export default function Sequences() {
           </div>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function TierBreakdown({ seqId, eligibleTiers }: { seqId: number; eligibleTiers: string[] }) {
+  const { data, isLoading } = useQuery<{ consentTier: string; count: number }[]>({
+    queryKey: ["/api/sequences", seqId, "enrollments", "by-tier"],
+    queryFn: async () => {
+      const res = await fetch(`/api/sequences/${seqId}/enrollments/by-tier`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+
+  if (isLoading) {
+    return (
+      <div className="mt-2 space-y-1.5" data-testid={`tier-breakdown-loading-${seqId}`}>
+        <Skeleton className="h-4 w-32" />
+        <Skeleton className="h-4 w-32" />
+      </div>
+    );
+  }
+
+  const serverRows = data || [];
+  const serverTiers = new Set(serverRows.map((r) => r.consentTier));
+  const zeroRows = eligibleTiers
+    .filter((t) => !serverTiers.has(t))
+    .map((t) => ({ consentTier: t, count: 0 }));
+  const allRows = [...serverRows, ...zeroRows];
+
+  if (allRows.length === 0) {
+    return (
+      <p className="mt-2 text-xs text-muted-foreground" data-testid={`tier-breakdown-empty-${seqId}`}>
+        No active enrollment records
+      </p>
+    );
+  }
+
+  return (
+    <div className="mt-2 border rounded-md px-3 py-2 text-xs" data-testid={`tier-breakdown-${seqId}`}>
+      <p className="text-muted-foreground mb-1.5 font-medium">Active enrollment records by tier</p>
+      {allRows.map(({ consentTier, count }) => (
+        <div
+          key={consentTier}
+          className={`flex justify-between py-0.5${count === 0 ? " text-muted-foreground" : ""}`}
+          data-testid={`row-tier-${seqId}-${consentTier}`}
+        >
+          <span>{consentTier}</span>
+          <span>{count}</span>
+        </div>
+      ))}
     </div>
   );
 }

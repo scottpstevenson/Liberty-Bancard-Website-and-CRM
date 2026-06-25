@@ -1,13 +1,14 @@
 import type { Express } from "express";
-import { isAuthenticated } from "../replit_integrations/auth";
+import { isAuthenticated, isDashboardUser } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
-import { contacts, insertCampaignSchema, insertCampaignStepSchema, insertFollowUpSequenceSchema, insertSequenceEnrollmentSchema, insertSequenceStepSchema } from "@shared/schema";
+import { contacts, followUpSequences, sequenceEnrollments, insertCampaignSchema, insertCampaignStepSchema, insertFollowUpSequenceSchema, insertSequenceEnrollmentSchema, insertSequenceStepSchema } from "@shared/schema";
 import type { AbTestConfig, AbTestResults } from "@shared/schema";
 import { getCampaignAnalytics, processSendQueue, queueCampaignMessages } from "../services/campaign-engine";
 import { parse } from "csv-parse/sync";
 import { checkAbTestWinners } from "../services/ab-test-worker";
-import { pool } from "../db";
+import { pool, db } from "../db";
+import { eq, and, count } from "drizzle-orm";
 
 interface AbTestResultRow {
   sequenceId: number;
@@ -346,6 +347,45 @@ export function registerCampaignsRoutes(app: Express) {
     }
   });
 
+
+  // === SEQUENCE TIER BREAKDOWN ===
+  app.get("/api/sequences/:id/enrollments/by-tier", isDashboardUser, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id) || id <= 0) {
+        return res.status(400).json({ message: "Invalid sequence id" });
+      }
+      const [seq] = await db.select({ id: followUpSequences.id }).from(followUpSequences).where(eq(followUpSequences.id, id)).limit(1);
+      if (!seq) {
+        return res.status(404).json({ message: "Sequence not found" });
+      }
+      const rows = await db
+        .select({
+          consentTier: contacts.consentTier,
+          count: count(),
+        })
+        .from(sequenceEnrollments)
+        .innerJoin(contacts, eq(sequenceEnrollments.contactId, contacts.id))
+        .where(
+          and(
+            eq(sequenceEnrollments.sequenceId, id),
+            eq(sequenceEnrollments.status, "active")
+          )
+        )
+        .groupBy(contacts.consentTier);
+
+      const normalized = rows
+        .map((r) => ({
+          consentTier: r.consentTier === null ? "unknown" : r.consentTier,
+          count: Number(r.count),
+        }))
+        .sort((a, b) => b.count - a.count);
+
+      return res.json(normalized);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
 
   // === SEQUENCE ENROLLMENTS ===
   app.get("/api/sequence-enrollments", isAuthenticated, async (req, res) => {
