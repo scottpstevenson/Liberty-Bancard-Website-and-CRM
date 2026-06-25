@@ -3,8 +3,8 @@ import { isAuthenticated, isAdmin, isDashboardUser, requireRole } from "../repli
 import { storage } from "../storage";
 import { db, pool } from "../db";
 import { z } from "zod";
-import { contacts, insertBusinessAliasSchema, insertBusinessLocationSchema, insertBusinessSchema, insertLeadSourceSchema, sdrLeadState, sdrChannelAttempts, sdrLeadEvents, sdrMerchants } from "@shared/schema";
-import { eq, sql, desc } from "drizzle-orm";
+import { contacts, consentAuditLogs, insertBusinessAliasSchema, insertBusinessLocationSchema, insertBusinessSchema, insertLeadSourceSchema, sdrLeadState, sdrChannelAttempts, sdrLeadEvents, sdrMerchants } from "@shared/schema";
+import { eq, sql, desc, and } from "drizzle-orm";
 import { getSerperUsage, isSerperConfigured } from "../services/serper";
 import { scoreLeadFull } from "../services/sdr/scoring";
 import { bridgeContactsToSdr, getDailyLimits, getSdrDashboardStats, isOrchestratorRunning, startOrchestrator, stopOrchestrator, sweepLeads, pauseAll, resumeAll, isGloballyPaused, getGlobalPauseReason, getLastSweepTime, getLastSweepErrors, trackWebhookFailure, getWebhookFailureCount } from "../services/sdr/orchestrator";
@@ -332,6 +332,204 @@ export function registerSdrRoutes(app: Express) {
       } else {
         res.status(400).json({ message: "source must be 'contacts' or 'sunbiz'" });
       }
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === COMPLIANCE CHANNEL STATUS ===
+  app.get("/api/sdr/compliance-channel-status", isDashboardUser, async (_req, res) => {
+    try {
+      const [totalRow] = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(contacts)
+        .where(sql`${contacts.archivedAt} IS NULL`);
+      const totalContacts = totalRow?.count ?? 0;
+
+      const [smsPewcRow] = await db
+        .select({ count: sql<number>`count(distinct ${consentAuditLogs.contactId})::int` })
+        .from(consentAuditLogs)
+        .where(and(
+          eq(consentAuditLogs.channel, "sms"),
+          eq(consentAuditLogs.consented, true),
+          eq(consentAuditLogs.consentType, "express_written"),
+        ));
+      const smsPewcCount = smsPewcRow?.count ?? 0;
+
+      const [callPewcRow] = await db
+        .select({ count: sql<number>`count(distinct ${consentAuditLogs.contactId})::int` })
+        .from(consentAuditLogs)
+        .where(and(
+          eq(consentAuditLogs.channel, "call"),
+          eq(consentAuditLogs.consented, true),
+          eq(consentAuditLogs.consentType, "express_written"),
+        ));
+      const callPewcCount = callPewcRow?.count ?? 0;
+
+      const [smsAnyConsentRow] = await db
+        .select({ count: sql<number>`count(distinct ${consentAuditLogs.contactId})::int` })
+        .from(consentAuditLogs)
+        .where(and(eq(consentAuditLogs.channel, "sms"), eq(consentAuditLogs.consented, true)));
+      const smsAnyConsentCount = smsAnyConsentRow?.count ?? 0;
+
+      const strictStates = (process.env.STRICT_STATE_CONSENT_REQUIRED || "FL")
+        .split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+
+      const missingApiKeys: string[] = [];
+      if (!process.env.SERPER_API_KEY) missingApiKeys.push("SERPER_API_KEY");
+      if (!process.env.OUTSCRAPER_API_KEY) missingApiKeys.push("OUTSCRAPER_API_KEY");
+      if (!process.env.APIFY_API_TOKEN) missingApiKeys.push("APIFY_API_TOKEN");
+      if (!process.env.APOLLO_API_KEY) missingApiKeys.push("APOLLO_API_KEY");
+
+      const smsEnabled = featureFlags.SMS_ENABLED;
+      const voiceEnabled = featureFlags.VOICE_AI_ENABLED;
+      const discoveryEnabled = featureFlags.NIGHTLY_DISCOVERY_ENABLED;
+      const orchestratorEnabled = featureFlags.ORCHESTRATOR_ENABLED;
+      const sdrEnabled = featureFlags.SDR_ENABLED;
+
+      res.json({
+        strictStates,
+        lastUpdated: new Date().toISOString(),
+        channels: [
+          {
+            key: "cold_email",
+            name: "Cold Email",
+            icon: "mail",
+            status: sdrEnabled ? "safe" : "warning",
+            flagKey: "SDR_ENABLED",
+            flagEnabled: sdrEnabled,
+            regulation: "CAN-SPAM",
+            consentRequired: false,
+            summary: sdrEnabled
+              ? "Safe to use — B2B cold email is governed by CAN-SPAM, not TCPA. No prior consent required for business contacts."
+              : "SDR_ENABLED is off. Email sequences will not run until you enable it.",
+            requirements: [
+              "Include physical mailing address in every email",
+              "Honor unsubscribe requests within 10 business days",
+              "No deceptive subject lines",
+              "Identify message as an advertisement",
+            ],
+            blockers: sdrEnabled ? [] : ["SDR_ENABLED=false — set to true in Replit Secrets"],
+            stats: null,
+          },
+          {
+            key: "manual_call",
+            name: "Manual Cold Call (Human Rep)",
+            icon: "phone",
+            status: "safe",
+            flagKey: null,
+            flagEnabled: true,
+            regulation: "TCPA — B2B DNC Exemption",
+            consentRequired: false,
+            summary: "Safe — manually dialed B2B calls by a human rep are exempt from TCPA auto-dialer restrictions and the National DNC Registry.",
+            requirements: [
+              "Rep must manually dial — no predictive or auto-dialer software",
+              "Respect individual Do-Not-Call requests immediately",
+              "Comply with FL quiet hours: 8am–8pm local time",
+              "Identify yourself and your company at the start of every call",
+            ],
+            blockers: [],
+            stats: null,
+          },
+          {
+            key: "automated_sms",
+            name: "Automated SMS",
+            icon: "message-square",
+            status: !smsEnabled ? "off" : smsPewcCount === 0 ? "blocked" : "warning",
+            flagKey: "SMS_ENABLED",
+            flagEnabled: smsEnabled,
+            regulation: "TCPA + FL SB 1120",
+            consentRequired: true,
+            summary: !smsEnabled
+              ? "SMS_ENABLED=false — automated SMS is disabled. Safe default for launch."
+              : smsPewcCount === 0
+              ? "Automated SMS is enabled but 0 contacts have express written consent (PEWC). Do not send until consent is captured."
+              : `${smsPewcCount} of ${totalContacts} contacts have PEWC for SMS. Only send to consented contacts.`,
+            requirements: [
+              "Express written consent (PEWC) required before any automated message",
+              "FL contacts require PEWC per SB 1120 — captured via merchant application checkbox",
+              "Reply STOP must stop all messages immediately",
+              "Identify sender in every message",
+              "Message & data rates disclosure required at opt-in",
+            ],
+            blockers: [
+              ...(!smsEnabled ? ["SMS_ENABLED=false — set to true in Replit Secrets when ready"] : []),
+              ...(smsEnabled && smsPewcCount === 0 ? ["0 contacts have express written consent — capture PEWC via merchant application before sending"] : []),
+            ],
+            stats: { totalContacts, smsAnyConsentCount, smsPewcCount, strictStates },
+          },
+          {
+            key: "voice_ai",
+            name: "Voice AI / Auto-Dialer",
+            icon: "mic",
+            status: !voiceEnabled ? "off" : callPewcCount === 0 ? "blocked" : "warning",
+            flagKey: "VOICE_AI_ENABLED",
+            flagEnabled: voiceEnabled,
+            regulation: "TCPA + FL SB 1120",
+            consentRequired: true,
+            summary: !voiceEnabled
+              ? "VOICE_AI_ENABLED=false — automated calling is disabled. Recommended: keep off until PEWC is established."
+              : callPewcCount === 0
+              ? "Voice AI is enabled but 0 contacts have express written consent for calls. Do not place automated calls."
+              : `${callPewcCount} of ${totalContacts} contacts have PEWC for calls.`,
+            requirements: [
+              "Express written consent required before any automated or pre-recorded call",
+              "FL contacts require PEWC per SB 1120",
+              "Identify caller and company in the first seconds of every call",
+              "Provide opt-out mechanism during every call",
+              "Comply with quiet hours (8am–9pm local time)",
+            ],
+            blockers: [
+              ...(!voiceEnabled ? ["VOICE_AI_ENABLED=false — set to true in Replit Secrets only after PEWC flow is established"] : []),
+              ...(voiceEnabled && callPewcCount === 0 ? ["0 contacts have call PEWC — do not place automated calls"] : []),
+            ],
+            stats: { totalContacts, callPewcCount, strictStates },
+          },
+          {
+            key: "ringless_voicemail",
+            name: "Ringless Voicemail (RVM)",
+            icon: "voicemail",
+            status: "blocked",
+            flagKey: "VOICE_AI_ENABLED",
+            flagEnabled: false,
+            regulation: "TCPA — Legally Uncertain",
+            consentRequired: true,
+            summary: "Treat RVM as an automated call. FL courts and multiple federal circuits classify RVM as a TCPA 'call'. Requires PEWC — keep off until consent infrastructure is fully established.",
+            requirements: [
+              "Treat exactly like an automated call — PEWC required",
+              "FL 11th Circuit has ruled RVM = TCPA call",
+              "FCC rulemaking expected to formally classify RVM as a call",
+            ],
+            blockers: ["RVM is gated by VOICE_AI_ENABLED — keep off until PEWC is widespread"],
+            stats: null,
+          },
+          {
+            key: "nightly_discovery",
+            name: "Nightly Lead Discovery",
+            icon: "search",
+            status: !discoveryEnabled ? "off" : missingApiKeys.length === 4 ? "blocked" : missingApiKeys.length > 0 ? "warning" : "safe",
+            flagKey: "NIGHTLY_DISCOVERY_ENABLED",
+            flagEnabled: discoveryEnabled,
+            regulation: "No TCPA restriction",
+            consentRequired: false,
+            summary: !discoveryEnabled
+              ? "NIGHTLY_DISCOVERY_ENABLED=false — automated lead discovery is off."
+              : missingApiKeys.length === 0
+              ? "All 4 discovery API keys are configured. Nightly discovery will run at the scheduled time."
+              : `${4 - missingApiKeys.length}/4 discovery API keys configured. Missing: ${missingApiKeys.join(", ")}.`,
+            requirements: [
+              "Set SERPER_API_KEY, OUTSCRAPER_API_KEY, APIFY_API_TOKEN, APOLLO_API_KEY for full coverage",
+              "Discovery does not contact leads — it only populates the prospect queue",
+              "Contacts discovered here will need consent captured before automated SMS/calls",
+            ],
+            blockers: [
+              ...(!discoveryEnabled ? ["NIGHTLY_DISCOVERY_ENABLED=false — set to true in Replit Secrets when ready"] : []),
+              ...missingApiKeys.map((k) => `${k} not set — this discovery source will be skipped`),
+            ],
+            stats: { missingApiKeys, configuredCount: 4 - missingApiKeys.length },
+          },
+        ],
+      });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

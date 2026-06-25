@@ -8,7 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "@/components/ui/dialog";
-import { Loader2, Play, Square, Pause, Shield, Activity, Server, Mail, AlertTriangle, CheckCircle2, XCircle, Zap, RefreshCw, Radio, ArrowRightLeft, Plus, Pencil, ListChecks, Circle } from "lucide-react";
+import { Loader2, Play, Square, Pause, Shield, Activity, Server, Mail, AlertTriangle, CheckCircle2, XCircle, Zap, RefreshCw, Radio, ArrowRightLeft, Plus, Pencil, ListChecks, Circle, Phone, MessageSquare, Mic, Voicemail, Search, Lock, ShieldCheck, ChevronDown, ChevronRight } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
@@ -70,6 +70,27 @@ interface ReadinessData {
   passCount: number;
   totalChecks: number;
   checks: ReadinessCheck[];
+}
+
+interface ComplianceChannel {
+  key: string;
+  name: string;
+  icon: string;
+  status: "safe" | "warning" | "blocked" | "off";
+  flagKey: string | null;
+  flagEnabled: boolean;
+  regulation: string;
+  consentRequired: boolean;
+  summary: string;
+  requirements: string[];
+  blockers: string[];
+  stats: Record<string, unknown> | null;
+}
+
+interface ComplianceChannelStatus {
+  strictStates: string[];
+  lastUpdated: string;
+  channels: ComplianceChannel[];
 }
 
 interface ChannelAttempt {
@@ -523,6 +544,7 @@ export default function ActivationPanel() {
   const stuckQuery = useQuery<StuckLead[]>({ queryKey: ["/api/sdr/activation/stuck-leads"] });
   const orchestratorQuery = useQuery<OrchestratorStatusData>({ queryKey: ["/api/sdr/orchestrator/status"] });
   const readinessQuery = useQuery<ReadinessData>({ queryKey: ["/api/operator/readiness-checks"] });
+  const complianceQuery = useQuery<ComplianceChannelStatus>({ queryKey: ["/api/sdr/compliance-channel-status"] });
 
   const pauseMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/sdr/pause-all", { reason: "Manual pause from activation panel" }),
@@ -734,6 +756,10 @@ export default function ActivationPanel() {
           <TabsTrigger value="orchestrator" data-testid="tab-orchestrator">Orchestrator</TabsTrigger>
           <TabsTrigger value="activity" data-testid="tab-activity">Activity</TabsTrigger>
           <TabsTrigger value="stuck" data-testid="tab-stuck">Stuck Leads</TabsTrigger>
+          <TabsTrigger value="compliance" data-testid="tab-compliance">
+            <ShieldCheck className="w-3.5 h-3.5 mr-1" />
+            Compliance
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="runbook" className="space-y-4">
@@ -1290,7 +1316,153 @@ export default function ActivationPanel() {
             </CardContent>
           </Card>
         </TabsContent>
+        <TabsContent value="compliance" className="space-y-4">
+          <ComplianceChannelTab data={complianceQuery.data} isLoading={complianceQuery.isLoading} />
+        </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+function channelIcon(icon: string) {
+  const cls = "w-5 h-5 shrink-0";
+  switch (icon) {
+    case "mail": return <Mail className={cls} />;
+    case "phone": return <Phone className={cls} />;
+    case "message-square": return <MessageSquare className={cls} />;
+    case "mic": return <Mic className={cls} />;
+    case "voicemail": return <Voicemail className={cls} />;
+    case "search": return <Search className={cls} />;
+    default: return <Radio className={cls} />;
+  }
+}
+
+function statusConfig(status: ComplianceChannel["status"]) {
+  switch (status) {
+    case "safe":    return { label: "Safe to Use",   variant: "default"     as const, color: "text-green-700 dark:text-green-400",  bg: "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800",  icon: <CheckCircle2 className="w-4 h-4 text-green-600" /> };
+    case "warning": return { label: "Use With Care", variant: "secondary"   as const, color: "text-amber-700 dark:text-amber-400",   bg: "bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-700",  icon: <AlertTriangle className="w-4 h-4 text-amber-600" /> };
+    case "blocked": return { label: "Blocked",       variant: "destructive" as const, color: "text-red-700 dark:text-red-400",       bg: "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800",          icon: <XCircle className="w-4 h-4 text-red-600" /> };
+    case "off":     return { label: "Off",           variant: "outline"     as const, color: "text-muted-foreground",                bg: "bg-muted/30 border-border",                                                   icon: <Circle className="w-4 h-4 text-muted-foreground" /> };
+  }
+}
+
+function ComplianceChannelTab({ data, isLoading }: { data?: ComplianceChannelStatus; isLoading: boolean }) {
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  if (isLoading) return <div className="flex items-center gap-2 py-8 justify-center text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Loading compliance status…</div>;
+  if (!data) return <div className="py-8 text-center text-muted-foreground">Unable to load compliance data.</div>;
+
+  const blockedCount = data.channels.filter(c => c.status === "blocked").length;
+  const warningCount = data.channels.filter(c => c.status === "warning").length;
+  const safeCount   = data.channels.filter(c => c.status === "safe").length;
+
+  return (
+    <div className="space-y-4" data-testid="compliance-channel-tab">
+      <Card className="border-blue-200 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-950/20">
+        <CardContent className="py-3 px-4 flex flex-col sm:flex-row sm:items-center gap-3">
+          <ShieldCheck className="w-5 h-5 text-blue-600 shrink-0" />
+          <div className="flex-1">
+            <p className="font-semibold text-blue-800 dark:text-blue-300 text-sm">Outbound Channel Compliance — {data.strictStates.join(", ")} Strict-Consent State(s) Active</p>
+            <p className="text-xs text-blue-700 dark:text-blue-400 mt-0.5">
+              Each channel below shows whether it is legal to use, what regulation governs it, and any blockers that must be resolved before enabling.
+              Strict-consent states ({data.strictStates.join(", ")}) require Express Written Consent (PEWC) for automated SMS and calls.
+            </p>
+          </div>
+          <div className="flex gap-2 shrink-0 text-xs font-medium">
+            <span className="text-green-700 dark:text-green-400">{safeCount} Safe</span>
+            <span className="text-muted-foreground">·</span>
+            <span className="text-amber-700 dark:text-amber-400">{warningCount} Caution</span>
+            <span className="text-muted-foreground">·</span>
+            <span className="text-red-700 dark:text-red-400">{blockedCount} Blocked</span>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="space-y-3">
+        {data.channels.map((ch) => {
+          const sc = statusConfig(ch.status);
+          const isOpen = expanded === ch.key;
+          return (
+            <Card key={ch.key} className={`border ${sc.bg}`} data-testid={`compliance-card-${ch.key}`}>
+              <CardContent className="py-0">
+                <button
+                  className="w-full flex items-center gap-3 py-3 text-left"
+                  onClick={() => setExpanded(isOpen ? null : ch.key)}
+                  data-testid={`compliance-expand-${ch.key}`}
+                >
+                  <span className={sc.color}>{channelIcon(ch.icon)}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold text-sm">{ch.name}</span>
+                      <Badge variant={sc.variant} className="text-xs">{sc.label}</Badge>
+                      <span className="text-xs text-muted-foreground">{ch.regulation}</span>
+                      {ch.consentRequired && (
+                        <span className="inline-flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400 font-medium">
+                          <Lock className="w-3 h-3" /> Consent required
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{ch.summary}</p>
+                  </div>
+                  {isOpen ? <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" /> : <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />}
+                </button>
+
+                {isOpen && (
+                  <div className="pb-4 space-y-3 border-t pt-3">
+                    <p className="text-sm">{ch.summary}</p>
+
+                    {ch.blockers.length > 0 && (
+                      <div className="rounded-md border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/20 p-3">
+                        <p className="text-xs font-semibold text-red-700 dark:text-red-400 mb-1.5 flex items-center gap-1"><XCircle className="w-3.5 h-3.5" /> Blockers</p>
+                        <ul className="space-y-1">
+                          {ch.blockers.map((b, i) => (
+                            <li key={i} className="text-xs text-red-700 dark:text-red-400 flex gap-1.5"><span>•</span><span>{b}</span></li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    <div>
+                      <p className="text-xs font-semibold text-muted-foreground mb-1.5 flex items-center gap-1"><ListChecks className="w-3.5 h-3.5" /> Compliance Requirements</p>
+                      <ul className="space-y-1">
+                        {ch.requirements.map((r, i) => (
+                          <li key={i} className="text-xs flex gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-green-500 shrink-0 mt-0.5" /><span>{r}</span></li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    {ch.stats && (
+                      <div className="rounded-md border bg-muted/30 p-3">
+                        <p className="text-xs font-semibold text-muted-foreground mb-1.5">Live Stats</p>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                          {Object.entries(ch.stats).map(([k, v]) => {
+                            if (Array.isArray(v)) return (
+                              <div key={k} className="col-span-2 flex gap-1"><span className="text-muted-foreground capitalize">{k.replace(/([A-Z])/g, ' $1')}:</span><span className="font-medium">{(v as string[]).join(", ") || "None"}</span></div>
+                            );
+                            return (
+                              <div key={k} className="flex gap-1"><span className="text-muted-foreground capitalize">{k.replace(/([A-Z])/g, ' $1')}:</span><span className="font-medium">{String(v)}</span></div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {ch.flagKey && (
+                      <p className="text-xs text-muted-foreground font-mono bg-muted/50 rounded px-2 py-1">
+                        Feature flag: <strong>{ch.flagKey}</strong> = {ch.flagEnabled ? "true ✓" : "false — set in Replit Secrets to enable"}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+
+      <p className="text-xs text-muted-foreground text-right">
+        Last updated: {new Date(data.lastUpdated).toLocaleString()} · Strict-consent states: {data.strictStates.join(", ")}
+      </p>
     </div>
   );
 }
