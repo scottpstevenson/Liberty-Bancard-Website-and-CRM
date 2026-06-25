@@ -29,6 +29,11 @@ const WORKER_FAILURE_ALERT_THRESHOLD = parseInt(
   process.env.WORKER_FAILURE_ALERT_THRESHOLD ?? "10"
 );
 
+// In development the high-frequency workers (ghl-sync, sequences) run at reduced
+// cadence to prevent Node.js heap exhaustion in the single-process dev server.
+// Production intervals are unchanged.
+const IS_DEV = process.env.NODE_ENV !== "production";
+
 const QUEUE_CONFIGS: QueueConfig[] = [
   {
     name: QUEUE_NAMES.GHL_SYNC,
@@ -37,7 +42,7 @@ const QUEUE_CONFIGS: QueueConfig[] = [
     concurrency: 3,
     attempts: 3,
     backoffDelay: 5000,
-    repeatEveryMs: 45000,
+    repeatEveryMs: IS_DEV ? 5 * 60 * 1000 : 45000, // dev: 5 min, prod: 45 s
     jobName: "run",
   },
   {
@@ -46,7 +51,7 @@ const QUEUE_CONFIGS: QueueConfig[] = [
     concurrency: 1,
     attempts: 3,
     backoffDelay: 10000,
-    repeatEveryMs: 5 * 60 * 1000,
+    repeatEveryMs: IS_DEV ? 15 * 60 * 1000 : 5 * 60 * 1000, // dev: 15 min, prod: 5 min
     jobName: "run",
   },
   {
@@ -56,7 +61,7 @@ const QUEUE_CONFIGS: QueueConfig[] = [
     concurrency: 3,
     attempts: 3,
     backoffDelay: 10000,
-    repeatEveryMs: 30 * 1000,
+    repeatEveryMs: IS_DEV ? 5 * 60 * 1000 : 30 * 1000, // dev: 5 min, prod: 30 s
     jobName: "run",
   },
   {
