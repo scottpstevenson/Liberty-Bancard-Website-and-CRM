@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Plus, Trash2, Loader2, Play, Pause, Mail, MessageSquare, Phone,
@@ -81,6 +82,14 @@ export default function Sequences() {
   const [enrollDialogSeqId, setEnrollDialogSeqId] = useState<number | null>(null);
   const [enrollContactId, setEnrollContactId] = useState("");
   const [enrollDealId, setEnrollDealId] = useState("");
+  const [activatingSeq, setActivatingSeq] = useState<any | null>(null);
+  const [activateChecks, setActivateChecks] = useState<boolean[]>([false, false, false]);
+
+  useEffect(() => {
+    if (activatingSeq !== null) {
+      setActivateChecks([false, false, false]);
+    }
+  }, [activatingSeq]);
 
   const [form, setForm] = useState({
     name: "",
@@ -162,8 +171,15 @@ export default function Sequences() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/sequences"] });
+      setActivatingSeq(null);
+      setActivateChecks([false, false, false]);
     },
   });
+
+  function handleConfirmActivate() {
+    if (!activatingSeq) return;
+    toggleMutation.mutate({ id: activatingSeq.id, status: "active" });
+  }
 
   const enrollMutation = useMutation({
     mutationFn: async () => {
@@ -494,10 +510,19 @@ export default function Sequences() {
                         size="icon"
                         variant="ghost"
                         aria-label={seq.status === "active" ? "Pause sequence" : "Resume sequence"}
-                        onClick={() => toggleMutation.mutate({
-                          id: seq.id,
-                          status: seq.status === "active" ? "paused" : "active"
-                        })}
+                        onClick={() => {
+                          if (
+                            seq.status === "paused" &&
+                            (seq.sequenceFamily || (seq.eligibleConsentTiers?.length ?? 0) > 0)
+                          ) {
+                            setActivatingSeq(seq);
+                          } else {
+                            toggleMutation.mutate({
+                              id: seq.id,
+                              status: seq.status === "active" ? "paused" : "active",
+                            });
+                          }
+                        }}
                         data-testid={`button-toggle-${seq.id}`}
                       >
                         {seq.status === "active" ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
@@ -904,6 +929,106 @@ export default function Sequences() {
               >
                 {enrollMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Users className="w-4 h-4 mr-2" />}
                 Enroll
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={activatingSeq !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setActivatingSeq(null);
+            setActivateChecks([false, false, false]);
+          }
+        }}
+      >
+        <DialogContent data-testid="dialog-activate-confirm">
+          <DialogHeader>
+            <DialogTitle>Activate &ldquo;{activatingSeq?.name}&rdquo;</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="border rounded-md p-3 space-y-2 text-sm" data-testid="activate-metadata-block">
+              <div className="flex items-start gap-2">
+                <span className="text-muted-foreground w-28 shrink-0">Family</span>
+                <span className="font-medium" data-testid="activate-family">
+                  {activatingSeq?.sequenceFamily || <span className="text-muted-foreground italic">—</span>}
+                </span>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="text-muted-foreground w-28 shrink-0">Consent Tiers</span>
+                <div className="flex flex-wrap gap-1" data-testid="activate-consent-tiers">
+                  {activatingSeq?.eligibleConsentTiers?.length > 0
+                    ? activatingSeq.eligibleConsentTiers.map((tier: string) => (
+                        <Badge key={tier} variant="outline" className="text-xs">
+                          {tier === "cold_no_consent" ? "cold" : tier === "warm_no_pewc" ? "warm" : tier === "pewc_full_automation" ? "PEWC" : tier}
+                        </Badge>
+                      ))
+                    : <span className="text-muted-foreground italic">none</span>
+                  }
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="text-muted-foreground w-28 shrink-0">Channels</span>
+                <div className="flex flex-wrap gap-1" data-testid="activate-channels">
+                  {activatingSeq?.channelsAllowed?.length > 0
+                    ? activatingSeq.channelsAllowed.map((ch: string) => (
+                        <Badge key={ch} variant="secondary" className="text-xs">
+                          {ch}
+                        </Badge>
+                      ))
+                    : <span className="text-muted-foreground italic">none</span>
+                  }
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="text-muted-foreground w-28 shrink-0">Steps</span>
+                <span data-testid="activate-steps">
+                  {activatingSeq?.totalSteps != null ? activatingSeq.totalSteps : "unknown"}
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-3" data-testid="activate-checklist">
+              {[
+                "I have reviewed all step copy and delay timing.",
+                "The eligible consent tiers above are correct for this campaign.",
+                "I understand this sequence will begin enrolling contacts immediately.",
+              ].map((label, i) => (
+                <div key={i} className="flex items-start gap-2">
+                  <Checkbox
+                    id={`activate-ack-${i}`}
+                    checked={activateChecks[i]}
+                    onCheckedChange={(checked) =>
+                      setActivateChecks((prev) => prev.map((v, j) => (j === i ? !!checked : v)))
+                    }
+                    data-testid={`checkbox-activate-ack-${i}`}
+                  />
+                  <Label htmlFor={`activate-ack-${i}`} className="text-sm leading-snug cursor-pointer">
+                    {label}
+                  </Label>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <Button
+                variant="outline"
+                data-testid="button-cancel-activate"
+                onClick={() => {
+                  setActivatingSeq(null);
+                  setActivateChecks([false, false, false]);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                disabled={!activateChecks.every(Boolean) || toggleMutation.isPending}
+                data-testid="button-confirm-activate"
+                onClick={handleConfirmActivate}
+              >
+                {toggleMutation.isPending ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Activating…</> : "Confirm"}
               </Button>
             </div>
           </div>
