@@ -6,6 +6,14 @@ interface SequenceSeed {
   description: string;
   triggerType: string;
   triggerConfig: Record<string, any>;
+  /** Wave 6 flag: if "paused", sequence is created with status "paused" instead of "active" */
+  waveStatus?: string;
+  /** Wave 6 metadata — stored as dedicated columns on follow_up_sequences */
+  sequenceFamily?: string;
+  eligibleConsentTiers?: string[];
+  channelsAllowed?: string[];
+  offerRoutes?: string[];
+  lifecycleStagesAllowed?: string[];
   steps: Array<{
     stepOrder: number;
     actionType: string;
@@ -33,14 +41,23 @@ export async function seedSequences() {
     }
 
     for (const seq of toSeed) {
+      // Wave 6 entries carry waveStatus: "paused" to prevent accidental live sends.
+      // Legacy entries have no waveStatus and default to "active" (existing behavior).
+      const status = seq.waveStatus === "paused" ? "paused" : "active";
+
       const created = await storage.createFollowUpSequence({
         name: seq.name,
         description: seq.description,
         triggerType: seq.triggerType,
         triggerConfig: seq.triggerConfig,
         totalSteps: seq.steps.length,
-        status: "active",
-      });
+        status,
+        sequenceFamily: seq.sequenceFamily ?? null,
+        eligibleConsentTiers: seq.eligibleConsentTiers ?? null,
+        channelsAllowed: seq.channelsAllowed ?? null,
+        offerRoutes: seq.offerRoutes ?? null,
+        lifecycleStagesAllowed: seq.lifecycleStagesAllowed ?? null,
+      } as any);
 
       for (const step of seq.steps) {
         await storage.createSequenceStep({
@@ -56,7 +73,7 @@ export async function seedSequences() {
         });
       }
 
-      console.log(`[Seed] Created sequence: "${seq.name}" (${seq.steps.length} steps)`);
+      console.log(`[Seed] Created sequence: "${seq.name}" (${seq.steps.length} steps, status: ${status})`);
     }
 
     // --- Pass 2: Hydrate existing stub sequences (totalSteps === 0) ---

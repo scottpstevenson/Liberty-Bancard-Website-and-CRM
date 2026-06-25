@@ -15,7 +15,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   Plus, Trash2, Loader2, Play, Pause, Mail, MessageSquare, Phone,
   CheckSquare, Clock, ChevronDown, ChevronUp, Users, Zap, Send, ArrowDown,
-  Target, BarChart3, FlaskConical, Pencil, AlertTriangle,
+  Target, BarChart3, FlaskConical, Pencil, AlertTriangle, Tag, ShieldCheck,
+  Radio,
 } from "lucide-react";
 
 interface ABTestConfig {
@@ -387,6 +388,7 @@ export default function Sequences() {
           {sequences.map((seq: any) => {
             const seqEnrollments = allEnrollments?.filter(e => e.sequenceId === seq.id) || [];
             const isExpanded = expandedId === seq.id;
+            const hasSmsSteps = seq.channelsAllowed?.includes("sms");
             return (
               <Card key={seq.id} data-testid={`card-sequence-${seq.id}`}>
                 <CardContent className="pt-4 pb-4">
@@ -397,9 +399,19 @@ export default function Sequences() {
                         <Badge variant={seq.status === "active" ? "default" : "secondary"} data-testid={`badge-seq-status-${seq.id}`}>
                           {seq.status}
                         </Badge>
+                        {seq.status === "paused" && (
+                          <Badge variant="outline" className="text-yellow-600 border-yellow-400 bg-yellow-50 dark:bg-yellow-900/20" data-testid={`badge-paused-${seq.id}`}>
+                            <Pause className="w-3 h-3 mr-1" /> Paused
+                          </Badge>
+                        )}
                         <Badge variant="outline" data-testid={`badge-seq-trigger-${seq.id}`}>
                           {TRIGGER_TYPES.find(t => t.value === seq.triggerType)?.label || seq.triggerType}
                         </Badge>
+                        {seq.sequenceFamily && (
+                          <Badge variant="outline" className="font-mono text-xs text-blue-700 border-blue-300 bg-blue-50 dark:bg-blue-900/20" data-testid={`badge-family-${seq.id}`}>
+                            <Tag className="w-3 h-3 mr-1" />{seq.sequenceFamily}
+                          </Badge>
+                        )}
                       </div>
                       {seq.description && (
                         <p className="text-sm text-muted-foreground mt-1 truncate">{seq.description}</p>
@@ -409,6 +421,55 @@ export default function Sequences() {
                         <span>{seqEnrollments.length} enrolled</span>
                         <span>{seqEnrollments.filter((e: any) => e.status === "active").length} active</span>
                       </div>
+                      {(seq.eligibleConsentTiers?.length > 0 || seq.channelsAllowed?.length > 0 || seq.offerRoutes?.length > 0) && (
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {seq.channelsAllowed?.length > 0 && (
+                            <div className="flex items-center gap-1 text-xs text-muted-foreground" data-testid={`channels-${seq.id}`}>
+                              <Radio className="w-3 h-3" />
+                              {seq.channelsAllowed.map((ch: string) => (
+                                <span key={ch} className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 bg-muted text-muted-foreground">
+                                  {ch === "email" && <Mail className="w-3 h-3" />}
+                                  {ch === "sms" && <MessageSquare className="w-3 h-3" />}
+                                  {ch === "task" && <CheckSquare className="w-3 h-3" />}
+                                  {ch === "voice_ai" && <Phone className="w-3 h-3" />}
+                                  {!["email","sms","task","voice_ai"].includes(ch) && ch}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          {seq.eligibleConsentTiers?.length > 0 && (
+                            <div className="flex items-center gap-1 flex-wrap" data-testid={`consent-tiers-${seq.id}`}>
+                              <ShieldCheck className="w-3 h-3 text-muted-foreground" />
+                              {seq.eligibleConsentTiers.map((tier: string) => (
+                                <Badge key={tier} variant="outline" className="text-xs px-1 py-0">
+                                  {tier === "cold_no_consent" ? "cold" : tier === "warm_no_pewc" ? "warm" : tier === "pewc_full_automation" ? "PEWC" : tier}
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
+                          {seq.offerRoutes?.length > 0 && (
+                            <div className="flex items-center gap-1 flex-wrap" data-testid={`offer-routes-${seq.id}`}>
+                              {seq.offerRoutes.map((route: string) => (
+                                <Badge key={route} variant="secondary" className="text-xs px-1 py-0">
+                                  {route}
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {seq.sequenceFamily && (!seq.totalSteps || seq.totalSteps === 0) && (
+                        <div className="flex items-center gap-1 mt-2 text-xs text-red-600" data-testid={`warn-no-steps-${seq.id}`}>
+                          <AlertTriangle className="w-3 h-3" />
+                          No steps defined — sequence cannot execute until steps are added
+                        </div>
+                      )}
+                      {hasSmsSteps && seq.status !== "active" && (
+                        <div className="flex items-center gap-1 mt-2 text-xs text-amber-600" data-testid={`warn-sms-paused-${seq.id}`}>
+                          <AlertTriangle className="w-3 h-3" />
+                          SMS steps present — activate sequence and ensure PEWC flag is enabled before enrolling contacts
+                        </div>
+                      )}
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">
                       <Button

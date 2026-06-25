@@ -282,12 +282,15 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
 
         // Gate (b): Evaluate contactability before any automated send/trigger dispatch
         {
-          type AutomatedActionChannel = "email" | "sms" | "voice_ai" | "ringless_vm";
+          type AutomatedActionChannel = "email" | "sms" | "voice_ai" | "ringless_vm" | "manual_call";
           const automatedChannelMap: Record<string, AutomatedActionChannel> = {
             email: "email",
             sms: "sms",
             call: "voice_ai",
             voicemail_drop: "ringless_vm",
+            // "task" steps create a CRM task only — no call, no AI voice, no RVM.
+            // They are gated via manual_call to block opted-out/DNC contacts after enrollment.
+            task: "manual_call",
           };
           const automatedChannel = automatedChannelMap[step.actionType];
           if (automatedChannel && enrollment.contactId) {
@@ -708,6 +711,9 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
           }
 
           case "task": {
+            // Creates a CRM task only — does NOT place a call, invoke AI voice,
+            // trigger autodialing, or send an RVM.  Gate (b) above ensures this
+            // path is only reached when evaluateContactability("manual_call") passes.
             await storage.createTask({
               title: interpolate(step.subject) || `Follow-up task from sequence`,
               description: `Auto-created by sequence "${sequence.name}" - Step ${step.stepOrder}`,

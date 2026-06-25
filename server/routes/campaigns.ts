@@ -360,11 +360,38 @@ export function registerCampaignsRoutes(app: Express) {
 
   app.post("/api/sequence-enrollments", isAuthenticated, async (req, res) => {
     try {
+      const { canEnrollContactInSequence } = await import("../services/sequence-eligibility");
       const input = insertSequenceEnrollmentSchema.parse(req.body);
       if (input.sequenceId) {
         const seq = await storage.getFollowUpSequence(input.sequenceId);
         if (!seq) return res.status(404).json({ message: "Sequence not found." });
         if (seq.status !== "active") return res.status(409).json({ message: `Sequence "${seq.name}" is ${seq.status}. Activate it before enrolling contacts.` });
+        if (input.contactId) {
+          const eligibility = await canEnrollContactInSequence(input.contactId, seq);
+          if (!eligibility.allowed) {
+            await storage.createAuditLog({
+              action: "sequence_enrollment_blocked_consent",
+              entityType: "contact",
+              entityId: input.contactId,
+              actorType: "system",
+              details: {
+                sequenceId: seq.id,
+                sequenceName: seq.name,
+                sequenceFamily: seq.sequenceFamily,
+                reason: eligibility.reason,
+                contactConsentTier: eligibility.contactConsentTier,
+                eligibleConsentTiers: eligibility.eligibleConsentTiers,
+              },
+            });
+            return res.status(400).json({
+              message: eligibility.reason || "Contact is not eligible for this sequence.",
+              code: "ENROLLMENT_BLOCKED_CONSENT",
+              contactConsentTier: eligibility.contactConsentTier,
+              eligibleConsentTiers: eligibility.eligibleConsentTiers,
+              campaignFamily: eligibility.campaignFamily,
+            });
+          }
+        }
       }
       const enrollment = await storage.createSequenceEnrollment(input);
       await storage.createAuditLog({ action: "sequence_enrolled", entityType: "contact", entityId: enrollment.contactId || 0, details: { sequenceId: String(enrollment.sequenceId) } });
@@ -389,6 +416,17 @@ export function registerCampaignsRoutes(app: Express) {
     try {
       const enrollments = await storage.getContactEnrollments(Number(req.params.contactId));
       res.json(enrollments);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/contacts/:id/sequence-suggestions", isAuthenticated, async (req, res) => {
+    try {
+      const { suggestSequenceFamiliesForContact } = await import("../services/sequence-eligibility");
+      const contactId = Number(req.params.id);
+      const suggestions = await suggestSequenceFamiliesForContact(contactId);
+      res.json(suggestions);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

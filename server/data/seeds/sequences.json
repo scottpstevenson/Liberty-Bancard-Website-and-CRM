@@ -3682,5 +3682,504 @@
         "body": "60-day ops call for law firm {{firstName}} at {{companyName}}. Upsell text-to-pay for client balance collection, referral opportunity to other attorneys or professional services firms in the network."
       }
     ]
+  },
+  {
+    "name": "W6 — Cold Outreach: Email + Manual Call",
+    "description": "Wave 6 canonical cold-outreach family. Combines compliant email touches with manual call task steps. Eligible for all non-opted-out consent tiers.",
+    "triggerType": "manual",
+    "waveStatus": "paused",
+    "sequenceFamily": "cold-email-manual-call",
+    "eligibleConsentTiers": ["cold_no_consent", "warm_no_pewc", "pewc_full_automation"],
+    "channelsAllowed": ["email", "task"],
+    "offerRoutes": ["statement_review", "rate_reduction"],
+    "lifecycleStagesAllowed": [],
+    "triggerConfig": {
+      "sequenceFamily": "cold-email-manual-call",
+      "eligibleConsentTiers": ["cold_no_consent", "warm_no_pewc", "pewc_full_automation"],
+      "outboundChannels": ["email", "task"],
+      "offerRoutes": ["statement_review", "rate_reduction"],
+      "lifecycleStagesAllowed": []
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "email",
+        "delayDays": 0,
+        "delayHours": 0,
+        "subject": "Free rate review for {{companyName}}",
+        "body": "<p>Hi {{firstName}},</p><p>We help merchants find hidden fees in their processing statements — most find 10–30% in unnecessary costs. If you'd like a free, no-obligation review, reply or upload a recent statement.</p><p><a href=\"https://libertybancard.com/upload\">Upload Your Statement</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply. To opt out reply STOP.</p>"
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "task",
+        "delayDays": 1,
+        "delayHours": 0,
+        "subject": "Call for Free Rate Review — {{firstName}} at {{companyName}}",
+        "config": { "taskType": "manual_call", "note": "Introduce free statement review. No autodial — human call only." }
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "email",
+        "delayDays": 3,
+        "delayHours": 0,
+        "subject": "Hidden fees in your statement, {{firstName}}",
+        "body": "<p>Hi {{firstName}},</p><p>Common hidden fees: downgraded transactions, marked-up interchange, junk non-qualified rates, and unexplained batch fees. We break these out line-by-line at no cost.</p><p><a href=\"https://libertybancard.com/upload\">Get My Free Analysis</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply. To opt out reply STOP.</p>"
+      },
+      {
+        "stepOrder": 4,
+        "actionType": "task",
+        "delayDays": 4,
+        "delayHours": 0,
+        "subject": "Follow-up Call — {{firstName}} re: rate review",
+        "config": { "taskType": "manual_call", "note": "Check if email was received. Offer to re-send upload link." }
+      },
+      {
+        "stepOrder": 5,
+        "actionType": "email",
+        "delayDays": 7,
+        "delayHours": 0,
+        "subject": "{{firstName}} — closing the file on {{companyName}}",
+        "body": "<p>Hi {{firstName}},</p><p>Last note from us. If your current processing rates are fair, we'll say so. If not, we'll show you what to change. Either way you'll know exactly what you're paying and why.</p><p><a href=\"https://libertybancard.com/upload\">Get My Free Analysis</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply. To opt out reply STOP.</p>"
+      }
+    ]
+  },
+  {
+    "name": "W6 — Inbound Lead: No PEWC",
+    "description": "Wave 6 sequence for warm inbound leads who have not yet granted PEWC. Email and CRM task steps only. No automated SMS.",
+    "triggerType": "manual",
+    "waveStatus": "paused",
+    "sequenceFamily": "inbound-no-pewc",
+    "eligibleConsentTiers": ["warm_no_pewc", "pewc_full_automation"],
+    "channelsAllowed": ["email", "task"],
+    "offerRoutes": ["statement_review", "rate_reduction", "high_risk"],
+    "lifecycleStagesAllowed": [],
+    "triggerConfig": {
+      "sequenceFamily": "inbound-no-pewc",
+      "eligibleConsentTiers": ["warm_no_pewc", "pewc_full_automation"],
+      "outboundChannels": ["email", "task"],
+      "offerRoutes": ["statement_review", "rate_reduction", "high_risk"],
+      "lifecycleStagesAllowed": []
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "email",
+        "delayDays": 0,
+        "delayHours": 0,
+        "subject": "Thanks for reaching out, {{firstName}}",
+        "body": "<p>Hi {{firstName}},</p><p>Thanks for contacting Liberty Bancard. We'll review your information and get back to you shortly. In the meantime, you can upload a recent processing statement for a free savings analysis.</p><p><a href=\"https://libertybancard.com/upload\">Upload Your Statement</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply. To opt out reply STOP.</p>"
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "task",
+        "delayDays": 0,
+        "delayHours": 4,
+        "subject": "Call Inbound Lead — {{firstName}} at {{companyName}}",
+        "config": { "taskType": "manual_call", "note": "Inbound lead follow-up. Qualify needs and schedule statement review. Human call only." }
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "email",
+        "delayDays": 2,
+        "delayHours": 0,
+        "subject": "Your free savings analysis is ready when you are, {{firstName}}",
+        "body": "<p>Hi {{firstName}},</p><p>Just following up — we can typically turn around a full savings breakdown within 24 hours of receiving your statement. No obligation.</p><p><a href=\"https://libertybancard.com/upload\">Get My Free Analysis</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply. To opt out reply STOP.</p>"
+      }
+    ]
+  },
+  {
+    "name": "W6 — Statement Uploaded",
+    "description": "Wave 6 mixed-channel sequence triggered when a contact uploads a statement. Email and task steps execute for all eligible tiers; SMS steps require PEWC at execution time.",
+    "triggerType": "manual",
+    "waveStatus": "paused",
+    "sequenceFamily": "statement-uploaded",
+    "eligibleConsentTiers": ["warm_no_pewc", "pewc_full_automation"],
+    "channelsAllowed": ["email", "task", "sms"],
+    "offerRoutes": ["statement_review"],
+    "lifecycleStagesAllowed": [],
+    "triggerConfig": {
+      "sequenceFamily": "statement-uploaded",
+      "eligibleConsentTiers": ["warm_no_pewc", "pewc_full_automation"],
+      "outboundChannels": ["email", "task", "sms"],
+      "offerRoutes": ["statement_review"],
+      "lifecycleStagesAllowed": []
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "email",
+        "delayDays": 0,
+        "delayHours": 0,
+        "subject": "We received your statement, {{firstName}}",
+        "body": "<p>Hi {{firstName}},</p><p>We received your merchant processing statement. Our team will analyze it and send you a full breakdown — usually within one business day. We'll show you exactly what you're paying and where savings are possible.</p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply. To opt out reply STOP.</p>"
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "sms",
+        "delayDays": 0,
+        "delayHours": 1,
+        "body": "Hi {{firstName}}, Liberty Bancard here — got your statement, working on your analysis now. Will send results by tomorrow. Reply STOP to opt out."
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "task",
+        "delayDays": 1,
+        "delayHours": 0,
+        "subject": "Call to Discuss Statement Analysis — {{firstName}}",
+        "config": { "taskType": "manual_call", "note": "Statement received. Call to schedule proposal review call. Human call only — no autodial." }
+      },
+      {
+        "stepOrder": 4,
+        "actionType": "email",
+        "delayDays": 2,
+        "delayHours": 0,
+        "subject": "Your statement analysis is ready, {{firstName}}",
+        "body": "<p>Hi {{firstName}},</p><p>We've completed the review of your processing statement. Let's set up a quick call to walk through your results and savings options.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\">Book a 10-Minute Call</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply. To opt out reply STOP.</p>"
+      }
+    ]
+  },
+  {
+    "name": "W6 — Booked Appointment",
+    "description": "Wave 6 confirmation and reminder sequence for contacts with a booked call. Email and task steps run for all eligible tiers; SMS reminders require PEWC at execution.",
+    "triggerType": "manual",
+    "waveStatus": "paused",
+    "sequenceFamily": "booked-appointment",
+    "eligibleConsentTiers": ["warm_no_pewc", "pewc_full_automation"],
+    "channelsAllowed": ["email", "task", "sms"],
+    "offerRoutes": ["statement_review", "rate_reduction"],
+    "lifecycleStagesAllowed": [],
+    "triggerConfig": {
+      "sequenceFamily": "booked-appointment",
+      "eligibleConsentTiers": ["warm_no_pewc", "pewc_full_automation"],
+      "outboundChannels": ["email", "task", "sms"],
+      "offerRoutes": ["statement_review", "rate_reduction"],
+      "lifecycleStagesAllowed": []
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "email",
+        "delayDays": 0,
+        "delayHours": 0,
+        "subject": "Your call is confirmed, {{firstName}}",
+        "body": "<p>Hi {{firstName}},</p><p>Your consultation call with Liberty Bancard is confirmed. Please have your most recent processing statement handy — we'll review it together and show you any savings opportunities. Look for a calendar invitation with the call details.</p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply. To opt out reply STOP.</p>"
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "sms",
+        "delayDays": 0,
+        "delayHours": 2,
+        "body": "Hi {{firstName}}, your Liberty Bancard call is confirmed. Have your latest statement ready for the review. Reply STOP to opt out."
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "task",
+        "delayDays": 1,
+        "delayHours": 0,
+        "subject": "Pre-Call Prep — {{firstName}} at {{companyName}}",
+        "config": { "taskType": "manual_call", "note": "Confirm call is still on. Send any prep materials. Human action only." }
+      }
+    ]
+  },
+  {
+    "name": "W6 — No-Show Recovery",
+    "description": "Wave 6 recovery sequence for contacts who missed a scheduled call. Mixed-channel: email and task for all eligible tiers; SMS only with PEWC.",
+    "triggerType": "manual",
+    "waveStatus": "paused",
+    "sequenceFamily": "no-show-recovery",
+    "eligibleConsentTiers": ["warm_no_pewc", "pewc_full_automation"],
+    "channelsAllowed": ["email", "task", "sms"],
+    "offerRoutes": ["statement_review", "rate_reduction"],
+    "lifecycleStagesAllowed": [],
+    "triggerConfig": {
+      "sequenceFamily": "no-show-recovery",
+      "eligibleConsentTiers": ["warm_no_pewc", "pewc_full_automation"],
+      "outboundChannels": ["email", "task", "sms"],
+      "offerRoutes": ["statement_review", "rate_reduction"],
+      "lifecycleStagesAllowed": []
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "email",
+        "delayDays": 0,
+        "delayHours": 0,
+        "subject": "We missed you, {{firstName}} — let's reschedule",
+        "body": "<p>Hi {{firstName}},</p><p>We had a call scheduled and didn't hear from you — no worries! These things happen. When you're ready, grab any available slot below and we'll pick up where we left off.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\">Reschedule Your Call</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply. To opt out reply STOP.</p>"
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "sms",
+        "delayDays": 0,
+        "delayHours": 2,
+        "body": "Hi {{firstName}}, looks like we missed our call. Happy to reschedule whenever works — grab a time at libertybancard.com/book. Reply STOP to opt out."
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "task",
+        "delayDays": 1,
+        "delayHours": 0,
+        "subject": "No-Show Follow-up Call — {{firstName}}",
+        "config": { "taskType": "manual_call", "note": "Attempt to reconnect and reschedule missed appointment. Human call only." }
+      },
+      {
+        "stepOrder": 4,
+        "actionType": "email",
+        "delayDays": 3,
+        "delayHours": 0,
+        "subject": "Still interested, {{firstName}}?",
+        "body": "<p>Hi {{firstName}},</p><p>Still happy to do the free review whenever you're ready. No pressure — just let us know.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\">Book a Time</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply. To opt out reply STOP.</p>"
+      }
+    ]
+  },
+  {
+    "name": "W6 — Proposal Sent",
+    "description": "Wave 6 decision-support sequence for contacts who received a proposal. Mixed-channel follow-up; SMS only with PEWC at execution.",
+    "triggerType": "manual",
+    "waveStatus": "paused",
+    "sequenceFamily": "proposal-sent",
+    "eligibleConsentTiers": ["warm_no_pewc", "pewc_full_automation"],
+    "channelsAllowed": ["email", "task", "sms"],
+    "offerRoutes": ["rate_reduction", "statement_review"],
+    "lifecycleStagesAllowed": [],
+    "triggerConfig": {
+      "sequenceFamily": "proposal-sent",
+      "eligibleConsentTiers": ["warm_no_pewc", "pewc_full_automation"],
+      "outboundChannels": ["email", "task", "sms"],
+      "offerRoutes": ["rate_reduction", "statement_review"],
+      "lifecycleStagesAllowed": []
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "email",
+        "delayDays": 0,
+        "delayHours": 0,
+        "subject": "Your pricing proposal from Liberty Bancard",
+        "body": "<p>Hi {{firstName}},</p><p>As discussed, attached is your customized pricing proposal. It includes a line-by-line comparison against your current rates and projected monthly savings. Let me know if you have any questions — happy to walk through it on a quick call.</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\">Book a Review Call</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply. To opt out reply STOP.</p>"
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "task",
+        "delayDays": 2,
+        "delayHours": 0,
+        "subject": "Proposal Follow-up Call — {{firstName}} at {{companyName}}",
+        "config": { "taskType": "manual_call", "note": "Check if proposal was reviewed. Answer objections. Human call only — no autodial." }
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "sms",
+        "delayDays": 3,
+        "delayHours": 0,
+        "body": "Hi {{firstName}}, just checking in on the proposal we sent. Any questions? Happy to do a quick call. Reply STOP to opt out."
+      },
+      {
+        "stepOrder": 4,
+        "actionType": "email",
+        "delayDays": 5,
+        "delayHours": 0,
+        "subject": "Quick question about your proposal, {{firstName}}",
+        "body": "<p>Hi {{firstName}},</p><p>I want to make sure the proposal we sent makes sense for your business. Is there anything that's unclear or a concern I can address?</p><p><a href=\"https://api.leadconnectorhq.com/widget/bookings/libertybancard\">Talk to Someone</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply. To opt out reply STOP.</p>"
+      },
+      {
+        "stepOrder": 5,
+        "actionType": "task",
+        "delayDays": 7,
+        "delayHours": 0,
+        "subject": "Final Decision Call — {{firstName}} proposal",
+        "config": { "taskType": "manual_call", "note": "Final outreach on sent proposal. If no response, mark as closed/lost. Human call only." }
+      }
+    ]
+  },
+  {
+    "name": "W6 — Application Abandoned",
+    "description": "Wave 6 recovery sequence for contacts who started but did not complete the merchant application. Mixed-channel; SMS only with PEWC.",
+    "triggerType": "manual",
+    "waveStatus": "paused",
+    "sequenceFamily": "application-abandoned",
+    "eligibleConsentTiers": ["warm_no_pewc", "pewc_full_automation"],
+    "channelsAllowed": ["email", "task", "sms"],
+    "offerRoutes": ["fast_approval"],
+    "lifecycleStagesAllowed": [],
+    "triggerConfig": {
+      "sequenceFamily": "application-abandoned",
+      "eligibleConsentTiers": ["warm_no_pewc", "pewc_full_automation"],
+      "outboundChannels": ["email", "task", "sms"],
+      "offerRoutes": ["fast_approval"],
+      "lifecycleStagesAllowed": []
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "email",
+        "delayDays": 0,
+        "delayHours": 0,
+        "subject": "{{firstName}}, your application is almost done",
+        "body": "<p>Hi {{firstName}},</p><p>Looks like you started a merchant account application but didn't finish. You're close — most approvals take minutes once submitted. Want help completing it? Reply here or use the link below.</p><p><a href=\"https://libertybancard.com/apply\">Complete My Application</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply. To opt out reply STOP.</p>"
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "sms",
+        "delayDays": 1,
+        "delayHours": 0,
+        "body": "Hey {{firstName}} — saw you started your application. Happy to help finish it so approval goes fast. Reply HELP or visit libertybancard.com/apply. Reply STOP to opt out."
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "task",
+        "delayDays": 2,
+        "delayHours": 0,
+        "subject": "Application Assist Call — {{firstName}}",
+        "config": { "taskType": "manual_call", "note": "Contact abandoned application. Offer to walk through remaining fields. Human call only." }
+      },
+      {
+        "stepOrder": 4,
+        "actionType": "email",
+        "delayDays": 4,
+        "delayHours": 0,
+        "subject": "One thing that slows approvals, {{firstName}}",
+        "body": "<p>Hi {{firstName}},</p><p>The most common reasons for approval delays: inaccurate monthly volume, missing bank info, or a mismatch between business type and activity. We review everything before submission to catch these. Want us to take a look?</p><p><a href=\"https://libertybancard.com/apply\">Complete My Application</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply. To opt out reply STOP.</p>"
+      }
+    ]
+  },
+  {
+    "name": "W6 — Closed Won: Onboarding",
+    "description": "Wave 6 onboarding sequence for contacts who are live merchants. Restricted to lifecycle stage live_merchant. Email and CRM task steps only.",
+    "triggerType": "manual",
+    "waveStatus": "paused",
+    "sequenceFamily": "closed-won-onboarding",
+    "eligibleConsentTiers": ["pewc_full_automation"],
+    "channelsAllowed": ["email", "task"],
+    "offerRoutes": ["onboarding"],
+    "lifecycleStagesAllowed": ["live_merchant"],
+    "triggerConfig": {
+      "sequenceFamily": "closed-won-onboarding",
+      "eligibleConsentTiers": ["pewc_full_automation"],
+      "outboundChannels": ["email", "task"],
+      "offerRoutes": ["onboarding"],
+      "lifecycleStagesAllowed": ["live_merchant"]
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "email",
+        "delayDays": 0,
+        "delayHours": 0,
+        "subject": "Welcome to Liberty Bancard, {{firstName}}!",
+        "body": "<p>Hi {{firstName}},</p><p>Congratulations — your account is approved and active. Here's what happens next:</p><ul><li>Your terminal / gateway will be configured within 1 business day</li><li>You'll receive login credentials for the merchant portal</li><li>Your dedicated support contact will reach out shortly</li></ul><p>If you have any questions, reply here or call us directly.</p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "task",
+        "delayDays": 1,
+        "delayHours": 0,
+        "subject": "Onboarding Welcome Call — {{firstName}} at {{companyName}}",
+        "config": { "taskType": "manual_call", "note": "New merchant — welcome call, confirm terminal setup and portal access. Human call only." }
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "email",
+        "delayDays": 7,
+        "delayHours": 0,
+        "subject": "How's everything going, {{firstName}}?",
+        "body": "<p>Hi {{firstName}},</p><p>Just checking in — it's been about a week since your account went live. Is everything processing smoothly? Any questions on your statement or terminal setup?</p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Eligibility, underwriting, card brand rules, and applicable laws apply.</p>"
+      },
+      {
+        "stepOrder": 4,
+        "actionType": "task",
+        "delayDays": 30,
+        "delayHours": 0,
+        "subject": "30-Day Check-in Call — {{firstName}}",
+        "config": { "taskType": "manual_call", "note": "30-day merchant health check. Review first statement, address any issues, identify referral opportunities. Human call only." }
+      }
+    ]
+  },
+  {
+    "name": "W6 — Merchant Referral Program",
+    "description": "Wave 6 referral sequence for live merchants. Invites satisfied merchants to refer other business owners. Restricted to lifecycle stage live_merchant.",
+    "triggerType": "manual",
+    "waveStatus": "paused",
+    "sequenceFamily": "merchant-referral",
+    "eligibleConsentTiers": ["warm_no_pewc", "pewc_full_automation"],
+    "channelsAllowed": ["email", "task"],
+    "offerRoutes": ["referral"],
+    "lifecycleStagesAllowed": ["live_merchant"],
+    "triggerConfig": {
+      "sequenceFamily": "merchant-referral",
+      "eligibleConsentTiers": ["warm_no_pewc", "pewc_full_automation"],
+      "outboundChannels": ["email", "task"],
+      "offerRoutes": ["referral"],
+      "lifecycleStagesAllowed": ["live_merchant"]
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "email",
+        "delayDays": 0,
+        "delayHours": 0,
+        "subject": "Know another business owner who could save on processing?",
+        "body": "<p>Hi {{firstName}},</p><p>We appreciate your business. If you know any other merchants who might benefit from a free rate review, we'd love an introduction. As a thank-you, we offer a referral credit for every merchant who signs on through your recommendation.</p><p><a href=\"https://libertybancard.com/refer\">Learn About Our Referral Program</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Referral program terms and conditions apply.</p>"
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "task",
+        "delayDays": 3,
+        "delayHours": 0,
+        "subject": "Referral Ask Call — {{firstName}} at {{companyName}}",
+        "config": { "taskType": "manual_call", "note": "Ask satisfied merchant for referrals. Offer referral credit. Human call only — no autodial." }
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "email",
+        "delayDays": 14,
+        "delayHours": 0,
+        "subject": "Still happy to pass along referral details, {{firstName}}",
+        "body": "<p>Hi {{firstName}},</p><p>If you've thought of any business owners who take cards, we're happy to do the same analysis for them — free of charge. Just reply with a name and we'll take it from there.</p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Referral program terms and conditions apply.</p>"
+      }
+    ]
+  },
+  {
+    "name": "W6 — Partner Referral Sequence",
+    "description": "Wave 6 sequence for active ISO/CPA/partner contacts. Sends co-branded outreach assets and tracks referral pipeline activity. Requires partnerType and partnerOrgId to be set.",
+    "triggerType": "manual",
+    "waveStatus": "paused",
+    "sequenceFamily": "partner-referral",
+    "eligibleConsentTiers": ["warm_no_pewc", "pewc_full_automation"],
+    "channelsAllowed": ["email", "task"],
+    "offerRoutes": ["partner_program", "iso_residual"],
+    "lifecycleStagesAllowed": [],
+    "triggerConfig": {
+      "sequenceFamily": "partner-referral",
+      "eligibleConsentTiers": ["warm_no_pewc", "pewc_full_automation"],
+      "outboundChannels": ["email", "task"],
+      "offerRoutes": ["partner_program", "iso_residual"],
+      "lifecycleStagesAllowed": []
+    },
+    "steps": [
+      {
+        "stepOrder": 1,
+        "actionType": "email",
+        "delayDays": 0,
+        "delayHours": 0,
+        "subject": "Your partner referral kit — Liberty Bancard",
+        "body": "<p>Hi {{firstName}},</p><p>Thank you for partnering with Liberty Bancard. Here's what you need to start referring:</p><ul><li>Your unique referral link</li><li>Co-branded one-pager for clients</li><li>Commission tier breakdown</li></ul><p>Every merchant you refer who activates earns you a residual commission on their monthly volume — for life.</p><p><a href=\"https://libertybancard.com/partners/portal\">Access Partner Portal</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Partner program terms and commission schedules apply.</p>"
+      },
+      {
+        "stepOrder": 2,
+        "actionType": "task",
+        "delayDays": 2,
+        "delayHours": 0,
+        "subject": "Partner Onboarding Call — {{firstName}}",
+        "config": { "taskType": "manual_call", "note": "Walk partner through referral process, answer questions about commission structure. Human call only." }
+      },
+      {
+        "stepOrder": 3,
+        "actionType": "email",
+        "delayDays": 7,
+        "delayHours": 0,
+        "subject": "Any merchants to introduce us to, {{firstName}}?",
+        "body": "<p>Hi {{firstName}},</p><p>Just checking in — any clients who've mentioned payment processing costs or who might benefit from a free review? Even a quick introduction can turn into ongoing residual income for you.</p><p><a href=\"https://libertybancard.com/partners/portal\">View Your Referral Dashboard</a></p><p>— Liberty Bancard</p><p style=\"font-size:11px;color:#888;margin-top:24px;\">Partner program terms and commission schedules apply.</p>"
+      }
+    ]
   }
 ]

@@ -1134,6 +1134,11 @@ export const followUpSequences = pgTable("follow_up_sequences", {
   createdBy: text("created_by"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+  sequenceFamily: text("sequence_family"),
+  eligibleConsentTiers: text("eligible_consent_tiers").array(),
+  channelsAllowed: text("channels_allowed").array(),
+  offerRoutes: text("offer_routes").array(),
+  lifecycleStagesAllowed: text("lifecycle_stages_allowed").array(),
 });
 
 export const insertFollowUpSequenceSchema = createInsertSchema(followUpSequences).omit({

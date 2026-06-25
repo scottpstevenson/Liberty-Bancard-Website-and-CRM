@@ -309,6 +309,13 @@
       "when": 1782600000000,
       "tag": "0038_offer_router_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1782700000000,
+      "tag": "0039_wave6_sequence_families",
+      "breakpoints": true
     }
   ]
 }
