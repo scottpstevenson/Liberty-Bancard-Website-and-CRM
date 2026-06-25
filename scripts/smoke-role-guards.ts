@@ -156,11 +156,29 @@ async function login(email: string, password: string): Promise<string> {
   return cookies.join("; ");
 }
 
-async function call(c: GuardCase, cookie?: string): Promise<number> {
+async function call(c: GuardCase, cookie?: string, attempts = 3): Promise<number> {
   const headers: Record<string, string> = {};
   if (cookie) headers.cookie = cookie;
-  const res = await fetch(`${BASE_URL}${c.path}`, { method: c.method, headers });
-  return res.status;
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetch(`${BASE_URL}${c.path}`, { method: c.method, headers });
+      return res.status;
+    } catch (err: unknown) {
+      lastErr = err;
+      const msg = err instanceof Error
+        ? `${err.message} ${(err as any).cause?.message ?? ""}`
+        : String(err);
+      const isSocket =
+        msg.includes("UND_ERR_SOCKET") ||
+        msg.includes("ECONNRESET") ||
+        msg.includes("other side closed") ||
+        msg.includes("fetch failed");
+      if (!isSocket) throw err;
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+  }
+  throw lastErr;
 }
 
 async function waitForServer(url: string, maxMs = 30_000): Promise<void> {
@@ -168,9 +186,9 @@ async function waitForServer(url: string, maxMs = 30_000): Promise<void> {
   while (Date.now() < deadline) {
     try {
       await fetch(url, { signal: AbortSignal.timeout(2000) });
-      // Server responded — give Express another 1.5 s to finish registering all
+      // Server responded — give Express another 3 s to finish registering all
       // middleware and route handlers before we start making real API calls.
-      await new Promise((r) => setTimeout(r, 1500));
+      await new Promise((r) => setTimeout(r, 3000));
       return;
     } catch {
       await new Promise((r) => setTimeout(r, 1000));
