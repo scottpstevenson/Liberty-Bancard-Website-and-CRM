@@ -115,10 +115,9 @@ async function cleanup(): Promise<void> {
     await db.delete(consentAuditLogs).where(eq(consentAuditLogs.contactId, id)).catch(() => {});
   }
 
-  // sdr_lead_events for test contacts
-  for (const id of cleanupContactIds) {
-    await db.execute(drizzleSql`DELETE FROM sdr_lead_events WHERE merchant_id IN (SELECT id FROM sdr_merchants WHERE ghl_contact_id IS NULL AND id IS NOT NULL) OR contact_id = ${id}`).catch(() => {});
-  }
+  // sdr_lead_events: only delete by ghl_ref_id patterns used in Test 5
+  // (sdr_lead_events links to sdr_merchants, not contacts directly — avoid broad deletes)
+  await db.execute(drizzleSql`DELETE FROM sdr_lead_events WHERE ghl_ref_id LIKE 'qa-release-test-%'`).catch(() => {});
 
   // audit_logs for test contacts
   for (const id of cleanupContactIds) {
@@ -202,8 +201,7 @@ async function testStatementUpload(): Promise<void> {
 
   if (res.status === 429) {
     console.log("  ⚠ Rate limited (429) — endpoint is live and rate limiter is active (expected after repeated test runs). Skipping sub-assertions.");
-    passed++;
-    return;
+    return; // 429 is advisory — endpoint responsiveness confirmed, no pass inflation.
   }
   assert("Statement upload returns 2xx", res.status >= 200 && res.status < 300, `status=${res.status}`);
 
@@ -237,10 +235,8 @@ async function testStatementUpload(): Promise<void> {
     assert("Document record linked to contact", docRow.contact_id === contact.id, `contact_id=${docRow.contact_id}`);
     assert("Document record linked to deal", !!docRow.deal_id, `deal_id=${docRow.deal_id}`);
   } else {
-    // Statement upload may not always create a document row (e.g. if no file attached) — advisory
+    // Statement upload may not always create a document row (e.g. if no file attached) — advisory skip
     console.log("  ⚠ No document row found for statement upload (advisory — file may not have been attached in payload)");
-    passed++;
-    passed++;
   }
 
   assert("doNotContact not set by form", contact.doNotContact !== true, `doNotContact=${contact.doNotContact}`);
@@ -280,8 +276,7 @@ async function testEstimateForm(): Promise<void> {
 
   if (res.status === 429) {
     console.log("  ⚠ Rate limited (429) — endpoint is live and rate limiter is active (expected after repeated test runs). Skipping sub-assertions.");
-    passed++;
-    return;
+    return; // 429 is advisory — endpoint responsiveness confirmed, no pass inflation.
   }
   assert("Estimate form returns 2xx", res.status >= 200 && res.status < 300, `status=${res.status}`);
 
@@ -337,8 +332,7 @@ async function testGetStartedForm(): Promise<void> {
 
   if (res.status === 429) {
     console.log("  ⚠ Rate limited (429) — endpoint is live and rate limiter is active (expected after repeated test runs). Skipping sub-assertions.");
-    passed++;
-    return;
+    return; // 429 is advisory — endpoint responsiveness confirmed, no pass inflation.
   }
   assert("Get Started form returns 2xx", res.status >= 200 && res.status < 300, `status=${res.status}`);
 
@@ -390,8 +384,7 @@ async function testMerchantApplication(): Promise<void> {
 
   if (draftRes.status === 429) {
     console.log("  ⚠ Rate limited (429) — endpoint is live and rate limiter is active (expected after repeated test runs). Skipping sub-assertions.");
-    passed++;
-    return;
+    return; // 429 is advisory — endpoint responsiveness confirmed, no pass inflation.
   }
   assert("Merchant app draft returns 2xx", draftRes.status >= 200 && draftRes.status < 300, `status=${draftRes.status}`);
 
@@ -455,8 +448,7 @@ async function testMerchantApplication(): Promise<void> {
         assert("Consent log has disclosureVersion", !!(pewcLog.disclosureVersion || pewcLog.consented), `version=${pewcLog.disclosureVersion}`);
         assert("Consent log has consented=true", pewcLog.consented === true);
       } else {
-        console.log("  ⚠ No PEWC consent log found — form may not capture PEWC on this endpoint (advisory)");
-        passed++; // Advisory — not all merchant app flows have PEWC checkbox
+        console.log("  ⚠ No PEWC consent log found — form may not capture PEWC on this endpoint (advisory skip)");
       }
     }
 

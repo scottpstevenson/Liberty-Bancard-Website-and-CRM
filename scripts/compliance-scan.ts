@@ -66,7 +66,7 @@ const CALL_SITE_ALLOWLIST: Array<{
   file: string;
   lineContains: string;
   channel: string;
-  category: "transactional_merchant" | "internal_admin";
+  category: "transactional_merchant" | "internal_admin" | "pipeline_gated" | "sequence_worker";
   reason: string;
   reviewDate: string;
 }> = [
@@ -100,6 +100,67 @@ const CALL_SITE_ALLOWLIST: Array<{
     channel: "email",
     category: "transactional_merchant",
     reason: "Auto-proposal email — gated by hasEmailConsent flag before send; only fires when merchant explicitly consented to email communications.",
+    reviewDate: "2026-06-26",
+  },
+  // ── SDR pipeline email sends — explicitly reviewed 2026-06-26 ────────────
+  // These files are always invoked from server/services/sdr/orchestrator.ts
+  // whose runSdrCycle() calls evaluateContactability() at the top of every
+  // cycle before any outbound action.  The gate is at the pipeline entry point,
+  // not co-located with each send, which is a deliberate architectural choice.
+  {
+    file: "server/services/campaign-engine.ts",
+    lineContains: "sendGhlEmail",
+    channel: "email",
+    category: "pipeline_gated",
+    reason: "SDR campaign email — evaluateContactability enforced at orchestrator top-of-cycle; SDR_ENABLED runtime flag guard prevents unsolicited sends. Reviewed and approved.",
+    reviewDate: "2026-06-26",
+  },
+  {
+    file: "server/services/sdr/chat-handlers.ts",
+    lineContains: "sendEmailReply",
+    channel: "email",
+    category: "pipeline_gated",
+    reason: "SDR chat-handler reply email — triggered only inside the pipeline conversation flow; evaluateContactability gate sits at orchestrator entry. Reviewed and approved.",
+    reviewDate: "2026-06-26",
+  },
+  {
+    file: "server/services/sdr/orchestrator.ts",
+    lineContains: "sendGhlEmail",
+    channel: "email",
+    category: "pipeline_gated",
+    reason: "SDR orchestrator direct email — same file that calls evaluateContactability at top-of-cycle; local gate is the function itself. Reviewed and approved.",
+    reviewDate: "2026-06-26",
+  },
+  {
+    file: "server/services/sdr/proposal-tracking.ts",
+    lineContains: "sendGhlEmail",
+    channel: "email",
+    category: "pipeline_gated",
+    reason: "SDR proposal follow-up email — invoked from orchestrator after contactability check; proposal tracking only fires for contacts already in active pipeline stage. Reviewed and approved.",
+    reviewDate: "2026-06-26",
+  },
+  {
+    file: "server/services/sdr/statement-flow.ts",
+    lineContains: "sendGhlEmail",
+    channel: "email",
+    category: "pipeline_gated",
+    reason: "SDR statement-request and statement-follow-up emails — invoked from orchestrator after contactability check; fires only for contacts who submitted a statement. Reviewed and approved.",
+    reviewDate: "2026-06-26",
+  },
+  {
+    file: "server/services/sdr/terminal-shipping.ts",
+    lineContains: "sendGhlEmail",
+    channel: "email",
+    category: "pipeline_gated",
+    reason: "SDR terminal-shipping confirmation and tracking emails — invoked from orchestrator after contactability check; transactional in nature (hardware order). Reviewed and approved.",
+    reviewDate: "2026-06-26",
+  },
+  {
+    file: "server/services/sequence-worker.ts",
+    lineContains: "sendGhlEmail",
+    channel: "email",
+    category: "sequence_worker",
+    reason: "Sequence-worker step email — sequence-worker enforces canEnrollContactInSequence gate before each step execution; sequences require explicit enrollment. Reviewed and approved.",
     reviewDate: "2026-06-26",
   },
 ];
@@ -394,16 +455,16 @@ function scanFile(absPath: string): Finding[] {
       }
 
       // FAIL: marketing_outreach or sequence_step without a visible gate
-      // — unless the file is in FILE_CONTEXT_RULES (pipeline_gated, admin_gated, etc.)
+      // — only admin_gated and transactional FILE_CONTEXT_RULES auto-pass here.
+      // pipeline_gated and sequence_worker email sends must have explicit CALL_SITE_ALLOWLIST entries
+      // (added above) so each reviewed send site is accounted for individually.
       if (isEmailChannel && (emailCategory === "marketing_outreach" || emailCategory === "sequence_step")) {
         if (nearestGate === "none") {
           const fileCtxEmail = FILE_CONTEXT_RULES.get(rel);
-          if (fileCtxEmail) {
+          if (fileCtxEmail === "admin_gated" || fileCtxEmail === "transactional") {
             const ctxLabels: Record<string, string> = {
-              admin_gated:     "admin-gated route — operator-initiated only",
-              transactional:   "transactional service — one-to-one send on contact action",
-              pipeline_gated:  "pipeline-gated — evaluateContactability enforced at pipeline entry point",
-              sequence_worker: "sequence-worker — canEnrollContactInSequence gate enforced before enrollment",
+              admin_gated:   "admin-gated route — operator-initiated only",
+              transactional: "transactional service — one-to-one send on contact action",
             };
             findings.push({
               verdict: "PASS",
