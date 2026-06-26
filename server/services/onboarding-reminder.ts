@@ -131,9 +131,9 @@ async function runAbandonedDraftRecovery(): Promise<void> {
 
       const businessName = app.legalBusinessName || app.dba || "your business";
 
-      // Audit marker first — acts as the idempotency guard for future runs
+      // Record attempt before enrollment — does NOT serve as the idempotency guard
       await storage.createAuditLog({
-        action: "abandon_recovery_sent",
+        action: "abandon_recovery_attempted",
         entityType: "merchant_application",
         entityId: app.id,
         actorType: "system",

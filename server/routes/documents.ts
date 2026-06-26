@@ -536,6 +536,18 @@ export function registerDocumentsRoutes(app: Express) {
         }
       }
 
+      const KYC_UPLOAD_SUBSTRINGS = [
+        "KYC",
+        "Photo ID",
+        "Driver License",
+        "Passport",
+        "EIN Letter",
+        "Voided Check",
+        "Bank Statement",
+        "Identity Verification",
+        "KYC Documents",
+      ];
+
       const dealTasks = await storage.getTasksByDeal(requestedDealId);
       const safeTasks = dealTasks.map(t => ({
         id: t.id,
@@ -544,6 +556,9 @@ export function registerDocumentsRoutes(app: Express) {
         priority: t.priority,
         dueDate: t.dueDate,
         completedAt: (t as any).completedAt ?? null,
+        isKycUploadTask: KYC_UPLOAD_SUBSTRINGS.some(sub =>
+          t.title?.toLowerCase().includes(sub.toLowerCase()),
+        ),
       }));
       res.json(safeTasks);
     } catch (err: any) {

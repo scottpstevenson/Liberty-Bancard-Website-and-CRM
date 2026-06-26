@@ -83,23 +83,13 @@ export function registerDealsRoutes(app: Express) {
           sendCriticalEmailNotification({ eventType: "deal_closed_won", subject: `Closed Won: Deal #${updated.id}${closedContact ? ` — ${closedContact.companyName || closedContact.firstName}` : ""}`, body: `<h3>Deal Closed Won</h3><p>Deal #${updated.id} has moved to <strong>Closed Won</strong>.</p>${closedContact ? `<p>Contact: ${closedContact.firstName} ${closedContact.lastName}${closedContact.companyName ? ` (${closedContact.companyName})` : ""}</p>` : ""}<p>Owner: ${updated.owner || "Unassigned"}</p>`, ownerName: updated.owner }).catch(err => console.error("Closed won email error:", err));
 
           if (closedContact?.ghlContactId) {
-            // Idempotency: contact-level guard prevents duplicate across multiple Closed Won deals
-            const alreadyWelcomedContact = updated.contactId
-              ? await storage.getLastAuditLogByAction("merchant_welcome_sent", "contact", updated.contactId).catch(() => null)
-              : null;
-            // Deal-level guard: prevents re-fire on the same deal (matches what sendMerchantWelcomeEmail writes)
+            // Deal-level guard only: prevents re-fire on the same deal (sendMerchantWelcomeEmail also writes this)
             const alreadyWelcomedDeal = await storage.getLastAuditLogByAction("merchant_welcome_sent", "deal", updated.id).catch(() => null);
-            if (!alreadyWelcomedContact && !alreadyWelcomedDeal) {
+            if (!alreadyWelcomedDeal) {
               sendMerchantWelcomeEmail(closedContact, updated)
-                .then(() => {
-                  // Write contact-level sentinel so future Closed Won deals on same contact are skipped
-                  if (updated.contactId) {
-                    storage.createAuditLog({ action: "merchant_welcome_sent", entityType: "contact", entityId: updated.contactId, actorType: "system", details: { sourceDealId: updated.id } }).catch(() => {});
-                  }
-                })
                 .catch(err => console.error("[Closed Won] Merchant welcome email error:", err));
             } else {
-              console.log(`[Closed Won] Welcome email skipped — already sent for contact #${updated.contactId} or deal #${updated.id}`);
+              console.log(`[Closed Won] Welcome email skipped — already sent for deal #${updated.id}`);
             }
           }
 

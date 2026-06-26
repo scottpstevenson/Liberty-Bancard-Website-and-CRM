@@ -625,8 +625,8 @@ function OnboardingTasksCard({ dealId }: { dealId: number | null | undefined }) 
                   </div>
                 )}
               </div>
-              {/* KYC upload CTA — shown when task is KYC-related and not yet done */}
-              {!isDone && /kyc|document|identif|passport|license|verif/i.test(task.title) && (
+              {/* KYC upload CTA — shown only when server explicitly flags the task as a KYC upload task */}
+              {!isDone && (task as any).isKycUploadTask === true && (
                 <div className="ml-8">
                   <a
                     href="#upload-documents"
