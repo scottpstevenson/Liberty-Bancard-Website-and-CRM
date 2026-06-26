@@ -919,7 +919,7 @@ export default function ActivationPanel() {
               defaultWarning?: string;
             }> = {
               SDR_ENABLED: {
-                risk: "high",
+                risk: "medium",
                 killLine: "sequences + GHL outbound",
                 prerequisites: "GHL token valid, SMS_ENABLED=false confirmed",
                 verifyCmd: "npx tsx scripts/test-contactability.ts",

@@ -361,7 +361,7 @@ export function registerMerchantsRoutes(app: Express) {
             enrollInGhlWorkflow({
               workflowKey: "merchant_app",
               ghlContactId: resolvedGhlId,
-              email: consentEmail || undefined,
+              email: contactEmail || undefined,
               metadata: { applicationId: updated.id },
             }).catch(() => {});
           } catch (sideEffectErr) {
