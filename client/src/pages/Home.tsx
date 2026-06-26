@@ -36,11 +36,9 @@ import {
   Store,
   Star,
   Quote,
-  TrendingDown,
   Clock,
   DollarSign,
   AlertTriangle,
-  Zap,
   Users,
   BadgeCheck,
   Phone,
@@ -48,12 +46,10 @@ import {
   HandshakeIcon,
   Banknote,
   Loader2,
-  X,
   CheckCircle,
   Calendar,
 } from "lucide-react";
 import logoBlue from "@assets/logo-blue.png";
-import heroBg from "@assets/images/hero-bg.png";
 import teamCollab from "@assets/images/team-collab.png";
 import imgCloverFlex3 from "@assets/images/terminal-clover-flex-3.png";
 import imgCloverMini3 from "@assets/images/terminal-clover-mini-3.png";
@@ -130,18 +126,7 @@ export default function Home() {
   const [cbSubmitting, setCbSubmitting] = useState(false);
   const [cbSubmitted, setCbSubmitted] = useState(false);
   const [cbPewcConsent, setCbPewcConsent] = useState(false);
-  const [urgencyDismissed, setUrgencyDismissed] = useState(false);
   const { toast } = useToast();
-
-  useEffect(() => {
-    const dismissed = localStorage.getItem("lb_urgency_banner_dismissed");
-    if (dismissed === "true") setUrgencyDismissed(true);
-  }, []);
-
-  const dismissUrgency = () => {
-    setUrgencyDismissed(true);
-    localStorage.setItem("lb_urgency_banner_dismissed", "true");
-  };
 
   const containerRef = useScrollReveal();
   const stat1 = useCountUp(10, 2000, "+");
@@ -187,144 +172,111 @@ export default function Home() {
 
       <main className="flex-grow pt-28" ref={containerRef}>
 
-        {/* URGENCY BANNER */}
-        {!urgencyDismissed && (
-          <div className="bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-800" data-testid="banner-urgency">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2.5 flex items-center justify-between gap-4">
-              <div className="flex items-center gap-2 text-sm text-amber-800 dark:text-amber-300 flex-1 justify-center">
-                <AlertTriangle className="w-4 h-4 shrink-0" />
-                <span><strong>Code FREE30 active</strong> — get your zero-cost processing review before it expires.</span>
-                <Link href="/get-started" className="underline font-medium whitespace-nowrap" data-testid="link-urgency-cta">Claim now →</Link>
-              </div>
-              <button onClick={dismissUrgency} className="text-amber-600 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-200 shrink-0" aria-label="Dismiss" data-testid="button-urgency-dismiss">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* SECTION 1: Social Proof Bar */}
-        <section className="bg-primary text-primary-foreground" data-testid="section-proof-bar">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
-            <div className="flex flex-wrap justify-center gap-x-6 gap-y-1 text-sm font-medium">
-              <span className="flex items-center gap-1.5" data-testid="text-proof-1"><BadgeCheck className="w-4 h-4" /> Statement-Based Reviews</span>
-              <span className="flex items-center gap-1.5" data-testid="text-proof-2"><FileText className="w-4 h-4" /> Line-Item Breakdowns</span>
-              <span className="flex items-center gap-1.5" data-testid="text-proof-3"><DollarSign className="w-4 h-4" /> Wholesale Pricing</span>
-              <span className="flex items-center gap-1.5" data-testid="text-proof-4"><Zap className="w-4 h-4" /> Next-Day Funding*</span>
-              <span className="flex items-center gap-1.5" data-testid="text-proof-5"><Headphones className="w-4 h-4" /> Real Human Support</span>
-            </div>
-            <p className="text-center text-xs text-primary-foreground/50 mt-1.5" data-testid="text-proof-bar-footnote">
-              *Eligibility, underwriting, card brand rules, and applicable laws apply.
-            </p>
-          </div>
-        </section>
-
-        {/* SECTION 2: Hero */}
-        <section className="relative overflow-hidden" data-testid="section-hero">
-          <div className="absolute inset-0">
-            <img src={heroBg} alt="Professional payment processing technology background with fintech aesthetic" className="w-full h-full object-cover" fetchpriority="high" width="1408" height="792" />
-            <div className="absolute inset-0 bg-gradient-to-r from-[hsl(222,47%,6%)/0.97] via-[hsl(222,47%,6%)/0.93] to-[hsl(222,47%,6%)/0.85]" />
-          </div>
-          <div className="glow-blob w-72 h-72 bg-sky-500 top-20 right-1/4" />
-          <div className="glow-blob glow-blob-2 w-56 h-56 bg-blue-600 bottom-10 left-1/3" />
-          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 lg:py-36">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+        {/* SECTION: Hero — light, premium financial-services */}
+        <section className="marketing-surface relative bg-background border-b border-border" data-testid="section-hero">
+          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 lg:py-24">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center">
+              {/* Left column — message + CTAs */}
               <div>
-                <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-sm text-white/90 text-sm font-medium px-3 py-1.5 rounded-md mb-6 border border-white/10" data-testid="text-hero-badge">
-                  <TrendingDown className="w-4 h-4" />
-                  Free statement review. Keep the breakdown even if you don't switch.
+                <div className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground shadow-sm mb-6" data-testid="text-hero-badge">
+                  <BadgeCheck className="w-3.5 h-3.5 text-accent" />
+                  Free statement review — keep the breakdown even if you don't switch
                 </div>
-                <h1 className="text-4xl md:text-5xl lg:text-6xl font-display font-bold text-white leading-tight mb-6" data-testid="text-hero-heading">
-                  You're Not Paying a "Rate."<br />You're Paying a <span className="text-sky-400">Markup</span> You've Never Seen.
+                <h1 className="text-4xl md:text-5xl lg:text-[3.5rem] font-bold text-foreground leading-[1.08] mb-5" data-testid="text-hero-heading">
+                  See What Your Processor Is <span className="text-accent">Really Charging</span>
                 </h1>
-                <p className="text-lg text-white/85 mb-4 leading-relaxed" data-testid="text-hero-subheadline">
-                  Your processor quoted you a rate. But your actual cost is buried in interchange downgrades, monthly add-ons, PCI fees, and batch charges you've never been shown.
+                <p className="text-lg text-muted-foreground leading-relaxed mb-8 max-w-xl" data-testid="text-hero-subheadline">
+                  Upload a recent statement and Liberty will break down your effective rate, fees, downgrades, and funding timeline — line by line.
                 </p>
-                <p className="text-lg text-white/90 mb-8 leading-relaxed font-medium" data-testid="text-hero-subheadline-2">
-                  We pull it apart line-by-line and show you exactly where your money goes.
-                </p>
-                <div className="flex flex-col sm:flex-row gap-4 flex-wrap">
+                <div className="flex flex-col sm:flex-row gap-3 flex-wrap">
                   <Link href="/upload-statement" data-testid="link-hero-upload">
-                    <Button size="lg" className="gap-2 bg-sky-500 border-sky-500 text-white">
+                    <Button size="lg" className="gap-2 w-full sm:w-auto" onClick={() => trackStatementUploadCtaClick({ page: "/", ctaLabel: "Upload My Statement — Free", ctaLocation: "hero" })}>
                       <Upload className="w-4 h-4" />
                       Upload My Statement — Free
                     </Button>
                   </Link>
-                  <Link href="/beat-square-stripe" data-testid="link-hero-compare">
-                    <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
-                      See If We Can Beat Your Rate
-                      <ArrowRight className="w-4 h-4" />
+                  <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-hero-book" onClick={() => trackBookingCtaClick({ page: "/", ctaLabel: "Book a 15-Minute Review", ctaLocation: "hero" })}>
+                    <Button size="lg" variant="outline" className="gap-2 w-full sm:w-auto">
+                      <Calendar className="w-4 h-4" />
+                      Book a 15-Minute Review
                     </Button>
-                  </Link>
+                  </a>
                 </div>
-                <div className="flex gap-4 mt-4">
-                  <a href={PHONE_TEL} aria-label="Call Liberty Bancard" className="text-xs text-white/55 hover:text-white/80 flex items-center gap-1.5 transition-colors" data-testid="link-hero-phone" onClick={() => trackPhoneCtaClick({ page: "/", ctaLabel: PHONE_NUMBER, ctaLocation: "hero" })}>
+                <p className="text-xs text-muted-foreground/80 mt-3 max-w-md" data-testid="text-hero-microcopy">
+                  PDF or photo. 30 seconds. Redact account numbers if you want — we only need totals + fee lines.
+                </p>
+                <div className="flex flex-wrap items-center gap-x-5 gap-y-2 mt-5">
+                  <a href={PHONE_TEL} aria-label="Call Liberty Bancard" className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1.5 transition-colors" data-testid="link-hero-phone" onClick={() => trackPhoneCtaClick({ page: "/", ctaLabel: PHONE_NUMBER, ctaLocation: "hero" })}>
                     <Phone className="w-3 h-3" />
                     {PHONE_NUMBER}
                   </a>
-                  <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" className="text-xs text-white/55 hover:text-white/80 flex items-center gap-1.5 transition-colors" data-testid="link-hero-book" onClick={() => trackBookingCtaClick({ page: "/", ctaLabel: "Book a 10-min call", ctaLocation: "hero" })}>
-                    <Calendar className="w-3 h-3" />
-                    Book a 10-min call
-                  </a>
+                  <Link href="/beat-square-stripe" className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1.5 transition-colors" data-testid="link-hero-compare">
+                    Compare My Current Setup
+                    <ArrowRight className="w-3 h-3" />
+                  </Link>
                 </div>
-                <p className="text-xs text-white/40 mt-2 max-w-md" data-testid="text-hero-microcopy">
-                  PDF or photo. 30 seconds. Redact account numbers if you want — we only need totals + fee lines.
-                </p>
+                {/* compact in-hero trust row */}
+                <div className="flex flex-wrap items-center gap-x-5 gap-y-2 mt-8 pt-6 border-t border-border">
+                  <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground" data-testid="text-hero-trust-1"><BadgeCheck className="w-3.5 h-3.5 text-accent" /> Statement-based review</span>
+                  <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground" data-testid="text-hero-trust-2"><FileText className="w-3.5 h-3.5 text-accent" /> Line-item breakdown</span>
+                  <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground" data-testid="text-hero-trust-3"><Headphones className="w-3.5 h-3.5 text-accent" /> Real human support</span>
+                </div>
               </div>
 
-              <div className="relative flex items-center justify-center" data-testid="hero-visual">
-                <div className="w-full max-w-sm">
-                  <Card className="border border-white/10 bg-white/5 backdrop-blur-md shadow-2xl">
-                    <CardContent className="p-6 space-y-4">
-                      <div className="text-sm font-medium text-white/60 uppercase tracking-wider">What a review reveals</div>
-                      <div className="space-y-3">
-                        {[
-                          { label: "Your real effective rate", value: "3.47%", flag: true },
-                          { label: "Hidden monthly fees", value: "$127/mo", flag: true },
-                          { label: "Interchange downgrades", value: "23% of volume", flag: true },
-                          { label: "Potential annual reduction*", value: "$4,200+", flag: false },
-                        ].map((item, i) => (
-                          <div key={i} className="flex items-center justify-between py-2 border-b border-white/10 last:border-0">
-                            <span className="text-sm text-white/80">{item.label}</span>
-                            <span className={`text-sm font-semibold ${item.flag ? "text-red-400" : "text-emerald-400"}`}>{item.value}</span>
-                          </div>
-                        ))}
+              {/* Right column — sample statement report card */}
+              <div className="relative flex items-center justify-center lg:justify-end" data-testid="hero-visual">
+                <div className="w-full max-w-md rounded-lg border border-border bg-card shadow-elevated overflow-hidden">
+                  <div className="flex items-center justify-between gap-3 border-b border-border bg-muted/40 px-5 py-3">
+                    <div className="flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-accent" />
+                      <span className="text-sm font-semibold text-foreground">Sample statement review</span>
+                    </div>
+                    <span className="rounded border border-border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground" data-testid="badge-illustrative">Illustrative only</span>
+                  </div>
+                  <div className="px-5 divide-y divide-border">
+                    {[
+                      { label: "Effective rate", value: "3.47%", tone: "negative" },
+                      { label: "Monthly fixed fees", value: "$127/mo", tone: "negative" },
+                      { label: "Downgrades / card mix", value: "23% of volume", tone: "negative" },
+                      { label: "Add-on fees (PCI, batch)", value: "$38/mo", tone: "negative" },
+                      { label: "Funding timeline", value: "Next-day*", tone: "neutral" },
+                      { label: "Savings opportunity", value: "Identified on review", tone: "positive" },
+                    ].map((row, i) => (
+                      <div key={i} className="flex items-center justify-between gap-4 py-3" data-testid={`row-statement-${i}`}>
+                        <span className="text-sm text-muted-foreground">{row.label}</span>
+                        <span className={`font-mono text-sm font-medium tabular-nums ${row.tone === "negative" ? "text-stat-negative" : row.tone === "positive" ? "text-stat-positive" : "text-foreground"}`}>{row.value}</span>
                       </div>
-                      <p className="text-[10px] text-white/30">*Illustrative example. Actual results depend on statement review. No savings claims without review.</p>
-                    </CardContent>
-                  </Card>
+                    ))}
+                  </div>
+                  <div className="border-t border-border bg-muted/30 px-5 py-3">
+                    <p className="text-[10px] leading-relaxed text-muted-foreground">Actual findings require statement review. *Funding timing subject to eligibility, underwriting, and card brand rules.</p>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         </section>
 
-        {/* SECTION 2.5: Trust Badges Bar */}
-        <section className="bg-background border-b border-border py-6" data-testid="section-trust-badges">
+        {/* SECTION: Trust strip (merged) */}
+        <section className="bg-card border-b border-border py-6" data-testid="section-trust-badges">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex flex-wrap justify-center items-center gap-x-10 gap-y-4">
-              <div className="flex flex-col items-center gap-1 text-center" data-testid="trust-badge-years">
-                <span className="text-xl font-display font-bold text-primary">FL-Based</span>
+              <div className="flex flex-col items-center gap-0.5 text-center" data-testid="trust-badge-years">
+                <span className="text-lg font-bold text-foreground">FL-Based</span>
                 <span className="text-xs font-semibold text-foreground">South Florida Team</span>
                 <span className="text-[10px] text-muted-foreground">Local reps, real conversations</span>
               </div>
               <div className="w-px h-10 bg-border hidden sm:block" />
-              <div className="flex flex-col items-center gap-1 text-center" data-testid="trust-badge-merchants">
-                <span className="text-xl font-display font-bold text-primary">Free</span>
+              <div className="flex flex-col items-center gap-0.5 text-center" data-testid="trust-badge-merchants">
+                <span className="text-lg font-bold text-foreground">Free</span>
                 <span className="text-xs font-semibold text-foreground">Statement Review</span>
                 <span className="text-[10px] text-muted-foreground">Keep the breakdown either way</span>
               </div>
               <div className="w-px h-10 bg-border hidden sm:block" />
-              <div className="flex flex-col items-center gap-1 text-center" data-testid="trust-badge-volume">
-                <span className="text-xl font-display font-bold text-primary">I+P</span>
+              <div className="flex flex-col items-center gap-0.5 text-center" data-testid="trust-badge-volume">
+                <span className="text-lg font-bold text-foreground">I+P</span>
                 <span className="text-xs font-semibold text-foreground">Interchange-Plus Pricing</span>
                 <span className="text-[10px] text-muted-foreground">Transparent, line-item billing</span>
-              </div>
-              <div className="w-px h-10 bg-border hidden sm:block" />
-              <div className="flex flex-col items-center gap-1 text-center" data-testid="trust-badge-uptime">
-                <span className="text-xl font-display font-bold text-primary">99.9%</span>
-                <span className="text-xs font-semibold text-foreground">Platform Uptime</span>
-                <span className="text-[10px] text-muted-foreground">Reliable processing, every transaction</span>
               </div>
             </div>
           </div>

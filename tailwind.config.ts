@@ -6,7 +6,7 @@ export default {
   theme: {
     extend: {
       borderRadius: {
-        lg: ".5625rem", /* 9px */
+        lg: ".5rem", /* 8px */
         md: ".375rem", /* 6px */
         sm: ".1875rem", /* 3px */
       },
@@ -52,6 +52,9 @@ export default {
           border: "var(--destructive-border)",
         },
         ring: "hsl(var(--ring) / <alpha-value>)",
+        "brand-red": "hsl(var(--brand-red) / <alpha-value>)",
+        "stat-positive": "hsl(var(--stat-positive) / <alpha-value>)",
+        "stat-negative": "hsl(var(--stat-negative) / <alpha-value>)",
         chart: {
           "1": "hsl(var(--chart-1) / <alpha-value>)",
           "2": "hsl(var(--chart-2) / <alpha-value>)",
@@ -88,6 +91,7 @@ export default {
         mono: ["var(--font-mono)"],
         display: ["var(--font-display)"],
         body: ["var(--font-body)"],
+        "marketing-display": ["var(--font-marketing-display)"],
       },
       keyframes: {
         "accordion-down": {
@@ -102,6 +106,10 @@ export default {
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
+      },
+      boxShadow: {
+        card: "var(--shadow-card)",
+        elevated: "var(--shadow-elevated)",
       },
     },
   },
