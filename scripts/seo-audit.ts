@@ -226,12 +226,18 @@ async function auditRoute(spec: RouteSpec): Promise<AuditResult> {
     }
 
     // H1 check: every indexable SSR page must have exactly one <h1>
+    // Conversion pages (noindexForbidden) must have exactly one H1 — multiple is a hard FAIL.
     const h1Matches = html.match(/<h1[\s>]/gi);
     if (!spec.noindex) {
       if (!h1Matches || h1Matches.length === 0) {
         errors.push("missing <h1> — indexable page has no primary heading");
       } else if (h1Matches.length > 1) {
-        warnings.push(`multiple <h1> tags (${h1Matches.length}) — only one recommended per page`);
+        if (spec.noindexForbidden) {
+          // Conversion pages must have exactly one H1 — multiple H1 degrades SEO clarity on lead-gen pages
+          errors.push(`conversion page has ${h1Matches.length} <h1> tags — must have exactly one; remove extras`);
+        } else {
+          warnings.push(`multiple <h1> tags (${h1Matches.length}) — only one recommended per page`);
+        }
       }
     }
 
