@@ -114,6 +114,7 @@ function FaqSection() {
               <button
                 className="w-full flex items-center justify-between p-4 text-left"
                 onClick={() => setOpen(open === idx ? null : idx)}
+                aria-expanded={open === idx}
                 data-testid={`button-faq-toggle-${idx}`}
               >
                 <span className="text-sm font-semibold text-foreground pr-4">{item.q}</span>
@@ -483,7 +484,7 @@ export default function FreeAnalysis() {
               <CheckCircle className="w-8 h-8 text-emerald-500" />
             </div>
             <h1
-              className="text-3xl md:text-4xl font-display font-bold text-foreground mb-2"
+              className="text-3xl md:text-4xl lg:text-5xl font-display font-bold text-foreground mb-2"
               data-testid="text-results-heading"
             >
               Your Savings Estimate Is Ready

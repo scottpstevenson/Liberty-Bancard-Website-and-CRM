@@ -255,7 +255,7 @@ export default function GetStarted() {
                 <div className="w-16 h-16 rounded-full bg-emerald-500/10 flex items-center justify-center mx-auto mb-4">
                   <CheckCircle className="w-8 h-8 text-emerald-600 dark:text-emerald-400" />
                 </div>
-                <h1 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-2" data-testid="text-results-heading">
+                <h1 className="text-3xl md:text-4xl lg:text-5xl font-display font-bold text-foreground mb-2" data-testid="text-results-heading">
                   Your Personalized Recommendation
                 </h1>
                 <p className="text-muted-foreground">Based on your answers, here's the best path forward.</p>
@@ -384,7 +384,7 @@ export default function GetStarted() {
           <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.5]" aria-hidden="true" />
           <div className="relative max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-16 lg:py-20 text-center">
             <div className="accent-rule pt-5">
-              <h1 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-2" data-testid="text-get-started-heading">
+              <h1 className="text-3xl md:text-4xl lg:text-5xl font-display font-bold text-foreground mb-2" data-testid="text-get-started-heading">
                 Find Your <span className="text-accent">Best Path</span> Forward
               </h1>
               <p className="text-muted-foreground" data-testid="text-get-started-subheadline">
