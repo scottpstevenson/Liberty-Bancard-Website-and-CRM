@@ -582,6 +582,94 @@ async function runSdrComplianceTests() {
   }
 }
 
+async function runWave12ContactabilityTests() {
+  console.log("\n▶ Wave 12 — Additional contactability assertions\n");
+
+  // ── Case 1: warm_no_pewc → ringless_vm blocked ────────────────────────
+  console.log("  [warm_no_pewc + ringless_vm]");
+  const warmRvmId = await createTestContact({ sourceCategory: "inbound", consentTier: "warm_no_pewc", leadSource: "website" });
+  const warmRvm = await evaluateContactability({ contactId: warmRvmId, channel: "ringless_vm", mode: "dryRun" });
+  assert("warm_no_pewc: ringless_vm blocked (not just cold contacts)", !warmRvm.allowed, warmRvm.reason);
+  assert("warm_no_pewc RVM block reason mentions PEWC/consent", (
+    warmRvm.reason.toLowerCase().includes("pewc") ||
+    warmRvm.reason.toLowerCase().includes("consent")
+  ), warmRvm.reason);
+
+  // ── Case 2: email-only consent (opted_out SMS, active email) ──────────
+  console.log("\n  [email-only consent — opted_out SMS, active email]");
+  const emailOnlyId = await createTestContact({
+    smsStatus: "opted_out",
+    emailStatus: "active",
+    consentTier: "warm_no_pewc",
+    sourceCategory: "inbound",
+  });
+  const emailOnlyEmail = await evaluateContactability({ contactId: emailOnlyId, channel: "email", mode: "dryRun" });
+  const emailOnlySms = await evaluateContactability({ contactId: emailOnlyId, channel: "sms", mode: "dryRun" });
+  assert("email-only consent: email channel still allowed", emailOnlyEmail.allowed, emailOnlyEmail.reason);
+  assert("email-only consent: SMS blocked (opted_out)", !emailOnlySms.allowed, emailOnlySms.reason);
+  assert("email-only SMS block reason references opted_out/sms", (
+    emailOnlySms.reason.toLowerCase().includes("opted") ||
+    emailOnlySms.reason.toLowerCase().includes("sms") ||
+    emailOnlySms.reason.toLowerCase().includes("stop")
+  ), emailOnlySms.reason);
+
+  // ── Case 3: Florida PEWC contact → manual_call still allowed ─────────
+  console.log("\n  [Florida PEWC contact: manual_call not blocked by FL rule]");
+  const flPewcId = await createTestContact({
+    state: "FL",
+    consentTier: "warm_no_pewc",
+    sourceCategory: "inbound",
+  });
+  const flManual = await evaluateContactability({ contactId: flPewcId, channel: "manual_call", mode: "dryRun", state: "FL" });
+  assert("Florida warm contact: manual_call NOT blocked by FL state rule", flManual.allowed, flManual.reason);
+  assert("Florida warm contact: manual_call not blocked by PEWC requirement", !flManual.reason.toLowerCase().includes("pewc"), flManual.reason);
+
+  // ── Case 4: PEWC contact — lb_sms_allowed reflects SMS_ENABLED flag ───
+  // In dev, SMS_ENABLED defaults to false. The ghlPermissionPayload must
+  // reflect the feature flag value — not just the consent tier.
+  console.log("\n  [PEWC contact ghlPermissionPayload reflects SMS_ENABLED feature flag]");
+  const pewcFlagId = await createTestContact({ consentTier: "pewc_full_automation", sourceCategory: "inbound" });
+  // Insert PEWC evidence so the PEWC tier is recognized by evaluateContactability
+  await db.insert(consentAuditLogs).values({
+    contactId: pewcFlagId,
+    channel: "sms",
+    action: "consent_recorded",
+    consentType: "express_written",
+    consented: true,
+    source: "contactability_engine",
+    consentedPhone: "+15551239999",
+    disclosureVersion: "v1.0",
+  });
+  const pewcFlagResult = await evaluateContactability({ contactId: pewcFlagId, channel: "email", mode: "dryRun" });
+  // ghlPermissionPayload.lb_sms_allowed must be false when SMS_ENABLED=false (dev default)
+  const { featureFlags: ff } = await import("../server/services/feature-flags");
+  if (!ff.SMS_ENABLED) {
+    assert(
+      "PEWC contact: lb_sms_allowed=false in ghlPermissionPayload when SMS_ENABLED=false",
+      pewcFlagResult.ghlPermissionPayload.lb_sms_allowed === false,
+      `lb_sms_allowed=${pewcFlagResult.ghlPermissionPayload.lb_sms_allowed}`
+    );
+  } else {
+    assert(
+      "PEWC contact: lb_sms_allowed=true in ghlPermissionPayload when SMS_ENABLED=true",
+      pewcFlagResult.ghlPermissionPayload.lb_sms_allowed === true,
+      `lb_sms_allowed=${pewcFlagResult.ghlPermissionPayload.lb_sms_allowed}`
+    );
+  }
+  // Clean up PEWC evidence
+  await db.delete(consentAuditLogs).where(
+    and(eq(consentAuditLogs.contactId, pewcFlagId), eq(consentAuditLogs.source, "contactability_engine"))
+  );
+
+  // ── Case 5: Contact not found → blocked on ALL channels ───────────────
+  console.log("\n  [Contact not found → all channels blocked]");
+  const NONEXISTENT_ID = 999_999_998;
+  for (const ch of ["email", "manual_call", "sms", "voice_ai", "ringless_vm"] as const) {
+    const notFoundResult = await evaluateContactability({ contactId: NONEXISTENT_ID, channel: ch, mode: "dryRun" });
+    assert(`contact-not-found blocks ${ch}`, !notFoundResult.allowed, notFoundResult.reason);
+  }
+}
+
 async function runTests() {
   console.log("\n=== Wave 1A Contactability Engine — Smoke Tests ===\n");
 
@@ -590,6 +678,7 @@ async function runTests() {
   await runGateIntegrationTests();
   await runSdrComplianceTests();
   await runApiLevelTests();
+  await runWave12ContactabilityTests();
 
   await cleanupAuditLogs();
 

@@ -203,6 +203,16 @@ async function auditRoute(spec: RouteSpec): Promise<AuditResult> {
       errors.push("missing JSON-LD structured data");
     }
 
+    // H1 check: every indexable SSR page must have exactly one <h1>
+    const h1Matches = html.match(/<h1[\s>]/gi);
+    if (!spec.noindex) {
+      if (!h1Matches || h1Matches.length === 0) {
+        errors.push("missing <h1> — indexable page has no primary heading");
+      } else if (h1Matches.length > 1) {
+        warnings.push(`multiple <h1> tags (${h1Matches.length}) — only one recommended per page`);
+      }
+    }
+
     const robots = pickAttr(html, /<meta\s+name=["']robots["']\s+content=["']([^"']+)["']/i);
     if (spec.noindex) {
       if (!robots || !/noindex/i.test(robots)) {

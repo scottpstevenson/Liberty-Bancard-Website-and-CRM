@@ -111,6 +111,12 @@ const CASES: GuardCase[] = [
   // merchant and admin — anon skips CSRF (not authenticated) and hits requireRole → 401.
   // The role gate is still enforced; this test validates the unauthenticated 401.
   { method: "POST", path: "/api/operator/ai-audit/999/replay", anon: [401], merchant: [403], admin: [403], description: "AI audit replay (admin/manager only; CSRF required for POST)" },
+
+  // ── Wave 12: Merchant Document Vault — role gates ─────────────────────
+  // Global admin index requires admin/manager; access-token endpoint is
+  // authenticated-only (all roles can attempt, ownership enforced per-doc).
+  { method: "GET",  path: "/api/merchant-documents",         anon: [401], merchant: [403], admin: [200], description: "merchant doc vault admin index (admin/manager only)" },
+  { method: "GET",  path: "/api/merchant-documents/99999/access-token", anon: [401], merchant: [403, 404], admin: [403, 404], description: "doc access-token (ownership guard — doc 99999 owned by nobody)" },
 ];
 
 async function ensureMerchantUser(): Promise<void> {

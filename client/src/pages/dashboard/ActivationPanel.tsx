@@ -131,6 +131,27 @@ interface ChannelSafetySummary {
   warnings: string[];
 }
 
+interface QueueMetric {
+  name: string;
+  waiting: number;
+  active: number;
+  completed: number;
+  failed: number;
+  delayed: number;
+  paused: boolean;
+  repeatEveryMs: number | null;
+  lastCompletedAt: string | null;
+  lastFailedAt: string | null;
+  avgDurationMs: number | null;
+  throughputPerHour: number | null;
+  lastError?: string | null;
+}
+
+interface QueueMetricsData {
+  queues: QueueMetric[];
+  usingMock: boolean;
+}
+
 interface ChannelAttempt {
   id: number;
   sentAt: string | null;
@@ -584,6 +605,7 @@ export default function ActivationPanel() {
   const readinessQuery = useQuery<ReadinessData>({ queryKey: ["/api/operator/readiness-checks"] });
   const complianceQuery = useQuery<ComplianceChannelStatus>({ queryKey: ["/api/sdr/compliance-channel-status"] });
   const channelSafetyQuery = useQuery<ChannelSafetySummary>({ queryKey: ["/api/admin/channel-safety-summary"], refetchInterval: 60000 });
+  const queueMetricsQuery = useQuery<QueueMetricsData>({ queryKey: ["/api/operator/queue-metrics"], refetchInterval: 30000 });
 
   const pauseMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/sdr/pause-all", { reason: "Manual pause from activation panel" }),
@@ -887,25 +909,266 @@ export default function ActivationPanel() {
             </Card>
           </div>
 
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm flex items-center gap-2"><Shield className="w-4 h-4" /> Feature Flags</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {flags ? (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  {Object.entries(flags).map(([key, value]) => (
-                    <div key={key} className="flex items-center justify-between p-2 rounded border" data-testid={`flag-${key}`}>
-                      <span className="text-xs font-mono">{key}</span>
-                      <Badge variant={value === true ? "default" : value === false ? "secondary" : "outline"}>
-                        {String(value)}
-                      </Badge>
+          {/* ── Feature Flag Risk Matrix ─────────────────────────── */}
+          {(() => {
+            const FLAG_META: Record<string, {
+              risk: "high" | "medium" | "low";
+              killLine: string;
+              prerequisites: string;
+              verifyCmd: string;
+              defaultWarning?: string;
+            }> = {
+              SDR_ENABLED: {
+                risk: "high",
+                killLine: "sequences + GHL outbound",
+                prerequisites: "GHL token valid, SMS_ENABLED=false confirmed",
+                verifyCmd: "npx tsx scripts/test-contactability.ts",
+                defaultWarning: "Defaults to TRUE — disable before go-live if not ready to send",
+              },
+              ORCHESTRATOR_ENABLED: {
+                risk: "medium",
+                killLine: "orchestrator batch sends",
+                prerequisites: "SDR_ENABLED=true, ORCHESTRATOR_REVIEW_MODE=true for first run",
+                verifyCmd: "Activation Panel → Orchestrator tab",
+              },
+              SMS_ENABLED: {
+                risk: "high",
+                killLine: "ALL SMS channel sends",
+                prerequisites: "PEWC evidence tier required for every recipient",
+                verifyCmd: "npx tsx scripts/test-contactability.ts",
+              },
+              VOICE_AI_ENABLED: {
+                risk: "high",
+                killLine: "voice AI dials",
+                prerequisites: "PEWC + verified phone number per contact",
+                verifyCmd: "npx tsx scripts/compliance-scan.ts",
+              },
+              RINGLESS_VM_ENABLED: {
+                risk: "high",
+                killLine: "ringless voicemail drops",
+                prerequisites: "PEWC full automation tier",
+                verifyCmd: "npx tsx scripts/compliance-scan.ts",
+              },
+              NIGHTLY_DISCOVERY_ENABLED: {
+                risk: "low",
+                killLine: "nightly lead discovery",
+                prerequisites: "Serper / Outscraper API keys configured",
+                verifyCmd: "Operator Dashboard → Discovery Controls",
+              },
+              LEGACY_OUTREACH_ENABLED: {
+                risk: "medium",
+                killLine: "legacy outreach engine",
+                prerequisites: "Replaces SDR engine — do not enable both simultaneously",
+                verifyCmd: "Operator Dashboard",
+              },
+              SUNBIZ_ENRICHMENT_ENABLED: {
+                risk: "low",
+                killLine: "Sunbiz entity enrichment",
+                prerequisites: "None — public data source",
+                verifyCmd: "Operator Dashboard → Enrichment tab",
+              },
+              ORCHESTRATOR_REVIEW_MODE: {
+                risk: "low",
+                killLine: "none (safety flag — queues work for human review)",
+                prerequisites: "ORCHESTRATOR_ENABLED=true",
+                verifyCmd: "Activation Panel → Orchestrator tab",
+              },
+            };
+
+            const riskColor = (r: string) =>
+              r === "high" ? "text-red-600 dark:text-red-400" :
+              r === "medium" ? "text-amber-600 dark:text-amber-400" :
+              "text-green-600 dark:text-green-400";
+
+            const riskBg = (r: string) =>
+              r === "high" ? "border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/30" :
+              r === "medium" ? "border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30" :
+              "border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/30";
+
+            return (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <Shield className="w-4 h-4" /> Feature Flag Risk Matrix
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {/* SDR_ENABLED=true default warning banner */}
+                  {flags && flags.SDR_ENABLED === true && (
+                    <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/40 p-3" data-testid="flag-sdr-default-warning">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                      <div className="text-xs text-amber-800 dark:text-amber-300">
+                        <strong>SDR_ENABLED is ON (default)</strong> — outbound sequences are active. Verify GHL token, confirm SMS_ENABLED=false, and run <code className="font-mono bg-amber-100 dark:bg-amber-900 px-1 rounded">test-contactability.ts</code> before scaling acquisition.
+                      </div>
                     </div>
-                  ))}
-                </div>
-              ) : <Loader2 className="w-4 h-4 animate-spin" />}
-            </CardContent>
-          </Card>
+                  )}
+
+                  {flags ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      {Object.entries(flags).map(([key, value]) => {
+                        const meta = FLAG_META[key];
+                        const isEnabled = value === true;
+                        const isNumeric = typeof value === "number";
+
+                        return (
+                          <div
+                            key={key}
+                            className={`rounded-md border p-2.5 ${meta ? riskBg(meta.risk) : "border-border bg-muted/30"}`}
+                            data-testid={`flag-${key}`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <span className="text-xs font-mono font-semibold break-all">{key}</span>
+                              <Badge
+                                variant={isEnabled ? "default" : isNumeric ? "outline" : "secondary"}
+                                className="shrink-0 text-xs"
+                              >
+                                {String(value)}
+                              </Badge>
+                            </div>
+
+                            {meta && (
+                              <div className="mt-1.5 space-y-0.5">
+                                <div className={`text-xs font-medium ${riskColor(meta.risk)}`}>
+                                  Risk: {meta.risk.toUpperCase()}
+                                  {meta.defaultWarning && (
+                                    <span className="ml-1 font-normal text-amber-700 dark:text-amber-300">— {meta.defaultWarning}</span>
+                                  )}
+                                </div>
+                                <div className="text-[10px] text-muted-foreground">
+                                  Kill line: <span className="font-medium">{meta.killLine}</span>
+                                </div>
+                                <div className="text-[10px] text-muted-foreground">
+                                  Prerequisites: {meta.prerequisites}
+                                </div>
+                                <div className="text-[10px] text-muted-foreground font-mono bg-background/60 rounded px-1 py-0.5 mt-1 overflow-hidden text-ellipsis whitespace-nowrap">
+                                  {meta.verifyCmd}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="w-4 h-4 animate-spin" /> Loading flags…
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })()}
+
+          {/* ── Queue Health ─────────────────────────────────────── */}
+          {(() => {
+            const CRITICAL_QUEUES = ["ghl-sync", "sequences", "sla-checks", "onboarding-reminder", "mid-ingestion"];
+            const queueData = queueMetricsQuery.data;
+
+            function truncateError(msg: string | null | undefined): string {
+              if (!msg) return "";
+              // Strip obvious tokens/keys: anything that looks like a secret
+              const stripped = msg
+                .replace(/Bearer\s+\S+/gi, "[TOKEN]")
+                .replace(/key[=:\s]+[A-Za-z0-9+/]{20,}/gi, "[KEY]")
+                .replace(/password[=:\s]+\S+/gi, "[PASS]")
+                .replace(/secret[=:\s]+\S+/gi, "[SECRET]")
+                .replace(/token[=:\s]+\S+/gi, "[TOKEN]");
+              // Truncate to 120 chars
+              return stripped.length > 120 ? stripped.slice(0, 117) + "…" : stripped;
+            }
+
+            function queueStatusColor(q: QueueMetric): string {
+              if (q.paused) return "text-amber-600 dark:text-amber-400";
+              if (q.failed > 0) return "text-red-600 dark:text-red-400";
+              return "text-green-600 dark:text-green-400";
+            }
+
+            function queueStatusLabel(q: QueueMetric): string {
+              if (q.paused) return "PAUSED";
+              if (q.failed > 0) return "FAILED";
+              if (q.active > 0) return "RUNNING";
+              return "IDLE";
+            }
+
+            return (
+              <Card>
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <Activity className="w-4 h-4" /> Queue Health
+                    </CardTitle>
+                    {queueData?.usingMock && (
+                      <Badge variant="outline" className="text-xs text-amber-600 border-amber-300">
+                        in-memory (no REDIS_URL)
+                      </Badge>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-xs"
+                      onClick={() => queueMetricsQuery.refetch()}
+                      data-testid="btn-refresh-queue-metrics"
+                    >
+                      <RefreshCw className="w-3 h-3 mr-1" /> Refresh
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {queueMetricsQuery.isLoading ? (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="w-4 h-4 animate-spin" /> Loading queue metrics…
+                    </div>
+                  ) : queueMetricsQuery.isError ? (
+                    <div className="text-sm text-muted-foreground">
+                      Queue metrics unavailable — check Operator Dashboard → Job Queue tab.
+                    </div>
+                  ) : queueData ? (
+                    <div className="space-y-2">
+                      {CRITICAL_QUEUES.map((qName) => {
+                        const q = queueData.queues.find(x => x.name === qName);
+                        if (!q) {
+                          return (
+                            <div key={qName} className="flex items-center justify-between text-xs py-1.5 border-b last:border-0">
+                              <span className="font-mono text-muted-foreground">{qName}</span>
+                              <Badge variant="secondary" className="text-xs">not registered</Badge>
+                            </div>
+                          );
+                        }
+                        return (
+                          <div key={qName} className="py-1.5 border-b last:border-0" data-testid={`queue-row-${qName}`}>
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-mono font-medium">{qName}</span>
+                              <span className={`font-semibold text-xs ${queueStatusColor(q)}`}>
+                                {queueStatusLabel(q)}
+                              </span>
+                            </div>
+                            <div className="flex gap-3 mt-0.5 text-[10px] text-muted-foreground">
+                              <span>waiting: <strong>{q.waiting}</strong></span>
+                              <span>active: <strong>{q.active}</strong></span>
+                              <span>failed: <strong className={q.failed > 0 ? "text-red-500" : ""}>{q.failed}</strong></span>
+                              <span>done: <strong>{q.completed}</strong></span>
+                            </div>
+                            {q.lastError && (
+                              <div className="mt-0.5 text-[10px] text-red-600 dark:text-red-400 font-mono bg-red-50 dark:bg-red-950/30 rounded px-1.5 py-0.5">
+                                {truncateError(q.lastError)}
+                              </div>
+                            )}
+                            {q.lastCompletedAt && (
+                              <div className="text-[10px] text-muted-foreground">
+                                last run: {new Date(q.lastCompletedAt).toLocaleTimeString()}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="text-sm text-muted-foreground">No queue data.</div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })()}
 
           <Card>
             <CardHeader className="pb-2">
