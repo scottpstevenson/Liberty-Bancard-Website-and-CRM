@@ -1,0 +1,936 @@
+631 — Liberty Bancard Home Page 10/10 Premium Rebuild: Section Rhythm, Visual Depth, Conversion Story
+
+Mode
+
+Build Mode after a short preflight.
+
+Do not run another broad audit. The audit is done.
+
+Current rendered verdict:
+
+NOT APPROVED — 5.5/10 to 6/10
+
+The page is better than the original, but it is not premium. We are not aiming for 8/10. The target is a true 9.5–10/10 premium merchant processing advisory homepage.
+
+This task must fix what actually renders, not just tokens, not just code structure, and not just the hero.
+
+⸻
+
+Required Skills
+
+* .local/skills/fullstack-js/SKILL.md — React, Tailwind, responsive layout, component ownership, CTA preservation
+* .agents/skills/frontend-design/SKILL.md — premium landing page art direction, section rhythm, visual hierarchy, card systems, mobile polish
+* .agents/skills/copywriting/SKILL.md — merchant-services copy, compliance-safe claims, strong conversion messaging
+* .agents/skills/conversion-rate-optimization/SKILL.md — CTA hierarchy, trust sequencing, mid-page momentum, proof placement
+* .agents/skills/compliance-systems/SKILL.md — claims audit, disclaimer placement, card-brand/PCI/funding language safety
+* .agents/skills/QA-release-lead/SKILL.md — screenshot validation, route/tracking preservation, regression checks
+
+If a listed skill is not installed, still perform the work directly from this prompt.
+
+⸻
+
+What & Why
+
+The current Home page has one major failure:
+
+It feels like one endless white/off-white page with bordered cards dropped onto it.
+
+The hero improved, but the rest of the page does not feel like a premium website. It lacks rhythm, contrast, visual momentum, and deliberate section breaks.
+
+Current problems visible in screenshots:
+
+* page is mostly one continuous white/off-white canvas
+* section breaks are weak or invisible
+* bg-muted/30 reads as white and does not create contrast
+* too many sections use the same white card + thin border formula
+* the report/audit visual system mostly stops after the hero
+* the page feels long, flat, and generated
+* there is no premium pacing between sections
+* some sections feel like they belong to different pages
+* internal platform section interrupts the merchant statement-review story
+* verticals grid is six identical boxes
+* offer cards are sparse and uneven
+* calculator lacks pull
+* rate comparison is too visually buried
+* duplicate testimonial / merchant story sections render
+* first video-placeholder testimonial section looks unfinished and must be removed
+* several claims need safer wording
+* final CTA does not yet feel decisive enough
+
+Do not grade relative to the old page. Grade against premium financial-services websites.
+
+⸻
+
+Core Goal
+
+Make the Home page feel like:
+
+a premium merchant processing advisory site
+
+Positioning:
+
+Liberty reviews your processing statement, breaks down the real fees, shows the cost drivers, and gives you clear options.
+
+The page should feel:
+
+* premium
+* sharp
+* trusted
+* human
+* financial
+* direct
+* conversion-focused
+* compliance-aware
+* visually paced
+
+The page should not feel:
+
+* generic SaaS
+* fake AI/intelligence brand
+* white-card template
+* endless off-white scroll
+* internal CRM product brochure
+* Replit-generated landing page
+* safe but bland financial brochure
+
+⸻
+
+Language Direction
+
+Stop forcing the phrase:
+
+Statement Intelligence
+
+It sounds fake/SaaS and should not drive the page language.
+
+Use clearer merchant language:
+
+Statement Review
+Processing Fee Breakdown
+Line-Item Review
+Merchant Cost Audit
+Effective Rate Review
+Liberty Analysis
+Statement-Based Review
+
+The report/document visual system can remain, but the copy should sound like a real merchant advisory firm, not a made-up AI product.
+
+⸻
+
+Non-Negotiable Design Standard
+
+This task fails if the page still feels like:
+
+one endless white page with cards
+
+This task passes only if the page has clear visual chapters.
+
+At least 4 major section resets are required across the page.
+
+Use real rhythm:
+
+light editorial hero
+compact proof transition
+off-white/ledger problem section
+dark navy proof or contrast band
+white report/deliverable module
+split process section
+product/offer section with stronger hierarchy
+decisive final CTA
+
+Do not rely on slightly darker bg-muted/30. If a section break is not visually obvious in screenshots, it does not count.
+
+⸻
+
+Required Visual Rhythm System
+
+Create a page-wide rhythm system using:
+
+* warm off-white editorial sections
+* true white report modules
+* deep navy contrast bands
+* split background sections
+* subtle ledger/grid texture
+* thin Liberty blue/red accent rules
+* stronger contained modules
+* tighter section spacing
+* fewer identical card grids
+* varied card types by role
+
+Do not make every section:
+
+white background + bordered cards + small icon + muted text
+
+⸻
+
+Required Card System
+
+Define and apply distinct card roles.
+
+Card Type A — Report / Review Card
+
+Use for:
+
+* hero report card
+* rate comparison
+* Liberty Analysis deliverables
+* calculator/results
+
+Visual style:
+
+* report/document styling
+* mono numbers
+* subtle ledger lines
+* accent rules
+* strong hierarchy
+* not a generic white card
+
+Card Type B — Red Flag Card
+
+Use for:
+
+* Sound Familiar / merchant pain points
+
+Visual style:
+
+* compact
+* sharper
+* specific label
+* subtle warning/accent color
+* no oversized generic icon boxes
+
+Card Type C — Proof Card
+
+Use for:
+
+* numbers/trust
+* merchant proof
+* human support
+
+Visual style:
+
+* strong figure or proof statement
+* distinct contrast
+* concise copy
+* no sparse floating white card feel
+
+Card Type D — Option / Solution Card
+
+Use for:
+
+* Wholesale / Interchange-Plus
+* 0% Programs
+* Smart Terminal
+
+Visual style:
+
+* “best for” tags
+* decision support
+* equal-weight content
+* useful mini-module or comparison row
+* no giant empty interior
+
+⸻
+
+Section-by-Section Build Requirements
+
+1. Hero — Patch, do not restart
+
+Keep the improved hero direction, but tighten it.
+
+Fix:
+
+* too much empty horizontal space
+* report card still slightly table-like
+* headline can feel theatrical if oversized
+* left copy and right report visual need stronger visual connection
+
+Required changes:
+
+* stronger hero framing/container
+* thin Liberty red/blue accent rule
+* more intentional background/ledger treatment
+* report card header should feel like a Liberty fee review, not “Statement Intelligence” jargon
+* keep primary CTA clear
+* keep secondary CTA clear
+* preserve destinations/tracking
+
+Preferred hero language:
+
+See What Your Processor Is Really Charging
+
+Support copy can remain close to:
+
+Upload a recent statement. Liberty turns the fee lines, downgrades, and monthly add-ons into a clear review you can actually use.
+
+CTA:
+
+Upload My Statement — Free
+Book a 15-Minute Review
+Compare My Current Setup
+
+No “beat your rate” promise.
+
+⸻
+
+2. Trust / Proof Strip — Keep compact
+
+The proof strip immediately after hero should be compact and transitional.
+
+Use something like:
+
+Statement-based review
+Line-item fee breakdown
+South Florida team
+Human support
+
+Do not make this another big white section.
+
+⸻
+
+3. Sound Familiar — Rebuild into red-flag section
+
+Current cards are too generic.
+
+Reframe as a merchant statement red-flag section.
+
+Use distinct labels:
+
+Rate mismatch
+Fee creep
+Funding uncertainty
+Support gap
+
+Each card should have:
+
+* label/title
+* short merchant pain copy
+* compact visual treatment
+* distinct red-flag card styling
+* tighter spacing
+
+This section should have a visibly different background from hero/proof, such as warm ledger/off-white.
+
+⸻
+
+4. By the Numbers — Create a real contrast reset
+
+This section currently feels like white proof cards on white.
+
+Rebuild it as a clear visual reset.
+
+Options:
+
+* dark navy band with light proof cards
+* split navy/off-white module
+* strong contained proof panel with accent rule
+
+Keep:
+
+10+ Years in Business
+5,000+ Merchants Served
+Human Review Support
+
+Remove permanently:
+
+99.9% Platform Uptime
+
+Do not bring it back anywhere.
+
+Use mono styling for:
+
+10+
+5,000+
+
+Balance the third proof item so it does not feel weaker than the number cards.
+
+⸻
+
+5. Processing Infrastructure & Compliance — Reframe or reduce
+
+Current section feels like a badge row/filler.
+
+Do not imply direct affiliation/certification with card brands unless verified.
+
+Avoid a row of:
+
+Visa / Mastercard / Discover / Amex / PCI DSS / EMV Chip
+
+unless framed carefully.
+
+Preferred section title:
+
+Reviewed with the rules your processor already uses
+
+or:
+
+Card-brand and PCI-aware review context
+
+Preferred proof cards:
+
+Card-brand aware review
+PCI-aware documentation
+Funding/setup clarity
+Human support
+
+This section should be compact. It should not be a big empty icon grid.
+
+⸻
+
+6. What You Get — Rebuild as a review deliverable
+
+Current “What You Get From The Liberty Analysis” feels like a generic checklist.
+
+Reframe:
+
+What Your Liberty Review Includes
+
+Make it feel like a report contents/deliverables section.
+
+Include:
+
+* Effective Rate Calculation
+* Fee Driver Map
+* Downgrade Review
+* Monthly Add-On Breakdown
+* Funding Timeline
+* Options Summary
+
+Use report/document styling. Do not make it another checklist next to a plain white card.
+
+The “You Keep the Breakdown” message is good but needs better integration.
+
+⸻
+
+7. How It Works — Compress and strengthen
+
+The 3-step flow is improved but too spacious.
+
+Make it compact and visually connected.
+
+Use:
+
+Upload statement → Fee review → Options summary
+
+The “What Happens After You Say Yes” timeline should be secondary and should not feel like a giant disconnected module.
+
+If included, make it a contained secondary card below the main process.
+
+⸻
+
+8. Rate Comparison — Elevate heavily
+
+This is one of the most conversion-valuable sections on the page.
+
+Current issue: valuable numbers are buried inside a plain card.
+
+Make this a premium benchmark section.
+
+Hero numbers:
+
+1.7%–2.3% all-in
+vs
+2.6%–3.5%+
+
+Use mono styling and strong visual hierarchy.
+
+Keep disclaimers close and readable.
+
+Do not imply guaranteed rates or savings. Frame as typical/illustrative where needed.
+
+⸻
+
+9. Calculator — Make it compelling
+
+Current calculator empty state is weak.
+
+Make it feel like a useful diagnostic tool, not a form dropped into the page.
+
+Use framing like:
+
+Run a 60-second effective-rate check
+
+Improve:
+
+* empty state
+* icon treatment
+* result area
+* visual connection to the fee-review/report system
+* mobile layout
+
+Do not change calculator math unless required.
+
+⸻
+
+10. Verticals — Stop using six identical boxes
+
+The verticals section feels like a spec sheet.
+
+Rebuild to create hierarchy.
+
+Options:
+
+* one featured vertical card + secondary cards
+* group by merchant need
+* add “best for” tags
+* add more specific merchant proof points
+* reduce visual sameness
+
+Do not keep six identical bordered boxes with the same structure.
+
+⸻
+
+11. Offers / Solutions Cards — Fix sparse uneven cards
+
+The Wholesale / Interchange-Plus, Compliant 0% Programs, and Smart Terminal cards are uneven.
+
+Current issue:
+
+* first two cards feel empty
+* terminal card has product image and visual weight
+* card heights are driven by the largest card
+* section feels unfinished
+
+Fix by either:
+
+* reducing card height
+* adding useful mini-modules to first two cards
+* adding “best for” tags
+* adding comparison rows
+* making it a compact comparison section
+
+Keep claims compliance-safe.
+
+⸻
+
+12. Internal Platform Section — Move lower or reframe
+
+The internal CRM/platform section feels like a different product and interrupts the merchant statement-review story.
+
+Do one of:
+
+1. Move it significantly lower.
+2. Reframe it as:
+
+After switching, your team gets operational visibility
+
+3. Convert it into a smaller teaser to a dedicated platform page.
+
+Do not let it hijack the Home page.
+
+Avoid making the page feel like a SaaS dashboard product page.
+
+⸻
+13. Terminal Section — Rebuild Into a Real Merchant Setup Module
+The current terminal section is not acceptable.
+Problem:
+It drops product PNGs onto a white background with no pricing context, no setup comparison, no real merchant configuration, and no reason to care.
+It feels like a product image dump, not a premium merchant-services section.
+Rebuild it as a real “merchant setup” module.
+The section should answer:
+What does a real Liberty setup look like after my review?
+What equipment/options might I get?
+What is included?
+What depends on eligibility?
+Required direction:
+	•	integrate terminal imagery into a designed module, not floating PNGs
+	•	show one primary terminal/setup hero visual
+	•	add a compact setup comparison or included-options table
+	•	include clear “best for” / “used by” context
+	•	show what the merchant actually gets:
+	•	terminal or POS option
+	•	guided setup
+	•	onboarding support
+	•	funding/timeline clarity
+	•	eligibility-dependent pricing/equipment note
+	•	keep disclaimers close to free/eligibility claims
+	•	connect this section to the journey:
+	•	after statement review
+	•	after approval
+	•	implementation/setup
+Possible section title:
+What Setup Looks Like After Approval
+or:
+Terminal + Setup Options, Mapped Out Clearly
+Possible comparison table:
+Option | Best For | Includes | Notes
+Smart Terminal | Counter checkout | tap/dip/swipe/manual entry | eligibility applies
+POS Setup | retail / restaurant | register + terminal configuration | quote after review
+Virtual / keyed setup | services / invoices | manual key + reporting support | based on merchant profile
+Do not make broad “free terminal” claims unless directly qualified.
+Preferred wording:
+Equipment options depend on eligibility, underwriting, processor setup, and merchant needs.
+CTA:
+Check Terminal Eligibility
+Secondary:
+See Setup Details
+This section should feel like a premium implementation module, not a random image gallery.
+
+⸻
+
+14. Why Merchants Switch — Claims/copy hardening
+
+This section has useful content, but claims need safer language.
+
+Review and soften:
+
+No long-term contracts
+No cancellation fees
+Next-day funding
+Direct Human Support
+Statement-Based Pricing
+
+Use safer copy where needed:
+
+Clear terms before you switch
+Funding timelines depend on eligibility and setup
+Human support from real people
+Statement-based review before recommendations
+
+⸻
+
+15. Green “If We Can’t Beat It” Card — Rephrase
+
+Current wording still leans too much on beat-rate framing.
+
+Replace:
+
+If We Can’t Beat It, We’ll Tell You
+
+with:
+
+If the math doesn’t support switching, we’ll tell you.
+
+This is stronger, more premium, and safer.
+
+Also reduce the giant white-space tombstone feeling around this section.
+
+⸻
+
+16. Testimonials / Merchant Stories — Remove duplicate section
+
+There are currently two testimonial / merchant-story sections.
+
+This must be fixed.
+
+Remove the first video-style testimonial section entirely.
+
+The first section includes:
+
+* video-style cards
+* “Video coming soon” placeholders
+* generic demo/video thumbnails
+* repeated testimonial theme
+* savings-per-year callouts
+* less premium visual treatment
+
+It makes the page feel unfinished and duplicated.
+
+Keep only one testimonial/case-study section.
+
+Use the cleaner card-based testimonial section as the base, but polish it.
+
+Kept testimonial section should include:
+
+* three cards
+* stars
+* merchant type / role / location
+* category chips such as:
+    * 0% Program
+    * Statement Review
+    * Switched From Stripe
+* stronger quote hierarchy
+* case-study CTA
+* no fake videos
+* no “coming soon”
+* no duplicate title
+* no duplicate CTA
+
+Claims safety:
+
+If using specific savings numbers like:
+
+saved $340/month
+saving over $300/month
+processing cost dropped to nearly zero
+
+frame them as individual merchant examples, not general promises.
+
+Add nearby context if needed:
+
+Individual merchant example. Results depend on statement review, pricing structure, card mix, volume, and eligibility.
+
+Kill line:
+
+Stop if both testimonial sections still render on Home after the patch.
+
+⸻
+
+17. Final CTA — Create decisive contrast
+
+Final CTA should not be another light card floating on white.
+
+Use:
+
+* strong navy band
+* split CTA layout
+* report/review preview callout
+* or a premium dark conversion block
+
+Primary action:
+
+Upload My Statement — Free
+
+Secondary action:
+
+Book a 15-Minute Review
+
+Make it feel like the conclusion of the page.
+
+⸻
+
+Typography Requirements
+
+Source Serif is currently doing too much.
+
+Use Source Serif only for major editorial moments.
+
+Use IBM Plex Sans more often for:
+
+* card titles
+* operational/product sections
+* process steps
+* labels
+* CTAs
+* solution cards
+
+Use IBM Plex Mono for:
+
+* rates
+* money
+* percentages
+* report data
+* benchmark numbers
+* calculator results
+
+Apply mono styling consistently to:
+
+10+
+5,000+
+3.47%
+1.7%–2.3%
+2.6%–3.5%+
+$127/mo
+$38/mo
+calculator result values
+
+Dashboards, CRM, and portals must remain sans-serif.
+
+⸻
+
+Copy / Claims Hardening
+
+Audit and patch these during build:
+
+Statement Intelligence
+If We Can’t Beat It
+No long-term contracts
+No cancellation fees
+Same business day
+Next-day funding
+Free for qualifying merchants
+Most merchants pay between 1.7% and 2.3%
+Compliant 0% Programs
+PCI DSS
+Visa / Mastercard / Discover / Amex
+nearly zero
+saved $X/month
+saving $X/year
+
+Preferred replacements:
+
+Instead of:
+
+If We Can’t Beat It, We’ll Tell You
+
+Use:
+
+If the math doesn’t support switching, we’ll tell you.
+
+Instead of:
+
+beat your rate
+
+Use:
+
+Compare My Current Setup
+
+Instead of:
+
+Statement Intelligence
+
+Use:
+
+Statement Review
+Fee Breakdown
+Line-Item Review
+Processing Audit
+Liberty Analysis
+
+Keep disclaimers close to numerical examples and timeline/funding claims.
+
+⸻
+
+Sticky CTA / Chat
+
+If the sticky CTA was redesigned already, verify it still passes.
+
+Patch only if failing.
+
+Requirements:
+
+* Upload is primary
+* Call and Book are secondary
+* no app-tab-bar feel
+* no overlap with chat
+* no content covered
+* works at 390px and 430px
+* tracking/destinations preserved
+
+Do not let sticky CTA distract from the main page rhythm work, but do not leave it broken.
+
+⸻
+
+Out of Scope
+
+Do not change:
+
+* backend
+* API
+* routes
+* SEO metadata
+* upload flow
+* booking URL logic
+* phone constants
+* GHL
+* contactability
+* analytics collection infrastructure
+* legal policy
+* core form behavior
+
+Preserve all CTA destinations and existing tracking.
+
+⸻
+
+Kill Lines
+
+Stop and report if:
+
+* backend/API/route changes would be required
+* CTA destinations/tracking would break
+* booking attribution would break
+* stronger savings/beat-rate/guaranteed claims would be introduced
+* Source Serif appears in dashboard/CRM/portal headings
+* page still remains one continuous white/off-white card layout
+* fewer than 4 major visual section resets exist after patch
+* rate comparison remains buried in a plain card
+* calculator remains visually weak
+* verticals remain six identical boxes
+* both testimonial sections still render
+* first video-placeholder testimonial section remains
+* internal platform section remains high and unreframed
+* final CTA still lacks a decisive contrast reset
+
+⸻
+
+Validation Screenshots Required
+
+Desktop
+
+Capture:
+
+* 1440 hero
+* 1440 first scroll
+* 1440 proof/numbers
+* 1440 deliverable section
+* 1440 process
+* 1440 rate comparison/calculator
+* 1440 offers/solutions
+* 1440 internal platform/terminal
+* 1440 testimonials
+* 1440 final CTA
+* 1024 hero
+* 1024 mid-page
+* 1024 final CTA
+
+Mobile
+
+Capture:
+
+* 390 hero
+* 390 first scroll
+* 390 proof/numbers
+* 390 deliverable section
+* 390 process
+* 390 calculator
+* 390 offers
+* 390 testimonials
+* 390 sticky CTA visible
+* 390 final CTA
+* 430 hero
+* 430 final CTA
+
+Must pass:
+
+* no endless white/off-white scroll
+* at least 4 clear visual section resets
+* first visible post-hero sections feel cohesive
+* rate comparison is visually elevated
+* calculator feels worth using
+* verticals are not six identical boxes
+* offer cards are not sparse/uneven
+* duplicate testimonial section removed
+* no video-placeholder testimonial section remains
+* internal platform section moved lower or reframed
+* final CTA has real contrast
+* page feels like a premium merchant advisory site, not a template
+
+⸻
+
+Final Report Required
+
+Return:
+
+1. files changed
+2. section rhythm system applied
+3. background/section treatments used
+4. card types defined/applied
+5. sections moved/reframed
+6. duplicate testimonial removal confirmation
+7. claims softened/removed
+8. CTA/tracking preservation
+9. desktop screenshot notes
+10. mobile screenshot notes
+11. remaining risks
+12. follow-up recommendations
+
+⸻
+
+Success Definition
+
+This task succeeds only when the Home page no longer feels like:
+
+one endless white page with cards
+
+It must feel like:
+
+a premium merchant processing advisory homepage with clear visual rhythm, strong section contrast, and a deliberate conversion story.
+
+Target score:
+
+9.5/10+
+
+Do not stop at 8/10.
+
+
+

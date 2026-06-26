@@ -1,0 +1,742 @@
+580 — Wave 10: Merchant Application + Onboarding Conversion
+
+Mode
+
+Start in PLAN MODE / PREFLIGHT ONLY.
+
+Do not edit code until the build agent verifies all file ownership, schema fields, routes, workflow names, task tables, document tables, and portal ownership.
+
+This wave touches high-value conversion and sensitive onboarding data. Do not assume field names, endpoint paths, queue names, GHL workflow names, task statuses, document schemas, or merchant portal ownership.
+
+After preflight, proceed to Build mode only if the plan can be executed surgically without schema surprises, duplicate automation, or unsafe public data exposure.
+
+⸻
+
+Required Skills
+
+* .local/skills/fullstack-js/SKILL.md — React, Express routes, TanStack Query, form state, TypeScript, Drizzle schema
+* .agents/skills/frontend-design/SKILL.md — application wizard UX, merchant portal onboarding tracker, admin review UI
+* .agents/skills/backend-architecture/SKILL.md — idempotent endpoints, duplicate checks, queues, workflow orchestration
+* .agents/skills/CRM-automation/SKILL.md — contact/deal handoff, Closed Won automation, onboarding pipeline, GHL workflow boundaries
+* .agents/skills/compliance-systems/SKILL.md — consent preservation, sensitive KYC document handling, no unsafe automation
+* .agents/skills/QA-release-lead/SKILL.md — targeted validation, role guards, regression smoke tests, final report
+
+If any listed skill is not installed, still perform the work using the equivalent repo knowledge.
+
+⸻
+
+What & Why
+
+The highest-value conversion path is:
+
+interested lead → proposal accepted → merchant application started → application submitted → onboarding tasks completed → MID provisioned → first batch detected → live merchant
+
+The current flow has friction and broken handoffs:
+
+* Merchant application exists but does not reliably prefill from CRM contact/deal data.
+* Agents lack a safe “Share Application Link” from Contact Detail.
+* Duplicate application protection by EIN/email is missing or incomplete.
+* Partial applications are not reliably saved after each step.
+* Abandoned applications are not safely queued for recovery.
+* Closed Won automation creates some onboarding motion, but the handoff to merchant portal onboarding, SLA tasks, KYC document collection, and admin document review is not fully connected.
+* Merchant portal does not clearly show onboarding progress from the same task source of truth.
+* KYC uploads need to land in the document vault with category/status review visibility.
+* MID / boarding status should surface in onboarding pipeline/Kanban cards if schema supports it.
+
+Wave 10 reduces friction from proposal accepted to merchant live while preserving compliance, consent, and data safety.
+
+⸻
+
+Core Product Goal
+
+After this wave:
+
+1. Agents can send a safe, prefilled merchant application link from CRM/contact detail.
+2. Merchants see fewer blank fields and less duplicate entry.
+3. Duplicate EIN/email submissions are blocked or routed to support.
+4. Partial applications save progressively.
+5. Abandoned applications are recovered safely.
+6. Closed Won handoff creates onboarding tasks idempotently.
+7. Merchant portal shows real onboarding progress.
+8. KYC uploads flow to admin review.
+9. Boarding status and MID information are visible to operators.
+10. Nothing triggers unsafe sends, duplicate workflows, or sensitive data leaks.
+
+⸻
+
+Critical Safety Rules
+
+1. No unsafe public data exposure
+
+Do not expose CRM contact/deal data publicly just because a URL contains:
+
+?contactId=123&dealId=456
+
+Before implementing direct ID prefill, verify current auth/session model for the merchant application.
+
+Preferred safer approaches, in order:
+
+1. Existing authenticated agent shares link that opens application with a server-generated prefill token.
+2. Existing secure invite/application token mechanism if present.
+3. Public URL params only if server returns strictly whitelisted, non-sensitive prefill fields and validates that contact/deal are eligible.
+
+If no safe prefill mechanism exists, stop and report. Do not expose full contact/deal records to anonymous visitors.
+
+2. No duplicate automation
+
+Closed Won → onboarding tasks/email/workflow must be idempotent.
+
+Do not create duplicate onboarding deals, duplicate SLA tasks, duplicate portal welcome emails, or duplicate GHL workflow triggers if the Closed Won handler runs twice.
+
+3. No live external sends unless existing safe path exists
+
+Do not trigger live GHL workflows, portal welcome emails, SMS, AI voice, ringless voicemail, or external sends during testing unless an existing dry-run/test path exists.
+
+If no dry-run exists, validate wiring and idempotency without firing live sends.
+
+4. Abandon recovery must respect Wave 6 / contactability
+
+Application abandoned recovery must not bypass consent/contactability rules.
+
+If it enrolls in a Wave 6 sequence, use the existing sequence eligibility/enrollment path.
+
+Do not directly send SMS/email from the abandon job.
+
+5. KYC documents are sensitive
+
+KYC uploads and document vault review must avoid exposing sensitive documents to unauthorized roles.
+
+All KYC admin review routes must be admin/manager guarded.
+
+Merchant portal should only show documents belonging to the authenticated merchant/contact/account.
+
+⸻
+
+Preflight Required
+
+Before building, inspect and report:
+
+Application / frontend
+
+* client/src/pages/MerchantApplication.tsx
+* current steps and form schema
+* where PEWC consent is captured
+* current submit endpoint
+* whether partial save exists
+* whether application has an id before final submit
+* whether URL params are already read
+* how auth/session behaves on merchant application route
+* whether application can be opened by public/unauthenticated visitors
+* existing error handling and validation patterns
+
+CRM / contact / deal
+
+* client/src/pages/dashboard/ContactDetail.tsx
+* exact contact fields available
+* exact deal fields available
+* whether ContactDetail already has action buttons/copy-to-clipboard pattern
+* GET /api/contacts/:id guard and response shape
+* GET /api/deals/:id guard and response shape
+* whether deal belongs to contact/account
+
+Backend routes
+
+* server/routes/merchants.ts
+* server/routes/deals.ts
+* server/routes/documents.ts
+* any existing merchant application routes
+* any existing onboarding routes
+* any existing application duplicate/check endpoints
+* any existing queue/BullMQ setup
+* any existing sequence enrollment path
+* any existing Closed Won handler
+
+Schema
+
+Inspect shared/schema.ts and verify exact fields for:
+
+* merchantApplications
+* contacts
+* deals
+* tasks
+* documents
+* onboarding pipeline/deal fields
+* boardingStatus
+* mid
+* ein or business tax ID field
+* application status enum/values
+* document category/status fields
+* document contactId/dealId/merchantId ownership fields
+
+Do not assume these exist.
+
+Automations / workflows
+
+Verify exact names and ownership for:
+
+* Closed Won automation
+* onboarding pipeline deal creation
+* GHL_WORKFLOW_MERCHANT_APPROVED
+* portal welcome email
+* Wave 6 Application Abandoned sequence family/name
+* existing sequence enrollment endpoint/service
+* contactability/sequence eligibility checks
+
+Portal / document vault
+
+Verify:
+
+* client/src/pages/dashboard/MerchantPortal.tsx
+* current merchant portal data source
+* how authenticated merchant is identified
+* current KYC upload component/route
+* client/src/pages/dashboard/MerchantApplicationsList.tsx
+* admin document vault path/component, if any
+* whether /dashboard/document-vault exists
+* sidebar badge/count patterns
+
+⸻
+
+Build Readiness Requirement
+
+After preflight, produce a concise build plan with:
+
+* verified files
+* schema gaps
+* route gaps
+* ownership map
+* exact fields to prefill
+* exact duplicate check keys
+* exact task schema/status mapping
+* exact document status/category mapping
+* whether prefill uses token or whitelisted ID params
+* whether abandon recovery can safely enroll Wave 6 sequence
+* whether Closed Won automation is safe to patch
+* build readiness verdict
+
+Only then build.
+
+⸻
+
+Done Looks Like
+
+1. Safe application prefill
+
+A merchant application can be opened with a safe prefill context.
+
+Preferred URL shape if token mechanism is built or exists:
+
+/merchant-application?prefillToken=<token>
+
+Acceptable only if verified safe:
+
+/merchant-application?contactId=123&dealId=456
+
+Prefill only whitelisted fields:
+
+Step 1:
+
+* business name
+* contact name if already public/appropriate
+* phone
+* email
+* business address
+* vertical / industry
+
+Step 4:
+
+* monthly processing volume
+* average ticket if available
+* current processor if available and safe
+
+Do not prefill:
+
+* EIN/tax ID
+* bank account fields
+* owner SSN
+* DOB
+* KYC-sensitive data
+* internal notes
+* scoring/AI fields
+* consent status in a way that auto-checks consent
+
+Consent fields must never be silently prefilled as accepted.
+
+⸻
+
+2. Contact detail prefill link
+
+Contact Detail has a clear action:
+
+Share Application Link
+
+Behavior:
+
+* generates/copies safe prefill URL
+* includes contact/deal context only through the approved mechanism
+* shows success toast
+* does not expose sensitive fields
+* if no eligible deal exists, explains what is missing
+* if multiple deals exist, chooses verified active/open deal or asks/selects safely
+
+Do not add this action to contacts that cannot safely start an application.
+
+⸻
+
+3. Duplicate EIN + email guard
+
+On Step 1 submit or as soon as both values are available, call:
+
+POST /api/merchant-applications/check-duplicate
+
+The endpoint checks existing merchant applications using normalized email and EIN/tax ID.
+
+Important:
+
+* normalize email lowercased/trimmed
+* normalize EIN by stripping formatting
+* do not log raw EIN in plaintext logs
+* do not expose exact matching application details to the public
+* use role-safe/admin-safe details only if authenticated internal user
+
+Merchant-facing duplicate response:
+
+An application may already exist for this business. Please contact support so we can help you continue.
+
+Do not reveal:
+
+* matching application ID
+* full EIN
+* owner identity
+* internal status
+* deal ID
+
+Admin/agent responses may include more context only if existing role guards allow it.
+
+⸻
+
+4. Partial application autosave
+
+After each step completion, save the application with:
+
+status = "in_progress"
+
+Rules:
+
+* create one application record after Step 1 is valid
+* keep application ID in local state/session as appropriate
+* subsequent steps PATCH the same application
+* autosave must be idempotent
+* refresh/resume should not create duplicate partials
+* final submit moves status to submitted/completed using existing status patterns
+* validation errors should not overwrite good data with blanks
+
+Do not store consent acceptance unless explicitly checked by the merchant.
+
+Do not duplicate existing PEWC consent logic; preserve current behavior.
+
+⸻
+
+5. Application abandon recovery
+
+If an application remains in_progress for 24h after last meaningful update, trigger abandoned application recovery safely.
+
+Preferred implementation:
+
+* scheduled BullMQ job or existing scheduler checks stale in_progress applications
+* identify eligible contact/application
+* enroll through existing Wave 6 sequence eligibility/enrollment service
+* use Application Abandoned sequence only if it exists and is paused/active according to Wave 6 rules
+* write audit/log entry
+* never directly send SMS/email from the job
+* never bypass contactability
+* never enroll if doNotContact/doNotAutoContact/opted_out/DNC/contactability denies
+
+If Wave 6 abandoned sequence does not exist or cannot be resolved, do not fake it. Return/report warning and add follow-up.
+
+⸻
+
+6. Closed Won → onboarding handoff
+
+When a deal moves to Closed Won / proposal accepted / merchant approved, the system should idempotently create or update onboarding flow.
+
+Required outcomes:
+
+* onboarding pipeline deal exists or is updated
+* GHL merchant-approved workflow is invoked only through existing safe path
+* portal welcome email is sent only through existing safe path
+* five SLA tasks exist once, not duplicated
+* each task linked to dealId and merchant/contact where schema supports it
+* due dates calculated consistently
+* tasks visible to operator/admin
+* merchant portal can read progress from same source of truth
+
+Five SLA tasks:
+
+1. KYC documents collected
+2. E-sign completed
+3. Boarding submitted
+4. MID provisioned
+5. First batch detected
+
+Suggested due dates:
+
+* KYC due +2 days
+* e-sign due +3 days
+* boarding due +7 days
+* MID due +10 days
+* first batch due +30 days
+
+Use existing task status enum if present.
+
+If task table lacks fields for blocking reason/due date/linkage, stop and report before inventing schema.
+
+⸻
+
+7. Merchant portal onboarding tracker
+
+Merchant portal shows:
+
+Onboarding Progress
+
+Using real SLA task data.
+
+Each step shows:
+
+* title
+* status
+* due date
+* completed date if available
+* blocking reason if overdue or blocked
+* merchant-facing explanation
+* document upload CTA for KYC step if needed
+
+Do not show internal-only notes to merchants.
+
+Do not fake progress from frontend constants if task data exists.
+
+If task data is missing, show a clear empty/waiting state:
+
+Your onboarding checklist will appear here after your application is approved.
+
+⸻
+
+8. KYC document upload → document vault
+
+KYC uploads from merchant portal must write to documents with:
+
+category = "kyc"
+status = "pending_review"
+
+or closest verified schema values.
+
+Required:
+
+* link document to merchant/contact/deal/application where schema supports it
+* admin/manager can review in document vault
+* merchant can only view/upload their own docs
+* no unauthorized document listing
+* no raw sensitive document URLs exposed to unauthorized users
+* approve/reject actions write audit fields if available
+
+Document vault should show:
+
+* filter by category=kyc
+* pending KYC counter
+* approve/reject action
+* reviewer/status timestamp if schema supports it
+* rejection reason if schema supports it
+
+If /dashboard/document-vault does not exist, extend the existing document/admin review surface instead of inventing a new route without verifying routing.
+
+⸻
+
+9. MID / boarding status visibility
+
+If schema confirms fields:
+
+* deals.boardingStatus
+* deals.mid
+
+surface them in onboarding pipeline Kanban cards.
+
+Display:
+
+* boarding status badge
+* MID value masked/controlled if needed
+* missing MID state
+* next onboarding task due
+
+Do not add fields without migration unless explicitly required and safe.
+
+If fields do not exist, stop and report with schema gap.
+
+⸻
+
+Out of Scope
+
+Do not build:
+
+* full NMI / processor boarding API integration
+* new e-sign vendor integration
+* new external KYC vendor integration
+* new GHL workflow definitions
+* new SMS/voice/ringless automation
+* new payment processor boarding calls
+* new underwriting decision engine
+* new public portal auth system
+* new document storage provider
+* broad CRM redesign
+* broad merchant portal redesign
+* broad pipeline refactor
+* new analytics collection unrelated to this flow
+
+⸻
+
+Implementation Phases
+
+Phase 0 — Preflight / ownership map
+
+No code changes.
+
+Verify everything listed above.
+
+Phase 1 — Safe prefill link + duplicate guard
+
+Build:
+
+* safe prefill data endpoint/token or verified whitelisted prefill
+* MerchantApplication query-param/prefill support
+* Contact Detail “Share Application Link”
+* duplicate EIN/email endpoint
+* Step 1 duplicate guard
+
+Validation:
+
+* prefill works for safe fields
+* consent not auto-checked
+* duplicate guard blocks duplicate
+* public response does not leak sensitive match details
+
+Phase 2 — Partial autosave + abandon recovery
+
+Build:
+
+* create application on Step 1 valid completion
+* patch existing application after each step
+* in_progress status
+* stale in_progress detection
+* safe Wave 6 abandoned sequence enrollment through existing eligibility path
+
+Validation:
+
+* no duplicate partials
+* resume/refresh preserves app ID
+* abandon job does not directly send
+* contactability/sequence eligibility honored
+
+Phase 3 — Closed Won onboarding handoff + SLA tasks
+
+Build:
+
+* idempotent Closed Won onboarding task creation
+* onboarding pipeline deal update/create if existing flow supports it
+* portal welcome/GHL workflow only via existing safe path
+* five SLA tasks with due dates and linkage
+
+Validation:
+
+* re-running Closed Won handler does not duplicate tasks
+* tasks linked to deal/contact/application
+* dry-run/no-live-send validation where required
+
+Phase 4 — Merchant portal onboarding tracker
+
+Build:
+
+* progress tracker from real task data
+* due dates/status/blocking reason display
+* KYC upload CTA
+* safe empty/waiting state
+
+Validation:
+
+* merchant sees only own onboarding
+* no internal-only notes exposed
+* overdue/blocking display works
+
+Phase 5 — KYC document vault + MID/Kanban visibility
+
+Build:
+
+* KYC document category/status path
+* admin review filter/counter
+* approve/reject if existing mutation pattern supports it
+* MID/boarding status display on onboarding Kanban card if schema confirms fields
+
+Validation:
+
+* KYC docs appear pending review
+* approve/reject is role-guarded
+* merchant cannot see others’ docs
+* Kanban display handles missing MID/status
+
+⸻
+
+Kill Lines
+
+Stop and report before build if:
+
+* merchant application is public and direct contactId/dealId prefill would expose CRM data.
+* no safe token or whitelist prefill mechanism can be implemented surgically.
+* EIN or tax ID field cannot be identified.
+* duplicate check would reveal sensitive duplicate details publicly.
+* merchantApplications cannot support in_progress status without migration and migration scope is unclear.
+* autosave would create duplicate applications on refresh/resume.
+* PEWC consent would be silently accepted/prefilled.
+* abandoned recovery would bypass Wave 6 sequence eligibility/contactability.
+* application-abandoned sequence cannot be found or safely resolved.
+* Closed Won handler cannot be identified.
+* Closed Won onboarding task creation would duplicate tasks on repeated handler runs.
+* portal welcome email or GHL workflow would be triggered live during tests without dry-run/safe mode.
+* tasks table cannot support due date/status/linkage.
+* merchant portal identity/ownership cannot be verified.
+* KYC upload would expose documents across merchants.
+* document vault route/component does not exist and creating a new route would broaden scope.
+* MID/boarding fields do not exist and adding migration is not approved.
+* role guards for admin/manager/merchant are unclear.
+* any SMS/voice/ringless automation is introduced.
+
+⸻
+
+Validation Plan
+
+Backend
+
+Validate:
+
+* prefill endpoint/token returns only whitelisted fields
+* duplicate check normalizes EIN/email
+* duplicate public response does not leak sensitive details
+* autosave creates one in_progress application
+* PATCH updates same application
+* final submit status unchanged or correctly follows existing pattern
+* abandon job finds stale in_progress applications
+* abandon job enrolls through existing sequence eligibility service only
+* Closed Won handler creates five SLA tasks idempotently
+* KYC docs write category/status correctly
+* document review approve/reject role guarded
+* MID/boarding display fields exist before use
+
+Frontend
+
+Validate:
+
+* merchant application prefilled fields render correctly
+* consent is not auto-checked
+* duplicate error appears inline
+* autosave survives step navigation
+* Contact Detail copies link
+* Merchant Portal tracker renders real statuses
+* KYC upload path works
+* Document Vault pending KYC filter/counter works
+* Kanban card shows boarding status/MID if available
+* empty states are clear
+
+Security / role guards
+
+Validate:
+
+* public application cannot fetch arbitrary contact/deal sensitive data
+* merchant cannot access another merchant’s application/documents/tasks
+* agent/admin access behaves as expected
+* document review is admin/manager only
+* no EIN/SSN/bank data in logs or public duplicate responses
+
+Regression
+
+Validate:
+
+* existing merchant application final submit still works
+* existing PEWC consent behavior unchanged
+* existing Contact Detail still loads
+* existing Closed Won automation still works without duplicates
+* existing GHL sync/contactability behavior unchanged
+* existing merchant portal routes still render
+* no public page changes
+* no unrelated CRM dashboard changes
+
+⸻
+
+Targeted Test / Smoke Suggestions
+
+Run task-scoped tests or smoke checks only.
+
+Suggested:
+
+npm run typecheck
+
+or repo equivalent.
+
+Add/verify tests where patterns exist for:
+
+* duplicate application check
+* autosave idempotency
+* Closed Won task idempotency
+* merchant document ownership
+* abandon recovery eligibility
+
+Manual smoke:
+
+* start application with prefill
+* duplicate guard
+* partial autosave
+* final submit
+* Closed Won handoff dry-run/safe-mode
+* merchant portal tracker
+* KYC document review
+
+Do not run full global suites unless shared schema/migrations, auth, or task workflow changes require it.
+
+⸻
+
+Final Report Required
+
+Return:
+
+1. files changed
+2. preflight findings
+3. schema fields verified
+4. prefill safety model used
+5. duplicate guard behavior
+6. autosave behavior
+7. abandon recovery path and safety gates
+8. Closed Won handoff behavior
+9. SLA task creation/idempotency
+10. merchant portal tracker behavior
+11. KYC document vault behavior
+12. MID/boarding visibility
+13. role/security validation
+14. tests/smokes run
+15. live-send/GHL workflow safety notes
+16. remaining risks
+17. follow-up recommendations
+
+⸻
+
+Success Definition
+
+Wave 10 succeeds when:
+
+* agents can safely share a prefilled merchant application link.
+* merchants complete applications with less friction.
+* duplicate EIN/email applications are blocked safely.
+* partial applications save without duplicates.
+* abandoned applications recover through existing Wave 6 safety gates.
+* Closed Won creates onboarding tasks idempotently.
+* merchant portal shows real onboarding progress.
+* KYC uploads appear in admin review safely.
+* MID/boarding status is visible where schema supports it.
+* no sensitive data leaks.
+* no duplicate automations fire.
+* no consent/contactability/GHL workflow safety rules are weakened.
