@@ -790,9 +790,15 @@ export function registerPartnerOrgsRoutes(app: Express) {
           try {
             const deal = await storage.getDeal(proposal.dealId!);
             if (deal) {
-              await storage.updateDeal(deal.id, { proposalStatus: "accepted" });
+              const partnerOrgIdForDeal = proposal.partnerOrgId ?? deal.partnerOrgId ?? null;
+              const dealUpdates: Record<string, any> = { proposalStatus: "accepted" };
+              if (partnerOrgIdForDeal && !deal.partnerOrgId) dealUpdates.partnerOrgId = partnerOrgIdForDeal;
+              await storage.updateDeal(deal.id, dealUpdates);
               if (deal.contactId) {
                 const contact = await storage.getContact(deal.contactId);
+                if (contact && partnerOrgIdForDeal && !contact.partnerOrgId) {
+                  await storage.updateContact(contact.id, { partnerOrgId: partnerOrgIdForDeal, referralSource: "co_branded_proposal" });
+                }
                 if (contact?.ghlContactId) {
                   await Promise.all([
                     addNote({ contactId: contact.ghlContactId, body: `Co-branded proposal ACCEPTED: ${proposal.merchantName}` }),

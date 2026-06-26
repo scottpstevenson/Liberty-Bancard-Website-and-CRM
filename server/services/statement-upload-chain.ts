@@ -28,6 +28,8 @@ export interface StatementUploadInput {
   /** If provided, used to look up existing deal stages and update accordingly */
   businessName?: string;
   consentEmail?: boolean;
+  /** Partner org resolved from referral attribution — applied to deal on creation/update */
+  partnerOrgId?: number | null;
 }
 
 export interface ChainStepResult {
@@ -176,20 +178,18 @@ export async function runStatementUploadChain(
       const existingDeal = await storage.getDeal(input.dealId);
       if (existingDeal) {
         dealId = existingDeal.id;
+        const baseUpdates: any = {
+          statementReceived: true,
+          ...(companyId ? { companyId } : {}),
+          ...(input.partnerOrgId && !existingDeal.partnerOrgId ? { partnerOrgId: input.partnerOrgId } : {}),
+        };
         if (STAGES_TO_ADVANCE.includes(existingDeal.stage)) {
-          await storage.updateDeal(dealId, {
-            stage: "Statement Received",
-            statementReceived: true,
-            ...(companyId ? { companyId } : {}),
-          });
+          await storage.updateDeal(dealId, { ...baseUpdates, stage: "Statement Received" });
           steps.push(makeStep(3, "Deal stage advanced", true, undefined, {
             dealId, from: existingDeal.stage, to: "Statement Received",
           }));
         } else {
-          await storage.updateDeal(dealId, {
-            statementReceived: true,
-            ...(companyId ? { companyId } : {}),
-          });
+          await storage.updateDeal(dealId, baseUpdates);
           steps.push(makeStep(3, "Deal updated", true, undefined, {
             dealId, stage: existingDeal.stage, note: "Stage kept (already past Statement Received)",
           }));
@@ -210,6 +210,7 @@ export async function runStatementUploadChain(
           updates.stage = "Statement Received";
         }
         if (companyId) updates.companyId = companyId;
+        if (input.partnerOrgId && !openDeal.partnerOrgId) updates.partnerOrgId = input.partnerOrgId;
         await storage.updateDeal(dealId, updates);
         steps.push(makeStep(3, "Existing deal updated", true, undefined, {
           dealId, stage: openDeal.stage, advanced: STAGES_TO_ADVANCE.includes(openDeal.stage),
@@ -224,6 +225,7 @@ export async function runStatementUploadChain(
           leadSource: input.source === "website" ? "website" : input.source === "merchant_portal" ? "merchant_portal" : "dashboard",
           notes: `Statement uploaded via ${input.source}.`,
           ...(companyId ? { companyId } : {}),
+          ...(input.partnerOrgId ? { partnerOrgId: input.partnerOrgId } : {}),
         });
         dealId = newDeal.id;
         steps.push(makeStep(3, "Deal created", true, undefined, {

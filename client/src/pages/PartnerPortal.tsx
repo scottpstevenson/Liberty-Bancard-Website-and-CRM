@@ -25,6 +25,7 @@ interface PartnerData {
     status: string;
     partnerType: string;
     commissionPercent: number;
+    totalPayouts: string | null;
   };
   kpis: {
     totalMerchants: number;
@@ -34,7 +35,10 @@ interface PartnerData {
     nextPaymentDate: string;
     pendingReferrals: number;
     totalClicks: number;
+    conversionRate: number;
   };
+  tier: { name: string; commissionPercent: number } | null;
+  nextTier: { name: string; minReferrals: number; commissionPercent: number } | null;
   merchants: Array<{
     id: number;
     name: string;
@@ -257,7 +261,7 @@ export default function PartnerPortal() {
     toast({ title: "Link copied!" });
   };
 
-  const referralLink = dashboardData?.referralLink || (partnerCode ? `${window.location.origin}?ref=${partnerCode}` : "");
+  const referralLink = dashboardData?.referralLink || (partnerCode ? `${window.location.origin}/get-started?ref=${partnerCode}` : "");
 
   if (view === "dashboard" && dashboardData) {
     const { partner, kpis, merchants } = dashboardData;
@@ -351,8 +355,8 @@ export default function PartnerPortal() {
               </Card>
             </div>
 
-            {/* Clicks KPI row */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+            {/* Clicks + Conversion KPI row */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
               <Card data-testid="kpi-total-clicks">
                 <CardContent className="p-4 flex items-center gap-4">
                   <MousePointerClick className="w-8 h-8 text-violet-500 shrink-0" />
@@ -375,7 +379,45 @@ export default function PartnerPortal() {
                   </div>
                 </CardContent>
               </Card>
+              <Card data-testid="kpi-conversion-rate">
+                <CardContent className="p-4 flex items-center gap-4">
+                  <BarChart3 className="w-8 h-8 text-teal-500 shrink-0" />
+                  <div>
+                    <p className="text-2xl font-bold text-foreground" data-testid="text-conversion-rate">
+                      {kpis.conversionRate}%
+                    </p>
+                    <p className="text-xs text-muted-foreground">Lead-to-Close Rate</p>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
+
+            {/* Tier + Payouts row */}
+            {(dashboardData.tier || partner.totalPayouts) && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                {dashboardData.tier && (
+                  <Card data-testid="kpi-commission-tier" className="border-primary/20 bg-primary/5">
+                    <CardContent className="p-4">
+                      <p className="text-xs text-muted-foreground mb-1">Commission Tier</p>
+                      <p className="text-lg font-bold text-primary" data-testid="text-tier-name">{dashboardData.tier.name}</p>
+                      {dashboardData.nextTier && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Next tier: <span className="text-foreground font-medium">{dashboardData.nextTier.name}</span> at {dashboardData.nextTier.minReferrals} conversions
+                        </p>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+                {partner.totalPayouts && (
+                  <Card data-testid="kpi-total-payouts">
+                    <CardContent className="p-4">
+                      <p className="text-xs text-muted-foreground mb-1">Lifetime Payouts (estimated)</p>
+                      <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400" data-testid="text-total-payouts">{partner.totalPayouts}</p>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            )}
 
             {/* Next Payment */}
             <Card className="mb-8 border-primary/20 bg-primary/5">

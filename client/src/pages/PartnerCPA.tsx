@@ -186,13 +186,25 @@ function FaqItem({ q, a }: { q: string; a: string }) {
   );
 }
 
+const cpaFaqJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: faqs.map(item => ({
+    "@type": "Question",
+    name: item.q,
+    acceptedAnswer: { "@type": "Answer", text: item.a },
+  })),
+};
+
 export default function PartnerCPA() {
   return (
     <div className="min-h-screen flex flex-col font-body">
       <SEO
-        title="CPA Partner Program — Earn Residuals | Liberty Bancard"
-        description="CPAs: your clients are overpaying on processing fees. Refer them to Liberty Bancard and earn 30% lifetime residual income. No sales effort — just a referral."
+        title="CPA Partner Program — Earn 30% Lifetime Residuals | Liberty Bancard"
+        description="CPAs: your clients are overpaying on credit card processing fees. Refer them to Liberty Bancard and earn 30% lifetime residual income every month — no sales effort required."
         path="/partners/cpa"
+        keywords="CPA referral income, accountant partner program, merchant services referral, payment processing residuals for CPAs"
+        structuredData={[cpaFaqJsonLd]}
       />
       <Navbar />
       <main className="flex-grow pt-28">

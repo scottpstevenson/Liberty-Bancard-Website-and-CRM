@@ -201,6 +201,87 @@ function TableSkeleton({ rows = 5, cols = 9 }: { rows?: number; cols?: number })
   );
 }
 
+interface PartnerResidualRow {
+  orgId: number;
+  orgName: string;
+  orgSlug: string;
+  totalGrossResidual: string;
+  totalNetResidual: string;
+  activeMerchants: number;
+}
+
+function ByPartnerTab() {
+  const { data: rows = [], isLoading } = useQuery<PartnerResidualRow[]>({
+    queryKey: ["/api/residuals/by-partner"],
+  });
+
+  return (
+    <TabsContent value="by-partner" className="space-y-4" data-testid="tab-content-by-partner">
+      <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 p-3 flex gap-2 items-start text-xs text-amber-800 dark:text-amber-300">
+        <span className="shrink-0 mt-0.5">⚠</span>
+        <span>
+          This view shows residuals from <strong>confirmed imports only</strong>, attributed to partner organizations via deal links.
+          Individual affiliate partners appear in the <strong>Partner Portal</strong>.
+          To confirm pending imports or mark rows as ready, use the <strong>Import &amp; Reconcile</strong> tab.
+        </span>
+      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Users className="w-4 h-4 text-primary" />
+            Residuals by Partner Organization
+          </CardTitle>
+          <p className="text-xs text-muted-foreground">
+            Aggregated from confirmed residual imports. Only rows matched to deals with a linked partner organization are included.
+          </p>
+        </CardHeader>
+        <CardContent className="p-0">
+          {isLoading ? (
+            <div className="p-6 space-y-3">
+              {[1, 2, 3].map(i => <Skeleton key={i} className="h-10 w-full" />)}
+            </div>
+          ) : rows.length === 0 ? (
+            <div className="p-8 text-center">
+              <Users className="w-8 h-8 text-muted-foreground/40 mx-auto mb-3" />
+              <p className="text-sm text-muted-foreground" data-testid="text-by-partner-empty">
+                No partner-attributed residuals yet. Link deals to partner organizations and import residuals to see data here.
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table data-testid="table-by-partner">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Partner Organization</TableHead>
+                    <TableHead className="text-right">Active Merchants</TableHead>
+                    <TableHead className="text-right">Gross Residual</TableHead>
+                    <TableHead className="text-right">Net Residual</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {rows.map(row => (
+                    <TableRow key={row.orgId} data-testid={`row-partner-${row.orgId}`}>
+                      <TableCell className="font-medium text-foreground">
+                        <div className="flex flex-col">
+                          <span>{row.orgName}</span>
+                          <span className="text-xs text-muted-foreground font-mono">{row.orgSlug}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right">{row.activeMerchants}</TableCell>
+                      <TableCell className="text-right">{formatCurrency(row.totalGrossResidual)}</TableCell>
+                      <TableCell className="text-right font-semibold text-foreground">{formatCurrency(row.totalNetResidual)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </TabsContent>
+  );
+}
+
 export default function ResidualRevenue() {
   const [searchQuery, setSearchQuery] = useState("");
   const [groupFilterParentId, setGroupFilterParentId] = useState<number | null>(null);
@@ -478,6 +559,7 @@ export default function ResidualRevenue() {
           </div>
           <TabsList data-testid="tabs-residual">
             <TabsTrigger value="dashboard" data-testid="tab-dashboard"><BarChart3 className="w-4 h-4 mr-1" />Dashboard</TabsTrigger>
+            <TabsTrigger value="by-partner" data-testid="tab-by-partner"><Users className="w-4 h-4 mr-1" />By Partner</TabsTrigger>
             <TabsTrigger value="reconcile" data-testid="tab-reconcile"><Upload className="w-4 h-4 mr-1" />Import & Reconcile</TabsTrigger>
             <TabsTrigger value="history" data-testid="tab-history"><FileText className="w-4 h-4 mr-1" />History</TabsTrigger>
           </TabsList>
@@ -857,6 +939,9 @@ export default function ResidualRevenue() {
         </TabsContent>
 
         {/* ── IMPORT & RECONCILE TAB ─────────────────────────────────────── */}
+        {/* ── BY PARTNER TAB ──────────────────────────────────────────────── */}
+        <ByPartnerTab />
+
         <TabsContent value="reconcile" className="space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Upload Panel */}

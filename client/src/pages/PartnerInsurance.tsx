@@ -204,13 +204,25 @@ function FaqItem({ q, a }: { q: string; a: string }) {
   );
 }
 
+const insuranceFaqJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: faqs.map(item => ({
+    "@type": "Question",
+    name: item.q,
+    acceptedAnswer: { "@type": "Answer", text: item.a },
+  })),
+};
+
 export default function PartnerInsurance() {
   return (
     <div className="min-h-screen flex flex-col font-body">
       <SEO
-        title="Insurance Agent Partner Program — Earn Residuals | Liberty Bancard"
-        description="Business insurance agents: you talk to every small business. Introduce them to cash discount processing and earn 30% lifetime residuals. Zero payments expertise required."
+        title="Insurance Agent Partner Program — Earn 30% Residuals | Liberty Bancard"
+        description="Insurance agents: your business clients are overpaying on card processing. Introduce them to Liberty Bancard's free review and earn 30% lifetime monthly residuals."
         path="/partners/insurance"
+        keywords="insurance agent referral income, partner program for insurance agents, merchant services residuals, cash discount program referral"
+        structuredData={[insuranceFaqJsonLd]}
       />
       <Navbar />
       <main className="flex-grow pt-28">

@@ -23,6 +23,7 @@ import { publicLeadRateLimit } from "../middleware/public-rate-limit";
 import { recordPewcDecision } from "../services/consent-evidence";
 import { evaluateContactability } from "../services/contactability";
 import { StatementChainTracker } from "../services/statement-upload-chain";
+import { resolveReferralAttribution } from "../services/attribution";
 
 export function registerPublicRoutes(app: Express) {
   const autoProposalRateLimit = new Map<string, number>();
@@ -235,6 +236,33 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       const rawStatementName = req.file?.originalname || (businessName ? businessName + "_statement" : "statement");
       const statementFileName = path.basename(rawStatementName).replace(/[^a-zA-Z0-9._-]/g, "_");
 
+      // Resolve attribution BEFORE the chain so partnerOrgId flows into deal creation
+      let resolvedPartnerOrgId: number | null = null;
+      try {
+        const attr = await resolveReferralAttribution(referralCode, contact.partnerOrgId);
+        if (attr.partnerType === "partner_org" && attr.partnerOrgId) {
+          if (!contact.partnerOrgId) {
+            const orgUpdates: Record<string, unknown> = { partnerOrgId: attr.partnerOrgId, referralSource: attr.referralSource };
+            if (attr.promoCode && !contact.promoCode) orgUpdates.promoCode = attr.promoCode;
+            await storage.updateContact(contact.id, orgUpdates as Parameters<typeof storage.updateContact>[1]);
+            resolvedPartnerOrgId = attr.partnerOrgId;
+          } else {
+            resolvedPartnerOrgId = contact.partnerOrgId;
+            await storage.createAuditLog({ action: "attribution_preserved", entityType: "contact", entityId: contact.id, actorType: "system", details: { reason: "contact already has partnerOrgId", existing: contact.partnerOrgId, inbound: attr.partnerOrgId } });
+          }
+        } else if (attr.partnerType === "affiliate_partner" && attr.promoCode) {
+          if (!contact.promoCode) {
+            await storage.updateContact(contact.id, { promoCode: attr.promoCode, referralSource: attr.referralSource });
+          } else {
+            await storage.createAuditLog({ action: "attribution_preserved", entityType: "contact", entityId: contact.id, actorType: "system", details: { reason: "contact already has promoCode", existing: contact.promoCode, inbound: attr.promoCode } });
+          }
+        } else if (attr.partnerType !== "none" && attr.referralSource && !contact.referralSource) {
+          await storage.updateContact(contact.id, { referralSource: attr.referralSource });
+        }
+      } catch (err) {
+        console.error("[Attribution] statement-upload error:", err);
+      }
+
       // Run the full 11-step conversion chain (fire-and-forget — merchant always gets 201)
       runStatementUploadChain({
         contactId: contact.id,
@@ -244,6 +272,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         source: "website",
         businessName: businessName || undefined,
         consentEmail: parseBool(consentSms),
+        partnerOrgId: resolvedPartnerOrgId,
       }).catch(err => console.error("[StatementChain] Unhandled chain error:", err.message));
 
       if (contact.ghlContactId) {
@@ -257,8 +286,8 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       ingestBusinessFromContact(contact.id, "manual_upload", "website_statement").catch(err => console.warn("[Statement] Business ingest failed:", err));
       scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
-      triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: deal.id }, { formType: "statement_upload" }).catch(err => console.error("Workflow trigger error:", err));
-      enrollInInboundConfirmation({ contactId: contact.id, formType: "statement_upload", dealId: deal.id }).catch(err => console.error("GHL inbound confirmation error:", err));
+      triggerWorkflowsByEvent("form_submitted", { entityType: "contact", entityId: contact.id, contactId: contact.id, dealId: existingDealId || undefined }, { formType: "statement_upload" }).catch(err => console.error("Workflow trigger error:", err));
+      enrollInInboundConfirmation({ contactId: contact.id, formType: "statement_upload", dealId: existingDealId || undefined }).catch(err => console.error("GHL inbound confirmation error:", err));
 
       await storage.createAuditLog({
         action: "statement_uploaded",
@@ -267,7 +296,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         details: { source: "website", hasFile: !!statementFileBuffer },
       });
 
-      res.status(201).json({ success: true, contactId: contact.id, dealId: deal.id });
+      res.status(201).json({ success: true, contactId: contact.id, dealId: existingDealId || null });
     } catch (err: any) {
       res.status(400).json({ message: err.message || "Invalid submission" });
     }
@@ -313,6 +342,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         notes: `Estimate request. Volume: ${monthlyVolume}, Fees: ${totalFees}`,
         leadSource: utmSource ? `utm:${utmSource}` : "website",
         campaignName: utmCampaign || undefined,
+        ...(contact.partnerOrgId ? { partnerOrgId: contact.partnerOrgId } : {}),
       });
 
       await storage.createNotification({
@@ -322,6 +352,26 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       });
 
       trackReferral(referralCode, contactName, email, phone).catch(err => console.error("Referral tracking error:", err));
+      resolveReferralAttribution(referralCode, contact.partnerOrgId).then(async attr => {
+        if (attr.partnerType === "partner_org" && attr.partnerOrgId) {
+          if (!contact.partnerOrgId) {
+            const orgUpdates: Record<string, unknown> = { partnerOrgId: attr.partnerOrgId, referralSource: attr.referralSource };
+            if (attr.promoCode && !contact.promoCode) orgUpdates.promoCode = attr.promoCode;
+            await storage.updateContact(contact.id, orgUpdates as Parameters<typeof storage.updateContact>[1]);
+            await storage.updateDeal(deal.id, { partnerOrgId: attr.partnerOrgId });
+          } else {
+            await storage.createAuditLog({ action: "attribution_preserved", entityType: "contact", entityId: contact.id, actorType: "system", details: { reason: "contact already has partnerOrgId", existing: contact.partnerOrgId, inbound: attr.partnerOrgId } });
+          }
+        } else if (attr.partnerType === "affiliate_partner" && attr.promoCode) {
+          if (!contact.promoCode) {
+            await storage.updateContact(contact.id, { promoCode: attr.promoCode, referralSource: attr.referralSource });
+          } else {
+            await storage.createAuditLog({ action: "attribution_preserved", entityType: "contact", entityId: contact.id, actorType: "system", details: { reason: "contact already has promoCode", existing: contact.promoCode, inbound: attr.promoCode } });
+          }
+        } else if (attr.partnerType !== "none" && attr.referralSource && !contact.referralSource) {
+          await storage.updateContact(contact.id, { referralSource: attr.referralSource });
+        }
+      }).catch(err => console.error("[Attribution] estimate error:", err));
       ingestBusinessFromContact(contact.id, "manual_upload", "website_estimate").catch(err => console.warn("[Estimate] Business ingest failed:", err));
       scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
@@ -454,6 +504,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         offerPath,
         leadSource: utmSource ? `utm:${utmSource}` : "website",
         campaignName: utmCampaign || undefined,
+        ...(contact.partnerOrgId ? { partnerOrgId: contact.partnerOrgId } : {}),
       });
 
       await storage.createNotification({
@@ -463,6 +514,26 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       });
 
       trackReferral(referralCode, `${firstName} ${lastName}`, email, phone).catch(err => console.error("Referral tracking error:", err));
+      resolveReferralAttribution(referralCode, contact.partnerOrgId).then(async attr => {
+        if (attr.partnerType === "partner_org" && attr.partnerOrgId) {
+          if (!contact.partnerOrgId) {
+            const orgUpdates: Record<string, unknown> = { partnerOrgId: attr.partnerOrgId, referralSource: attr.referralSource };
+            if (attr.promoCode && !contact.promoCode) orgUpdates.promoCode = attr.promoCode;
+            await storage.updateContact(contact.id, orgUpdates as Parameters<typeof storage.updateContact>[1]);
+            await storage.updateDeal(deal.id, { partnerOrgId: attr.partnerOrgId });
+          } else {
+            await storage.createAuditLog({ action: "attribution_preserved", entityType: "contact", entityId: contact.id, actorType: "system", details: { reason: "contact already has partnerOrgId", existing: contact.partnerOrgId, inbound: attr.partnerOrgId } });
+          }
+        } else if (attr.partnerType === "affiliate_partner" && attr.promoCode) {
+          if (!contact.promoCode) {
+            await storage.updateContact(contact.id, { promoCode: attr.promoCode, referralSource: attr.referralSource });
+          } else {
+            await storage.createAuditLog({ action: "attribution_preserved", entityType: "contact", entityId: contact.id, actorType: "system", details: { reason: "contact already has promoCode", existing: contact.promoCode, inbound: attr.promoCode } });
+          }
+        } else if (attr.partnerType !== "none" && attr.referralSource && !contact.referralSource) {
+          await storage.updateContact(contact.id, { referralSource: attr.referralSource });
+        }
+      }).catch(err => console.error("[Attribution] get-started error:", err));
       scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
       if (!contact.primaryOfferPath) {
@@ -702,6 +773,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
         hardwarePackage: allTerminals,
         leadSource: utmSource ? `utm:${utmSource}` : "website",
         campaignName: utmCampaign || undefined,
+        ...(contact.partnerOrgId ? { partnerOrgId: contact.partnerOrgId } : {}),
       });
 
       for (const item of validatedItems) {
@@ -730,6 +802,26 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
       });
 
       trackReferral(referralCode, `${firstName} ${safeLastName}`, email, phone, safeBusiness).catch(err => console.error("Referral tracking error:", err));
+      resolveReferralAttribution(referralCode, contact.partnerOrgId).then(async attr => {
+        if (attr.partnerType === "partner_org" && attr.partnerOrgId) {
+          if (!contact.partnerOrgId) {
+            const orgUpdates: Record<string, unknown> = { partnerOrgId: attr.partnerOrgId, referralSource: attr.referralSource };
+            if (attr.promoCode && !contact.promoCode) orgUpdates.promoCode = attr.promoCode;
+            await storage.updateContact(contact.id, orgUpdates as Parameters<typeof storage.updateContact>[1]);
+            await storage.updateDeal(deal.id, { partnerOrgId: attr.partnerOrgId });
+          } else {
+            await storage.createAuditLog({ action: "attribution_preserved", entityType: "contact", entityId: contact.id, actorType: "system", details: { reason: "contact already has partnerOrgId", existing: contact.partnerOrgId, inbound: attr.partnerOrgId } });
+          }
+        } else if (attr.partnerType === "affiliate_partner" && attr.promoCode) {
+          if (!contact.promoCode) {
+            await storage.updateContact(contact.id, { promoCode: attr.promoCode, referralSource: attr.referralSource });
+          } else {
+            await storage.createAuditLog({ action: "attribution_preserved", entityType: "contact", entityId: contact.id, actorType: "system", details: { reason: "contact already has promoCode", existing: contact.promoCode, inbound: attr.promoCode } });
+          }
+        } else if (attr.partnerType !== "none" && attr.referralSource && !contact.referralSource) {
+          await storage.updateContact(contact.id, { referralSource: attr.referralSource });
+        }
+      }).catch(err => console.error("[Attribution] equipment-order error:", err));
       scoreContact(contact.id).catch(err => console.error("Lead scoring error:", err));
       routeContact(contact.id).catch(err => console.error("Smart routing error:", err));
       autoEnrollFromTrigger("form_submitted", { contactId: contact.id, dealId: deal.id, formType: "equipment_order" }).catch(err => console.error("Auto-enroll error:", err));

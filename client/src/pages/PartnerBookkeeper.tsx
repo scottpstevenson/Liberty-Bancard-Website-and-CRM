@@ -185,13 +185,25 @@ function FaqItem({ q, a }: { q: string; a: string }) {
   );
 }
 
+const bookkeeperFaqJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: faqs.map(item => ({
+    "@type": "Question",
+    name: item.q,
+    acceptedAnswer: { "@type": "Answer", text: item.a },
+  })),
+};
+
 export default function PartnerBookkeeper() {
   return (
     <div className="min-h-screen flex flex-col font-body">
       <SEO
-        title="Bookkeeper Partner Program — Earn Residuals | Liberty Bancard"
-        description="Bookkeepers: you reconcile statements monthly and see the fees firsthand. Refer clients to Liberty Bancard and earn 30% lifetime residuals with zero ongoing effort."
+        title="Bookkeeper Partner Program — Earn 30% Residuals | Liberty Bancard"
+        description="Bookkeepers: you see your clients' processing fees every month. Refer them to Liberty Bancard for a free statement review and earn 30% monthly residuals — no sales required."
         path="/partners/bookkeeper"
+        keywords="bookkeeper referral income, bookkeeper partner program, merchant services referral, processing fee savings for clients"
+        structuredData={[bookkeeperFaqJsonLd]}
       />
       <Navbar />
       <main className="flex-grow pt-28">

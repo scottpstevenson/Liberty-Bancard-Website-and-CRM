@@ -1,10 +1,11 @@
 import type { Express } from "express";
-import { isAuthenticated } from "../replit_integrations/auth";
+import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { db } from "../db";
 import { upload } from "./helpers";
 import { parse } from "csv-parse/sync";
 import { sendGhlEmailForMerchant } from "../services/ghl";
+import { sql, eq, isNotNull } from "drizzle-orm";
 
 function parseNum(v: any): number {
   if (v === null || v === undefined || v === "") return 0;
@@ -575,6 +576,35 @@ export function registerResidualsRoutes(app: Express) {
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/residuals/by-partner", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const { residualImportRows, residualImports, deals, partnerOrganizations } = await import("@shared/schema");
+      const rows = await db
+        .select({
+          orgId: partnerOrganizations.id,
+          orgName: partnerOrganizations.name,
+          orgSlug: partnerOrganizations.slug,
+          totalGrossResidual: sql<string>`COALESCE(SUM(${residualImportRows.grossResidual}::numeric), 0)`,
+          totalNetResidual: sql<string>`COALESCE(SUM(${residualImportRows.netResidual}::numeric), 0)`,
+          activeMerchants: sql<number>`COUNT(DISTINCT ${residualImportRows.matchedDealId})`,
+        })
+        .from(residualImportRows)
+        .innerJoin(residualImports, eq(residualImports.id, residualImportRows.importId))
+        .innerJoin(deals, eq(deals.id, residualImportRows.matchedDealId))
+        .innerJoin(partnerOrganizations, eq(partnerOrganizations.id, deals.partnerOrgId))
+        .where(
+          sql`${deals.partnerOrgId} IS NOT NULL AND ${residualImports.confirmedAt} IS NOT NULL`
+        )
+        .groupBy(partnerOrganizations.id, partnerOrganizations.name, partnerOrganizations.slug)
+        .orderBy(sql`SUM(${residualImportRows.netResidual}::numeric) DESC`);
+
+      res.json(rows);
+    } catch (err: any) {
+      console.error("[Residuals ByPartner]", err);
       res.status(500).json({ message: err.message });
     }
   });

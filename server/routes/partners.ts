@@ -82,6 +82,54 @@ export function registerPartnersRoutes(app: Express) {
       if (!updated) return res.status(404).json({ message: "Not found" });
 
       if (updates.status === "active" && existing.status !== "active") {
+        (async () => {
+          try {
+            const partnerEmail = updated.email?.trim().toLowerCase();
+            if (!partnerEmail) {
+              console.warn(`[Partners] Approval trigger skipped for partner #${partnerId} — no email on record.`);
+              return;
+            }
+
+            const contact = await storage.getContactByEmail(partnerEmail);
+
+            if (!contact) {
+              console.info(`[Partners] Approval trigger: no CRM contact found for partner email "${partnerEmail}" (partner #${partnerId}) — sequence enrollment skipped.`);
+              await storage.createAuditLog({
+                action: "partner_approved_sequence_skip",
+                entityType: "partner",
+                entityId: partnerId,
+                details: { reason: "no_contact_found", email: partnerEmail },
+                type: "info",
+              });
+              return;
+            }
+
+            if (contact.email?.trim().toLowerCase() !== partnerEmail) {
+              console.warn(`[Partners] Email mismatch — partner email "${partnerEmail}" does not match contact email "${contact.email}" (contact #${contact.id}). Skipping enrollment.`);
+              await storage.createAuditLog({
+                action: "partner_approved_sequence_skip",
+                entityType: "partner",
+                entityId: partnerId,
+                details: { reason: "email_mismatch", partnerEmail, contactEmail: contact.email, contactId: contact.id },
+                type: "warning",
+              });
+              return;
+            }
+
+            const { autoEnrollFromTrigger } = await import("../services/sequence-worker");
+            const enrolled = await autoEnrollFromTrigger("partner_approved", { contactId: contact.id });
+
+            await storage.createAuditLog({
+              action: "partner_approved_sequence_enrolled",
+              entityType: "partner",
+              entityId: partnerId,
+              details: { contactId: contact.id, sequencesEnrolled: enrolled, email: partnerEmail },
+              type: "info",
+            });
+          } catch (e) {
+            console.error(`[Partners] Post-approval sequence error for partner #${partnerId}:`, e);
+          }
+        })();
         if (!existing.passwordHash) {
           (async () => {
             try {
@@ -670,7 +718,17 @@ export function registerPartnersRoutes(app: Express) {
       const replitDomain = process.env.REPLIT_DOMAINS?.split(",")[0]?.trim();
       const baseUrl = process.env.APP_URL ||
         (replitDomain ? `https://${replitDomain}` : "https://libertybancard.com");
-      const referralLink = `${baseUrl}?ref=${partner.affiliateCode}`;
+      const referralLink = `${baseUrl}/get-started?ref=${partner.affiliateCode}`;
+
+      const tiers = await storage.getCommissionTiers().catch(() => []);
+      const conversionCount = convertedReferrals.length;
+      const totalReferralCount = referralsList.length;
+      const activeTier = tiers
+        .filter(t => conversionCount >= (t.minReferrals ?? 0))
+        .sort((a, b) => (b.minReferrals ?? 0) - (a.minReferrals ?? 0))[0] ?? null;
+      const nextTier = tiers
+        .filter(t => conversionCount < (t.minReferrals ?? 0))
+        .sort((a, b) => (a.minReferrals ?? 0) - (b.minReferrals ?? 0))[0] ?? null;
 
       res.json({
         partner: {
@@ -680,16 +738,20 @@ export function registerPartnersRoutes(app: Express) {
           status: partner.status,
           partnerType: partner.partnerType,
           commissionPercent: partner.commissionPercent,
+          totalPayouts: partner.totalPayouts ?? null,
         },
         kpis: {
-          totalMerchants: convertedReferrals.length,
-          totalReferrals: referralsList.length,
+          totalMerchants: conversionCount,
+          totalReferrals: totalReferralCount,
           commissionMTD,
           totalCommissionLifetime,
           nextPaymentDate: nextPaymentDate.toISOString(),
           pendingReferrals: referralsList.filter(r => r.status === "pending" || r.status === "contacted").length,
           totalClicks: partner.totalClicks ?? 0,
+          conversionRate: totalReferralCount > 0 ? Math.round((conversionCount / totalReferralCount) * 100) : 0,
         },
+        tier: activeTier ? { name: (activeTier as any).name, commissionPercent: (activeTier as any).commissionPercent } : null,
+        nextTier: nextTier ? { name: (nextTier as any).name, minReferrals: nextTier.minReferrals, commissionPercent: (nextTier as any).commissionPercent } : null,
         merchants: merchantList,
         referralLink,
       });

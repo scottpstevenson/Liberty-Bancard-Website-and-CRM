@@ -190,10 +190,11 @@ type GhlContactInput = Pick<Contact,
   "companyName" | "tags" | "vertical" | "monthlyVolume" | "primaryOfferPath" |
   "currentProvider" | "painPoints" | "interestedIn0Percent" | "needTerminal" |
   "utmSource" | "utmMedium" | "utmCampaign" | "promoCode" | "consentSms" |
-  "consentEmail" | "landingPage" |
+  "consentEmail" | "landingPage" | "referralSource" |
   "doNotContact" | "doNotAutoContact" | "consentTier" | "lifecycleStage" |
   "smsStatus" | "emailStatus" | "sourceCategory" | "leadSource" | "state" | "city" | "phoneType" | "timezone"
 >> & {
+  referralPartnerCode?: string;
   ghlPermissionPayload?: {
     lb_email_allowed: boolean;
     lb_manual_call_allowed: boolean;
@@ -275,6 +276,9 @@ export async function upsertGhlContact(contact: GhlContactInput): Promise<string
   if (contact.utmMedium) addCF("lb_utm_medium", contact.utmMedium);
   if (contact.utmCampaign) addCF("lb_utm_campaign", contact.utmCampaign);
   if (contact.promoCode) addCF("lb_promo_code", contact.promoCode);
+  if (contact.referralSource) addCF("lb_referral_source", contact.referralSource);
+  const partnerCodeForGhl = contact.referralPartnerCode || contact.promoCode;
+  if (partnerCodeForGhl) addCF("lb_partner_code", partnerCodeForGhl);
   if (contact.consentSms !== undefined && contact.consentSms !== null) {
     addCF("lb_consent_sms", contact.consentSms ? "Yes" : "No");
   }

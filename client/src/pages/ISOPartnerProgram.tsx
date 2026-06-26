@@ -96,6 +96,47 @@ const partnerBenefits = [
   { icon: Clock, title: "Monthly Residual Payments", desc: "Commissions are calculated at month-end and paid promptly via your preferred method." },
 ];
 
+const isoFaqJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: [
+    {
+      "@type": "Question",
+      name: "How much can I earn as a Liberty Bancard ISO or referral partner?",
+      acceptedAnswer: { "@type": "Answer", text: "Referral partners earn $200–$500 flat bonuses per activated merchant. ISO and active partners earn 30–50% of net monthly processing revenue for the life of each account. White-label and strategic partners have custom residual structures negotiated individually." },
+    },
+    {
+      "@type": "Question",
+      name: "Who qualifies for the Liberty Bancard partner program?",
+      acceptedAnswer: { "@type": "Answer", text: "The program is designed for ISOs, CPAs, bookkeepers, business consultants, financial advisors, referral partners, and association and chamber leaders. You don't need payments expertise — just the introduction to a business owner who accepts credit cards." },
+    },
+    {
+      "@type": "Question",
+      name: "How does the referral tracking work?",
+      acceptedAnswer: { "@type": "Answer", text: "Every partner receives a unique referral link and code. When a merchant applies through your link, they are automatically attributed to your account. You can track leads, deal status, and commissions from your partner portal in real time." },
+    },
+    {
+      "@type": "Question",
+      name: "When and how do partners get paid?",
+      acceptedAnswer: { "@type": "Answer", text: "Commissions are calculated at month-end and paid within 15 business days of the close of each processing month. Residuals continue monthly for the life of each active merchant account." },
+    },
+    {
+      "@type": "Question",
+      name: "How long does the approval process take?",
+      acceptedAnswer: { "@type": "Answer", text: "Most partner applications are reviewed within 1 business day. Once approved, you receive your referral link and partner portal access immediately." },
+    },
+  ],
+};
+
+const isoServiceJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "Service",
+  name: "Liberty Bancard ISO & Referral Partner Program",
+  description: "Earn 30–50% residual income for every merchant you refer to Liberty Bancard. Designed for ISOs, CPAs, bookkeepers, consultants, and financial advisors. Free to join, no volume minimums.",
+  provider: { "@type": "Organization", name: "Liberty Bancard", url: "https://libertybancard.com" },
+  offers: { "@type": "Offer", price: "0", priceCurrency: "USD", description: "Free to join. No upfront cost. Residuals paid monthly." },
+};
+
 function ResidualCalculator() {
   const [merchants, setMerchants] = useState(10);
   const [avgVolume, setAvgVolume] = useState(30000);
@@ -254,9 +295,11 @@ export default function ISOPartnerProgram() {
   return (
     <div className="min-h-screen flex flex-col font-body">
       <SEO
-        title="ISO & Partner Program — Earn Residuals"
-        description="Join the Liberty Bancard ISO and referral partner program. Earn residual income for every merchant you refer. For ISOs, CPAs, bookkeepers, and consultants."
+        title="ISO & Partner Program — Earn Residuals | Liberty Bancard"
+        description="Join the Liberty Bancard ISO and partner program. Earn 30–50% residual income for every merchant you refer. Designed for ISOs, CPAs, bookkeepers, consultants, and financial advisors."
         path="/partners"
+        keywords="ISO partner program, referral partner program, merchant services residuals, payment processing partner, CPA referral income"
+        structuredData={[isoFaqJsonLd, isoServiceJsonLd]}
       />
       <Navbar />
       <main className="marketing-surface flex-grow pt-28">
