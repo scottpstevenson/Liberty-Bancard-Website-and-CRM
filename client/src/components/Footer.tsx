@@ -2,6 +2,8 @@ import { Link } from "wouter";
 import { Phone, Mail, Calendar } from "lucide-react";
 import logoWhite from "@assets/logo-white.png";
 import { CALENDAR_URL } from "@/lib/constants";
+import { trackPhoneCtaClick, trackBookingCtaClick } from "@/lib/tracking";
+import { buildAttributedBookingUrl } from "@/lib/utm";
 
 export function Footer() {
   const quickLinks = [
@@ -113,6 +115,7 @@ export function Footer() {
                   href="tel:9542668214"
                   className="flex items-center gap-2 text-primary-foreground/70 text-sm hover:text-primary-foreground transition-colors"
                   data-testid="link-footer-phone"
+                  onClick={() => trackPhoneCtaClick("footer")}
                 >
                   <Phone className="w-4 h-4 shrink-0" />
                   <span>Call/Text 954-266-8214</span>
@@ -130,11 +133,12 @@ export function Footer() {
               </li>
               <li>
                 <a
-                  href={CALENDAR_URL}
+                  href={buildAttributedBookingUrl(CALENDAR_URL, { ctaLocation: "footer" })}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-2 text-primary-foreground/70 text-sm hover:text-primary-foreground transition-colors"
                   data-testid="link-footer-book-call"
+                  onClick={() => trackBookingCtaClick("footer")}
                 >
                   <Calendar className="w-4 h-4 shrink-0" />
                   <span>Book 10-Minute Call</span>

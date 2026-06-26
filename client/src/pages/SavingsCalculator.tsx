@@ -1,5 +1,6 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { SEO, getServiceSchema } from "@/components/SEO";
+import { trackSavingsCalculatorCompleted } from "@/lib/tracking";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
@@ -93,6 +94,7 @@ export default function SavingsCalculator() {
   const [industry, setIndustry] = useState(() => params.get("industry") || "restaurant");
   const [copied, setCopied] = useState(false);
   const [heroCopied, setHeroCopied] = useState(false);
+  const calculatorFiredRef = useRef(false);
 
   const volume = parseFloat(monthlyVolume) || 0;
   const ticket = parseFloat(avgTicket) || 0;
@@ -121,6 +123,27 @@ export default function SavingsCalculator() {
       effectiveRate: effectiveCurrentRate,
     };
   }, [volume, effectiveCurrentRate, ticket, hasInput]);
+
+  useEffect(() => {
+    if (savings && !calculatorFiredRef.current) {
+      calculatorFiredRef.current = true;
+      const savingsAmt = savings.monthlySavings;
+      const estimatedSavingsRange =
+        savingsAmt >= 5000 ? "$5k+/mo" :
+        savingsAmt >= 2000 ? "$2k-$5k/mo" :
+        savingsAmt >= 500  ? "$500-$2k/mo" : "$0-$500/mo";
+      const vol = volume;
+      const monthlyVolumeRange =
+        vol >= 500000 ? "$500k+" :
+        vol >= 100000 ? "$100k-$500k" :
+        vol >= 25000  ? "$25k-$100k" : "$0-$25k";
+      trackSavingsCalculatorCompleted({
+        estimatedSavingsRange,
+        monthlyVolumeRange,
+        vertical: industry,
+      });
+    }
+  }, [savings, industry, volume]);
 
   const shareUrl = useMemo(() => {
     if (!hasInput) return "";

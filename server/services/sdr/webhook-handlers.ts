@@ -355,6 +355,15 @@ export async function handleAppointmentBooked(rawPayload: unknown): Promise<void
           calendarType: "sales",
         }).catch(err => console.error("[SDR Webhook] Appointment workflow enrollment failed:", err));
 
+        import("../analytics-events").then(({ recordAnalyticsEvent }) => {
+          recordAnalyticsEvent({
+            eventName: "appointment_booked",
+            contactId: crmContact.id,
+            occurredAt: payload.startTime ? new Date(payload.startTime) : new Date(),
+            metadata: { calendarType: "sales", source: "ghl_webhook" },
+          });
+        }).catch(() => {});
+
         tagContactForInboxOrganization({
           contactId: crmContact.id,
           ghlContactId,

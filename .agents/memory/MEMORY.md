@@ -13,3 +13,4 @@
 - [Contactability Engine (Wave 1A)](contactability-engine.md) — Shared permission gate for all outbound sends; Drizzle journal must be updated for manually-written migrations; PEWC tier requires audit evidence (step 12).
 - [PEWC consent pattern (Wave 2)](pewc-consent-pattern.md) — recordPewcDecision() is the single write path; PewcCheckbox is always optional; Checkbox import must stay when other checkboxes exist in the same form.
 - [GHL Sync Authority Guard (Wave 7)](ghl-sync-authority-guard.md) — permission-check endpoint always returns HTTP 200 (never 4xx); lb_* fields need manual creation in GHL custom fields settings before sync works.
+- [Wave 8 Analytics Attribution](wave8-analytics.md) — analytics_events table (migration 0040), recordAnalyticsEvent() single write path, ALL_CANONICAL_EVENTS set for validation; server-side events use dynamic import("./analytics-events") to avoid circular deps.

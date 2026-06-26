@@ -319,6 +319,18 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                   lifecycleStage: contactabilityCheck.lifecycleStage,
                 },
               });
+              import("./analytics-events").then(({ recordAnalyticsEvent }) => {
+                recordAnalyticsEvent({
+                  eventName: "sequence_step_blocked",
+                  contactId: enrollment.contactId ?? undefined,
+                  sequenceId: sequence.id,
+                  channel: automatedChannel,
+                  blockReason: contactabilityCheck.reason,
+                  consentTier: contactabilityCheck.consentTier,
+                  lifecycleStage: contactabilityCheck.lifecycleStage,
+                  metadata: { stepOrder: step.stepOrder, actionType: step.actionType, sequenceName: sequence.name },
+                });
+              }).catch(() => {});
               await storage.updateSequenceEnrollment(enrollment.id, { status: "paused" });
               processed++;
               continue;
@@ -738,6 +750,16 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
         }
 
         if (stepExecuted) {
+          import("./analytics-events").then(({ recordAnalyticsEvent }) => {
+            recordAnalyticsEvent({
+              eventName: "sequence_step_sent",
+              contactId: enrollment.contactId ?? undefined,
+              sequenceId: sequence.id,
+              channel: step.actionType,
+              metadata: { stepOrder: step.stepOrder, actionType: step.actionType, sequenceName: sequence.name },
+            });
+          }).catch(() => {});
+
           const nextStepIndex = currentStep + 1;
           const sortedSteps = [...steps].sort((a, b) => a.stepOrder - b.stepOrder);
           const nextStep = sortedSteps[nextStepIndex];

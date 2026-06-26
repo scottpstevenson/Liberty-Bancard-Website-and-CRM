@@ -4134,3 +4134,50 @@ export const handoffRules = pgTable("handoff_rules", {
 export const insertHandoffRuleSchema = createInsertSchema(handoffRules).omit({ id: true, createdAt: true });
 export type HandoffRule = typeof handoffRules.$inferSelect;
 export type InsertHandoffRule = z.infer<typeof insertHandoffRuleSchema>;
+
+// ─── Analytics Events ─────────────────────────────────────────────────────────
+export const analyticsEvents = pgTable("analytics_events", {
+  id: serial("id").primaryKey(),
+  eventName: text("event_name").notNull(),
+  eventId: text("event_id"),
+  occurredAt: timestamp("occurred_at").defaultNow().notNull(),
+  sessionId: text("session_id"),
+  visitorId: text("visitor_id"),
+  bookingTrackingId: text("booking_tracking_id"),
+  contactId: integer("contact_id"),
+  dealId: integer("deal_id"),
+  sequenceId: integer("sequence_id"),
+  pagePath: text("page_path"),
+  landingPage: text("landing_page"),
+  utmSource: text("utm_source"),
+  utmMedium: text("utm_medium"),
+  utmCampaign: text("utm_campaign"),
+  utmContent: text("utm_content"),
+  utmTerm: text("utm_term"),
+  gclidPresent: boolean("gclid_present"),
+  fbclidPresent: boolean("fbclid_present"),
+  msclkidPresent: boolean("msclkid_present"),
+  offerRoute: text("offer_route"),
+  vertical: text("vertical"),
+  consentTier: text("consent_tier"),
+  lifecycleStage: text("lifecycle_stage"),
+  sourceCategory: text("source_category"),
+  formId: text("form_id"),
+  channel: text("channel"),
+  blockReason: text("block_reason"),
+  dealStage: text("deal_stage"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("analytics_events_event_name_idx").on(table.eventName),
+  index("analytics_events_occurred_at_idx").on(table.occurredAt),
+  index("analytics_events_contact_id_idx").on(table.contactId),
+  index("analytics_events_utm_source_campaign_idx").on(table.utmSource, table.utmCampaign),
+  index("analytics_events_page_path_idx").on(table.pagePath),
+  index("analytics_events_booking_tracking_id_idx").on(table.bookingTrackingId),
+  uniqueIndex("analytics_events_event_id_idx").on(table.eventId),
+]);
+
+export type AnalyticsEvent = typeof analyticsEvents.$inferSelect;
+export const insertAnalyticsEventSchema = createInsertSchema(analyticsEvents).omit({ id: true, createdAt: true });
+export type InsertAnalyticsEvent = z.infer<typeof insertAnalyticsEventSchema>;

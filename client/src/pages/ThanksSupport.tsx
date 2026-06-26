@@ -5,8 +5,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Link } from "wouter";
 import { Phone, FileText, CreditCard, Shield, CheckCircle, Clock, ArrowRight, MessageSquare } from "lucide-react";
+import { trackThankYouPageView } from "@/lib/tracking";
+import { useEffect } from "react";
 
 export default function ThanksSupport() {
+  useEffect(() => { trackThankYouPageView("support_request"); }, []);
+
   return (
     <div className="min-h-screen flex flex-col font-body">
       <SEO title="Support Request Received" description="We received your Liberty Bancard support request. A real human will respond shortly during business hours." path="/thanks-support" noindex />

@@ -2625,6 +2625,9 @@ export default function OperatorDashboard() {
           <TabsTrigger value="deleted-records" data-testid="tab-deleted-records" className="flex items-center gap-1">
             <XCircle className="w-3.5 h-3.5" /> Deleted Records
           </TabsTrigger>
+          <TabsTrigger value="conversion" data-testid="tab-conversion" className="flex items-center gap-1">
+            <TrendingUp className="w-3.5 h-3.5" /> Conversion
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="job-health">
@@ -2692,6 +2695,9 @@ export default function OperatorDashboard() {
         </TabsContent>
         <TabsContent value="deleted-records">
           <DeletedRecordsPanel />
+        </TabsContent>
+        <TabsContent value="conversion">
+          <ConversionPanel />
         </TabsContent>
       </Tabs>
     </div>
@@ -4435,6 +4441,189 @@ function StatementUploadFailuresPanel() {
           </Card>
         </>
       )}
+    </div>
+  );
+}
+
+// ─── Wave 8: Conversion Panel ─────────────────────────────────────────────────
+function ConversionPanel() {
+  const [days, setDays] = useState(30);
+
+  const { data: funnelData, isLoading: funnelLoading } = useQuery<{
+    funnel: { stage: string; eventName: string; count: number }[];
+    byEvent: Record<string, number>;
+    days: number;
+  }>({
+    queryKey: ["/api/analytics/conversion-funnel", days],
+    queryFn: () => fetch(`/api/analytics/conversion-funnel?days=${days}`).then(r => r.json()),
+  });
+
+  const { data: utmData, isLoading: utmLoading } = useQuery<{
+    rows: { utmSource: string | null; utmMedium: string | null; utmCampaign: string | null; cnt: string }[];
+    days: number;
+  }>({
+    queryKey: ["/api/analytics/utm-attribution", days],
+    queryFn: () => fetch(`/api/analytics/utm-attribution?days=${days}`).then(r => r.json()),
+  });
+
+  const { data: eventsData, isLoading: eventsLoading } = useQuery<{
+    events: {
+      id: number;
+      eventName: string;
+      occurredAt: string;
+      contactId: number | null;
+      dealId: number | null;
+      utmSource: string | null;
+      channel: string | null;
+      blockReason: string | null;
+      dealStage: string | null;
+      offerRoute: string | null;
+    }[];
+  }>({
+    queryKey: ["/api/analytics/conversion-events", 7],
+    queryFn: () => fetch(`/api/analytics/conversion-events?days=7&limit=100`).then(r => r.json()),
+  });
+
+  const funnelColors = ["#3b82f6", "#8b5cf6", "#10b981", "#f59e0b", "#ef4444", "#06b6d4"];
+  const topUtm = (utmData?.rows ?? []).sort((a, b) => Number(b.cnt) - Number(a.cnt)).slice(0, 10);
+  const recentEvents = eventsData?.events ?? [];
+
+  function relT(s: string) {
+    const diff = Date.now() - new Date(s).getTime();
+    if (diff < 60000) return "Just now";
+    if (diff < 3600000) return `${Math.round(diff / 60000)}m ago`;
+    if (diff < 86400000) return `${Math.round(diff / 3600000)}h ago`;
+    return `${Math.round(diff / 86400000)}d ago`;
+  }
+
+  return (
+    <div className="space-y-6" data-testid="panel-conversion">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold">Conversion Attribution</h2>
+        <Select value={String(days)} onValueChange={v => setDays(Number(v))}>
+          <SelectTrigger className="w-32" data-testid="select-conversion-days">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="7">Last 7 days</SelectItem>
+            <SelectItem value="14">Last 14 days</SelectItem>
+            <SelectItem value="30">Last 30 days</SelectItem>
+            <SelectItem value="90">Last 90 days</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <Card data-testid="card-conversion-funnel">
+        <CardHeader>
+          <CardTitle className="text-sm font-medium">Conversion Funnel (last {days} days)</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {funnelLoading ? (
+            <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Loading funnel…</div>
+          ) : (
+            <div className="space-y-3">
+              {(funnelData?.funnel ?? []).map((row, i) => {
+                const topCount = funnelData?.funnel?.[0]?.count ?? 1;
+                const pct = topCount > 0 ? Math.round((row.count / topCount) * 100) : 0;
+                return (
+                  <div key={row.eventName} data-testid={`funnel-row-${row.eventName}`}>
+                    <div className="flex items-center justify-between mb-1 text-sm">
+                      <span className="font-medium">{row.stage}</span>
+                      <span className="text-muted-foreground">{row.count.toLocaleString()} <span className="text-xs">({pct}%)</span></span>
+                    </div>
+                    <Progress value={pct} className="h-2" />
+                  </div>
+                );
+              })}
+              {(funnelData?.funnel?.length ?? 0) === 0 && (
+                <p className="text-sm text-muted-foreground">No conversion events recorded yet.</p>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card data-testid="card-utm-attribution">
+        <CardHeader>
+          <CardTitle className="text-sm font-medium">UTM Source Attribution (last {days} days)</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {utmLoading ? (
+            <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>
+          ) : topUtm.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No UTM-tagged events yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-muted-foreground">
+                    <th className="text-left py-2 pr-4 font-medium">Source</th>
+                    <th className="text-left py-2 pr-4 font-medium">Medium</th>
+                    <th className="text-left py-2 pr-4 font-medium">Campaign</th>
+                    <th className="text-right py-2 font-medium">Events</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {topUtm.map((r, i) => (
+                    <tr key={i} className="border-b last:border-0 hover:bg-muted/30" data-testid={`utm-row-${i}`}>
+                      <td className="py-2 pr-4">{r.utmSource ?? <span className="text-muted-foreground italic">(direct)</span>}</td>
+                      <td className="py-2 pr-4">{r.utmMedium ?? "—"}</td>
+                      <td className="py-2 pr-4">{r.utmCampaign ?? "—"}</td>
+                      <td className="py-2 text-right font-medium">{Number(r.cnt).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card data-testid="card-recent-conversion-events">
+        <CardHeader>
+          <CardTitle className="text-sm font-medium">Recent CRM Milestone Events (last 7 days)</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {eventsLoading ? (
+            <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>
+          ) : recentEvents.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No milestone events recorded yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-muted-foreground">
+                    <th className="text-left py-2 pr-4 font-medium">Event</th>
+                    <th className="text-left py-2 pr-4 font-medium">Contact</th>
+                    <th className="text-left py-2 pr-4 font-medium">Deal</th>
+                    <th className="text-left py-2 pr-4 font-medium">Detail</th>
+                    <th className="text-right py-2 font-medium">When</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentEvents.slice(0, 50).map((ev) => (
+                    <tr key={ev.id} className="border-b last:border-0 hover:bg-muted/30" data-testid={`event-row-${ev.id}`}>
+                      <td className="py-2 pr-4">
+                        <Badge variant="outline" className="text-xs font-mono">{ev.eventName}</Badge>
+                      </td>
+                      <td className="py-2 pr-4 text-muted-foreground">
+                        {ev.contactId ? <a href={`/dashboard/contacts/${ev.contactId}`} className="text-primary hover:underline">#{ev.contactId}</a> : "—"}
+                      </td>
+                      <td className="py-2 pr-4 text-muted-foreground">
+                        {ev.dealId ? <a href={`/dashboard/deals/${ev.dealId}`} className="text-primary hover:underline">#{ev.dealId}</a> : "—"}
+                      </td>
+                      <td className="py-2 pr-4 text-muted-foreground text-xs">
+                        {ev.channel ?? ev.dealStage ?? ev.blockReason ?? ev.offerRoute ?? "—"}
+                      </td>
+                      <td className="py-2 text-right text-muted-foreground text-xs whitespace-nowrap">{relT(ev.occurredAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

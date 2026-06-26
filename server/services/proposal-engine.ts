@@ -476,6 +476,17 @@ STATEMENT ANALYSIS RESULTS (use these findings):
       lastStatementReviewDate: new Date(),
     });
 
+    import("./analytics-events").then(({ recordAnalyticsEvent }) => {
+      recordAnalyticsEvent({
+        eventName: "proposal_generated",
+        contactId: deal.contactId ?? undefined,
+        dealId: deal.id,
+        dealStage: deal.stage ?? undefined,
+        vertical: deal.vertical ?? undefined,
+        metadata: { recommendedPlan: proposal.recommendedPlan, planCount: proposal.plans?.length },
+      });
+    }).catch(() => {});
+
     await storage.createAuditLog({
       action: "proposal_auto_generated",
       entityType: "deal",

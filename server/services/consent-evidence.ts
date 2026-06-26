@@ -15,6 +15,7 @@ import { db } from "../db";
 import { contacts } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { PEWC_DISCLOSURE_VERSION, PEWC_CHANNELS_COVERED } from "@shared/consent-disclosures";
+import { recordAnalyticsEvent } from "./analytics-events";
 
 export async function recordPewcDecision(opts: {
   contactId: number;
@@ -76,4 +77,13 @@ export async function recordPewcDecision(opts: {
       },
     });
   }
+
+  await recordAnalyticsEvent({
+    eventName: "pewc_captured",
+    contactId,
+    consentTier: checked ? "pewc_full_automation" : "standard",
+    sourceCategory: source,
+    channel: "sms",
+    metadata: { checked, disclosureVersion },
+  });
 }

@@ -348,7 +348,7 @@ export async function routeOffer(
     return routeOfferWithAi(contact);
   }
 
-  return {
+  const fallbackResult: OfferRoutingResult = {
     offerRoute: "free_statement_analysis",
     offerConfidence: 40,
     recommendedNextAction: "request_free_analysis",
@@ -358,4 +358,21 @@ export async function routeOffer(
     processorDetected: null,
     shouldUpdateContact: true,
   };
+
+  if (fallbackResult.shouldUpdateContact && contact.id) {
+    import("./analytics-events").then(({ recordAnalyticsEvent }) => {
+      recordAnalyticsEvent({
+        eventName: "offer_route_assigned",
+        contactId: contact.id,
+        offerRoute: fallbackResult.offerRoute,
+        metadata: {
+          routingSource: fallbackResult.routingSource,
+          offerConfidence: fallbackResult.offerConfidence,
+          matchedSignals: fallbackResult.matchedSignals,
+        },
+      });
+    }).catch(() => {});
+  }
+
+  return fallbackResult;
 }

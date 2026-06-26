@@ -5,10 +5,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Link } from "wouter";
 import { Upload, FileText, BarChart3, AlertCircle, Phone, Calendar, CheckCircle, Clock, Star, MapPin, UtensilsCrossed, Store } from "lucide-react";
-import { trackCalendarBooking } from "@/lib/tracking";
+import { trackCalendarBooking, trackThankYouPageView } from "@/lib/tracking";
 import { CALENDAR_URL } from "@/lib/constants";
+import { useEffect } from "react";
 
 export default function ThanksCall() {
+  useEffect(() => { trackThankYouPageView("book_call"); }, []);
 
   return (
     <div className="min-h-screen flex flex-col font-body">

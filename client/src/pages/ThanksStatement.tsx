@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Navbar } from "@/components/Navbar";
 import { SEO } from "@/components/SEO";
 import { Footer } from "@/components/Footer";
@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Link } from "wouter";
 import { Calendar, Calculator, BarChart3, Send, CheckCircle, Clock, Phone, Users, ArrowRight, ShieldCheck, Star, MapPin, UtensilsCrossed, Store, Copy, MessageSquare, Gift } from "lucide-react";
-import { trackCalendarBooking } from "@/lib/tracking";
+import { trackCalendarBooking, trackThankYouPageView } from "@/lib/tracking";
 import { CALENDAR_URL } from "@/lib/constants";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
@@ -169,6 +169,8 @@ function ReferralShareSection() {
 }
 
 export default function ThanksStatement() {
+  useEffect(() => { trackThankYouPageView("statement_upload"); }, []);
+
   return (
     <div className="min-h-screen flex flex-col font-body">
       <SEO title="Statement Received" description="We received your processing statement. Liberty Bancard will deliver your free line-by-line analysis during business hours." path="/thanks-statement" noindex />

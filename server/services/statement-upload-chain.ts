@@ -697,6 +697,17 @@ export async function runStatementUploadChain(
   const failedSteps = steps.filter(s => !s.success).map(s => s.name);
   await logChainSuccess(dealId, input.contactId, failedSteps);
 
+  if (failedSteps.length === 0 && dealId) {
+    import("./analytics-events").then(({ recordAnalyticsEvent }) => {
+      recordAnalyticsEvent({
+        eventName: "statement_received",
+        contactId: input.contactId,
+        dealId,
+        metadata: { source: input.source, allSuccess: true },
+      });
+    }).catch(() => {});
+  }
+
   if (failedSteps.length > 0) {
     console.warn(
       `[StatementChain] Chain completed with ${failedSteps.length} failed step(s): ${failedSteps.join(", ")}`,

@@ -7,7 +7,8 @@ import { cn } from "@/lib/utils";
 import logoBlue from "@assets/logo-blue.png";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { CALENDAR_URL } from "@/lib/constants";
-import { trackCalendarBooking } from "@/lib/tracking";
+import { trackCalendarBooking, trackPhoneCtaClick, trackBookingCtaClick } from "@/lib/tracking";
+import { buildAttributedBookingUrl } from "@/lib/utm";
 
 const solutionLinks = [
   { name: "Liberty Zero™ — Pay $0 to Process", href: "/0-percent-processing", featured: true },
@@ -60,6 +61,7 @@ export function Navbar() {
               href="tel:9542668214"
               className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
               data-testid="link-phone"
+              onClick={() => trackPhoneCtaClick("navbar_top")}
             >
               <Phone className="w-3 h-3" />
               <span className="hidden xs:inline">Call/Text</span> <span>954-266-8214</span>
@@ -288,7 +290,7 @@ export function Navbar() {
 
             <div className="hidden lg:flex items-center gap-3">
               <ThemeToggle />
-              <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => trackCalendarBooking("navbar_desktop")} data-testid="link-book-call">
+              <a href={buildAttributedBookingUrl(CALENDAR_URL, { ctaLocation: "navbar_desktop" })} target="_blank" rel="noopener noreferrer" onClick={() => { trackCalendarBooking("navbar_desktop"); trackBookingCtaClick("navbar_desktop"); }} data-testid="link-book-call">
                 <Button variant="outline" className="gap-2">
                   <Calendar className="w-4 h-4" />
                   Book 10-Min Call
@@ -450,6 +452,7 @@ export function Navbar() {
                   href="tel:9542668214"
                   className="text-sm text-muted-foreground flex items-center gap-2"
                   data-testid="link-mobile-phone"
+                  onClick={() => trackPhoneCtaClick("navbar_mobile")}
                 >
                   <Phone className="w-4 h-4" />
                   Call/Text 954-266-8214
@@ -467,7 +470,7 @@ export function Navbar() {
               <div className="h-px bg-border my-2" />
 
               <div className="flex flex-col gap-2 px-3">
-                <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" onClick={() => { trackCalendarBooking("navbar_mobile"); setIsOpen(false); }} data-testid="link-mobile-book-call">
+                <a href={buildAttributedBookingUrl(CALENDAR_URL, { ctaLocation: "navbar_mobile" })} target="_blank" rel="noopener noreferrer" onClick={() => { trackCalendarBooking("navbar_mobile"); trackBookingCtaClick("navbar_mobile"); setIsOpen(false); }} data-testid="link-mobile-book-call">
                   <Button variant="outline" className="w-full gap-2">
                     <Calendar className="w-4 h-4" />
                     Book 10-Min Call

@@ -128,6 +128,16 @@ export async function runStageProgressionSweep(opts?: { limit?: number }): Promi
         details: { from: deal.stage, to: nextStage, reason, source: "stage_progression" },
       });
       details.push({ dealId: deal.id, from: deal.stage, to: nextStage, reason });
+
+      const eventName = nextStage === "Closed Won" ? "closed_won" : "deal_stage_changed";
+      import("./analytics-events").then(({ recordAnalyticsEvent }) => {
+        recordAnalyticsEvent({
+          eventName,
+          dealId: deal.id,
+          dealStage: nextStage,
+          metadata: { from: deal.stage, to: nextStage, reason, source: "stage_progression" },
+        });
+      }).catch(() => {});
       progressed++;
     } catch (err) {
       console.error(`[StageProgression] Failed to advance deal ${deal.id}:`, err);

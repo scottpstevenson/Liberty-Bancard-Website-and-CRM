@@ -401,3 +401,57 @@ export function trackConsentFieldInteraction(formType: string) {
     });
   }
 }
+
+export function trackStatementUploadCompleted(params?: { page?: string; ctaLocation?: string }) {
+  if (GA_ID) {
+    gtagEvent("event", "statement_upload_completed", {
+      event_category: "conversion",
+      event_label: "statement_upload_completed",
+      page: params?.page,
+      cta_location: params?.ctaLocation,
+    });
+  }
+  if (FB_PIXEL_ID) {
+    fbqEvent("track", "Lead", {
+      content_name: "statement_upload_completed",
+      page: params?.page,
+    });
+  }
+}
+
+export function trackSavingsCalculatorCompleted(params: {
+  estimatedSavingsRange: string;
+  monthlyVolumeRange: string;
+  vertical?: string;
+}) {
+  if (GA_ID) {
+    gtagEvent("event", "savings_calculator_completed", {
+      event_category: "engagement",
+      event_label: "savings_calculator_completed",
+      estimated_savings_range: params.estimatedSavingsRange,
+      monthly_volume_range: params.monthlyVolumeRange,
+      vertical: params.vertical,
+    });
+  }
+  if (FB_PIXEL_ID) {
+    fbqEvent("trackCustom", "SavingsCalculatorCompleted", {
+      estimated_savings_range: params.estimatedSavingsRange,
+      monthly_volume_range: params.monthlyVolumeRange,
+      vertical: params.vertical,
+    });
+  }
+}
+
+export function trackThankYouPageView(formId: string) {
+  if (GA_ID) {
+    gtagEvent("event", "thank_you_page_view", {
+      event_category: "conversion",
+      event_label: formId,
+      form_id: formId,
+      page_path: typeof window !== "undefined" ? window.location.pathname : undefined,
+    });
+  }
+  if (FB_PIXEL_ID) {
+    fbqEvent("trackCustom", "ThankYouPageView", { form_id: formId });
+  }
+}

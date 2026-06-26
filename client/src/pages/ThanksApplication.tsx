@@ -9,7 +9,7 @@ import {
   CheckCircle, FileCheck, Phone, Mail, Clock,
   ArrowRight, Calendar, Shield, User
 } from "lucide-react";
-import { trackCalendarBooking } from "@/lib/tracking";
+import { trackCalendarBooking, trackThankYouPageView } from "@/lib/tracking";
 import { CALENDAR_URL } from "@/lib/constants";
 
 export default function ThanksApplication() {
@@ -20,6 +20,7 @@ export default function ThanksApplication() {
   const [ownerName, setOwnerName] = useState<string | null>(null);
 
   useEffect(() => {
+    trackThankYouPageView("merchant_application");
     try {
       const raw = sessionStorage.getItem("lb_app_confirmation");
       if (raw) {

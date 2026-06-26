@@ -1062,4 +1062,178 @@ export function registerAnalyticsRoutes(app: Express) {
     }
   });
 
+  // ─── Wave 8: Conversion Analytics Endpoints ───────────────────────────────
+
+  app.get("/api/analytics/conversion-funnel", isAuthenticated, async (req, res) => {
+    try {
+      const { analyticsEvents } = await import("@shared/schema");
+      const { gte, count, sql: drizzleSql } = await import("drizzle-orm");
+      const days = parseInt(String(req.query.days || "30"), 10);
+      const since = new Date(Date.now() - days * 86400000);
+
+      const rows = await db
+        .select({
+          eventName: analyticsEvents.eventName,
+          cnt: count(analyticsEvents.id),
+        })
+        .from(analyticsEvents)
+        .where(gte(analyticsEvents.occurredAt, since))
+        .groupBy(analyticsEvents.eventName);
+
+      const byEvent: Record<string, number> = {};
+      for (const r of rows) {
+        byEvent[r.eventName] = Number(r.cnt);
+      }
+
+      const funnel = [
+        { stage: "Phone CTA Clicks",      eventName: "phone_cta_click",             count: byEvent["phone_cta_click"] ?? 0 },
+        { stage: "Booking CTA Clicks",    eventName: "booking_cta_click",           count: byEvent["booking_cta_click"] ?? 0 },
+        { stage: "Appointments Booked",   eventName: "appointment_booked",          count: byEvent["appointment_booked"] ?? 0 },
+        { stage: "Statements Received",   eventName: "statement_received",          count: byEvent["statement_received"] ?? 0 },
+        { stage: "Proposals Generated",   eventName: "proposal_generated",          count: byEvent["proposal_generated"] ?? 0 },
+        { stage: "Closed Won",            eventName: "closed_won",                  count: byEvent["closed_won"] ?? 0 },
+      ];
+
+      res.json({ funnel, byEvent, days });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/analytics/utm-attribution", isAuthenticated, async (req, res) => {
+    try {
+      const { analyticsEvents } = await import("@shared/schema");
+      const { gte, count } = await import("drizzle-orm");
+      const days = parseInt(String(req.query.days || "30"), 10);
+      const since = new Date(Date.now() - days * 86400000);
+
+      const rows = await db
+        .select({
+          utmSource: analyticsEvents.utmSource,
+          utmMedium: analyticsEvents.utmMedium,
+          utmCampaign: analyticsEvents.utmCampaign,
+          cnt: count(analyticsEvents.id),
+        })
+        .from(analyticsEvents)
+        .where(gte(analyticsEvents.occurredAt, since))
+        .groupBy(analyticsEvents.utmSource, analyticsEvents.utmMedium, analyticsEvents.utmCampaign)
+        .limit(100);
+
+      res.json({ rows, days });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/analytics/form-events", isAuthenticated, async (req, res) => {
+    try {
+      const { analyticsEvents } = await import("@shared/schema");
+      const { gte, count } = await import("drizzle-orm");
+      const days = parseInt(String(req.query.days || "30"), 10);
+      const since = new Date(Date.now() - days * 86400000);
+
+      const rows = await db
+        .select({
+          formId: analyticsEvents.formId,
+          eventName: analyticsEvents.eventName,
+          cnt: count(analyticsEvents.id),
+        })
+        .from(analyticsEvents)
+        .where(gte(analyticsEvents.occurredAt, since))
+        .groupBy(analyticsEvents.formId, analyticsEvents.eventName)
+        .limit(200);
+
+      res.json({ rows, days });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/analytics/conversion-events", isAuthenticated, async (req, res) => {
+    try {
+      const { analyticsEvents } = await import("@shared/schema");
+      const { gte, desc } = await import("drizzle-orm");
+      const days = parseInt(String(req.query.days || "7"), 10);
+      const since = new Date(Date.now() - days * 86400000);
+      const limit = Math.min(parseInt(String(req.query.limit || "200"), 10), 500);
+      const eventName = req.query.event ? String(req.query.event) : undefined;
+
+      const query = db
+        .select()
+        .from(analyticsEvents)
+        .where(gte(analyticsEvents.occurredAt, since))
+        .orderBy(desc(analyticsEvents.occurredAt))
+        .limit(limit);
+
+      const rows = await query;
+      const filtered = eventName ? rows.filter(r => r.eventName === eventName) : rows;
+
+      res.json({ events: filtered, days });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/analytics/channel-block-summary", isAuthenticated, async (req, res) => {
+    try {
+      const { analyticsEvents } = await import("@shared/schema");
+      const { gte, count, inArray } = await import("drizzle-orm");
+      const days = parseInt(String(req.query.days || "30"), 10);
+      const since = new Date(Date.now() - days * 86400000);
+
+      const rows = await db
+        .select({
+          channel: analyticsEvents.channel,
+          blockReason: analyticsEvents.blockReason,
+          cnt: count(analyticsEvents.id),
+        })
+        .from(analyticsEvents)
+        .where(gte(analyticsEvents.occurredAt, since))
+        .groupBy(analyticsEvents.channel, analyticsEvents.blockReason)
+        .limit(100);
+
+      res.json({ rows, days });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/analytics/record-event", isAuthenticated, async (req, res) => {
+    try {
+      const { recordAnalyticsEvent } = await import("../services/analytics-events");
+      const { ALL_CANONICAL_EVENTS } = await import("@shared/analytics-events");
+      const { eventName, ...rest } = req.body;
+      if (!eventName || !ALL_CANONICAL_EVENTS.has(eventName)) {
+        return res.status(400).json({ message: "Invalid or missing eventName" });
+      }
+      await recordAnalyticsEvent({ eventName, ...rest });
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/analytics/noop", (_req, res) => {
+    res.status(204).end();
+  });
+
+  app.get("/api/public/booking-confirmed", async (req, res) => {
+    try {
+      const bookingTrackingId = String(req.query.btk || "");
+      if (!bookingTrackingId || bookingTrackingId.length < 5) {
+        return res.status(204).end();
+      }
+      const { recordAnalyticsEvent } = await import("../services/analytics-events");
+      await recordAnalyticsEvent({
+        eventName: "appointment_booked",
+        bookingTrackingId,
+        pagePath: "/booking-confirmation",
+        metadata: { source: "booking_bridge", btk: bookingTrackingId },
+      });
+      res.redirect(302, "/thanks-call");
+    } catch {
+      res.redirect(302, "/thanks-call");
+    }
+  });
+
 }

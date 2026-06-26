@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { getCsrfToken } from "@/lib/queryClient";
 import { trackStatementUploadStarted, trackStatementUploadFailed, trackPhoneCtaClick, trackBookingCtaClick } from "@/lib/tracking";
+import { useFormAbandonment } from "@/hooks/use-form-abandonment";
 import { SEO, getServiceSchema } from "@/components/SEO";
 import { useLocation, Link } from "wouter";
 import { z } from "zod";
@@ -34,7 +35,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
-import { trackStatementUpload, trackFormSubmission } from "@/lib/tracking";
+import { trackStatementUploadCompleted, trackFormSubmission } from "@/lib/tracking";
 import { CALENDAR_URL, PHONE_TEL, PHONE_NUMBER } from "@/lib/constants";
 import { trackConversion } from "@/lib/analytics";
 import { getStoredUTMParams } from "@/lib/utm";
@@ -144,6 +145,9 @@ export default function UploadStatement() {
       pewcConsent: false,
     },
   });
+
+  const { isDirty: formIsDirty } = form.formState;
+  useFormAbandonment("upload_statement", formIsDirty && !uploadSucceeded);
 
   useEffect(() => {
     if (preTerminal) form.setValue("needTerminal", true);
@@ -271,7 +275,7 @@ export default function UploadStatement() {
       });
     },
     onSuccess: () => {
-      trackStatementUpload();
+      trackStatementUploadCompleted({ page: "/upload-statement", ctaLocation: "form" });
       trackFormSubmission("statement_upload");
       trackConversion("statement_upload");
       setUploadSucceeded(true);
