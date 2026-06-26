@@ -256,11 +256,11 @@ export default function Home() {
                       { label: "Funding timeline", value: "Next-day*", chip: "Eligibility", tone: "neutral" },
                       { label: "Savings opportunity", value: "Identified", chip: "On review", tone: "positive" },
                     ].map((row, i) => (
-                      <div key={i} className="flex items-center justify-between gap-2 py-2.5 border-b border-border/70 last:border-0" data-testid={`row-statement-${i}`}>
-                        <span className="text-[13px] text-foreground/80 min-w-0">{row.label}</span>
-                        <div className="flex items-center gap-2 shrink-0">
+                      <div key={i} className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 py-2.5 border-b border-border/70 last:border-0" data-testid={`row-statement-${i}`}>
+                        <span className="text-[13px] text-foreground/80 min-w-0 flex-1">{row.label}</span>
+                        <div className="flex items-center gap-2">
                           <span className={`report-chip report-chip-${row.tone === "negative" ? "negative" : row.tone === "positive" ? "positive" : "neutral"}`}>{row.chip}</span>
-                          <span className={`num text-sm font-semibold shrink-0 whitespace-nowrap ${row.tone === "negative" ? "text-stat-negative" : row.tone === "positive" ? "text-stat-positive" : "text-foreground"}`}>{row.value}</span>
+                          <span className={`num text-sm font-semibold whitespace-nowrap ${row.tone === "negative" ? "text-stat-negative" : row.tone === "positive" ? "text-stat-positive" : "text-foreground"}`}>{row.value}</span>
                         </div>
                       </div>
                     ))}
