@@ -1,0 +1,725 @@
+654 - Final Premium Mobile/Desktop UI Audit + Card System Repair
+
+What & Why
+
+The site is improved, but the mobile experience still does not feel premium or production-ready. The biggest remaining problems are not just sticky CTA overlap. Several report-style cards have broken internal layouts: text rolls off the card, status tokens overflow, labels are misaligned, nested card/table layouts are too dense, and the background “paper lines” make the UI feel cheap instead of polished.
+
+This task is a final strict design/UI/UX pass across mobile and desktop, focused on making the site feel premium, trustworthy, aligned, responsive, and intentionally designed.
+
+Do not change backend logic, upload logic, API behavior, form submission behavior, analytics, CRM integrations, compliance meaning, or legal copy. This is a frontend design/layout refinement only.
+
+Primary goals
+
+* Make the site feel premium, polished, and high-trust.
+* Fix every mobile card layout that currently looks squeezed, misaligned, or broken.
+* Remove the cheap “lined paper” look behind report cards.
+* Ensure no text, token, badge, value, or label escapes its card.
+* Reduce the giant blue sticky CTA dominance.
+* Normalize spacing, typography, card hierarchy, labels, and mobile layouts.
+* Preserve the core Liberty Bancard brand and business messaging.
+
+P0 — Fix the broken report card layouts
+
+1. Statement Fee Audit card: fix text overflow and token alignment
+
+The Statement Fee Audit card currently has the clearest structural problem. In the row near “Savings opportunity,” the value/status text rolls off the right side of the card. This is not caused by the sticky CTA. The card itself is using a layout that does not fit mobile.
+
+Fix the Statement Fee Audit card so every row is fully contained at 375px, 390px, and 430px.
+
+Current problems to solve:
+
+* “Identified”/status text escapes the right edge of the card.
+* Row labels, tokens, and values do not align consistently.
+* Some rows have label + token + value competing in one horizontal line.
+* Red tokens are oversized and visually loud.
+* The “On review” and “Identified” elements fight each other spatially.
+* The value column has no safe max width.
+* Long values do not wrap or stack gracefully.
+* The card feels like a squeezed desktop table.
+
+Required mobile layout:
+Each row should be one of these patterns:
+
+Preferred pattern A:
+
+* Row label on the first line, left aligned.
+* Status/value on the second line, left aligned or right aligned only if it fits.
+* Use flex-wrap and min-w-0 so long text never escapes.
+
+Example:
+Effective rate
+3.47% · Above benchmark
+
+Monthly fixed fees
+$127/mo · Recurring
+
+Savings opportunity
+Identified · On review
+
+Preferred pattern B:
+
+* Left side: row label
+* Right side: value
+* Status token below the row, not squeezed between label and value.
+
+Do not keep a three-column mobile layout if it causes overflow.
+
+Technical requirements:
+
+* Add min-w-0 to flex/grid children where needed.
+* Use break-words or whitespace-normal where needed.
+* Avoid whitespace-nowrap on tokens/values unless the parent can safely contain them.
+* Tokens should have max-width: 100%.
+* Text inside tokens should not overflow.
+* No row content should extend past card padding.
+* Test with long labels and values.
+* The card must not rely on overflow-hidden to hide broken content.
+
+2. Redesign status tokens inside report cards
+
+The current tokens feel misaligned and too large.
+
+Create one compact report-token style:
+
+* small text
+* controlled padding
+* subtle border
+* soft background
+* max-width safe
+* no aggressive red unless truly necessary
+* consistent height
+* vertically centered
+* no rotated/stamp look inside tight mobile cards unless it fits cleanly
+
+Use this style consistently for:
+
+* Above benchmark
+* Recurring
+* Reducible
+* Itemized
+* Eligibility
+* On review
+* Identified
+* Illustrative
+* Awaiting input
+
+Tokens must:
+
+* align consistently within rows
+* never float awkwardly
+* never push values outside the card
+* wrap or stack cleanly on mobile
+
+3. Remove the ruled paper / notebook-line background from report cards
+
+The repeating horizontal line background behind card content looks cheap and makes text harder to read.
+
+Remove ruled/paper line backgrounds from:
+
+* Statement Fee Audit card
+* Estimate Preview card
+* Review Contents card
+* What Happens After You Say Yes card
+* Rate comparison card
+* Proof/analysis cards
+* any document/report preview card where readable text appears on top of lines
+
+Replace with:
+
+* clean white or warm-white card background
+* subtle border
+* soft shadow
+* optional very subtle document texture only if it does not cross behind text
+* no horizontal ruled lines behind text
+
+The cards should feel like polished financial report previews, not notebook paper.
+
+4. Review Contents card: rebuild mobile layout
+
+The Review Contents card currently looks like a desktop table squeezed into mobile. The left label pills and right text are misaligned, cramped, and overly table-like.
+
+On mobile, convert the Review Contents card to a stacked list.
+
+Each item should be:
+
+[Small label token]
+Title
+Description
+
+Example:
+Effective Rate
+Your true effective rate
+Total fees divided by total volume — the one number that tells the truth.
+
+Fee Drivers
+Fee driver map
+Card mix, downgrades, monthly add-ons, batch fees, PCI charges — all of it.
+
+Rules:
+
+* No two-column table layout on mobile.
+* No cramped left token column.
+* No ruled paper background.
+* Tokens should align with the content, not float in a separate grid.
+* Use consistent vertical spacing between rows.
+* Add subtle dividers between rows.
+* Ensure all text wraps naturally.
+
+Desktop can keep a more structured/table-like layout if it looks clean, but mobile needs its own layout.
+
+5. What Happens After You Say Yes timeline card: rebuild mobile layout
+
+The current timeline card uses a cramped multi-column grid. It feels misaligned and the step items do not read premium.
+
+On mobile, change to a stacked timeline layout:
+
+* Each timeline step is one row.
+* Small number marker on the left.
+* Day label, title, and description on the right.
+* Use a subtle vertical line if helpful.
+* No 2-column grid on mobile.
+* No huge centered circles.
+* No ruled paper background.
+* No content hidden or cut off.
+* Keep the disclaimer at the bottom readable and fully visible.
+
+Example mobile structure:
+1
+Day 0
+Upload
+Statement in, review begins
+
+2
+Day 1
+Review
+Line-item breakdown delivered
+
+6. Rate comparison card: simplify nested cards and fix spacing
+
+The “What Do Most Merchants Actually Pay?” card feels too dense and nested. The inner rate cards create too much card-within-card clutter, and labels feel misaligned.
+
+Fix:
+
+* Remove ruled paper background.
+* Reduce nested card complexity.
+* Make the rate ranges a clean stacked list or compact comparison table.
+* Keep rate numbers prominent.
+* Make category labels compact and aligned.
+* Reduce “Illustrative” stamp size and make it align cleanly.
+* Ensure all content remains inside the outer card.
+* Ensure the “See full processor comparison” link is visible and not crowded.
+
+7. Estimate Preview card: make it feel premium, not wireframe
+
+The Estimate Preview card currently feels like a placeholder/wireframe.
+
+Fix:
+
+* Remove dashed/cheap border if it feels unfinished.
+* Remove ruled lines.
+* Make the header cleaner.
+* Make “Awaiting Input” a compact badge.
+* Align icon, heading, body copy, and card padding.
+* Card should feel like an intentional preview state, not a dev placeholder.
+
+P0 — Fix sticky CTA visual dominance
+
+8. Remove or radically reduce the giant sticky CTA
+
+The giant blue sticky CTA bar still makes the page feel less premium. It is visually too dominant and competes with every section.
+
+Preferred fix:
+
+* Remove the persistent sticky CTA entirely on mobile.
+
+Acceptable alternative:
+
+* Replace it with a subtle floating CTA that appears only after the user scrolls past the hero.
+
+If kept:
+
+* Do not use a giant full-width blue dock.
+* Do not use a thick navy tray.
+* Use a smaller pill or compact bar.
+* Height should be ~44–48px, not oversized.
+* Max width should be constrained, centered, and visually refined.
+* Hide it when hero CTAs are visible.
+* Hide it when forms, report cards, FAQ, footer, or interactive sections are in view.
+* It must never cover form fields, card content, buttons, footer links, or card bottoms.
+
+Visual direction:
+
+* In-page CTAs should carry the conversion.
+* Sticky CTA should be subtle, not the loudest element on the page.
+
+9. Remove Call and Book from any sticky tray
+
+Do not show Upload + Call + Book in a sticky dock.
+
+Mobile sticky CTA, if kept, should be one CTA only:
+Upload Statement — Free
+
+Call and Book remain available in:
+
+* hamburger menu
+* hero section
+* footer
+* contact/callback section
+
+P1 — Fix card hierarchy and premium styling globally
+
+10. Create a consistent premium card system
+
+Cards currently vary too much and some feel generic or cheap.
+
+Normalize cards:
+
+* consistent radius
+* consistent padding
+* subtle border
+* soft shadow where needed
+* no overly thick black borders unless intentionally editorial
+* no repeated paper-line backgrounds
+* no accidental nested-card clutter
+* no awkward badge placement
+* no uncontrolled label widths
+
+Cards should feel like:
+
+* polished financial documents
+* premium advisory interfaces
+* high-trust service cards
+
+Not:
+
+* notebook paper
+* dense spreadsheets
+* placeholder wireframes
+* mobile screenshots of desktop tables
+
+11. Normalize all labels, pills, stamps, and badges
+
+There are too many label styles.
+
+Create 2 label types only:
+
+A. Section eyebrow:
+
+* uppercase
+* letter-spaced
+* blue or slate
+* used above major section headings
+
+B. Compact badge/token:
+
+* small
+* readable
+* subtle background
+* subtle border
+* no aggressive shadows
+* no oversized red stamps
+* no uncontrolled width
+
+Apply consistently across:
+
+* “Free statement review”
+* “Illustrative”
+* “Awaiting Input”
+* “Most Popular”
+* “No Obligation”
+* “The Liberty Analysis”
+* “Review Contents”
+* status tokens inside report cards
+* industry labels
+* security/compliance labels
+
+12. Reduce visual noise from icons
+
+Icon containers vary too much.
+
+Normalize:
+
+* icon container size
+* icon stroke width
+* icon color
+* spacing between icon and text
+* no oversized icons inside small cards
+* no tiny icons floating without purpose
+
+P1 — Section-by-section mobile fixes
+
+13. Header
+
+Current mobile header is cleaner, but still check:
+
+* logo is not too large
+* header height is tight and intentional
+* hamburger is vertically centered
+* no empty top bars
+* no legal strip above logo
+* no phone number overlay above legal text
+* no wasted navy space
+
+Target:
+
+* mobile header height roughly 72–80px
+* logo max-width roughly 210–240px
+* clean white background
+* subtle bottom border/shadow
+
+14. Hero
+
+Polish:
+
+* reduce excess blank space above hero content
+* ensure headline wraps cleanly
+* ensure blue emphasis does not dominate too heavily
+* keep primary CTA strong
+* secondary CTA lighter
+* helper text below CTAs should not be oversized
+* proof chips/trust elements should align cleanly
+
+15. Hero proof / metadata row
+
+The proof row below hero should not look like a loose set of random links.
+
+Fix:
+
+* align icons/text consistently
+* avoid partial clipping
+* make phone/link/compare items visually balanced
+* keep spacing tight and premium
+
+16. Statement Fee Audit preview
+
+In addition to P0 layout fixes:
+
+* ensure the card header aligns icon/title/metadata/stamp cleanly
+* reduce red visual weight
+* make row dividers subtle
+* make labels and values align consistently
+* ensure bottom disclaimer is readable
+* no row should have more columns than mobile can support
+
+17. FL-Based / Free / I+P proof band
+
+This area currently feels too plain and loosely centered.
+
+Improve:
+
+* make it a compact trust/stat band
+* use either 3 small columns or stacked rows
+* add subtle separators
+* reduce vertical dead space
+* align text consistently
+
+18. Sound Familiar cards
+
+Fix:
+
+* if two-column layout is cramped at 375px, switch to single-column
+* cards should have equal visual height
+* icon, tag, and body text should align consistently
+* reduce red badge heaviness
+* make card padding consistent
+* no awkward text wrapping
+
+19. Strategy accordion
+
+Fix:
+
+* expanded content spacing
+* badge alignment
+* chevron alignment
+* border/padding consistency
+* CTA button sizing
+* no content hidden below sticky CTA
+* no overly heavy borders
+
+20. Industry cards
+
+Current mixed layout feels accidental.
+
+Choose one clear mobile pattern:
+
+* all stacked rows, or
+* all equal cards, or
+* featured rows + secondary grid with clear hierarchy
+
+Fix:
+
+* inconsistent card sizes
+* thick borders
+* awkward text wrapping
+* icon alignment
+* “Home Services” wrapping too heavily
+* “Other Industries” spacing
+
+21. Terminal/product section
+
+Fix:
+
+* product images should not feel cramped
+* product cards should have consistent padding and hierarchy
+* labels like “Counter + curbside” should align and wrap cleanly
+* CTA buttons should not be hidden by sticky UI
+* horizontal image row should either scroll intentionally or stack cleanly
+
+22. Security & Compliance Standards
+
+Fix:
+
+* reduce generic feel
+* soften heavy borders
+* normalize card height
+* align icon containers
+* improve heading-to-grid spacing
+* do not change compliance claim wording unless already approved
+
+23. Testimonials
+
+Fix:
+
+* quote card should feel premium, not oversized
+* stars smaller and cleaner
+* quote icon aligned intentionally
+* badge should not float awkwardly
+* attribution row should align cleanly
+* avoid excessive empty space
+
+24. FAQ
+
+Fix:
+
+* left-align all FAQ question text
+* remove accidental underline styling
+* chevrons aligned right
+* consistent row padding
+* no centered question text unless intentionally designed
+* tap targets comfortable
+
+25. Callback/contact form
+
+Fix:
+
+* input heights consistent
+* time-of-day buttons fit at 375px
+* consent text readable but not overwhelming
+* submit button state clear
+* form card not covered by sticky CTA
+* labels and fields aligned
+
+26. Footer
+
+Fix:
+
+* footer logo size
+* quick link spacing
+* contact row spacing
+* dark footer remains premium
+* no content covered by sticky CTA
+* bottom padding accounts for mobile safe area only if sticky CTA remains
+
+P1 — Typography and alignment
+
+27. Reduce excessive centered layouts
+
+Too much of the page is centered. Centering works for hero and short section intros, but dense content should be left-aligned.
+
+Use left alignment for:
+
+* report cards
+* tables/lists
+* timelines
+* accordions
+* forms
+* industry cards
+* FAQ rows
+* product cards
+
+Use centered alignment only for:
+
+* hero
+* short section intros
+* occasional proof bands
+
+28. Normalize mobile heading scale
+
+Some headings are too big and create awkward wraps.
+
+Guidelines:
+
+* Hero: largest
+* Major section headings: strong but controlled
+* Dense/report sections: smaller
+* Card headings: clear but not huge
+
+Avoid 4-line mobile headings unless intentional.
+
+29. Normalize spacing rhythm
+
+Mobile spacing should feel intentional:
+
+* compact sections: 40–56px
+* standard sections: 56–72px
+* major transitions: 72–88px
+
+Remove:
+
+* giant accidental gaps
+* double padding between sections
+* extra space caused by fixed CTA compensation
+* huge centered step spacing
+* uneven card internal padding
+
+P1 — Color and premium feel
+
+30. Reduce bright blue dominance
+
+The bright blue should be an accent, not the dominant UI surface.
+
+Use bright blue for:
+
+* links
+* key CTA moments
+* small accents
+* selected states
+
+Do not use bright blue for:
+
+* giant persistent bottom bars
+* thick section dividers everywhere
+* excessive borders
+
+31. Use navy as the premium anchor
+
+Dark navy should carry the premium financial feel.
+
+Use navy for:
+
+* main headings
+* card headers
+* dark sections
+* primary action if replacing blue CTA
+* report headers
+
+32. Remove cheap decorative effects
+
+Remove or significantly reduce:
+
+* ruled paper lines behind text
+* oversized red stamps
+* too many badges inside one card
+* thick black borders on soft cards
+* nested card-within-card clutter
+* unnecessary dotted/grid backgrounds behind dense content
+* mobile layouts that look like desktop tables squeezed down
+
+P2 — Desktop polish
+
+33. Desktop should remain strong
+
+After mobile fixes, verify desktop:
+
+* header still balanced
+* nav works
+* CTA hierarchy clear
+* report cards still look premium
+* cards align in grids
+* no mobile-only stacking leaks into desktop
+* desktop report/table layouts can be more structured, but must remain visually clean
+
+34. Desktop card consistency
+
+At 1024px, 1280px, and 1440px:
+
+* cards should align cleanly
+* labels should not jump around
+* badges should not be oversized
+* report cards should not feel noisy
+* section rhythm should be consistent
+
+P0 QA checklist
+
+Test at:
+
+* 375px
+* 390px
+* 430px
+* 768px
+* 1024px
+* 1280px
+* 1440px
+
+Must pass:
+
+* no text rolls off any card
+* no token/badge escapes card boundaries
+* no horizontal overflow
+* no card content is truncated
+* no label/value row breaks awkwardly
+* no ruled paper line backgrounds behind readable text
+* no giant blue persistent sticky CTA
+* no sticky UI covers content
+* Statement Fee Audit card is clean and contained
+* Review Contents card is mobile-stacked and readable
+* What Happens After You Say Yes timeline is mobile-stacked and readable
+* Rate comparison card is simplified and contained
+* FAQ questions are left-aligned
+* form fields are not covered
+* footer content is visible
+* desktop remains clean
+
+Implementation notes
+
+Do not hide broken layout with overflow-hidden unless it is purely decorative. Fix the layout itself.
+
+Use:
+
+* min-w-0
+* flex-wrap
+* grid-cols-1 on mobile where needed
+* responsive stacked layouts
+* max-w-full
+* break-words
+* whitespace-normal
+* mobile-specific component variants
+
+Avoid:
+
+* forced nowrap on long mobile text
+* three-column mobile rows
+* nested cards inside nested cards
+* oversized badges
+* bright red stamps everywhere
+* ruled-line backgrounds
+* giant fixed bottom docks
+
+Relevant files
+
+Inspect and update as needed:
+
+* client/src/pages/Home.tsx
+* client/src/components/Navbar.tsx
+* client/src/components/StickyMobileCTA.tsx
+* client/src/components/ChatWidget.tsx
+* client/src/components/Footer.tsx
+* client/src/index.css
+* all homepage section components
+* all report/audit card components
+* all timeline/deliverable components
+* all strategy/industry/product/security/testimonial/FAQ/form components
+
+Final deliverable
+
+When complete, report:
+
+* files changed
+* sticky CTA behavior before/after
+* report card layout changes
+* Statement Fee Audit overflow fix
+* token/badge style changes
+* ruled-paper background removals
+* mobile-specific stacked layout changes
+* tested breakpoints
+* any remaining known limitations
