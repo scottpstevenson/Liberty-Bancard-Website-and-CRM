@@ -3,7 +3,6 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
@@ -18,7 +17,13 @@ import {
   Clock, Loader2, Mail, MessageSquare, Phone, RefreshCw, Send, Shield,
   Target, TrendingUp, Users, XCircle, Zap, Eye, Filter, ChevronRight, ChevronDown, Server, GitMerge,
   Bot, DollarSign, Hash, Play, Flag, ShieldCheck, FileText, Upload, Database,
+  LayoutDashboard, Menu, GitBranch, Megaphone, Sparkles, Settings, Link2, ArrowRight,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { useSearch, useLocation } from "wouter";
+import {
+  Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger,
+} from "@/components/ui/sheet";
 import StatementChainPanel from "@/components/operator/StatementChainPanel";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell, Legend, LineChart, Line } from "recharts";
 import type { LifecycleStageCountsResponse, OperatorSdrStatsResponse } from "@shared/operator-dashboard-types";
@@ -2541,6 +2546,709 @@ function DeletedRecordsPanel() {
   );
 }
 
+// ─── IA Rebuild (#625): Grouped Navigation ─────────────────────────────────────
+
+interface OperatorNavItem {
+  value: string;
+  label: string;
+  icon?: any;
+}
+
+interface OperatorNavGroup {
+  id: string;
+  label: string;
+  icon: any;
+  items: OperatorNavItem[];
+}
+
+const OPERATOR_NAV_GROUPS: OperatorNavGroup[] = [
+  {
+    id: "pipeline",
+    label: "Pipeline & Conversion",
+    icon: GitBranch,
+    items: [
+      { value: "lifecycle", label: "Lifecycle", icon: Users },
+      { value: "conversion", label: "Conversion", icon: TrendingUp },
+      { value: "stuck-leads", label: "Stuck Leads", icon: AlertTriangle },
+      { value: "vertical-coverage", label: "Vertical Coverage", icon: BarChart3 },
+      { value: "statement-upload", label: "Statement Upload", icon: Upload },
+    ],
+  },
+  {
+    id: "sdr",
+    label: "SDR & Outreach",
+    icon: Megaphone,
+    items: [
+      { value: "sdr", label: "SDR", icon: Bot },
+      { value: "recent-sends", label: "Recent Sends", icon: Send },
+      { value: "send-monitoring", label: "Send Monitoring", icon: Activity },
+      { value: "silent-sequences", label: "Sequences Not Firing", icon: Flag },
+      { value: "bounce-failure", label: "Bounce & Failure", icon: XCircle },
+      { value: "comm-health", label: "Email Health", icon: Mail },
+    ],
+  },
+  {
+    id: "ai",
+    label: "AI / Content",
+    icon: Sparkles,
+    items: [
+      { value: "ai-health", label: "AI Health", icon: ShieldCheck },
+      { value: "ai-activity", label: "AI Activity", icon: Activity },
+      { value: "low-confidence", label: "Low Confidence", icon: Eye },
+      { value: "subject-audit", label: "Subject Sync", icon: Mail },
+      { value: "content-organic", label: "Content & Organic", icon: BarChart3 },
+    ],
+  },
+  {
+    id: "integrations",
+    label: "Integrations & Sync",
+    icon: Link2,
+    items: [
+      { value: "ghl-connection", label: "GHL Status", icon: Zap },
+      { value: "sync-conflicts", label: "Sync Conflicts", icon: GitMerge },
+      { value: "webhook-events", label: "Webhook Events", icon: Hash },
+      { value: "registry-import", label: "Registry Import", icon: Database },
+    ],
+  },
+  {
+    id: "system",
+    label: "System Health",
+    icon: Settings,
+    items: [
+      { value: "kpis", label: "KPIs", icon: BarChart3 },
+      { value: "readiness", label: "Readiness", icon: CheckCircle2 },
+      { value: "job-health", label: "Job Health", icon: Server },
+      { value: "queue-metrics", label: "Job Queue", icon: Zap },
+      { value: "deleted-records", label: "Deleted Records", icon: XCircle },
+    ],
+  },
+];
+
+const ALL_OPERATOR_VIEWS = new Set<string>([
+  "command-center",
+  ...OPERATOR_NAV_GROUPS.flatMap((g) => g.items.map((i) => i.value)),
+]);
+
+function getOperatorViewLabel(view: string): string {
+  if (view === "command-center") return "Command Center";
+  for (const g of OPERATOR_NAV_GROUPS) {
+    const item = g.items.find((i) => i.value === view);
+    if (item) return item.label;
+  }
+  return "Command Center";
+}
+
+function renderOperatorView(view: string, onNavigate: (v: string) => void) {
+  switch (view) {
+    case "command-center":
+      return <CommandCenter onNavigate={onNavigate} />;
+    case "lifecycle":
+      return <LifecycleCommandCenter />;
+    case "conversion":
+      return <ConversionPanel />;
+    case "stuck-leads":
+      return <StuckLeadsPanel />;
+    case "vertical-coverage":
+      return <VerticalCoveragePanel />;
+    case "statement-upload":
+      return <StatementUploadFailuresPanel />;
+    case "sdr":
+      return <SdrCommandCenter />;
+    case "recent-sends":
+      return <RecentSendsWidget />;
+    case "send-monitoring":
+      return <SendMonitoringPanel />;
+    case "silent-sequences":
+      return <SilentSequencesWidget />;
+    case "bounce-failure":
+      return <BounceFailurePanel />;
+    case "comm-health":
+      return <CommHealthPanel />;
+    case "ai-health":
+      return <AiHealthPanel />;
+    case "ai-activity":
+      return <AiActivityPanel />;
+    case "low-confidence":
+      return <LowConfidencePanel />;
+    case "subject-audit":
+      return <SubjectAuditPanel />;
+    case "content-organic":
+      return <ContentOrganicKpiPanel />;
+    case "ghl-connection":
+      return <GhlConnectionPanel />;
+    case "sync-conflicts":
+      return <SyncConflictsPanel />;
+    case "webhook-events":
+      return <WebhookEventViewer />;
+    case "registry-import":
+      return <RegistryImportPanel />;
+    case "kpis":
+      return <OperatorKpiPanel />;
+    case "readiness":
+      return <ReadinessChecklistWidget />;
+    case "job-health":
+      return <JobHealthPanel />;
+    case "queue-metrics":
+      return <QueueMetricsPanel />;
+    case "deleted-records":
+      return <DeletedRecordsPanel />;
+    default:
+      return <CommandCenter onNavigate={onNavigate} />;
+  }
+}
+
+function OperatorNavRail({
+  view,
+  onSelect,
+  collapsedGroups,
+  toggleGroup,
+}: {
+  view: string;
+  onSelect: (v: string) => void;
+  collapsedGroups: Record<string, boolean>;
+  toggleGroup: (id: string) => void;
+}) {
+  return (
+    <nav className="space-y-1" data-testid="operator-nav-rail">
+      <button
+        type="button"
+        onClick={() => onSelect("command-center")}
+        className={cn(
+          "flex items-center gap-2 w-full rounded-md px-3 py-2 text-sm font-medium transition-colors",
+          view === "command-center"
+            ? "bg-primary text-primary-foreground"
+            : "hover-elevate text-foreground/80",
+        )}
+        data-testid="nav-command-center"
+      >
+        <LayoutDashboard className="w-4 h-4 shrink-0" />
+        Command Center
+      </button>
+
+      {OPERATOR_NAV_GROUPS.map((group) => {
+        const collapsed = collapsedGroups[group.id];
+        const GroupIcon = group.icon;
+        return (
+          <div key={group.id} className="pt-2">
+            <button
+              type="button"
+              onClick={() => toggleGroup(group.id)}
+              className="flex items-center gap-2 w-full px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground transition-colors"
+              data-testid={`nav-group-${group.id}`}
+              aria-expanded={!collapsed}
+            >
+              <GroupIcon className="w-3.5 h-3.5 shrink-0" />
+              <span className="flex-1 text-left">{group.label}</span>
+              {collapsed ? (
+                <ChevronRight className="w-3.5 h-3.5 shrink-0" />
+              ) : (
+                <ChevronDown className="w-3.5 h-3.5 shrink-0" />
+              )}
+            </button>
+            {!collapsed && (
+              <div className="space-y-0.5 mt-0.5">
+                {group.items.map((item) => {
+                  const ItemIcon = item.icon;
+                  const active = item.value === view;
+                  return (
+                    <button
+                      key={item.value}
+                      type="button"
+                      onClick={() => onSelect(item.value)}
+                      className={cn(
+                        "flex items-center gap-2 w-full rounded-md pl-8 pr-3 py-1.5 text-sm transition-colors",
+                        active
+                          ? "bg-primary/10 text-primary font-medium"
+                          : "hover-elevate text-foreground/80",
+                      )}
+                      data-testid={`nav-item-${item.value}`}
+                    >
+                      {ItemIcon && <ItemIcon className="w-3.5 h-3.5 shrink-0" />}
+                      <span className="truncate">{item.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </nav>
+  );
+}
+
+function OperatorNavShell() {
+  const search = useSearch();
+  const [location, navigate] = useLocation();
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+
+  const params = new URLSearchParams(search);
+  const rawView = params.get("view") || params.get("tab") || "command-center";
+  const view = ALL_OPERATOR_VIEWS.has(rawView) ? rawView : "command-center";
+
+  const setView = (v: string) => {
+    const p = new URLSearchParams(search);
+    p.set("view", v);
+    p.delete("tab");
+    navigate(`${location}?${p.toString()}`);
+    setDrawerOpen(false);
+  };
+
+  const toggleGroup = (id: string) =>
+    setCollapsedGroups((prev) => ({ ...prev, [id]: !prev[id] }));
+
+  const railProps = { view, onSelect: setView, collapsedGroups, toggleGroup };
+
+  return (
+    <div className="flex gap-6 items-start">
+      <aside
+        className="hidden lg:block w-60 shrink-0 sticky top-4 self-start max-h-[calc(100vh-2rem)] overflow-y-auto pr-1"
+        data-testid="operator-rail-desktop"
+      >
+        <OperatorNavRail {...railProps} />
+      </aside>
+
+      <div className="flex-1 min-w-0">
+        <div className="lg:hidden mb-4">
+          <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
+            <SheetTrigger asChild>
+              <Button variant="outline" size="sm" data-testid="button-operator-nav-toggle">
+                <Menu className="w-4 h-4 mr-2" />
+                {getOperatorViewLabel(view)}
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="left" className="w-72 overflow-y-auto">
+              <SheetHeader>
+                <SheetTitle>Operator Views</SheetTitle>
+              </SheetHeader>
+              <div className="mt-4">
+                <OperatorNavRail {...railProps} />
+              </div>
+            </SheetContent>
+          </Sheet>
+        </div>
+
+        <div data-testid={`operator-view-${view}`}>
+          {renderOperatorView(view, setView)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── IA Rebuild (#625): Command Center landing ─────────────────────────────────
+
+type TileStatus = "ok" | "warn" | "error" | "loading" | "neutral";
+
+function StatusTile({
+  title,
+  status,
+  value,
+  detail,
+  icon: Icon,
+  onClick,
+  testId,
+}: {
+  title: string;
+  status: TileStatus;
+  value: string;
+  detail: string;
+  icon: any;
+  onClick: () => void;
+  testId: string;
+}) {
+  const valueColor =
+    status === "error"
+      ? "text-red-600"
+      : status === "warn"
+        ? "text-yellow-600"
+        : status === "ok"
+          ? "text-green-600"
+          : "text-foreground";
+  const dot =
+    status === "error"
+      ? "bg-red-500"
+      : status === "warn"
+        ? "bg-yellow-500"
+        : status === "ok"
+          ? "bg-green-500"
+          : "bg-muted-foreground/40";
+
+  return (
+    <Card className="hover-elevate cursor-pointer" onClick={onClick} data-testid={testId}>
+      <CardContent className="p-4">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Icon className="w-3.5 h-3.5" />
+            {title}
+          </div>
+          {status === "loading" ? (
+            <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
+          ) : (
+            <span className={cn("w-2 h-2 rounded-full", dot)} />
+          )}
+        </div>
+        <div className={cn("text-xl font-bold leading-tight", valueColor)} data-testid={`${testId}-value`}>
+          {value}
+        </div>
+        <div className="text-xs text-muted-foreground mt-1 line-clamp-2">{detail}</div>
+        <div className="text-xs text-primary mt-2 flex items-center gap-1">
+          View details <ArrowRight className="w-3 h-3" />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+interface AttentionItem {
+  severity: "critical" | "warn" | "info";
+  message: string;
+  view: string;
+}
+
+function CommandCenter({ onNavigate }: { onNavigate: (v: string) => void }) {
+  const readiness = useQuery<{
+    ready: boolean;
+    passCount: number;
+    totalChecks: number;
+    checks: { id: string; label: string; ok: boolean; detail: string }[];
+  }>({ queryKey: ["/api/operator/readiness-checks"], refetchInterval: 60000, retry: false });
+
+  const queue = useQuery<QueueMetricsData>({
+    queryKey: ["/api/operator/queue-metrics"],
+    refetchInterval: 30000,
+    retry: false,
+  });
+
+  const dlq = useQuery<DlqItem[]>({
+    queryKey: ["/api/operator/queue-dlq"],
+    refetchInterval: 30000,
+    retry: false,
+  });
+
+  const circuit = useQuery<{
+    circuitOpen: boolean;
+    consecutiveFailures: number;
+    threshold: number;
+    lastTripReason?: string | null;
+  }>({ queryKey: ["/api/ghl/circuit-status"], refetchInterval: 60000, retry: false });
+
+  const sdr = useQuery<OperatorSdrStatsResponse>({
+    queryKey: ["/api/operator/sdr-stats"],
+    refetchInterval: 60000,
+    retry: false,
+  });
+
+  const funnel = useQuery<{
+    funnel: { stage: string; eventName: string; count: number }[];
+    byEvent: Record<string, number>;
+    days: number;
+  }>({
+    queryKey: ["/api/analytics/conversion-funnel", "command-center"],
+    queryFn: () => fetch(`/api/analytics/conversion-funnel?days=30`).then((r) => r.json()),
+    refetchInterval: 120000,
+    retry: false,
+  });
+
+  const blocks = useQuery<{
+    rows: { channel: string | null; blockReason: string | null; cnt: number }[];
+    days: number;
+  }>({
+    queryKey: ["/api/analytics/channel-block-summary", "command-center"],
+    queryFn: () => fetch(`/api/analytics/channel-block-summary?days=30`).then((r) => r.json()),
+    refetchInterval: 120000,
+    retry: false,
+  });
+
+  // Derived metrics
+  const dlqCount = dlq.data?.length ?? 0;
+  const totalFailed = (queue.data?.queues ?? []).reduce((s, q) => s + (q.failed || 0), 0);
+  const anyPaused = (queue.data?.queues ?? []).some((q) => q.paused);
+  const failedChecks = (readiness.data?.checks ?? []).filter((c) => !c.ok);
+  const stuckCheck = (readiness.data?.checks ?? []).find((c) => c.id === "no_stuck_leads");
+  const circuitOpen = !!circuit.data?.circuitOpen;
+  const sendersOver = (sdr.data?.senderUtilization ?? []).filter(
+    (s) => s.utilizationPct >= 95 || (s.status && s.status !== "active"),
+  );
+  const sdrWarnings = sdr.data?.warnings ?? [];
+  const totalSentToday = (sdr.data?.sentTodayByChannel ?? []).reduce((s, c) => s + c.count, 0);
+  const totalBlocked = (blocks.data?.rows ?? [])
+    .filter((r) => r.blockReason)
+    .reduce((s, r) => s + Number(r.cnt || 0), 0);
+  const topBlock = (blocks.data?.rows ?? [])
+    .filter((r) => r.blockReason)
+    .sort((a, b) => Number(b.cnt) - Number(a.cnt))[0];
+  const funnelTop = funnel.data?.funnel?.[0];
+  const funnelTopCount = funnelTop?.count ?? 0;
+
+  // Status tiles
+  const readinessStatus: TileStatus = readiness.isLoading
+    ? "loading"
+    : readiness.isError
+      ? "error"
+      : readiness.data?.ready
+        ? "ok"
+        : "warn";
+  const queueStatus: TileStatus = queue.isLoading
+    ? "loading"
+    : queue.isError
+      ? "error"
+      : dlqCount > 0
+        ? "error"
+        : anyPaused || totalFailed > 0
+          ? "warn"
+          : "ok";
+  const ghlStatus: TileStatus = circuit.isLoading
+    ? "loading"
+    : circuit.isError
+      ? "error"
+      : circuitOpen
+        ? "error"
+        : (circuit.data?.consecutiveFailures ?? 0) > 0
+          ? "warn"
+          : "ok";
+  const sdrStatus: TileStatus = sdr.isLoading
+    ? "loading"
+    : sdr.isError
+      ? "error"
+      : sdrWarnings.length > 0 || sendersOver.length > 0
+        ? "warn"
+        : "ok";
+  const conversionStatus: TileStatus = funnel.isLoading
+    ? "loading"
+    : funnel.isError
+      ? "error"
+      : funnelTopCount > 0
+        ? "ok"
+        : "warn";
+  const blockStatus: TileStatus = blocks.isLoading
+    ? "loading"
+    : blocks.isError
+      ? "error"
+      : totalBlocked > 50
+        ? "warn"
+        : "ok";
+
+  // Attention queue
+  const attention: AttentionItem[] = [];
+  if (circuitOpen)
+    attention.push({ severity: "critical", message: "GHL circuit breaker is OPEN — sync is paused", view: "ghl-connection" });
+  if (dlqCount > 0)
+    attention.push({ severity: "critical", message: `${dlqCount} job${dlqCount === 1 ? "" : "s"} in the dead-letter queue`, view: "queue-metrics" });
+  if (sendersOver.length > 0)
+    attention.push({ severity: "warn", message: `${sendersOver.length} sending identit${sendersOver.length === 1 ? "y" : "ies"} over capacity or inactive`, view: "sdr" });
+  if (totalBlocked > 50)
+    attention.push({ severity: "warn", message: `${totalBlocked} blocked send attempts in last 30 days`, view: "comm-health" });
+  if (stuckCheck && !stuckCheck.ok)
+    attention.push({ severity: "warn", message: stuckCheck.detail || "Stuck leads detected", view: "stuck-leads" });
+  if (readiness.data && !readiness.data.ready && failedChecks.length > 0)
+    attention.push({ severity: "warn", message: `${failedChecks.length} readiness check${failedChecks.length === 1 ? "" : "s"} failing`, view: "readiness" });
+  if (funnel.data && funnelTopCount === 0)
+    attention.push({ severity: "info", message: "No conversion events recorded in the last 30 days", view: "conversion" });
+
+  const sevRank = { critical: 0, warn: 1, info: 2 } as const;
+  attention.sort((a, b) => sevRank[a.severity] - sevRank[b.severity]);
+
+  const anyLoading =
+    readiness.isLoading || queue.isLoading || circuit.isLoading || sdr.isLoading;
+
+  return (
+    <div className="space-y-6" data-testid="command-center">
+      <div>
+        <h2 className="text-lg font-semibold">Command Center</h2>
+        <p className="text-sm text-muted-foreground">What needs attention right now</p>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3" data-testid="command-center-status-row">
+        <StatusTile
+          title="Readiness"
+          status={readinessStatus}
+          value={readiness.data ? `${readiness.data.passCount}/${readiness.data.totalChecks}` : readiness.isError ? "Error" : "—"}
+          detail={readiness.isError ? "Failed to load readiness" : readiness.data?.ready ? "All preconditions met" : failedChecks[0]?.label ?? "Loading…"}
+          icon={CheckCircle2}
+          onClick={() => onNavigate("readiness")}
+          testId="tile-readiness"
+        />
+        <StatusTile
+          title="Jobs & Queue"
+          status={queueStatus}
+          value={queue.isError ? "Error" : dlqCount > 0 ? `${dlqCount} dead` : "Healthy"}
+          detail={queue.isError ? "Failed to load queue metrics" : `${totalFailed} failed · ${(queue.data?.queues ?? []).length} queues${queue.data?.usingMock ? " · mock" : ""}`}
+          icon={Server}
+          onClick={() => onNavigate("queue-metrics")}
+          testId="tile-queue"
+        />
+        <StatusTile
+          title="GHL Sync"
+          status={ghlStatus}
+          value={circuit.isError ? "Error" : circuitOpen ? "Circuit OPEN" : "Connected"}
+          detail={circuit.isError ? "Failed to load circuit status" : `${circuit.data?.consecutiveFailures ?? 0}/${circuit.data?.threshold ?? 0} consecutive failures`}
+          icon={Zap}
+          onClick={() => onNavigate("ghl-connection")}
+          testId="tile-ghl"
+        />
+        <StatusTile
+          title="SDR Health"
+          status={sdrStatus}
+          value={sdr.isError ? "Error" : `${totalSentToday} sent`}
+          detail={sdr.isError ? "Failed to load SDR stats" : `${sdr.data?.blockedStepsLast24h ?? 0} blocked · ${sdr.data?.enrolledLeads ?? 0} enrolled`}
+          icon={Bot}
+          onClick={() => onNavigate("sdr")}
+          testId="tile-sdr"
+        />
+        <StatusTile
+          title="Conversion"
+          status={conversionStatus}
+          value={funnel.isError ? "Error" : `${funnelTopCount.toLocaleString()}`}
+          detail={funnel.isError ? "Failed to load funnel" : funnelTop ? `Top stage: ${funnelTop.stage}` : "No funnel data"}
+          icon={TrendingUp}
+          onClick={() => onNavigate("conversion")}
+          testId="tile-conversion"
+        />
+        <StatusTile
+          title="Blocked Sends"
+          status={blockStatus}
+          value={blocks.isError ? "Error" : `${totalBlocked.toLocaleString()}`}
+          detail={blocks.isError ? "Failed to load block summary" : topBlock ? `Top: ${topBlock.blockReason}` : "No blocks (30d)"}
+          icon={Shield}
+          onClick={() => onNavigate("comm-health")}
+          testId="tile-blocks"
+        />
+      </div>
+
+      <Card data-testid="attention-queue">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-yellow-600" />
+            Attention Queue
+            {attention.length > 0 && (
+              <Badge variant="secondary" data-testid="attention-count">{attention.length}</Badge>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {anyLoading && attention.length === 0 ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+              <Loader2 className="w-4 h-4 animate-spin" /> Checking systems…
+            </div>
+          ) : attention.length === 0 ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground py-2" data-testid="attention-empty">
+              <CheckCircle2 className="w-4 h-4 text-green-600" />
+              All clear — nothing needs attention right now.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {attention.map((a, i) => {
+                const sevColor =
+                  a.severity === "critical"
+                    ? "bg-red-500"
+                    : a.severity === "warn"
+                      ? "bg-yellow-500"
+                      : "bg-blue-500";
+                return (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => onNavigate(a.view)}
+                    className="flex items-center gap-3 w-full text-left rounded-md border p-3 hover-elevate"
+                    data-testid={`attention-item-${i}`}
+                  >
+                    <span className={cn("w-2 h-2 rounded-full shrink-0", sevColor)} />
+                    <span className="flex-1 text-sm">{a.message}</span>
+                    <span className="text-xs text-primary flex items-center gap-1 shrink-0">
+                      {getOperatorViewLabel(a.view)} <ArrowRight className="w-3 h-3" />
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3" data-testid="command-center-snapshots">
+        <Card className="hover-elevate cursor-pointer" onClick={() => onNavigate("sdr")} data-testid="snapshot-sends">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2"><Send className="w-4 h-4" /> Sends Today</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {sdr.isLoading ? (
+              <div className="text-sm text-muted-foreground flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>
+            ) : sdr.isError ? (
+              <div className="text-sm text-muted-foreground">Unavailable</div>
+            ) : (sdr.data?.sentTodayByChannel ?? []).length === 0 ? (
+              <div className="text-sm text-muted-foreground">No sends recorded today</div>
+            ) : (
+              <div className="space-y-1">
+                {(sdr.data?.sentTodayByChannel ?? []).map((c) => (
+                  <div key={c.channel} className="flex justify-between text-sm">
+                    <span className="capitalize text-muted-foreground">{c.channel}</span>
+                    <span className="font-medium">{c.count.toLocaleString()}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="text-xs text-primary mt-3 flex items-center gap-1">View details <ArrowRight className="w-3 h-3" /></div>
+          </CardContent>
+        </Card>
+
+        <Card className="hover-elevate cursor-pointer" onClick={() => onNavigate("conversion")} data-testid="snapshot-funnel">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2"><TrendingUp className="w-4 h-4" /> Funnel (30d)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {funnel.isLoading ? (
+              <div className="text-sm text-muted-foreground flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>
+            ) : funnel.isError ? (
+              <div className="text-sm text-muted-foreground">Unavailable</div>
+            ) : (funnel.data?.funnel ?? []).length === 0 ? (
+              <div className="text-sm text-muted-foreground">No funnel data</div>
+            ) : (
+              <div className="space-y-1">
+                {(funnel.data?.funnel ?? []).slice(0, 5).map((row) => (
+                  <div key={row.eventName} className="flex justify-between text-sm">
+                    <span className="text-muted-foreground truncate mr-2">{row.stage}</span>
+                    <span className="font-medium">{row.count.toLocaleString()}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="text-xs text-primary mt-3 flex items-center gap-1">View details <ArrowRight className="w-3 h-3" /></div>
+          </CardContent>
+        </Card>
+
+        <Card className="hover-elevate cursor-pointer" onClick={() => onNavigate("queue-metrics")} data-testid="snapshot-queues">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2"><Activity className="w-4 h-4" /> Queue Activity</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {queue.isLoading ? (
+              <div className="text-sm text-muted-foreground flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>
+            ) : queue.isError ? (
+              <div className="text-sm text-muted-foreground">Unavailable</div>
+            ) : (queue.data?.queues ?? []).length === 0 ? (
+              <div className="text-sm text-muted-foreground">No queues reporting</div>
+            ) : (
+              <div className="space-y-1">
+                {(queue.data?.queues ?? []).slice(0, 5).map((q) => (
+                  <div key={q.name} className="flex justify-between text-sm">
+                    <span className="text-muted-foreground truncate mr-2">{q.name}</span>
+                    <span className={cn("font-medium", q.failed > 0 ? "text-red-600" : "")}>
+                      {q.waiting + q.active} active{q.failed > 0 ? ` · ${q.failed} failed` : ""}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="text-xs text-primary mt-3 flex items-center gap-1">View details <ArrowRight className="w-3 h-3" /></div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
 export default function OperatorDashboard() {
   const { toast } = useToast();
 
@@ -2576,131 +3284,7 @@ export default function OperatorDashboard() {
         }
       />
 
-      <Tabs defaultValue="job-health" className="w-full">
-        <TabsList className="w-full justify-start flex-wrap" data-testid="tabs-operator">
-          <TabsTrigger value="job-health" data-testid="tab-job-health" className="flex items-center gap-1">
-            <Server className="w-3.5 h-3.5" />
-            Job Health
-          </TabsTrigger>
-          <TabsTrigger value="queue-metrics" data-testid="tab-queue-metrics" className="flex items-center gap-1">
-            <Zap className="w-3.5 h-3.5" />
-            Job Queue
-          </TabsTrigger>
-          <TabsTrigger value="readiness" data-testid="tab-readiness">Readiness</TabsTrigger>
-          <TabsTrigger value="kpis" data-testid="tab-kpis">KPIs</TabsTrigger>
-          <TabsTrigger value="recent-sends" data-testid="tab-recent-sends">Recent Sends</TabsTrigger>
-          <TabsTrigger value="silent-sequences" data-testid="tab-silent-sequences">Sequences Not Firing</TabsTrigger>
-          <TabsTrigger value="send-monitoring" data-testid="tab-send-monitoring">Send Monitoring</TabsTrigger>
-          <TabsTrigger value="webhook-events" data-testid="tab-webhook-events">Webhook Events</TabsTrigger>
-          <TabsTrigger value="stuck-leads" data-testid="tab-stuck-leads">Stuck Leads</TabsTrigger>
-          <TabsTrigger value="low-confidence" data-testid="tab-low-confidence">Low Confidence</TabsTrigger>
-          <TabsTrigger value="sync-conflicts" data-testid="tab-sync-conflicts" className="flex items-center gap-1">
-            <GitMerge className="w-3 h-3" /> Sync Conflicts
-          </TabsTrigger>
-          <TabsTrigger value="content-organic" data-testid="tab-content-organic">Content & Organic</TabsTrigger>
-          <TabsTrigger value="ai-health" data-testid="tab-ai-health" className="flex items-center gap-1">
-            <ShieldCheck className="w-3.5 h-3.5" /> AI Health
-          </TabsTrigger>
-          <TabsTrigger value="ai-activity" data-testid="tab-ai-activity">AI Activity</TabsTrigger>
-          <TabsTrigger value="subject-audit" data-testid="tab-subject-audit" className="flex items-center gap-1">
-            <Mail className="w-3.5 h-3.5" /> Subject Sync
-          </TabsTrigger>
-          <TabsTrigger value="vertical-coverage" data-testid="tab-vertical-coverage" className="flex items-center gap-1">
-            <BarChart3 className="w-3.5 h-3.5" /> Vertical Coverage
-          </TabsTrigger>
-          <TabsTrigger value="statement-upload" data-testid="tab-statement-upload" className="flex items-center gap-1">
-            <AlertTriangle className="w-3.5 h-3.5" /> Upload Failures
-          </TabsTrigger>
-          <TabsTrigger value="bounce-failure" data-testid="tab-bounce-failure" className="flex items-center gap-1">
-            <XCircle className="w-3.5 h-3.5" /> Bounce &amp; Failure
-          </TabsTrigger>
-          <TabsTrigger value="comm-health" data-testid="tab-comm-health" className="flex items-center gap-1">
-            <Mail className="w-3.5 h-3.5" /> Email Health
-          </TabsTrigger>
-          <TabsTrigger value="registry-import" data-testid="tab-registry-import" className="flex items-center gap-1">
-            <Database className="w-3.5 h-3.5" /> Registry Import
-          </TabsTrigger>
-          <TabsTrigger value="ghl-connection" data-testid="tab-ghl-connection" className="flex items-center gap-1">
-            <Zap className="w-3.5 h-3.5" /> GHL Status
-          </TabsTrigger>
-          <TabsTrigger value="deleted-records" data-testid="tab-deleted-records" className="flex items-center gap-1">
-            <XCircle className="w-3.5 h-3.5" /> Deleted Records
-          </TabsTrigger>
-          <TabsTrigger value="conversion" data-testid="tab-conversion" className="flex items-center gap-1">
-            <TrendingUp className="w-3.5 h-3.5" /> Conversion
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="job-health">
-          <JobHealthPanel />
-        </TabsContent>
-        <TabsContent value="queue-metrics">
-          <QueueMetricsPanel />
-        </TabsContent>
-        <TabsContent value="readiness">
-          <ReadinessChecklistWidget />
-        </TabsContent>
-        <TabsContent value="kpis">
-          <OperatorKpiPanel />
-        </TabsContent>
-        <TabsContent value="recent-sends">
-          <RecentSendsWidget />
-        </TabsContent>
-        <TabsContent value="silent-sequences">
-          <SilentSequencesWidget />
-        </TabsContent>
-        <TabsContent value="send-monitoring">
-          <SendMonitoringPanel />
-        </TabsContent>
-        <TabsContent value="webhook-events">
-          <WebhookEventViewer />
-        </TabsContent>
-        <TabsContent value="stuck-leads">
-          <StuckLeadsPanel />
-        </TabsContent>
-        <TabsContent value="low-confidence">
-          <LowConfidencePanel />
-        </TabsContent>
-        <TabsContent value="sync-conflicts">
-          <SyncConflictsPanel />
-        </TabsContent>
-        <TabsContent value="content-organic">
-          <ContentOrganicKpiPanel />
-        </TabsContent>
-        <TabsContent value="ai-health">
-          <AiHealthPanel />
-        </TabsContent>
-        <TabsContent value="ai-activity">
-          <AiActivityPanel />
-        </TabsContent>
-        <TabsContent value="subject-audit">
-          <SubjectAuditPanel />
-        </TabsContent>
-        <TabsContent value="vertical-coverage">
-          <VerticalCoveragePanel />
-        </TabsContent>
-        <TabsContent value="statement-upload">
-          <StatementUploadFailuresPanel />
-        </TabsContent>
-        <TabsContent value="bounce-failure">
-          <BounceFailurePanel />
-        </TabsContent>
-        <TabsContent value="comm-health">
-          <CommHealthPanel />
-        </TabsContent>
-        <TabsContent value="registry-import">
-          <RegistryImportPanel />
-        </TabsContent>
-        <TabsContent value="ghl-connection">
-          <GhlConnectionPanel />
-        </TabsContent>
-        <TabsContent value="deleted-records">
-          <DeletedRecordsPanel />
-        </TabsContent>
-        <TabsContent value="conversion">
-          <ConversionPanel />
-        </TabsContent>
-      </Tabs>
+      <OperatorNavShell />
     </div>
   );
 }
@@ -4630,7 +5214,6 @@ function ConversionPanel() {
 }
 
 // ─── Lifecycle Command Center ──────────────────────────────────────────────────
-// IA-REBUILD (#625): mount LifecycleCommandCenter under "Pipeline & Conversion" group
 
 export function LifecycleCommandCenter() {
   const { data, isLoading, isError } = useQuery<LifecycleStageCountsResponse>({
@@ -4722,7 +5305,6 @@ export function LifecycleCommandCenter() {
 }
 
 // ─── SDR Command Center ────────────────────────────────────────────────────────
-// IA-REBUILD (#625): mount SdrCommandCenter under "SDR & Outreach" group
 
 export function SdrCommandCenter() {
   const { data, isLoading, isError } = useQuery<OperatorSdrStatsResponse>({
