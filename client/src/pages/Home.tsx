@@ -168,7 +168,7 @@ export default function Home() {
       <Navbar />
       <WelcomePopup />
 
-      <main className="marketing-surface flex-grow pt-36 sm:pt-28 pb-36 md:pb-0" ref={containerRef}>
+      <main className="marketing-surface flex-grow pt-36 sm:pt-28 dock-clearance-main md:pb-0" ref={containerRef}>
 
         {/* SECTION: Hero — Statement Intelligence editorial split */}
         <section className="marketing-surface relative overflow-hidden bg-background border-b border-border" data-testid="section-hero">

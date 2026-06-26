@@ -13,7 +13,25 @@ export function StickyMobileCTA({ hidden, onVisibilityChange }: StickyMobileCTAP
   const [visible, setVisible] = useState(false);
   const callbackRef = useRef(onVisibilityChange);
   callbackRef.current = onVisibilityChange;
+  const dockRef = useRef<HTMLDivElement>(null);
 
+  // Measure dock height and publish as CSS var for main-tag bottom clearance
+  useEffect(() => {
+    const el = dockRef.current;
+    if (!el) return;
+    const update = () => {
+      document.documentElement.style.setProperty("--dock-height", `${el.offsetHeight}px`);
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      document.documentElement.style.removeProperty("--dock-height");
+    };
+  }, []);
+
+  // Visibility logic — IntersectionObserver on hero CTA, scroll fallback for other pages
   useEffect(() => {
     const notify = (v: boolean) => {
       setVisible(v);
@@ -23,21 +41,18 @@ export function StickyMobileCTA({ hidden, onVisibilityChange }: StickyMobileCTAP
     const heroEl = document.querySelector<Element>('[data-testid="link-hero-upload"]');
 
     if (!heroEl) {
-      // Non-Home pages: fall back to scroll threshold
       const onScroll = () => notify(window.scrollY > 400);
       onScroll();
       window.addEventListener("scroll", onScroll, { passive: true });
       return () => window.removeEventListener("scroll", onScroll);
     }
 
-    // Home page: dock appears only when hero CTA block has left the viewport
     const observer = new IntersectionObserver(
       ([entry]) => notify(!entry.isIntersecting),
       { threshold: 0 }
     );
     observer.observe(heroEl);
 
-    // Initialise based on current scroll position (handles mid-scroll page load)
     const rect = heroEl.getBoundingClientRect();
     notify(rect.bottom < 0 || rect.top > window.innerHeight);
 
@@ -48,6 +63,7 @@ export function StickyMobileCTA({ hidden, onVisibilityChange }: StickyMobileCTAP
 
   return (
     <div
+      ref={dockRef}
       className={`fixed bottom-0 left-0 right-0 z-40 md:hidden bg-primary border-t-2 border-accent transition-transform duration-300 ease-out ${visible ? "translate-y-0" : "translate-y-full invisible pointer-events-none"}`}
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       aria-hidden={!visible}
@@ -60,7 +76,7 @@ export function StickyMobileCTA({ hidden, onVisibilityChange }: StickyMobileCTAP
           aria-label="Upload your statement for a free savings analysis"
           className="flex items-center justify-center gap-2 w-full bg-accent hover:bg-accent/90 text-white font-semibold text-sm rounded-lg py-2.5 transition-colors active:opacity-80"
           data-testid="link-sticky-upload"
-          onClick={() => trackStatementUploadCtaClick({ ctaLocation: "sticky_bar", ctaLabel: "Upload Statement — Free" })}
+          onClick={() => trackStatementUploadCtaClick({ ctaLocation: "sticky_bar", ctaLabel: "Upload" })}
         >
           <Upload className="w-4 h-4 shrink-0" />
           Upload Statement — Free

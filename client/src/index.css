@@ -434,3 +434,31 @@
     display: none !important;
   }
 }
+
+/* ── Mobile sticky dock — bottom clearance for main content ─────────── */
+/* StickyMobileCTA measures its own offsetHeight and publishes --dock-height.
+   The dock is md:hidden so we only apply clearance at < 768px.           */
+:root {
+  --dock-height: 0px;
+}
+
+@media (max-width: 767px) {
+  .dock-clearance-main {
+    padding-bottom: calc(var(--dock-height, 100px) + 24px);
+  }
+}
+
+/* ── Anchor / programmatic scroll clearance for sticky header ──────── */
+/* Mobile: two-line compliance strip makes total header ~130px.
+   sm+: single-line navbar ~96px.                                       */
+@media (max-width: 639px) {
+  section[data-testid] {
+    scroll-margin-top: 140px;
+  }
+}
+
+@media (min-width: 640px) {
+  section[data-testid] {
+    scroll-margin-top: 96px;
+  }
+}
