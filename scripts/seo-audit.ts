@@ -302,8 +302,42 @@ async function main() {
     console.log(`⚠ /sitemap.xml — fetch failed: ${e instanceof Error ? e.message : String(e)}. Non-blocking.`);
   }
 
-  if (failed.length > 0) {
-    console.error(`\nSEO audit FAILED: ${failed.length} route(s) had errors.`);
+  // ── Wave 12: Partner page title + meta-description uniqueness check ──────────
+  console.log("\n── Partner page SEO uniqueness check ──");
+  const PARTNER_PATHS = ["/partners", "/partners/cpa", "/partners/bookkeeper", "/partners/insurance"];
+  const partnerTitles: string[] = [];
+  const partnerDescs: string[] = [];
+  let partnerUniquenessOk = true;
+  for (const p of PARTNER_PATHS) {
+    const def = SEO_ROUTE_DEFAULTS[p];
+    if (!def) {
+      console.error(`✗ SEO_ROUTE_DEFAULTS missing entry for partner page ${p}`);
+      partnerUniquenessOk = false;
+    } else {
+      partnerTitles.push(def.title);
+      partnerDescs.push(def.description);
+    }
+  }
+  const uniqueTitles = new Set(partnerTitles);
+  const uniqueDescs = new Set(partnerDescs);
+  if (uniqueTitles.size < partnerTitles.length) {
+    const dups = partnerTitles.filter((t, i) => partnerTitles.indexOf(t) !== i);
+    console.error(`✗ Partner pages have duplicate title(s): ${JSON.stringify(dups)}`);
+    partnerUniquenessOk = false;
+  } else {
+    console.log("✓ Partner page titles are all unique");
+  }
+  if (uniqueDescs.size < partnerDescs.length) {
+    const dups = partnerDescs.filter((d, i) => partnerDescs.indexOf(d) !== i);
+    console.error(`✗ Partner pages have duplicate meta description(s): ${JSON.stringify(dups)}`);
+    partnerUniquenessOk = false;
+  } else {
+    console.log("✓ Partner page meta descriptions are all unique");
+  }
+
+  if (failed.length > 0 || !partnerUniquenessOk) {
+    const n = failed.length + (partnerUniquenessOk ? 0 : 1);
+    console.error(`\nSEO audit FAILED: ${n} check(s) had errors.`);
     process.exit(1);
   }
   console.log("\nSEO audit PASSED.");

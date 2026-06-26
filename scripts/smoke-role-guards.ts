@@ -402,7 +402,64 @@ async function run(): Promise<void> {
     }
   }
 
-  const totalCases = CASES.length + 1; // +1 for ownership test
+  // ── Wave 12: Merchant positive ownership path ────────────────────────────
+  // A merchant who IS the assigned owner of a contact's document must get 200.
+  // (contact.email === merchant.email is the ownership signal in canAccessContactDocs)
+  console.log("\n── Wave 12: Merchant positive ownership path (real doc, own contact) ──");
+  let merchantOwnerTestPassed = false;
+  let merchantOwnerDoc: number | null = null;
+  let merchantOwnerContact: number | null = null;
+  try {
+    await db.execute(
+      drizzleSql`DELETE FROM contacts WHERE email = ${MERCHANT_EMAIL} AND archived_at IS NULL`
+    ).catch(() => {});
+
+    const [ownContact] = await db.insert(contacts).values({
+      firstName: "SmokeOwnerMerchant",
+      lastName: "SelfOwned",
+      email: MERCHANT_EMAIL,
+      phone: "+10000000098",
+      status: "active",
+      leadSource: "test",
+      sourceCategory: "test",
+    } as any).returning({ id: contacts.id });
+    merchantOwnerContact = ownContact.id;
+
+    const [ownDoc] = await db.insert(documents).values({
+      contactId: merchantOwnerContact,
+      type: "statement",
+      category: "Processing Statement",   // must be in MERCHANT_ALLOWED_CATEGORIES
+      fileName: "smoke-merchant-owner.pdf",
+      fileSize: 512,
+      mimeType: "application/pdf",
+      uploadedBy: "smoke-test",
+      storageKey: "smoke/smoke-merchant-owner.pdf",
+      accessScope: "merchant",            // canAccessDocument: scope must be 'merchant'
+      status: "approved",                 // canAccessDocument: status must be 'approved'
+    }).returning({ id: documents.id });
+    merchantOwnerDoc = ownDoc.id;
+
+    const merchantOwnerStatus = await fetch(
+      `${BASE_URL}/api/merchant-documents/${merchantOwnerDoc}/access-token`,
+      { headers: { cookie: merchantCookie } }
+    ).then(r => r.status);
+
+    if ([200, 302].includes(merchantOwnerStatus)) {
+      console.log(`✓ Merchant positive ownership: merchant→${merchantOwnerStatus} (200/302✓ — own contact)`);
+      merchantOwnerTestPassed = true;
+    } else {
+      console.log(`✗ Merchant positive ownership: merchant→${merchantOwnerStatus} (expected 200/302 for own contact)`);
+      failures++;
+    }
+  } catch (err) {
+    console.log(`✗ Merchant positive ownership threw: ${err instanceof Error ? err.message : String(err)}`);
+    failures++;
+  } finally {
+    if (merchantOwnerDoc !== null) await db.delete(documents).where(eq(documents.id, merchantOwnerDoc)).catch(() => {});
+    if (merchantOwnerContact !== null) await db.delete(contacts).where(eq(contacts.id, merchantOwnerContact)).catch(() => {});
+  }
+
+  const totalCases = CASES.length + 2; // +1 ownership (unrelated) +1 merchant positive path
   const totalPassed = totalCases - failures;
   console.log(`\n${totalPassed}/${totalCases} guarded routes/tests passed.`);
   process.exit(failures === 0 ? 0 : 1);

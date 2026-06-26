@@ -35,7 +35,7 @@
  */
 
 import { db } from "../server/db";
-import { contacts, deals, consentAuditLogs } from "../shared/schema";
+import { contacts, deals, consentAuditLogs, sdrMerchants } from "../shared/schema";
 import { pool } from "../server/db";
 import { eq, and, desc } from "drizzle-orm";
 import { sql as drizzleSql } from "drizzle-orm";
@@ -205,16 +205,25 @@ async function testStatementUpload(): Promise<void> {
   }
   assert("Statement upload returns 2xx", res.status >= 200 && res.status < 300, `status=${res.status}`);
 
-  await new Promise(r => setTimeout(r, 400));
-  const [contact] = await db.select().from(contacts).where(eq(contacts.email, email)).limit(1);
+  // Statement chain is fire-and-forget; poll for up to 4s for contact + deal to appear
+  let contact: typeof import("../shared/schema").contacts.$inferSelect | undefined;
+  for (let i = 0; i < 16; i++) {
+    await new Promise(r => setTimeout(r, 250));
+    const rows = await db.select().from(contacts).where(eq(contacts.email, email)).limit(1);
+    if (rows[0]) { contact = rows[0]; break; }
+  }
   assert("Contact created after statement upload", !!contact, `email=${email}`);
   if (!contact) return;
   cleanupContactIds.push(contact.id);
 
-  // Check deal in "Statement Received" stage
-  const rawStmtDeal = await db.execute(drizzleSql`SELECT id, stage FROM deals WHERE contact_id = ${contact.id} LIMIT 1`) as any;
-  const stmtDealRows = Array.isArray(rawStmtDeal) ? rawStmtDeal : rawStmtDeal?.rows ?? [];
-  const dealRow = stmtDealRows[0];
+  // Poll for deal — chain is async, may take a moment after contact appears
+  let dealRow: any;
+  for (let i = 0; i < 12; i++) {
+    await new Promise(r => setTimeout(r, 500));
+    const rawStmtDeal = await db.execute(drizzleSql`SELECT id, stage FROM deals WHERE contact_id = ${contact!.id} LIMIT 1`) as any;
+    const stmtDealRows = Array.isArray(rawStmtDeal) ? rawStmtDeal : rawStmtDeal?.rows ?? [];
+    if (stmtDealRows[0]) { dealRow = stmtDealRows[0]; break; }
+  }
   assert("Deal created after statement upload", !!dealRow, `contactId=${contact.id}`);
   if (dealRow?.id) cleanupDealIds.push(dealRow.id);
 
@@ -498,9 +507,49 @@ async function testBookingAttribution(): Promise<void> {
   }
   assert("handleAppointmentBooked is importable from sdr/scheduling", typeof handleAppointmentBooked === "function");
 
-  // Call with a non-existent GHL contact ID — should create an unmatched sdr_lead_event
-  const fakeGhlContactId = `qa-release-test-booking-${Date.now()}`;
-  const fakeAppointmentId = `qa-appt-${Date.now()}`;
+  // ── 5a: Matched path — create a real sdrMerchant and verify attribution is linked ──
+  const matchedGhlId = `qa-release-booking-matched-${Date.now()}`;
+  const matchedApptId = `qa-appt-matched-${Date.now()}`;
+  let testMerchantId: number | null = null;
+  try {
+    const [testMerchant] = await db.insert(sdrMerchants).values({
+      businessName: "QA Release Test Merchant",
+      ghlContactId: matchedGhlId,
+    }).returning({ id: sdrMerchants.id });
+    testMerchantId = testMerchant.id;
+
+    await handleAppointmentBooked({
+      contactId: matchedGhlId,
+      appointmentId: matchedApptId,
+      startTime: new Date(Date.now() + 86400000).toISOString(),
+      status: "confirmed",
+    });
+    assert("handleAppointmentBooked() runs without throwing (matched merchant path)", true);
+  } catch (err) {
+    assert("handleAppointmentBooked() runs without throwing (matched merchant path)", false, String(err));
+    return;
+  }
+
+  await new Promise(r => setTimeout(r, 300));
+  const rawMatchedEvt = await db.execute(drizzleSql`
+    SELECT id, event_type, merchant_id, ghl_ref_id FROM sdr_lead_events
+    WHERE ghl_ref_id = ${matchedApptId} OR ghl_ref_id = ${matchedGhlId}
+    ORDER BY created_at DESC LIMIT 1
+  `) as any;
+  const matchedEvtRows = Array.isArray(rawMatchedEvt) ? rawMatchedEvt : rawMatchedEvt?.rows ?? [];
+  const matchedEvt = matchedEvtRows[0];
+
+  assert("Matched booking: sdr_lead_events row created", !!matchedEvt, `no row found for matchedGhlId=${matchedGhlId}`);
+  assert("Matched booking: sdr_lead_events.merchant_id is non-null (attribution linked to merchant)", matchedEvt?.merchant_id !== null && matchedEvt?.merchant_id !== undefined, `merchant_id=${matchedEvt?.merchant_id}`);
+  assert("Matched booking: event_type = 'appointment_booked'", matchedEvt?.event_type === "appointment_booked", `event_type=${matchedEvt?.event_type}`);
+
+  // Cleanup matched path
+  if (matchedEvt?.id) await db.execute(drizzleSql`DELETE FROM sdr_lead_events WHERE id = ${matchedEvt.id}`).catch(() => {});
+  if (testMerchantId !== null) await db.delete(sdrMerchants).where(eq(sdrMerchants.id, testMerchantId)).catch(() => {});
+
+  // ── 5b: Unmatched path — verify attribution is still written (no-op on stage) ──
+  const fakeGhlContactId = `qa-release-test-booking-unmatched-${Date.now()}`;
+  const fakeAppointmentId = `qa-appt-unmatched-${Date.now()}`;
   try {
     await handleAppointmentBooked({
       contactId: fakeGhlContactId,
@@ -508,36 +557,26 @@ async function testBookingAttribution(): Promise<void> {
       startTime: new Date(Date.now() + 86400000).toISOString(),
       status: "confirmed",
     });
-    assert("handleAppointmentBooked() runs without throwing", true);
+    assert("handleAppointmentBooked() runs without throwing (unmatched path)", true);
   } catch (err) {
-    assert("handleAppointmentBooked() runs without throwing", false, String(err));
+    assert("handleAppointmentBooked() runs without throwing (unmatched path)", false, String(err));
     return;
   }
 
-  // Verify sdr_lead_events row created
   await new Promise(r => setTimeout(r, 300));
   const rawEvtResult = await db.execute(drizzleSql`
-    SELECT id, event_type, ghl_ref_id FROM sdr_lead_events
+    SELECT id, event_type, merchant_id, ghl_ref_id FROM sdr_lead_events
     WHERE ghl_ref_id = ${fakeAppointmentId} OR ghl_ref_id = ${fakeGhlContactId}
     ORDER BY created_at DESC LIMIT 1
   `) as any;
   const evtRows = Array.isArray(rawEvtResult) ? rawEvtResult : rawEvtResult?.rows ?? [];
   const evtRow = evtRows[0];
 
-  assert("sdr_lead_events row created with eventType='appointment_booked'", evtRow?.event_type === "appointment_booked", `event_type=${evtRow?.event_type}`);
-  assert("sdr_lead_events row references appointment/contact ID", !!(evtRow?.ghl_ref_id), `ghl_ref_id=${evtRow?.ghl_ref_id}`);
+  assert("Unmatched booking: sdr_lead_events row still written (no attribution lost)", !!evtRow, `event was not written — unmatched booking attribution path is broken`);
+  assert("Unmatched booking: merchant_id is null (no false attribution)", evtRow?.merchant_id === null || evtRow?.merchant_id === undefined, `merchant_id=${evtRow?.merchant_id}`);
 
-  // Verify contact/deal stage updated to reflect booked appointment
-  // (handleAppointmentBooked should advance stage when GHL contact is matched)
-  // For an unmatched GHL contact ID this step is advisory — no stage to update
-  console.log("  ℹ Deal stage update on booked appointment: verified when ghlContactId matches a real contact (no-op for unmatched fake ID in test context)");
-  assert("No unattributed booking path: sdr_lead_events row exists (attribution written even for unmatched)", !!evtRow, `event was not written — booking attribution path is broken`);
-  passed++;
-
-  // Cleanup: delete the test event
-  if (evtRow?.id) {
-    await db.execute(drizzleSql`DELETE FROM sdr_lead_events WHERE id = ${evtRow.id}`).catch(() => {});
-  }
+  // Cleanup
+  if (evtRow?.id) await db.execute(drizzleSql`DELETE FROM sdr_lead_events WHERE id = ${evtRow.id}`).catch(() => {});
 }
 
 async function main(): Promise<void> {
