@@ -190,8 +190,20 @@ type GhlContactInput = Pick<Contact,
   "companyName" | "tags" | "vertical" | "monthlyVolume" | "primaryOfferPath" |
   "currentProvider" | "painPoints" | "interestedIn0Percent" | "needTerminal" |
   "utmSource" | "utmMedium" | "utmCampaign" | "promoCode" | "consentSms" |
-  "consentEmail" | "landingPage"
->>;
+  "consentEmail" | "landingPage" |
+  "doNotContact" | "doNotAutoContact" | "consentTier" | "lifecycleStage" |
+  "smsStatus" | "emailStatus" | "sourceCategory" | "leadSource" | "state" | "city" | "phoneType" | "timezone"
+>> & {
+  ghlPermissionPayload?: {
+    lb_email_allowed: boolean;
+    lb_manual_call_allowed: boolean;
+    lb_sms_allowed: boolean;
+    lb_voice_ai_allowed: boolean;
+    lb_ringless_vm_allowed: boolean;
+    lb_channel_block_reason: string | null;
+    lb_next_best_action: string | null;
+  };
+};
 
 /**
  * Look up an existing GHL contact by email. Returns the GHL contact ID if found,
@@ -299,52 +311,159 @@ export async function upsertGhlContact(contact: GhlContactInput): Promise<string
   // Build a separate update payload without locationId to avoid 422 errors.
   const { locationId: _loc, ...updatePayload } = payload;
 
+  let resolvedGhlId: string;
+
   if (contact.ghlContactId) {
     await ghlFetch(`/contacts/${contact.ghlContactId}`, {
       method: "PUT",
       body: JSON.stringify(updatePayload),
     });
-    return contact.ghlContactId;
-  }
-
-  try {
-    const result = await ghlFetch("/contacts/", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
-    const ghlId = result.contact?.id;
-    if (ghlId && contact.id) {
-      await storage.updateContact(contact.id, { ghlContactId: ghlId });
-    }
-    return ghlId;
-  } catch (err: any) {
-    // GHL returns 400 with the existing contact ID when a duplicate is detected.
-    // Parse it out, link, and update — this turns a hard error into a successful upsert.
-    const msg = String(err?.message || "");
-    if (msg.includes("400") && /duplicat|already exist/i.test(msg)) {
-      const idMatch = msg.match(/"(?:id|contactId)"\s*:\s*"([a-zA-Z0-9]+)"/);
-      const existingId = idMatch?.[1];
-      if (existingId) {
-        try {
-          await ghlFetch(`/contacts/${existingId}`, {
-            method: "PUT",
-            body: JSON.stringify(updatePayload),
-          });
-          if (contact.id) {
-            await storage.updateContact(contact.id, { ghlContactId: existingId });
+    resolvedGhlId = contact.ghlContactId;
+  } else {
+    try {
+      const result = await ghlFetch("/contacts/", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      resolvedGhlId = result.contact?.id;
+      if (resolvedGhlId && contact.id) {
+        await storage.updateContact(contact.id, { ghlContactId: resolvedGhlId });
+      }
+    } catch (err: any) {
+      // GHL returns 400 with the existing contact ID when a duplicate is detected.
+      // Parse it out, link, and update — this turns a hard error into a successful upsert.
+      const msg = String(err?.message || "");
+      if (msg.includes("400") && /duplicat|already exist/i.test(msg)) {
+        const idMatch = msg.match(/"(?:id|contactId)"\s*:\s*"([a-zA-Z0-9]+)"/);
+        const existingId = idMatch?.[1];
+        if (existingId) {
+          try {
+            await ghlFetch(`/contacts/${existingId}`, {
+              method: "PUT",
+              body: JSON.stringify(updatePayload),
+            });
+            if (contact.id) {
+              await storage.updateContact(contact.id, { ghlContactId: existingId });
+            }
+            resolvedGhlId = existingId;
+          } catch (putErr: any) {
+            console.warn(`[GHL] Linked existing contact ${existingId} but PUT update failed:`, putErr?.message);
+            if (contact.id) {
+              await storage.updateContact(contact.id, { ghlContactId: existingId });
+            }
+            resolvedGhlId = existingId;
           }
-          return existingId;
-        } catch (putErr: any) {
-          console.warn(`[GHL] Linked existing contact ${existingId} but PUT update failed:`, putErr?.message);
-          if (contact.id) {
-            await storage.updateContact(contact.id, { ghlContactId: existingId });
-          }
-          return existingId;
+        } else {
+          throw err;
         }
+      } else {
+        throw err;
       }
     }
-    throw err;
   }
+
+  // ── Wave 7: Write Replit permission fields to GHL as a SEPARATE call ──────
+  // Isolated so a 422 (missing GHL custom field definition) never aborts the
+  // base contact identity sync. GHL requires the lb_* fields to be created in
+  // GHL Location Settings before they can be written — log 422 clearly.
+  if (resolvedGhlId) {
+    try {
+      let permPayload = contact.ghlPermissionPayload;
+
+      if (!permPayload && contact.id) {
+        try {
+          // Five-channel dry-run matrix — never use enforcement mode here
+          const { evaluateContactability } = await import("./contactability");
+          const channels = ["email", "sms", "voice_ai", "ringless_vm", "manual_call"] as const;
+          const results = await Promise.allSettled(
+            channels.map(ch => evaluateContactability({ contactId: contact.id!, channel: ch, mode: "dryRun" }))
+          );
+          const [emailR, smsR, voiceR, rvmR, callR] = results;
+          // Prefer the email result's ghlPermissionPayload shape as the base (it has all keys)
+          const emailPayload = emailR.status === "fulfilled" ? emailR.value.ghlPermissionPayload : undefined;
+          if (emailPayload) {
+            permPayload = {
+              ...emailPayload,
+              lb_sms_allowed: smsR.status === "fulfilled" ? (smsR.value.ghlPermissionPayload?.lb_sms_allowed ?? false) : false,
+              lb_voice_ai_allowed: voiceR.status === "fulfilled" ? (voiceR.value.ghlPermissionPayload?.lb_voice_ai_allowed ?? false) : false,
+              lb_ringless_vm_allowed: rvmR.status === "fulfilled" ? (rvmR.value.ghlPermissionPayload?.lb_ringless_vm_allowed ?? false) : false,
+              lb_manual_call_allowed: callR.status === "fulfilled" ? (callR.value.ghlPermissionPayload?.lb_manual_call_allowed ?? false) : false,
+            };
+          }
+        } catch {
+          // Non-fatal — contactability may not have the contact yet
+        }
+      }
+
+      const permFields: Array<{ key: string; field_value: string }> = [
+        { key: "lb_do_not_contact", field_value: contact.doNotContact ? "true" : "false" },
+        { key: "lb_do_not_autocontact", field_value: contact.doNotAutoContact ? "true" : "false" },
+        { key: "lb_lifecycle_stage", field_value: contact.lifecycleStage || "prospect" },
+        { key: "lb_channel_permissions_updated_at", field_value: new Date().toISOString() },
+      ];
+
+      if (contact.consentTier) {
+        permFields.push({ key: "lb_consent_tier", field_value: contact.consentTier });
+      }
+
+      if (permPayload) {
+        permFields.push(
+          { key: "lb_can_email", field_value: permPayload.lb_email_allowed ? "true" : "false" },
+          { key: "lb_can_manual_call", field_value: permPayload.lb_manual_call_allowed ? "true" : "false" },
+          { key: "lb_can_sms", field_value: permPayload.lb_sms_allowed ? "true" : "false" },
+          { key: "lb_can_ai_voice", field_value: permPayload.lb_voice_ai_allowed ? "true" : "false" },
+          { key: "lb_can_ringless_vm", field_value: permPayload.lb_ringless_vm_allowed ? "true" : "false" },
+        );
+        const channelPermJson = JSON.stringify({
+          email: permPayload.lb_email_allowed,
+          manual_call: permPayload.lb_manual_call_allowed,
+          sms: permPayload.lb_sms_allowed,
+          voice_ai: permPayload.lb_voice_ai_allowed,
+          ringless_vm: permPayload.lb_ringless_vm_allowed,
+        });
+        permFields.push({ key: "lb_channel_permissions", field_value: channelPermJson });
+        if (permPayload.lb_channel_block_reason) {
+          permFields.push({ key: "lb_channel_block_reason", field_value: permPayload.lb_channel_block_reason });
+        }
+      }
+
+      const attemptedFields = permFields.map(f => f.key);
+      try {
+        await ghlFetch(`/contacts/${resolvedGhlId}`, {
+          method: "PUT",
+          body: JSON.stringify({ customFields: permFields }),
+        });
+      } catch (permErr: any) {
+        const permMsg = String(permErr?.message || "");
+        const httpStatus = permMsg.match(/GHL API error (\d+)/)?.[1] || "unknown";
+        console.warn(`[GHL Wave7] Permission field write failed (${httpStatus}) for contact ${resolvedGhlId}:`, permMsg.slice(0, 200));
+        // Log to ghlActivityLog — never abort base sync
+        if (contact.id) {
+          storage.createGhlActivityLog({
+            contactId: contact.id,
+            dealId: null,
+            direction: "outbound",
+            channel: "sync_error",
+            templateId: null,
+            subject: null,
+            body: null,
+            status: "error",
+            ghlMessageId: resolvedGhlId,
+            metadata: {
+              operation: "permission_field_write",
+              attemptedFields,
+              httpStatus: Number(httpStatus) || null,
+              errorBody: permMsg.slice(0, 500),
+            },
+          }).catch(() => {});
+        }
+      }
+    } catch (outerPermErr: any) {
+      console.warn("[GHL Wave7] Unexpected error in permission field write (non-fatal):", outerPermErr?.message);
+    }
+  }
+
+  return resolvedGhlId;
 }
 
 export async function sendGhlEmail(params: {
@@ -828,17 +947,141 @@ export async function handleGhlWebhook(payload: any): Promise<void> {
     }
   }
 
+  // ── Wave 7: GHL-native opt-out / DND event hardening ────────────────────
+  // These events arrive when GHL workflows, native SMS STOP, or email
+  // unsubscribe actions fire WITHOUT going through our inbound-message path.
+  // We must honour them to prevent the "GHL auth bypass" kill line.
+
+  const isDndEvent = type === "ContactDNDUpdated" || type === "contact-dnd-updated";
+  const isEmailUnsub = type === "EmailUnsubscribed" || type === "email-unsubscribed" || type === "ContactEmailUnsubscribed";
+  const isSmsDnd = type === "SMSDNDUpdated" || type === "sms-dnd-updated";
+
+  if ((isDndEvent || isEmailUnsub || isSmsDnd) && contactId) {
+    const contact = await storage.getContactByGhlContactId(contactId);
+
+    if (!contact) {
+      // Log evidence — do NOT silently drop; helps find GHL-only contacts
+      console.warn(`[GHL Webhook] ${type}: no matching local contact for GHL ID ${contactId}`);
+      await storage.createAuditLog({
+        action: "ghl_optout_contact_not_found",
+        entityType: "contact",
+        details: { source: "ghl_webhook", eventType: type, ghlContactId: contactId, reason: "contact_not_found" },
+      }).catch(() => {});
+      // Also write to ghlActivityLog (contactId nullable) for activity-log-based monitoring
+      await storage.createGhlActivityLog({
+        contactId: undefined as any,
+        dealId: null,
+        direction: "inbound",
+        channel: "opt_out_warning",
+        templateId: null,
+        subject: type,
+        body: null,
+        status: "unmatched",
+        ghlMessageId: contactId,
+        metadata: { eventType: type, ghlContactId: contactId, reason: "contact_not_found", source: "ghl_webhook" },
+      }).catch(() => {});
+    } else {
+      const updatePayload: Record<string, any> = {};
+
+      if (isDndEvent) {
+        const emailDnd = payload.dndSettings?.email?.status === "active";
+        const smsDnd = payload.dndSettings?.sms?.status === "active";
+        const globalDnd = payload.dnd === true || payload.isDnd === true || (!emailDnd && !smsDnd && Object.keys(payload.dndSettings || {}).length === 0);
+
+        if (emailDnd || smsDnd || globalDnd) {
+          // Conservative global suppression for any DND event
+          updatePayload.doNotAutoContact = true;
+          if (globalDnd || (emailDnd && smsDnd)) {
+            // Full global DND — suppress everything
+            updatePayload.doNotContact = true;
+            updatePayload.consentTier = "opted_out";
+            updatePayload.consentEmail = false;
+            updatePayload.consentSms = false;
+            updatePayload.emailStatus = "opted_out";
+            updatePayload.smsStatus = "opted_out";
+          } else {
+            if (emailDnd) {
+              updatePayload.consentEmail = false;
+              updatePayload.emailStatus = "opted_out";
+            }
+            if (smsDnd) {
+              updatePayload.consentSms = false;
+              updatePayload.smsStatus = "opted_out";
+            }
+          }
+        }
+      }
+
+      if (isEmailUnsub) {
+        updatePayload.doNotAutoContact = true;
+        updatePayload.consentEmail = false;
+        updatePayload.emailStatus = "opted_out";
+        // Email unsub does not necessarily set global DNC — only email channel
+      }
+
+      if (isSmsDnd) {
+        const smsDndActive = payload.dnd === true || payload.isDnd === true || payload.status === "active";
+        if (smsDndActive) {
+          updatePayload.doNotAutoContact = true;
+          updatePayload.consentSms = false;
+          updatePayload.smsStatus = "opted_out";
+        }
+      }
+
+      if (Object.keys(updatePayload).length > 0) {
+        await storage.updateContact(contact.id, updatePayload);
+        await storage.pauseAllActiveEnrollments(contact.id);
+        await storage.createAuditLog({
+          action: "contact_dnd_set",
+          entityType: "contact",
+          entityId: contact.id,
+          details: { source: "ghl_webhook", eventType: type, updatePayload },
+        });
+        // Compliance evidence: consent audit log for opt-out from GHL
+        const affectedChannels: string[] = [];
+        if (updatePayload.doNotContact) affectedChannels.push("all");
+        else {
+          if (updatePayload.emailStatus === "opted_out") affectedChannels.push("email");
+          if (updatePayload.smsStatus === "opted_out") affectedChannels.push("sms");
+        }
+        for (const ch of (affectedChannels.length ? affectedChannels : ["all"])) {
+          storage.createConsentAuditLog({
+            contactId: contact.id,
+            channel: ch,
+            action: "ghl_dnd_opt_out",
+            consented: false,
+            consentType: "general_optin",
+            source: "ghl_webhook",
+            details: { eventType: type, updatePayload },
+          }).catch(() => {});
+        }
+        console.log(`[GHL Webhook] ${type}: suppression applied to contact ${contact.id} (${contact.email}):`, Object.keys(updatePayload));
+      }
+    }
+    return;
+  }
+
   if (type === "unsubscribe" && contactId) {
-    const { data: contacts } = await storage.getContacts({ limit: 500 });
-    const contact = contacts.find(c => c.ghlContactId === contactId);
+    const contact = await storage.getContactByGhlContactId(contactId);
     if (contact) {
-      await storage.updateContact(contact.id, { doNotContact: true });
+      await storage.updateContact(contact.id, { doNotContact: true, consentEmail: false, consentSms: false });
+      await storage.pauseAllActiveEnrollments(contact.id);
       await storage.createAuditLog({
         action: "contact_unsubscribed",
         entityType: "contact",
         entityId: contact.id,
-        details: { source: "ghl_webhook" },
+        details: { source: "ghl_webhook", eventType: type },
       });
+      // Compliance evidence: consent audit log for GHL-native unsubscribe
+      storage.createConsentAuditLog({
+        contactId: contact.id,
+        channel: "email",
+        action: "ghl_email_unsubscribe",
+        consented: false,
+        consentType: "general_optin",
+        source: "ghl_webhook",
+        details: { eventType: type },
+      }).catch(() => {});
     }
   }
 }

@@ -15,6 +15,69 @@ const CONFLICT_FIELDS: Array<{ ghlKey: string; contactKey: keyof Contact }> = [
   { ghlKey: "companyName", contactKey: "companyName" },
 ];
 
+// Wave 7: Replit is the system-of-record for these compliance/permission fields.
+// GHL webhooks and inbound sync must NEVER overwrite them, even if GHL sends a value.
+const REPLIT_OWNED_FIELDS = new Set<string>([
+  "doNotContact",
+  "doNotAutoContact",
+  "consentTier",
+  "lifecycleStage",
+  "consentEmail",
+  "consentSms",
+  "smsStatus",
+  "emailStatus",
+  "phoneType",
+]);
+
+/**
+ * Structured error logging for GHL sync failures.
+ * Writes to ghlActivityLog with channel="sync_error" so the dashboard
+ * can surface field-write errors, 422s, and circuit-breaker trips.
+ */
+export async function logGhlSyncError(opts: {
+  contactId: number | null;
+  operation: string;
+  httpStatus?: number | null;
+  errorMessage: string;
+  ghlContactId?: string | null;
+  metadata?: Record<string, any>;
+}): Promise<void> {
+  try {
+    // Always write to ghlActivityLog — contactId may be null for ghlFetch-level errors
+    await storage.createGhlActivityLog({
+      contactId: opts.contactId ?? (undefined as any),
+      dealId: null,
+      direction: "outbound",
+      channel: "sync_error",
+      templateId: null,
+      subject: null,
+      body: null,
+      status: "error",
+      ghlMessageId: opts.ghlContactId || null,
+      metadata: {
+        operation: opts.operation,
+        httpStatus: opts.httpStatus ?? null,
+        errorBody: opts.errorMessage.slice(0, 500),
+        ...(opts.metadata || {}),
+      },
+    });
+    await storage.createAuditLog({
+      action: "ghl_sync_error",
+      entityType: "contact",
+      entityId: opts.contactId ?? undefined,
+      details: {
+        operation: opts.operation,
+        httpStatus: opts.httpStatus ?? null,
+        error: opts.errorMessage.slice(0, 300),
+        ghlContactId: opts.ghlContactId ?? null,
+        ...(opts.metadata || {}),
+      },
+    });
+  } catch {
+    // Non-fatal logging helper — never let it propagate
+  }
+}
+
 async function detectAndWriteConflicts(
   existing: Contact,
   ghlContact: any,
@@ -92,7 +155,16 @@ async function ghlFetch(path: string, options: RequestInit = {}) {
   const response = await fetch(url, { ...options, headers });
   if (!response.ok) {
     const errorBody = await response.text().catch(() => "");
-    throw new Error(`GHL API error ${response.status}: ${errorBody}`);
+    const errMsg = `GHL API error ${response.status}: ${errorBody}`;
+    // Centralized structured error capture — contactId is null at this level
+    logGhlSyncError({
+      contactId: null,
+      operation: `ghlFetch:${options.method ?? "GET"}:${path.split("?")[0]}`,
+      httpStatus: response.status,
+      errorMessage: errMsg,
+      metadata: { url: path.split("?")[0] },
+    }).catch(() => {});
+    throw new Error(errMsg);
   }
   const contentType = response.headers.get("content-type") || "";
   if (response.status === 204 || !contentType.includes("application/json")) {
@@ -179,6 +251,15 @@ export async function syncContactToGhl(contactId: number): Promise<{ success: bo
       actorType: "system",
       details: { error: err.message },
     }).catch(() => {});
+    // Wire logGhlSyncError for structured activity-log coverage
+    const httpStatus = err.message?.match(/GHL API error (\d+)/)?.[1];
+    await logGhlSyncError({
+      contactId,
+      operation: "syncContactToGhl",
+      httpStatus: httpStatus ? Number(httpStatus) : null,
+      errorMessage: err.message,
+      metadata: { stage: "contact_upsert" },
+    }).catch(() => {});
     return { success: false, error: err.message };
   }
 }
@@ -191,6 +272,12 @@ export async function syncContactFromGhl(ghlContact: any): Promise<{ contactId: 
 
     if (existingByGhlId) {
       const { conflictFields, cleanPayload } = await detectAndWriteConflicts(existingByGhlId, ghlContact);
+
+      // Wave 7: Strip Replit-owned compliance/permission fields from any GHL-sourced payload.
+      // Replit is the system-of-record; GHL must never overwrite these — even if GHL sends them.
+      for (const field of REPLIT_OWNED_FIELDS) {
+        delete (cleanPayload as any)[field];
+      }
 
       // Tags are always applied (no conflict model for array fields)
       if (Array.isArray(ghlContact.tags)) {
@@ -220,6 +307,10 @@ export async function syncContactFromGhl(ghlContact: any): Promise<{ contactId: 
       const existingByEmail = (await storage.getContacts({ limit: 500 })).data.find(c => c.email?.toLowerCase() === ghlContact.email?.toLowerCase());
       if (existingByEmail) {
         const { conflictFields: emailConflicts, cleanPayload } = await detectAndWriteConflicts(existingByEmail, ghlContact);
+        // Wave 7: Strip Replit-owned fields from GHL-sourced payload (email-match path)
+        for (const field of REPLIT_OWNED_FIELDS) {
+          delete (cleanPayload as any)[field];
+        }
         const mergedPayload: UpdateContactRequest = { ghlContactId: ghlContact.id, ...cleanPayload };
         if (Array.isArray(ghlContact.tags)) {
           mergedPayload.tags = ghlContact.tags;
@@ -1106,10 +1197,81 @@ export async function getFullSyncDashboard() {
   if (!entityStatuses["deals"]) entityStatuses["deals"] = {};
   entityStatuses["deals"].localCount = dealStats.total;
 
+  // ── Wave 7: Expanded Sync Authority metrics ────────────────────────────────
+  const circuitStatus = getGhlCircuitStatus();
+
+  const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+  // Audit log based metrics
+  let failedSyncsLast24h = 0;
+  let optOutEventsLast24h = 0;
+  let lastCircuitTripAt: string | null = null;
+  try {
+    const auditLogs = await storage.getAuditLogs();
+    const recent = auditLogs.filter(l => l.createdAt && new Date(l.createdAt) >= twentyFourHoursAgo);
+    failedSyncsLast24h = recent.filter(l => l.action === "ghl_sync_error" || l.action === "ghl_sync_failed").length;
+    optOutEventsLast24h = recent.filter(l =>
+      l.action === "contact_unsubscribed" ||
+      l.action === "contact_dnd_set"
+    ).length;
+    const circuitTrip = auditLogs.find(l => l.action === "GHL_CIRCUIT_OPEN");
+    lastCircuitTripAt = circuitTrip?.createdAt ? new Date(circuitTrip.createdAt).toISOString() : null;
+  } catch { /* non-fatal */ }
+
+  // GHL activity log based metrics — use global query (no contactId filter)
+  let webhookEventsLast24h = 0;
+  let permissionCheckCallsLast24h = 0;
+  let fieldWriteErrors422 = 0;
+  let missingGhlContactId = 0;
+  let recent422Errors: Array<{ contactId: number | null; operation: string | null; httpStatus: number | null; createdAt: string | null }> = [];
+  try {
+    const { data: allContacts } = await storage.getContacts({ limit: 5000 });
+    missingGhlContactId = allContacts.filter(c => !c.ghlContactId && c.email).length;
+
+    // Full-scope global query — getGhlActivityLogs() with no contactId returns all logs
+    const allActivityLogs = await storage.getGhlActivityLogs();
+    for (const log of allActivityLogs) {
+      if (!log.createdAt || new Date(log.createdAt) < twentyFourHoursAgo) continue;
+      if (log.direction === "inbound") webhookEventsLast24h++;
+      if (log.channel === "permission_check") permissionCheckCallsLast24h++;
+      if (log.channel === "sync_error") {
+        const meta = log.metadata as any;
+        if (meta?.httpStatus === 422 || meta?.httpStatus === "422") {
+          fieldWriteErrors422++;
+          if (recent422Errors.length < 10) {
+            recent422Errors.push({
+              contactId: log.contactId ?? null,
+              operation: meta?.operation ?? null,
+              httpStatus: meta?.httpStatus ? Number(meta.httpStatus) : 422,
+              createdAt: log.createdAt ? new Date(log.createdAt).toISOString() : null,
+            });
+          }
+        }
+      }
+    }
+  } catch { /* non-fatal */ }
+
+  const hasPermissionFieldGap = fieldWriteErrors422 > 0;
+
   return {
     ...baseStatus,
     totalDeals: dealStats.total,
     entityStatuses,
+    // Wave 7 authority fields
+    circuitState: {
+      open: circuitStatus.circuitOpen,
+      consecutiveFailures: circuitStatus.consecutiveFailures,
+      threshold: circuitStatus.threshold,
+      lastTripAt: lastCircuitTripAt,
+    },
+    failedSyncsLast24h,
+    missingGhlContactId,
+    fieldWriteErrors422,
+    recent422Errors,
+    webhookEventsLast24h,
+    permissionCheckCallsLast24h,
+    optOutEventsLast24h,
+    hasPermissionFieldGap,
   };
 }
 

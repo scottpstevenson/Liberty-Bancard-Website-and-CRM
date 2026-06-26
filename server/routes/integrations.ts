@@ -9,6 +9,7 @@ import { fullSyncFromGhl, fullSyncToGhl, getGhlSyncStatus, getFullSyncDashboard,
 import { getWorkflowStatus, GHL_WORKFLOW_REGISTRY, getPlatformEmailConfig, getWorkflowRegistryWithStatus, setWorkflowEnvValue } from "../services/ghl-workflows";
 import { buildSequenceList } from "../services/sequence-blueprints";
 import { requireInternalWebhookSecret } from "../middleware/internal-webhook-auth";
+import { publicLeadRateLimit } from "../middleware/public-rate-limit";
 
 export function registerIntegrationsRoutes(app: Express) {
   // === GHL INTEGRATION ===
@@ -58,7 +59,7 @@ export function registerIntegrationsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/ghl/sync-contact", isAuthenticated, async (req, res) => {
+  app.post("/api/ghl/sync-contact", requireRole("admin", "manager"), async (req, res) => {
     try {
       const { contactId } = req.body;
       if (!contactId) return res.status(400).json({ message: "contactId required" });
@@ -514,6 +515,160 @@ export function registerIntegrationsRoutes(app: Express) {
         isSet: w.isSet,
         description: w.description,
       })));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Wave 7: GHL permission-check endpoint ────────────────────────────────
+  // Called by GHL workflows via Custom Webhook action before any outbound send.
+  // HTTP response codes:
+  //   401 — auth/config failures (missing secret, wrong token)
+  //   400 — malformed request (missing identifiers, invalid channel)
+  //   200 — all business-rule outcomes (allowed or denied) + internal errors
+  //         (200 for business denials so GHL's conditional branch sees the body
+  //          rather than treating it as a transient error and retrying)
+  const VALID_CHANNELS = new Set(["email", "sms", "voice_ai", "ringless_vm", "manual_call"]);
+
+  app.post("/api/ghl/permission-check", publicLeadRateLimit, async (req, res) => {
+    const crypto = await import("crypto");
+
+    // ── 1. Secret configuration check (fail closed with 401) ───────────────
+    const secret = process.env.GHL_WEBHOOK_SECRET;
+    if (!secret) {
+      storage.createAuditLog({
+        action: "ghl_permission_check_misconfigured",
+        entityType: "system",
+        details: { reason: "GHL_WEBHOOK_SECRET not set", source: "ghl_permission_check_api" },
+      }).catch(() => {});
+      return res.status(401).json({
+        allowed: false,
+        reason: "configuration_missing",
+        message: "GHL_WEBHOOK_SECRET not configured — permission-check endpoint is disabled",
+      });
+    }
+
+    // ── 2. Bearer token auth (timing-safe, fail closed with 401) ───────────
+    const authHeader = String(req.headers["authorization"] || "");
+    const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : authHeader;
+    const secretBuf = Buffer.from(secret, "utf8");
+    const tokenBuf = Buffer.from(token, "utf8");
+    const match = secretBuf.length === tokenBuf.length &&
+      secretBuf.length > 0 &&
+      crypto.timingSafeEqual(secretBuf, tokenBuf);
+
+    if (!match) {
+      return res.status(401).json({
+        allowed: false,
+        reason: "unauthorized",
+        message: "Invalid or missing authorization token",
+      });
+    }
+
+    // ── 3. Input validation (fail with 400) ─────────────────────────────────
+    const { ghlContactId, email, channel } = req.body;
+    if (!ghlContactId && !email) {
+      return res.status(400).json({
+        allowed: false,
+        reason: "bad_request",
+        message: "Request body must include ghlContactId or email",
+      });
+    }
+    const resolvedChannel = String(channel || "email");
+    if (!VALID_CHANNELS.has(resolvedChannel)) {
+      return res.status(400).json({
+        allowed: false,
+        reason: "bad_request",
+        message: `Invalid channel '${resolvedChannel}'. Must be one of: ${[...VALID_CHANNELS].join(", ")}`,
+      });
+    }
+
+    // ── 4. Business-rule evaluation (200 for all outcomes incl. internal errors)
+    try {
+      // Use indexed lookups — never full-table scan
+      const contact = ghlContactId
+        ? await storage.getContactByGhlContactId(String(ghlContactId))
+        : await storage.getContactByEmail(String(email));
+
+      if (!contact) {
+        // Log evidence of unmapped GHL contact
+        storage.createAuditLog({
+          action: "ghl_permission_check_contact_not_found",
+          entityType: "contact",
+          details: { ghlContactId: ghlContactId || null, email: email || null, channel: resolvedChannel, source: "ghl_permission_check_api" },
+        }).catch(() => {});
+        return res.status(200).json({
+          allowed: false,
+          reason: "contact_not_found",
+          message: `No local contact found for ${ghlContactId ? `ghlContactId=${ghlContactId}` : `email=${email}`}`,
+        });
+      }
+
+      const { evaluateContactability } = await import("../services/contactability");
+      const result = await evaluateContactability({
+        contactId: contact.id,
+        channel: resolvedChannel as any,
+        mode: "dryRun",
+      });
+
+      // Log to activity log (and audit log) for dashboard metrics
+      storage.createGhlActivityLog({
+        contactId: contact.id,
+        dealId: null,
+        direction: "outbound",
+        channel: "permission_check",
+        templateId: null,
+        subject: resolvedChannel,
+        body: null,
+        status: result.allowed ? "sent" : "blocked",
+        ghlMessageId: ghlContactId ? String(ghlContactId) : null,
+        metadata: { channel: resolvedChannel, allowed: result.allowed, reason: result.reason, tier: result.tier, source: "ghl_permission_check_api" },
+      }).catch(() => {});
+      storage.createAuditLog({
+        action: "ghl_permission_check",
+        entityType: "contact",
+        entityId: contact.id,
+        details: { channel: resolvedChannel, allowed: result.allowed, reason: result.reason, tier: result.tier },
+      }).catch(() => {});
+
+      return res.status(200).json({
+        allowed: result.allowed,
+        reason: result.reason || (result.allowed ? "permitted" : "blocked"),
+        tier: result.tier,
+        contactId: contact.id,
+        doNotContact: contact.doNotContact,
+        doNotAutoContact: contact.doNotAutoContact,
+        ghlPermissionPayload: result.ghlPermissionPayload,
+        checkedAt: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      console.error("[GHL Permission Check] Error:", err.message);
+      // Fail closed — business error returns 200 with allowed=false so GHL
+      // conditional branches see the body rather than treating it as a retry
+      return res.status(200).json({
+        allowed: false,
+        reason: "internal_error",
+        message: "Internal evaluation error — contact was suppressed",
+      });
+    }
+  });
+
+  // ── Wave 7: Circuit breaker status endpoint ───────────────────────────────
+  app.get("/api/ghl/circuit-status", isAuthenticated, async (_req, res) => {
+    try {
+      const { getGhlCircuitStatus } = await import("../services/ghl-sync");
+      const circuit = getGhlCircuitStatus();
+      const auditLogs = await storage.getAuditLogs();
+      const lastTrip = auditLogs.find(l => l.action === "GHL_CIRCUIT_OPEN");
+      const lastReset = auditLogs.find(l => l.action === "GHL_CIRCUIT_RESET");
+      const lastTripDetails = lastTrip?.details as any;
+      res.json({
+        ...circuit,
+        lastTripAt: lastTrip?.createdAt ? new Date(lastTrip.createdAt).toISOString() : null,
+        lastTripReason: lastTripDetails?.reason ?? lastTripDetails?.details ?? (typeof lastTrip?.details === "string" ? lastTrip.details : null),
+        lastResetAt: lastReset?.createdAt ? new Date(lastReset.createdAt).toISOString() : null,
+        ghlWebhookSecretConfigured: !!process.env.GHL_WEBHOOK_SECRET,
+      });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

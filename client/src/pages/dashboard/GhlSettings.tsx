@@ -1,11 +1,13 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/use-auth";
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2, Settings, CheckCircle2, XCircle, Key, MapPin, Calendar, Activity, Mail, Clock, Zap, ArrowRightLeft, Send, Database, AlertTriangle, RefreshCw } from "lucide-react";
+import { Loader2, Settings, CheckCircle2, XCircle, Key, MapPin, Calendar, Activity, Mail, Clock, Zap, ArrowRightLeft, Send, Database, AlertTriangle, RefreshCw, Shield, ShieldAlert, ShieldCheck } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { GhlActivityLog, MessageTemplate, SlaConfig } from "@shared/schema";
@@ -72,6 +74,31 @@ interface SyncDashboard {
     localCount?: number;
     ghlSyncedCount?: number;
   }>;
+  // Wave 7: Sync Authority Guard fields
+  circuitState?: {
+    open: boolean;
+    consecutiveFailures: number;
+    threshold: number;
+    lastTripAt: string | null;
+  };
+  failedSyncsLast24h?: number;
+  missingGhlContactId?: number;
+  fieldWriteErrors422?: number;
+  recent422Errors?: Array<{ contactId: number | null; operation: string | null; httpStatus: number | null; createdAt: string | null }>;
+  webhookEventsLast24h?: number;
+  permissionCheckCallsLast24h?: number;
+  optOutEventsLast24h?: number;
+  hasPermissionFieldGap?: boolean;
+}
+
+interface CircuitStatus {
+  circuitOpen: boolean;
+  consecutiveFailures: number;
+  threshold: number;
+  lastTripAt: string | null;
+  lastTripReason: string | null;
+  lastResetAt: string | null;
+  ghlWebhookSecretConfigured: boolean;
 }
 
 interface BackfillStatus {
@@ -86,7 +113,10 @@ interface BackfillResult {
 
 export default function GhlSettings() {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const isAdminOrManager = user?.role === "admin" || user?.role === "manager";
   const [backfillResult, setBackfillResult] = useState<BackfillResult | null>(null);
+  const [forceSyncContactId, setForceSyncContactId] = useState("");
 
   const { data: status, isLoading: statusLoading } = useQuery<GhlStatus>({
     queryKey: ["/api/ghl/status"],
@@ -163,6 +193,25 @@ export default function GhlSettings() {
   const { data: backfillStatus, refetch: refetchBackfillStatus } = useQuery<BackfillStatus>({
     queryKey: ["/api/admin/backfill-ghl-contacts/status"],
     refetchInterval: 0,
+  });
+
+  const { data: circuitStatus } = useQuery<CircuitStatus>({
+    queryKey: ["/api/ghl/circuit-status"],
+    refetchInterval: 30000,
+    retry: false,
+  });
+
+  const forceSyncPermsMutation = useMutation({
+    mutationFn: async (contactId: string) => {
+      // Reuse the existing sync-contact endpoint (admin/manager only by UI convention)
+      const res = await apiRequest("POST", "/api/ghl/sync-contact", { contactId: Number(contactId) });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({ title: "Permission Sync Done", description: `GHL Contact ID: ${data.ghlContactId}` });
+      queryClient.invalidateQueries({ queryKey: ["/api/ghl/sync-dashboard"] });
+    },
+    onError: (err: any) => toast({ title: "Sync Failed", description: err.message, variant: "destructive" }),
   });
 
   const backfillMutation = useMutation({
@@ -493,9 +542,171 @@ export default function GhlSettings() {
                 No entity sync data yet. Sync operations will appear here once performed.
               </p>
             )}
+
+            {/* Wave 7: Sync Authority Guard Metrics */}
+            {(syncDashboard.circuitState || syncDashboard.failedSyncsLast24h !== undefined) && (
+              <div className="mt-4 pt-4 border-t space-y-3" data-testid="section-sync-authority-guard">
+                <p className="text-sm font-semibold flex items-center gap-2">
+                  <Shield className="w-4 h-4 text-muted-foreground" />
+                  Sync Authority Guard (Wave 7)
+                </p>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                  <div>
+                    <p className="text-muted-foreground">Circuit State</p>
+                    <div className="flex items-center gap-1 mt-0.5">
+                      {syncDashboard.circuitState?.open
+                        ? <ShieldAlert className="w-4 h-4 text-red-500" />
+                        : <ShieldCheck className="w-4 h-4 text-green-500" />}
+                      <span className={`font-semibold ${syncDashboard.circuitState?.open ? "text-red-600" : "text-green-600"}`}
+                        data-testid="text-circuit-state">
+                        {syncDashboard.circuitState?.open ? "OPEN" : "Closed"}
+                      </span>
+                      {syncDashboard.circuitState && (
+                        <span className="text-muted-foreground text-xs">
+                          ({syncDashboard.circuitState.consecutiveFailures}/{syncDashboard.circuitState.threshold})
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Failed Syncs (24h)</p>
+                    <p className={`font-semibold ${(syncDashboard.failedSyncsLast24h ?? 0) > 0 ? "text-red-600" : "text-green-600"}`}
+                      data-testid="text-failed-syncs-24h">
+                      {syncDashboard.failedSyncsLast24h ?? 0}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Missing GHL IDs</p>
+                    <p className={`font-semibold ${(syncDashboard.missingGhlContactId ?? 0) > 0 ? "text-amber-600" : "text-green-600"}`}
+                      data-testid="text-missing-ghl-ids">
+                      {syncDashboard.missingGhlContactId ?? 0}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Opt-Out Events (24h)</p>
+                    <p className="font-semibold" data-testid="text-optout-events">
+                      {syncDashboard.optOutEventsLast24h ?? 0}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Webhook Events (24h)</p>
+                    <p className="font-semibold" data-testid="text-webhook-events">
+                      {syncDashboard.webhookEventsLast24h ?? 0}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Permission Checks (24h)</p>
+                    <p className="font-semibold" data-testid="text-perm-checks">
+                      {syncDashboard.permissionCheckCallsLast24h ?? 0}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Field Write Errors (422)</p>
+                    <p className={`font-semibold ${(syncDashboard.fieldWriteErrors422 ?? 0) > 0 ? "text-amber-600" : "text-green-600"}`}
+                      data-testid="text-field-write-errors">
+                      {syncDashboard.fieldWriteErrors422 ?? 0}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">GHL Webhook Secret</p>
+                    <div className="flex items-center gap-1 mt-0.5">
+                      {circuitStatus?.ghlWebhookSecretConfigured
+                        ? <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
+                        : <XCircle className="w-3.5 h-3.5 text-red-500" />}
+                      <span className={`text-xs font-medium ${circuitStatus?.ghlWebhookSecretConfigured ? "text-green-600" : "text-red-600"}`}
+                        data-testid="text-webhook-secret-status">
+                        {circuitStatus?.ghlWebhookSecretConfigured ? "Set" : "Not Set"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {syncDashboard.hasPermissionFieldGap && (
+                  <Alert variant="default" className="border-amber-300 bg-amber-50 dark:bg-amber-950/30" data-testid="alert-permission-field-gap">
+                    <AlertTriangle className="h-4 w-4 text-amber-600" />
+                    <AlertDescription className="text-amber-800 dark:text-amber-200 text-xs">
+                      <strong>Permission field gap detected:</strong> GHL returned 422 errors when writing lb_* custom fields. This means GHL workflows may not see the contactability gate fields. Go to GHL → Settings → Custom Fields and create the required lb_* fields, then run a force-sync below.
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {syncDashboard.circuitState?.lastTripAt && (
+                  <div className="text-xs text-muted-foreground">
+                    <p>Last circuit trip: {new Date(syncDashboard.circuitState.lastTripAt).toLocaleString()}</p>
+                    {circuitStatus?.lastTripReason && (
+                      <p className="text-amber-700 dark:text-amber-400 mt-0.5" data-testid="text-circuit-trip-reason">Reason: {circuitStatus.lastTripReason}</p>
+                    )}
+                  </div>
+                )}
+
+                {/* Recent 422 error rows (last 10) */}
+                {(syncDashboard.recent422Errors?.length ?? 0) > 0 && (
+                  <div className="mt-3">
+                    <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 mb-1">Recent 422 Field-Write Errors (last 10):</p>
+                    <div className="overflow-x-auto rounded border border-amber-200 dark:border-amber-800">
+                      <table className="text-xs w-full" data-testid="table-recent-422-errors">
+                        <thead className="bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300">
+                          <tr>
+                            <th className="px-2 py-1 text-left">Contact ID</th>
+                            <th className="px-2 py-1 text-left">Operation</th>
+                            <th className="px-2 py-1 text-left">Status</th>
+                            <th className="px-2 py-1 text-left">Time</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {syncDashboard.recent422Errors!.map((row, i) => (
+                            <tr key={i} className="border-t border-amber-100 dark:border-amber-900">
+                              <td className="px-2 py-1">{row.contactId ?? "—"}</td>
+                              <td className="px-2 py-1">{row.operation ?? "—"}</td>
+                              <td className="px-2 py-1">{row.httpStatus ?? 422}</td>
+                              <td className="px-2 py-1">{row.createdAt ? new Date(row.createdAt).toLocaleString() : "—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
+
+      {/* Wave 7: Force Permission Sync card — admin/manager only */}
+      {isAdminOrManager && <Card data-testid="card-force-permission-sync">
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Shield className="w-4 h-4 text-muted-foreground" />
+            <CardTitle className="text-base">Force Contact Permission Sync</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Re-push Replit permission fields (lb_do_not_contact, lb_consent_tier, lb_can_email, etc.) to GHL for a specific contact. Use this after creating lb_* custom fields in GHL or after resolving a 422 field write error.
+          </p>
+          <div className="flex gap-2">
+            <Input
+              placeholder="Contact ID (number)"
+              value={forceSyncContactId}
+              onChange={e => setForceSyncContactId(e.target.value)}
+              className="max-w-[200px]"
+              data-testid="input-force-sync-contact-id"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => forceSyncPermsMutation.mutate(forceSyncContactId)}
+              disabled={forceSyncPermsMutation.isPending || !forceSyncContactId.trim()}
+              className="gap-2"
+              data-testid="button-force-sync-perms"
+            >
+              {forceSyncPermsMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+              Sync Permissions
+            </Button>
+          </div>
+        </CardContent>
+      </Card>}
 
       <Card data-testid="card-ghl-instructions">
         <CardHeader>

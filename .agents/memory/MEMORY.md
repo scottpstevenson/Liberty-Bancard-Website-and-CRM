@@ -12,3 +12,4 @@
 - [Master audit + 12-wave plan](master-audit-2026.md) — Full compliance/conversion audit completed June 25 2026; 6 kill lines found; 12 build wave tasks #571–582; audit report at docs/audit-report-2026-06-25.md.
 - [Contactability Engine (Wave 1A)](contactability-engine.md) — Shared permission gate for all outbound sends; Drizzle journal must be updated for manually-written migrations; PEWC tier requires audit evidence (step 12).
 - [PEWC consent pattern (Wave 2)](pewc-consent-pattern.md) — recordPewcDecision() is the single write path; PewcCheckbox is always optional; Checkbox import must stay when other checkboxes exist in the same form.
+- [GHL Sync Authority Guard (Wave 7)](ghl-sync-authority-guard.md) — permission-check endpoint always returns HTTP 200 (never 4xx); lb_* fields need manual creation in GHL custom fields settings before sync works.

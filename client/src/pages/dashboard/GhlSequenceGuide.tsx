@@ -2149,6 +2149,7 @@ export default function GhlSequenceGuide() {
           <TabsTrigger value="multi-touch" data-testid="tab-multi-touch">🔁 Multi-Touch Map</TabsTrigger>
           <TabsTrigger value="ai-employee" data-testid="tab-ai-employee">🤖 AI Employee</TabsTrigger>
           <TabsTrigger value="signatures" data-testid="tab-signatures">✍️ Signatures</TabsTrigger>
+          <TabsTrigger value="workflow-guard" data-testid="tab-workflow-guard">🛡️ Workflow Guard</TabsTrigger>
         </TabsList>
 
         {WORKFLOWS.map(wf => (
@@ -3767,6 +3768,155 @@ You're receiving this because you expressed interest in merchant payment service
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+
+        <TabsContent value="workflow-guard" className="mt-4 space-y-4" data-testid="tab-content-workflow-guard">
+          <Card className="border-amber-300 dark:border-amber-700">
+            <CardHeader className="pb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">🛡️</span>
+                <div>
+                  <CardTitle className="text-base text-amber-900 dark:text-amber-200">Workflow Guard Contract</CardTitle>
+                  <CardDescription className="text-amber-700 dark:text-amber-400 text-xs mt-0.5">
+                    Required reading before building any GHL workflow that sends outbound messages. GHL workflows that skip this gate violate the Liberty Bancard contactability policy.
+                  </CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-md p-3">
+                <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">The Core Rule</p>
+                <p className="text-sm text-amber-800 dark:text-amber-300 mt-1">
+                  <strong>Replit is the system-of-record for all outbound permission decisions.</strong> GHL workflows must check Replit's permission gate before sending any automated email, SMS, voice call, or voicemail drop. GHL cannot override Replit's <code>doNotContact</code>, <code>consentTier</code>, or <code>lifecycleStage</code> fields.
+                </p>
+              </div>
+
+              <div className="bg-muted/40 border rounded-md p-3 space-y-2">
+                <p className="text-sm font-semibold">Two ways to gate a GHL workflow — choose one:</p>
+                <div className="grid md:grid-cols-2 gap-3 text-xs">
+                  <div className="bg-background border rounded p-2 space-y-1">
+                    <p className="font-semibold text-green-700 dark:text-green-400">Option A — Endpoint check (recommended)</p>
+                    <p className="text-muted-foreground">POST to <code>/api/ghl/permission-check</code> and branch on <code>{"{{webhookResponse.allowed}}"}</code>. Real-time, always current, zero field lag.</p>
+                  </div>
+                  <div className="bg-background border rounded p-2 space-y-1">
+                    <p className="font-semibold text-blue-700 dark:text-blue-400">Option B — Field branch (simpler setup)</p>
+                    <p className="text-muted-foreground">Branch on <code>lb_can_email</code>, <code>lb_can_sms</code>, etc. directly in GHL contact data. Requires lb_* custom fields to be created in GHL first (see follow-up task #616).</p>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">Both options require the lb_* custom fields to be created in GHL Location Settings before they carry accurate data. Use Option A for the highest assurance — it always reflects the live Replit state.</p>
+              </div>
+
+              <div className="space-y-3">
+                <p className="text-sm font-semibold">Step-by-Step: Option A — Endpoint check</p>
+                <ol className="space-y-3 text-sm">
+                  <li className="flex gap-3">
+                    <span className="shrink-0 w-6 h-6 rounded-full bg-amber-200 dark:bg-amber-800 text-amber-900 dark:text-amber-100 flex items-center justify-center text-xs font-bold">1</span>
+                    <div>
+                      <p className="font-medium">Add a "Webhook" action at the start of every workflow</p>
+                      <p className="text-muted-foreground text-xs mt-0.5">Before any send action (email, SMS, call), add a <strong>Custom Webhook</strong> action that POSTs to:</p>
+                      <code className="block bg-muted px-2 py-1 rounded text-xs mt-1 select-all">
+                        {"POST https://<your-replit-app>.replit.app/api/ghl/permission-check"}
+                      </code>
+                    </div>
+                  </li>
+                  <li className="flex gap-3">
+                    <span className="shrink-0 w-6 h-6 rounded-full bg-amber-200 dark:bg-amber-800 text-amber-900 dark:text-amber-100 flex items-center justify-center text-xs font-bold">2</span>
+                    <div>
+                      <p className="font-medium">Set the Authorization header</p>
+                      <p className="text-muted-foreground text-xs mt-0.5">In GHL Custom Webhook headers, add:</p>
+                      <code className="block bg-muted px-2 py-1 rounded text-xs mt-1">
+                        Authorization: Bearer {"<GHL_WEBHOOK_SECRET value>"}
+                      </code>
+                    </div>
+                  </li>
+                  <li className="flex gap-3">
+                    <span className="shrink-0 w-6 h-6 rounded-full bg-amber-200 dark:bg-amber-800 text-amber-900 dark:text-amber-100 flex items-center justify-center text-xs font-bold">3</span>
+                    <div>
+                      <p className="font-medium">Set the request body</p>
+                      <code className="block bg-muted px-2 py-1 rounded text-xs mt-1 whitespace-pre">
+{`{
+  "ghlContactId": "{{contact.id}}",
+  "channel": "email"
+}`}
+                      </code>
+                      <p className="text-muted-foreground text-xs mt-1">Use <code>channel: "sms"</code>, <code>"voice_ai"</code>, or <code>"ringless_vm"</code> as appropriate for the workflow.</p>
+                    </div>
+                  </li>
+                  <li className="flex gap-3">
+                    <span className="shrink-0 w-6 h-6 rounded-full bg-amber-200 dark:bg-amber-800 text-amber-900 dark:text-amber-100 flex items-center justify-center text-xs font-bold">4</span>
+                    <div>
+                      <p className="font-medium">Add a conditional branch on the response</p>
+                      <p className="text-muted-foreground text-xs mt-0.5">The endpoint always returns HTTP 200. Check the <code>allowed</code> field in the response body:</p>
+                      <div className="mt-1 space-y-1 text-xs">
+                        <div className="flex items-start gap-2">
+                          <span className="text-green-600 font-semibold mt-0.5">✓ IF</span>
+                          <span><code>{"{{webhookResponse.allowed}}"} = true</code> → proceed to send action</span>
+                        </div>
+                        <div className="flex items-start gap-2">
+                          <span className="text-red-600 font-semibold mt-0.5">✗ IF</span>
+                          <span><code>{"{{webhookResponse.allowed}}"} = false</code> → end workflow / skip contact</span>
+                        </div>
+                      </div>
+                    </div>
+                  </li>
+                  <li className="flex gap-3">
+                    <span className="shrink-0 w-6 h-6 rounded-full bg-amber-200 dark:bg-amber-800 text-amber-900 dark:text-amber-100 flex items-center justify-center text-xs font-bold">5</span>
+                    <div>
+                      <p className="font-medium">Log the block reason (optional but recommended)</p>
+                      <p className="text-muted-foreground text-xs mt-0.5">When <code>allowed = false</code>, <code>{"{{webhookResponse.reason}}"}</code> contains the block reason (e.g. <code>dnc</code>, <code>tier_insufficient</code>, <code>contact_not_found</code>). Add a GHL note or internal tag to aid debugging.</p>
+                    </div>
+                  </li>
+                </ol>
+              </div>
+
+              <div className="border rounded-md overflow-hidden">
+                <div className="bg-muted px-3 py-2 text-xs font-semibold">Possible <code>reason</code> values</div>
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b bg-muted/40">
+                      <th className="text-left px-3 py-2 font-medium">Reason</th>
+                      <th className="text-left px-3 py-2 font-medium">Meaning</th>
+                      <th className="text-left px-3 py-2 font-medium">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[
+                      { reason: "permitted", meaning: "Contact is fully contactable on this channel", action: "Proceed with send" },
+                      { reason: "dnc", meaning: "Contact is marked Do Not Contact", action: "End workflow — do not send" },
+                      { reason: "tier_insufficient", meaning: "Consent tier does not allow this channel", action: "End workflow — do not send" },
+                      { reason: "channel_disabled", meaning: "Channel blocked (e.g. SMS status = stop)", action: "End workflow for this channel" },
+                      { reason: "contact_not_found", meaning: "GHL contact not yet linked to Replit", action: "Trigger a sync and retry, or end" },
+                      { reason: "configuration_missing", meaning: "GHL_WEBHOOK_SECRET not set — endpoint returns 401", action: "Contact admin — all checks disabled" },
+                      { reason: "unauthorized", meaning: "Bearer token mismatch — endpoint returns 401", action: "Fix the Authorization header in GHL" },
+                      { reason: "bad_request", meaning: "Missing ghlContactId/email or invalid channel — endpoint returns 400", action: "Fix the request body in GHL Custom Webhook" },
+                      { reason: "internal_error", meaning: "Replit returned an error (endpoint returns 200)", action: "Check Operator Dashboard logs" },
+                    ].map(row => (
+                      <tr key={row.reason} className="border-b hover:bg-muted/20">
+                        <td className="px-3 py-2 font-mono text-xs">{row.reason}</td>
+                        <td className="px-3 py-2 text-muted-foreground">{row.meaning}</td>
+                        <td className="px-3 py-2">{row.action}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-md p-3 space-y-1">
+                <p className="text-sm font-semibold text-red-800 dark:text-red-200">Kill Lines — These rules MUST be honoured</p>
+                <ul className="text-xs text-red-700 dark:text-red-300 space-y-1 list-disc ml-4">
+                  <li>Any GHL workflow that sends automated messages without checking the permission gate bypasses contactability — this is a <strong>regulatory violation</strong>.</li>
+                  <li><strong>Manual call tasks:</strong> Manual call tasks do not require PEWC, SMS consent, AI voice consent, or RVM consent. However, GHL-native workflows that create manual call tasks <em>must still</em> check <code>lb_can_manual_call === "true"</code> or call <code>/api/ghl/permission-check</code> with <code>channel="manual_call"</code> so DNC/doNotContact/opted_out contacts are never assigned follow-up call tasks.</li>
+                  <li>GHL's native DND / email unsubscribe events are automatically relayed to Replit via webhook. Do NOT re-enable contacts from within GHL after they have opted out.</li>
+                  <li>Never use GHL's built-in "Mark DND Off" action — all DNC changes must flow through Replit's contact update API to be properly logged and audited.</li>
+                  <li>The <code>lb_do_not_contact</code>, <code>lb_consent_tier</code>, and <code>lb_can_*</code> custom fields in GHL are read-only from the GHL side — written by Replit's sync engine. Never manually edit them in GHL.</li>
+                </ul>
+              </div>
+
+              <div className="text-xs text-muted-foreground bg-muted/30 rounded p-2">
+                <strong>Monitoring:</strong> Permission check call counts and opt-out events are visible on the GHL Settings page under "Sync Authority Guard". A <code>fieldWriteErrors422</code> count &gt; 0 means the lb_* custom fields haven't been created in GHL yet — visit GHL → Settings → Custom Fields to create them.
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
 
       </Tabs>
