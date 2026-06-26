@@ -188,7 +188,7 @@ export default function Home() {
                 <p className="si-load si-load-3 text-base sm:text-lg text-muted-foreground leading-relaxed mb-8 max-w-xl" data-testid="text-hero-subheadline">
                   Upload a recent statement. Liberty turns the fee lines, downgrades, and monthly add-ons into a clear review you can actually use.
                 </p>
-                <div className="si-load si-load-4 flex flex-col sm:flex-row gap-3 flex-wrap">
+                <div className="si-load si-load-4 flex flex-col sm:flex-row gap-3 flex-wrap" data-testid="hero-cta-block">
                   <Link href="/upload-statement" data-testid="link-hero-upload">
                     <Button size="lg" className="gap-2 w-full sm:w-auto" onClick={() => trackStatementUploadCtaClick({ page: "/", ctaLabel: "Upload My Statement — Free", ctaLocation: "hero" })}>
                       <Upload className="w-4 h-4" />

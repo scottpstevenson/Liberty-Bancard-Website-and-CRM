@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useLocation } from "wouter";
 import { Link } from "wouter";
 import { Phone, Calendar, Upload } from "lucide-react";
 import { PHONE_NUMBER, PHONE_TEL, CALENDAR_URL } from "@/lib/constants";
@@ -10,6 +11,7 @@ interface StickyMobileCTAProps {
 }
 
 export function StickyMobileCTA({ hidden, onVisibilityChange }: StickyMobileCTAProps) {
+  const [location] = useLocation();
   const [visible, setVisible] = useState(false);
   const callbackRef = useRef(onVisibilityChange);
   callbackRef.current = onVisibilityChange;
@@ -31,33 +33,46 @@ export function StickyMobileCTA({ hidden, onVisibilityChange }: StickyMobileCTAP
     };
   }, []);
 
-  // Visibility logic — IntersectionObserver on hero CTA, scroll fallback for other pages
+  // Visibility logic — re-evaluated on every route change
+  // Observes the hero CTA block wrapper; falls back to scroll threshold on non-Home pages
   useEffect(() => {
     const notify = (v: boolean) => {
       setVisible(v);
       callbackRef.current?.(v);
     };
 
-    const heroEl = document.querySelector<Element>('[data-testid="link-hero-upload"]');
+    // Reset on route change before setting up new observer
+    notify(false);
 
-    if (!heroEl) {
+    const heroCtaBlock = document.querySelector<Element>('[data-testid="hero-cta-block"]');
+
+    if (!heroCtaBlock) {
+      // Non-Home pages: fall back to scroll threshold
       const onScroll = () => notify(window.scrollY > 400);
       onScroll();
       window.addEventListener("scroll", onScroll, { passive: true });
-      return () => window.removeEventListener("scroll", onScroll);
+      return () => {
+        window.removeEventListener("scroll", onScroll);
+        notify(false); // reset on cleanup so chat bubble is never stuck hidden
+      };
     }
 
+    // Home page: dock appears only when entire hero CTA block has left the viewport
     const observer = new IntersectionObserver(
       ([entry]) => notify(!entry.isIntersecting),
       { threshold: 0 }
     );
-    observer.observe(heroEl);
+    observer.observe(heroCtaBlock);
 
-    const rect = heroEl.getBoundingClientRect();
+    // Initialise based on current scroll position
+    const rect = heroCtaBlock.getBoundingClientRect();
     notify(rect.bottom < 0 || rect.top > window.innerHeight);
 
-    return () => observer.disconnect();
-  }, []);
+    return () => {
+      observer.disconnect();
+      notify(false); // reset on cleanup so chat bubble is never stuck hidden
+    };
+  }, [location]);
 
   if (hidden) return null;
 
