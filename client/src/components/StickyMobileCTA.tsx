@@ -78,16 +78,16 @@ export function StickyMobileCTA({ hidden, onVisibilityChange }: StickyMobileCTAP
   return (
     <div
       ref={dockRef}
-      className={`fixed bottom-0 left-0 right-0 z-40 md:hidden bg-primary border-t-2 border-accent transition-transform duration-300 ease-out ${visible ? "translate-y-0" : "translate-y-full invisible pointer-events-none"}`}
+      className={`fixed bottom-0 left-0 right-0 z-40 md:hidden bg-background/95 backdrop-blur-sm border-t border-border shadow-sm transition-transform duration-300 ease-out ${visible ? "translate-y-0" : "translate-y-full invisible pointer-events-none"}`}
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       aria-hidden={!visible}
       data-testid="sticky-mobile-cta"
     >
-      <div className="px-4 py-3">
+      <div className="px-4 py-2">
         <Link
           href="/upload-statement"
           aria-label="Upload your statement for a free savings analysis"
-          className="flex items-center justify-center gap-2 w-full bg-accent hover:bg-accent/90 text-white font-semibold text-sm rounded-lg py-3.5 transition-colors active:opacity-80"
+          className="flex items-center justify-center gap-2 w-full bg-accent hover:bg-accent/90 text-white font-semibold text-sm rounded-lg py-2.5 transition-colors active:opacity-80"
           data-testid="link-sticky-upload"
           onClick={() => trackStatementUploadCtaClick({ ctaLocation: "sticky_bar", ctaLabel: "Upload Statement — Free" })}
         >

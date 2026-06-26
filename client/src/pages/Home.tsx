@@ -247,7 +247,7 @@ export default function Home() {
                     <span className="audit-stamp bg-card" data-testid="badge-illustrative">Illustrative</span>
                   </div>
                   {/* findings ledger */}
-                  <div className="ledger-texture px-5">
+                  <div className="px-5">
                     {[
                       { label: "Effective rate", value: "3.47%", chip: "Above benchmark", tone: "negative" },
                       { label: "Monthly fixed fees", value: "$127/mo", chip: "Recurring", tone: "negative" },
@@ -256,11 +256,11 @@ export default function Home() {
                       { label: "Funding timeline", value: "Next-day*", chip: "Eligibility", tone: "neutral" },
                       { label: "Savings opportunity", value: "Identified", chip: "On review", tone: "positive" },
                     ].map((row, i) => (
-                      <div key={i} className="flex items-center justify-between gap-3 py-2.5 border-b border-border/70 last:border-0" data-testid={`row-statement-${i}`}>
-                        <span className="text-[13px] text-foreground/80 min-w-0 truncate">{row.label}</span>
+                      <div key={i} className="flex items-center justify-between gap-2 py-2.5 border-b border-border/70 last:border-0" data-testid={`row-statement-${i}`}>
+                        <span className="text-[13px] text-foreground/80 min-w-0">{row.label}</span>
                         <div className="flex items-center gap-2 shrink-0">
                           <span className={`report-chip report-chip-${row.tone === "negative" ? "negative" : row.tone === "positive" ? "positive" : "neutral"}`}>{row.chip}</span>
-                          <span className={`num text-sm font-semibold w-16 text-right ${row.tone === "negative" ? "text-stat-negative" : row.tone === "positive" ? "text-stat-positive" : "text-foreground"}`}>{row.value}</span>
+                          <span className={`num text-sm font-semibold shrink-0 whitespace-nowrap ${row.tone === "negative" ? "text-stat-negative" : row.tone === "positive" ? "text-stat-positive" : "text-foreground"}`}>{row.value}</span>
                         </div>
                       </div>
                     ))}
@@ -407,7 +407,7 @@ export default function Home() {
                     <span className="text-sm font-semibold text-foreground">Review Contents</span>
                     <span className="num text-[10px] uppercase tracking-[0.16em] text-muted-foreground">6 sections</span>
                   </div>
-                  <ul className="ledger-texture divide-y divide-border/70">
+                  <ul className="divide-y divide-border/70">
                     {[
                       { chip: "Effective Rate", title: "Your true effective rate", desc: "Total fees divided by total volume — the one number that tells the truth." },
                       { chip: "Fee Drivers", title: "Fee driver map", desc: "Card mix, downgrades, monthly add-ons, batch fees, PCI charges — all of it." },
@@ -416,8 +416,8 @@ export default function Home() {
                       { chip: "Funding", title: "Funding timeline*", desc: "When your money hits your account and what affects timing." },
                       { chip: "Options", title: "Options summary", desc: "2–3 clear options with real, apples-to-apples math." },
                     ].map((item, i) => (
-                      <li key={i} className="flex items-start gap-3 px-5 py-3.5" data-testid={`what-you-get-bullet-${i}`}>
-                        <span className="report-chip report-chip-neutral mt-0.5 shrink-0 w-[92px] justify-center">{item.chip}</span>
+                      <li key={i} className="flex flex-col sm:flex-row sm:items-start gap-1.5 sm:gap-3 px-5 py-3.5" data-testid={`what-you-get-bullet-${i}`}>
+                        <span className="report-chip report-chip-neutral w-fit sm:mt-0.5 sm:shrink-0 sm:w-[92px] sm:justify-center">{item.chip}</span>
                         <div className="min-w-0">
                           <span className="text-foreground font-medium text-sm">{item.title}</span>
                           <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{item.desc}</p>
@@ -436,7 +436,7 @@ export default function Home() {
                     </div>
                     <span className="audit-stamp bg-card">No obligation</span>
                   </div>
-                  <CardContent className="ledger-texture p-6 text-center">
+                  <CardContent className="p-6 text-center">
                     <h3 className="text-xl font-display font-bold text-foreground mb-2" data-testid="text-keep-breakdown">You Keep the Breakdown</h3>
                     <p className="text-muted-foreground text-sm mb-6">Even if you don't switch. Zero obligation. It's yours — use it to negotiate with your current processor if you want.</p>
                     <Link href="/upload-statement" data-testid="link-what-you-get-upload">
@@ -499,10 +499,10 @@ export default function Home() {
                   </h3>
                   <span className="num text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Onboarding · 48h target*</span>
                 </div>
-                <div className="ledger-texture p-6 sm:p-8">
+                <div className="p-6 sm:p-8">
                   <div className="relative">
                     <div className="hidden md:block absolute top-4 left-[10%] right-[10%] h-0.5 bg-gradient-to-r from-border via-accent/40 to-border" aria-hidden="true" />
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-x-3 gap-y-7">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 md:grid-cols-5 gap-y-4 sm:gap-y-7 gap-x-3">
                       {[
                         { day: "Day 0", title: "Upload", desc: "Statement in, review begins" },
                         { day: "Day 1", title: "Review", desc: "Line-item breakdown delivered" },
@@ -510,13 +510,29 @@ export default function Home() {
                         { day: "Day 2–3", title: "Setup", desc: "Terminal shipped, account configured" },
                         { day: "Day 3–5", title: "Live", desc: "Processing live, first batch settles" },
                       ].map((step, i) => (
-                        <div key={i} className="relative flex flex-col items-center text-center" data-testid={`timeline-step-${i}`}>
-                          <div className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold num mb-3 relative z-10 ring-4 ring-card">
-                            {i + 1}
+                        <div key={i} className="relative" data-testid={`timeline-step-${i}`}>
+                          {/* Mobile: horizontal row layout */}
+                          <div className="flex items-start gap-3 sm:hidden">
+                            <div className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold num shrink-0 ring-2 ring-card">
+                              {i + 1}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                                <span className="num text-[11px] font-semibold text-accent tracking-wide">{step.day}</span>
+                                <span className="text-sm font-semibold text-foreground">{step.title}</span>
+                              </div>
+                              <span className="text-xs text-muted-foreground leading-snug">{step.desc}</span>
+                            </div>
                           </div>
-                          <span className="num text-[11px] font-semibold text-accent mb-1 tracking-wide">{step.day}</span>
-                          <span className="text-sm font-semibold text-foreground mb-0.5">{step.title}</span>
-                          <span className="text-xs text-muted-foreground leading-snug">{step.desc}</span>
+                          {/* Desktop: centered column layout */}
+                          <div className="hidden sm:flex flex-col items-center text-center">
+                            <div className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold num mb-3 relative z-10 ring-4 ring-card">
+                              {i + 1}
+                            </div>
+                            <span className="num text-[11px] font-semibold text-accent mb-1 tracking-wide">{step.day}</span>
+                            <span className="text-sm font-semibold text-foreground mb-0.5">{step.title}</span>
+                            <span className="text-xs text-muted-foreground leading-snug">{step.desc}</span>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -607,7 +623,7 @@ export default function Home() {
                 {effectiveRate !== null ? (
                   <div className="space-y-4" data-testid="display-calculator-results">
                     <Card className={`border-2 ${rateGrade?.bg}`}>
-                      <CardContent className="ledger-texture p-6">
+                      <CardContent className="p-6">
                         <div className="text-center mb-4">
                           <div className="text-sm text-muted-foreground mb-1">Your Effective Rate</div>
                           <div className={`num text-5xl font-bold ${rateGrade?.color}`} data-testid="display-effective-rate">
@@ -666,12 +682,12 @@ export default function Home() {
                     </p>
                   </div>
                 ) : (
-                  <Card className="border-dashed border-2 border-border/70 overflow-hidden">
+                  <Card className="border border-border overflow-hidden">
                     <div className="accent-rule flex items-center justify-between gap-3 border-b border-border bg-muted/40 px-5 py-3">
                       <span className="text-sm font-semibold text-foreground">Estimate Preview</span>
                       <span className="audit-stamp bg-card">Awaiting input</span>
                     </div>
-                    <CardContent className="ledger-texture p-8 text-center">
+                    <CardContent className="p-8 text-center">
                       <Calculator className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
                       <h3 className="text-lg font-display font-semibold text-foreground mb-2" data-testid="text-calculator-empty">Run a 60-second effective-rate check</h3>
                       <p className="text-sm text-muted-foreground">
@@ -920,8 +936,8 @@ export default function Home() {
                 </Card>
               ))}
             </div>
-            {/* Secondary compact cards — 2-col on mobile, 3-col on sm+ */}
-            <div className="reveal grid grid-cols-2 sm:grid-cols-3 gap-4">
+            {/* Secondary compact cards — 1-col on mobile, 3-col on sm+ */}
+            <div className="reveal grid grid-cols-1 sm:grid-cols-3 gap-4">
               {[
                 { icon: Wrench, title: "Home Services", bestFor: "On-the-job mobile acceptance" },
                 { icon: Store, title: "Retail", bestFor: "Fast lines + contactless" },
@@ -1080,7 +1096,7 @@ export default function Home() {
 
             {/* Rate Transparency Callout */}
             <div className="reveal mb-12" data-testid="section-rate-transparency">
-              <div className="ledger-texture max-w-3xl mx-auto bg-background border-2 border-primary/20 rounded-lg p-6 md:p-8">
+              <div className="max-w-3xl mx-auto bg-background border-2 border-primary/20 rounded-lg p-6 md:p-8">
                 <div className="flex items-start gap-4">
                   <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
                     <DollarSign className="w-5 h-5 text-primary" />

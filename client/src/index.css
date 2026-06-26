@@ -273,12 +273,16 @@
     font-weight: 600;
     letter-spacing: 0.14em;
     text-transform: uppercase;
-    color: hsl(var(--brand-red) / 0.85);
-    border: 1.5px solid hsl(var(--brand-red) / 0.4);
+    color: hsl(var(--brand-red) / 0.65);
+    border: 1px solid hsl(var(--brand-red) / 0.25);
     border-radius: 0.25rem;
     padding: 0.15rem 0.45rem;
-    transform: rotate(-4deg);
     display: inline-block;
+  }
+
+  /* Remove hover underline on FAQ accordion triggers — shadcn default adds hover:underline */
+  [data-testid="accordion-faq"] button:hover {
+    text-decoration-line: none;
   }
 
   /* Orchestrated hero load — staggered fade/rise */
