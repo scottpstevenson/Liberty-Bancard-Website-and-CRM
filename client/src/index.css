@@ -437,27 +437,27 @@
 
 /* ── Mobile sticky dock — bottom clearance for main content ─────────── */
 /* StickyMobileCTA measures its own offsetHeight and publishes --dock-height.
-   The dock is md:hidden so we only apply clearance at < 768px.           */
+   The dock is md:hidden so we only apply clearance at < 768px.
+   Fallback 64px = single Upload button (~56px) + 8px.                   */
 :root {
   --dock-height: 0px;
 }
 
 @media (max-width: 767px) {
   .dock-clearance-main {
-    padding-bottom: calc(var(--dock-height, 100px) + 24px);
+    padding-bottom: calc(var(--dock-height, 64px) + 24px);
   }
 }
 
 /* ── Anchor / programmatic scroll clearance for sticky header ──────── */
-/* Mobile: two-line compliance strip makes total header ~130px.
-   sm+: single-line navbar ~96px.                                       */
-@media (max-width: 639px) {
+/* Mobile (<768px): compact nav only ~72px. md+: phone bar + nav ~96px. */
+@media (max-width: 767px) {
   section[data-testid] {
-    scroll-margin-top: 140px;
+    scroll-margin-top: 84px;
   }
 }
 
-@media (min-width: 640px) {
+@media (min-width: 768px) {
   section[data-testid] {
     scroll-margin-top: 96px;
   }

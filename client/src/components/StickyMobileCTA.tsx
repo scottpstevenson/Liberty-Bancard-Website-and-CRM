@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { Link } from "wouter";
-import { Phone, Calendar, Upload } from "lucide-react";
-import { PHONE_NUMBER, PHONE_TEL, CALENDAR_URL } from "@/lib/constants";
-import { trackPhoneCtaClick, trackBookingCtaClick, trackStatementUploadCtaClick } from "@/lib/tracking";
+import { Upload } from "lucide-react";
+import { trackStatementUploadCtaClick } from "@/lib/tracking";
 
 interface StickyMobileCTAProps {
   hidden?: boolean;
@@ -84,44 +83,17 @@ export function StickyMobileCTA({ hidden, onVisibilityChange }: StickyMobileCTAP
       aria-hidden={!visible}
       data-testid="sticky-mobile-cta"
     >
-      <div className="px-4 pt-3 pb-2">
-        {/* Primary action — Upload dominant */}
+      <div className="px-4 py-3">
         <Link
           href="/upload-statement"
           aria-label="Upload your statement for a free savings analysis"
-          className="flex items-center justify-center gap-2 w-full bg-accent hover:bg-accent/90 text-white font-semibold text-sm rounded-lg py-2.5 transition-colors active:opacity-80"
+          className="flex items-center justify-center gap-2 w-full bg-accent hover:bg-accent/90 text-white font-semibold text-sm rounded-lg py-3.5 transition-colors active:opacity-80"
           data-testid="link-sticky-upload"
-          onClick={() => trackStatementUploadCtaClick({ ctaLocation: "sticky_bar", ctaLabel: "Upload" })}
+          onClick={() => trackStatementUploadCtaClick({ ctaLocation: "sticky_bar", ctaLabel: "Upload Statement — Free" })}
         >
           <Upload className="w-4 h-4 shrink-0" />
           Upload Statement — Free
         </Link>
-
-        {/* Secondary actions */}
-        <div className="flex gap-2 mt-2">
-          <a
-            href={PHONE_TEL}
-            aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`}
-            className="flex-1 flex items-center justify-center gap-1.5 bg-white/10 hover:bg-white/20 text-white rounded-md py-1.5 text-xs font-medium transition-colors active:opacity-70"
-            data-testid="link-sticky-call"
-            onClick={() => trackPhoneCtaClick({ ctaLocation: "sticky_bar", ctaLabel: "Call" })}
-          >
-            <Phone className="w-3.5 h-3.5 shrink-0" />
-            Call
-          </a>
-          <a
-            href={CALENDAR_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label="Book a 10-minute call with Liberty Bancard"
-            className="flex-1 flex items-center justify-center gap-1.5 bg-white/10 hover:bg-white/20 text-white rounded-md py-1.5 text-xs font-medium transition-colors active:opacity-70"
-            data-testid="link-sticky-book"
-            onClick={() => trackBookingCtaClick({ ctaLocation: "sticky_bar", ctaLabel: "Book" })}
-          >
-            <Calendar className="w-3.5 h-3.5 shrink-0" />
-            Book
-          </a>
-        </div>
       </div>
     </div>
   );

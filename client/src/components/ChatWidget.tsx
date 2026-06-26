@@ -28,7 +28,7 @@ function checkBusinessHours(): boolean {
   return day >= 1 && day <= 5 && hour >= 9 && hour < 18;
 }
 
-export default function ChatWidget({ dockVisible = false }: { dockVisible?: boolean }) {
+export default function ChatWidget() {
   const [mounted, setMounted] = useState(false);
   const [widgetState, setWidgetState] = useState<WidgetState>("bubble");
   const [phase, setPhase] = useState<ChatPhase>(checkBusinessHours() ? "pre-identify" : "offline");
@@ -234,7 +234,7 @@ export default function ChatWidget({ dockVisible = false }: { dockVisible?: bool
   const online = checkBusinessHours();
 
   return (
-    <div className="fixed bottom-24 right-4 md:bottom-6 md:right-6 z-50 flex flex-col items-end gap-3" data-testid="chat-widget">
+    <div className="fixed bottom-4 right-4 md:bottom-6 md:right-6 z-50 flex flex-col items-end gap-3" data-testid="chat-widget">
 
       {widgetState === "open" && (
         <div
@@ -430,10 +430,10 @@ export default function ChatWidget({ dockVisible = false }: { dockVisible?: bool
         </div>
       )}
 
-      {/* Floating bubble — hidden on mobile while sticky dock is visible */}
+      {/* Floating bubble — hidden on mobile, visible on md+ */}
       <button
         onClick={openWidget}
-        className={`relative w-14 h-14 rounded-full shadow-lg bg-[hsl(222,47%,11%)] text-white items-center justify-center hover:scale-105 active:scale-95 transition-transform focus:outline-none${dockVisible ? " hidden md:flex" : " flex"}`}
+        className="relative w-14 h-14 rounded-full shadow-lg bg-[hsl(222,47%,11%)] text-white items-center justify-center hidden md:flex hover:scale-105 active:scale-95 transition-transform focus:outline-none"
         aria-label="Open chat with Liberty Bancard"
         data-testid="chat-widget-bubble"
       >

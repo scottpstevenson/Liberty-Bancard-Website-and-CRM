@@ -54,7 +54,8 @@ export function Navbar() {
 
   return (
     <nav className="fixed w-full z-50" data-testid="navbar">
-      <div className="bg-primary text-primary-foreground">
+      {/* Desktop-only phone/email bar — hidden on mobile */}
+      <div className="hidden md:block bg-primary text-primary-foreground">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-end items-center h-8 gap-2 sm:gap-4 text-xs">
             <a
@@ -64,12 +65,12 @@ export function Navbar() {
               onClick={() => trackPhoneCtaClick("navbar_top")}
             >
               <Phone className="w-3 h-3" />
-              <span className="hidden xs:inline">Call/Text</span> <span>954-266-8214</span>
+              <span>Call/Text 954-266-8214</span>
             </a>
-            <span className="opacity-60 hidden sm:inline">|</span>
+            <span className="opacity-60">|</span>
             <a
               href="mailto:support@libertybancard.com"
-              className="hidden sm:flex items-center gap-1.5 hover:opacity-80 transition-opacity"
+              className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
               data-testid="link-email"
             >
               <Mail className="w-3 h-3" />
@@ -79,26 +80,15 @@ export function Navbar() {
         </div>
       </div>
 
-      <div className="bg-muted border-b border-border/40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <p
-            className="text-[10px] text-muted-foreground text-center py-0.5 leading-tight"
-            data-testid="text-compliance"
-          >
-            Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.
-          </p>
-        </div>
-      </div>
-
       <div className="bg-card/95 backdrop-blur-md border-b border-border shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16 gap-4">
+          <div className="flex justify-between items-center h-[72px] md:h-16 gap-4">
             <Link
               href="/"
               className="flex items-center shrink-0"
               data-testid="link-logo"
             >
-              <img src={logoBlue} alt="Liberty Bancard" className="h-10 w-auto" />
+              <img src={logoBlue} alt="Liberty Bancard" className="h-8 w-auto max-w-[200px] md:h-10 md:max-w-none" />
             </Link>
 
             <div className="hidden lg:flex items-center gap-6">

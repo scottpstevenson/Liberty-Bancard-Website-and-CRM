@@ -1,0 +1,284 @@
+644 — Wave 10 Final Safety Patch: Closed Won Idempotency + KYC CTA Precision
+
+Mode
+
+Surgical Build Mode.
+
+Do not refactor Wave 10. Do not redesign onboarding. Do not touch unrelated CRM, portal, GHL, sequence, document, or application flows.
+
+This task exists only to close the final safety findings from Wave 10 verification.
+
+⸻
+
+Required Skills
+
+* .local/skills/fullstack-js/SKILL.md — Express routes, React, TypeScript, route-safe patches
+* .agents/skills/backend-architecture/SKILL.md — idempotency, audit markers, task metadata
+* .agents/skills/CRM-automation/SKILL.md — Closed Won automation safety, welcome email/GHL workflow guardrails
+* .agents/skills/QA-release-lead/SKILL.md — targeted regression validation
+
+⸻
+
+Verification Baseline
+
+Wave 10 Final Safety Verification returned:
+
+Verdict: NOT APPROVED
+One P1 found: Closed Won contact-level welcome sentinel blocks legitimate second locations / second MIDs / re-boards.
+Two P2 notes: abandon recovery internal alert marker timing; KYC CTA regex false positives.
+
+Most Wave 10 gates passed. Do not reopen passed work.
+
+⸻
+
+P1 — Fix Closed Won Welcome Idempotency Scope
+
+Problem
+
+server/routes/deals.ts currently checks and writes a contact-level merchant_welcome_sent audit marker.
+
+Current behavior:
+
+Deal #1 closes for Contact A → merchant_welcome_sent written on contact
+Deal #2 closes for Contact A → welcome email/GHL workflow skipped forever
+
+This blocks legitimate second-location, second-MID, re-board, or multi-business onboarding for the same contact.
+
+Required Fix
+
+Remove the permanent contact-level welcome suppression from the Closed Won handler.
+
+Use deal/source-deal/application-level idempotency instead.
+
+Required behavior:
+
+* Re-firing Closed Won on the same deal does not resend welcome email.
+* Closing a distinct second deal for the same contact can send the correct onboarding welcome.
+* Onboarding deal is not duplicated.
+* SLA tasks are not duplicated.
+* GHL merchant-approved workflow is not duplicated for the same source deal.
+* Existing deal-level audit marker remains the primary idempotency guard.
+
+Preferred logic:
+
+Check merchant_welcome_sent for entityType="deal", entityId=updated.id.
+If present, skip welcome/GHL send for this deal.
+If absent, allow sendMerchantWelcomeEmail for this deal.
+After successful send, write merchant_welcome_sent for entityType="deal", entityId=updated.id.
+Do not write permanent contact-level merchant_welcome_sent.
+
+If the codebase has a stronger source application/source deal idempotency marker, use that. Do not use permanent contact-level suppression.
+
+Optional only if business requires cross-deal suppression:
+
+Use a short time-bounded contact-level guard, such as same contact welcomed within the last 24 hours.
+
+Do not add this unless clearly needed.
+
+⸻
+
+P2 — Abandon Recovery Internal Marker Timing
+
+Problem
+
+abandon_recovery_sent is written before enrollment succeeds. If enrollment fails repeatedly, the cron can create repeated internal alert markers/noise while never writing the success marker.
+
+Required Fix
+
+Keep enrollment safety unchanged.
+
+Preferred:
+
+* write abandon_recovery_attempted before attempting enrollment, if monitoring needs an attempt log
+* write abandon_recovery_enrolled only after successful enrollment
+* do not write abandon_recovery_sent before successful enrollment unless the name truly means “attempted”
+
+Do not weaken:
+
+* sequence eligibility checks
+* contactability gates
+* family-level enrollment dedupe
+* direct-send prohibition
+
+No email/SMS should be sent directly from this job.
+
+⸻
+
+P2 — Replace KYC CTA Regex With Explicit Server Flag
+
+Problem
+
+MerchantPortal currently shows the KYC upload CTA using broad client regex:
+
+/kyc|document|identif|passport|license|verif/i
+
+False positives:
+
+Document equipment order
+Verify pricing with merchant
+Verify contact info
+Identify equipment needs
+
+This can show “Upload KYC documents” on non-KYC tasks.
+
+Required Fix
+
+Do not drive KYC CTA visibility from broad client regex.
+
+Preferred:
+
+Add server-side boolean to portal task payload:
+
+isKycUploadTask: boolean
+
+Set it server-side using explicit task matching.
+
+Acceptable matching:
+
+KYC Documents Collected
+KYC
+Identity Verification
+Photo ID
+Driver License
+Passport
+EIN Letter
+Voided Check
+Bank Statement
+
+Do not match generic words alone:
+
+document
+verify
+verification
+identify
+identification
+
+unless paired with KYC/document category context.
+
+MerchantPortal should render the KYC upload CTA only when:
+
+task.isKycUploadTask === true
+
+Do not expose internal notes or sensitive task metadata.
+
+⸻
+
+Out of Scope
+
+Do not change:
+
+* merchant application draft/autosave/finalize flow
+* prefill token payload
+* duplicate EIN check
+* KYC document upload ownership
+* Document Vault approval/rejection
+* onboarding Kanban MID badge
+* GHL workflow definitions
+* sequence definitions
+* public marketing pages
+* database schema unless absolutely required
+* broad task system architecture
+
+⸻
+
+Kill Lines
+
+Stop and report if:
+
+* removing contact-level sentinel would allow duplicate sends on the same deal.
+* no deal/source-level idempotency marker can be verified.
+* welcome email/GHL workflow could still fire twice for the same Closed Won deal.
+* onboarding deal or SLA task idempotency is weakened.
+* abandon recovery starts sending email/SMS directly.
+* abandon recovery bypasses sequence eligibility.
+* KYC CTA still relies on broad client regex.
+* document, verify, or identify alone can trigger KYC upload CTA.
+* merchant portal task endpoint would need to expose internal notes to support the flag.
+* patch requires broad refactor outside the verified files.
+
+⸻
+
+Validation
+
+Closed Won
+
+Manually or with targeted tests verify:
+
+1. Move Deal A to Closed Won once.
+    * onboarding deal created/found
+    * five SLA tasks created/found
+    * welcome/GHL fires once
+    * deal-level merchant_welcome_sent marker written
+2. Re-fire Closed Won on Deal A.
+    * no duplicate onboarding deal
+    * no duplicate SLA tasks
+    * no duplicate welcome email
+    * no duplicate GHL workflow
+3. Move distinct Deal B for the same contact to Closed Won.
+    * does not get blocked by Contact A’s prior welcome marker
+    * welcome/GHL can fire if Deal B is a legitimate distinct onboarding
+    * no duplicate tasks within Deal B
+
+Abandon Recovery
+
+Verify:
+
+* already enrolled applications are skipped
+* enrollment failure does not create repeated misleading “sent” markers
+* success writes abandon_recovery_enrolled
+* no direct send functions are called
+
+KYC CTA
+
+Verify portal task examples:
+
+Should show KYC CTA:
+
+KYC Documents Collected
+Photo ID Needed
+Driver License Required
+Passport Required
+EIN Letter Needed
+Voided Check Needed
+Bank Statement Needed
+
+Should not show KYC CTA:
+
+Document equipment order
+Verify pricing with merchant
+Verify contact info
+Identify equipment needs
+Confirm terminal delivery
+Review account setup
+
+Verify MerchantPortal uses task.isKycUploadTask === true.
+
+⸻
+
+Final Report Required
+
+Return:
+
+1. files changed
+2. Closed Won idempotency logic before/after
+3. whether contact-level welcome sentinel was removed
+4. deal/source-level marker used
+5. proof same deal re-fire does not resend
+6. proof second legitimate deal for same contact is not blocked
+7. abandon recovery marker timing change
+8. KYC CTA flag implementation
+9. false-positive task examples tested
+10. tests/smokes run
+11. remaining risks
+
+⸻
+
+Success Definition
+
+Wave 10 becomes approved when:
+
+* same Closed Won deal cannot duplicate welcome/GHL/tasks
+* legitimate second deal for same contact is not permanently suppressed
+* abandon recovery markers reflect actual attempts/success accurately
+* KYC upload CTA appears only on true KYC/document-collection tasks
+* no passed Wave 10 behavior regresses

@@ -723,7 +723,6 @@ function PublicLayout() {
   const [location] = useLocation();
   useReferralTracking();
   usePageTracking();
-  const [dockVisible, setDockVisible] = useState(false);
   const isDashboard = location.startsWith("/dashboard");
   const isThanksPage = location.startsWith("/thanks");
   const isAuthPage = location === "/login" || location === "/signup" || location === "/forgot-password" || location === "/reset-password" || location === "/verify-email";
@@ -735,11 +734,11 @@ function PublicLayout() {
       <ErrorBoundary key={location}>
         <Router />
       </ErrorBoundary>
-      {!isDashboard && !isThanksPage && !isAuthPage && !isMobile && !isUploadStatement && <StickyMobileCTA onVisibilityChange={setDockVisible} />}
+      {!isDashboard && !isThanksPage && !isAuthPage && !isMobile && !isUploadStatement && <StickyMobileCTA />}
       {!isDashboard && !isAuthPage && !isMobile && <ExitIntentPopup />}
       {!isDashboard && !isThanksPage && !isAuthPage && !isMobile && <ContactBubble />}
       {!isDashboard && !isAuthPage && !isMobile && <CookieConsent />}
-      {!isDashboard && !isThanksPage && !isAuthPage && !isMobile && <ChatWidget dockVisible={dockVisible} />}
+      {!isDashboard && !isThanksPage && !isAuthPage && !isMobile && <ChatWidget />}
     </>
   );
 }

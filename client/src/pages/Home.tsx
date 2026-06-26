@@ -168,7 +168,7 @@ export default function Home() {
       <Navbar />
       <WelcomePopup />
 
-      <main className="marketing-surface flex-grow pt-36 sm:pt-28 dock-clearance-main md:pb-0" ref={containerRef}>
+      <main className="marketing-surface flex-grow pt-[72px] md:pt-24 dock-clearance-main md:pb-0" ref={containerRef}>
 
         {/* SECTION: Hero — Statement Intelligence editorial split */}
         <section className="marketing-surface relative overflow-hidden bg-background border-b border-border" data-testid="section-hero">
@@ -221,6 +221,10 @@ export default function Home() {
                   <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground" data-testid="text-hero-trust-2"><FileText className="w-3.5 h-3.5 text-accent" /> Line-item breakdown</span>
                   <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground" data-testid="text-hero-trust-3"><Headphones className="w-3.5 h-3.5 text-accent" /> Real human support</span>
                 </div>
+                {/* Compliance fine print — relocated from navbar strip */}
+                <p className="text-[10px] leading-relaxed text-muted-foreground/60 mt-4 max-w-md" data-testid="text-hero-compliance">
+                  Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.
+                </p>
               </div>
 
               {/* Right column — layered Statement Intelligence audit module */}
