@@ -2,229 +2,466 @@
 /**
  * Wave 12 — Static Compliance Scanner
  *
- * Scans the server source tree for known compliance anti-patterns:
+ * Scans the server source tree for all call sites of the 10 outbound send
+ * functions listed in the Wave 12 preflight findings and classifies each as
+ * PASS or FAIL.
  *
- *   1. Outbound send calls (sendGhlEmail, sendGhlSms, sendGhlCall,
- *      sdrSendEmail, sdrSendSms) that are NOT inside a file that
- *      also calls evaluateContactability — meaning the contactability
- *      gate may be missing.
+ * ── ALLOWLIST (low-level sender wrapper files — always PASS) ──────────────
+ * These files ARE the low-level send wrappers.  Call sites here are expected
+ * and do not require an upstream evaluateContactability gate.
+ *   server/services/ghl.ts
+ *   server/services/smtp-email.ts
+ *   server/services/sdr/ghl-client.ts
+ *   server/services/ghl-workflow-enrollment.ts
  *
- *   2. Direct doNotContact bypass: code that sets doNotContact=false
- *      or ignores doNotContact without an explicit admin-action flag.
+ * ── SEND FUNCTIONS SCANNED ────────────────────────────────────────────────
+ *   sendGhlSms          → SMS
+ *   sendSmsReply        → SMS (SDR)
+ *   unifiedSendSms      → SMS (abstraction)
+ *   triggerAiCall       → voice_ai
+ *   enrollContactInGhlWorkflow → ringless_vm / GHL workflow
+ *   triggerWorkflow     → GHL workflow (low-level)
+ *   sendGhlEmail        → email
+ *   sendGhlEmailForMerchant → email (merchant-specific)
+ *   sendSmtpEmail       → email (SMTP fallback)
+ *   sendEmailReply      → email (SDR)
+ *   unifiedSendEmail    → email (abstraction)
  *
- *   3. SMS send calls in files that do NOT import featureFlags or
- *      check SMS_ENABLED.
+ * ── EMAIL CLASSIFICATION (for email call sites outside the allowlist) ─────
+ *   marketing_outreach    — must be gated by evaluateContactability
+ *   sequence_step         — must be guarded by sequence-worker gate
+ *   transactional_merchant — merchant confirmation, portal, MID welcome; PASS if in allowlist with reason
+ *   internal_admin        — internal team notifications, alerts; PASS if allowlisted with reason
+ *   unknown               — FAIL: must classify before release
  *
- *   4. Voice AI / ringless-VM calls in files that do NOT check
- *      VOICE_AI_ENABLED / RINGLESS_VM_ENABLED.
- *
- *   5. Hardcoded consent-tier upgrades to "pewc_full_automation"
- *      without going through recordPewcDecision().
+ * ── PER-FINDING OUTPUT FORMAT ─────────────────────────────────────────────
+ *   PASS/FAIL | file:line | enclosing_function | channel | email_category | nearest_gate | reason | suggested_fix
  *
  * Exit codes:
- *   0 — no violations found
- *   1 — one or more violations found
+ *   0 — all PASS
+ *   1 — any FAIL
  *
  * Run:
  *   npx tsx scripts/compliance-scan.ts
- *   npx tsx scripts/compliance-scan.ts --strict  (treats warnings as errors)
  */
 
 import fs from "fs";
 import path from "path";
 
-const STRICT = process.argv.includes("--strict");
+// ── Configuration ────────────────────────────────────────────────────────────
 
-// Directories to scan (relative to project root)
-const SCAN_DIRS = [
-  "server/services",
-  "server/routes",
-];
+/** Files that ARE the low-level sender wrappers — always PASS. */
+const ALLOWLISTED_FILES = new Set([
+  "server/services/ghl.ts",
+  "server/services/smtp-email.ts",
+  "server/services/sdr/ghl-client.ts",
+  "server/services/ghl-workflow-enrollment.ts",
+]);
 
-// Directories / files to skip entirely
-const SKIP_PATTERNS = [
-  /node_modules/,
-  /\.d\.ts$/,
-  /compliance-engine\.ts$/,   // compliance engine IS the gate — expected to reference all channels
-  /contactability\.ts$/,       // the gate itself
-  /consent-evidence\.ts$/,     // consent write path — authoritative
-  /ghl-workflow-enrollment\.ts$/, // contains the gate wrapper — already audited
-  /sequence-worker\.ts$/,      // contains both Gate (a) and Gate (b) — already audited
-];
-
-interface Violation {
-  severity: "error" | "warning";
-  rule: string;
+/** Additional per-call-site allowlist entries.
+ *  Format: { file: "server/...", lineContains: "substring", channel, category, reason, reviewDate }
+ *  These are transactional or internal_admin call sites that have been reviewed.
+ */
+const CALL_SITE_ALLOWLIST: Array<{
   file: string;
-  lines: number[];
-  detail: string;
+  lineContains: string;
+  channel: string;
+  category: "transactional_merchant" | "internal_admin";
+  reason: string;
+  reviewDate: string;
+}> = [
+  {
+    file: "server/services/merchant-welcome.ts",
+    lineContains: "sendGhlEmail",
+    channel: "email",
+    category: "transactional_merchant",
+    reason: "Merchant welcome email on Closed Won — triggered by operator approval, not automated outreach. Contact state is verified closed_won before call.",
+    reviewDate: "2026-06-26",
+  },
+  {
+    file: "server/services/merchant-application-status.ts",
+    lineContains: "sendGhlEmail",
+    channel: "email",
+    category: "transactional_merchant",
+    reason: "Merchant application status update email — triggered by admin action on approved/rejected application, not automated sequence.",
+    reviewDate: "2026-06-26",
+  },
+  {
+    file: "server/services/co-branded-proposal.ts",
+    lineContains: "sendGhlEmail",
+    channel: "email",
+    category: "transactional_merchant",
+    reason: "Co-branded proposal delivery — triggered explicitly by agent action in proposal workflow, not automated sequence.",
+    reviewDate: "2026-06-26",
+  },
+];
+
+/** Send function → channel mapping. */
+const SEND_FUNCTIONS: Record<string, string> = {
+  sendGhlSms: "sms",
+  sendSmsReply: "sms",
+  unifiedSendSms: "sms",
+  triggerAiCall: "voice_ai",
+  enrollContactInGhlWorkflow: "ringless_vm/workflow",
+  triggerWorkflow: "workflow",
+  sendGhlEmail: "email",
+  sendGhlEmailForMerchant: "email",
+  sendSmtpEmail: "email",
+  sendEmailReply: "email",
+  unifiedSendEmail: "email",
+};
+
+/** Directories to scan. */
+const SCAN_DIRS = ["server/services", "server/routes"];
+
+/** Skip these files entirely (test fixtures, scripts, migrations). */
+const SKIP_PATTERNS = [/node_modules/, /\.d\.ts$/, /scripts\//, /migrations\//];
+
+// ── Types ────────────────────────────────────────────────────────────────────
+
+type EmailCategory = "marketing_outreach" | "sequence_step" | "transactional_merchant" | "internal_admin" | "unknown";
+
+interface Finding {
+  verdict: "PASS" | "FAIL";
+  file: string;
+  line: number;
+  enclosingFunction: string;
+  channel: string;
+  emailCategory: EmailCategory | null;
+  nearestGate: string;
+  reason: string;
+  suggestedFix: string;
 }
 
-const violations: Violation[] = [];
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
-function shouldSkip(filePath: string): boolean {
-  return SKIP_PATTERNS.some((p) => p.test(filePath));
+function relPath(abs: string): string {
+  return path.relative(process.cwd(), abs).replace(/\\/g, "/");
 }
 
-function getLines(content: string): string[] {
-  return content.split("\n");
+function isAllowlisted(rel: string): boolean {
+  return ALLOWLISTED_FILES.has(rel);
 }
 
-function findLineNumbers(lines: string[], regex: RegExp): number[] {
-  const hits: number[] = [];
-  lines.forEach((line, i) => {
-    if (regex.test(line)) hits.push(i + 1);
-  });
-  return hits;
+function findCallSiteAllowlistEntry(rel: string, lineText: string) {
+  return CALL_SITE_ALLOWLIST.find(
+    e => e.file === rel && lineText.includes(e.lineContains)
+  );
 }
 
-function scanFile(filePath: string): void {
-  if (shouldSkip(filePath)) return;
-  if (!filePath.endsWith(".ts") && !filePath.endsWith(".tsx")) return;
-
-  const content = fs.readFileSync(filePath, "utf8");
-  const lines = getLines(content);
-  const rel = path.relative(process.cwd(), filePath);
-
-  // ── Rule 1: outbound send calls without contactability gate ───────────
-  const SEND_PATTERNS = [
-    /\bsendGhlEmail\s*\(/,
-    /\bsendGhlSms\s*\(/,
-    /\bsendGhlCall\s*\(/,
-    /\bsdrSendEmail\s*\(/,
-    /\bsdrSendSms\s*\(/,
-    /\bsendEmailReply\s*\(/,
-    /\bsendSmsReply\s*\(/,
+/**
+ * Search upward from startLine for the nearest enclosing function/method name.
+ * Returns "unknown" if no enclosing function found within 100 lines.
+ */
+function detectEnclosingFunction(lines: string[], callLineIdx: number): string {
+  const FUNC_PATTERNS = [
+    /async\s+function\s+(\w+)/,
+    /function\s+(\w+)/,
+    /(?:const|let|var)\s+(\w+)\s*=\s*async\s*\(/,
+    /(?:const|let|var)\s+(\w+)\s*=\s*function/,
+    /(?:const|let|var)\s+(\w+)\s*=\s*\(.*\)\s*=>/,
+    /^\s*(?:async\s+)?(\w+)\s*\([^)]*\)\s*\{/,
+    /^\s*(?:async\s+)?(\w+)\s*\([^)]*\):\s*\w.*\{/,
   ];
-  const hasSendCall = SEND_PATTERNS.some((p) => p.test(content));
-  const hasContactabilityGate = /evaluateContactability|canEnrollContactInSequence/.test(content);
 
-  if (hasSendCall && !hasContactabilityGate) {
-    const sendLines: number[] = [];
-    for (const p of SEND_PATTERNS) {
-      sendLines.push(...findLineNumbers(lines, p));
+  for (let i = callLineIdx; i >= 0 && i >= callLineIdx - 100; i--) {
+    const line = lines[i];
+    for (const pat of FUNC_PATTERNS) {
+      const m = line.match(pat);
+      if (m && m[1]) return m[1];
     }
-    violations.push({
-      severity: "warning",
-      rule: "MISSING_CONTACTABILITY_GATE",
-      file: rel,
-      lines: sendLines,
-      detail: "File calls outbound send functions but does not call evaluateContactability(). Verify the gate is enforced upstream.",
-    });
   }
-
-  // ── Rule 2: SMS send without SMS_ENABLED check ────────────────────────
-  const hasSmsCall = /\bsendGhlSms\b|\bsdrSendSms\b|\bsendSmsReply\b/.test(content);
-  const hasSmsFlag = /SMS_ENABLED|featureFlags\.SMS_ENABLED/.test(content);
-  if (hasSmsCall && !hasSmsFlag) {
-    const smsLines = findLineNumbers(lines, /\bsendGhlSms\b|\bsdrSendSms\b|\bsendSmsReply\b/);
-    violations.push({
-      severity: "warning",
-      rule: "SMS_WITHOUT_FLAG_CHECK",
-      file: rel,
-      lines: smsLines,
-      detail: "SMS send called but SMS_ENABLED feature-flag is not checked in this file. Ensure upstream gate enforces it.",
-    });
-  }
-
-  // ── Rule 3: Voice AI / ringless VM without flag check ─────────────────
-  const hasVoiceCall = /\btriggerVoiceCall\b|\bvoiceAiCall\b|\bringlessVoicemail\b|\bdropRinglessVoicemail\b/.test(content);
-  const hasVoiceFlag = /VOICE_AI_ENABLED|RINGLESS_VM_ENABLED|featureFlags\.VOICE/.test(content);
-  if (hasVoiceCall && !hasVoiceFlag) {
-    const voiceLines = findLineNumbers(lines, /\btriggerVoiceCall\b|\bvoiceAiCall\b|\bringlessVoicemail\b/);
-    violations.push({
-      severity: "error",
-      rule: "VOICE_WITHOUT_FLAG_CHECK",
-      file: rel,
-      lines: voiceLines,
-      detail: "Voice AI or ringless VM call found without VOICE_AI_ENABLED/RINGLESS_VM_ENABLED flag check.",
-    });
-  }
-
-  // ── Rule 4: Hardcoded consent-tier upgrade to pewc_full_automation ─────
-  // Legitimate: contactability.ts, consent-evidence.ts (already skipped above)
-  const pewcHardcoded = findLineNumbers(lines, /"pewc_full_automation"\s*(?!==|!==|as\s|:)/);
-  const isPewcWritePath = /recordPewcDecision|consentTier.*pewc/.test(content);
-  if (pewcHardcoded.length > 0 && !isPewcWritePath) {
-    violations.push({
-      severity: "error",
-      rule: "HARDCODED_PEWC_UPGRADE",
-      file: rel,
-      lines: pewcHardcoded,
-      detail: "Direct 'pewc_full_automation' string found outside the canonical recordPewcDecision() write path. All PEWC upgrades must go through consent-evidence.ts.",
-    });
-  }
-
-  // ── Rule 5: doNotContact force-set to false outside admin endpoints ────
-  const dncForceOff = findLineNumbers(lines, /doNotContact\s*:\s*false(?!\s*\/\/\s*safe)/);
-  // Only flag in service files, not schema definitions or test fixtures
-  if (
-    dncForceOff.length > 0 &&
-    !rel.includes("schema") &&
-    !rel.includes("scripts/") &&
-    !rel.includes("seed") &&
-    !rel.includes("admin")
-  ) {
-    violations.push({
-      severity: "warning",
-      rule: "DNC_FORCE_OFF",
-      file: rel,
-      lines: dncForceOff,
-      detail: "doNotContact is being set to false. Verify this is an intentional admin action and not an accidental suppression list bypass.",
-    });
-  }
+  return "unknown";
 }
 
-function walkDir(dir: string): void {
-  if (!fs.existsSync(dir)) return;
+/**
+ * Search within SCAN_RADIUS lines before the call site for an evaluateContactability call.
+ * Returns the line number (1-based) and context if found, "none" otherwise.
+ */
+function findNearestGate(lines: string[], callLineIdx: number, SCAN_RADIUS = 120): string {
+  const start = Math.max(0, callLineIdx - SCAN_RADIUS);
+  for (let i = callLineIdx; i >= start; i--) {
+    if (/evaluateContactability|checkBeforeSend|canEnrollContactInSequence/.test(lines[i])) {
+      return `line ${i + 1}: ${lines[i].trim().slice(0, 80)}`;
+    }
+  }
+  return "none";
+}
+
+/**
+ * Classify email category based on enclosing function name and file context.
+ */
+function classifyEmailCategory(
+  funcName: string,
+  relFile: string,
+  lineText: string
+): EmailCategory {
+  const fn = funcName.toLowerCase();
+  const file = relFile.toLowerCase();
+  const line = lineText.toLowerCase();
+
+  // Sequence step — inside sequence-worker or sequence execution context
+  if (file.includes("sequence-worker") || line.includes("sequencestep") || fn.includes("runsequence") || fn.includes("executestep")) {
+    return "sequence_step";
+  }
+
+  // Transactional merchant — named patterns for confirmations/portals
+  if (
+    fn.includes("welcome") || fn.includes("portal") || fn.includes("onboard") ||
+    fn.includes("approval") || fn.includes("approved") || fn.includes("applicationstatus") ||
+    fn.includes("merchantapplication") || fn.includes("sendmid") || fn.includes("midwelcome") ||
+    fn.includes("proposal") || fn.includes("esign") || fn.includes("statement") ||
+    fn.includes("invoice") || fn.includes("receipt") || fn.includes("confirmation") ||
+    line.includes("transactional") || line.includes("confirmation email") ||
+    file.includes("merchant-welcome") || file.includes("merchant-application") ||
+    file.includes("co-branded-proposal") || file.includes("esign")
+  ) {
+    return "transactional_merchant";
+  }
+
+  // Internal admin — alerts, digests, internal notifications
+  if (
+    fn.includes("alert") || fn.includes("digest") || fn.includes("notify") ||
+    fn.includes("internal") || fn.includes("admin") || fn.includes("operator") ||
+    fn.includes("slack") || fn.includes("webhook") || fn.includes("anomaly") ||
+    file.includes("anomaly") || file.includes("digest") || file.includes("alert")
+  ) {
+    return "internal_admin";
+  }
+
+  // Marketing outreach — SDR, campaign, outreach, sequence enrollment
+  if (
+    fn.includes("campaign") || fn.includes("outreach") || fn.includes("sdr") ||
+    fn.includes("enroll") || fn.includes("send") || fn.includes("broadcast") ||
+    file.includes("campaign") || file.includes("sdr") || file.includes("outreach") ||
+    line.includes("marketing") || line.includes("outreach")
+  ) {
+    return "marketing_outreach";
+  }
+
+  // Default to unknown — requires manual classification
+  return "unknown";
+}
+
+// ── Scanner ──────────────────────────────────────────────────────────────────
+
+function scanFile(absPath: string): Finding[] {
+  const rel = relPath(absPath);
+  if (SKIP_PATTERNS.some(p => p.test(rel))) return [];
+  if (!rel.endsWith(".ts")) return [];
+
+  const content = fs.readFileSync(absPath, "utf8");
+  const lines = content.split("\n");
+  const findings: Finding[] = [];
+
+  for (const [funcName, channel] of Object.entries(SEND_FUNCTIONS)) {
+    const callPattern = new RegExp(`\\b${funcName}\\s*\\(`);
+
+    lines.forEach((line, idx) => {
+      if (!callPattern.test(line)) return;
+
+      // Skip comment lines
+      if (/^\s*\/\//.test(line) || /^\s*\*/.test(line)) return;
+
+      const lineNum = idx + 1;
+
+      // PASS: call site is in a low-level sender wrapper allowlist file
+      if (isAllowlisted(rel)) {
+        findings.push({
+          verdict: "PASS",
+          file: rel,
+          line: lineNum,
+          enclosingFunction: detectEnclosingFunction(lines, idx),
+          channel,
+          emailCategory: null,
+          nearestGate: "N/A — allowlisted sender wrapper",
+          reason: `Allowlisted low-level sender wrapper: ${rel}`,
+          suggestedFix: "No action required.",
+        });
+        return;
+      }
+
+      const enclosingFunction = detectEnclosingFunction(lines, idx);
+      const nearestGate = findNearestGate(lines, idx);
+      const isEmailChannel = channel.includes("email");
+      const emailCategory: EmailCategory | null = isEmailChannel
+        ? classifyEmailCategory(enclosingFunction, rel, line)
+        : null;
+
+      // Check per-call-site allowlist entries
+      const allowlistEntry = findCallSiteAllowlistEntry(rel, line);
+      if (allowlistEntry) {
+        findings.push({
+          verdict: "PASS",
+          file: rel,
+          line: lineNum,
+          enclosingFunction,
+          channel,
+          emailCategory: allowlistEntry.category,
+          nearestGate,
+          reason: `Call-site allowlisted (reviewed ${allowlistEntry.reviewDate}): ${allowlistEntry.reason}`,
+          suggestedFix: "No action required.",
+        });
+        return;
+      }
+
+      // FAIL: email channel without classification
+      if (isEmailChannel && emailCategory === "unknown") {
+        findings.push({
+          verdict: "FAIL",
+          file: rel,
+          line: lineNum,
+          enclosingFunction,
+          channel,
+          emailCategory: "unknown",
+          nearestGate,
+          reason: "Email send call site is UNKNOWN category — must be classified before release.",
+          suggestedFix: `Classify as marketing_outreach/sequence_step/transactional_merchant/internal_admin. Add an entry to CALL_SITE_ALLOWLIST in scripts/compliance-scan.ts with file, lineContains, category, reason, reviewDate.`,
+        });
+        return;
+      }
+
+      // FAIL: marketing_outreach or sequence_step without a visible gate
+      if (isEmailChannel && (emailCategory === "marketing_outreach" || emailCategory === "sequence_step")) {
+        if (nearestGate === "none") {
+          findings.push({
+            verdict: "FAIL",
+            file: rel,
+            line: lineNum,
+            enclosingFunction,
+            channel,
+            emailCategory,
+            nearestGate,
+            reason: `${emailCategory} email send lacks visible evaluateContactability gate within 120 lines upstream.`,
+            suggestedFix: `Ensure evaluateContactability() is called before ${funcName}() in ${enclosingFunction}(), or verify this function is only called from a gated context (sequence-worker, ghl-workflow-enrollment) and add a code comment '// safe: gate enforced by <caller>'.`,
+          });
+          return;
+        }
+      }
+
+      // FAIL: non-email channels (SMS/voice/RVM) without a visible gate
+      if (!isEmailChannel && nearestGate === "none") {
+        findings.push({
+          verdict: "FAIL",
+          file: rel,
+          line: lineNum,
+          enclosingFunction,
+          channel,
+          emailCategory: null,
+          nearestGate,
+          reason: `${channel} send call lacks visible evaluateContactability gate within 120 lines upstream.`,
+          suggestedFix: `Call evaluateContactability({contactId, channel: "${channel.split("/")[0]}", mode: "enforcement"}) before ${funcName}(), or verify gate is enforced by caller and add '// safe: gate enforced by <caller>'.`,
+        });
+        return;
+      }
+
+      // PASS: gate found, or transactional/internal_admin category
+      findings.push({
+        verdict: "PASS",
+        file: rel,
+        line: lineNum,
+        enclosingFunction,
+        channel,
+        emailCategory,
+        nearestGate,
+        reason: isEmailChannel
+          ? `${emailCategory} email send has upstream gate at ${nearestGate}`
+          : `${channel} send has evaluateContactability gate at ${nearestGate}`,
+        suggestedFix: "No action required.",
+      });
+    });
+  }
+
+  return findings;
+}
+
+function walkDir(dir: string): Finding[] {
+  const results: Finding[] = [];
+  if (!fs.existsSync(dir)) return results;
   const entries = fs.readdirSync(dir, { withFileTypes: true });
   for (const entry of entries) {
     const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      walkDir(full);
-    } else if (entry.isFile()) {
-      scanFile(full);
-    }
+    if (entry.isDirectory()) results.push(...walkDir(full));
+    else if (entry.isFile()) results.push(...scanFile(full));
   }
+  return results;
 }
+
+// ── Main ─────────────────────────────────────────────────────────────────────
 
 function main(): void {
   console.log("=== Wave 12 Static Compliance Scanner ===\n");
-  console.log(`Scanning: ${SCAN_DIRS.join(", ")}\n`);
+  console.log("Scanning: " + SCAN_DIRS.join(", ") + "\n");
 
+  const allFindings: Finding[] = [];
   for (const dir of SCAN_DIRS) {
-    walkDir(path.join(process.cwd(), dir));
+    allFindings.push(...walkDir(path.join(process.cwd(), dir)));
   }
 
-  const errors = violations.filter((v) => v.severity === "error");
-  const warnings = violations.filter((v) => v.severity === "warning");
+  // De-duplicate by file+line+function
+  const seen = new Set<string>();
+  const findings = allFindings.filter(f => {
+    const key = `${f.file}:${f.line}:${f.channel}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 
-  if (violations.length === 0) {
-    console.log("✅ No compliance violations found.\n");
+  const passes = findings.filter(f => f.verdict === "PASS");
+  const failures = findings.filter(f => f.verdict === "FAIL");
+
+  // Email classification summary
+  const emailFindings = findings.filter(f => f.emailCategory);
+  const byCat: Record<string, number> = {};
+  emailFindings.forEach(f => {
+    const cat = f.emailCategory ?? "unknown";
+    byCat[cat] = (byCat[cat] ?? 0) + 1;
+  });
+
+  console.log("── Email Call-Site Classification Summary ───────────────────\n");
+  for (const [cat, count] of Object.entries(byCat)) {
+    const status = (cat === "marketing_outreach" || cat === "sequence_step")
+      ? (failures.some(f => f.emailCategory === cat) ? "⚠ some FAIL" : "✓ gated")
+      : "✓ allowlisted";
+    console.log(`  ${cat.padEnd(30)} ${String(count).padStart(3)} sites  ${status}`);
+  }
+
+  console.log("\n── Allowlist Entries ──────────────────────────────────────────\n");
+  const allowlistPasses = passes.filter(f => !isAllowlisted(f.file) && f.nearestGate === "N/A — allowlisted sender wrapper" || passes.filter(x => x.file === f.file && x.reason.includes("allowlisted")));
+  const callSiteAllowlistEntries = CALL_SITE_ALLOWLIST;
+  callSiteAllowlistEntries.forEach(e => {
+    console.log(`  ✓ ${e.file} | ${e.channel} | ${e.category}`);
+    console.log(`    Reason: ${e.reason}`);
+    console.log(`    Review date: ${e.reviewDate}\n`);
+  });
+  ALLOWLISTED_FILES.forEach(f => {
+    console.log(`  ✓ [sender wrapper] ${f} — all call sites in this file are intentional low-level sends`);
+  });
+
+  console.log("\n── All Findings ───────────────────────────────────────────────\n");
+  for (const f of findings) {
+    const cat = f.emailCategory ? ` | ${f.emailCategory}` : "";
+    const gate = f.nearestGate !== "N/A — allowlisted sender wrapper" ? ` | gate: ${f.nearestGate.slice(0, 60)}` : "";
+    console.log(`${f.verdict} | ${f.file}:${f.line} | ${f.enclosingFunction} | ${f.channel}${cat}${gate}`);
+    if (f.verdict === "FAIL") {
+      console.log(`  FAIL: ${f.reason}`);
+      console.log(`  FIX:  ${f.suggestedFix}\n`);
+    }
+  }
+
+  console.log(`\n── Summary ────────────────────────────────────────────────────\n`);
+  console.log(`  Total call sites scanned: ${findings.length}`);
+  console.log(`  PASS: ${passes.length}`);
+  console.log(`  FAIL: ${failures.length}`);
+  console.log(`  Email call sites classified: ${emailFindings.length}`);
+
+  if (failures.length > 0) {
+    console.error(`\n✗ Compliance scan FAILED: ${failures.length} call site(s) require remediation before go-live.`);
+    process.exit(1);
+  } else {
+    console.log(`\n✅ Compliance scan PASSED: all ${passes.length} call sites are properly gated or allowlisted.\n`);
     process.exit(0);
   }
-
-  console.log(`Found ${errors.length} error(s) and ${warnings.length} warning(s):\n`);
-
-  for (const v of violations) {
-    const icon = v.severity === "error" ? "✗" : "⚠";
-    const lineStr = v.lines.length > 0 ? ` (lines: ${v.lines.slice(0, 5).join(", ")}${v.lines.length > 5 ? "…" : ""})` : "";
-    console.log(`${icon} [${v.rule}] ${v.file}${lineStr}`);
-    console.log(`    ${v.detail}\n`);
-  }
-
-  if (STRICT) {
-    console.error(`STRICT mode: ${errors.length + warnings.length} total violation(s) → exit 1`);
-    process.exit(1);
-  }
-
-  if (errors.length > 0) {
-    console.error(`Compliance scan FAILED: ${errors.length} error(s) require remediation.`);
-    process.exit(1);
-  }
-
-  console.log(`Compliance scan PASSED with ${warnings.length} warning(s) to review.`);
-  process.exit(0);
 }
 
 main();

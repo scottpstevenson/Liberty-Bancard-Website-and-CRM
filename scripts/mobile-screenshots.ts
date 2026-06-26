@@ -1,64 +1,45 @@
 #!/usr/bin/env tsx
 /**
- * Wave 12 — Mobile Route Check & Screenshots
+ * Wave 12 — Mobile Screenshots
  *
- * Verifies the /mobile PWA routes serve correct HTTP responses and, if
- * Playwright is available in the environment, captures viewport screenshots
- * at 390×844 (iPhone 14 Pro) to docs/screenshots/.
+ * Captures 5 full-page screenshots at 390px viewport width (iPhone 14 Pro).
+ * Screenshots saved to attached_assets/screenshots/ per Wave 12 spec.
+ *
+ * Routes and output files:
+ *   /                    → attached_assets/screenshots/home-mobile-390.jpg
+ *   /upload-statement    → attached_assets/screenshots/upload-statement-mobile-390.jpg
+ *   /free-smart-terminal → attached_assets/screenshots/free-smart-terminal-mobile-390.jpg
+ *   /beat-square-stripe  → attached_assets/screenshots/beat-square-stripe-mobile-390.jpg
+ *   /get-started         → attached_assets/screenshots/get-started-mobile-390.jpg
  *
  * Playwright install strategy (graceful degradation):
  *   1. Try: npx playwright install chromium --with-deps
  *   2. Fallback: npx playwright install chromium (no system deps)
- *   3. If both fail: fall back to HTTP-only checks (exit 2, not 1)
+ *   3. If both fail: log environment limitation, exit 2 (not 1)
  *
  * Exit codes:
- *   0 — all HTTP checks passed (screenshots optional)
- *   1 — one or more HTTP checks failed
- *   2 — environment limitation (Playwright unavailable); HTTP checks still run
+ *   0 — all 5 screenshots captured
+ *   1 — assertion failure (route returned non-200)
+ *   2 — environment/install failure (Playwright unavailable)
  *
  * Run:
  *   BASE_URL=http://localhost:5000 npx tsx scripts/mobile-screenshots.ts
  */
 
-import { execSync, spawnSync } from "child_process";
+import { spawnSync } from "child_process";
 import fs from "fs";
 import path from "path";
 
 const BASE_URL = process.env.BASE_URL ?? "http://127.0.0.1:5000";
-const SCREENSHOT_DIR = path.join(process.cwd(), "docs", "screenshots");
+const SCREENSHOT_DIR = path.join(process.cwd(), "attached_assets", "screenshots");
 
-// Mobile routes to check
-const MOBILE_ROUTES = [
-  { path: "/mobile",                 label: "PWA Home" },
-  { path: "/mobile/contacts",        label: "Mobile Contacts" },
-  { path: "/mobile/pipeline",        label: "Mobile Pipeline" },
-  { path: "/mobile/tasks",           label: "Mobile Tasks" },
-  { path: "/mobile/settings",        label: "Mobile Settings" },
+const CAPTURE_TARGETS = [
+  { path: "/",                   file: "home-mobile-390.jpg",                label: "Home" },
+  { path: "/upload-statement",   file: "upload-statement-mobile-390.jpg",    label: "Upload Statement" },
+  { path: "/free-smart-terminal", file: "free-smart-terminal-mobile-390.jpg", label: "Free Smart Terminal" },
+  { path: "/beat-square-stripe", file: "beat-square-stripe-mobile-390.jpg",  label: "Beat Square/Stripe" },
+  { path: "/get-started",        file: "get-started-mobile-390.jpg",         label: "Get Started" },
 ];
-
-// Additional public routes to check for mobile-friendliness
-const PUBLIC_MOBILE_ROUTES = [
-  { path: "/",                       label: "Marketing Home" },
-  { path: "/get-started",            label: "Get Started" },
-  { path: "/upload-statement",       label: "Statement Upload" },
-  { path: "/partners",               label: "Partners" },
-];
-
-let httpPassed = 0;
-let httpFailed = 0;
-const httpFailures: string[] = [];
-let envLimited = false;
-
-function assertHttp(label: string, condition: boolean, detail?: string) {
-  if (condition) {
-    console.log(`  ✓ ${label}`);
-    httpPassed++;
-  } else {
-    console.error(`  ✗ ${label}${detail ? ` — ${detail}` : ""}`);
-    httpFailed++;
-    httpFailures.push(label);
-  }
-}
 
 async function waitForServer(maxMs = 15_000): Promise<boolean> {
   const deadline = Date.now() + maxMs;
@@ -73,87 +54,42 @@ async function waitForServer(maxMs = 15_000): Promise<boolean> {
   return false;
 }
 
-async function checkHttpRoutes(): Promise<void> {
-  console.log("▶ HTTP route checks (390px mobile user-agent)\n");
-
-  const MOBILE_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
-
-  const allRoutes = [...MOBILE_ROUTES, ...PUBLIC_MOBILE_ROUTES];
-  for (const route of allRoutes) {
-    try {
-      const res = await fetch(`${BASE_URL}${route.path}`, {
-        headers: { "User-Agent": MOBILE_UA },
-        redirect: "follow",
-        signal: AbortSignal.timeout(8000),
-      });
-      assertHttp(
-        `${route.label} (${route.path}) returns 2xx`,
-        res.status >= 200 && res.status < 300,
-        `status=${res.status}`
-      );
-
-      // Check Content-Type includes text/html
-      const ct = res.headers.get("content-type") ?? "";
-      assertHttp(
-        `${route.label} returns HTML`,
-        ct.includes("text/html"),
-        `content-type=${ct}`
-      );
-
-      // Check for viewport meta tag (basic mobile-responsiveness indicator)
-      const html = await res.text();
-      const hasViewport = /<meta[^>]+name=["']viewport["']/i.test(html);
-      assertHttp(
-        `${route.label} has viewport meta tag`,
-        hasViewport,
-        "Missing <meta name=\"viewport\"> — page may not be mobile-responsive"
-      );
-
-    } catch (err) {
-      assertHttp(`${route.label} reachable`, false, String(err));
-    }
-  }
-}
-
 function tryInstallPlaywright(): boolean {
-  console.log("\n▶ Attempting Playwright install (chromium)...\n");
+  console.log("▶ Attempting Playwright chromium install...\n");
 
-  // Attempt 1: with deps
-  const result1 = spawnSync(
-    "npx",
-    ["playwright", "install", "chromium", "--with-deps"],
-    { timeout: 120_000, stdio: "inherit" }
-  );
-  if (result1.status === 0) {
+  const r1 = spawnSync("npx", ["playwright", "install", "chromium", "--with-deps"], {
+    timeout: 120_000,
+    stdio: "inherit",
+    shell: process.platform === "win32",
+  });
+  if (r1.status === 0) {
     console.log("  ✓ Playwright chromium installed (with-deps)\n");
     return true;
   }
 
-  console.log("  ⚠ --with-deps failed, trying without system deps...\n");
+  console.log("  ⚠ --with-deps failed, retrying without system deps...\n");
 
-  // Attempt 2: chromium only
-  const result2 = spawnSync(
-    "npx",
-    ["playwright", "install", "chromium"],
-    { timeout: 120_000, stdio: "inherit" }
-  );
-  if (result2.status === 0) {
-    console.log("  ✓ Playwright chromium installed (no system deps)\n");
+  const r2 = spawnSync("npx", ["playwright", "install", "chromium"], {
+    timeout: 120_000,
+    stdio: "inherit",
+    shell: process.platform === "win32",
+  });
+  if (r2.status === 0) {
+    console.log("  ✓ Playwright chromium installed (without system deps)\n");
     return true;
   }
 
-  console.log("  ⚠ Playwright install failed — screenshots skipped, HTTP checks only.\n");
+  console.log("  ⚠ Playwright chromium install failed — screenshots cannot be captured.\n");
+  console.log("  Environment limitation: OS-level Chromium dependencies unavailable.\n");
   return false;
 }
 
-async function captureScreenshots(): Promise<void> {
+async function captureScreenshots(): Promise<{ captured: string[]; failed: string[] }> {
   let playwright: any;
   try {
     playwright = await import("playwright");
   } catch {
-    console.log("  ⚠ Playwright module not available — screenshots skipped.\n");
-    envLimited = true;
-    return;
+    throw new Error("Playwright module not found after install attempt");
   }
 
   if (!fs.existsSync(SCREENSHOT_DIR)) {
@@ -169,80 +105,90 @@ async function captureScreenshots(): Promise<void> {
     hasTouch: true,
   });
 
-  const captureRoutes = [
-    { path: "/",               label: "marketing-home" },
-    { path: "/mobile",         label: "pwa-home" },
-    { path: "/get-started",    label: "get-started" },
-    { path: "/partners",       label: "partners" },
-    { path: "/upload-statement", label: "upload-statement" },
-  ];
+  console.log(`▶ Capturing ${CAPTURE_TARGETS.length} screenshots at 390×844 (full-page)...\n`);
 
-  console.log(`▶ Capturing ${captureRoutes.length} mobile screenshots at 390×844...\n`);
+  const captured: string[] = [];
+  const failed: string[] = [];
 
-  for (const route of captureRoutes) {
+  for (const target of CAPTURE_TARGETS) {
     const page = await context.newPage();
+    const outPath = path.join(SCREENSHOT_DIR, target.file);
     try {
-      await page.goto(`${BASE_URL}${route.path}`, { waitUntil: "networkidle", timeout: 15_000 });
-      const screenshotPath = path.join(SCREENSHOT_DIR, `mobile-${route.label}.jpg`);
-      await page.screenshot({ path: screenshotPath, type: "jpeg", quality: 85, fullPage: false });
-      console.log(`  ✓ Screenshot saved: docs/screenshots/mobile-${route.label}.jpg`);
+      const response = await page.goto(`${BASE_URL}${target.path}`, {
+        waitUntil: "networkidle",
+        timeout: 20_000,
+      });
+
+      const status = response?.status() ?? 0;
+      if (status !== 200) {
+        console.log(`  ⚠ ${target.label} (${target.path}) returned HTTP ${status} — screenshot skipped.`);
+        failed.push(target.path);
+      } else {
+        await page.screenshot({ path: outPath, type: "jpeg", quality: 85, fullPage: true });
+        console.log(`  ✓ ${target.label} → ${path.relative(process.cwd(), outPath)}`);
+        captured.push(target.file);
+      }
     } catch (err) {
-      console.log(`  ⚠ Screenshot failed for ${route.path}: ${err instanceof Error ? err.message : err}`);
+      console.log(`  ⚠ ${target.label} (${target.path}) error: ${err instanceof Error ? err.message : err}`);
+      failed.push(target.path);
     } finally {
       await page.close();
     }
   }
 
   await browser.close();
-  console.log(`\n  Screenshots saved to: ${SCREENSHOT_DIR}\n`);
+  return { captured, failed };
 }
 
 async function main(): Promise<void> {
-  console.log("\n=== Wave 12 Mobile Route Check & Screenshots ===\n");
-  console.log(`Target: ${BASE_URL}\n`);
+  console.log("=== Wave 12 Mobile Screenshots ===\n");
+  console.log(`Target: ${BASE_URL}`);
+  console.log(`Output: ${path.relative(process.cwd(), SCREENSHOT_DIR)}/\n`);
 
   const serverReady = await waitForServer();
   if (!serverReady) {
     console.error("❌ Dev server not reachable at", BASE_URL);
-    console.error("   Start it with: npm run dev");
+    console.error("   Start it first: npm run dev");
     process.exit(2);
   }
   console.log("✓ Dev server reachable\n");
 
-  // HTTP checks always run
-  await checkHttpRoutes();
-
-  // Screenshot capture — optional
   const playwrightInstalled = tryInstallPlaywright();
-  if (playwrightInstalled) {
-    await captureScreenshots();
-  } else {
-    envLimited = true;
-    console.log("  ℹ Skipping screenshots — Playwright not available in this environment.\n");
-  }
-
-  // Summary
-  console.log(`\n${"=".repeat(56)}`);
-  console.log("Mobile Check Summary:");
-  console.log(`  HTTP checks passed: ${httpPassed}`);
-  console.log(`  HTTP checks failed: ${httpFailed}`);
-  if (envLimited) {
-    console.log("  ℹ Screenshots skipped (environment limitation)");
-  }
-  if (httpFailures.length > 0) {
-    console.log("\nFailed HTTP checks:");
-    httpFailures.forEach(f => console.log(`  - ${f}`));
-  }
-  console.log("=".repeat(56));
-
-  if (httpFailed > 0) {
-    process.exit(1);
-  } else if (envLimited) {
-    console.log("\n⚠ HTTP checks passed; screenshots skipped (environment limitation).");
+  if (!playwrightInstalled) {
+    console.log("── Environment Limitation ──────────────────────────────────");
+    console.log("  Playwright unavailable in this environment.");
+    console.log("  Screenshots cannot be captured automatically.");
+    console.log("  To capture manually: load each route in a browser at 390px and save as JPEG.\n");
+    console.log("  Expected output files:");
+    for (const t of CAPTURE_TARGETS) {
+      console.log(`    attached_assets/screenshots/${t.file}`);
+    }
+    console.log();
     process.exit(2);
-  } else {
-    console.log("\n✅ All mobile checks passed.\n");
-    process.exit(0);
+  }
+
+  try {
+    const { captured, failed } = await captureScreenshots();
+
+    console.log(`\n── Summary ──────────────────────────────────────────────────`);
+    console.log(`  Captured: ${captured.length} / ${CAPTURE_TARGETS.length}`);
+    if (failed.length > 0) {
+      console.log(`  Failed:   ${failed.length} routes returned non-200`);
+      failed.forEach(r => console.log(`    - ${r}`));
+    }
+    console.log();
+
+    if (captured.length === CAPTURE_TARGETS.length) {
+      console.log("✅ All 5 mobile screenshots captured.\n");
+      process.exit(0);
+    } else {
+      console.error(`✗ Only ${captured.length}/5 screenshots captured — ${failed.length} route(s) returned non-200.`);
+      process.exit(1);
+    }
+  } catch (err) {
+    console.error("Screenshot capture error:", err instanceof Error ? err.message : err);
+    console.log("\nEnvironment limitation: Playwright installed but launch failed.");
+    process.exit(2);
   }
 }
 

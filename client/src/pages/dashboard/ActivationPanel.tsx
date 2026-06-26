@@ -1059,47 +1059,132 @@ export default function ActivationPanel() {
             );
           })()}
 
-          {/* ── Queue Health ─────────────────────────────────────── */}
+          {/* ── Queue Health (all 8 queues — Wave 12) ───────────── */}
           {(() => {
-            const CRITICAL_QUEUES = ["ghl-sync", "sequences", "sla-checks", "onboarding-reminder", "mid-ingestion"];
+            // Critical queues: failures here block go-live. Shown first.
+            const CRITICAL_QUEUES = ["ghl-sync", "sequences", "onboarding-reminder", "mid-ingestion", "sla-checks"];
+            // Non-critical queues: failures degrade features but don't block operations.
+            const NON_CRITICAL_QUEUES = ["enrichment", "discovery", "digests"];
+            // Expected interval in ms for stale-active detection (active > 2× interval = stale)
+            const QUEUE_INTERVALS: Record<string, number> = {
+              "ghl-sync": 45_000,
+              "sla-checks": 300_000,
+              "sequences": 30_000,
+              "enrichment": 600_000,
+              "discovery": 86_400_000,
+              "digests": 3_600_000,
+              "mid-ingestion": 86_400_000,
+              "onboarding-reminder": 14_400_000,
+            };
             const queueData = queueMetricsQuery.data;
 
-            function truncateError(msg: string | null | undefined): string {
+            function redactError(msg: string | null | undefined): string {
               if (!msg) return "";
-              // Strip obvious tokens/keys: anything that looks like a secret
               const stripped = msg
                 .replace(/Bearer\s+\S+/gi, "[TOKEN]")
-                .replace(/key[=:\s]+[A-Za-z0-9+/]{20,}/gi, "[KEY]")
+                .replace(/\b[A-Za-z0-9+/]{40,}\b/g, "[REDACTED]")
+                .replace(/key[=:\s]+[A-Za-z0-9+/=]{10,}/gi, "[KEY]")
                 .replace(/password[=:\s]+\S+/gi, "[PASS]")
                 .replace(/secret[=:\s]+\S+/gi, "[SECRET]")
-                .replace(/token[=:\s]+\S+/gi, "[TOKEN]");
-              // Truncate to 120 chars
+                .replace(/token[=:\s]+\S+/gi, "[TOKEN]")
+                .replace(/\b\d{3}-\d{2}-\d{4}\b/g, "[SSN]")
+                .replace(/\b\d{2}-\d{7}\b/g, "[EIN]")
+                .replace(/\b4\d{3}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b/g, "[CARD]")
+                .replace(/"body"\s*:\s*"[^"]{40,}"/g, '"body":"[REDACTED]"');
               return stripped.length > 120 ? stripped.slice(0, 117) + "…" : stripped;
             }
 
-            function queueStatusColor(q: QueueMetric): string {
-              if (q.paused) return "text-amber-600 dark:text-amber-400";
-              if (q.failed > 0) return "text-red-600 dark:text-red-400";
-              return "text-green-600 dark:text-green-400";
+            function formatAge(isoStr: string | null | undefined): string {
+              if (!isoStr) return "";
+              const ms = Date.now() - new Date(isoStr).getTime();
+              if (ms < 60_000) return "just now";
+              if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}m ago`;
+              if (ms < 86_400_000) return `${Math.floor(ms / 3_600_000)}h ago`;
+              return `${Math.floor(ms / 86_400_000)}d ago`;
             }
 
-            function queueStatusLabel(q: QueueMetric): string {
+            function isStaleActive(q: QueueMetric): boolean {
+              if (q.active <= 0) return false;
+              const interval = QUEUE_INTERVALS[q.name];
+              if (!interval || !q.lastCompletedAt) return false;
+              const msSinceLast = Date.now() - new Date(q.lastCompletedAt).getTime();
+              return msSinceLast > 2 * interval;
+            }
+
+            // Color: green=no failures, amber=failed+retrying (waiting/active>0), red=failed+exhausted
+            function queueColor(q: QueueMetric): { dot: string; text: string; bg: string } {
+              if (q.paused) return { dot: "bg-amber-400", text: "text-amber-700 dark:text-amber-400", bg: "" };
+              if (q.failed === 0) return { dot: "bg-green-500", text: "text-green-700 dark:text-green-400", bg: "" };
+              const hasRetrying = q.waiting > 0 || q.active > 0;
+              if (hasRetrying) return { dot: "bg-amber-400", text: "text-amber-700 dark:text-amber-400", bg: "bg-amber-50/50 dark:bg-amber-950/20" };
+              return { dot: "bg-red-500", text: "text-red-700 dark:text-red-400", bg: "bg-red-50/40 dark:bg-red-950/20" };
+            }
+
+            function queueLabel(q: QueueMetric): string {
               if (q.paused) return "PAUSED";
-              if (q.failed > 0) return "FAILED";
+              if (isStaleActive(q)) return "STALE";
+              if (q.failed > 0 && q.waiting === 0 && q.active === 0) return "EXHAUSTED";
+              if (q.failed > 0) return "RETRYING";
               if (q.active > 0) return "RUNNING";
               return "IDLE";
+            }
+
+            function QueueRow({ qName, isCritical }: { qName: string; isCritical: boolean }) {
+              const q = queueData?.queues.find(x => x.name === qName);
+              const colors = q ? queueColor(q) : { dot: "bg-gray-300", text: "text-muted-foreground", bg: "" };
+              return (
+                <div
+                  key={qName}
+                  className={`py-1.5 border-b last:border-0 rounded px-1 ${colors.bg}`}
+                  data-testid={`queue-row-${qName}`}
+                >
+                  <div className="flex items-center gap-1.5 text-xs">
+                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${colors.dot}`} />
+                    <span className="font-mono font-medium flex-1">{qName}</span>
+                    {isCritical && (
+                      <Badge variant="outline" className="text-[9px] px-1 py-0 h-3.5 border-red-300 text-red-600">Critical</Badge>
+                    )}
+                    {q ? (
+                      <span className={`font-semibold text-xs ${colors.text}`}>{queueLabel(q)}</span>
+                    ) : (
+                      <Badge variant="secondary" className="text-[9px]">not registered</Badge>
+                    )}
+                  </div>
+                  {q && (
+                    <>
+                      <div className="flex gap-3 mt-0.5 ml-3 text-[10px] text-muted-foreground">
+                        <span>wait:<strong className="ml-0.5">{q.waiting}</strong></span>
+                        <span>active:<strong className={`ml-0.5 ${isStaleActive(q) ? "text-amber-600" : ""}`}>{q.active}{isStaleActive(q) ? " ⚠" : ""}</strong></span>
+                        <span>failed:<strong className={`ml-0.5 ${q.failed > 0 ? colors.text : ""}`}>{q.failed}</strong></span>
+                        <span>done:<strong className="ml-0.5">{q.completed}</strong></span>
+                      </div>
+                      {q.lastFailedAt && q.failed > 0 && (
+                        <div className={`ml-3 text-[10px] ${colors.text}`}>
+                          last failed: {formatAge(q.lastFailedAt)}
+                        </div>
+                      )}
+                      {q.lastError && (
+                        <div className="ml-3 mt-0.5 text-[10px] text-red-600 dark:text-red-400 font-mono bg-red-50 dark:bg-red-950/30 rounded px-1.5 py-0.5 break-all">
+                          {redactError(q.lastError)}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              );
             }
 
             return (
               <Card>
                 <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <CardTitle className="text-sm flex items-center gap-2 flex-1">
                       <Activity className="w-4 h-4" /> Queue Health
+                      <span className="text-[10px] font-normal text-muted-foreground">(all 8)</span>
                     </CardTitle>
                     {queueData?.usingMock && (
                       <Badge variant="outline" className="text-xs text-amber-600 border-amber-300">
-                        in-memory (no REDIS_URL)
+                        in-memory — no REDIS_URL
                       </Badge>
                     )}
                     <Button
@@ -1113,57 +1198,31 @@ export default function ActivationPanel() {
                     </Button>
                   </div>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="space-y-0">
                   {queueMetricsQuery.isLoading ? (
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
                       <Loader2 className="w-4 h-4 animate-spin" /> Loading queue metrics…
                     </div>
                   ) : queueMetricsQuery.isError ? (
-                    <div className="text-sm text-muted-foreground">
-                      Queue metrics unavailable — check Operator Dashboard → Job Queue tab.
+                    <div className="text-sm text-muted-foreground py-2">
+                      Queue metrics unavailable — check <a href="/dashboard/operator" className="underline">Operator Dashboard → Job Queue</a>.
                     </div>
                   ) : queueData ? (
-                    <div className="space-y-2">
-                      {CRITICAL_QUEUES.map((qName) => {
-                        const q = queueData.queues.find(x => x.name === qName);
-                        if (!q) {
-                          return (
-                            <div key={qName} className="flex items-center justify-between text-xs py-1.5 border-b last:border-0">
-                              <span className="font-mono text-muted-foreground">{qName}</span>
-                              <Badge variant="secondary" className="text-xs">not registered</Badge>
-                            </div>
-                          );
-                        }
-                        return (
-                          <div key={qName} className="py-1.5 border-b last:border-0" data-testid={`queue-row-${qName}`}>
-                            <div className="flex items-center justify-between text-xs">
-                              <span className="font-mono font-medium">{qName}</span>
-                              <span className={`font-semibold text-xs ${queueStatusColor(q)}`}>
-                                {queueStatusLabel(q)}
-                              </span>
-                            </div>
-                            <div className="flex gap-3 mt-0.5 text-[10px] text-muted-foreground">
-                              <span>waiting: <strong>{q.waiting}</strong></span>
-                              <span>active: <strong>{q.active}</strong></span>
-                              <span>failed: <strong className={q.failed > 0 ? "text-red-500" : ""}>{q.failed}</strong></span>
-                              <span>done: <strong>{q.completed}</strong></span>
-                            </div>
-                            {q.lastError && (
-                              <div className="mt-0.5 text-[10px] text-red-600 dark:text-red-400 font-mono bg-red-50 dark:bg-red-950/30 rounded px-1.5 py-0.5">
-                                {truncateError(q.lastError)}
-                              </div>
-                            )}
-                            {q.lastCompletedAt && (
-                              <div className="text-[10px] text-muted-foreground">
-                                last run: {new Date(q.lastCompletedAt).toLocaleTimeString()}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
+                    <div className="space-y-0.5">
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide pt-1 pb-0.5">Critical</p>
+                      {CRITICAL_QUEUES.map(n => <QueueRow key={n} qName={n} isCritical={true} />)}
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide pt-2 pb-0.5">Non-Critical</p>
+                      {NON_CRITICAL_QUEUES.map(n => <QueueRow key={n} qName={n} isCritical={false} />)}
+                      <div className="pt-2 text-[10px] text-muted-foreground">
+                        Dead-letter queue:{" "}
+                        <a href="/review-queue" className="underline text-primary">
+                          /review-queue
+                        </a>
+                        {" "}— review failed jobs, retry or discard.
+                      </div>
                     </div>
                   ) : (
-                    <div className="text-sm text-muted-foreground">No queue data.</div>
+                    <div className="text-sm text-muted-foreground py-2">No queue data available.</div>
                   )}
                 </CardContent>
               </Card>
@@ -1904,26 +1963,154 @@ function ChannelSafetyMatrix({ query }: { query: ReturnType<typeof useQuery<Chan
         </CardContent>
       </Card>
 
-      {/* Feature Flag Strip */}
-      <Card data-testid="channel-safety-flags">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm">Feature Flags</CardTitle>
-        </CardHeader>
-        <CardContent className="pt-0">
-          <div className="flex flex-wrap gap-2">
-            {data.featureFlags.map((f) => (
-              <Badge
-                key={f.key}
-                variant="outline"
-                className={`text-xs font-mono ${flagBadgeClass(f.status)}`}
-                data-testid={`flag-badge-${f.key}`}
-              >
-                {f.key}: {f.status}
-              </Badge>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+      {/* Feature Flag Risk Matrix — Wave 12 */}
+      {(() => {
+        const FLAG_MATRIX: Array<{
+          key: string;
+          risk: "HIGH" | "MEDIUM" | "LOW";
+          riskColor: string;
+          borderColor: string;
+          what: string;
+          prerequisites: string[];
+          killLines: string[];
+          verifyCmd: string;
+          queueDep: string;
+          specialNote?: string;
+        }> = [
+          {
+            key: "SDR_ENABLED",
+            risk: "MEDIUM",
+            riskColor: "text-amber-700 dark:text-amber-400",
+            borderColor: "border-amber-300 dark:border-amber-700",
+            what: "Enables email sequences and manual contact task creation. SMS/Voice/RVM flags still block mass outbound, but email sequences CAN run without those flags.",
+            prerequisites: ["All sequence content reviewed and approved", "No ACTIVE sequences pointing to unapproved content"],
+            killLines: ["Sequence engine reviewed", "No unapproved sequences in ACTIVE state"],
+            verifyCmd: "npx tsx scripts/test-sequence-compliance.ts",
+            queueDep: "sequences (30s)",
+            specialNote: "SDR defaults to ON. Verify all active sequences are approved before go-live.",
+          },
+          {
+            key: "ORCHESTRATOR_ENABLED",
+            risk: "HIGH",
+            riskColor: "text-red-700 dark:text-red-400",
+            borderColor: "border-red-300 dark:border-red-700",
+            what: "Enables the autonomous orchestrator that selects next outreach actions for all SDR merchants on a schedule.",
+            prerequisites: ["SMS_ENABLED and VOICE_AI_ENABLED reviewed", "Contactability engine smoke tests pass", "Daily volume limits configured (SDR_DAILY_SMS_LIMIT)"],
+            killLines: ["evaluateContactability() gates all sends", "compliance-scan passes (exit 0)"],
+            verifyCmd: "npx tsx scripts/compliance-scan.ts",
+            queueDep: "sequences (30s)",
+          },
+          {
+            key: "SMS_ENABLED",
+            risk: "HIGH",
+            riskColor: "text-red-700 dark:text-red-400",
+            borderColor: "border-red-300 dark:border-red-700",
+            what: "Allows automated SMS outreach to PEWC-consented contacts. TCPA/Florida rules still apply.",
+            prerequisites: ["PEWC consent flows verified (test-forms.ts passes)", "Contactability gate verified for SMS channel", "FL mini-TCPA rule understood and accepted"],
+            killLines: ["Only contacts with pewc_full_automation consent tier receive SMS", "evaluateContactability blocks all others"],
+            verifyCmd: "npx tsx scripts/test-contactability.ts",
+            queueDep: "sequences (30s)",
+          },
+          {
+            key: "VOICE_AI_ENABLED",
+            risk: "HIGH",
+            riskColor: "text-red-700 dark:text-red-400",
+            borderColor: "border-red-300 dark:border-red-700",
+            what: "Enables AI voice call outreach. Requires PEWC consent and respects TCPA quiet hours.",
+            prerequisites: ["VOICE_AI provider credentials configured", "PEWC consent tier required for all AI voice targets", "Quiet hours check verified"],
+            killLines: ["triggerAiCall gated by evaluateContactability", "No calls outside 9 AM–5 PM local time"],
+            verifyCmd: "npx tsx scripts/test-contactability.ts",
+            queueDep: "sequences (30s)",
+          },
+          {
+            key: "RINGLESS_VM_ENABLED",
+            risk: "HIGH",
+            riskColor: "text-red-700 dark:text-red-400",
+            borderColor: "border-red-300 dark:border-red-700",
+            what: "Enables ringless voicemail drops. Requires PEWC consent and mobile phone type on contact.",
+            prerequisites: ["PEWC consent tier required", "Contact phoneType=mobile required", "enrollContactInGhlWorkflow gated by evaluateContactability"],
+            killLines: ["compliance-scan passes (exit 0)", "contactability blocks all non-PEWC contacts for ringless_vm"],
+            verifyCmd: "npx tsx scripts/test-contactability.ts",
+            queueDep: "sequences (30s) / GHL workflow",
+          },
+          {
+            key: "NIGHTLY_DISCOVERY_ENABLED",
+            risk: "MEDIUM",
+            riskColor: "text-amber-700 dark:text-amber-400",
+            borderColor: "border-amber-300 dark:border-amber-700",
+            what: "Runs the nightly lead discovery engine (Serper, Outscraper, Apify, Apollo) to import new prospect contacts.",
+            prerequisites: ["At least one discovery API key configured (SERPER_API_KEY or OUTSCRAPER_API_KEY)", "Discovery budget limits reviewed"],
+            killLines: ["All discovered leads start as cold_no_consent — no outreach until consent tier updated", "NIGHTLY_DISCOVERY_ENABLED=false by default"],
+            verifyCmd: "npx tsx scripts/compliance-scan.ts",
+            queueDep: "discovery (24h)",
+          },
+        ];
+
+        const flagMap = Object.fromEntries((data.featureFlags ?? []).map(f => [f.key, f]));
+
+        return (
+          <Card data-testid="channel-safety-flags">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Feature Flag Risk Matrix</CardTitle>
+            </CardHeader>
+            <CardContent className="pt-0 space-y-3">
+              <div className="rounded-md border border-blue-200 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-950/20 px-3 py-2 text-xs text-blue-800 dark:text-blue-300">
+                <strong>Read-only.</strong> To enable or disable a flag, set the environment variable in Replit Secrets, then restart the server. No toggle controls exist by design.
+              </div>
+              {FLAG_MATRIX.map(fm => {
+                const live = flagMap[fm.key];
+                const isOn = live?.enabled === true || live?.status === "enabled";
+                const stateLabel = live ? (isOn ? "ON" : "OFF") : "UNKNOWN";
+                const stateCls = isOn
+                  ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300 border-green-300"
+                  : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400 border-gray-300";
+                return (
+                  <div
+                    key={fm.key}
+                    className={`rounded-md border ${fm.borderColor} p-3 space-y-1.5`}
+                    data-testid={`flag-card-${fm.key}`}
+                  >
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-mono font-semibold text-sm">{fm.key}</span>
+                      <Badge variant="outline" className={`text-xs border ${stateCls}`} data-testid={`flag-badge-${fm.key}`}>
+                        {stateLabel}
+                      </Badge>
+                      <Badge variant="outline" className={`text-xs ${fm.riskColor} border-current`}>
+                        {fm.risk} RISK
+                      </Badge>
+                    </div>
+                    {fm.key === "SDR_ENABLED" && isOn && (
+                      <div className="flex gap-1.5 items-start rounded bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-700 px-2 py-1.5 text-xs text-amber-800 dark:text-amber-300">
+                        <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
+                        <span>{fm.specialNote}</span>
+                      </div>
+                    )}
+                    <p className="text-xs text-muted-foreground">{fm.what}</p>
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Prerequisites / Kill Lines</p>
+                      <ul className="mt-0.5 space-y-0.5">
+                        {fm.killLines.map((kl, i) => (
+                          <li key={i} className="text-xs flex gap-1"><span className="text-red-500 shrink-0">⚑</span>{kl}</li>
+                        ))}
+                        {fm.prerequisites.map((pr, i) => (
+                          <li key={`p${i}`} className="text-xs flex gap-1"><span className="text-muted-foreground shrink-0">•</span>{pr}</li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-muted-foreground pt-0.5">
+                      <span><strong>Queue:</strong> {fm.queueDep}</span>
+                      <span className="font-mono"><strong>Verify:</strong> {fm.verifyCmd}</span>
+                    </div>
+                    <div className="text-[10px] text-muted-foreground border-t border-dashed pt-1">
+                      <strong>Enable:</strong> Set <code className="font-mono bg-muted px-1 rounded">{fm.key}=true</code> in Replit Secrets → restart server.
+                    </div>
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {/* Blocked Attempts 24h */}
       <Card data-testid="channel-safety-blocked-24h">

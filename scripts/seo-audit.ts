@@ -33,6 +33,8 @@ interface RouteSpec {
   path: string;
   noindex?: boolean;
   dynamic?: true; // set for generated/dynamic routes not in SEO_ROUTE_DEFAULTS
+  noindexForbidden?: true; // conversion pages that must NOT have noindex
+  requireCanonical?: true; // Wave 12: explicitly verify canonical tag present
 }
 
 // Static routes from the central defaults map
@@ -67,12 +69,32 @@ const INDUSTRY_ROUTES: RouteSpec[] = Object.keys(INDUSTRY_DATA).map((slug) => ({
   dynamic: true,
 }));
 
+// ── Wave 12: Partner pages — verify 200, unique title, description, canonical
+// NOTE: /partners/insurance-agent does NOT exist — use /partners/insurance.
+const PARTNER_ROUTES: RouteSpec[] = [
+  { path: "/partners",            requireCanonical: true },
+  { path: "/partners/cpa",        requireCanonical: true },
+  { path: "/partners/bookkeeper", requireCanonical: true },
+  { path: "/partners/insurance",  requireCanonical: true },
+];
+
+// ── Wave 12: Conversion pages that must NOT have noindex ─────────────────────
+const NOINDEX_FORBIDDEN_ROUTES: RouteSpec[] = [
+  { path: "/upload-statement",    noindexForbidden: true },
+  { path: "/get-started",         noindexForbidden: true },
+  { path: "/free-analysis",       noindexForbidden: true },
+  { path: "/free-smart-terminal", noindexForbidden: true },
+  { path: "/beat-square-stripe",  noindexForbidden: true },
+];
+
 const ROUTES: RouteSpec[] = [
   ...STATIC_ROUTES,
   ...COMPARE_ROUTES,
   ...CITY_HUB_ROUTES,
   ...CITY_VERTICAL_ROUTES,
   ...INDUSTRY_ROUTES,
+  ...PARTNER_ROUTES,
+  ...NOINDEX_FORBIDDEN_ROUTES,
 ];
 
 interface AuditResult {
@@ -218,8 +240,18 @@ async function auditRoute(spec: RouteSpec): Promise<AuditResult> {
       if (!robots || !/noindex/i.test(robots)) {
         errors.push("expected noindex on auth/thank-you route");
       }
+    } else if (spec.noindexForbidden) {
+      // Wave 12: conversion pages must NOT have a noindex directive
+      if (robots && /noindex/i.test(robots)) {
+        errors.push(`conversion page has noindex (robots="${robots}") — this blocks organic indexing and must be removed`);
+      }
     } else if (robots && /noindex/i.test(robots)) {
       warnings.push("public route is noindex — verify intent");
+    }
+
+    // Wave 12: partner pages must have canonical
+    if (spec.requireCanonical && !canonical) {
+      errors.push("partner page missing canonical link — required for Wave 12 SEO compliance");
     }
   } catch (e: unknown) {
     errors.push(`fetch failed: ${e instanceof Error ? e.message : String(e)}`);
@@ -247,6 +279,22 @@ async function main() {
   console.log(
     `\nSummary: ${results.length} routes, ${failed.length} failed, ${warned.length} with warnings`
   );
+
+  // ── Wave 12: Sitemap check (non-blocking — informational) ─────────────────
+  console.log("\n── Sitemap check ──");
+  try {
+    const sitemapRes = await fetch(`${BASE}/sitemap.xml`, { signal: AbortSignal.timeout(8000) });
+    if (sitemapRes.status === 200) {
+      const ct = sitemapRes.headers.get("content-type") ?? "";
+      console.log(`✓ /sitemap.xml — HTTP 200 (content-type: ${ct})`);
+    } else if (sitemapRes.status === 404) {
+      console.log(`⚠ /sitemap.xml — 404 Not Found. Sitemap not yet generated. Not blocking; generate before go-live for SEO benefit.`);
+    } else {
+      console.log(`⚠ /sitemap.xml — HTTP ${sitemapRes.status} (unexpected). Investigate before go-live.`);
+    }
+  } catch (e: unknown) {
+    console.log(`⚠ /sitemap.xml — fetch failed: ${e instanceof Error ? e.message : String(e)}. Non-blocking.`);
+  }
 
   if (failed.length > 0) {
     console.error(`\nSEO audit FAILED: ${failed.length} route(s) had errors.`);

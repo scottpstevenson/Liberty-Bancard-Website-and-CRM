@@ -18,6 +18,7 @@
 import bcrypt from "bcryptjs";
 import { db } from "../server/db";
 import { users } from "../shared/models/auth";
+import { contacts, documents } from "../shared/schema";
 import { eq } from "drizzle-orm";
 
 interface GuardCase {
@@ -115,8 +116,12 @@ const CASES: GuardCase[] = [
   // ── Wave 12: Merchant Document Vault — role gates ─────────────────────
   // Global admin index requires admin/manager; access-token endpoint is
   // authenticated-only (all roles can attempt, ownership enforced per-doc).
-  { method: "GET",  path: "/api/merchant-documents",         anon: [401], merchant: [403], admin: [200], description: "merchant doc vault admin index (admin/manager only)" },
-  { method: "GET",  path: "/api/merchant-documents/99999/access-token", anon: [401], merchant: [403, 404], admin: [403, 404], description: "doc access-token (ownership guard — doc 99999 owned by nobody)" },
+  { method: "GET",    path: "/api/merchant-documents",                       anon: [401], merchant: [403], admin: [200],      description: "merchant doc vault admin index (admin/manager only)" },
+  { method: "GET",    path: "/api/merchant-documents/99999/access-token",    anon: [401], merchant: [403, 404], admin: [403, 404], description: "doc access-token (ownership guard — doc 99999 owned by nobody)" },
+  // PATCH status: admin/manager only (requireRole guard)
+  { method: "PATCH",  path: "/api/merchant-documents/99999/status",          anon: [401], merchant: [403], admin: [400, 403, 404], description: "doc status update (admin/manager only — 400/404 for missing doc is ok)" },
+  // Bulk download: admin/manager only (requireRole guard)
+  { method: "POST",   path: "/api/documents/bulk-download",                  anon: [401], merchant: [403], admin: [400, 200],      description: "bulk download (admin/manager only — 400 for empty payload is ok)" },
 ];
 
 async function ensureMerchantUser(): Promise<void> {
@@ -260,6 +265,85 @@ async function run(): Promise<void> {
     }
   }
   console.log(`\n${CASES.length - failures}/${CASES.length} guarded routes behave correctly across anon/merchant/admin.`);
+
+  // ── Wave 12: Real ownership test ─────────────────────────────────────────
+  // Create an actual document under a test contact, then verify that the
+  // unrelated merchant user gets 403 (not 404) on that document's access-token
+  // endpoint. This is distinct from the static guard test above which uses
+  // doc 99999 (non-existent) and can only prove the guard fires; it cannot
+  // distinguish "doc not found" (404) from "doc found but forbidden" (403).
+  console.log("\n── Wave 12: Document ownership guard (real doc) ──");
+  let ownershipTestPassed = false;
+  let ownershipTestError: string | null = null;
+  let testContactId: number | null = null;
+  let testDocId: number | null = null;
+  try {
+    // 1. Create a temporary test contact (owned by no merchant user in our test setup)
+    const [testContact] = await db.insert(contacts).values({
+      firstName: "SmokeOwnership",
+      lastName: "TestDoc",
+      email: "smoke-ownership-test@libertybancard.test",
+      status: "active",
+      leadSource: "test",
+      sourceCategory: "test",
+    }).returning({ id: contacts.id });
+    testContactId = testContact.id;
+
+    // 2. Create a document linked to that contact
+    const [testDoc] = await db.insert(documents).values({
+      contactId: testContactId,
+      type: "statement",
+      category: "KYC",
+      fileName: "smoke-test-ownership.pdf",
+      fileSize: 1024,
+      mimeType: "application/pdf",
+      uploadedBy: "smoke-test",
+      storageKey: "smoke/smoke-test-ownership.pdf",
+      accessScope: "internal",
+      status: "pending",
+    }).returning({ id: documents.id });
+    testDocId = testDoc.id;
+
+    // 3. Merchant (unrelated — not linked to this contact) must get 403
+    const merchantStatus = await fetch(
+      `${BASE_URL}/api/merchant-documents/${testDocId}/access-token`,
+      { headers: { cookie: merchantCookie } }
+    ).then(r => r.status);
+
+    // 4. Admin must get a success response (200 or signed URL redirect 302)
+    const adminStatus = await fetch(
+      `${BASE_URL}/api/merchant-documents/${testDocId}/access-token`,
+      { headers: { cookie: adminCookie } }
+    ).then(r => r.status);
+
+    const merchantOk = merchantStatus === 403;
+    const adminOk = [200, 302].includes(adminStatus);
+
+    if (merchantOk && adminOk) {
+      console.log(`✓ doc access-token (real doc ${testDocId}): merchant→${merchantStatus} (403✓)  admin→${adminStatus} (✓)`);
+      ownershipTestPassed = true;
+    } else {
+      ownershipTestError = `merchant→${merchantStatus} (expected 403), admin→${adminStatus} (expected 200 or 302)`;
+      console.log(`✗ doc access-token (real doc ${testDocId}): ${ownershipTestError}`);
+      failures++;
+    }
+  } catch (err) {
+    ownershipTestError = `ownership test threw: ${err instanceof Error ? err.message : String(err)}`;
+    console.log(`✗ ${ownershipTestError}`);
+    failures++;
+  } finally {
+    // 5. Clean up — delete test doc and contact
+    if (testDocId !== null) {
+      await db.delete(documents).where(eq(documents.id, testDocId)).catch(() => {});
+    }
+    if (testContactId !== null) {
+      await db.delete(contacts).where(eq(contacts.id, testContactId)).catch(() => {});
+    }
+  }
+
+  const totalCases = CASES.length + 1; // +1 for ownership test
+  const totalPassed = totalCases - failures;
+  console.log(`\n${totalPassed}/${totalCases} guarded routes/tests passed.`);
   process.exit(failures === 0 ? 0 : 1);
 }
 
