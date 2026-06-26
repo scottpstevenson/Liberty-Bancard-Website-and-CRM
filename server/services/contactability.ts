@@ -715,7 +715,7 @@ export async function evaluateContactability(
   ];
   if (quietHoursChannels.includes(channel)) {
     const tz = timezone ?? "America/New_York";
-    if (!isWithinBusinessHours(tz)) {
+    if (!isWithinBusinessHours(tz, currentTime)) {
       return blocked(
         `Outside quiet hours (TCPA: 9 AM–5 PM local time in ${tz}, no weekends/holidays)`,
         {

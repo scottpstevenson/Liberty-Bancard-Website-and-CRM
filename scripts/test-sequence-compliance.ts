@@ -193,9 +193,12 @@ async function testCase4(): Promise<void> {
     ), r.reason);
   }
 
-  // manual_call is NOT blocked by doNotAutoContact
-  const manualR = await evaluateContactability({ contactId: id, channel: "manual_call", mode: "dryRun" });
-  assert("doNotAutoContact: manual_call is allowed", manualR.allowed, manualR.reason);
+  // manual_call is NOT blocked by doNotAutoContact — force a business-hours time so the
+  // TCPA quiet-hours check doesn't flap based on when this test runs (e.g. nights/weekends).
+  // Tuesday 2025-06-24 10:00 AM ET (14:00 UTC, EDT = UTC-4).
+  const businessHoursTime = new Date("2025-06-24T14:00:00.000Z");
+  const manualR = await evaluateContactability({ contactId: id, channel: "manual_call", mode: "dryRun", currentTime: businessHoursTime });
+  assert("doNotAutoContact: manual_call is allowed (forced business-hours time)", manualR.allowed, manualR.reason);
   assert("allowed channels includes manual_call", (manualR.allowedChannels ?? []).includes("manual_call"), JSON.stringify(manualR.allowedChannels));
 }
 

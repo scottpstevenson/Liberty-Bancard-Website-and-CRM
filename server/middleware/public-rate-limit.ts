@@ -28,6 +28,14 @@ export const publicLeadRateLimit = rateLimit({
   message: {
     message: "Too many submissions from this IP. Please wait a few minutes and try again.",
   },
+  // Allow loopback requests to bypass the limiter outside production so the
+  // form integration smoke test (scripts/test-forms.ts) can submit forms
+  // repeatedly without tripping a 429. Production traffic is unaffected.
+  skip: (req) => {
+    if (process.env.NODE_ENV === "production") return false;
+    const ip = req.ip ?? "";
+    return ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
+  },
 });
 
 export const merchantAuthRateLimit = rateLimit({

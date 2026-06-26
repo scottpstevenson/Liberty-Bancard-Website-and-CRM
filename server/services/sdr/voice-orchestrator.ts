@@ -125,9 +125,8 @@ export function getTimezoneFromState(state: string | null | undefined, city?: st
   return tzMap[stateUpper] || "America/New_York";
 }
 
-export function isWithinBusinessHours(timezone: string): boolean {
+export function isWithinBusinessHours(timezone: string, now: Date = new Date()): boolean {
   try {
-    const now = new Date();
     const formatter = new Intl.DateTimeFormat("en-US", {
       timeZone: timezone,
       hour: "numeric",

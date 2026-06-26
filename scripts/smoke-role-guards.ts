@@ -34,13 +34,14 @@ interface GuardCase {
 const BASE_URL = process.env.BASE_URL ?? "http://localhost:5000";
 
 if (!process.env.ADMIN_SEED_EMAIL || !process.env.ADMIN_SEED_PASSWORD) {
-  console.warn(
-    "⚠ ADMIN_SEED_EMAIL and/or ADMIN_SEED_PASSWORD not set — skipping role-guard smoke tests.\n" +
-      "  Set both env vars to enable full role-guard validation:\n" +
-      "  ADMIN_SEED_EMAIL=admin@example.com ADMIN_SEED_PASSWORD=secret npx tsx scripts/smoke-role-guards.ts\n" +
-      "  See docs/launch-env-checklist.md §Pre-Deploy Smoke Tests for details."
+  console.error(
+    "\n✗ MISSING REQUIRED ENV: ADMIN_SEED_EMAIL and/or ADMIN_SEED_PASSWORD not set.\n" +
+    "  Role-guard smoke tests CANNOT run without admin credentials — failing closed.\n\n" +
+    "  Set both env vars before running as a release gate:\n" +
+    "    ADMIN_SEED_EMAIL=admin@example.com ADMIN_SEED_PASSWORD=secret npx tsx scripts/smoke-role-guards.ts\n" +
+    "  See docs/launch-env-checklist.md §Pre-Deploy Smoke Tests for details.\n"
   );
-  process.exit(0);
+  process.exit(1);
 }
 
 const ADMIN_EMAIL = process.env.ADMIN_SEED_EMAIL;

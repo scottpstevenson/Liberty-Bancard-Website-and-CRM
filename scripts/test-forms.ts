@@ -35,7 +35,7 @@
  */
 
 import { db } from "../server/db";
-import { contacts, deals, consentAuditLogs, sdrMerchants } from "../shared/schema";
+import { contacts, deals, consentAuditLogs, sdrMerchants, partners } from "../shared/schema";
 import { pool } from "../server/db";
 import { eq, and, desc } from "drizzle-orm";
 import { sql as drizzleSql } from "drizzle-orm";
@@ -78,6 +78,7 @@ const failures: string[] = [];
 const cleanupContactIds: number[] = [];
 const cleanupDealIds: number[] = [];
 const cleanupAppIds: number[] = [];
+const cleanupPartnerIds: number[] = [];
 
 function assert(label: string, condition: boolean, detail?: string) {
   if (condition) {
@@ -129,10 +130,14 @@ async function cleanup(): Promise<void> {
     await db.execute(drizzleSql`DELETE FROM sequence_enrollments WHERE contact_id = ${id}`).catch(() => {});
   }
 
-  // referrals / attribution records for test contacts
+  // referrals / attribution records for test contacts and test partners
   for (const id of cleanupContactIds) {
     await db.execute(drizzleSql`DELETE FROM referrals WHERE contact_id = ${id}`).catch(() => {});
     await db.execute(drizzleSql`DELETE FROM affiliate_clicks WHERE contact_id = ${id}`).catch(() => {});
+  }
+  for (const id of cleanupPartnerIds) {
+    await db.execute(drizzleSql`DELETE FROM referrals WHERE partner_id = ${id}`).catch(() => {});
+    await db.delete(partners).where(eq(partners.id, id)).catch(() => {});
   }
 
   // merchant_referrals for test contacts
@@ -199,11 +204,12 @@ async function testStatementUpload(): Promise<void> {
     return;
   }
 
-  if (res.status === 429) {
-    console.log("  ⚠ Rate limited (429) — endpoint is live and rate limiter is active (expected after repeated test runs). Skipping sub-assertions.");
-    return; // 429 is advisory — endpoint responsiveness confirmed, no pass inflation.
-  }
-  assert("Statement upload returns 2xx", res.status >= 200 && res.status < 300, `status=${res.status}`);
+  assert(
+    "Statement upload returns 2xx (not rate-limited — run from a fresh IP or wait 15 min if 429)",
+    res.status >= 200 && res.status < 300,
+    `status=${res.status}`
+  );
+  if (res.status === 429) return;
 
   // Statement chain is fire-and-forget; poll for up to 4s for contact + deal to appear
   let contact: typeof import("../shared/schema").contacts.$inferSelect | undefined;
@@ -244,19 +250,27 @@ async function testStatementUpload(): Promise<void> {
     assert("Document record linked to contact", docRow.contact_id === contact.id, `contact_id=${docRow.contact_id}`);
     assert("Document record linked to deal", !!docRow.deal_id, `deal_id=${docRow.deal_id}`);
   } else {
-    // Statement upload may not always create a document row (e.g. if no file attached) — advisory skip
-    console.log("  ⚠ No document row found for statement upload (advisory — file may not have been attached in payload)");
+    assert("Document record created after statement upload", false, "no document row found — file WAS attached in payload; statement-upload-chain should create a document record");
   }
 
   assert("doNotContact not set by form", contact.doNotContact !== true, `doNotContact=${contact.doNotContact}`);
-
-  // Check attribution field if ref param were included — advisory for base payload
-  console.log("  ℹ Attribution field check: UTM/ref attribution captured when ?ref= param is present in production flow");
 }
 
 // ── Test 2: Estimate Form ─────────────────────────────────────────────────────
 async function testEstimateForm(): Promise<void> {
   console.log("\n▶ Test 2: Estimate Form — POST /api/public/estimate\n");
+
+  // Pre-create a test partner with a unique affiliateCode so trackReferral() resolves it.
+  // This is the ?ref= attribution path required by Wave 12 Step 4.
+  // getPartnerByCode() lowercases the lookup — store the code lowercase so it resolves
+  const testAffiliateCode = `qa-ref-${Date.now()}`;
+  const [testPartner] = await db.insert(partners).values({
+    companyName: "QA Release Test Partner",
+    affiliateCode: testAffiliateCode,
+    status: "active",
+    partnerType: "referral",
+  }).returning({ id: partners.id });
+  cleanupPartnerIds.push(testPartner.id);
 
   const email = uniqueEmail("qa-release-test-estimate");
   const payload = {
@@ -269,6 +283,7 @@ async function testEstimateForm(): Promise<void> {
     currentRate: "3.5",
     leadSource: "google",
     sourceCategory: "inbound",
+    referralCode: testAffiliateCode,   // ?ref= attribution path
   };
 
   let res: Response;
@@ -283,11 +298,12 @@ async function testEstimateForm(): Promise<void> {
     return;
   }
 
-  if (res.status === 429) {
-    console.log("  ⚠ Rate limited (429) — endpoint is live and rate limiter is active (expected after repeated test runs). Skipping sub-assertions.");
-    return; // 429 is advisory — endpoint responsiveness confirmed, no pass inflation.
-  }
-  assert("Estimate form returns 2xx", res.status >= 200 && res.status < 300, `status=${res.status}`);
+  assert(
+    "Estimate form returns 2xx (not rate-limited — run from a fresh IP or wait 15 min if 429)",
+    res.status >= 200 && res.status < 300,
+    `status=${res.status}`
+  );
+  if (res.status === 429) return;
 
   await new Promise(r => setTimeout(r, 400));
   const [contact] = await db.select().from(contacts).where(eq(contacts.email, email)).limit(1);
@@ -306,6 +322,28 @@ async function testEstimateForm(): Promise<void> {
     "Deal has stage or offerPath set",
     !!(dealRow?.stage || dealRow?.offer_path),
     `stage="${dealRow?.stage}" offer_path="${dealRow?.offer_path}"`
+  );
+
+  // ── Wave 12 Step 4: ?ref= attribution assertion ─────────────────────────────
+  // trackReferral() is fire-and-forget; poll for up to 3s for the referral row.
+  let referralRow: any;
+  for (let i = 0; i < 6; i++) {
+    await new Promise(r => setTimeout(r, 500));
+    const raw = await db.execute(
+      drizzleSql`SELECT id, partner_id, referred_email FROM referrals WHERE referred_email = ${email} AND partner_id = ${testPartner.id} LIMIT 1`
+    ) as any;
+    const rows = Array.isArray(raw) ? raw : raw?.rows ?? [];
+    if (rows[0]) { referralRow = rows[0]; break; }
+  }
+  assert(
+    "Referral record created for ?ref= code (attribution path proved)",
+    !!referralRow,
+    `affiliateCode=${testAffiliateCode} email=${email}`
+  );
+  assert(
+    "Referral record linked to correct partner",
+    referralRow?.partner_id === testPartner.id,
+    `partner_id=${referralRow?.partner_id} expected=${testPartner.id}`
   );
 }
 
@@ -339,11 +377,12 @@ async function testGetStartedForm(): Promise<void> {
     return;
   }
 
-  if (res.status === 429) {
-    console.log("  ⚠ Rate limited (429) — endpoint is live and rate limiter is active (expected after repeated test runs). Skipping sub-assertions.");
-    return; // 429 is advisory — endpoint responsiveness confirmed, no pass inflation.
-  }
-  assert("Get Started form returns 2xx", res.status >= 200 && res.status < 300, `status=${res.status}`);
+  assert(
+    "Get Started form returns 2xx (not rate-limited — run from a fresh IP or wait 15 min if 429)",
+    res.status >= 200 && res.status < 300,
+    `status=${res.status}`
+  );
+  if (res.status === 429) return;
 
   await new Promise(r => setTimeout(r, 400));
   const [contact] = await db.select().from(contacts).where(eq(contacts.email, email)).limit(1);
@@ -391,11 +430,12 @@ async function testMerchantApplication(): Promise<void> {
     return;
   }
 
-  if (draftRes.status === 429) {
-    console.log("  ⚠ Rate limited (429) — endpoint is live and rate limiter is active (expected after repeated test runs). Skipping sub-assertions.");
-    return; // 429 is advisory — endpoint responsiveness confirmed, no pass inflation.
-  }
-  assert("Merchant app draft returns 2xx", draftRes.status >= 200 && draftRes.status < 300, `status=${draftRes.status}`);
+  assert(
+    "Merchant app draft returns 2xx (not rate-limited — run from a fresh IP or wait 15 min if 429)",
+    draftRes.status >= 200 && draftRes.status < 300,
+    `status=${draftRes.status}`
+  );
+  if (draftRes.status === 429) return;
 
   const draftBody = await draftRes.json().catch(() => null);
   const draftId = draftBody?.id ?? draftBody?.applicationId ?? draftBody?.data?.id;

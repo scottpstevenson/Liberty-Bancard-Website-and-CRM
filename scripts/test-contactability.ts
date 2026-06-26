@@ -181,7 +181,9 @@ async function runEvaluateContactabilityTests() {
   const coldEmail = await evaluateContactability({ contactId: coldId, channel: "email", mode: "dryRun" });
   assert("cold scraped can receive email", coldEmail.allowed, coldEmail.reason);
 
-  const coldCall = await evaluateContactability({ contactId: coldId, channel: "manual_call", mode: "dryRun" });
+  // Force Tuesday 10 AM ET so TCPA quiet-hours check doesn't flap at night/weekends.
+  const bhTime = new Date("2025-06-24T14:00:00.000Z");
+  const coldCall = await evaluateContactability({ contactId: coldId, channel: "manual_call", mode: "dryRun", currentTime: bhTime });
   assert("cold scraped can get manual call task", coldCall.allowed, coldCall.reason);
 
   const coldSms = await evaluateContactability({ contactId: coldId, channel: "sms", mode: "dryRun" });
@@ -214,7 +216,8 @@ async function runEvaluateContactabilityTests() {
   console.log("\n  [doNotAutoContact = true]");
   const dnacId = await createTestContact({ doNotAutoContact: true });
 
-  const dnacManual = await evaluateContactability({ contactId: dnacId, channel: "manual_call", mode: "dryRun" });
+  // Force business hours so TCPA quiet-hours check doesn't flap.
+  const dnacManual = await evaluateContactability({ contactId: dnacId, channel: "manual_call", mode: "dryRun", currentTime: new Date("2025-06-24T14:00:00.000Z") });
   assert("doNotAutoContact does NOT block manual_call", dnacManual.allowed, dnacManual.reason);
 
   const dnacEmail = await evaluateContactability({ contactId: dnacId, channel: "email", mode: "dryRun" });
@@ -290,7 +293,7 @@ async function runEvaluateContactabilityTests() {
   assert("Florida: SMS blocked without PEWC", !(await evaluateContactability({ contactId: flId, channel: "sms", mode: "dryRun", state: "FL" })).allowed);
   assert("Florida: AI voice blocked without PEWC", !(await evaluateContactability({ contactId: flId, channel: "voice_ai", mode: "dryRun", state: "FL" })).allowed);
   assert("Florida: email NOT blocked solely by FL state", (await evaluateContactability({ contactId: flId, channel: "email", mode: "dryRun", state: "FL" })).allowed);
-  assert("Florida: manual_call NOT blocked solely by FL state", (await evaluateContactability({ contactId: flId, channel: "manual_call", mode: "dryRun", state: "FL" })).allowed);
+  assert("Florida: manual_call NOT blocked solely by FL state", (await evaluateContactability({ contactId: flId, channel: "manual_call", mode: "dryRun", state: "FL", currentTime: new Date("2025-06-24T14:00:00.000Z") })).allowed);
 
   // ── ghlPermissionPayload shape ────────────────────────────────────────
   console.log("\n  [ghlPermissionPayload shape]");
@@ -632,7 +635,8 @@ async function runWave12ContactabilityTests() {
     doNotContact: false,
     doNotAutoContact: false,
   });
-  const manualCallResult = await evaluateContactability({ contactId: manualCallId, channel: "manual_call", mode: "dryRun" });
+  // Force business hours so TCPA quiet-hours check doesn't flap.
+  const manualCallResult = await evaluateContactability({ contactId: manualCallId, channel: "manual_call", mode: "dryRun", currentTime: new Date("2025-06-24T14:00:00.000Z") });
   assert("Case 3: manual_call allowed for warm unblocked contact", manualCallResult.allowed, manualCallResult.reason);
   assert("Case 3: manual_call allowedChannels includes manual_call", (manualCallResult.allowedChannels ?? []).includes("manual_call"), JSON.stringify(manualCallResult.allowedChannels));
 
