@@ -1,0 +1,624 @@
+652 - Full Mobile/Desktop Design + Persistent UI Cleanup
+
+What & Why
+
+The mobile experience has critical layout problems caused by too many persistent UI layers: a bulky multi-layer header, a legal/disclaimer strip pinned above the logo, a dark navy phone-number bar consuming the first viewport, an oversized sticky CTA tray, and a chat bubble that overlaps hero CTAs and form inputs.
+
+This task surgically fixes those issues component-by-component and then performs a strict mobile/desktop UI polish pass for spacing, typography, card rhythm, section transitions, and responsive behavior.
+
+Do not touch backend logic, API behavior, compliance meaning, upload behavior, form handling, or business rules.
+
+Primary goal
+
+Make the site feel clean, premium, fast, intentional, and easy to use on mobile.
+
+Mobile should no longer feel like the first viewport is being consumed by header chrome, legal strips, sticky trays, and floating widgets.
+
+Done looks like
+
+Mobile at 375px, 390px, and 430px:
+
+* No legal/disclaimer strip appears above the logo/nav.
+* No dark navy phone-number bar appears above the mobile header.
+* Mobile header contains only the Liberty Bancard logo and hamburger.
+* Mobile header height is approximately 72–80px.
+* Mobile logo max-width is approximately 220–250px.
+* Hamburger is vertically centered and has a minimum 44px tap target.
+* Header is white with a subtle border/shadow.
+* Sticky bottom CTA is one compact button only: “Upload Statement — Free”.
+* Sticky CTA height is approximately 52–56px, excluding safe-area padding.
+* Sticky CTA does not appear while the hero CTA block is visible.
+* Sticky CTA does not cover form inputs, submit buttons, FAQ rows, card bottoms, footer links, or legal text.
+* Chat bubble does not overlap hero CTAs, sticky CTA, form fields, or buttons.
+* No content is hidden behind fixed/sticky elements.
+* No horizontal overflow.
+* Section spacing is consistent and rhythmic.
+* Cards, tables, accordions, proof blocks, forms, and CTA areas are readable and polished.
+
+Desktop at 768px, 1024px, 1280px, and 1440px:
+
+* Desktop header remains clean and balanced.
+* Desktop may show phone number/nav CTA if already designed cleanly.
+* Legal/disclaimer copy is in normal page flow, not pinned above nav.
+* Sticky mobile CTA does not appear on desktop.
+* Mobile-only removals do not break desktop layout.
+* Section spacing, card grids, typography, and CTA hierarchy remain polished.
+
+Out of scope
+
+Do not:
+
+* Rewrite core marketing copy except to shorten labels that break layout.
+* Add savings claims, compliance claims, guarantees, or new legal claims.
+* Remove required legal/disclaimer language entirely.
+* Change backend/API/upload/form behavior.
+* Replace the Liberty Bancard logo asset.
+* Redesign the entire brand identity.
+* Add new pages.
+* Add more persistent sticky/fixed UI layers.
+
+P0 — Persistent UI cleanup
+
+1. Remove the mobile dark navy phone bar
+
+In the Navbar/Header component, remove the dark navy phone-number bar from mobile.
+
+On mobile, the top of the page should go directly to the compact white header containing only:
+
+* logo
+* hamburger
+
+Phone number must remain accessible in:
+
+* hamburger menu
+* footer
+* desktop header if already clean
+
+Do not allow phone number to render above, on top of, or inside the legal/disclaimer strip.
+
+2. Remove legal/disclaimer strip from the header on all breakpoints
+
+The legal/disclaimer strip must not be pinned above the logo/nav on mobile or desktop.
+
+Move the disclaimer text out of Navbar/Header entirely and into normal page flow.
+
+Preferred placements:
+
+* directly below the hero CTA/proof area,
+* near the statement upload/review section,
+* and/or in the footer/legal area.
+
+Keep the disclaimer copy intact. Relocate it; do not delete it.
+
+Style it as readable fine print:
+
+* text-[12px] or text-xs
+* line-height around 1.45–1.6
+* muted but accessible contrast
+* not fixed
+* not sticky
+* not above the logo/nav
+
+Avoid using opacity so low that the disclaimer becomes hard to read.
+
+3. Compact the mobile header
+
+Mobile header target:
+
+* height: 72–80px
+* logo max-width: 220–250px
+* hamburger tap target: at least 44px
+* background: white
+* subtle border-bottom or shadow
+* no top legal bar
+* no phone bar
+* no extra navy fill
+* no large empty top padding
+
+Create or update CSS variables if helpful:
+
+–mobile-header-height: 76px;
+–mobile-dock-height: 72px;
+
+Use these variables for scroll-margin-top, anchor offsets, and sticky positioning.
+
+Update index.css scroll-margin-top values so anchor links no longer over-offset for the old oversized header.
+
+4. Fix z-index and fixed-layer rules
+
+Audit all persistent elements:
+
+* header/nav
+* sticky mobile CTA
+* chat widget
+* cookie consent if present
+* exit-intent popup if present
+
+Rules:
+
+* Header is fixed/sticky at top.
+* Sticky CTA is fixed at bottom on mobile only.
+* Legal/disclaimer copy is normal page flow.
+* Chat bubble must not cover CTAs/forms.
+* Do not create additional sticky bars.
+* No two fixed elements should overlap.
+* Add iOS safe-area support where needed.
+
+Use:
+padding-bottom: calc(var(–mobile-dock-height) + env(safe-area-inset-bottom));
+
+for page/footer areas where sticky CTA could otherwise cover content.
+
+5. Replace sticky CTA tray with one compact button
+
+Current issue: sticky tray is too tall because it includes Upload + Call + Book.
+
+Replace mobile sticky tray with one compact primary button only:
+
+“Upload Statement — Free”
+
+Remove Call and Book from the sticky tray entirely.
+
+Call and Book remain available in:
+
+* hamburger menu
+* footer
+* relevant in-page CTAs
+
+Sticky CTA specs:
+
+* mobile only
+* md:hidden
+* one full-width button
+* button height: 52–56px
+* tray vertical padding: minimal
+* safe-area padding included
+* no second row
+* no Call button
+* no Book button
+
+Visibility behavior:
+
+* hide sticky CTA while hero CTA block is visible in the viewport
+* show sticky CTA only after the user scrolls past the hero CTA area
+* hide or reduce sticky CTA while focused inside form inputs if needed to prevent keyboard/input overlap
+
+6. Fix chat bubble behavior
+
+Simplest preferred solution:
+
+* hide chat bubble on mobile entirely.
+
+Alternative acceptable solution:
+
+* show chat bubble only after hero section,
+* position it above sticky CTA using bottom: calc(var(–mobile-dock-height) + 16px + env(safe-area-inset-bottom)),
+* hide it when any form section is in view,
+* hide it when it would overlap any CTA.
+
+The chat bubble must never cover:
+
+* hero CTA buttons
+* upload buttons
+* sticky CTA
+* call/book buttons
+* form fields
+* form submit buttons
+* accordion rows
+* important card content
+
+P1 — Hero polish
+
+7. Tighten hero vertical rhythm
+
+Audit spacing between:
+
+* nav
+* eyebrow/pill
+* headline
+* subheading
+* CTA buttons
+* proof chips/trust bullets
+* hero visual
+* disclaimer fine print
+
+Remove excessive blank space. Make the first viewport feel intentional, not crowded by chrome.
+
+8. Hero CTA hierarchy
+
+Primary CTA should clearly dominate.
+Secondary CTA should not feel equal to the primary CTA.
+
+Mobile:
+
+* primary CTA full-width is acceptable
+* secondary CTA can be outline and slightly less visually heavy
+* avoid two giant identical buttons
+
+9. Hero proof chips/trust bullets
+
+Current proof chips may wrap awkwardly.
+
+Fix by using one of:
+
+* 2-column compact mobile grid,
+* shorter labels,
+* inline proof row,
+* or hide lower-priority chips on mobile.
+
+Avoid awkward 3-line wrapping.
+
+P1 — Global mobile spacing and rhythm
+
+10. Normalize section padding
+
+Audit every Home section.
+
+Mobile targets:
+
+* dense sections: 40–56px top/bottom
+* standard sections: 56–72px top/bottom
+* major transitions: 72–88px max
+
+Desktop targets:
+
+* standard sections: 88–120px top/bottom
+
+Do not use a blind global reduction. Fix section-by-section.
+
+11. Remove double gaps
+
+Find adjacent sections where one has large bottom padding and the next has large top padding.
+
+Reduce compounded dead zones around:
+
+* hero → audit/proof area
+* statement audit → pain points
+* deliverables → keep breakdown
+* analysis/how-it-works sections
+* strategy → industries
+* terminal/product section
+* testimonials
+* FAQ
+* callback/contact form
+* footer
+
+12. Improve section boundaries
+
+Avoid long runs of white-on-white or cream-on-cream with only blank space separating sections.
+
+Use intentional alternation:
+
+* white
+* cream/off-white
+* navy
+* dotted/grid background where appropriate
+
+Use dividers sparingly and consistently.
+
+P1 — Component polish
+
+13. Statement audit / preview cards
+
+Ensure all audit/statement cards fit at 375px.
+
+Fix:
+
+* horizontal overflow
+* cramped table rows
+* oversized “ILLUSTRATIVE” stamps
+* rows hidden behind sticky CTA
+* excessive padding
+
+If a table-style layout breaks on mobile, convert to stacked rows.
+
+14. Pain point/problem cards
+
+At 375px, confirm the 2-column grid is readable.
+
+If cramped:
+
+* reduce padding,
+* reduce icon size,
+* or switch to one-column.
+
+Normalize card heights, icons, labels, and spacing.
+
+15. Review deliverables table
+
+Fix mobile overflow risk.
+
+Preferred mobile layout:
+
+* label/pill above
+* title below
+* description below
+
+Keep the document-like card style but make it mobile-readable.
+
+16. Strategy accordion
+
+Fix:
+
+* badge alignment
+* expanded content spacing
+* CTA visibility
+* accordion tap target sizing
+* sticky CTA covering expanded content
+
+Ensure buttons inside accordion panels remain tappable.
+
+17. Industry / vertical cards
+
+Normalize:
+
+* card height
+* icon size
+* text alignment
+* internal padding
+* mixed full-width/grid layout
+
+If mixed layout feels accidental, unify to one pattern or make the hierarchy clearly intentional.
+
+18. Terminal/product section
+
+Fix product image rhythm on mobile.
+
+Acceptable patterns:
+
+* stacked product cards
+* horizontal scroll with snap
+* compact product grid
+
+Ensure:
+
+* no horizontal overflow
+* product cards have consistent padding/borders
+* CTAs are not hidden behind sticky CTA
+* image cards do not create excessive empty white space
+
+19. Testimonials
+
+Make testimonial cards premium but not oversized.
+
+Check:
+
+* star alignment
+* quote icon placement
+* badge placement
+* quote text width
+* attribution spacing
+
+Do not invent or imply real testimonials unless they are real and approved. Keep illustrative labels where needed.
+
+20. FAQ
+
+Fix FAQ mobile readability:
+
+* left-align question text
+* remove accidental underline styling unless an item is truly a link
+* keep chevrons aligned right
+* use consistent row padding
+* maintain comfortable tap targets
+
+21. Callback/contact form
+
+Ensure form is not covered by sticky CTA.
+
+Fix:
+
+* input heights
+* time-of-day button layout at 375px
+* disabled submit button styling
+* consent checkbox spacing
+* legal text readability
+* footer spacing below submit button
+
+If consent is required before enabling submit, make the disabled state feel intentional.
+
+22. Footer
+
+Footer must account for sticky CTA on mobile.
+
+Fix:
+
+* bottom padding
+* logo size
+* quick link spacing
+* contact detail readability
+* sticky CTA overlap
+* legal/disclaimer placement if needed
+
+P1 — Typography and readability
+
+23. Normalize heading scale
+
+Hero can remain largest.
+
+For mobile section headings:
+
+* avoid 4–5 awkward lines
+* avoid orphan words
+* use responsive clamp/text sizes
+* reduce especially long centered headings
+
+Long headings should not feel cartoonishly large on mobile.
+
+24. Body copy alignment
+
+Long paragraphs should generally be left-aligned on mobile unless they are short hero-style intro text.
+
+Avoid centered multi-line body copy that becomes hard to scan.
+
+25. Contrast pass
+
+Increase contrast on:
+
+* disclaimers
+* legal fine print
+* captions
+* metadata
+* muted body copy
+* labels
+* card descriptions
+
+Do not use extremely faint opacity for important legal/compliance text.
+
+P2 — Visual consistency
+
+26. Borders and shadows
+
+Reduce overuse of thick dark borders where they feel heavy or less premium.
+
+Use:
+
+* subtle borders
+* light shadows
+* soft surfaces
+
+Keep strong borders only where intentionally editorial or document-like.
+
+27. Icons
+
+Normalize:
+
+* icon size
+* stroke width
+* icon container size
+* icon color
+* spacing around icons
+
+28. Badges/pills
+
+Badges should be:
+
+* compact
+* readable
+* consistent in casing
+* not styled like form inputs unless they are interactive
+
+Avoid too many badge styles.
+
+29. Product imagery
+
+Ensure product images:
+
+* crop correctly
+* scale proportionally
+* do not float in excessive empty space
+* feel intentional on both mobile and desktop
+
+P0 — Horizontal overflow audit
+
+30. Test every section at:
+
+* 375px
+* 390px
+* 430px
+
+Fix any overflow caused by:
+
+* long headings
+* badges
+* tables
+* CTA rows
+* industry cards
+* legal text
+* footer links
+* product image rows
+* form controls
+
+Do not blindly add overflow-x-hidden if it hides legitimate content. Fix the component causing overflow first.
+
+P1 — Desktop QA
+
+31. Verify desktop at:
+
+* 768px
+* 1024px
+* 1280px
+* 1440px
+
+Confirm:
+
+* desktop header remains clean
+* phone number appears cleanly if present
+* legal/disclaimer is in page flow, not above nav
+* sticky mobile CTA does not appear
+* desktop nav/CTA layout is not broken
+* section spacing feels premium
+* cards align in rows cleanly
+* no desktop horizontal overflow
+
+Relevant files
+
+Inspect and update as needed:
+
+* client/src/components/Navbar.tsx
+* client/src/components/StickyMobileCTA.tsx
+* client/src/components/ChatWidget.tsx
+* client/src/components/Footer.tsx
+* client/src/pages/Home.tsx
+* client/src/App.tsx
+* client/src/index.css
+
+Also inspect any section components imported into Home.tsx, including but not limited to:
+
+* hero
+* statement audit/preview
+* pain points
+* review deliverables
+* strategy accordion
+* industry/vertical cards
+* terminal/product section
+* testimonials
+* FAQ
+* callback/contact form
+
+Final verification checklist
+
+Run the app and verify:
+
+Mobile:
+
+* 375px
+* 390px
+* 430px
+
+Desktop/tablet:
+
+* 768px
+* 1024px
+* 1280px
+* 1440px
+
+Confirm:
+
+* no legal/disclaimer strip above nav
+* no mobile navy phone bar above nav
+* compact mobile header
+* smaller mobile logo
+* single compact sticky CTA
+* sticky CTA hidden while hero CTA is visible
+* chat bubble hidden on mobile or never overlapping content
+* no content hidden behind sticky CTA
+* no horizontal overflow
+* form usable
+* FAQ usable
+* footer usable
+* desktop unaffected
+
+Build requirement
+
+Run the build after changes.
+
+Fix all TypeScript, lint, and responsive layout errors.
+
+When finished, provide:
+
+* summary of changed files
+* before/after note for header
+* before/after note for disclaimer placement
+* before/after note for sticky CTA
+* before/after note for chat bubble behavior
+* list of tested breakpoints

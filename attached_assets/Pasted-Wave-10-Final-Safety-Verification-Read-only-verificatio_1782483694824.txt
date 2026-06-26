@@ -1,0 +1,55 @@
+Wave 10 Final Safety Verification
+
+Read-only verification unless a clear P0 regression is found.
+
+Verify the shipped Merchant Application + Onboarding Conversion work for these exact gates:
+
+1. Prefill token payload
+- Decode/log the server response shape, not the raw signed token.
+- Confirm it contains only whitelisted non-sensitive fields.
+- Confirm “owner details” does not include SSN, DOB, home address, ownership %, bank data, EIN, consent state, KYC fields, internal notes, or scoring fields.
+- Confirm expired/invalid token fails closed.
+
+2. Duplicate EIN check
+- Confirm endpoint is rate-limited.
+- Confirm response is boolean/generic only.
+- Confirm no matched app/contact/deal/status/EIN details leak.
+- Confirm raw EIN is not logged.
+- Confirm duplicate check does not block updates/finalize for the current draft/application.
+
+3. Draft/autosave/finalize
+- Confirm POST /draft has no GHL sync, PEWC consent write, workflow enrollment, admin notification, or final-submit side effect.
+- Confirm PATCH /autosave requires token/session ownership, not application ID alone.
+- Confirm PATCH /finalize runs the final submission chain exactly once.
+- Confirm browser refresh rehydrates the same in_progress draft, not a duplicate.
+
+4. Closed Won idempotency
+- Confirm re-firing Closed Won does not duplicate onboarding deal, SLA tasks, welcome email, or GHL workflow.
+- Confirm the merchant_welcome_sent sentinel is scoped safely.
+- Verify whether contact-level suppression could block a legitimate second business/location/MID. If yes, patch to source deal/application/onboarding deal-level idempotency.
+
+5. Abandon recovery dedupe
+- Confirm abandon recovery does not directly send email/SMS.
+- Confirm it uses sequence eligibility/enrollment path.
+- Confirm abandon_recovery_enrolled marker writes only after successful enrollment.
+- Verify dedupe key. If it is business email domain only, patch it to application/contact-level dedupe. Domain-only dedupe is too broad.
+
+6. KYC document ownership
+- Confirm merchant upload derives ownership server-side via getMerchantProfileByUser or verified draft/application context.
+- Confirm arbitrary client contactId/dealId/applicationId is not trusted.
+- Confirm category=KYC and status=pending.
+- Confirm admin/manager approve/reject only.
+- Confirm merchant cannot access another merchant’s documents.
+
+7. Merchant Portal and Kanban
+- Confirm KYC upload CTA appears only for relevant KYC/document/verification tasks.
+- If keyword matching is used, list exact keywords and false-positive risk.
+- Confirm MID badge masking by role.
+- Confirm Onboarding Progress reads real tasks and shows safe empty states.
+
+Return:
+- APPROVED or NOT APPROVED
+- any P0/P1 findings
+- exact files inspected
+- exact tests/smokes run
+- whether any surgical patch was required
