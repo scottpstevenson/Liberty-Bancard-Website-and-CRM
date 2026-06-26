@@ -1,0 +1,35 @@
+Good. That confirms the addendum was not theoretical — those are real blockers. The plan update should now be very specific.
+
+Build readiness: proceed only after the plan reflects these exact changes.
+
+Add/lock these changes into #639:
+
+1. Draft creation cannot use POST /api/merchant-applications.
+   That endpoint has real side effects: GHL sync, PEWC consent write, and merchant_app workflow enrollment.
+   Build separate draft/autosave/finalize endpoints.
+2. KYC category does not need a migration.
+   DOCUMENT_CATEGORIES is TypeScript const-only, no pgEnum/DB constraint.
+   Add "KYC" to the const only.
+   Keep status = "pending".
+3. Abandon recovery must dedupe before enrollment.
+   canEnrollContactInSequence does not dedupe by family.
+   Replicate the merchant-welcome.ts alreadyEnrolled pattern:
+   check existing enrollments for same contact + application-abandoned family before creating enrollment.
+4. Closed Won must check merchant_welcome_sent before firing welcome/GHL again.
+   sendMerchantWelcomeEmail already writes audit action "merchant_welcome_sent".
+   Closed Won handler must query that marker before calling sendMerchantWelcomeEmail.
+   Re-firing Closed Won must not resend welcome email or re-trigger GHL merchant-approved workflow.
+5. Existing POST /api/merchant-applications remains final-submit only.
+   Do not weaken it. Do not overload it for in_progress drafts.
+6. Autosave route must require authenticated merchant ownership or draft access token.
+   No PATCH by application ID alone.
+7. Public duplicate check must be generic and rate-limited.
+   No matched application details, no full EIN, no internal status.
+8. Share Application Link must use prefillToken only.
+   No public contactId/dealId params.
+9. Multiple open deals must require selection or a deterministic safe rule.
+   Do not silently attach the wrong deal.
+
+The two biggest plan changes are separate draft endpoints and Closed Won welcome/GHL idempotency. Without those, the wave could accidentally fire automations during draft creation or duplicate merchant onboarding when a deal is re-saved.
+
+Final call: once those are in the plan, #639 is build-ready.

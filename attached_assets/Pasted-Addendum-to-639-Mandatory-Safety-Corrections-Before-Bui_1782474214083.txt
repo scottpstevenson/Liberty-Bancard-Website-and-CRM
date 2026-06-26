@@ -1,0 +1,117 @@
+Addendum to 639 — Mandatory Safety Corrections Before Build
+
+Do not replace the full Wave 10 prompt. Apply these corrections to the existing #639 task before building.
+
+1. Autosave ownership is mandatory
+
+Do not implement merchant-side autosave by application ID alone.
+
+If the application is authenticated, verify the application belongs to the authenticated merchant/contact/account.
+
+If the application is public/unauthenticated, draft creation must return a high-entropy draft access token/secret. Every autosave/finalize request must require that token.
+
+Kill line:
+
+Stop if autosave cannot prove ownership or draft access for the application being patched.
+
+2. Do not use the final submit endpoint for drafts unless proven side-effect free
+
+Before using POST /api/merchant-applications to create in_progress drafts, verify it does not trigger final-submit side effects such as emails, GHL sync, notifications, consent writes, final status changes, or duplicate automation.
+
+If it has final-submit side effects, create a separate safe draft route:
+
+POST /api/merchant-applications/draft
+PATCH /api/merchant-applications/:id/autosave
+PATCH /api/merchant-applications/:id/finalize
+
+Final submit must finalize the same draft record, not create a second application.
+
+3. Public duplicate check must not enable enumeration
+
+POST /api/merchant-applications/check-duplicate must return only generic duplicate status.
+
+It must not expose:
+
+application ID
+contact ID
+deal ID
+owner name
+internal status
+full EIN
+matched email
+
+Use existing public rate-limit patterns if available.
+
+If Step 1 does not collect EIN yet, do not hard-block on email-only unless product explicitly approves that tradeoff. Email-only duplicate checks can leak whether someone has an application.
+
+4. Closed Won idempotency must cover all side effects
+
+The Closed Won patch must prevent duplicates for:
+
+onboarding deal
+five SLA tasks
+merchant welcome email
+GHL_WORKFLOW_MERCHANT_APPROVED trigger
+
+Do not only check for duplicate onboarding deal/tasks.
+
+Welcome email and GHL workflow must also fire once only. Use existing audit/log/sent markers if available. If no marker exists, fire only when the onboarding deal is newly created, or add a safe idempotency marker if the schema supports it.
+
+Kill line:
+
+Stop if re-firing Closed Won can still create duplicate onboarding deals, duplicate SLA tasks, duplicate welcome emails, or duplicate GHL workflow triggers.
+
+5. Abandon recovery must be idempotent
+
+The onboarding-reminder job must not re-enroll the same stale application every 4 hours.
+
+Before enrolling in application-abandoned, check one of:
+
+existing sequence enrollment for same contact + application-abandoned family
+existing audit/log marker for this application recovery
+application-level recovery marker if schema supports it
+
+Never send email/SMS directly from the job. Enrollment must go through existing Wave 6 sequence eligibility/enrollment path.
+
+6. Multiple deals on Contact Detail cannot be guessed silently
+
+For Share Application Link:
+
+* If exactly one eligible open deal exists, use it.
+* If multiple eligible open deals exist, require selection or show clear choices.
+* Do not silently choose the “most recent” if that could attach the wrong deal.
+
+7. KYC category migration must verify DB constraint behavior
+
+Adding KYC to DOCUMENT_CATEGORIES is required, but first verify whether it is only a TypeScript const/Zod enum or also backed by a DB constraint/enum.
+
+Create a migration only if the database requires it.
+
+Use existing document status:
+
+pending
+
+Do not introduce pending_review.
+
+8. KYC document ownership must be derived server-side
+
+Merchant KYC upload must not trust arbitrary contactId, dealId, or applicationId from the client.
+
+Ownership should come from authenticated merchant profile/session or verified draft/application context.
+
+Admin document vault can filter KYC docs, but document URLs and approve/reject remain admin/manager guarded.
+
+9. Final report must explicitly prove these items
+
+Add to final report:
+
+autosave ownership model used
+whether final-submit endpoint had side effects
+duplicate endpoint enumeration protection
+Closed Won duplicate welcome/GHL prevention
+abandon recovery idempotency mechanism
+multiple-deal handling for Share Application Link
+KYC DB constraint/migration finding
+KYC document ownership enforcement
+
+These are mandatory before approving the build.
