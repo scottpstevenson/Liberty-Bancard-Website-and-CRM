@@ -507,17 +507,59 @@ async function testMerchantApplication(): Promise<void> {
     assert("PEWC consent log check", false, "skipped — contact not created");
   }
 
-  // Step 4d: Duplicate EIN check — after finalize sets EIN, check-duplicate must return exists=true
+  // Step 4d: Duplicate-finalize enforcement — a second draft finalized with the same EIN must return 409
+  // from the finalize endpoint itself (not just check-duplicate), proving finalize-path EIN gating works.
+  let dup2DraftRes: Response;
   try {
-    const dupCheckRes = await fetch(`${BASE_URL}/api/merchant-applications/check-duplicate`, {
+    dup2DraftRes = await fetch(`${BASE_URL}/api/merchant-applications/draft`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ein: testEin }),
+      body: JSON.stringify({
+        legalBusinessName: "QA_DUP_FINALIZE Co",
+        ownerEmail: uniqueEmail("qa-dup-finalize"),
+        vertical: "restaurant",
+      }),
     });
-    const dupBody = await dupCheckRes.json().catch(() => null);
-    assert("Duplicate EIN check returns exists=true after finalize", dupBody?.exists === true, `status=${dupCheckRes.status} body=${JSON.stringify(dupBody)}`);
   } catch (err) {
-    assert("Duplicate EIN check endpoint reachable", false, String(err));
+    assert("Duplicate-finalize: second draft endpoint reachable", false, String(err));
+    return;
+  }
+
+  const dup2Body = await dup2DraftRes.json().catch(() => null);
+  const dup2Id = dup2Body?.id;
+  const dup2Token = dup2Body?.draftToken;
+  if (dup2Id) cleanupAppIds.push(dup2Id);
+
+  if (dup2Id && dup2Token) {
+    let dup2FinalRes: Response;
+    try {
+      dup2FinalRes = await fetch(`${BASE_URL}/api/merchant-applications/${dup2Id}/finalize`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "x-draft-token": dup2Token,
+        },
+        body: JSON.stringify({
+          ownerEmail: uniqueEmail("qa-dup-finalize2"),
+          ownerFirstName: "Dup",
+          ownerLastName: "Test",
+          legalBusinessName: "QA_DUP_FINALIZE Co",
+          businessPhone: "3055550055",
+          vertical: "restaurant",
+          pewcConsent: false,
+          ein: testEin,
+        }),
+      });
+      assert(
+        "Second finalize with duplicate EIN returns 409 (finalize-path duplicate enforcement)",
+        dup2FinalRes.status === 409,
+        `status=${dup2FinalRes.status} — expected 409 (duplicate EIN blocked at finalize endpoint)`
+      );
+    } catch (err) {
+      assert("Duplicate-finalize: second finalize endpoint reachable", false, String(err));
+    }
+  } else {
+    assert("Duplicate-finalize: second draft returned id and draftToken", false, `id=${dup2Id} token=${dup2Token}`);
   }
 }
 

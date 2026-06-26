@@ -66,7 +66,7 @@ const CALL_SITE_ALLOWLIST: Array<{
   file: string;
   lineContains: string;
   channel: string;
-  category: "transactional_merchant" | "internal_admin" | "pipeline_gated" | "sequence_worker";
+  category: "transactional_merchant" | "internal_admin" | "pipeline_gated" | "sequence_worker" | "admin_gated";
   reason: string;
   reviewDate: string;
 }> = [
@@ -373,55 +373,196 @@ const CALL_SITE_ALLOWLIST: Array<{
     reason: "Savings analysis result SMTP fallback — triggered by specific contact's savings analysis request when GHL is not configured. Reviewed and approved.",
     reviewDate: "2026-06-26",
   },
+  // ── Non-email send sites: admin_gated routes (operator-initiated only) ──────
+  {
+    file: "server/routes/activity.ts",
+    lineContains: "sendGhlSms",
+    channel: "sms",
+    category: "admin_gated",
+    reason: "Manual SMS from activity-feed route — triggered by authenticated dashboard user action; not automated outreach. Reviewed 2026-06-26.",
+    reviewDate: "2026-06-26",
+  },
+  {
+    file: "server/routes/contacts.ts",
+    lineContains: "enrollContactInGhlWorkflow",
+    channel: "ringless_vm/workflow",
+    category: "admin_gated",
+    reason: "GHL workflow enrollment from contacts management route — operator-initiated re-engagement or sequence trigger for a specific contact. Reviewed 2026-06-26.",
+    reviewDate: "2026-06-26",
+  },
+  {
+    file: "server/routes/helpers.ts",
+    lineContains: "sendGhlSms",
+    channel: "sms",
+    category: "admin_gated",
+    reason: "Helper SMS utility — invoked by authenticated dashboard routes after an agent creates or updates a contact. Reviewed 2026-06-26.",
+    reviewDate: "2026-06-26",
+  },
+  {
+    file: "server/routes/integrations.ts",
+    lineContains: "sendGhlSms({ contactId, dealId",
+    channel: "sms",
+    category: "admin_gated",
+    reason: "Manual SMS from integrations panel — authenticated admin/agent sends to a specific contact by ID. Reviewed 2026-06-26.",
+    reviewDate: "2026-06-26",
+  },
+  {
+    file: "server/routes/integrations.ts",
+    lineContains: "sendGhlSms({ contactId, body: personalizedMsg",
+    channel: "sms",
+    category: "admin_gated",
+    reason: "Personalised batch SMS from admin integrations panel — operator-initiated; contacts are existing active-sequence members already in pipeline. Reviewed 2026-06-26.",
+    reviewDate: "2026-06-26",
+  },
+  {
+    file: "server/routes/partners.ts",
+    lineContains: "enrollContactInGhlWorkflow",
+    channel: "ringless_vm/workflow",
+    category: "admin_gated",
+    reason: "Partner sequence enrollment via partners management route — operator-initiated on partner approval or management action. Reviewed 2026-06-26.",
+    reviewDate: "2026-06-26",
+  },
+  {
+    file: "server/routes/sdr.ts",
+    lineContains: "triggerAiCall(merchantId, botMode)",
+    channel: "voice_ai",
+    category: "admin_gated",
+    reason: "Manual voice AI trigger from authenticated SDR manual-dial endpoint — operator-initiated, not automated outreach. Reviewed 2026-06-26.",
+    reviewDate: "2026-06-26",
+  },
+  // ── Non-email send sites: transactional services (one-to-one, contact-action-triggered) ──
+  {
+    file: "server/services/ghl-form-sync.ts",
+    lineContains: "triggerWorkflow",
+    channel: "ringless_vm/workflow",
+    category: "transactional_merchant",
+    reason: "GHL workflow enrollment triggered by form-submission sync (statement upload, support ticket, get-started form) — sends only to the contact who just submitted the form. 3 call sites in file; all transactional. Reviewed 2026-06-26.",
+    reviewDate: "2026-06-26",
+  },
+  {
+    file: "server/services/ghl-workflows.ts",
+    lineContains: "triggerWorkflow",
+    channel: "ringless_vm/workflow",
+    category: "transactional_merchant",
+    reason: "Centralised GHL workflow service — invoked by specific business events (merchant approval, partner welcome, onboarding) for the relevant contact only. Reviewed 2026-06-26.",
+    reviewDate: "2026-06-26",
+  },
+  {
+    file: "server/services/merchant-welcome.ts",
+    lineContains: "triggerWorkflow",
+    channel: "ringless_vm/workflow",
+    category: "transactional_merchant",
+    reason: "Merchant welcome workflow enrollment — triggered by closed_won/approval event, sends only to the newly approved merchant. 2 call sites; both transactional. Reviewed 2026-06-26.",
+    reviewDate: "2026-06-26",
+  },
+  {
+    file: "server/services/partner-welcome.ts",
+    lineContains: "triggerWorkflow",
+    channel: "ringless_vm/workflow",
+    category: "transactional_merchant",
+    reason: "Partner welcome workflow enrollment — triggered by partner-approval event, sends only to the newly approved partner. Reviewed 2026-06-26.",
+    reviewDate: "2026-06-26",
+  },
+  {
+    file: "server/services/workflow-executor.ts",
+    lineContains: "sendGhlSms({ contactId, dealId, body",
+    channel: "sms",
+    category: "transactional_merchant",
+    reason: "Workflow-executor SMS action step — executed per-contact as part of a CRM workflow step, not a broadcast. Reviewed 2026-06-26.",
+    reviewDate: "2026-06-26",
+  },
+  // ── Non-email send sites: pipeline_gated SDR (evaluateContactability at orchestrator top-of-pipeline) ──
+  {
+    file: "server/services/sdr/chat-handlers.ts",
+    lineContains: "sendSmsReply",
+    channel: "sms",
+    category: "pipeline_gated",
+    reason: "SDR chat-handler SMS reply — invoked within the SDR pipeline whose entry point (orchestrator.ts) enforces evaluateContactability before any downstream handler. Reviewed 2026-06-26.",
+    reviewDate: "2026-06-26",
+  },
+  {
+    file: "server/services/sdr/orchestrator.ts",
+    lineContains: "sendGhlSms",
+    channel: "sms",
+    category: "pipeline_gated",
+    reason: "SDR orchestrator outbound SMS — this IS the evaluateContactability gate file; the gate runs before the send on the same pipeline tick. Reviewed 2026-06-26.",
+    reviewDate: "2026-06-26",
+  },
+  {
+    file: "server/services/sdr/proposal-tracking.ts",
+    lineContains: "sendGhlSms({ contactId: lead.contactId, body: smsBody",
+    channel: "sms",
+    category: "pipeline_gated",
+    reason: "SDR proposal-tracking SMS follow-up — invoked after evaluateContactability passes at orchestrator level; proposal tracking is a downstream pipeline step. Reviewed 2026-06-26.",
+    reviewDate: "2026-06-26",
+  },
+  {
+    file: "server/services/sdr/reply-intelligence.ts",
+    lineContains: "triggerAiCall(merchantId, \"intro_qualification\")",
+    channel: "voice_ai",
+    category: "pipeline_gated",
+    reason: "SDR reply-intelligence voice trigger — invoked after intent classification in the gated SDR pipeline; evaluateContactability enforced at orchestrator before pipeline entry. Reviewed 2026-06-26.",
+    reviewDate: "2026-06-26",
+  },
+  {
+    file: "server/services/sdr/scheduling.ts",
+    lineContains: "triggerWorkflow",
+    channel: "ringless_vm/workflow",
+    category: "pipeline_gated",
+    reason: "SDR scheduling workflow triggers (booking confirmation and 24-hour reminder) — invoked after successful appointment booking in the gated SDR pipeline. 2 call sites. Reviewed 2026-06-26.",
+    reviewDate: "2026-06-26",
+  },
+  {
+    file: "server/services/sdr/statement-flow.ts",
+    lineContains: "sendGhlSms({ contactId: lead.contactId",
+    channel: "sms",
+    category: "pipeline_gated",
+    reason: "SDR statement-flow SMS (upload link and follow-up nudge) — invoked from the gated SDR pipeline after evaluateContactability passes at orchestrator. 2 call sites. Reviewed 2026-06-26.",
+    reviewDate: "2026-06-26",
+  },
+  {
+    file: "server/services/sdr/voice-orchestrator.ts",
+    lineContains: "triggerWorkflow",
+    channel: "ringless_vm/workflow",
+    category: "pipeline_gated",
+    reason: "Voice orchestrator GHL workflow trigger — routes voice AI call via GHL workflow in the gated SDR pipeline. Reviewed 2026-06-26.",
+    reviewDate: "2026-06-26",
+  },
+  {
+    file: "server/services/sdr/voice-orchestrator.ts",
+    lineContains: "sendGhlSms({ contactId: contact.id",
+    channel: "sms",
+    category: "pipeline_gated",
+    reason: "Voice orchestrator voicemail SMS fallback — sent to the contact after a missed AI call, within the gated SDR pipeline. Reviewed 2026-06-26.",
+    reviewDate: "2026-06-26",
+  },
+  // ── Non-email send sites: sequence_worker (canEnrollContactInSequence gate per step) ──────────────
+  {
+    file: "server/services/sequence-worker.ts",
+    lineContains: "enrollContactInGhlWorkflow",
+    channel: "ringless_vm/workflow",
+    category: "sequence_worker",
+    reason: "Sequence-worker GHL workflow enrollment step — canEnrollContactInSequence is called before each sequence step execution. Reviewed 2026-06-26.",
+    reviewDate: "2026-06-26",
+  },
+  {
+    file: "server/services/sequence-worker.ts",
+    lineContains: "sendGhlSms",
+    channel: "sms",
+    category: "sequence_worker",
+    reason: "Sequence-worker SMS step — executed only after canEnrollContactInSequence passes; each step is individually gated by the sequence-worker. Reviewed 2026-06-26.",
+    reviewDate: "2026-06-26",
+  },
+  {
+    file: "server/services/sequence-worker.ts",
+    lineContains: "triggerAiCall(merchant.id, callMode)",
+    channel: "voice_ai",
+    category: "sequence_worker",
+    reason: "Sequence-worker voice AI step — executed only after canEnrollContactInSequence passes; each step is individually gated. Reviewed 2026-06-26.",
+    reviewDate: "2026-06-26",
+  },
 ];
 
-/**
- * File-level context rules.
- * Files in this map have their non-email sends (SMS/voice/RVM/workflow) evaluated
- * against the stated context instead of requiring a per-call evaluateContactability gate.
- *
- * "admin_gated"      — route requires requireRole/isAuthenticated; operator-initiated, not automated outreach.
- * "transactional"    — always sends to the specific contact that just performed an action (form submit, approval, etc.).
- * "pipeline_gated"   — called from the SDR pipeline whose orchestrator enforces evaluateContactability at the top level.
- * "sequence_worker"  — the sequence-worker itself enforces canEnrollContactInSequence before enrolling.
- */
-const FILE_CONTEXT_RULES: Map<string, "admin_gated" | "transactional" | "pipeline_gated" | "sequence_worker"> = new Map([
-  // Admin-gated API routes — sends triggered only by authenticated admin/manager/agent action
-  ["server/routes/activity.ts",     "admin_gated"],
-  ["server/routes/admin.ts",        "admin_gated"],
-  ["server/routes/analytics.ts",    "admin_gated"],
-  ["server/routes/contacts.ts",     "admin_gated"],
-  ["server/routes/helpers.ts",      "admin_gated"],
-  ["server/routes/integrations.ts", "admin_gated"],
-  ["server/routes/notifications.ts","admin_gated"],
-  ["server/routes/partners.ts",     "admin_gated"],
-  ["server/routes/residuals.ts",    "admin_gated"],
-  ["server/routes/sdr.ts",          "admin_gated"],
-  // Transactional services — triggered by a specific merchant/partner action
-  ["server/services/ghl-form-sync.ts",        "transactional"],
-  ["server/services/ghl-workflows.ts",         "transactional"],
-  ["server/services/merchant-welcome.ts",      "transactional"],
-  ["server/services/partner-welcome.ts",       "transactional"],
-  ["server/services/proposal-engine.ts",       "transactional"],
-  ["server/services/sla-worker.ts",            "transactional"],
-  ["server/services/statement-upload-chain.ts","transactional"],
-  ["server/services/workflow-executor.ts",     "transactional"],
-  ["server/routes/rate-review.ts",             "transactional"],
-  ["server/routes/savings.ts",                 "transactional"],
-  // Campaign engine — part of outreach pipeline; gated by CAMPAIGNS_ENABLED flag and consent tracking
-  ["server/services/campaign-engine.ts",        "pipeline_gated"],
-  // SDR pipeline — evaluateContactability enforced at orchestrator.ts top-of-pipeline
-  ["server/services/sdr/chat-handlers.ts",      "pipeline_gated"],
-  ["server/services/sdr/orchestrator.ts",       "pipeline_gated"],
-  ["server/services/sdr/proposal-tracking.ts",  "pipeline_gated"],
-  ["server/services/sdr/reply-intelligence.ts", "pipeline_gated"],
-  ["server/services/sdr/scheduling.ts",         "pipeline_gated"],
-  ["server/services/sdr/statement-flow.ts",     "pipeline_gated"],
-  ["server/services/sdr/terminal-shipping.ts",  "pipeline_gated"],
-  ["server/services/sdr/voice-orchestrator.ts", "pipeline_gated"],
-  // Sequence worker — canEnrollContactInSequence enforces gate before each step
-  ["server/services/sequence-worker.ts", "sequence_worker"],
-]);
 
 /** Send function → channel mapping. */
 const SEND_FUNCTIONS: Record<string, string> = {
@@ -577,12 +718,7 @@ function classifyEmailCategory(
     return "marketing_outreach";
   }
 
-  // Routes/services not yet classified — if in FILE_CONTEXT_RULES as transactional or admin, they'll be handled there
-  const fileCtx = FILE_CONTEXT_RULES.get(relFile);
-  if (fileCtx === "transactional") return "transactional_merchant";
-  if (fileCtx === "admin_gated") return "internal_admin";
-
-  // Default to unknown — requires manual classification
+  // Default to unknown — requires manual classification via CALL_SITE_ALLOWLIST
   return "unknown";
 }
 
@@ -605,6 +741,9 @@ function scanFile(absPath: string): Finding[] {
 
       // Skip comment lines
       if (/^\s*\/\//.test(line) || /^\s*\*/.test(line)) return;
+
+      // Skip function definition lines — the scanner looks for call sites, not declarations
+      if (new RegExp(`function\\s+${funcName}\\b`).test(line)) return;
 
       const lineNum = idx + 1;
 
@@ -640,7 +779,9 @@ function scanFile(absPath: string): Finding[] {
           line: lineNum,
           enclosingFunction,
           channel,
-          emailCategory: allowlistEntry.category,
+          emailCategory: (allowlistEntry.category === "admin_gated" ? "internal_admin"
+            : allowlistEntry.category === "pipeline_gated" || allowlistEntry.category === "sequence_worker" ? "sequence_step"
+            : allowlistEntry.category) as EmailCategory,
           nearestGate,
           reason: `Call-site allowlisted (reviewed ${allowlistEntry.reviewDate}): ${allowlistEntry.reason}`,
           suggestedFix: "No action required.",
@@ -664,31 +805,11 @@ function scanFile(absPath: string): Finding[] {
         return;
       }
 
-      // FAIL: marketing_outreach or sequence_step without a visible gate
-      // — only admin_gated and transactional FILE_CONTEXT_RULES auto-pass here.
-      // pipeline_gated and sequence_worker email sends must have explicit CALL_SITE_ALLOWLIST entries
-      // (added above) so each reviewed send site is accounted for individually.
+      // FAIL: marketing_outreach or sequence_step email without a visible gate.
+      // All such sends must either have an evaluateContactability gate within 120 lines
+      // OR an explicit CALL_SITE_ALLOWLIST entry (checked above). No file-level auto-pass.
       if (isEmailChannel && (emailCategory === "marketing_outreach" || emailCategory === "sequence_step")) {
         if (nearestGate === "none") {
-          const fileCtxEmail = FILE_CONTEXT_RULES.get(rel);
-          if (fileCtxEmail === "admin_gated" || fileCtxEmail === "transactional") {
-            const ctxLabels: Record<string, string> = {
-              admin_gated:   "admin-gated route — operator-initiated only",
-              transactional: "transactional service — one-to-one send on contact action",
-            };
-            findings.push({
-              verdict: "PASS",
-              file: rel,
-              line: lineNum,
-              enclosingFunction,
-              channel,
-              emailCategory,
-              nearestGate: `file-context: ${fileCtxEmail}`,
-              reason: ctxLabels[fileCtxEmail],
-              suggestedFix: "No action required.",
-            });
-            return;
-          }
           findings.push({
             verdict: "FAIL",
             file: rel,
@@ -697,17 +818,17 @@ function scanFile(absPath: string): Finding[] {
             channel,
             emailCategory,
             nearestGate,
-            reason: `${emailCategory} email send lacks visible evaluateContactability gate within 120 lines upstream.`,
-            suggestedFix: `Ensure evaluateContactability() is called before ${funcName}() in ${enclosingFunction}(), or add file to FILE_CONTEXT_RULES in compliance-scan.ts if this file is always called from a gated context.`,
+            reason: `${emailCategory} email send lacks a visible evaluateContactability gate within 120 lines upstream and has no CALL_SITE_ALLOWLIST entry.`,
+            suggestedFix: `Ensure evaluateContactability() is called before ${funcName}() in ${enclosingFunction}(), or add an explicit entry to CALL_SITE_ALLOWLIST in scripts/compliance-scan.ts with file, lineContains, channel, category, reason, and reviewDate.`,
           });
           return;
         }
       }
 
       // FAIL: any email send with no inline gate and no CALL_SITE_ALLOWLIST entry.
-      // Every email send site must be explicitly reviewed — no file-context auto-pass for email.
-      // (The CALL_SITE_ALLOWLIST check at the top of this function returns PASS before reaching here
-      //  for all reviewed sites; this block only fires for new/unreviewed sends.)
+      // Every email send site must be explicitly reviewed — no file-level auto-pass.
+      // (The CALL_SITE_ALLOWLIST check above returns PASS before reaching here for all reviewed sites;
+      //  this block only fires for new/unreviewed sends.)
       if (isEmailChannel && nearestGate === "none") {
         findings.push({
           verdict: "FAIL",
@@ -718,35 +839,14 @@ function scanFile(absPath: string): Finding[] {
           emailCategory,
           nearestGate,
           reason: `Email send (${emailCategory ?? "unclassified"}) has no inline evaluateContactability gate and no CALL_SITE_ALLOWLIST entry. All email send sites must be explicitly reviewed.`,
-          suggestedFix: `Add an explicit entry to CALL_SITE_ALLOWLIST in scripts/compliance-scan.ts with file="${rel}", lineContains (unique substring of the call), channel, category (transactional_merchant|internal_admin|pipeline_gated|sequence_worker), reason, and reviewDate.`,
+          suggestedFix: `Add an explicit entry to CALL_SITE_ALLOWLIST in scripts/compliance-scan.ts with file="${rel}", lineContains (unique substring of the call line), channel, category (transactional_merchant|internal_admin|pipeline_gated|sequence_worker), reason, and reviewDate.`,
         });
         return;
       }
 
-      // FAIL: non-email channels (SMS/voice/RVM/workflow) without a visible gate
-      // — BUT first check FILE_CONTEXT_RULES: admin_gated, transactional, pipeline_gated, sequence_worker contexts are safe
+      // FAIL: non-email channels (SMS/voice/RVM/workflow) without a visible gate and no CALL_SITE_ALLOWLIST entry.
+      // All send sites must have either an evaluateContactability gate in-scope OR an explicit CALL_SITE_ALLOWLIST entry.
       if (!isEmailChannel && nearestGate === "none") {
-        const fileCtx = FILE_CONTEXT_RULES.get(rel);
-        if (fileCtx) {
-          const ctxLabels: Record<string, string> = {
-            admin_gated:     "admin-gated route (requireRole/isAuthenticated) — operator-initiated only",
-            transactional:   "transactional service — sends to specific contact that initiated the action",
-            pipeline_gated:  "SDR pipeline file — evaluateContactability enforced at orchestrator top-of-pipeline",
-            sequence_worker: "sequence-worker — canEnrollContactInSequence gate enforced before each step",
-          };
-          findings.push({
-            verdict: "PASS",
-            file: rel,
-            line: lineNum,
-            enclosingFunction,
-            channel,
-            emailCategory: null,
-            nearestGate: `file-context: ${fileCtx}`,
-            reason: ctxLabels[fileCtx],
-            suggestedFix: "No action required.",
-          });
-          return;
-        }
         findings.push({
           verdict: "FAIL",
           file: rel,
@@ -755,33 +855,13 @@ function scanFile(absPath: string): Finding[] {
           channel,
           emailCategory: null,
           nearestGate,
-          reason: `${channel} send call lacks visible evaluateContactability gate within 120 lines upstream.`,
-          suggestedFix: `Call evaluateContactability({contactId, channel: "${channel.split("/")[0]}", mode: "enforcement"}) before ${funcName}(), or add file to FILE_CONTEXT_RULES in compliance-scan.ts with appropriate context and review date.`,
+          reason: `${channel} send call has no visible evaluateContactability gate within 120 lines upstream and no CALL_SITE_ALLOWLIST entry.`,
+          suggestedFix: `Add an explicit entry to CALL_SITE_ALLOWLIST in scripts/compliance-scan.ts with file="${rel}", lineContains (unique substring of the call line), channel="${channel}", category (admin_gated|transactional_merchant|pipeline_gated|sequence_worker), reason, and reviewDate — or add an evaluateContactability() call before ${funcName}().`,
         });
         return;
       }
 
-      // FAIL: workflow sends without a gate — also check FILE_CONTEXT_RULES
-      if (channel.includes("workflow") && nearestGate === "none") {
-        const fileCtx = FILE_CONTEXT_RULES.get(rel);
-        if (fileCtx) {
-          findings.push({
-            verdict: "PASS",
-            file: rel,
-            line: lineNum,
-            enclosingFunction,
-            channel,
-            emailCategory,
-            nearestGate: `file-context: ${fileCtx}`,
-            reason: `Workflow send in ${fileCtx} context — reviewed and approved.`,
-            suggestedFix: "No action required.",
-          });
-          return;
-        }
-      }
-
-      // PASS: gate found, or transactional/internal_admin category, or file-context approved
-      const fileCtxForPass = FILE_CONTEXT_RULES.get(rel);
+      // PASS: gate found within scope (all remaining sends reached here with nearestGate !== "none")
       findings.push({
         verdict: "PASS",
         file: rel,
@@ -789,10 +869,10 @@ function scanFile(absPath: string): Finding[] {
         enclosingFunction,
         channel,
         emailCategory,
-        nearestGate: fileCtxForPass && nearestGate === "none" ? `file-context: ${fileCtxForPass}` : nearestGate,
+        nearestGate,
         reason: isEmailChannel
-          ? `${emailCategory} email send — ${nearestGate !== "none" ? `gate at ${nearestGate}` : `file-context: ${fileCtxForPass ?? "transactional/internal_admin"}`}`
-          : `${channel} send — ${nearestGate !== "none" ? `gate at ${nearestGate}` : `file-context: ${fileCtxForPass ?? "allowlisted"}`}`,
+          ? `${emailCategory} email send — gate at ${nearestGate}`
+          : `${channel} send — gate at ${nearestGate}`,
         suggestedFix: "No action required.",
       });
     });
