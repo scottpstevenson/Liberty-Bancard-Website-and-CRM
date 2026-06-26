@@ -1,6 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { SEO, getLocalBusinessSchema, getWebSiteSchema } from "@/components/SEO";
-import { LazyVideoEmbed } from "@/components/LazyVideoEmbed";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { WelcomePopup } from "@/components/WelcomePopup";
@@ -38,7 +37,6 @@ import {
   Quote,
   Clock,
   DollarSign,
-  AlertTriangle,
   Users,
   BadgeCheck,
   Phone,
@@ -48,6 +46,7 @@ import {
   Loader2,
   CheckCircle,
   Calendar,
+  TrendingUp,
 } from "lucide-react";
 import logoBlue from "@assets/logo-blue.png";
 import teamCollab from "@assets/images/team-collab.png";
@@ -298,26 +297,28 @@ export default function Home() {
         </section>
 
         {/* SECTION 3: Pain Points */}
-        <section className="bg-muted/30 bg-dots py-16" data-testid="section-pain">
+        <section className="section-warm py-14" data-testid="section-pain">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <h2 className="reveal text-2xl md:text-3xl font-display font-bold text-foreground text-center mb-10" data-testid="text-pain-heading">
-              Sound Familiar?
-            </h2>
-            <div className="reveal grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="reveal max-w-2xl mx-auto text-center mb-10">
+              <h2 className="text-2xl md:text-3xl font-display font-bold text-foreground mb-3" data-testid="text-pain-heading">
+                Sound Familiar?
+              </h2>
+              <p className="text-sm text-muted-foreground">The four patterns that show up most on the statements we review.</p>
+            </div>
+            <div className="reveal grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               {[
-                { icon: AlertTriangle, text: "You were quoted 1.5% but your statement shows 3%+", color: "text-red-500" },
-                { icon: DollarSign, text: "Monthly fees keep creeping up and nobody explains why", color: "text-amber-500" },
-                { icon: Clock, text: "Deposits are unpredictable and you can't plan cash flow", color: "text-orange-500" },
-                { icon: Phone, text: "You call support and get a call center, not an answer", color: "text-red-500" },
+                { icon: TrendingUp, chip: "Rate Mismatch", text: "You were quoted 1.5% — but your statement shows 3%+ all-in." },
+                { icon: DollarSign, chip: "Fee Creep", text: "Monthly fees keep climbing and nobody explains why." },
+                { icon: Clock, chip: "Funding Uncertainty", text: "Deposits land whenever, so cash flow is a guessing game." },
+                { icon: Phone, chip: "Support Gap", text: "You call support and reach a call center, not an answer." },
               ].map((item, i) => (
-                <Card key={i} data-testid={`card-pain-${i}`}>
-                  <CardContent className="p-5 flex items-start gap-3">
-                    <div className="w-10 h-10 rounded-md bg-muted flex items-center justify-center shrink-0">
-                      <item.icon className={`w-5 h-5 ${item.color}`} />
-                    </div>
-                    <p className="text-sm text-foreground leading-relaxed">{item.text}</p>
-                  </CardContent>
-                </Card>
+                <div key={i} className="group rounded-lg border border-border bg-card p-4 shadow-card hover-elevate" data-testid={`card-pain-${i}`}>
+                  <div className="flex items-center gap-2 mb-2.5">
+                    <item.icon className="w-4 h-4 text-stat-negative shrink-0" />
+                    <span className="report-chip report-chip-negative">{item.chip}</span>
+                  </div>
+                  <p className="text-sm text-foreground leading-relaxed">{item.text}</p>
+                </div>
               ))}
             </div>
             <p className="text-center text-muted-foreground mt-8 text-sm" data-testid="text-pain-resolution">
@@ -327,54 +328,60 @@ export default function Home() {
         </section>
 
         {/* SECTION 3.5: By the Numbers — light report ledger */}
-        <section className="reveal relative bg-background border-y border-border py-16 md:py-20" data-testid="section-stats">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <section className="reveal section-navy relative overflow-hidden py-16 md:py-20" data-testid="section-stats">
+          <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.08]" aria-hidden="true" />
+          <div className="absolute top-0 left-0 right-0 h-[3px] bg-accent" aria-hidden="true" />
+          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex items-center justify-center gap-2 mb-2">
-              <span className="num text-[11px] font-semibold uppercase tracking-[0.18em] text-accent">Liberty Bancard</span>
+              <span className="num text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-300">Liberty Bancard</span>
             </div>
-            <h2 className="text-2xl md:text-3xl font-bold text-foreground text-center mb-10 md:mb-12" data-testid="text-stats-heading">
+            <h2 className="text-2xl md:text-3xl font-bold text-white text-center mb-10 md:mb-12" data-testid="text-stats-heading">
               By the Numbers
             </h2>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6">
-              <div ref={stat1.ref} className="accent-rule rounded-lg border border-border bg-card p-6 pt-7 shadow-card" data-testid="stat-years">
-                <div className="num text-5xl md:text-6xl font-bold text-primary mb-2 tracking-tight">{stat1.display}</div>
-                <div className="text-sm font-semibold text-foreground">Years in Business</div>
-                <div className="text-xs text-muted-foreground mt-1">South Florida roots, nationwide reach</div>
+              <div ref={stat1.ref} className="rounded-lg border border-white/15 bg-white/10 p-6 backdrop-blur-sm" data-testid="stat-years">
+                <div className="num text-5xl md:text-6xl font-bold text-white mb-2 tracking-tight">{stat1.display}</div>
+                <div className="text-sm font-semibold text-white">Years in Business</div>
+                <div className="text-xs text-white/65 mt-1">South Florida roots, nationwide reach</div>
               </div>
-              <div ref={stat2.ref} className="accent-rule rounded-lg border border-border bg-card p-6 pt-7 shadow-card" data-testid="stat-merchants">
-                <div className="num text-5xl md:text-6xl font-bold text-primary mb-2 tracking-tight">{stat2.display}</div>
-                <div className="text-sm font-semibold text-foreground">Merchants Served</div>
-                <div className="text-xs text-muted-foreground mt-1">Across every major vertical</div>
+              <div ref={stat2.ref} className="rounded-lg border border-white/15 bg-white/10 p-6 backdrop-blur-sm" data-testid="stat-merchants">
+                <div className="num text-5xl md:text-6xl font-bold text-white mb-2 tracking-tight">{stat2.display}</div>
+                <div className="text-sm font-semibold text-white">Merchants Served</div>
+                <div className="text-xs text-white/65 mt-1">Across every major vertical</div>
               </div>
-              <div className="accent-rule rounded-lg border border-border bg-card p-6 pt-7 shadow-card" data-testid="stat-support">
-                <div className="flex items-center gap-2 mb-2">
-                  <Headphones className="w-9 h-9 text-accent" />
+              <div className="rounded-lg border border-white/15 bg-white/10 p-6 backdrop-blur-sm" data-testid="stat-support">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-md bg-accent/25 border border-accent/30 shrink-0">
+                    <Headphones className="w-6 h-6 text-sky-300" />
+                  </div>
+                  <span className="report-chip bg-white/10 border-white/20 text-sky-200">Every statement</span>
                 </div>
-                <div className="text-sm font-semibold text-foreground">Human Review Support</div>
-                <div className="text-xs text-muted-foreground mt-1">A real person reads every statement you send</div>
+                <div className="text-sm font-semibold text-white mt-3">Human Review Support</div>
+                <div className="text-xs text-white/65 mt-1">A real person reads every statement you send</div>
               </div>
             </div>
           </div>
         </section>
 
         {/* SECTION 3.7: Processing Infrastructure & Compliance */}
-        <section className="reveal bg-muted/30 border-b border-border py-12" data-testid="section-partners">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <p className="text-center num text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground mb-8">
-              Processing Infrastructure &amp; Compliance
+        <section className="reveal bg-background border-b border-border py-12" data-testid="section-partners">
+          <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+            <p className="text-center text-lg md:text-xl font-display font-bold text-foreground mb-2">
+              Reviewed with the rules your processor already uses
             </p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
+            <p className="text-center text-sm text-muted-foreground mb-8 max-w-xl mx-auto">
+              Every review is grounded in the same card-brand and compliance framework your current provider operates under.
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
               {[
-                { name: "Visa", icon: BadgeCheck },
-                { name: "Mastercard", icon: BadgeCheck },
-                { name: "Discover", icon: BadgeCheck },
-                { name: "Amex", icon: BadgeCheck },
-                { name: "PCI DSS", icon: ShieldCheck },
-                { name: "EMV Chip", icon: ShieldCheck },
-              ].map((partner, i) => (
-                <div key={i} className="flex items-center justify-center gap-2 rounded-md border border-border bg-card px-3 py-3 shadow-card" data-testid={`partner-logo-${i}`}>
-                  <partner.icon className="w-4 h-4 text-accent shrink-0" />
-                  <span className="text-xs font-semibold text-foreground">{partner.name}</span>
+                { name: "Card-brand aware review", icon: BadgeCheck },
+                { name: "PCI-aware documentation", icon: ShieldCheck },
+                { name: "Funding & setup clarity", icon: Banknote },
+                { name: "Human support throughout", icon: Headphones },
+              ].map((item, i) => (
+                <div key={i} className="flex flex-col items-center text-center gap-2 rounded-md border border-border bg-card px-3 py-4 shadow-card" data-testid={`partner-logo-${i}`}>
+                  <item.icon className="w-5 h-5 text-accent shrink-0" />
+                  <span className="text-xs font-semibold text-foreground leading-snug">{item.name}</span>
                 </div>
               ))}
             </div>
@@ -382,40 +389,54 @@ export default function Home() {
         </section>
 
         {/* SECTION 4: What You Get */}
-        <section className="bg-background bg-grid py-20" data-testid="section-what-you-get">
+        <section className="section-warm py-20" data-testid="section-what-you-get">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-start">
-              <div className="reveal">
-                <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-what-you-get-heading">
-                  What You Get From The Liberty Analysis
+            <div className="grid grid-cols-1 lg:grid-cols-[1.1fr_0.9fr] gap-10 lg:gap-12 items-start">
+              <div className="reveal accent-rule pt-5">
+                <span className="num text-[11px] font-semibold uppercase tracking-[0.18em] text-accent">The Deliverable</span>
+                <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4 mt-2" data-testid="text-what-you-get-heading">
+                  What Your Liberty Review Includes
                 </h2>
-                <p className="text-muted-foreground mb-8">Not a quote. Not a pitch. A clear breakdown of what you're paying and why.</p>
-                <ul className="space-y-5 mb-8">
-                  {[
-                    { title: "Your true effective rate", desc: "Total fees divided by total volume. The one number that tells the truth." },
-                    { title: "Every cost driver identified", desc: "Card mix, downgrades, monthly add-ons, batch fees, PCI charges - all of it." },
-                    { title: "2-3 clear options with real math", desc: "Apples-to-apples comparison. No vague promises or bait-and-switch." },
-                    { title: "Funding timeline clarity", desc: "When your money hits your account and what affects timing.*" },
-                    { title: "Implementation plan", desc: "Terminal setup, onboarding steps, and ongoing support - mapped out." },
-                  ].map((item, i) => (
-                    <li key={i} className="flex items-start gap-3" data-testid={`what-you-get-bullet-${i}`}>
-                      <CheckCircle2 className="w-5 h-5 text-emerald-500 mt-0.5 shrink-0" />
-                      <div>
-                        <span className="text-foreground font-medium">{item.title}</span>
-                        <p className="text-sm text-muted-foreground mt-0.5">{item.desc}</p>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
+                <p className="text-muted-foreground mb-7">Not a quote. Not a pitch. A clear breakdown of what you're paying and why.</p>
+                <div className="rounded-xl border border-border bg-card shadow-card overflow-hidden">
+                  <div className="flex items-center justify-between gap-3 border-b border-border bg-muted/40 px-5 py-3">
+                    <span className="text-sm font-semibold text-foreground">Review Contents</span>
+                    <span className="num text-[10px] uppercase tracking-[0.16em] text-muted-foreground">6 sections</span>
+                  </div>
+                  <ul className="ledger-texture divide-y divide-border/70">
+                    {[
+                      { chip: "Effective Rate", title: "Your true effective rate", desc: "Total fees divided by total volume — the one number that tells the truth." },
+                      { chip: "Fee Drivers", title: "Fee driver map", desc: "Card mix, downgrades, monthly add-ons, batch fees, PCI charges — all of it." },
+                      { chip: "Downgrades", title: "Downgrade review", desc: "Where transactions slip to higher-cost categories, and why." },
+                      { chip: "Add-Ons", title: "Monthly add-on breakdown", desc: "Recurring line items, itemized and explained." },
+                      { chip: "Funding", title: "Funding timeline*", desc: "When your money hits your account and what affects timing." },
+                      { chip: "Options", title: "Options summary", desc: "2–3 clear options with real, apples-to-apples math." },
+                    ].map((item, i) => (
+                      <li key={i} className="flex items-start gap-3 px-5 py-3.5" data-testid={`what-you-get-bullet-${i}`}>
+                        <span className="report-chip report-chip-neutral mt-0.5 shrink-0 w-[92px] justify-center">{item.chip}</span>
+                        <div className="min-w-0">
+                          <span className="text-foreground font-medium text-sm">{item.title}</span>
+                          <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{item.desc}</p>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               </div>
               <div className="reveal reveal-delay-2 lg:sticky lg:top-32">
-                <Card className="border-2 border-primary/20">
-                  <CardContent className="p-6 text-center">
-                    <ShieldCheck className="w-10 h-10 text-primary mx-auto mb-4" />
+                <Card className="border-2 border-primary/20 overflow-hidden">
+                  <div className="flex items-center justify-between gap-3 bg-primary px-5 py-3">
+                    <div className="flex items-center gap-2">
+                      <ShieldCheck className="w-4 h-4 text-sky-300" />
+                      <span className="text-sm font-semibold text-white">Yours to Keep</span>
+                    </div>
+                    <span className="audit-stamp bg-card">No obligation</span>
+                  </div>
+                  <CardContent className="ledger-texture p-6 text-center">
                     <h3 className="text-xl font-display font-bold text-foreground mb-2" data-testid="text-keep-breakdown">You Keep the Breakdown</h3>
-                    <p className="text-muted-foreground text-sm mb-6">Even if you don't switch. Zero obligation. It's yours - use it to negotiate with your current processor if you want.</p>
+                    <p className="text-muted-foreground text-sm mb-6">Even if you don't switch. Zero obligation. It's yours — use it to negotiate with your current processor if you want.</p>
                     <Link href="/upload-statement" data-testid="link-what-you-get-upload">
-                      <Button className="w-full gap-2">
+                      <Button className="w-full gap-2" onClick={() => trackStatementUploadCtaClick({ page: "/", ctaLabel: "Get My Free Analysis", ctaLocation: "what-you-get" })}>
                         <Upload className="w-4 h-4" />
                         Get My Free Analysis
                       </Button>
@@ -428,8 +449,8 @@ export default function Home() {
           </div>
         </section>
 
-        {/* SECTION 5: How The Liberty Analysis Works */}
-        <section className="bg-muted/30 py-20" data-testid="section-how-it-works">
+        {/* SECTION 5: How The Liberty Analysis Works (+ onboarding timeline) */}
+        <section className="bg-background py-20" data-testid="section-how-it-works">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="text-center mb-2">
               <span className="inline-flex items-center gap-1.5 bg-primary/10 text-primary text-xs font-semibold px-3 py-1 rounded-md uppercase tracking-wider mb-3">The Liberty Analysis</span>
@@ -437,16 +458,17 @@ export default function Home() {
             <h2 className="reveal text-3xl md:text-4xl font-display font-bold text-foreground text-center mb-4" data-testid="text-how-heading">
               How The Liberty Analysis Works
             </h2>
-            <p className="text-center text-muted-foreground mb-12 max-w-xl mx-auto">Three clear steps. Same business day. You keep the results no matter what.</p>
-            <div className="reveal grid grid-cols-1 md:grid-cols-3 gap-8">
+            <p className="text-center text-muted-foreground mb-12 max-w-xl mx-auto">Three clear steps. Most reviews finish the same business day. You keep the results no matter what.</p>
+            <div className="reveal relative grid grid-cols-1 md:grid-cols-3 gap-8">
+              <div className="hidden md:block absolute top-7 left-[16.66%] right-[16.66%] h-0.5 bg-gradient-to-r from-border via-accent/40 to-border" aria-hidden="true" />
               {[
                 { step: "1", icon: Upload, title: "Upload Your Statement", desc: "PDF or photo. 30 seconds. Redact account numbers if you want — we only need totals and fee lines.", cta: "Start Your Liberty Analysis", href: "/upload-statement" },
-                { step: "2", icon: Calculator, title: "We Run The Liberty Analysis", desc: "Same business day, we review every fee, markup, and cost driver line by line and calculate your true effective rate.", cta: null, href: null },
+                { step: "2", icon: Calculator, title: "We Run The Liberty Analysis", desc: "Usually the same business day, we review every fee, markup, and cost driver line by line and calculate your true effective rate.", cta: null, href: null },
                 { step: "3", icon: FileText, title: "You Get 2–3 Clear Options", desc: "Real math, no pressure. Compare options side by side. Keep the full breakdown either way.", cta: null, href: null },
               ].map((item, i) => (
                 <div key={i} className="relative" data-testid={`step-${item.step}`}>
                   <div className="text-center">
-                    <div className="w-14 h-14 rounded-full bg-primary text-primary-foreground flex items-center justify-center mx-auto mb-4 text-xl font-bold">
+                    <div className="w-14 h-14 rounded-full bg-primary text-primary-foreground flex items-center justify-center mx-auto mb-4 text-xl font-bold num relative z-10 ring-4 ring-background">
                       {item.step}
                     </div>
                     <h3 className="text-lg font-display font-bold text-foreground mb-2">{item.title}</h3>
@@ -463,51 +485,49 @@ export default function Home() {
                 </div>
               ))}
             </div>
-          </div>
-        </section>
 
-        {/* SECTION 5.5: Onboarding Timeline — report track */}
-        <section className="bg-background py-16" data-testid="section-timeline">
-          <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="rounded-xl border border-border bg-card shadow-card overflow-hidden">
-              <div className="flex items-center justify-between gap-3 border-b border-border bg-muted/40 px-5 py-3">
-                <h3 className="text-sm font-semibold text-foreground" data-testid="text-timeline-heading">
-                  What Happens After You Say Yes
-                </h3>
-                <span className="num text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Onboarding · 48h target*</span>
-              </div>
-              <div className="ledger-texture p-6 sm:p-8">
-                <div className="relative">
-                  <div className="hidden md:block absolute top-4 left-[10%] right-[10%] h-0.5 bg-gradient-to-r from-border via-accent/40 to-border" aria-hidden="true" />
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-x-3 gap-y-7">
-                    {[
-                      { day: "Day 0", title: "Upload", desc: "Statement in, review begins" },
-                      { day: "Day 1", title: "Review", desc: "Line-item breakdown delivered" },
-                      { day: "Day 1–2", title: "Decision", desc: "You review options, ask questions" },
-                      { day: "Day 2–3", title: "Setup", desc: "Terminal shipped, account configured" },
-                      { day: "Day 3–5", title: "Live", desc: "Processing live, first batch settles" },
-                    ].map((step, i) => (
-                      <div key={i} className="relative flex flex-col items-center text-center" data-testid={`timeline-step-${i}`}>
-                        <div className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold num mb-3 relative z-10 ring-4 ring-card">
-                          {i + 1}
+            {/* Contained onboarding timeline — secondary report card */}
+            <div className="reveal mt-14 max-w-5xl mx-auto">
+              <div className="rounded-xl border border-border bg-card shadow-card overflow-hidden">
+                <div className="flex items-center justify-between gap-3 border-b border-border bg-muted/40 px-5 py-3">
+                  <h3 className="text-sm font-semibold text-foreground" data-testid="text-timeline-heading">
+                    What Happens After You Say Yes
+                  </h3>
+                  <span className="num text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Onboarding · 48h target*</span>
+                </div>
+                <div className="ledger-texture p-6 sm:p-8">
+                  <div className="relative">
+                    <div className="hidden md:block absolute top-4 left-[10%] right-[10%] h-0.5 bg-gradient-to-r from-border via-accent/40 to-border" aria-hidden="true" />
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-x-3 gap-y-7">
+                      {[
+                        { day: "Day 0", title: "Upload", desc: "Statement in, review begins" },
+                        { day: "Day 1", title: "Review", desc: "Line-item breakdown delivered" },
+                        { day: "Day 1–2", title: "Decision", desc: "You review options, ask questions" },
+                        { day: "Day 2–3", title: "Setup", desc: "Terminal shipped, account configured" },
+                        { day: "Day 3–5", title: "Live", desc: "Processing live, first batch settles" },
+                      ].map((step, i) => (
+                        <div key={i} className="relative flex flex-col items-center text-center" data-testid={`timeline-step-${i}`}>
+                          <div className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold num mb-3 relative z-10 ring-4 ring-card">
+                            {i + 1}
+                          </div>
+                          <span className="num text-[11px] font-semibold text-accent mb-1 tracking-wide">{step.day}</span>
+                          <span className="text-sm font-semibold text-foreground mb-0.5">{step.title}</span>
+                          <span className="text-xs text-muted-foreground leading-snug">{step.desc}</span>
                         </div>
-                        <span className="num text-[11px] font-semibold text-accent mb-1 tracking-wide">{step.day}</span>
-                        <span className="text-sm font-semibold text-foreground mb-0.5">{step.title}</span>
-                        <span className="text-xs text-muted-foreground leading-snug">{step.desc}</span>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
                 </div>
+                <p className="border-t border-border bg-muted/30 px-5 py-3 text-[10px] leading-relaxed text-muted-foreground">
+                  *Timeline is illustrative. Actual timelines depend on underwriting, equipment availability, and merchant response time. Eligibility, underwriting, card brand rules, and applicable laws apply.
+                </p>
               </div>
-              <p className="border-t border-border bg-muted/30 px-5 py-3 text-[10px] leading-relaxed text-muted-foreground">
-                *Timeline is illustrative. Actual timelines depend on underwriting, equipment availability, and merchant response time. Eligibility, underwriting, card brand rules, and applicable laws apply.
-              </p>
             </div>
           </div>
         </section>
 
         {/* SECTION 6: Enhanced Rate Calculator */}
-        <section className="bg-muted/30 bg-dots py-20" data-testid="section-calculator">
+        <section className="section-warm bg-dots py-20" data-testid="section-calculator">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-start">
               <div className="reveal">
@@ -583,7 +603,7 @@ export default function Home() {
                 {effectiveRate !== null ? (
                   <div className="space-y-4" data-testid="display-calculator-results">
                     <Card className={`border-2 ${rateGrade?.bg}`}>
-                      <CardContent className="p-6">
+                      <CardContent className="ledger-texture p-6">
                         <div className="text-center mb-4">
                           <div className="text-sm text-muted-foreground mb-1">Your Effective Rate</div>
                           <div className={`num text-5xl font-bold ${rateGrade?.color}`} data-testid="display-effective-rate">
@@ -642,12 +662,16 @@ export default function Home() {
                     </p>
                   </div>
                 ) : (
-                  <Card>
-                    <CardContent className="p-8 text-center">
+                  <Card className="border-dashed border-2 border-border/70 overflow-hidden">
+                    <div className="flex items-center justify-between gap-3 border-b border-border bg-muted/40 px-5 py-3">
+                      <span className="text-sm font-semibold text-foreground">Estimate Preview</span>
+                      <span className="audit-stamp bg-card">Awaiting input</span>
+                    </div>
+                    <CardContent className="ledger-texture p-8 text-center">
                       <Calculator className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
                       <h3 className="text-lg font-display font-semibold text-foreground mb-2" data-testid="text-calculator-empty">Enter Your Numbers</h3>
                       <p className="text-sm text-muted-foreground">
-                        Plug in your monthly volume and total fees from your last statement. We'll instantly calculate your effective rate and compare it against your industry.
+                        Plug in your monthly volume and total fees from your last statement. We'll instantly estimate your effective rate and compare it against your industry.
                       </p>
                     </CardContent>
                   </Card>
@@ -664,8 +688,8 @@ export default function Home() {
               Choose the Strategy That Fits
             </h2>
             <p className="text-center text-muted-foreground mb-12 max-w-xl mx-auto">Every business is different. Here are the most common paths our merchants take.</p>
-            <div className="reveal grid grid-cols-1 md:grid-cols-3 gap-6">
-              <Card className="relative overflow-visible" data-testid="card-wholesale">
+            <div className="reveal grid grid-cols-1 md:grid-cols-3 gap-6 items-stretch">
+              <Card className="relative overflow-visible h-full flex flex-col border-primary/40 shadow-card-hover" data-testid="card-wholesale">
                 <div className="absolute -top-3 left-4">
                   <span className="bg-primary text-primary-foreground text-xs font-semibold px-3 py-1 rounded-md">Most Popular</span>
                 </div>
@@ -673,7 +697,7 @@ export default function Home() {
                   <CardTitle className="text-lg">Wholesale / Interchange-Plus</CardTitle>
                   <CardDescription>See every penny of markup. Pay interchange + a transparent fee.</CardDescription>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="flex-1">
                   <ul className="space-y-2 text-sm text-muted-foreground">
                     <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Real interchange passthrough</li>
                     <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> No bundled "qualified" tiers</li>
@@ -690,12 +714,12 @@ export default function Home() {
                 </CardFooter>
               </Card>
 
-              <Card data-testid="card-zero-percent">
+              <Card className="h-full flex flex-col" data-testid="card-zero-percent">
                 <CardHeader className="gap-1">
                   <CardTitle className="text-lg">Compliant 0% Programs*</CardTitle>
                   <CardDescription>Pass fees to the cardholder where permitted by law and card brand rules.</CardDescription>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="flex-1">
                   <ul className="space-y-2 text-sm text-muted-foreground">
                     <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Cash discount or surcharging</li>
                     <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Proper disclosures + receipts</li>
@@ -712,12 +736,12 @@ export default function Home() {
                 </CardFooter>
               </Card>
 
-              <Card className="relative overflow-visible" data-testid="card-terminal">
+              <Card className="relative overflow-visible h-full flex flex-col" data-testid="card-terminal">
                 <CardHeader className="gap-1">
                   <CardTitle className="text-lg">Liberty Smart Terminal</CardTitle>
                   <CardDescription>Modern checkout with guided onboarding and dedicated support.</CardDescription>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="flex-1">
                   <div className="rounded-md overflow-hidden mb-3">
                     <img src={imgCloverFlex3} alt="Clover Flex 3 payment terminal" className="w-full h-48 object-contain bg-muted/50 p-2" loading="lazy" width="400" height="192" data-testid="img-home-terminal" />
                   </div>
@@ -743,51 +767,6 @@ export default function Home() {
           </div>
         </section>
 
-        {/* SECTION 7.5: Platform Preview */}
-        <section className="bg-background bg-grid py-20 overflow-hidden" data-testid="section-platform-preview">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="reveal grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-              <div>
-                <div className="inline-flex items-center gap-2 bg-sky-50 dark:bg-sky-950/30 text-sky-600 dark:text-sky-400 text-xs font-semibold px-3 py-1 rounded-md mb-4">
-                  INTERNAL PLATFORM
-                </div>
-                <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-platform-heading">
-                  Your Entire Operation. One Dashboard.
-                </h2>
-                <p className="text-muted-foreground mb-6 leading-relaxed">
-                  Liberty's internal CRM and ops platform gives your team a real-time view of every lead, deal, ticket, and onboarding - with AI advisors for 7 departments built in.
-                </p>
-                <div className="space-y-3 mb-6">
-                  {[
-                    "Sales pipeline + onboarding Kanban boards",
-                    "AI advisors for Sales, Support, Compliance, and more",
-                    "Automated lead capture from all public forms",
-                    "SLA tracking and ticket management",
-                    "Notification center + task assignment",
-                  ].map((item, i) => (
-                    <div key={i} className="flex items-center gap-2 text-sm text-foreground">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                      {item}
-                    </div>
-                  ))}
-                </div>
-                <Link href="/dashboard" data-testid="link-platform-dashboard">
-                  <Button className="gap-2">
-                    Open Dashboard
-                    <ArrowRight className="w-4 h-4" />
-                  </Button>
-                </Link>
-              </div>
-              <div className="relative">
-                <div className="rounded-md overflow-hidden shadow-2xl border border-border">
-                  <img src={dashboardPreview} alt="Liberty Bancard CRM dashboard showing merchant pipeline and KPI metrics" className="w-full h-auto" loading="lazy" width="1408" height="792" data-testid="img-platform-preview" />
-                </div>
-                <div className="absolute -bottom-4 -right-4 -z-10 w-full h-full rounded-md bg-gradient-to-br from-sky-500/20 to-primary/20" />
-              </div>
-            </div>
-          </div>
-        </section>
-
         {/* SECTION 8: Vertical Credibility */}
         <section className="bg-muted/30 bg-dots py-20" data-testid="section-verticals">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -806,7 +785,7 @@ export default function Home() {
                 { icon: Store, title: "Retail", points: ["Fast checkout lines", "Modern tap + contactless", "Inventory-friendly integrations"] },
                 { icon: Users, title: "Other Industries", points: ["We've seen every vertical", "The math is the math", "Upload and we'll tailor your review"] },
               ].map((item, i) => (
-                <Card key={i} data-testid={`card-vertical-${i}`}>
+                <Card key={i} className="hover-elevate" data-testid={`card-vertical-${i}`}>
                   <CardContent className="p-5">
                     <div className="flex items-center gap-3 mb-3">
                       <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
@@ -854,7 +833,7 @@ export default function Home() {
                       <ArrowRight className="w-4 h-4" />
                     </Button>
                   </Link>
-                  <Link href="/free-smart-terminal" className="text-sm text-primary hover:underline" data-testid="link-terminal-showcase-eligibility">See eligibility details →</Link>
+                  <Link href="/upload-statement?terminal=yes" className="text-sm text-primary hover:underline" data-testid="link-terminal-showcase-eligibility">See eligibility details →</Link>
                 </div>
                 <p className="text-xs text-muted-foreground mt-3">*Eligibility, underwriting, card brand rules, and applicable laws apply.</p>
               </div>
@@ -863,6 +842,51 @@ export default function Home() {
                 <img src={imgCloverStationDuo} alt="Clover Station Duo full register system" className="w-full rounded-md object-contain" loading="lazy" width="400" height="400" data-testid="img-showcase-stand" />
                 <img src={imgCloverMini3} alt="Clover Mini 3 countertop POS" className="w-full rounded-md object-contain" loading="lazy" width="400" height="400" data-testid="img-showcase-angle" />
                 <img src={imgPaxA920} alt="PAX A920 smart payment terminal" className="w-full rounded-md object-contain" loading="lazy" width="400" height="400" data-testid="img-showcase-tap" />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* SECTION 8.4: Platform Preview — the operations backbone */}
+        <section className="bg-background bg-grid py-20 overflow-hidden" data-testid="section-platform-preview">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="reveal grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+              <div>
+                <div className="inline-flex items-center gap-2 bg-sky-50 dark:bg-sky-950/30 text-sky-600 dark:text-sky-400 text-xs font-semibold px-3 py-1 rounded-md mb-4">
+                  THE PLATFORM BEHIND YOUR ACCOUNT
+                </div>
+                <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-platform-heading">
+                  Real People, Backed by Real Infrastructure
+                </h2>
+                <p className="text-muted-foreground mb-6 leading-relaxed">
+                  Behind every Liberty merchant account is a full operations platform — so the team supporting you sees your pipeline, tickets, and onboarding in real time, and nothing falls through the cracks.
+                </p>
+                <div className="space-y-3 mb-6">
+                  {[
+                    "A dedicated team that sees your full account history",
+                    "Support tickets tracked to resolution with SLAs",
+                    "Onboarding steps mapped and monitored end to end",
+                    "Proactive alerts before small issues reach you",
+                    "AI-assisted advisors across 7 departments",
+                  ].map((item, i) => (
+                    <div key={i} className="flex items-center gap-2 text-sm text-foreground">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                      {item}
+                    </div>
+                  ))}
+                </div>
+                <Link href="/dashboard" data-testid="link-platform-dashboard">
+                  <Button variant="outline" className="gap-2">
+                    Explore the Platform
+                    <ArrowRight className="w-4 h-4" />
+                  </Button>
+                </Link>
+              </div>
+              <div className="relative">
+                <div className="rounded-md overflow-hidden shadow-2xl border border-border">
+                  <img src={dashboardPreview} alt="Liberty Bancard CRM dashboard showing merchant pipeline and KPI metrics" className="w-full h-auto" loading="lazy" width="1408" height="792" data-testid="img-platform-preview" />
+                </div>
+                <div className="absolute -bottom-4 -right-4 -z-10 w-full h-full rounded-md bg-gradient-to-br from-sky-500/20 to-primary/20" />
               </div>
             </div>
           </div>
@@ -900,7 +924,7 @@ export default function Home() {
                       ].map((item, i) => (
                         <div key={i} className="bg-muted/50 rounded-md p-3 text-center" data-testid={`text-rate-range-${i}`}>
                           <div className="text-xs text-muted-foreground mb-1">{item.label}</div>
-                          <div className="text-lg font-display font-bold text-primary">{item.range}</div>
+                          <div className="num text-lg font-display font-bold text-primary">{item.range}</div>
                           <div className="text-[10px] text-muted-foreground mt-0.5">{item.note}</div>
                         </div>
                       ))}
@@ -908,7 +932,7 @@ export default function Home() {
                     <p className="text-[11px] text-muted-foreground">
                       *Typical effective rate ranges for interchange-plus pricing. Actual rate depends on your card mix, transaction types, and volume — upload a statement for your exact number. No savings claims without a statement review.
                     </p>
-                    <Link href="/compare-rates" className="inline-flex items-center gap-1.5 text-primary text-sm font-medium mt-3 hover:underline" data-testid="link-rate-transparency-compare">
+                    <Link href="/beat-square-stripe" className="inline-flex items-center gap-1.5 text-primary text-sm font-medium mt-3 hover:underline" data-testid="link-rate-transparency-compare">
                       See full processor comparison <ArrowRight className="w-3.5 h-3.5" />
                     </Link>
                   </div>
@@ -951,7 +975,7 @@ export default function Home() {
                     </div>
                     <div>
                       <h2 className="text-xl md:text-2xl font-display font-bold text-foreground mb-2" data-testid="text-guarantee-heading">
-                        If We Can't Beat It, We'll Tell You
+                        If the math doesn't support switching, we'll tell you
                       </h2>
                       <p className="text-muted-foreground leading-relaxed" data-testid="text-guarantee-body">
                         We'll show you your real effective rate, compare it to your current processor line by line, and if we can't find meaningful savings — we'll tell you upfront. No pressure, no obligation. The breakdown is yours to keep either way.
@@ -972,7 +996,7 @@ export default function Home() {
                   </div>
                   <div className="mt-5">
                     <Link href="/upload-statement" data-testid="link-guarantee-cta">
-                      <Button className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600">
+                      <Button className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600" onClick={() => trackStatementUploadCtaClick({ page: "/", ctaLabel: "Get My Free Analysis", ctaLocation: "savings-guarantee" })}>
                         <Upload className="w-4 h-4" />
                         Get My Free Analysis
                       </Button>
@@ -1043,177 +1067,35 @@ export default function Home() {
                 </Card>
               ))}
             </div>
-            <div className="text-center">
+            {/* Salvaged documented outcomes — compact proof strip */}
+            <div className="reveal grid grid-cols-1 sm:grid-cols-3 gap-4 mb-10" data-testid="grid-outcomes-strip">
+              {[
+                { type: "Full-Service Restaurant", solution: "Cash Discount Program", result: "$4,200/yr", href: "/case-studies#restaurant-square" },
+                { type: "Multi-Location Retail", solution: "Interchange Plus", result: "$3,800/yr", href: "/case-studies#retail-stripe" },
+                { type: "Medical Practice", solution: "Interchange Plus + Level 2", result: "$6,100/yr", href: "/case-studies#healthcare-bank" },
+              ].map((o, i) => (
+                <Link key={i} href={o.href} className="block hover-elevate rounded-lg" data-testid={`link-outcome-detail-${i}`}>
+                  <div className="h-full rounded-lg border border-border bg-card p-4 shadow-card">
+                    <div className="flex items-baseline justify-between gap-2 mb-1">
+                      <span className="text-xs font-semibold text-foreground" data-testid={`text-outcome-type-${i}`}>{o.type}</span>
+                      <span className="num text-lg font-display font-bold text-emerald-600 dark:text-emerald-400" data-testid={`text-outcome-result-${i}`}>{o.result}</span>
+                    </div>
+                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{o.solution}</div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+            <p className="text-center text-[11px] text-muted-foreground mb-6">Documented case-study results. Individual outcomes vary by card mix, volume, and program eligibility.</p>
+            <div className="flex flex-wrap items-center justify-center gap-3">
               <Link href="/case-studies" data-testid="link-reviews-case-studies">
                 <Button variant="outline" className="gap-2">
                   See the full breakdown in our case studies
                   <ArrowRight className="w-4 h-4" />
                 </Button>
               </Link>
-            </div>
-          </div>
-        </section>
-
-        {/* SECTION 9.25: Featured Video Testimonials */}
-        <section className="bg-background py-20" data-testid="section-video-testimonials">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="reveal text-center mb-12">
-              <div className="inline-flex items-center gap-2 bg-primary/10 text-primary text-xs font-semibold px-3 py-1 rounded-md mb-4">
-                🎬 Merchant Stories
-              </div>
-              <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-video-testimonials-heading">
-                What Merchants Say After Their First Review
-              </h2>
-              <p className="text-muted-foreground max-w-xl mx-auto">Real business owners. Specific outcomes. Watch their stories — or read the full case study numbers.</p>
-            </div>
-            <div className="reveal grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
-              {[
-                {
-                  name: "Maria R.",
-                  role: "Restaurant Owner",
-                  city: "South Miami, FL",
-                  keyStat: "$4,200/yr",
-                  youtubeId: "M7lc1UVf-VE" as string | null,
-                  duration: "2:14",
-                  isDemo: true,
-                  quote: "Our processing cost dropped to nearly zero after switching to the cash discount program. That freed up cash we put right back into our kitchen.",
-                },
-                {
-                  name: "Dr. Sarah L.",
-                  role: "Managing Partner, Medical Practice",
-                  city: "Tampa, FL",
-                  keyStat: "$6,100/yr",
-                  youtubeId: null as string | null,
-                  duration: "3:02",
-                  isDemo: false,
-                  quote: "Our bank had us on tiered pricing for years. Level 2 processing alone saved us thousands on commercial insurance card payments.",
-                },
-                {
-                  name: "Rachel T.",
-                  role: "Founder, Online Retailer",
-                  city: "Remote / Online",
-                  keyStat: "$5,400/yr",
-                  youtubeId: null as string | null,
-                  duration: "2:48",
-                  isDemo: false,
-                  quote: "We thought Shopify Payments was our only option. Liberty Bancard integrated a gateway and our costs dropped by over $5,000 a year. Seamless.",
-                },
-              ].map((item, i) => (
-                <Card key={i} className="overflow-hidden flex flex-col" data-testid={`card-video-testimonial-${i}`}>
-                  <CardContent className="p-0 flex flex-col flex-grow">
-                    <div className="p-4 pb-0">
-                      <LazyVideoEmbed
-                        youtubeId={item.youtubeId}
-                        merchantName={item.name}
-                        duration={item.duration}
-                        isDemo={item.isDemo}
-                      />
-                    </div>
-                    <div className="p-5 flex flex-col flex-grow">
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex gap-0.5">
-                          {[1,2,3,4,5].map(s => <Star key={s} className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />)}
-                        </div>
-                        <span className="text-lg font-bold text-emerald-600 dark:text-emerald-400">{item.keyStat}</span>
-                      </div>
-                      <Quote className="w-5 h-5 text-primary/20 mb-2" />
-                      <p className="text-sm text-foreground leading-relaxed italic flex-grow mb-4" data-testid={`text-video-quote-${i}`}>
-                        "{item.quote}"
-                      </p>
-                      <div className="flex items-center gap-3 pt-4 border-t border-border">
-                        <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-bold shrink-0">
-                          {item.name.charAt(0)}
-                        </div>
-                        <div>
-                          <div className="text-sm font-semibold text-foreground" data-testid={`text-video-name-${i}`}>{item.name}</div>
-                          <div className="text-xs text-muted-foreground">{item.role} · {item.city}</div>
-                        </div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-            <div className="text-center">
               <Link href="/testimonials" data-testid="link-video-testimonials-all">
-                <Button variant="outline" className="gap-2">
-                  Watch all merchant stories
-                  <ArrowRight className="w-4 h-4" />
-                </Button>
-              </Link>
-            </div>
-          </div>
-        </section>
-
-        {/* SECTION 9.5: Real Merchant Outcomes */}
-        <section className="bg-background py-20" data-testid="section-merchant-outcomes">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="text-center mb-12">
-              <h2 className="reveal text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-outcomes-heading">
-                Real Merchant Outcomes
-              </h2>
-              <p className="text-muted-foreground max-w-xl mx-auto">Three of the strongest results from our case study library — specific dollar amounts, real business types.</p>
-            </div>
-            <div className="reveal grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
-              {[
-                {
-                  icon: UtensilsCrossed,
-                  businessType: "Full-Service Restaurant",
-                  problem: "Processing $45k/month on Square at a flat 2.6% + $0.10 — no visibility into interchange costs.",
-                  result: "$4,200/year saved",
-                  resultMonthly: "$350/month",
-                  solution: "Cash Discount Program",
-                  href: "/case-studies#restaurant-square",
-                },
-                {
-                  icon: Store,
-                  businessType: "Multi-Location Retail Store",
-                  problem: "Flat Stripe rate at 2.9% + $0.30 was significantly overcharging on debit and regulated cards.",
-                  result: "$3,800/year saved",
-                  resultMonthly: "$317/month",
-                  solution: "Interchange Plus",
-                  href: "/case-studies#retail-stripe",
-                },
-                {
-                  icon: Stethoscope,
-                  businessType: "Multi-Provider Medical Practice",
-                  problem: "Tiered pricing buried $6,100/year in non-qualified downgrades on commercial insurance cards.",
-                  result: "$6,100/year saved",
-                  resultMonthly: "$508/month",
-                  solution: "Interchange Plus + Level 2",
-                  href: "/case-studies#healthcare-bank",
-                },
-              ].map((outcome, i) => (
-                <Card key={i} className="flex flex-col" data-testid={`card-outcome-${i}`}>
-                  <CardContent className="p-6 flex flex-col flex-grow">
-                    <div className="flex items-center gap-3 mb-4">
-                      <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
-                        <outcome.icon className="w-5 h-5 text-primary" />
-                      </div>
-                      <div>
-                        <div className="text-sm font-semibold text-foreground" data-testid={`text-outcome-type-${i}`}>{outcome.businessType}</div>
-                        <div className="text-[10px] text-muted-foreground uppercase tracking-wider">{outcome.solution}</div>
-                      </div>
-                    </div>
-                    <p className="text-sm text-muted-foreground mb-4 leading-relaxed flex-grow" data-testid={`text-outcome-problem-${i}`}>{outcome.problem}</p>
-                    <div className="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-md p-3 mb-4">
-                      <div className="text-lg font-display font-bold text-emerald-600 dark:text-emerald-400" data-testid={`text-outcome-result-${i}`}>{outcome.result}</div>
-                      <div className="text-xs text-emerald-600/70 dark:text-emerald-400/70">{outcome.resultMonthly} freed up</div>
-                    </div>
-                    <Link href={outcome.href} data-testid={`link-outcome-detail-${i}`}>
-                      <Button variant="ghost" size="sm" className="gap-1.5 w-full text-primary hover:text-primary">
-                        Read full breakdown
-                        <ArrowRight className="w-3.5 h-3.5" />
-                      </Button>
-                    </Link>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-            <div className="text-center">
-              <Link href="/case-studies" data-testid="link-outcomes-all-case-studies">
-                <Button variant="outline" className="gap-2">
-                  See all case studies
+                <Button variant="ghost" className="gap-2">
+                  Watch merchant stories
                   <ArrowRight className="w-4 h-4" />
                 </Button>
               </Link>
@@ -1454,32 +1336,47 @@ export default function Home() {
         <section className="reveal relative overflow-hidden bg-primary py-24" data-testid="section-final-cta">
           <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.06]" aria-hidden="true" />
           <div className="absolute top-0 left-0 right-0 h-[3px] bg-accent" aria-hidden="true" />
-          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-            <span className="num text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-300/90">Statement Intelligence</span>
-            <h2 className="text-3xl md:text-4xl font-bold text-white mb-4 mt-3" data-testid="text-final-cta-heading">
-              Your Statement Tells the Truth. Let's Read It Together.
-            </h2>
-            <p className="text-white/70 mb-8 max-w-xl mx-auto">
-              30 seconds to upload. Same-day review. You keep the breakdown no matter what.
-            </p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center flex-wrap">
-              <Link href="/upload-statement" data-testid="link-final-upload">
-                <Button size="lg" className="gap-2 bg-accent hover:bg-accent border-accent text-white">
-                  <Upload className="w-4 h-4" />
-                  Get My Free Analysis
-                  <ArrowRight className="w-4 h-4" />
-                </Button>
-              </Link>
-              <Link href="/get-started" data-testid="link-final-quiz">
-                <Button size="lg" variant="outline" className="gap-2 bg-transparent border-white/30 text-white hover:bg-white/10">
-                  Take the 60-Second Quiz
-                  <ArrowRight className="w-4 h-4" />
-                </Button>
-              </Link>
+          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16 items-center">
+              <div>
+                <span className="num text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-300/90">Liberty Statement Review</span>
+                <h2 className="text-3xl md:text-4xl font-bold text-white mb-4 mt-3" data-testid="text-final-cta-heading">
+                  Your Statement Tells the Truth. Let's Read It Together.
+                </h2>
+                <p className="text-white/70 mb-6 max-w-xl">
+                  30 seconds to upload. Most reviews finish the same business day. You keep the breakdown no matter what.
+                </p>
+                <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-white/75">
+                  <span className="inline-flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-sky-300" /> No obligation</span>
+                  <span className="inline-flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-sky-300" /> No contract to see your numbers</span>
+                  <span className="inline-flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-sky-300" /> Yours to keep</span>
+                </div>
+              </div>
+              <div className="rounded-xl border border-white/15 bg-white/5 backdrop-blur-sm p-6 sm:p-8">
+                <div className="flex items-center justify-between gap-3 mb-5">
+                  <span className="text-sm font-semibold text-white">Start your review</span>
+                  <span className="audit-stamp bg-white/10 text-sky-200 border-white/20">Free</span>
+                </div>
+                <div className="flex flex-col gap-3">
+                  <Link href="/upload-statement" data-testid="link-final-upload">
+                    <Button size="lg" className="w-full gap-2 bg-accent hover:bg-accent border-accent text-white" onClick={() => trackStatementUploadCtaClick({ page: "/", ctaLabel: "Get My Free Analysis", ctaLocation: "final-cta" })}>
+                      <Upload className="w-4 h-4" />
+                      Get My Free Analysis
+                      <ArrowRight className="w-4 h-4" />
+                    </Button>
+                  </Link>
+                  <Link href="/get-started" data-testid="link-final-quiz">
+                    <Button size="lg" variant="outline" className="w-full gap-2 bg-transparent border-white/30 text-white hover:bg-white/10">
+                      Take the 60-Second Quiz
+                      <ArrowRight className="w-4 h-4" />
+                    </Button>
+                  </Link>
+                </div>
+                <p className="text-xs text-white/50 mt-5" data-testid="text-final-cta-microcopy">
+                  Eligibility, underwriting, card brand rules, and applicable laws apply.
+                </p>
+              </div>
             </div>
-            <p className="text-xs text-white/50 mt-6" data-testid="text-final-cta-microcopy">
-              Eligibility, underwriting, card brand rules, and applicable laws apply.
-            </p>
           </div>
         </section>
 

@@ -289,6 +289,62 @@
   .si-load-4 { animation-delay: 0.35s; }
   .si-load-5 { animation-delay: 0.45s; }
   .si-load-6 { animation-delay: 0.55s; }
+
+  /* ============================================================
+     Section rhythm bands — deliberate visual chapters across the
+     full page. Additive only; layered on existing tokens.
+     ============================================================ */
+
+  /* Warm off-white band — visibly distinct from the white card surface */
+  .section-warm {
+    background-color: hsl(36 38% 95.5%);
+    border-top: 1px solid hsl(var(--border));
+    border-bottom: 1px solid hsl(var(--border));
+  }
+  .dark .section-warm {
+    background-color: hsl(222 44% 13%);
+    border-top: 1px solid hsl(var(--border));
+    border-bottom: 1px solid hsl(var(--border));
+  }
+
+  /* Navy contrast band — deep authority surface with light content */
+  .section-navy {
+    background-color: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+  }
+  .dark .section-navy {
+    background-color: hsl(222 47% 7%);
+  }
+
+  /* Split surface — warm left, white right at lg (report-bench layout) */
+  .section-split {
+    background-color: hsl(36 38% 95.5%);
+  }
+  @media (min-width: 1024px) {
+    .section-split {
+      background-image: linear-gradient(
+        to right,
+        hsl(36 38% 95.5%) 0%,
+        hsl(36 38% 95.5%) 50%,
+        hsl(var(--card)) 50%,
+        hsl(var(--card)) 100%
+      );
+    }
+  }
+  .dark .section-split {
+    background-color: hsl(222 44% 13%);
+  }
+  @media (min-width: 1024px) {
+    .dark .section-split {
+      background-image: linear-gradient(
+        to right,
+        hsl(222 44% 13%) 0%,
+        hsl(222 44% 13%) 50%,
+        hsl(var(--card)) 50%,
+        hsl(var(--card)) 100%
+      );
+    }
+  }
 }
 
 @keyframes si-rise {
