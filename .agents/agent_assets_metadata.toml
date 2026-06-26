@@ -269,3 +269,9 @@ id = "4deTfKdkOKzjSuuu5Uwkh"
 uri = "file://docs/audit-report-2026-06-25.md"
 type = "text"
 title = "Liberty Bancard — Master Audit Report (June 25, 2026)"
+
+[[outputs]]
+id = "9EWcFdAaCS3GELksFXNkP"
+uri = "file://docs/visual-qa-release-2026-06-26.md"
+type = "text"
+title = "Cross-Surface Visual QA & Release Gate Report (2026-06-26)"
