@@ -13,6 +13,52 @@ function getOpenAI() {
   });
 }
 
+const MAX_RESPONSE_BYTES = 3 * 1024 * 1024; // 3 MB hard cap per fetched body
+
+// Reads a fetch Response body with a hard byte cap. Returns null (and logs)
+// if the body exceeds the cap, so a single oversized response can never be
+// fully buffered/parsed and exhaust the heap.
+async function readCappedText(response: Response, label: string, maxBytes = MAX_RESPONSE_BYTES): Promise<string | null> {
+  const contentLength = response.headers.get("content-length");
+  if (contentLength && Number(contentLength) > maxBytes) {
+    console.warn(`[Enrich] Skipping oversized response (${contentLength} bytes via content-length) from ${label}`);
+    try { await response.body?.cancel(); } catch {}
+    return null;
+  }
+
+  const body = response.body;
+  if (!body) {
+    const text = await response.text();
+    if (Buffer.byteLength(text) > maxBytes) {
+      console.warn(`[Enrich] Skipping oversized response (no stream) from ${label}`);
+      return null;
+    }
+    return text;
+  }
+
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) {
+        total += value.length;
+        if (total > maxBytes) {
+          console.warn(`[Enrich] Skipping oversized response (>${maxBytes} bytes) from ${label}`);
+          try { await reader.cancel(); } catch {}
+          return null;
+        }
+        chunks.push(value);
+      }
+    }
+  } catch {
+    return null;
+  }
+  return Buffer.concat(chunks).toString("utf-8");
+}
+
 async function fetchWebsite(url: string): Promise<string | null> {
   try {
     const controller = new AbortController();
@@ -23,9 +69,10 @@ async function fetchWebsite(url: string): Promise<string | null> {
       headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" },
       redirect: "follow",
     });
+    if (!response.ok) { clearTimeout(timeout); return null; }
+    const html = await readCappedText(response, cleanUrl);
     clearTimeout(timeout);
-    if (!response.ok) return null;
-    const html = await response.text();
+    if (html === null) return null;
     return html
       .replace(/<script[\s\S]*?<\/script>/gi, "")
       .replace(/<style[\s\S]*?<\/style>/gi, "")
@@ -53,9 +100,10 @@ async function fetchContactPages(domain: string): Promise<string> {
         headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" },
         redirect: "follow",
       });
+      if (!response.ok) { clearTimeout(timeout); continue; }
+      const html = await readCappedText(response, `${cleanDomain}${path}`);
       clearTimeout(timeout);
-      if (response.ok) {
-        const html = await response.text();
+      if (html !== null) {
         const cleaned = html
           .replace(/<script[\s\S]*?<\/script>/gi, "")
           .replace(/<style[\s\S]*?<\/style>/gi, "")
@@ -99,9 +147,10 @@ async function fetchPage(url: string, timeoutMs = 6000): Promise<string | null> 
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), timeoutMs);
     const r = await fetch(url, { signal: controller.signal, headers: BROWSER_HEADERS, redirect: "follow" });
+    if (!r.ok) { clearTimeout(t); return null; }
+    const text = await readCappedText(r, url);
     clearTimeout(t);
-    if (!r.ok) return null;
-    return await r.text();
+    return text;
   } catch { return null; }
 }
 
@@ -1012,23 +1061,34 @@ export async function runSqlClassification(batchLimit?: number): Promise<{ total
   return { total: totalClassified, classified: totalClassified, rounds };
 }
 
+let sunbizQueueRunning = false;
+
 export async function processSunbizEnrichmentQueue(limit: number = 5): Promise<number> {
-  const pending = await storage.getSunbizEntitiesByStatus("pending");
-  const toProcess = pending.slice(0, limit);
-  let processed = 0;
-
-  for (const entity of toProcess) {
-    try {
-      await enrichSunbizEntity(entity.id);
-      processed++;
-      await new Promise(resolve => setTimeout(resolve, 1000));
-    } catch (err) {
-      console.error(`Sunbiz enrichment failed for entity ${entity.id}:`, err);
-      await storage.updateSunbizEntity(entity.id, { enrichmentStatus: "failed" });
-    }
+  if (sunbizQueueRunning) {
+    console.log("[Sunbiz Enrich] Skipping queue tick — previous batch still running");
+    return 0;
   }
+  sunbizQueueRunning = true;
+  try {
+    const pending = await storage.getSunbizEntitiesByStatus("pending");
+    const toProcess = pending.slice(0, limit);
+    let processed = 0;
 
-  return processed;
+    for (const entity of toProcess) {
+      try {
+        await enrichSunbizEntity(entity.id);
+        processed++;
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      } catch (err) {
+        console.error(`Sunbiz enrichment failed for entity ${entity.id}:`, err);
+        await storage.updateSunbizEntity(entity.id, { enrichmentStatus: "failed" });
+      }
+    }
+
+    return processed;
+  } finally {
+    sunbizQueueRunning = false;
+  }
 }
 
 function computeQualificationScore(data: {

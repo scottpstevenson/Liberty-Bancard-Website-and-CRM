@@ -619,9 +619,12 @@ async function runSequencesTick(): Promise<void> {
 
 async function runEnrichmentTick(): Promise<void> {
   const { processEnrichmentQueue } = await import("./enrichment");
-  const { processSunbizEnrichmentQueue } = await import("./sunbiz-enrichment");
+  const { featureFlags } = await import("./feature-flags");
   await processEnrichmentQueue();
-  await processSunbizEnrichmentQueue(5).catch(err => console.error("[Queue:enrichment] Sunbiz enrichment error (best-effort):", err));
+  if (featureFlags.SUNBIZ_ENRICHMENT_ENABLED) {
+    const { processSunbizEnrichmentQueue } = await import("./sunbiz-enrichment");
+    await processSunbizEnrichmentQueue(5).catch(err => console.error("[Queue:enrichment] Sunbiz enrichment error (best-effort):", err));
+  }
   await runFreeContactEnrichmentTick().catch(err => console.error("[Queue:enrichment] Free contact enrichment error (best-effort):", err));
 }
 

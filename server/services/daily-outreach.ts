@@ -350,6 +350,12 @@ export async function importCordataEnrichment(options?: {
   }
 }
 
+let reEnrichRunning = false;
+
+export function isReEnrichRunning(): boolean {
+  return reEnrichRunning;
+}
+
 export async function reEnrichAllSunbizEntities(limit: number = 200): Promise<{
   processed: number;
   classified: number;
@@ -357,6 +363,12 @@ export async function reEnrichAllSunbizEntities(limit: number = 200): Promise<{
   phonesFound: number;
   errors: number;
 }> {
+  if (reEnrichRunning) {
+    console.log("[Re-Enrich] Skipping run — previous re-enrichment batch still in progress");
+    return { processed: 0, classified: 0, emailsFound: 0, phonesFound: 0, errors: 0 };
+  }
+  reEnrichRunning = true;
+  try {
   const toProcess = await storage.getSunbizEntitiesNeedingEnrichment(limit);
 
   console.log(`[Re-Enrich] Starting re-enrichment for ${toProcess.length} entities...`);
@@ -432,6 +444,9 @@ export async function reEnrichAllSunbizEntities(limit: number = 200): Promise<{
   console.log(`[Re-Enrich] Complete: ${processed} processed, ${classified} classified, ${emailsFound} emails, ${phonesFound} phones, ${errors} errors`);
 
   return { processed, classified, emailsFound, phonesFound, errors };
+  } finally {
+    reEnrichRunning = false;
+  }
 }
 
 let massEnrichmentRunning = false;

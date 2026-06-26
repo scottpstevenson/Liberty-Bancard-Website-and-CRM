@@ -925,7 +925,9 @@ export function startSlaWorker() {
       }
     }
     await processEnrichmentQueue().catch(err => console.error("Enrichment queue error:", err));
-    await processSunbizEnrichmentQueue(5).catch(err => console.error("Sunbiz enrichment queue error:", err));
+    if (featureFlags.SUNBIZ_ENRICHMENT_ENABLED) {
+      await processSunbizEnrichmentQueue(5).catch(err => console.error("Sunbiz enrichment queue error:", err));
+    }
     await checkDocumentReadiness().catch(err => console.error("Doc readiness check error:", err));
     await periodicLeadScoring().catch(err => console.error("Periodic scoring error:", err));
     await checkAndSendDigests().catch(err => console.error("Digest check error:", err));
