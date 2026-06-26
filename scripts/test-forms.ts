@@ -35,7 +35,7 @@
  */
 
 import { db } from "../server/db";
-import { contacts, deals, consentAuditLogs, sdrMerchants, partners } from "../shared/schema";
+import { contacts, deals, consentAuditLogs, sdrMerchants, partners, sdrLeadState } from "../shared/schema";
 import { pool } from "../server/db";
 import { eq, and, desc } from "drizzle-orm";
 import { sql as drizzleSql } from "drizzle-orm";
@@ -180,6 +180,16 @@ async function testStatementUpload(): Promise<void> {
 
   const email = uniqueEmail("qa-release-test-stmt");
 
+  // Pre-create a test partner for ?ref= attribution test (Wave 12 requirement)
+  const stmtAffiliateCode = `qa-stmt-ref-${Date.now()}`;
+  const [stmtPartner] = await db.insert(partners).values({
+    companyName: "QA Release Test Partner (Statement)",
+    affiliateCode: stmtAffiliateCode,
+    status: "active",
+    partnerType: "referral",
+  }).returning({ id: partners.id });
+  cleanupPartnerIds.push(stmtPartner.id);
+
   // Statement upload route uses multipart/form-data (upload.single("statementFile"))
   // and expects contactName / mobile (not firstName/phone)
   const form = new FormData();
@@ -189,6 +199,7 @@ async function testStatementUpload(): Promise<void> {
   form.append("businessName", "QA_RELEASE_TEST Statement Co");
   form.append("currentProvider", "Square");
   form.append("consentSms", "false");
+  form.append("referralCode", stmtAffiliateCode);
   // Attach a minimal fake file so multer does not reject the upload
   const fakeFile = new Blob(["fake-statement"], { type: "application/pdf" });
   form.append("statementFile", fakeFile, "test-statement.pdf");
@@ -254,6 +265,13 @@ async function testStatementUpload(): Promise<void> {
   }
 
   assert("doNotContact not set by form", contact.doNotContact !== true, `doNotContact=${contact.doNotContact}`);
+
+  // Verify referral attribution row was created — trackReferral stores referred_email (not contact_id)
+  const rawStmtRef = await db.execute(drizzleSql`
+    SELECT id FROM referrals WHERE referred_email = ${email} AND partner_id = ${stmtPartner.id} LIMIT 1
+  `) as any;
+  const stmtRefRows = Array.isArray(rawStmtRef) ? rawStmtRef : rawStmtRef?.rows ?? [];
+  assert("Statement upload: referral attribution row created for referralCode field", !!stmtRefRows[0], `email=${email} partnerId=${stmtPartner.id}`);
 }
 
 // ── Test 2: Estimate Form ─────────────────────────────────────────────────────
@@ -407,22 +425,20 @@ async function testGetStartedForm(): Promise<void> {
 async function testMerchantApplication(): Promise<void> {
   console.log("\n▶ Test 4: Merchant App Draft → Finalize → Duplicate EIN check\n");
 
-  const testEin = "QA9999999"; // Deliberately invalid EIN prefix for test isolation
+  // 9-digit fake EIN — passes the /\D/g.length >= 9 validation in check-duplicate
+  const testEin = "919191919";
   const email = uniqueEmail("qa-release-test-merchantapp");
 
-  // Step 4a: Create draft
+  // Step 4a: Create draft using the correct public fields (legalBusinessName, ownerEmail)
   let draftRes: Response;
   try {
     draftRes = await fetch(`${BASE_URL}/api/merchant-applications/draft`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        email,
-        firstName: "AppTest",
-        lastName: "QAUser",
-        businessName: "QA_RELEASE_TEST App Co",
-        phone: "3055550044",
-        sourceCategory: "inbound",
+        legalBusinessName: "QA_RELEASE_TEST App Co",
+        ownerEmail: email,
+        vertical: "restaurant",
       }),
     });
   } catch (err) {
@@ -438,95 +454,70 @@ async function testMerchantApplication(): Promise<void> {
   if (draftRes.status === 429) return;
 
   const draftBody = await draftRes.json().catch(() => null);
-  const draftId = draftBody?.id ?? draftBody?.applicationId ?? draftBody?.data?.id;
+  const draftId = draftBody?.id;
+  const draftToken = draftBody?.draftToken;
   if (draftId) cleanupAppIds.push(draftId);
 
-  // Get contactId from draft
-  await new Promise(r => setTimeout(r, 300));
-  const [contact] = await db.select().from(contacts).where(eq(contacts.email, email)).limit(1);
-  if (contact) cleanupContactIds.push(contact.id);
+  assert("Draft response includes draftToken", !!draftToken, "draftToken missing — cannot test finalize path");
+  if (!draftId || !draftToken) return;
 
-  // Step 4b: Finalize with PEWC consent — verify consent_audit_logs entry
-  const finalizePayload = {
-    id: draftId,
-    taxId: testEin,
-    firstName: "AppTest",
-    lastName: "QAUser",
-    email,
-    businessName: "QA_RELEASE_TEST App Co",
-    phone: "3055550044",
-    businessType: "restaurant",
-    monthlyVolume: "12000",
-    consentPewc: true,
-    acceptTerms: true,
-    consentText: "By submitting this application you consent to electronic signature and automated communications.",
-    disclosureVersion: "v1.0",
-    ipAddress: "127.0.0.1",
-    userAgent: "qa-test/1.0",
-  };
-
+  // Step 4b: Finalize via PATCH /api/merchant-applications/:id/finalize (public, token-authenticated)
   let finalRes: Response;
   try {
-    finalRes = await fetch(`${BASE_URL}/api/merchant-applications`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(finalizePayload),
+    finalRes = await fetch(`${BASE_URL}/api/merchant-applications/${draftId}/finalize`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        "x-draft-token": draftToken,
+      },
+      body: JSON.stringify({
+        ownerEmail: email,
+        ownerFirstName: "AppTest",
+        ownerLastName: "QAUser",
+        legalBusinessName: "QA_RELEASE_TEST App Co",
+        businessPhone: "3055550044",
+        vertical: "restaurant",
+        pewcConsent: true,
+        ein: testEin,
+      }),
     });
   } catch (err) {
     assert("Merchant app finalize endpoint reachable", false, String(err));
     return;
   }
 
-  // Finalize may require authentication — accept 200/201 or 401
   const finalStatus = finalRes.status;
   assert("Merchant app finalize endpoint responsive", finalStatus < 500, `status=${finalStatus}`);
+  assert("Merchant app finalize returns 2xx (PATCH with valid draft token)", finalStatus >= 200 && finalStatus < 300, `status=${finalStatus}`);
 
-  if (finalStatus >= 200 && finalStatus < 300) {
-    // Check consent_audit_logs
-    await new Promise(r => setTimeout(r, 400));
-    if (contact) {
-      const consentLogs = await db
-        .select()
-        .from(consentAuditLogs)
-        .where(and(eq(consentAuditLogs.contactId, contact.id), eq(consentAuditLogs.consented, true)))
-        .limit(5);
-
-      const pewcLog = consentLogs.find(l => l.disclosureVersion || l.consentType === "express_written");
-      if (pewcLog) {
-        assert("PEWC consent_audit_logs entry created on finalize", true);
-        assert("Consent log has disclosureVersion", !!(pewcLog.disclosureVersion || pewcLog.consented), `version=${pewcLog.disclosureVersion}`);
-        assert("Consent log has consented=true", pewcLog.consented === true);
-      } else {
-        console.log("  ⚠ No PEWC consent log found — form may not capture PEWC on this endpoint (advisory skip)");
-      }
-    }
-
-    // Step 4c: Duplicate EIN → expect 409
-    let dupRes: Response;
-    try {
-      dupRes = await fetch(`${BASE_URL}/api/merchant-applications`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...finalizePayload, email: uniqueEmail("qa-dup") }),
-      });
-      assert("Duplicate EIN returns 409", dupRes.status === 409, `status=${dupRes.status}`);
-    } catch {
-      // check-duplicate endpoint instead
-      try {
-        const checkRes = await fetch(`${BASE_URL}/api/merchant-applications/check-duplicate`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ taxId: testEin }),
-        });
-        const body = await checkRes.json().catch(() => null);
-        assert("Duplicate EIN check returns isDuplicate=true or 409", checkRes.status === 409 || body?.isDuplicate === true, `status=${checkRes.status} body=${JSON.stringify(body)}`);
-      } catch (err) {
-        assert("Duplicate EIN endpoint reachable", false, String(err));
-      }
-    }
+  // Step 4c: Verify PEWC consent_audit_log was written (async side-effect — poll up to 2.5s)
+  await new Promise(r => setTimeout(r, 1500));
+  const [finalContact] = await db.select().from(contacts).where(eq(contacts.email, email)).limit(1);
+  if (finalContact) {
+    if (!cleanupContactIds.includes(finalContact.id)) cleanupContactIds.push(finalContact.id);
+    const consentLogs = await db
+      .select()
+      .from(consentAuditLogs)
+      .where(and(eq(consentAuditLogs.contactId, finalContact.id), eq(consentAuditLogs.consented, true)))
+      .limit(5);
+    assert("PEWC consent_audit_logs entry created on finalize", consentLogs.length > 0, `no PEWC log found for contactId=${finalContact.id}`);
+    assert("Consent log has consented=true", consentLogs[0]?.consented === true, `consented=${consentLogs[0]?.consented}`);
   } else {
-    console.log(`  ⚠ Merchant app finalize requires auth (status=${finalStatus}) — skipping consent log and duplicate EIN sub-tests`);
-    passed += 3; // Advisory: auth-gated endpoint in test context
+    assert("PEWC contact exists after finalize (side-effect contact creation)", false, `no contact found for email=${email}`);
+    assert("PEWC consent log check", false, "skipped — contact not created");
+  }
+
+  // Step 4d: Duplicate EIN check — after finalize sets EIN, check-duplicate must return exists=true
+  try {
+    const dupCheckRes = await fetch(`${BASE_URL}/api/merchant-applications/check-duplicate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ein: testEin }),
+    });
+    const dupBody = await dupCheckRes.json().catch(() => null);
+    assert("Duplicate EIN check returns exists=true after finalize", dupBody?.exists === true, `status=${dupCheckRes.status} body=${JSON.stringify(dupBody)}`);
+  } catch (err) {
+    assert("Duplicate EIN check endpoint reachable", false, String(err));
   }
 }
 
@@ -583,9 +574,22 @@ async function testBookingAttribution(): Promise<void> {
   assert("Matched booking: sdr_lead_events.merchant_id is non-null (attribution linked to merchant)", matchedEvt?.merchant_id !== null && matchedEvt?.merchant_id !== undefined, `merchant_id=${matchedEvt?.merchant_id}`);
   assert("Matched booking: event_type = 'appointment_booked'", matchedEvt?.event_type === "appointment_booked", `event_type=${matchedEvt?.event_type}`);
 
+  // Verify sdr_lead_state stage was advanced to MEETING_SET by handleAppointmentBooked
+  if (testMerchantId !== null) {
+    const rawLeadState = await db.execute(drizzleSql`
+      SELECT current_stage FROM sdr_lead_state WHERE merchant_id = ${testMerchantId} LIMIT 1
+    `) as any;
+    const leadStateRows = Array.isArray(rawLeadState) ? rawLeadState : rawLeadState?.rows ?? [];
+    assert("Matched booking: sdr_lead_state.current_stage advanced to MEETING_SET", leadStateRows[0]?.current_stage === "MEETING_SET", `current_stage="${leadStateRows[0]?.current_stage}"`);
+  }
+
   // Cleanup matched path
   if (matchedEvt?.id) await db.execute(drizzleSql`DELETE FROM sdr_lead_events WHERE id = ${matchedEvt.id}`).catch(() => {});
-  if (testMerchantId !== null) await db.delete(sdrMerchants).where(eq(sdrMerchants.id, testMerchantId)).catch(() => {});
+  if (testMerchantId !== null) {
+    await db.execute(drizzleSql`DELETE FROM sdr_lead_state WHERE merchant_id = ${testMerchantId}`).catch(() => {});
+    await db.execute(drizzleSql`DELETE FROM outreach_pauses WHERE merchant_id = ${testMerchantId}`).catch(() => {});
+    await db.delete(sdrMerchants).where(eq(sdrMerchants.id, testMerchantId)).catch(() => {});
+  }
 
   // ── 5b: Unmatched path — verify attribution is still written (no-op on stage) ──
   const fakeGhlContactId = `qa-release-test-booking-unmatched-${Date.now()}`;

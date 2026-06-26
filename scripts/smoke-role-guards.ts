@@ -126,6 +126,9 @@ const CASES: GuardCase[] = [
   { method: "PATCH",  path: "/api/merchant-documents/99999/status", anon: [401], merchant: [403], admin: [400, 403, 404], agent: [403], description: "doc status update (admin/manager only; agent→403; 403 also expected on admin when CSRF absent in test)" },
   // Bulk download: admin/manager only; agent and merchant → 403; admin may get 403 from CSRF in test env
   { method: "POST",   path: "/api/documents/bulk-download",         anon: [401], merchant: [403], admin: [400, 200, 403], agent: [403], description: "bulk download (admin/manager only; agent→403; 403 expected on admin from CSRF in test env)" },
+  // SDR / admin health endpoints — isDashboardUser guard; merchant → 403
+  { method: "GET",    path: "/api/admin/health",                     anon: [401], merchant: [403], admin: [200], description: "admin health check (isDashboardUser)" },
+  { method: "GET",    path: "/api/sdr/compliance-channel-status",    anon: [401], merchant: [403], admin: [200], description: "SDR compliance channel status (isDashboardUser)" },
 ];
 
 async function ensureAgentUser(): Promise<void> {

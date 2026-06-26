@@ -3,7 +3,7 @@ import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integra
 import { storage } from "../storage";
 import { z } from "zod";
 import { and, eq, or, sql as drizzleSql } from "drizzle-orm";
-import { insertEquipmentOrderSchema, insertMerchantApplicationSchema, insertMerchantProfileSchema, insertOnboardingStepSchema, deals, merchantApplications } from "@shared/schema";
+import { insertEquipmentOrderSchema, insertMerchantApplicationSchema, insertMerchantProfileSchema, insertOnboardingStepSchema, contacts, deals, merchantApplications } from "@shared/schema";
 import { db } from "../db";
 import crypto from "crypto";
 import { getDocumentStatus, sendDocumentForEsign } from "../services/ghl";
@@ -307,16 +307,9 @@ export function registerMerchantsRoutes(app: Express) {
       // Run GHL sync and workflows async (same as the existing POST handler)
       if (updated) {
         const pewcConsent = req.body.pewcConsent === true;
-        const consentEmail = updated.ownerEmail || updated.businessEmail;
-        if (pewcConsent && consentEmail) {
-          recordPewcDecision({
-            email: consentEmail,
-            channel: "web",
-            consentGiven: true,
-            pageUrl: "/merchant-application",
-            metadata: { applicationId: updated.id, source: "finalize_endpoint" },
-          }).catch(() => {});
-        }
+        // Capture request metadata now — req may not be accessible inside the IIFE after response is sent
+        const reqIpAddress = req.ip || "unknown";
+        const reqUserAgent = req.get("user-agent") || "unknown";
 
         // Resolve or create CRM contact — required for GHL sync call signature
         (async () => {
@@ -324,8 +317,13 @@ export function registerMerchantsRoutes(app: Express) {
             const contactEmail = updated.ownerEmail || updated.businessEmail;
             let resolvedContactId: number | null = null;
             if (contactEmail) {
-              const { data: contacts } = await storage.getContacts({ limit: 1000 });
-              const existing = contacts.find((c: any) => c.email?.toLowerCase() === contactEmail.toLowerCase());
+              // Use indexed email lookup — storage.getContacts({limit:1000}) misses contacts
+              // in large DBs (>1000 rows) since it doesn't filter by email.
+              const [existing] = await db
+                .select({ id: contacts.id })
+                .from(contacts)
+                .where(eq(contacts.email, contactEmail.toLowerCase()))
+                .limit(1);
               if (existing) {
                 resolvedContactId = existing.id;
               } else {
@@ -342,6 +340,17 @@ export function registerMerchantsRoutes(app: Express) {
               }
             }
             if (resolvedContactId) {
+              // Record PEWC consent evidence with the resolved CRM contact ID
+              if (pewcConsent) {
+                await recordPewcDecision({
+                  contactId: resolvedContactId,
+                  checked: true,
+                  source: "merchant_application_finalize",
+                  ipAddress: reqIpAddress,
+                  userAgent: reqUserAgent,
+                  details: { applicationId: updated.id },
+                }).catch(() => {});
+              }
               await syncMerchantApplicationToGhl(updated.id, resolvedContactId).catch(err =>
                 console.error("[Finalize] GHL sync error:", err)
               );

@@ -21,3 +21,4 @@
 - [Broken Tailwind value patterns](tailwind-arbitrary-values.md) — `opacity-15` and `from-[hsl(h,s%,l%)/0.92]` are NOT valid utilities; silently no-op. Use `opacity-[0.15]` and solid bg + separate overlay.
 - [Public marketing shell map](public-shell-overlays.md) — overlay stack (StickyMobileCTA mobile, ChatWidget all, ContactBubble desktop-only) must be offset so they never collide; live sticky is StickyMobileCTA (App.tsx), gated by route.
 - [Wave 10 draft persistence](wave10-draft-persistence.md) — server-side draft uses draftTokenHash (migration 0041); autosave blocks EIN/SSN/bank; finalize uses EIN-only dedupe; prefill token uses in-memory Map (not DB) with 24h TTL.
+- [Finalize IIFE contact lookup](finalize-iife-contact-lookup.md) — storage.getContacts({limit:1000}) silently skips contacts in DBs >1000 rows; use indexed db.select by email; also capture req.ip before IIFE starts.
