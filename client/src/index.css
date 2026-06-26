@@ -442,14 +442,20 @@
 /* ── Mobile sticky dock — bottom clearance for main content ─────────── */
 /* StickyMobileCTA measures its own offsetHeight and publishes --dock-height.
    The dock is md:hidden so we only apply clearance at < 768px.
-   Fallback 64px = single Upload button (~56px) + 8px.                   */
+   Uses --dock-height (measured) falling back to --mobile-dock-height (72px).
+   env(safe-area-inset-bottom) adds iPhone notch / home-indicator clearance. */
 :root {
   --dock-height: 0px;
 }
 
 @media (max-width: 767px) {
   .dock-clearance-main {
-    padding-bottom: calc(var(--dock-height, 64px) + 24px);
+    padding-bottom: calc(var(--dock-height, var(--mobile-dock-height)) + env(safe-area-inset-bottom, 0px) + 8px);
+  }
+  /* Extra bottom clearance for sections that contain forms/CTAs that must not be
+     obscured by the sticky CTA tray. Adds dock + safe area + generous buffer.   */
+  .pb-safe-mobile {
+    padding-bottom: calc(var(--dock-height, var(--mobile-dock-height)) + env(safe-area-inset-bottom, 0px) + 40px) !important;
   }
 }
 

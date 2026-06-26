@@ -216,7 +216,7 @@ export default function Home() {
                   </Link>
                 </div>
                 {/* compact in-hero trust row */}
-                <div className="si-load si-load-6 flex flex-wrap items-center gap-x-5 gap-y-2 mt-8 pt-6 border-t border-border">
+                <div className="si-load si-load-6 flex flex-wrap items-center gap-x-4 gap-y-2 mt-8 pt-6 border-t border-border">
                   <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground" data-testid="text-hero-trust-1"><BadgeCheck className="w-3.5 h-3.5 text-accent" /> Statement-based review</span>
                   <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground" data-testid="text-hero-trust-2"><FileText className="w-3.5 h-3.5 text-accent" /> Line-item breakdown</span>
                   <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground" data-testid="text-hero-trust-3"><Headphones className="w-3.5 h-3.5 text-accent" /> Real human support</span>
@@ -282,19 +282,19 @@ export default function Home() {
               <div className="flex flex-col items-center gap-0.5 text-center" data-testid="trust-badge-years">
                 <span className="text-lg font-bold text-foreground">FL-Based</span>
                 <span className="text-xs font-semibold text-foreground">South Florida Team</span>
-                <span className="text-[10px] text-muted-foreground">Local reps, real conversations</span>
+                <span className="text-xs text-muted-foreground">Local reps, real conversations</span>
               </div>
               <div className="w-px h-10 bg-border hidden sm:block" />
               <div className="flex flex-col items-center gap-0.5 text-center" data-testid="trust-badge-merchants">
                 <span className="text-lg font-bold text-foreground">Free</span>
                 <span className="text-xs font-semibold text-foreground">Statement Review</span>
-                <span className="text-[10px] text-muted-foreground">Keep the breakdown either way</span>
+                <span className="text-xs text-muted-foreground">Keep the breakdown either way</span>
               </div>
               <div className="w-px h-10 bg-border hidden sm:block" />
               <div className="flex flex-col items-center gap-0.5 text-center" data-testid="trust-badge-volume">
                 <span className="text-lg font-bold text-foreground">I+P</span>
                 <span className="text-xs font-semibold text-foreground">Interchange-Plus Pricing</span>
-                <span className="text-[10px] text-muted-foreground">Transparent, line-item billing</span>
+                <span className="text-xs text-muted-foreground">Transparent, line-item billing</span>
               </div>
             </div>
           </div>
@@ -661,7 +661,7 @@ export default function Home() {
                         <ArrowRight className="w-4 h-4" />
                       </Button>
                     </Link>
-                    <p className="text-[10px] text-muted-foreground text-center">
+                    <p className="text-xs text-muted-foreground text-center">
                       This calculator provides an estimate only. Upload your statement for a precise, line-item analysis. Eligibility, underwriting, card brand rules, and applicable laws apply.
                     </p>
                   </div>
@@ -771,7 +771,7 @@ export default function Home() {
                     <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Full cost transparency</li>
                   </ul>
                   <div className="mt-4 rounded-md border border-border bg-card px-3 py-2">
-                    <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Illustrative structure</div>
+                    <div className="text-xs uppercase tracking-wider text-muted-foreground">Illustrative structure</div>
                     <div className="num text-sm font-semibold text-foreground">Interchange + 0.25%<span className="font-normal text-muted-foreground"> / transaction*</span></div>
                   </div>
                 </CardContent>
@@ -1108,7 +1108,7 @@ export default function Home() {
                         </div>
                       ))}
                     </div>
-                    <p className="text-[11px] text-muted-foreground">
+                    <p className="text-xs text-muted-foreground">
                       *Typical effective rate ranges for interchange-plus pricing. Actual rate depends on your card mix, transaction types, and volume — upload a statement for your exact number. No savings claims without a statement review.
                     </p>
                     <Link href="/beat-square-stripe" className="inline-flex items-center gap-1.5 text-primary text-sm font-medium mt-3 hover:underline" data-testid="link-rate-transparency-compare">
@@ -1299,7 +1299,7 @@ export default function Home() {
                 </Link>
               ))}
             </div>
-            <p className="text-center text-[11px] text-muted-foreground mb-6">Documented case-study results. Individual outcomes vary by card mix, volume, and program eligibility.</p>
+            <p className="text-center text-xs text-muted-foreground mb-6">Documented case-study results. Individual outcomes vary by card mix, volume, and program eligibility.</p>
             <div className="flex flex-wrap items-center justify-center gap-3">
               <Link href="/case-studies" data-testid="link-reviews-case-studies">
                 <Button variant="outline" className="gap-2">
@@ -1442,7 +1442,7 @@ export default function Home() {
         </div>
 
         {/* SECTION 11.5: Quick Callback Form */}
-        <section className="bg-background bg-grid py-12 md:py-20" data-testid="section-callback">
+        <section className="bg-background bg-grid py-12 md:py-20 pb-safe-mobile" data-testid="section-callback">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
               <div>
@@ -1514,7 +1514,7 @@ export default function Home() {
                         {cbSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Phone className="w-4 h-4" />}
                         Request a Callback
                       </Button>
-                      <p className="text-[10px] text-muted-foreground text-center">
+                      <p className="text-xs text-muted-foreground text-center">
                         By submitting, you agree to be contacted by Liberty Bancard. Consent is not required for service.
                       </p>
                     </CardContent>
@@ -1547,7 +1547,7 @@ export default function Home() {
         </section>
 
         {/* SECTION 12: Final CTA — sharp navy block */}
-        <section className="reveal relative overflow-hidden bg-primary py-14 md:py-24" data-testid="section-final-cta">
+        <section className="reveal relative overflow-hidden bg-primary pt-14 pb-20 md:py-24" data-testid="section-final-cta">
           <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.12]" aria-hidden="true" />
           <div className="absolute top-0 left-0 right-0 h-[3px] bg-accent" aria-hidden="true" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
