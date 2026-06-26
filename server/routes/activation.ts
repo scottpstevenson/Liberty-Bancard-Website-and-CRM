@@ -1,5 +1,5 @@
 import type { Express } from "express";
-import { isAdmin, isAuthenticated } from "../replit_integrations/auth";
+import { isAdmin, isAuthenticated, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { db } from "../db";
 import { sql, desc, and, gte } from "drizzle-orm";
@@ -524,6 +524,320 @@ export function registerActivationRoutes(app: Express) {
         .orderBy(desc(auditLogs.createdAt))
         .limit(200);
       res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === LIFECYCLE STAGE COUNTS ===
+  app.get("/api/operator/lifecycle-stage-counts", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const { contacts } = await import("@shared/schema");
+      const { isNull, count } = await import("drizzle-orm");
+
+      const CANONICAL_STAGES = [
+        "prospect", "lead", "analysis_requested", "statement_uploaded",
+        "call_booked", "proposal_sent", "verbal_commit",
+        "live_merchant", "retained", "referred", "closed_lost",
+      ];
+      const STAGE_LABELS: Record<string, string> = {
+        prospect: "Prospect",
+        lead: "Lead",
+        analysis_requested: "Analysis Requested",
+        statement_uploaded: "Statement Uploaded",
+        call_booked: "Call Booked",
+        proposal_sent: "Proposal Sent",
+        verbal_commit: "Verbal Commit",
+        live_merchant: "Live Merchant",
+        retained: "Retained",
+        referred: "Referred",
+        closed_lost: "Closed Lost",
+      };
+
+      const rows = await db
+        .select({
+          lifecycleStage: contacts.lifecycleStage,
+          total: count(contacts.id),
+          stuckApprox: count(contacts.id),
+        })
+        .from(contacts)
+        .where(isNull(contacts.archivedAt))
+        .groupBy(contacts.lifecycleStage);
+
+      const stuckThresholdDays = 7;
+      const stuckCutoff = new Date(Date.now() - stuckThresholdDays * 86400000);
+
+      const stuckRows = await db
+        .select({
+          lifecycleStage: contacts.lifecycleStage,
+          stuckCount: count(contacts.id),
+        })
+        .from(contacts)
+        .where(sql`${contacts.archivedAt} IS NULL AND ${contacts.updatedAt} <= ${stuckCutoff}`)
+        .groupBy(contacts.lifecycleStage);
+
+      const stuckMap: Record<string, number> = {};
+      for (const r of stuckRows) {
+        if (r.lifecycleStage) stuckMap[r.lifecycleStage] = Number(r.stuckCount);
+      }
+
+      const countMap: Record<string, number> = {};
+      for (const r of rows) {
+        if (r.lifecycleStage) countMap[r.lifecycleStage] = Number(r.total);
+      }
+
+      const activePipelineStages = CANONICAL_STAGES.filter(s => s !== "do_not_contact");
+      const totalActivePipeline = activePipelineStages.reduce((sum, s) => sum + (countMap[s] || 0), 0);
+
+      const stages = CANONICAL_STAGES.map(stage => ({
+        stage,
+        label: STAGE_LABELS[stage] || stage,
+        count: countMap[stage] || 0,
+        stuckCount: stuckMap[stage] ?? null,
+        stuckThresholdDays,
+        percentOfPipeline: totalActivePipeline > 0
+          ? Math.round(((countMap[stage] || 0) / totalActivePipeline) * 1000) / 10
+          : 0,
+        filterUrl: `/dashboard/contacts?lifecycleStage=${stage}`,
+      }));
+
+      res.json({
+        generatedAt: new Date().toISOString(),
+        stages,
+        totalActivePipeline,
+        warning: "Stuck count uses updatedAt as approximate proxy — any field update resets the clock.",
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === ACTIVATION READINESS (Wave 9) ===
+  app.get("/api/activation/readiness", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const { analyticsEvents, followUpSequences, ghlActivityLog, contacts } = await import("@shared/schema");
+      const { count, gte: gteOp, isNotNull } = await import("drizzle-orm");
+
+      const warnings: string[] = [];
+
+      const items: Array<{
+        key: string; label: string; status: "green" | "yellow" | "red";
+        value: string; description: string; remediation: string | null; source: string;
+      }> = [];
+
+      // ghl_configured
+      const ghlToken = process.env.GHL_PRIVATE_INTEGRATION_TOKEN;
+      items.push({
+        key: "ghl_configured",
+        label: "GHL Connection Configured",
+        status: ghlToken ? "green" : "red",
+        value: ghlToken ? "Configured" : "Missing",
+        description: "GHL private integration token required for contact sync and communications.",
+        remediation: ghlToken ? null : "Set GHL_PRIVATE_INTEGRATION_TOKEN in environment variables.",
+        source: "process.env.GHL_PRIVATE_INTEGRATION_TOKEN",
+      });
+
+      // pewc_disclosure_version
+      const pewcVersion = process.env.PEWC_DISCLOSURE_VERSION;
+      items.push({
+        key: "pewc_disclosure_version",
+        label: "PEWC Disclosure Version Set",
+        status: pewcVersion ? "green" : "yellow",
+        value: pewcVersion || "Not set",
+        description: "PEWC disclosure version ensures compliance audit trail for consent records.",
+        remediation: pewcVersion ? null : "Set PEWC_DISCLOSURE_VERSION in environment variables.",
+        source: "process.env.PEWC_DISCLOSURE_VERSION",
+      });
+
+      // contactability_available
+      let contactabilityStatus: "green" | "yellow" | "red" = "red";
+      try {
+        await import("../services/contactability");
+        contactabilityStatus = "green";
+      } catch {
+        contactabilityStatus = "red";
+        warnings.push("contactability service module could not be imported");
+      }
+      items.push({
+        key: "contactability_available",
+        label: "Wave 1A evaluateContactability() Available",
+        status: contactabilityStatus,
+        value: contactabilityStatus === "green" ? "Available" : "Unavailable",
+        description: "Contactability permission gate must be available for all outbound sends.",
+        remediation: contactabilityStatus !== "green" ? "Ensure server/services/contactability.ts is present and exports evaluateContactability." : null,
+        source: "dynamic import('../services/contactability')",
+      });
+
+      // consent_tier_migration
+      let consentTierStatus: "green" | "yellow" | "red" = "yellow";
+      try {
+        const [{ consentTierCol }] = await db.execute(sql`
+          SELECT column_name AS "consentTierCol" FROM information_schema.columns
+          WHERE table_name = 'contacts' AND column_name = 'consent_tier' LIMIT 1
+        `);
+        consentTierStatus = consentTierCol ? "green" : "yellow";
+      } catch {
+        consentTierStatus = "yellow";
+      }
+      items.push({
+        key: "consent_tier_migration",
+        label: "Consent Tier Migration Applied",
+        status: consentTierStatus,
+        value: consentTierStatus === "green" ? "Column present" : "Unable to verify",
+        description: "contacts.consent_tier column required for PEWC consent routing.",
+        remediation: consentTierStatus !== "green" ? "Run pending Drizzle migrations: npx tsx scripts/migrate.ts" : null,
+        source: "information_schema.columns",
+      });
+
+      // sequences_seeded
+      let seqCount = 0;
+      try {
+        const [{ cnt }] = await db.select({ cnt: count(followUpSequences.id) }).from(followUpSequences);
+        seqCount = Number(cnt);
+      } catch { seqCount = 0; }
+      items.push({
+        key: "sequences_seeded",
+        label: "Wave 6 Sequence Families Seeded",
+        status: seqCount >= 10 ? "green" : "yellow",
+        value: `${seqCount} sequences`,
+        description: "At least 10 sequences should be seeded across families for outreach coverage.",
+        remediation: seqCount < 10 ? "Seed sequence families via the Sequences admin page or seed script." : null,
+        source: "followUpSequences table count",
+      });
+
+      // ghl_permission_sync_healthy
+      const recentCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      let ghlSyncStatus: "green" | "yellow" | "red" = "yellow";
+      try {
+        const recentEntries = await db.select({ id: ghlActivityLog.id })
+          .from(ghlActivityLog)
+          .where(gteOp(ghlActivityLog.createdAt, recentCutoff))
+          .limit(1);
+        ghlSyncStatus = (ghlToken && recentEntries.length > 0) ? "green" : "yellow";
+      } catch { ghlSyncStatus = "yellow"; }
+      items.push({
+        key: "ghl_permission_sync_healthy",
+        label: "Wave 7 GHL Permission Fields Healthy",
+        status: ghlSyncStatus,
+        value: ghlSyncStatus === "green" ? "Recent activity" : "No recent GHL activity",
+        description: "GHL activity log should have entries in the last 24h to confirm sync is running.",
+        remediation: ghlSyncStatus !== "green" ? "Verify GHL_PRIVATE_INTEGRATION_TOKEN is valid and the 45s sync loop is running." : null,
+        source: "ghlActivityLog recent entry check",
+      });
+
+      // analytics_events_present
+      const sevenDaysAgo = new Date(Date.now() - 7 * 86400000);
+      let analyticsCount = 0;
+      try {
+        const [{ cnt }] = await db.select({ cnt: count(analyticsEvents.id) })
+          .from(analyticsEvents)
+          .where(gteOp(analyticsEvents.occurredAt, sevenDaysAgo));
+        analyticsCount = Number(cnt);
+      } catch { analyticsCount = 0; }
+      items.push({
+        key: "analytics_events_present",
+        label: "Wave 8 Analytics Events Present",
+        status: analyticsCount > 0 ? "green" : "yellow",
+        value: `${analyticsCount} events (last 7 days)`,
+        description: "Analytics events table should have data for conversion tracking to function.",
+        remediation: analyticsCount === 0 ? "Data still accumulating — events are recorded on page visits and form submissions." : null,
+        source: "analyticsEvents table count (7 days)",
+      });
+
+      // feature flags
+      const flagChecks: Array<{ key: string; label: string; envKey: string }> = [
+        { key: "sdr_enabled", label: "SDR_ENABLED Flag", envKey: "SDR_ENABLED" },
+        { key: "sms_enabled", label: "SMS_ENABLED Flag", envKey: "SMS_ENABLED" },
+        { key: "voice_ai_enabled", label: "VOICE_AI_ENABLED Flag", envKey: "VOICE_AI_ENABLED" },
+        { key: "nightly_discovery_enabled", label: "NIGHTLY_DISCOVERY_ENABLED Flag", envKey: "NIGHTLY_DISCOVERY_ENABLED" },
+      ];
+      for (const fc of flagChecks) {
+        const val = process.env[fc.envKey];
+        items.push({
+          key: fc.key,
+          label: fc.label,
+          status: val === "true" ? "green" : "yellow",
+          value: val || "Not set",
+          description: `${fc.envKey} feature flag controls activation of the ${fc.label.replace(" Flag", "")} subsystem.`,
+          remediation: val !== "true" ? `Set ${fc.envKey}=true in environment variables to activate.` : null,
+          source: `process.env.${fc.envKey}`,
+        });
+      }
+
+      // inbox_health
+      let inboxStatus: "green" | "yellow" | "red" = "red";
+      let inboxValue = "No active senders";
+      try {
+        const identities = await storage.getSendingIdentities();
+        const active = identities.filter((i: any) => i.status === "active" && i.isActive !== false);
+        const withCapacity = active.filter((i: any) => (i.sentToday || 0) < (i.dailyLimit || 0));
+        if (withCapacity.length > 0) {
+          inboxStatus = "green";
+          inboxValue = `${withCapacity.length} active sender(s) with capacity`;
+        } else if (active.length > 0) {
+          inboxStatus = "yellow";
+          inboxValue = `${active.length} active sender(s) but all at daily limit`;
+        } else {
+          inboxStatus = "red";
+          inboxValue = "No active sending identities configured";
+        }
+      } catch { inboxStatus = "yellow"; inboxValue = "Unable to check sending identities"; }
+      items.push({
+        key: "inbox_health",
+        label: "Active Sender Health",
+        status: inboxStatus,
+        value: inboxValue,
+        description: "At least one active sending identity with remaining daily capacity required for outreach.",
+        remediation: inboxStatus !== "green" ? "Add or activate a sending identity in the Identity Wizard." : null,
+        source: "storage.getSendingIdentities()",
+      });
+
+      // queue_health
+      let queueStatus: "green" | "yellow" | "red" = "yellow";
+      let queueValue = "Queue health source unavailable";
+      try {
+        const { getQueueManager } = await import("../services/queue-manager");
+        const qm = await getQueueManager();
+        const metrics = await qm.getAllQueueMetrics();
+        const dlqTotal = Object.values(metrics as Record<string, any>).reduce((sum: number, q: any) => sum + (q?.dead || 0), 0);
+        queueStatus = dlqTotal === 0 ? "green" : "yellow";
+        queueValue = dlqTotal === 0 ? "No dead-letter jobs" : `${dlqTotal} dead-letter job(s)`;
+      } catch {
+        queueStatus = "yellow";
+        queueValue = "Queue health source unavailable";
+        warnings.push("Could not load queue metrics for readiness check");
+      }
+      items.push({
+        key: "queue_health",
+        label: "Queue Health / Dead-Letter",
+        status: queueStatus,
+        value: queueValue,
+        description: "BullMQ dead-letter queue should be empty for healthy background job processing.",
+        remediation: queueStatus !== "green" ? "Review dead-letter jobs in Operator Dashboard → Job Queue tab." : null,
+        source: "BullMQ queue metrics",
+      });
+
+      // sitemap_coverage (always yellow — no audit source)
+      items.push({
+        key: "sitemap_coverage",
+        label: "Sitemap Coverage",
+        status: "yellow",
+        value: "Check unavailable",
+        description: "Sitemap coverage verification requires an external audit tool not configured in this repo.",
+        remediation: "Sitemap coverage check unavailable — verify manually via Google Search Console or a sitemap audit tool.",
+        source: "N/A",
+      });
+
+      const hasRed = items.some(i => i.status === "red");
+      const hasYellow = items.some(i => i.status === "yellow");
+      const overallStatus: "green" | "yellow" | "red" = hasRed ? "red" : hasYellow ? "yellow" : "green";
+
+      res.json({
+        generatedAt: new Date().toISOString(),
+        overallStatus,
+        items,
+        warnings,
+      });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

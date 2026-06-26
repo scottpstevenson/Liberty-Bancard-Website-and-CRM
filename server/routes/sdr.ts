@@ -2460,4 +2460,153 @@ export function registerSdrRoutes(app: Express) {
     }
   });
 
+  // === SDR STATS (Wave 9) ===
+  app.get("/api/operator/sdr-stats", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const { sequenceEnrollments, followUpSequences, outboundMessages, analyticsEvents, sdrLeadState, contacts } = await import("@shared/schema");
+      const { count, eq: eqOp, gte: gteOp } = await import("drizzle-orm");
+
+      const warnings: string[] = [];
+
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000);
+      const twentyFourHrsAgo = new Date(Date.now() - 86400000);
+      const now = new Date();
+
+      // enrolledLeads: active enrollments
+      const [enrolledResult] = await db.select({ cnt: count(sequenceEnrollments.id) })
+        .from(sequenceEnrollments)
+        .where(eqOp(sequenceEnrollments.status, "active"));
+      const enrolledLeads = Number(enrolledResult.cnt);
+
+      // activeSequencesByFamily: GROUP BY sequenceFamily where status = 'active'
+      const familyRows = await db
+        .select({ family: followUpSequences.sequenceFamily, cnt: count(followUpSequences.id) })
+        .from(followUpSequences)
+        .where(eqOp(followUpSequences.status, "active"))
+        .groupBy(followUpSequences.sequenceFamily);
+      const activeSequencesByFamily = familyRows.map(r => ({
+        family: r.family || "unassigned",
+        count: Number(r.cnt),
+      }));
+
+      // sequencesByStatus: GROUP BY status
+      const statusRows = await db
+        .select({ status: followUpSequences.status, cnt: count(followUpSequences.id) })
+        .from(followUpSequences)
+        .groupBy(followUpSequences.status);
+      const sequencesByStatus = statusRows.map(r => ({
+        status: r.status || "unknown",
+        count: Number(r.cnt),
+      }));
+
+      // sentTodayByChannel: from outboundMessages where sentAt >= today start
+      const channelRows = await db
+        .select({ channel: outboundMessages.channel, cnt: count(outboundMessages.id) })
+        .from(outboundMessages)
+        .where(gteOp(outboundMessages.sentAt, todayStart))
+        .groupBy(outboundMessages.channel);
+      const sentTodayByChannel = channelRows.map(r => ({
+        channel: r.channel || "unknown",
+        count: Number(r.cnt),
+      }));
+
+      // senderUtilization: from storage.getSendingIdentities() — no PII, only senderName
+      let senderUtilization: Array<{
+        senderName: string; sentToday: number; dailyLimit: number;
+        utilizationPct: number; healthScore: number | null; status: string;
+      }> = [];
+      try {
+        const identities = await storage.getSendingIdentities();
+        senderUtilization = (identities as any[]).map((i: any) => ({
+          senderName: i.label || "Unnamed Sender",
+          sentToday: i.sentToday || 0,
+          dailyLimit: i.dailyLimit || 0,
+          utilizationPct: i.dailyLimit > 0 ? Math.round((i.sentToday || 0) / i.dailyLimit * 100) : 0,
+          healthScore: i.healthScore ?? null,
+          status: i.status || "unknown",
+        }));
+      } catch {
+        warnings.push("Sender utilization unavailable — storage.getSendingIdentities() failed");
+      }
+
+      // bounceRate: bounced / total sent last 30 days
+      let bounceRate: number | null = null;
+      try {
+        const [bouncedResult] = await db.select({ cnt: count(outboundMessages.id) })
+          .from(outboundMessages)
+          .where(sql`${outboundMessages.status} = 'bounced' AND ${outboundMessages.sentAt} >= ${thirtyDaysAgo}`);
+        const [totalSentResult] = await db.select({ cnt: count(outboundMessages.id) })
+          .from(outboundMessages)
+          .where(gteOp(outboundMessages.sentAt, thirtyDaysAgo));
+        const bounced = Number(bouncedResult.cnt);
+        const total = Number(totalSentResult.cnt);
+        bounceRate = total > 0 ? Math.round((bounced / total) * 10000) / 100 : 0;
+      } catch {
+        warnings.push("Bounce rate unavailable — outboundMessages query failed");
+      }
+
+      // optOutRate: contacts with doNotContact updated in last 30 days / total
+      let optOutRate: number | null = null;
+      try {
+        const [optOutResult] = await db.select({ cnt: count(contacts.id) })
+          .from(contacts)
+          .where(sql`${contacts.doNotContact} = true AND ${contacts.updatedAt} >= ${thirtyDaysAgo}`);
+        const [totalContactedResult] = await db.select({ cnt: count(contacts.id) })
+          .from(contacts);
+        const optOuts = Number(optOutResult.cnt);
+        const total = Number(totalContactedResult.cnt);
+        optOutRate = total > 0 ? Math.round((optOuts / total) * 10000) / 100 : 0;
+      } catch {
+        warnings.push("Opt-out rate unavailable — contacts query failed");
+      }
+
+      // manualCallsDueToday: tasks due (NOT calls placed)
+      let manualCallsDueToday = 0;
+      try {
+        const [dueResult] = await db.select({ cnt: count(sdrLeadState.id) })
+          .from(sdrLeadState)
+          .where(sql`${sdrLeadState.nextActionAt} IS NOT NULL AND ${sdrLeadState.nextActionAt} <= ${now} AND ${sdrLeadState.nextActionAt} >= ${todayStart}`);
+        manualCallsDueToday = Number(dueResult.cnt);
+        warnings.push("manualCallsDueToday represents tasks due — not calls placed or auto-dialed.");
+      } catch {
+        warnings.push("Manual calls due today unavailable — sdrLeadState query failed");
+      }
+
+      // blockedStepsLast24h: analyticsEvents with blockReason IS NOT NULL in last 24h
+      let blockedStepsLast24h = 0;
+      try {
+        const [blockedResult] = await db.select({ cnt: count(analyticsEvents.id) })
+          .from(analyticsEvents)
+          .where(sql`${analyticsEvents.blockReason} IS NOT NULL AND ${analyticsEvents.occurredAt} >= ${twentyFourHrsAgo}`);
+        blockedStepsLast24h = Number(blockedResult.cnt);
+      } catch {
+        warnings.push("Blocked steps count unavailable — analyticsEvents query failed");
+      }
+
+      // intentBreakdown: not available without metadata parsing
+      const intentBreakdown: Array<{ intent: string; count: number }> = [];
+      warnings.push("Intent breakdown unavailable — intent classifications are not indexed in analyticsEvents.");
+
+      res.json({
+        generatedAt: new Date().toISOString(),
+        enrolledLeads,
+        activeSequencesByFamily,
+        sequencesByStatus,
+        sentTodayByChannel,
+        senderUtilization,
+        bounceRate,
+        optOutRate,
+        manualCallsDueToday,
+        blockedStepsLast24h,
+        intentBreakdown,
+        warnings,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
 }

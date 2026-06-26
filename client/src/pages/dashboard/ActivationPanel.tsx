@@ -1093,6 +1093,7 @@ export default function ActivationPanel() {
               )}
             </CardContent>
           </Card>
+          <LaunchReadinessChecklist />
         </TabsContent>
 
         <TabsContent value="bridge" className="space-y-4">
@@ -1358,6 +1359,7 @@ export default function ActivationPanel() {
         <TabsContent value="compliance" className="space-y-4">
           <ComplianceChannelTab data={complianceQuery.data} isLoading={complianceQuery.isLoading} />
           <ChannelSafetyMatrix query={channelSafetyQuery} />
+          <BlockReasonSummaryCard />
         </TabsContent>
       </Tabs>
     </div>
@@ -1835,5 +1837,198 @@ function ChannelSafetyMatrix({ query }: { query: ReturnType<typeof useQuery<Chan
         </Card>
       )}
     </div>
+  );
+}
+
+// ─── Block Reason Summary Card (Wave 9 — Channel Safety Extension) ─────────────
+interface BlockReasonRow {
+  channel: string | null;
+  blockReason: string | null;
+  cnt: number;
+}
+
+interface ChannelBlockSummaryResponse {
+  rows: BlockReasonRow[];
+  days: number;
+}
+
+const BLOCK_REASON_LABELS: Record<string, string> = {
+  blocked_due_to_no_pewc: "No PEWC Consent",
+  blocked_due_to_dnc: "Do Not Contact",
+  blocked_due_to_quiet_hours: "Quiet Hours",
+  blocked_due_to_feature_flag: "Feature Flag Off",
+  unsafe_attempts_blocked: "Unsafe Attempt",
+};
+
+function BlockReasonSummaryCard() {
+  const { data, isLoading, isError } = useQuery<ChannelBlockSummaryResponse>({
+    queryKey: ["/api/analytics/channel-block-summary", 1],
+    queryFn: async () => {
+      const res = await fetch("/api/analytics/channel-block-summary?days=1", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch block summary");
+      return res.json();
+    },
+    refetchInterval: 60000,
+  });
+
+  const blockedRows = (data?.rows || []).filter(r => r.blockReason !== null);
+
+  return (
+    <Card data-testid="block-reason-summary-card">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <Shield className="w-4 h-4 text-red-500" />
+          Block Reason Breakdown — Last 24 Hours
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {isLoading && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+            <Loader2 className="w-4 h-4 animate-spin" /> Loading block data…
+          </div>
+        )}
+        {isError && (
+          <div className="flex items-center gap-2 text-sm text-red-600 py-4">
+            <XCircle className="w-4 h-4" /> Failed to load block summary
+          </div>
+        )}
+        {!isLoading && !isError && blockedRows.length === 0 && (
+          <div className="flex items-center gap-2 py-4 text-sm text-green-700 dark:text-green-400" data-testid="no-blocks-message">
+            <CheckCircle2 className="w-4 h-4" /> No blocked attempts in the last 24 hours
+          </div>
+        )}
+        {!isLoading && !isError && blockedRows.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-xs text-muted-foreground">
+                  <th className="pb-1">Block Reason</th>
+                  <th className="pb-1">Channel</th>
+                  <th className="pb-1 text-right">Count</th>
+                </tr>
+              </thead>
+              <tbody>
+                {blockedRows.map((row, idx) => (
+                  <tr key={idx} className="border-b last:border-0" data-testid={`block-row-${idx}`}>
+                    <td className="py-1.5">{BLOCK_REASON_LABELS[row.blockReason!] || row.blockReason}</td>
+                    <td className="py-1.5 capitalize">{row.channel || "—"}</td>
+                    <td className="py-1.5 text-right font-medium">{row.cnt}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <div className="mt-3 p-2 bg-muted/30 rounded text-xs text-muted-foreground" data-testid="fl-breakdown-unavailable">
+          Florida-specific consent-tier breakdown unavailable — contact state is not tracked in analytics events.
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── Launch Readiness Checklist (Wave 9 — ActivationPanel Readiness tab) ────
+interface ReadinessItem {
+  key: string;
+  label: string;
+  status: "green" | "yellow" | "red";
+  value: string;
+  description: string;
+  remediation: string | null;
+  source: string;
+}
+
+interface ActivationReadinessResponse {
+  generatedAt: string;
+  overallStatus: "green" | "yellow" | "red";
+  items: ReadinessItem[];
+  warnings: string[];
+}
+
+function LaunchReadinessChecklist() {
+  const { data, isLoading, isError } = useQuery<ActivationReadinessResponse>({
+    queryKey: ["/api/activation/readiness"],
+    refetchInterval: 60000,
+  });
+
+  const statusColor = (s: "green" | "yellow" | "red") =>
+    s === "green" ? "default" : s === "yellow" ? "secondary" : "destructive";
+
+  const statusIcon = (s: "green" | "yellow" | "red") => {
+    if (s === "green") return <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0 mt-0.5" />;
+    if (s === "yellow") return <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />;
+    return <XCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />;
+  };
+
+  return (
+    <Card data-testid="launch-readiness-checklist">
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4" /> Launch Readiness Checklist (Wave 9)
+          </CardTitle>
+          {data && (
+            <Badge variant={statusColor(data.overallStatus)} data-testid="badge-launch-readiness-status">
+              {data.overallStatus === "green" ? "Go" : data.overallStatus === "yellow" ? "Caution" : "No-Go"}
+            </Badge>
+          )}
+        </div>
+        {data && (
+          <p className="text-xs text-muted-foreground mt-1">
+            Updated {new Date(data.generatedAt).toLocaleTimeString()}
+          </p>
+        )}
+      </CardHeader>
+      <CardContent>
+        {isLoading && (
+          <div className="space-y-2">
+            {[1, 2, 3, 4].map(i => (
+              <div key={i} className="h-10 bg-muted animate-pulse rounded" />
+            ))}
+          </div>
+        )}
+        {isError && (
+          <div className="flex items-center gap-2 text-sm text-red-600 py-4">
+            <XCircle className="w-4 h-4" /> Failed to load launch readiness checks
+          </div>
+        )}
+        {!isLoading && !isError && data && (
+          <div className="space-y-2">
+            {data.items.map(item => (
+              <div
+                key={item.key}
+                className="flex items-start gap-3 p-3 rounded border"
+                data-testid={`launch-readiness-${item.key}`}
+              >
+                {statusIcon(item.status)}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-medium">{item.label}</span>
+                    <span className="text-xs text-muted-foreground">{item.value}</span>
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-0.5">{item.description}</div>
+                  {item.remediation && item.status !== "green" && (
+                    <div className="text-xs text-amber-700 dark:text-amber-400 mt-1">{item.remediation}</div>
+                  )}
+                </div>
+                <Badge variant={statusColor(item.status)} className="shrink-0 text-xs capitalize">
+                  {item.status}
+                </Badge>
+              </div>
+            ))}
+            {data.warnings.length > 0 && (
+              <div className="mt-2 space-y-1">
+                {data.warnings.map((w, i) => (
+                  <div key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
+                    <AlertTriangle className="w-3 h-3 text-amber-500 shrink-0 mt-0.5" />
+                    <span>{w}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

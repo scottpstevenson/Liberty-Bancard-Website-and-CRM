@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import StatementChainPanel from "@/components/operator/StatementChainPanel";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell, Legend, LineChart, Line } from "recharts";
+import type { LifecycleStageCountsResponse, OperatorSdrStatsResponse } from "@shared/operator-dashboard-types";
 
 interface SyncConflict {
   id: number;
@@ -4624,6 +4625,282 @@ function ConversionPanel() {
           )}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+// ─── Lifecycle Command Center ──────────────────────────────────────────────────
+// IA-REBUILD (#625): mount LifecycleCommandCenter under "Pipeline & Conversion" group
+
+export function LifecycleCommandCenter() {
+  const { data, isLoading, isError } = useQuery<LifecycleStageCountsResponse>({
+    queryKey: ["/api/operator/lifecycle-stage-counts"],
+    refetchInterval: 60000,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="space-y-3" data-testid="lifecycle-loading">
+        {[1, 2, 3].map(i => (
+          <Card key={i}>
+            <CardContent className="p-4">
+              <div className="h-4 bg-muted animate-pulse rounded w-1/3 mb-2" />
+              <div className="h-8 bg-muted animate-pulse rounded w-1/2" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <Card data-testid="lifecycle-error">
+        <CardContent className="p-6 flex flex-col items-center gap-2 text-center">
+          <AlertTriangle className="w-8 h-8 text-red-500" />
+          <p className="font-medium">Unable to load lifecycle data</p>
+          <p className="text-sm text-muted-foreground">Check that you have admin or manager access and the server is running.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!data || data.stages.length === 0) {
+    return (
+      <Card data-testid="lifecycle-empty">
+        <CardContent className="p-8 text-center text-muted-foreground">
+          No contacts in pipeline yet
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-4" data-testid="lifecycle-command-center">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-semibold">Lifecycle Stage Distribution</h3>
+          <p className="text-xs text-muted-foreground">Total active pipeline: {data.totalActivePipeline.toLocaleString()} contacts · Updated {new Date(data.generatedAt).toLocaleTimeString()}</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+        {data.stages.map(stage => (
+          <Card key={stage.stage} data-testid={`lifecycle-card-${stage.stage}`}>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-1">
+                <Users className="w-4 h-4 text-blue-600" />
+                <span className="text-xs text-muted-foreground truncate">{stage.label}</span>
+              </div>
+              <div className="text-2xl font-bold" data-testid={`lifecycle-count-${stage.stage}`}>{stage.count.toLocaleString()}</div>
+              <div className="text-xs text-muted-foreground mt-1">
+                {stage.percentOfPipeline}% of pipeline
+              </div>
+              <div className="text-xs text-muted-foreground">
+                Stuck: {stage.stuckCount !== null ? stage.stuckCount : "N/A"}
+              </div>
+              <a
+                href={stage.filterUrl}
+                className="text-xs text-primary hover:underline mt-2 inline-block"
+                data-testid={`lifecycle-link-${stage.stage}`}
+              >
+                View contacts →
+              </a>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {data.warning && (
+        <div className="flex items-start gap-2 p-3 bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-800 rounded text-sm text-yellow-800 dark:text-yellow-300" data-testid="lifecycle-warning">
+          <AlertTriangle className="w-4 h-4 text-yellow-600 shrink-0 mt-0.5" />
+          <span>{data.warning}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── SDR Command Center ────────────────────────────────────────────────────────
+// IA-REBUILD (#625): mount SdrCommandCenter under "SDR & Outreach" group
+
+export function SdrCommandCenter() {
+  const { data, isLoading, isError } = useQuery<OperatorSdrStatsResponse>({
+    queryKey: ["/api/operator/sdr-stats"],
+    refetchInterval: 30000,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="space-y-3" data-testid="sdr-loading">
+        {[1, 2, 3].map(i => (
+          <Card key={i}>
+            <CardContent className="p-4">
+              <div className="h-4 bg-muted animate-pulse rounded w-1/3 mb-2" />
+              <div className="h-8 bg-muted animate-pulse rounded w-1/2" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <Card data-testid="sdr-error">
+        <CardContent className="p-6 flex flex-col items-center gap-2 text-center">
+          <AlertTriangle className="w-8 h-8 text-red-500" />
+          <p className="font-medium">Unable to load SDR stats</p>
+          <p className="text-sm text-muted-foreground">Check that you have admin or manager access and the server is running.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!data) {
+    return (
+      <Card data-testid="sdr-empty">
+        <CardContent className="p-8 text-center text-muted-foreground">No SDR data available</CardContent>
+      </Card>
+    );
+  }
+
+  const totalSentToday = data.sentTodayByChannel.reduce((sum, c) => sum + c.count, 0);
+
+  return (
+    <div className="space-y-4" data-testid="sdr-command-center">
+      <div>
+        <h3 className="text-lg font-semibold">SDR Command Center</h3>
+        <p className="text-xs text-muted-foreground">Updated {new Date(data.generatedAt).toLocaleTimeString()}</p>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <KpiCard label="Enrolled Leads" value={data.enrolledLeads} icon={Users} color="text-blue-600" />
+        <KpiCard label="Sent Today" value={totalSentToday} icon={Send} color="text-purple-600" subtext="all channels" />
+        <KpiCard label="Tasks Due" value={data.manualCallsDueToday} icon={Clock} color="text-orange-600" subtext="not calls placed" />
+        <KpiCard label="Blocked Steps 24h" value={data.blockedStepsLast24h} icon={Shield} color="text-red-600" />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Sequences by Family</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {data.activeSequencesByFamily.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No active sequences</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-xs text-muted-foreground">
+                      <th className="pb-1">Family</th>
+                      <th className="pb-1 text-right">Active</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.activeSequencesByFamily.map(f => (
+                      <tr key={f.family} className="border-b last:border-0" data-testid={`sdr-family-${f.family}`}>
+                        <td className="py-1.5">{f.family}</td>
+                        <td className="py-1.5 text-right"><Badge variant="secondary">{f.count}</Badge></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Sent Today by Channel</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {data.sentTodayByChannel.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No sends recorded today</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-xs text-muted-foreground">
+                      <th className="pb-1">Channel</th>
+                      <th className="pb-1 text-right">Count</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.sentTodayByChannel.map(c => (
+                      <tr key={c.channel} className="border-b last:border-0" data-testid={`sdr-channel-${c.channel}`}>
+                        <td className="py-1.5 capitalize">{c.channel}</td>
+                        <td className="py-1.5 text-right font-medium">{c.count.toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Sender Utilization</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {data.senderUtilization.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No sending identities configured</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-xs text-muted-foreground">
+                    <th className="pb-1">Sender</th>
+                    <th className="pb-1 text-right">Sent</th>
+                    <th className="pb-1 text-right">Limit</th>
+                    <th className="pb-1 w-24">Utilization</th>
+                    <th className="pb-1">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.senderUtilization.map((s, idx) => (
+                    <tr key={idx} className="border-b last:border-0" data-testid={`sdr-sender-${idx}`}>
+                      <td className="py-1.5">{s.senderName}</td>
+                      <td className="py-1.5 text-right">{s.sentToday}</td>
+                      <td className="py-1.5 text-right">{s.dailyLimit}</td>
+                      <td className="py-1.5">
+                        <div className="flex items-center gap-1">
+                          <Progress value={s.utilizationPct} className="h-1.5 flex-1" />
+                          <span className="text-xs text-muted-foreground w-8">{s.utilizationPct}%</span>
+                        </div>
+                      </td>
+                      <td className="py-1.5">
+                        <Badge variant={s.status === "active" ? "default" : "secondary"} className="text-xs">{s.status}</Badge>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-2 gap-3">
+        <KpiCard label="Bounce Rate (30d)" value={data.bounceRate !== null ? data.bounceRate : "N/A"} icon={XCircle} color="text-red-600" suffix={data.bounceRate !== null ? "%" : ""} />
+        <KpiCard label="Opt-Out Rate (30d)" value={data.optOutRate !== null ? data.optOutRate : "N/A"} icon={AlertTriangle} color="text-orange-600" suffix={data.optOutRate !== null ? "%" : ""} />
+      </div>
+
+      {data.warnings.length > 0 && (
+        <div className="space-y-1" data-testid="sdr-warnings">
+          {data.warnings.map((w, i) => (
+            <div key={i} className="flex items-start gap-2 p-2 bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-800 rounded text-xs text-yellow-800 dark:text-yellow-300">
+              <AlertTriangle className="w-3 h-3 text-yellow-600 shrink-0 mt-0.5" />
+              <span>{w}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
