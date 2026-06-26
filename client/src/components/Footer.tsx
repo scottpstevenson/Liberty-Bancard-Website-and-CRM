@@ -98,7 +98,8 @@ export function Footer() {
   ];
 
   return (
-    <footer className="bg-primary text-primary-foreground pt-16 pb-8" data-testid="footer">
+    <footer className="relative bg-primary text-primary-foreground pt-16 pb-8" data-testid="footer">
+      <div className="absolute top-0 left-0 right-0 h-[3px] bg-accent" aria-hidden="true" />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12 mb-12">
           <div>

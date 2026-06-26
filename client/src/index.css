@@ -193,6 +193,125 @@
       linear-gradient(90deg, hsl(var(--foreground) / 0.03) 1px, transparent 1px);
     background-size: 40px 40px;
   }
+
+  /* ============================================================
+     Statement Intelligence design system
+     Document/report motifs: ledger texture, accent rules, status
+     chips, audit stamps, and an orchestrated hero load. Layered on
+     the existing navy / off-white / blue / red / green tokens.
+     ============================================================ */
+
+  /* Ruled ledger paper — faint horizontal lines for report surfaces */
+  .ledger-texture {
+    background-image: repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent 27px,
+      hsl(var(--foreground) / 0.05) 27px,
+      hsl(var(--foreground) / 0.05) 28px
+    );
+  }
+
+  /* Thin precision accent rule (top of report cards / section markers) */
+  .accent-rule {
+    position: relative;
+  }
+  .accent-rule::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 2.5rem;
+    height: 3px;
+    background: hsl(var(--accent));
+  }
+
+  /* Tabular report numerals */
+  .num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum' 1;
+  }
+
+  /* Compact status chips for audit findings */
+  .report-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.1rem 0.5rem;
+    border-radius: 0.3rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    line-height: 1.4;
+    letter-spacing: 0.01em;
+    border: 1px solid transparent;
+  }
+  .report-chip-negative {
+    color: hsl(var(--stat-negative));
+    background: hsl(var(--stat-negative) / 0.08);
+    border-color: hsl(var(--stat-negative) / 0.22);
+  }
+  .report-chip-positive {
+    color: hsl(var(--stat-positive));
+    background: hsl(var(--stat-positive) / 0.08);
+    border-color: hsl(var(--stat-positive) / 0.22);
+  }
+  .report-chip-neutral {
+    color: hsl(var(--muted-foreground));
+    background: hsl(var(--foreground) / 0.05);
+    border-color: hsl(var(--foreground) / 0.12);
+  }
+
+  /* Stamped "sample / illustrative" audit label */
+  .audit-stamp {
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: hsl(var(--brand-red) / 0.85);
+    border: 1.5px solid hsl(var(--brand-red) / 0.4);
+    border-radius: 0.25rem;
+    padding: 0.15rem 0.45rem;
+    transform: rotate(-4deg);
+    display: inline-block;
+  }
+
+  /* Orchestrated hero load — staggered fade/rise */
+  .si-load {
+    opacity: 0;
+    transform: translateY(16px);
+    animation: si-rise 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  .si-load-1 { animation-delay: 0.05s; }
+  .si-load-2 { animation-delay: 0.15s; }
+  .si-load-3 { animation-delay: 0.25s; }
+  .si-load-4 { animation-delay: 0.35s; }
+  .si-load-5 { animation-delay: 0.45s; }
+  .si-load-6 { animation-delay: 0.55s; }
+}
+
+@keyframes si-rise {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .si-load {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+  .reveal {
+    transition: none;
+  }
+  .glow-blob,
+  .shimmer,
+  .cta-pulse {
+    animation: none;
+  }
 }
 
 @keyframes shimmer {

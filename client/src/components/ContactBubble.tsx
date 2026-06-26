@@ -34,7 +34,7 @@ export function ContactBubble() {
   };
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 hidden lg:block" data-testid="contact-bubble">
+    <div className="fixed bottom-4 left-4 z-50 hidden lg:block" data-testid="contact-bubble">
       {open && (
         <Card className="mb-3 w-72 shadow-lg animate-in fade-in slide-in-from-bottom-2 duration-200" data-testid="contact-bubble-panel">
           <CardContent className="p-4">

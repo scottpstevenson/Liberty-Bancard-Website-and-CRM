@@ -79,7 +79,7 @@ export function Navbar() {
         </div>
       </div>
 
-      <div className="bg-muted/80 border-b border-border/30">
+      <div className="bg-muted border-b border-border/40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <p
             className="text-[10px] text-muted-foreground text-center py-0.5 leading-tight"
@@ -90,7 +90,7 @@ export function Navbar() {
         </div>
       </div>
 
-      <div className="bg-background/80 backdrop-blur-md border-b border-border/50">
+      <div className="bg-card/95 backdrop-blur-md border-b border-border shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16 gap-4">
             <Link

@@ -15,3 +15,5 @@
 - [GHL Sync Authority Guard (Wave 7)](ghl-sync-authority-guard.md) — permission-check endpoint always returns HTTP 200 (never 4xx); lb_* fields need manual creation in GHL custom fields settings before sync works.
 - [Wave 8 Analytics Attribution](wave8-analytics.md) — analytics_events table (migration 0040), recordAnalyticsEvent() single write path, ALL_CANONICAL_EVENTS set for validation; server-side events use dynamic import("./analytics-events") to avoid circular deps.
 - [Enrichment worker OOM crash](enrichment-oom.md) — fix needs all 3: re-entrancy flags on enrichment batches, capped streaming body reads, and SUNBIZ_ENRICHMENT_ENABLED gating (prod-default).
+- [Broken Tailwind value patterns](tailwind-arbitrary-values.md) — `opacity-15` and `from-[hsl(h,s%,l%)/0.92]` are NOT valid utilities; silently no-op. Use `opacity-[0.15]` and solid bg + separate overlay.
+- [Public marketing shell map](public-shell-overlays.md) — overlay stack (StickyMobileCTA mobile, ChatWidget all, ContactBubble desktop-only) must be offset so they never collide; live sticky is StickyMobileCTA (App.tsx), gated by route.

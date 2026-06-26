@@ -131,7 +131,6 @@ export default function Home() {
   const containerRef = useScrollReveal();
   const stat1 = useCountUp(10, 2000, "+");
   const stat2 = useCountUp(5000, 2000, "+");
-  const stat3 = useCountUp(999, 2000, "%", 10, 1);
 
   const handleCallbackSubmit = async () => {
     if (!cbName.trim() || !cbPhone.trim()) return;
@@ -170,25 +169,27 @@ export default function Home() {
       <Navbar />
       <WelcomePopup />
 
-      <main className="flex-grow pt-28" ref={containerRef}>
+      <main className="marketing-surface flex-grow pt-28" ref={containerRef}>
 
-        {/* SECTION: Hero — light, premium financial-services */}
-        <section className="marketing-surface relative bg-background border-b border-border" data-testid="section-hero">
-          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 lg:py-24">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center">
+        {/* SECTION: Hero — Statement Intelligence editorial split */}
+        <section className="marketing-surface relative overflow-hidden bg-background border-b border-border" data-testid="section-hero">
+          {/* faint ledger texture wash */}
+          <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.5]" aria-hidden="true" />
+          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-14 lg:py-24">
+            <div className="grid grid-cols-1 lg:grid-cols-[1.05fr_0.95fr] gap-10 lg:gap-16 items-center">
               {/* Left column — message + CTAs */}
-              <div>
-                <div className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground shadow-sm mb-6" data-testid="text-hero-badge">
+              <div className="accent-rule pt-5">
+                <div className="si-load si-load-1 inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground shadow-sm mb-6" data-testid="text-hero-badge">
                   <BadgeCheck className="w-3.5 h-3.5 text-accent" />
                   Free statement review — keep the breakdown even if you don't switch
                 </div>
-                <h1 className="text-4xl md:text-5xl lg:text-[3.5rem] font-bold text-foreground leading-[1.08] mb-5" data-testid="text-hero-heading">
+                <h1 className="si-load si-load-2 text-[2.75rem] leading-[0.98] sm:text-5xl lg:text-[3.5rem] lg:leading-[1.04] font-bold text-foreground mb-5 max-w-[16ch]" data-testid="text-hero-heading">
                   See What Your Processor Is <span className="text-accent">Really Charging</span>
                 </h1>
-                <p className="text-lg text-muted-foreground leading-relaxed mb-8 max-w-xl" data-testid="text-hero-subheadline">
-                  Upload a recent statement and Liberty will break down your effective rate, fees, downgrades, and funding timeline — line by line.
+                <p className="si-load si-load-3 text-base sm:text-lg text-muted-foreground leading-relaxed mb-8 max-w-xl" data-testid="text-hero-subheadline">
+                  Upload a recent statement. Liberty turns the fee lines, downgrades, and monthly add-ons into a clear review you can actually use.
                 </p>
-                <div className="flex flex-col sm:flex-row gap-3 flex-wrap">
+                <div className="si-load si-load-4 flex flex-col sm:flex-row gap-3 flex-wrap">
                   <Link href="/upload-statement" data-testid="link-hero-upload">
                     <Button size="lg" className="gap-2 w-full sm:w-auto" onClick={() => trackStatementUploadCtaClick({ page: "/", ctaLabel: "Upload My Statement — Free", ctaLocation: "hero" })}>
                       <Upload className="w-4 h-4" />
@@ -202,10 +203,10 @@ export default function Home() {
                     </Button>
                   </a>
                 </div>
-                <p className="text-xs text-muted-foreground/80 mt-3 max-w-md" data-testid="text-hero-microcopy">
+                <p className="si-load si-load-4 text-xs text-muted-foreground/80 mt-3 max-w-md" data-testid="text-hero-microcopy">
                   PDF or photo. 30 seconds. Redact account numbers if you want — we only need totals + fee lines.
                 </p>
-                <div className="flex flex-wrap items-center gap-x-5 gap-y-2 mt-5">
+                <div className="si-load si-load-5 flex flex-wrap items-center gap-x-5 gap-y-2 mt-5">
                   <a href={PHONE_TEL} aria-label="Call Liberty Bancard" className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1.5 transition-colors" data-testid="link-hero-phone" onClick={() => trackPhoneCtaClick({ page: "/", ctaLabel: PHONE_NUMBER, ctaLocation: "hero" })}>
                     <Phone className="w-3 h-3" />
                     {PHONE_NUMBER}
@@ -216,39 +217,53 @@ export default function Home() {
                   </Link>
                 </div>
                 {/* compact in-hero trust row */}
-                <div className="flex flex-wrap items-center gap-x-5 gap-y-2 mt-8 pt-6 border-t border-border">
+                <div className="si-load si-load-6 flex flex-wrap items-center gap-x-5 gap-y-2 mt-8 pt-6 border-t border-border">
                   <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground" data-testid="text-hero-trust-1"><BadgeCheck className="w-3.5 h-3.5 text-accent" /> Statement-based review</span>
                   <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground" data-testid="text-hero-trust-2"><FileText className="w-3.5 h-3.5 text-accent" /> Line-item breakdown</span>
                   <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground" data-testid="text-hero-trust-3"><Headphones className="w-3.5 h-3.5 text-accent" /> Real human support</span>
                 </div>
               </div>
 
-              {/* Right column — sample statement report card */}
+              {/* Right column — layered Statement Intelligence audit module */}
               <div className="relative flex items-center justify-center lg:justify-end" data-testid="hero-visual">
-                <div className="w-full max-w-md rounded-lg border border-border bg-card shadow-elevated overflow-hidden">
-                  <div className="flex items-center justify-between gap-3 border-b border-border bg-muted/40 px-5 py-3">
-                    <div className="flex items-center gap-2">
-                      <FileText className="w-4 h-4 text-accent" />
-                      <span className="text-sm font-semibold text-foreground">Sample statement review</span>
+                {/* navy authority panel behind the report */}
+                <div className="pointer-events-none absolute -right-2 -top-4 hidden lg:block h-[88%] w-[78%] rounded-xl bg-primary" aria-hidden="true" />
+                <div className="pointer-events-none absolute right-4 top-2 hidden lg:block h-2 w-24 bg-accent rounded-full" aria-hidden="true" />
+                <div className="si-load si-load-3 relative w-full max-w-md rounded-xl border border-border bg-card shadow-elevated overflow-hidden">
+                  {/* report header */}
+                  <div className="flex items-center justify-between gap-3 bg-primary px-5 py-3.5">
+                    <div className="flex items-center gap-2.5">
+                      <div className="flex h-7 w-7 items-center justify-center rounded bg-accent/20">
+                        <FileText className="w-4 h-4 text-sky-300" />
+                      </div>
+                      <div className="leading-tight">
+                        <div className="text-sm font-semibold text-white">Statement Fee Audit</div>
+                        <div className="num text-[10px] text-white/55 tracking-wide">REF · LB-0000 · SAMPLE</div>
+                      </div>
                     </div>
-                    <span className="rounded border border-border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground" data-testid="badge-illustrative">Illustrative only</span>
+                    <span className="audit-stamp bg-card" data-testid="badge-illustrative">Illustrative</span>
                   </div>
-                  <div className="px-5 divide-y divide-border">
+                  {/* findings ledger */}
+                  <div className="ledger-texture px-5">
                     {[
-                      { label: "Effective rate", value: "3.47%", tone: "negative" },
-                      { label: "Monthly fixed fees", value: "$127/mo", tone: "negative" },
-                      { label: "Downgrades / card mix", value: "23% of volume", tone: "negative" },
-                      { label: "Add-on fees (PCI, batch)", value: "$38/mo", tone: "negative" },
-                      { label: "Funding timeline", value: "Next-day*", tone: "neutral" },
-                      { label: "Savings opportunity", value: "Identified on review", tone: "positive" },
+                      { label: "Effective rate", value: "3.47%", chip: "Above benchmark", tone: "negative" },
+                      { label: "Monthly fixed fees", value: "$127/mo", chip: "Recurring", tone: "negative" },
+                      { label: "Downgrades / card mix", value: "23%", chip: "Reducible", tone: "negative" },
+                      { label: "Add-on fees (PCI, batch)", value: "$38/mo", chip: "Itemized", tone: "negative" },
+                      { label: "Funding timeline", value: "Next-day*", chip: "Eligibility", tone: "neutral" },
+                      { label: "Savings opportunity", value: "Identified", chip: "On review", tone: "positive" },
                     ].map((row, i) => (
-                      <div key={i} className="flex items-center justify-between gap-4 py-3" data-testid={`row-statement-${i}`}>
-                        <span className="text-sm text-muted-foreground">{row.label}</span>
-                        <span className={`font-mono text-sm font-medium tabular-nums ${row.tone === "negative" ? "text-stat-negative" : row.tone === "positive" ? "text-stat-positive" : "text-foreground"}`}>{row.value}</span>
+                      <div key={i} className="flex items-center justify-between gap-3 py-2.5 border-b border-border/70 last:border-0" data-testid={`row-statement-${i}`}>
+                        <span className="text-[13px] text-foreground/80 min-w-0 truncate">{row.label}</span>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className={`report-chip report-chip-${row.tone === "negative" ? "negative" : row.tone === "positive" ? "positive" : "neutral"}`}>{row.chip}</span>
+                          <span className={`num text-sm font-semibold w-16 text-right ${row.tone === "negative" ? "text-stat-negative" : row.tone === "positive" ? "text-stat-positive" : "text-foreground"}`}>{row.value}</span>
+                        </div>
                       </div>
                     ))}
                   </div>
-                  <div className="border-t border-border bg-muted/30 px-5 py-3">
+                  {/* report footer */}
+                  <div className="border-t border-border bg-muted/40 px-5 py-3">
                     <p className="text-[10px] leading-relaxed text-muted-foreground">Actual findings require statement review. *Funding timing subject to eligibility, underwriting, and card brand rules.</p>
                   </div>
                 </div>
@@ -311,41 +326,44 @@ export default function Home() {
           </div>
         </section>
 
-        {/* SECTION 3.5: By the Numbers */}
-        <section className="reveal relative overflow-hidden py-20" data-testid="section-stats">
-          <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />
-          <div className="absolute top-0 left-0 right-0 h-[3px] bg-sky-500" />
-          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <h2 className="text-2xl md:text-3xl font-display font-bold text-white text-center mb-12" data-testid="text-stats-heading">
-              Liberty Bancard by the Numbers
+        {/* SECTION 3.5: By the Numbers — light report ledger */}
+        <section className="reveal relative bg-background border-y border-border py-16 md:py-20" data-testid="section-stats">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex items-center justify-center gap-2 mb-2">
+              <span className="num text-[11px] font-semibold uppercase tracking-[0.18em] text-accent">Liberty Bancard</span>
+            </div>
+            <h2 className="text-2xl md:text-3xl font-bold text-foreground text-center mb-10 md:mb-12" data-testid="text-stats-heading">
+              By the Numbers
             </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 text-center">
-              <div ref={stat1.ref} className="p-6" data-testid="stat-years">
-                <div className="text-5xl md:text-6xl font-display font-bold text-sky-400 mb-2">{stat1.display}</div>
-                <div className="text-sm font-medium text-white">Years in Business</div>
-                <div className="text-xs text-white/50 mt-1">South Florida roots, nationwide reach</div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6">
+              <div ref={stat1.ref} className="accent-rule rounded-lg border border-border bg-card p-6 pt-7 shadow-card" data-testid="stat-years">
+                <div className="num text-5xl md:text-6xl font-bold text-primary mb-2 tracking-tight">{stat1.display}</div>
+                <div className="text-sm font-semibold text-foreground">Years in Business</div>
+                <div className="text-xs text-muted-foreground mt-1">South Florida roots, nationwide reach</div>
               </div>
-              <div ref={stat2.ref} className="p-6" data-testid="stat-merchants">
-                <div className="text-5xl md:text-6xl font-display font-bold text-sky-400 mb-2">{stat2.display}</div>
-                <div className="text-sm font-medium text-white">Merchants Served</div>
-                <div className="text-xs text-white/50 mt-1">Across every major vertical</div>
+              <div ref={stat2.ref} className="accent-rule rounded-lg border border-border bg-card p-6 pt-7 shadow-card" data-testid="stat-merchants">
+                <div className="num text-5xl md:text-6xl font-bold text-primary mb-2 tracking-tight">{stat2.display}</div>
+                <div className="text-sm font-semibold text-foreground">Merchants Served</div>
+                <div className="text-xs text-muted-foreground mt-1">Across every major vertical</div>
               </div>
-              <div ref={stat3.ref} className="p-6" data-testid="stat-retention">
-                <div className="text-5xl md:text-6xl font-display font-bold text-sky-400 mb-2">{stat3.display}</div>
-                <div className="text-sm font-medium text-white">Platform Uptime</div>
-                <div className="text-xs text-white/50 mt-1">Reliable processing, every transaction</div>
+              <div className="accent-rule rounded-lg border border-border bg-card p-6 pt-7 shadow-card" data-testid="stat-support">
+                <div className="flex items-center gap-2 mb-2">
+                  <Headphones className="w-9 h-9 text-accent" />
+                </div>
+                <div className="text-sm font-semibold text-foreground">Human Review Support</div>
+                <div className="text-xs text-muted-foreground mt-1">A real person reads every statement you send</div>
               </div>
             </div>
           </div>
         </section>
 
-        {/* SECTION 3.7: Trusted By / Partners */}
-        <section className="reveal bg-background border-y border-border py-12" data-testid="section-partners">
+        {/* SECTION 3.7: Processing Infrastructure & Compliance */}
+        <section className="reveal bg-muted/30 border-b border-border py-12" data-testid="section-partners">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <p className="text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-8">
-              Processing Infrastructure & Compliance
+            <p className="text-center num text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground mb-8">
+              Processing Infrastructure &amp; Compliance
             </p>
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-8 items-center justify-items-center">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
               {[
                 { name: "Visa", icon: BadgeCheck },
                 { name: "Mastercard", icon: BadgeCheck },
@@ -354,9 +372,9 @@ export default function Home() {
                 { name: "PCI DSS", icon: ShieldCheck },
                 { name: "EMV Chip", icon: ShieldCheck },
               ].map((partner, i) => (
-                <div key={i} className="flex flex-col items-center gap-2 opacity-60" data-testid={`partner-logo-${i}`}>
-                  <partner.icon className="w-8 h-8 text-muted-foreground" />
-                  <span className="text-xs font-medium text-muted-foreground">{partner.name}</span>
+                <div key={i} className="flex items-center justify-center gap-2 rounded-md border border-border bg-card px-3 py-3 shadow-card" data-testid={`partner-logo-${i}`}>
+                  <partner.icon className="w-4 h-4 text-accent shrink-0" />
+                  <span className="text-xs font-semibold text-foreground">{partner.name}</span>
                 </div>
               ))}
             </div>
@@ -448,39 +466,43 @@ export default function Home() {
           </div>
         </section>
 
-        {/* SECTION 5.5: Onboarding Timeline */}
+        {/* SECTION 5.5: Onboarding Timeline — report track */}
         <section className="bg-background py-16" data-testid="section-timeline">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <h3 className="text-center text-lg font-display font-bold text-foreground mb-2" data-testid="text-timeline-heading">
-              What Happens After You Say Yes
-            </h3>
-            <p className="text-center text-sm text-muted-foreground mb-10 max-w-lg mx-auto">
-              From upload to live processing in as little as 48 hours. Here's the timeline.*
-            </p>
-            <div className="relative">
-              <div className="hidden md:block absolute top-6 left-0 right-0 h-0.5 bg-border" />
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 sm:gap-6">
-                {[
-                  { day: "Day 0", title: "Upload", desc: "Statement uploaded, review begins" },
-                  { day: "Day 1", title: "Review", desc: "Line-item breakdown delivered" },
-                  { day: "Day 1-2", title: "Decision", desc: "You review options, ask questions" },
-                  { day: "Day 2-3", title: "Setup", desc: "Terminal shipped, account configured" },
-                  { day: "Day 3-5", title: "Live", desc: "Processing live, first batch settles" },
-                ].map((step, i) => (
-                  <div key={i} className="relative flex flex-col items-center text-center" data-testid={`timeline-step-${i}`}>
-                    <div className="w-12 h-12 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-sm font-bold mb-3 relative z-10">
-                      {i + 1}
-                    </div>
-                    <span className="text-xs font-semibold text-primary mb-1">{step.day}</span>
-                    <span className="text-sm font-medium text-foreground mb-0.5">{step.title}</span>
-                    <span className="text-xs text-muted-foreground">{step.desc}</span>
-                  </div>
-                ))}
+          <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="rounded-xl border border-border bg-card shadow-card overflow-hidden">
+              <div className="flex items-center justify-between gap-3 border-b border-border bg-muted/40 px-5 py-3">
+                <h3 className="text-sm font-semibold text-foreground" data-testid="text-timeline-heading">
+                  What Happens After You Say Yes
+                </h3>
+                <span className="num text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Onboarding · 48h target*</span>
               </div>
+              <div className="ledger-texture p-6 sm:p-8">
+                <div className="relative">
+                  <div className="hidden md:block absolute top-4 left-[10%] right-[10%] h-0.5 bg-gradient-to-r from-border via-accent/40 to-border" aria-hidden="true" />
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-x-3 gap-y-7">
+                    {[
+                      { day: "Day 0", title: "Upload", desc: "Statement in, review begins" },
+                      { day: "Day 1", title: "Review", desc: "Line-item breakdown delivered" },
+                      { day: "Day 1–2", title: "Decision", desc: "You review options, ask questions" },
+                      { day: "Day 2–3", title: "Setup", desc: "Terminal shipped, account configured" },
+                      { day: "Day 3–5", title: "Live", desc: "Processing live, first batch settles" },
+                    ].map((step, i) => (
+                      <div key={i} className="relative flex flex-col items-center text-center" data-testid={`timeline-step-${i}`}>
+                        <div className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold num mb-3 relative z-10 ring-4 ring-card">
+                          {i + 1}
+                        </div>
+                        <span className="num text-[11px] font-semibold text-accent mb-1 tracking-wide">{step.day}</span>
+                        <span className="text-sm font-semibold text-foreground mb-0.5">{step.title}</span>
+                        <span className="text-xs text-muted-foreground leading-snug">{step.desc}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <p className="border-t border-border bg-muted/30 px-5 py-3 text-[10px] leading-relaxed text-muted-foreground">
+                *Timeline is illustrative. Actual timelines depend on underwriting, equipment availability, and merchant response time. Eligibility, underwriting, card brand rules, and applicable laws apply.
+              </p>
             </div>
-            <p className="text-center text-[10px] text-muted-foreground mt-8">
-              *Timeline is illustrative. Actual timelines depend on underwriting, equipment availability, and merchant response time. Eligibility, underwriting, card brand rules, and applicable laws apply.
-            </p>
           </div>
         </section>
 
@@ -564,7 +586,7 @@ export default function Home() {
                       <CardContent className="p-6">
                         <div className="text-center mb-4">
                           <div className="text-sm text-muted-foreground mb-1">Your Effective Rate</div>
-                          <div className={`text-5xl font-display font-bold ${rateGrade?.color}`} data-testid="display-effective-rate">
+                          <div className={`num text-5xl font-bold ${rateGrade?.color}`} data-testid="display-effective-rate">
                             {effectiveRate.toFixed(2)}%
                           </div>
                           <div className={`text-sm font-semibold mt-1 ${rateGrade?.color}`} data-testid="display-rate-grade">
@@ -1199,33 +1221,31 @@ export default function Home() {
           </div>
         </section>
 
-        {/* SECTION 10: Trust / Risk Reversal */}
-        <section className="reveal relative overflow-hidden py-20" data-testid="section-risk-reversal">
-          <div className="absolute inset-0">
-            <img src={teamCollab} alt="Liberty Bancard team collaborating" className="w-full h-full object-cover" loading="lazy" width="1408" height="792" />
-            <div className="absolute inset-0 bg-gradient-to-r from-[hsl(222,47%,8%)/0.92] via-[hsl(222,47%,8%)/0.88] to-[hsl(222,47%,8%)/0.80]" />
-          </div>
+        {/* SECTION 10: Trust / Risk Reversal — sharp navy block */}
+        <section className="reveal relative overflow-hidden bg-primary py-20" data-testid="section-risk-reversal">
+          <img src={teamCollab} alt="" aria-hidden="true" className="absolute inset-0 w-full h-full object-cover opacity-[0.15] mix-blend-luminosity" loading="lazy" width="1408" height="792" />
+          <div className="absolute top-0 left-0 right-0 h-[3px] bg-accent" aria-hidden="true" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="max-w-3xl mx-auto text-center">
-              <ShieldCheck className="w-14 h-14 text-sky-400 mx-auto mb-6" />
-              <h2 className="text-3xl md:text-4xl font-display font-bold text-white mb-6" data-testid="text-risk-reversal-heading">
+              <ShieldCheck className="w-14 h-14 text-sky-300 mx-auto mb-6" />
+              <h2 className="text-3xl md:text-4xl font-bold text-white mb-6" data-testid="text-risk-reversal-heading">
                 Proof First. Pressure Never.
               </h2>
-              <p className="text-lg text-white/70 leading-relaxed mb-4" data-testid="text-risk-reversal-body-1">
+              <p className="text-lg text-white/80 leading-relaxed mb-4" data-testid="text-risk-reversal-body-1">
                 We don't ask you to sign anything to get a statement review. We don't lock you into a contract to see your numbers. And if we can't find a meaningful improvement, we'll tell you.
               </p>
-              <p className="text-white/60 leading-relaxed mb-8" data-testid="text-risk-reversal-body-2">
+              <p className="text-white/70 leading-relaxed mb-8" data-testid="text-risk-reversal-body-2">
                 You keep the line-item breakdown either way. Use it to negotiate with your current processor, share it with your accountant, or just understand what you're paying for the first time.
               </p>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-8">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 mb-8">
                 {[
                   { icon: FileText, label: "No contract required" },
                   { icon: ShieldCheck, label: "Keep the breakdown" },
                   { icon: Scale, label: "Zero obligation" },
                 ].map((item, i) => (
-                  <div key={i} className="flex flex-col items-center gap-2" data-testid={`trust-signal-${i}`}>
-                    <div className="w-12 h-12 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center">
-                      <item.icon className="w-6 h-6 text-sky-400" />
+                  <div key={i} className="flex flex-col items-center gap-2 rounded-lg border border-white/15 bg-white/5 px-4 py-5" data-testid={`trust-signal-${i}`}>
+                    <div className="w-11 h-11 rounded-full bg-accent/20 border border-accent/30 flex items-center justify-center">
+                      <item.icon className="w-5 h-5 text-sky-300" />
                     </div>
                     <span className="text-sm font-medium text-white">{item.label}</span>
                   </div>
@@ -1430,32 +1450,34 @@ export default function Home() {
           </div>
         </section>
 
-        {/* SECTION 12: Final CTA */}
-        <section className="reveal relative overflow-hidden py-24" data-testid="section-final-cta">
-          <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(221,83%,20%)] to-[hsl(222,47%,8%)]" />
-          <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(circle at 20% 50%, rgba(56,189,248,0.3) 0%, transparent 50%), radial-gradient(circle at 80% 50%, rgba(56,189,248,0.2) 0%, transparent 50%)' }} />
+        {/* SECTION 12: Final CTA — sharp navy block */}
+        <section className="reveal relative overflow-hidden bg-primary py-24" data-testid="section-final-cta">
+          <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.06]" aria-hidden="true" />
+          <div className="absolute top-0 left-0 right-0 h-[3px] bg-accent" aria-hidden="true" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-            <h2 className="text-3xl md:text-4xl font-display font-bold text-white mb-4" data-testid="text-final-cta-heading">
+            <span className="num text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-300/90">Statement Intelligence</span>
+            <h2 className="text-3xl md:text-4xl font-bold text-white mb-4 mt-3" data-testid="text-final-cta-heading">
               Your Statement Tells the Truth. Let's Read It Together.
             </h2>
-            <p className="text-white/60 mb-8 max-w-xl mx-auto">
+            <p className="text-white/70 mb-8 max-w-xl mx-auto">
               30 seconds to upload. Same-day review. You keep the breakdown no matter what.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center flex-wrap">
               <Link href="/upload-statement" data-testid="link-final-upload">
-                <Button size="lg" className="gap-2 bg-sky-500 border-sky-500 text-white">
+                <Button size="lg" className="gap-2 bg-accent hover:bg-accent border-accent text-white">
                   <Upload className="w-4 h-4" />
-                  Get My Free Analysis →
+                  Get My Free Analysis
+                  <ArrowRight className="w-4 h-4" />
                 </Button>
               </Link>
               <Link href="/get-started" data-testid="link-final-quiz">
-                <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
+                <Button size="lg" variant="outline" className="gap-2 bg-transparent border-white/30 text-white hover:bg-white/10">
                   Take the 60-Second Quiz
                   <ArrowRight className="w-4 h-4" />
                 </Button>
               </Link>
             </div>
-            <p className="text-xs text-white/40 mt-6" data-testid="text-final-cta-microcopy">
+            <p className="text-xs text-white/50 mt-6" data-testid="text-final-cta-microcopy">
               Eligibility, underwriting, card brand rules, and applicable laws apply.
             </p>
           </div>

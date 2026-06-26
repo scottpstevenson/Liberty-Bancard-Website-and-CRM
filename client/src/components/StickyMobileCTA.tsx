@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { Phone, Calendar, Upload } from "lucide-react";
 import { PHONE_NUMBER, PHONE_TEL, CALENDAR_URL } from "@/lib/constants";
@@ -8,11 +9,21 @@ interface StickyMobileCTAProps {
 }
 
 export function StickyMobileCTA({ hidden }: StickyMobileCTAProps) {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const onScroll = () => setVisible(window.scrollY > 400);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
   if (hidden) return null;
   return (
     <div
-      className="fixed bottom-0 left-0 right-0 z-40 md:hidden bg-primary"
+      className={`fixed bottom-0 left-0 right-0 z-40 md:hidden bg-primary border-t-2 border-accent transition-transform duration-300 ease-out ${visible ? "translate-y-0" : "translate-y-full invisible pointer-events-none"}`}
       style={{ minHeight: "56px", paddingBottom: "env(safe-area-inset-bottom)" }}
+      aria-hidden={!visible}
       data-testid="sticky-mobile-cta"
     >
       <div className="flex h-full" style={{ minHeight: "56px" }}>
