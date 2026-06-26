@@ -108,6 +108,11 @@ export function registerTicketsTasksRoutes(app: Express) {
   // === TASKS ===
   app.get("/api/tasks", isDashboardUser, async (req, res) => {
     try {
+      const dealId = req.query.dealId ? Number(req.query.dealId) : undefined;
+      if (dealId && !isNaN(dealId)) {
+        const tasks = await storage.getTasksByDeal(dealId);
+        return res.json(tasks);
+      }
       const tasks = await storage.getTasks();
       res.json(tasks);
     } catch (err: any) {

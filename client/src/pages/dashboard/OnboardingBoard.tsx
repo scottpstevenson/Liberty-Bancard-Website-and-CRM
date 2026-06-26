@@ -20,6 +20,15 @@ import {
 } from "@shared/schema";
 import { useAuth } from "@/hooks/use-auth";
 
+const BOARDING_STATUS_CONFIG: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
+  not_submitted: { label: "Not Submitted", variant: "outline" },
+  submitted: { label: "Submitted", variant: "default" },
+  under_review: { label: "Under Review", variant: "secondary" },
+  approved: { label: "Approved", variant: "default" },
+  declined: { label: "Declined", variant: "destructive" },
+  more_info_needed: { label: "Info Needed", variant: "outline" },
+};
+
 type BoardEntry = {
   deal: {
     id: number;
@@ -27,6 +36,7 @@ type BoardEntry = {
     stage: string | null;
     contactId: number | null;
     boardingStatus: string | null;
+    mid: string | null;
     createdAt: string | null;
   };
   contact: {
@@ -141,6 +151,26 @@ function ChecklistRow({
 function DealChecklistCard({ entry, canApprove }: { entry: BoardEntry; canApprove: boolean }) {
   const { deal, contact, checklistItems, stats } = entry;
   const { toast } = useToast();
+  const { user } = useAuth();
+
+  const { data: dealTasks } = useQuery<{ id: number; title: string; status: string | null; dueDate: string | null }[]>({
+    queryKey: ["/api/tasks", { dealId: deal.id }],
+    queryFn: async () => {
+      const res = await fetch(`/api/tasks?dealId=${deal.id}`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+
+  const nearestSlaDue = (() => {
+    if (!dealTasks || dealTasks.length === 0) return null;
+    const now = Date.now();
+    const upcoming = dealTasks
+      .filter(t => t.dueDate && t.status !== "completed" && t.status !== "done" && new Date(t.dueDate).getTime() >= now)
+      .sort((a, b) => new Date(a.dueDate!).getTime() - new Date(b.dueDate!).getTime());
+    if (upcoming.length === 0) return null;
+    return new Date(upcoming[0].dueDate!);
+  })();
 
   const initMutation = useMutation({
     mutationFn: async () => {
@@ -178,10 +208,34 @@ function DealChecklistCard({ entry, canApprove }: { entry: BoardEntry; canApprov
                   {deal.stage}
                 </Badge>
               )}
+              {deal.boardingStatus && (() => {
+                const cfg = BOARDING_STATUS_CONFIG[deal.boardingStatus] ?? { label: deal.boardingStatus, variant: "outline" as const };
+                const variant = deal.boardingStatus === "not_submitted" ? "secondary" : cfg.variant;
+                return (
+                  <Badge variant={variant} className="text-xs" data-testid={`badge-boarding-${deal.id}`}>
+                    {cfg.label}
+                  </Badge>
+                );
+              })()}
+              {deal.mid && (() => {
+                const isAdminOnly = user?.role === "admin";
+                const midDisplay = isAdminOnly ? deal.mid : `****${deal.mid.slice(-4)}`;
+                return (
+                  <Badge variant="outline" className="text-xs font-mono text-green-700 dark:text-green-400 border-green-300" data-testid={`badge-mid-${deal.id}`}>
+                    MID: {midDisplay}
+                  </Badge>
+                );
+              })()}
               {overdueFlag && (
                 <Badge variant="outline" className="text-xs text-amber-600 border-amber-400" data-testid={`badge-overdue-${deal.id}`}>
                   <AlertTriangle className="w-3 h-3 mr-1" />
                   {stats.overdueItems} overdue
+                </Badge>
+              )}
+              {nearestSlaDue && (
+                <Badge variant="outline" className="text-xs text-blue-600 border-blue-300" data-testid={`badge-next-sla-${deal.id}`}>
+                  <Clock className="w-3 h-3 mr-1" />
+                  Next SLA: {nearestSlaDue.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
                 </Badge>
               )}
             </div>

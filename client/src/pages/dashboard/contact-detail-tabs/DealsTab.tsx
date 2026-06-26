@@ -8,7 +8,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Loader2, Link2, Copy, Mail, ChevronDown, Eye, FileText, CheckCircle2, Send, ExternalLink } from "lucide-react";
+import { Loader2, Link2, Copy, Mail, ChevronDown, Eye, FileText, CheckCircle2, Send, ExternalLink, ClipboardList } from "lucide-react";
 import type { Deal, Agent } from "@shared/schema";
 import BoardingPanel from "@/components/BoardingPanel";
 import { DealAgentAssignment } from "./DealAgentAssignment";
@@ -155,12 +155,96 @@ export function DealsTab({ deals, contactId, isManagerOrAdmin, agentsList, setLo
     },
   });
 
+  const appLinkMutation = useMutation({
+    mutationFn: async ({ dealId }: { dealId: number }) => {
+      const res = await apiRequest("POST", "/api/merchant-applications/prefill-token", {
+        contactId,
+        dealId,
+      });
+      return res.json() as Promise<{ token: string; url: string }>;
+    },
+    onSuccess: async (data: { token: string; url: string }) => {
+      try {
+        await navigator.clipboard.writeText(data.url);
+        toast({ title: "Application link copied!", description: "Send this link to the merchant to pre-fill their application." });
+      } catch {
+        toast({ title: "Application link ready", description: data.url });
+      }
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to generate link", description: err.message, variant: "destructive" });
+    },
+  });
+
   if (deals.length === 0) {
     return <Card><CardContent className="py-8 text-center text-muted-foreground">No deals yet</CardContent></Card>;
   }
 
+  // Eligible deals for application link: not onboarding pipeline, not closed
+  const eligibleDeals = deals.filter(
+    d => d.pipeline !== "onboarding" && d.stage !== "Closed Won" && d.stage !== "Closed Lost",
+  );
+
   return (
     <div className="space-y-3">
+      {/* Application CTA — explicit 0/1/many selector */}
+      {eligibleDeals.length === 0 && deals.length > 0 && (
+        <p className="text-sm text-muted-foreground text-right" data-testid="text-no-eligible-deals">
+          No open deals eligible for application link
+        </p>
+      )}
+      {eligibleDeals.length === 1 && (
+        <div className="flex justify-end">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => appLinkMutation.mutate({ dealId: eligibleDeals[0].id })}
+            disabled={appLinkMutation.isPending}
+            data-testid="button-share-app-link-single"
+          >
+            {appLinkMutation.isPending ? (
+              <Loader2 className="w-3 h-3 animate-spin mr-1" />
+            ) : (
+              <ClipboardList className="w-3 h-3 mr-1" />
+            )}
+            Share Application Link
+          </Button>
+        </div>
+      )}
+      {eligibleDeals.length > 1 && (
+        <div className="flex justify-end">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={appLinkMutation.isPending}
+                data-testid="button-share-app-link-multi"
+              >
+                {appLinkMutation.isPending ? (
+                  <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                ) : (
+                  <ClipboardList className="w-3 h-3 mr-1" />
+                )}
+                Share Application Link
+                <ChevronDown className="w-3 h-3 ml-1" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {eligibleDeals.map(d => (
+                <DropdownMenuItem
+                  key={d.id}
+                  onClick={() => appLinkMutation.mutate({ dealId: d.id })}
+                  data-testid={`menu-app-link-deal-${d.id}`}
+                >
+                  <ClipboardList className="w-3 h-3 mr-2" />
+                  Deal #{d.id} — {d.stage}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      )}
       {deals.map(deal => (
         <Card
           key={deal.id}

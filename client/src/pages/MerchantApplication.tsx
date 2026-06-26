@@ -167,6 +167,66 @@ export default function MerchantApplication() {
     }
   }, []);
 
+  const [serverDraftId, setServerDraftId] = useState<number | null>(null);
+  const [serverDraftToken, setServerDraftToken] = useState<string | null>(null);
+  const serverDraftCreating = useRef(false);
+
+  // Restore server draft ids from localStorage on mount, then fetch server state to rehydrate form
+  useEffect(() => {
+    try {
+      const savedId = localStorage.getItem("lb_draft_id");
+      const savedToken = localStorage.getItem("lb_draft_token");
+      if (savedId && savedToken) {
+        const id = Number(savedId);
+        setServerDraftId(prev => prev ?? id);
+        setServerDraftToken(prev => prev ?? savedToken);
+        // Fetch non-sensitive draft fields from server to rehydrate form state
+        fetch(`/api/merchant-applications/${id}/autosave?token=${encodeURIComponent(savedToken)}`)
+          .then(r => r.ok ? r.json() : null)
+          .then((data: Record<string, any> | null) => {
+            if (!data) return;
+            if (data.legalBusinessName) setLegalBusinessName(data.legalBusinessName);
+            if (data.dba) setDba(data.dba);
+            if (data.businessType) setBusinessType(data.businessType);
+            if (data.businessStartDate) setBusinessStartDate(data.businessStartDate);
+            if (data.businessAddress) setBusinessAddress(data.businessAddress);
+            if (data.businessCity) setBusinessCity(data.businessCity);
+            if (data.businessState) setBusinessState(data.businessState);
+            if (data.businessZip) setBusinessZip(data.businessZip);
+            if (data.businessPhone) setBusinessPhone(data.businessPhone);
+            if (data.businessEmail) setBusinessEmail(data.businessEmail);
+            if (data.website) setWebsite(data.website);
+            if (data.vertical) setVertical(data.vertical);
+            if (data.ownerFirstName) setOwnerFirstName(data.ownerFirstName);
+            if (data.ownerLastName) setOwnerLastName(data.ownerLastName);
+            if (data.ownerEmail) setOwnerEmail(data.ownerEmail);
+            if (data.ownerPhone) setOwnerPhone(data.ownerPhone);
+            if (data.ownerAddress) setOwnerAddress(data.ownerAddress);
+            if (data.ownerCity) setOwnerCity(data.ownerCity);
+            if (data.ownerState) setOwnerState(data.ownerState);
+            if (data.ownerZip) setOwnerZip(data.ownerZip);
+            if (data.ownershipPercent) setOwnershipPercent(data.ownershipPercent);
+            if (data.estimatedMonthlyVolume) setEstimatedMonthlyVolume(data.estimatedMonthlyVolume);
+            if (data.estimatedAvgTicket) setEstimatedAvgTicket(data.estimatedAvgTicket);
+            if (data.highestTicket) setHighestTicket(data.highestTicket);
+            if (data.currentProcessor) setCurrentProcessor(data.currentProcessor);
+            if (data.currentRate) setCurrentRate(data.currentRate);
+            if (data.acceptedCardTypes) setAcceptedCardTypes(data.acceptedCardTypes);
+            if (data.terminalNeeded !== undefined && data.terminalNeeded !== null) setTerminalNeeded(data.terminalNeeded);
+            if (data.terminalType) setTerminalType(data.terminalType);
+            if (data.terminalQuantity) setTerminalQuantity(data.terminalQuantity);
+            if (data.ecommerceNeeded !== undefined && data.ecommerceNeeded !== null) setEcommerceNeeded(data.ecommerceNeeded);
+            if (data.preferredProgram) setPreferredProgram(data.preferredProgram);
+            if (data.currentStep) setCurrentStep(data.currentStep);
+            // Clear the local draft banner since server state is the source of truth
+            setHasDraft(false);
+            setDraftDismissed(true);
+          })
+          .catch(() => { /* silent — localStorage draft banner remains as fallback */ });
+      }
+    } catch {}
+  }, []);
+
   useEffect(() => {
     if (prefillApplied) return;
     const params = new URLSearchParams(search);
@@ -174,6 +234,7 @@ export default function MerchantApplication() {
     const emailParam = params.get("email");
     const volumeParam = params.get("volume");
     const tokenParam = params.get("token");
+    const prefillParam = params.get("prefillToken") || params.get("prefill");
 
     if (nameParam) setLegalBusinessName(nameParam);
     if (emailParam) {
@@ -183,7 +244,42 @@ export default function MerchantApplication() {
     if (volumeParam) setEstimatedMonthlyVolume(volumeParam);
     if (tokenParam) setShareToken(tokenParam);
 
-    if (nameParam || emailParam || volumeParam || tokenParam) {
+    // Fetch contact prefill data from a CRM-generated token
+    if (prefillParam) {
+      fetch(`/api/merchant-applications/prefill-token/${encodeURIComponent(prefillParam)}`)
+        .then(r => r.ok ? r.json() : null)
+        .then((data: {
+          legalBusinessName?: string; dba?: string; businessType?: string;
+          businessPhone?: string; businessEmail?: string;
+          businessAddress?: string; businessCity?: string; businessState?: string; businessZip?: string;
+          website?: string; vertical?: string; currentProcessor?: string;
+          ownerFirstName?: string; ownerLastName?: string; ownerEmail?: string; ownerPhone?: string;
+          estimatedMonthlyVolume?: string; dealId?: number;
+        } | null) => {
+          if (!data) return;
+          if (data.legalBusinessName) setLegalBusinessName(data.legalBusinessName);
+          if (data.dba && typeof setDba === "function") setDba(data.dba);
+          if (data.businessType && typeof setBusinessType === "function") setBusinessType(data.businessType);
+          if (data.businessPhone) setBusinessPhone(data.businessPhone);
+          if (data.businessEmail) setBusinessEmail(data.businessEmail);
+          if (data.businessAddress && typeof setBusinessAddress === "function") setBusinessAddress(data.businessAddress);
+          if (data.businessCity && typeof setBusinessCity === "function") setBusinessCity(data.businessCity);
+          if (data.businessState && typeof setBusinessState === "function") setBusinessState(data.businessState);
+          if (data.businessZip && typeof setBusinessZip === "function") setBusinessZip(data.businessZip);
+          if (data.website && typeof setWebsite === "function") setWebsite(data.website);
+          if (data.ownerFirstName) setOwnerFirstName(data.ownerFirstName);
+          if (data.ownerLastName) setOwnerLastName(data.ownerLastName);
+          if (data.ownerEmail) setOwnerEmail(data.ownerEmail);
+          if (data.ownerPhone && typeof setOwnerPhone === "function") setOwnerPhone(data.ownerPhone);
+          if (data.estimatedMonthlyVolume) setEstimatedMonthlyVolume(data.estimatedMonthlyVolume);
+          if (data.vertical) setVertical(data.vertical);
+          if (data.currentProcessor && typeof setCurrentProcessor === "function") setCurrentProcessor(data.currentProcessor);
+          toast({ title: "Application pre-filled", description: "Your rep has pre-filled some details to save you time." });
+        })
+        .catch(() => {});
+    }
+
+    if (nameParam || emailParam || volumeParam || tokenParam || prefillParam) {
       setPrefillApplied(true);
       if (nameParam || emailParam || volumeParam) {
         toast({
@@ -193,6 +289,52 @@ export default function MerchantApplication() {
       }
     }
   }, [search, prefillApplied, toast]);
+
+  // Lazily create a server-side draft when the user has entered enough data
+  const createServerDraftIfNeeded = async (fields: Record<string, any> = {}) => {
+    if (serverDraftId || serverDraftCreating.current) return;
+    const name = fields.legalBusinessName ?? legalBusinessName;
+    const email = fields.businessEmail ?? businessEmail;
+    if (!name.trim() && !email.trim()) return;
+    serverDraftCreating.current = true;
+    try {
+      const res = await fetch("/api/merchant-applications/draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ legalBusinessName: name, businessEmail: email, ownerEmail, vertical }),
+      });
+      if (res.ok) {
+        const { id, draftToken } = await res.json();
+        setServerDraftId(id);
+        setServerDraftToken(draftToken);
+        try { localStorage.setItem("lb_draft_id", String(id)); localStorage.setItem("lb_draft_token", draftToken); } catch {}
+      }
+    } catch {}
+    finally { serverDraftCreating.current = false; }
+  };
+
+  const autosaveToServer = async (step: number) => {
+    const id = serverDraftId;
+    const token = serverDraftToken;
+    if (!id || !token) return;
+    try {
+      await fetch(`/api/merchant-applications/${id}/autosave`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "X-Draft-Token": token },
+        body: JSON.stringify({
+          legalBusinessName, dba, businessType, businessStartDate,
+          businessAddress, businessCity, businessState, businessZip,
+          businessPhone, businessEmail, website, vertical,
+          ownerFirstName, ownerLastName, ownerEmail, ownerPhone,
+          ownerAddress, ownerCity, ownerState, ownerZip, ownershipPercent,
+          estimatedMonthlyVolume, estimatedAvgTicket, highestTicket,
+          currentProcessor, currentRate, acceptedCardTypes,
+          terminalNeeded, terminalType, terminalQuantity, ecommerceNeeded,
+          preferredProgram, currentStep: step,
+        }),
+      });
+    } catch {}
+  };
 
   useEffect(() => {
     if (submitted) return;
@@ -367,11 +509,39 @@ export default function MerchantApplication() {
     }
   };
 
-  const handleNext = () => {
-    if (canProceed() && currentStep < TOTAL_STEPS) {
-      setCurrentStep(currentStep + 1);
-      setTimeout(() => stepHeadingRef.current?.focus(), 50);
+  const handleNext = async () => {
+    if (!canProceed() || currentStep >= TOTAL_STEPS) return;
+
+    // Step 1 EIN pre-check — prevent advancing if EIN is already on file
+    if (currentStep === 1 && ein && ein.replace(/\D/g, "").length >= 9) {
+      try {
+        const res = await fetch("/api/merchant-applications/check-duplicate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ ein }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.exists) {
+            toast({
+              title: "Application already on file",
+              description: "An application for this business already exists. Please contact us if you need assistance.",
+              variant: "destructive",
+            });
+            return;
+          }
+        }
+      } catch {
+        // Network error — proceed optimistically
+      }
     }
+
+    const nextStep = currentStep + 1;
+    setCurrentStep(nextStep);
+    setTimeout(() => stepHeadingRef.current?.focus(), 50);
+    // Server-side draft: create lazily on step 1 advance, autosave on subsequent advances
+    createServerDraftIfNeeded().then(() => autosaveToServer(nextStep)).catch(() => {});
   };
 
   const handleBack = () => {
@@ -381,59 +551,102 @@ export default function MerchantApplication() {
     }
   };
 
+  const buildFullPayload = () => ({
+    status: "submitted",
+    currentStep: 6,
+    totalSteps: 6,
+    legalBusinessName,
+    dba,
+    businessType,
+    ein: ein.replace(/\D/g, "") || undefined,
+    businessStartDate,
+    businessAddress,
+    businessCity,
+    businessState,
+    businessZip,
+    businessPhone,
+    businessEmail,
+    website,
+    vertical,
+    ownerFirstName,
+    ownerLastName,
+    ownerEmail,
+    ownerPhone,
+    ownerDob,
+    ownerSsn: ownerSsn.replace(/\D/g, ""),
+    ownerAddress,
+    ownerCity,
+    ownerState,
+    ownerZip,
+    ownershipPercent: parseInt(ownershipPercent) || 0,
+    bankName,
+    bankRoutingNumber,
+    bankAccountNumber,
+    bankAccountType,
+    estimatedMonthlyVolume,
+    estimatedAvgTicket,
+    highestTicket,
+    currentProcessor: currentProcessor || null,
+    currentRate: currentRate || null,
+    acceptedCardTypes,
+    terminalNeeded: terminalNeeded === true,
+    terminalType: terminalNeeded ? terminalType : null,
+    terminalQuantity: terminalNeeded ? parseInt(terminalQuantity) || 1 : 0,
+    ecommerceNeeded: ecommerceNeeded === true,
+    preferredProgram,
+    esignStatus: "pending",
+    pewcConsent,
+    ...getStoredUTMParams(),
+  });
+
   const handleSubmit = async () => {
     if (!canProceed()) return;
     setSubmitting(true);
     try {
-      const res = await apiRequest("POST", "/api/merchant-applications", {
-        status: "submitted",
-        currentStep: 6,
-        totalSteps: 6,
-        legalBusinessName,
-        dba,
-        businessType,
-        ein,
-        businessStartDate,
-        businessAddress,
-        businessCity,
-        businessState,
-        businessZip,
-        businessPhone,
-        businessEmail,
-        website,
-        vertical,
-        ownerFirstName,
-        ownerLastName,
-        ownerEmail,
-        ownerPhone,
-        ownerDob,
-        ownerSsn: ownerSsn.replace(/\D/g, ""),
-        ownerAddress,
-        ownerCity,
-        ownerState,
-        ownerZip,
-        ownershipPercent: parseInt(ownershipPercent) || 0,
-        bankName,
-        bankRoutingNumber,
-        bankAccountNumber,
-        bankAccountType,
-        estimatedMonthlyVolume,
-        estimatedAvgTicket,
-        highestTicket,
-        currentProcessor: currentProcessor || null,
-        currentRate: currentRate || null,
-        acceptedCardTypes,
-        terminalNeeded: terminalNeeded === true,
-        terminalType: terminalNeeded ? terminalType : null,
-        terminalQuantity: terminalNeeded ? parseInt(terminalQuantity) || 1 : 0,
-        ecommerceNeeded: ecommerceNeeded === true,
-        preferredProgram,
-        esignStatus: "pending",
-        pewcConsent,
-        ...(shareToken ? { _shareToken: shareToken } : {}),
-        ...getStoredUTMParams(),
-      });
-      const data = await res.json();
+      // Duplicate-EIN guard before committing to server
+      try {
+        const dupRes = await fetch("/api/merchant-applications/check-duplicate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ ein }),
+        });
+        if (dupRes.ok) {
+          const dupData = await dupRes.json();
+          if (dupData.exists) {
+            throw new Error(
+              "An application for this business already exists. Please contact us if you need assistance.",
+            );
+          }
+        }
+      } catch (dupErr: any) {
+        if (dupErr.message?.includes("already exists")) throw dupErr;
+        // Network / endpoint error — proceed optimistically
+      }
+
+      let data: { id: number };
+
+      if (serverDraftId && serverDraftToken) {
+        // Finalize the existing server-side draft in place
+        const res = await fetch(`/api/merchant-applications/${serverDraftId}/finalize`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", "X-Draft-Token": serverDraftToken },
+          credentials: "include",
+          body: JSON.stringify({ ...buildFullPayload(), ...(shareToken ? { _shareToken: shareToken } : {}) }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ message: "Submission failed" }));
+          throw new Error(err.message || "Submission failed");
+        }
+        data = await res.json();
+      } else {
+        // No server draft — use legacy POST (creates and submits in one step)
+        const res = await apiRequest("POST", "/api/merchant-applications", {
+          ...buildFullPayload(),
+          ...(shareToken ? { _shareToken: shareToken } : {}),
+        });
+        data = await res.json();
+      }
       trackMerchantApplication();
       trackConversion("merchant_application", {
         application_id: data.id,
@@ -460,6 +673,7 @@ export default function MerchantApplication() {
       }
 
       localStorage.removeItem(DRAFT_KEY);
+      try { localStorage.removeItem("lb_draft_id"); localStorage.removeItem("lb_draft_token"); } catch {}
       setSubmitted(true);
       try {
         sessionStorage.setItem("lb_app_confirmation", JSON.stringify({

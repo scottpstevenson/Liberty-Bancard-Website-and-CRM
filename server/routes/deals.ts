@@ -1,6 +1,9 @@
 import type { Express } from "express";
 import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
+import { db } from "../db";
+import { tasks } from "@shared/schema";
+import { eq, and, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { contacts, insertDealCompetitorSchema, insertDealSchema, insertPipelineStageSchema, insertStageAutomationRuleSchema } from "@shared/schema";
 import { autoEnrollFromTrigger } from "../services/sequence-worker";
@@ -74,18 +77,75 @@ export function registerDealsRoutes(app: Express) {
         sendPushToAllReps({ title: "Deal Stage Changed", body: `Deal #${updated.id} moved from "${old.stage}" → "${updated.stage}"`, url: "/mobile/pipeline" }).catch(() => {});
 
         if (updated.stage === "Closed Won") {
+          const closedWonAt = updated.updatedAt ? new Date(updated.updatedAt) : new Date();
           const closedContact = updated.contactId ? await storage.getContact(updated.contactId) : null;
           await createPreferenceAwareNotification({ channel: "internal", title: "Deal Closed Won!", message: `Deal #${updated.id}${closedContact ? ` — ${closedContact.firstName} ${closedContact.lastName}` : ""} has been closed won.`, type: "alert", metadata: { dealId: updated.id, eventType: "deal_closed_won" } }, "deal_closed_won");
           sendCriticalEmailNotification({ eventType: "deal_closed_won", subject: `Closed Won: Deal #${updated.id}${closedContact ? ` — ${closedContact.companyName || closedContact.firstName}` : ""}`, body: `<h3>Deal Closed Won</h3><p>Deal #${updated.id} has moved to <strong>Closed Won</strong>.</p>${closedContact ? `<p>Contact: ${closedContact.firstName} ${closedContact.lastName}${closedContact.companyName ? ` (${closedContact.companyName})` : ""}</p>` : ""}<p>Owner: ${updated.owner || "Unassigned"}</p>`, ownerName: updated.owner }).catch(err => console.error("Closed won email error:", err));
 
           if (closedContact?.ghlContactId) {
-            sendMerchantWelcomeEmail(closedContact, updated)
-              .catch(err => console.error("[Closed Won] Merchant welcome email error:", err));
+            // Idempotency: contact-level guard prevents duplicate across multiple Closed Won deals
+            const alreadyWelcomedContact = updated.contactId
+              ? await storage.getLastAuditLogByAction("merchant_welcome_sent", "contact", updated.contactId).catch(() => null)
+              : null;
+            // Deal-level guard: prevents re-fire on the same deal (matches what sendMerchantWelcomeEmail writes)
+            const alreadyWelcomedDeal = await storage.getLastAuditLogByAction("merchant_welcome_sent", "deal", updated.id).catch(() => null);
+            if (!alreadyWelcomedContact && !alreadyWelcomedDeal) {
+              sendMerchantWelcomeEmail(closedContact, updated)
+                .then(() => {
+                  // Write contact-level sentinel so future Closed Won deals on same contact are skipped
+                  if (updated.contactId) {
+                    storage.createAuditLog({ action: "merchant_welcome_sent", entityType: "contact", entityId: updated.contactId, actorType: "system", details: { sourceDealId: updated.id } }).catch(() => {});
+                  }
+                })
+                .catch(err => console.error("[Closed Won] Merchant welcome email error:", err));
+            } else {
+              console.log(`[Closed Won] Welcome email skipped — already sent for contact #${updated.contactId} or deal #${updated.id}`);
+            }
           }
 
-          // Auto-onboarding kickoff
+          // Auto-onboarding kickoff (idempotent — reuse existing deal or create new one)
           (async () => {
+            const ONBOARDING_SLA_TASKS = [
+              { title: "Collect & verify merchant application", dueDays: 2, priority: "high" },
+              { title: "Request voided check & processing statement", dueDays: 3, priority: "high" },
+              { title: "Submit for underwriting review", dueDays: 7, priority: "medium" },
+              { title: "Provision MID & configure terminal", dueDays: 10, priority: "medium" },
+              { title: "Schedule go-live confirmation call", dueDays: 30, priority: "medium" },
+            ] as const;
+
+            const ensureSLATasks = async (dealId: number, contactId: number | null, owner: string | null) => {
+              const existingTasks = await db
+                .select({ title: tasks.title })
+                .from(tasks)
+                .where(and(eq(tasks.dealId, dealId), isNull(tasks.deletedAt)));
+              const existingTitles = new Set(existingTasks.map(t => t.title));
+              for (const slaTask of ONBOARDING_SLA_TASKS) {
+                if (!existingTitles.has(slaTask.title)) {
+                  await storage.createTask({
+                    title: slaTask.title,
+                    priority: slaTask.priority,
+                    dueDate: new Date(closedWonAt.getTime() + slaTask.dueDays * 86400000),
+                    dealId,
+                    contactId: contactId || undefined,
+                    assignedTo: owner || "Unassigned",
+                  });
+                }
+              }
+            };
+
             try {
+              if (updated.contactId) {
+                const existingDeals = await storage.getDealsByContact(updated.contactId);
+                const existingOnboardingDeal = existingDeals.find(d => d.pipeline === "onboarding" && !d.archivedAt);
+
+                if (existingOnboardingDeal) {
+                  // Reuse existing deal — still enforce SLA tasks idempotently
+                  console.log(`[Onboarding] Reusing existing onboarding deal #${existingOnboardingDeal.id} for contact #${updated.contactId}`);
+                  await ensureSLATasks(existingOnboardingDeal.id, updated.contactId, updated.owner);
+                  return;
+                }
+              }
+
               const onboardingDeal = await storage.createDeal({
                 contactId: updated.contactId || undefined,
                 pipeline: "onboarding",
@@ -97,6 +157,7 @@ export function registerDealsRoutes(app: Express) {
               });
               await storage.createAuditLog({ action: "onboarding_deal_created", entityType: "deal", entityId: onboardingDeal.id, details: { sourceDealsId: updated.id, contactId: updated.contactId } });
               await createPreferenceAwareNotification({ channel: "internal", title: "Onboarding Deal Created", message: `Onboarding pipeline deal #${onboardingDeal.id} created for ${closedContact ? closedContact.companyName || closedContact.firstName : "merchant"}.`, type: "info", metadata: { dealId: onboardingDeal.id, eventType: "onboarding_started" } }, "onboarding_started");
+              await ensureSLATasks(onboardingDeal.id, updated.contactId, updated.owner);
             } catch (onboardErr) {
               console.error("[Onboarding] Auto-kickoff error:", onboardErr);
             }

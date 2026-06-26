@@ -2,9 +2,10 @@ import type { Express, RequestHandler } from "express";
 import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
-import { and, eq, or } from "drizzle-orm";
+import { and, eq, or, sql as drizzleSql } from "drizzle-orm";
 import { insertEquipmentOrderSchema, insertMerchantApplicationSchema, insertMerchantProfileSchema, insertOnboardingStepSchema, deals, merchantApplications } from "@shared/schema";
 import { db } from "../db";
+import crypto from "crypto";
 import { getDocumentStatus, sendDocumentForEsign } from "../services/ghl";
 import { computeOrderEconomics } from "../services/terminal-economics";
 import { syncMerchantApplicationToGhl } from "../services/ghl-form-sync";
@@ -58,6 +59,42 @@ const esignEmailCooldown = createEmailCooldown(EMAIL_COOLDOWN_MS);
 const approvedEmailCooldown = createEmailCooldown(EMAIL_COOLDOWN_MS);
 const declinedEmailCooldown = createEmailCooldown(EMAIL_COOLDOWN_MS);
 
+// In-memory prefill token store (24h TTL)
+interface PrefillTokenData {
+  legalBusinessName?: string;
+  dba?: string;
+  businessType?: string;
+  businessPhone?: string;
+  businessEmail?: string;
+  businessAddress?: string;
+  businessCity?: string;
+  businessState?: string;
+  businessZip?: string;
+  website?: string;
+  vertical?: string;
+  ownerFirstName?: string;
+  ownerLastName?: string;
+  ownerEmail?: string;
+  ownerPhone?: string;
+  estimatedMonthlyVolume?: string;
+  currentProcessor?: string;
+  dealId?: number;
+  expiresAt: number;
+}
+const prefillTokenMap = new Map<string, PrefillTokenData>();
+const PREFILL_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+
+function cleanExpiredPrefillTokens() {
+  const now = Date.now();
+  for (const [k, v] of prefillTokenMap) {
+    if (v.expiresAt < now) prefillTokenMap.delete(k);
+  }
+}
+
+function hashToken(token: string): string {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
 const isAdminOrManager: RequestHandler = (req, res, next) => {
   const role = (req.user as any)?.role;
   if (req.isAuthenticated() && (role === "admin" || role === "manager")) {
@@ -76,6 +113,343 @@ function canAccessApplication(req: any, application: { userId?: string | null })
 }
 
 export function registerMerchantsRoutes(app: Express) {
+  // === DRAFT PERSISTENCE (server-side, public endpoints) ===
+
+  // Create a server-side draft — returns {id, draftToken}
+  app.post("/api/merchant-applications/draft", publicLeadRateLimit, async (req, res) => {
+    try {
+      const draftToken = crypto.randomBytes(32).toString("hex");
+      const tokenHash = hashToken(draftToken);
+      const { legalBusinessName, businessEmail, ownerEmail, vertical } = req.body;
+      const application = await storage.createMerchantApplication(
+        {
+          status: "in_progress",
+          currentStep: 1,
+          totalSteps: 6,
+          legalBusinessName: legalBusinessName || null,
+          businessEmail: businessEmail || null,
+          ownerEmail: ownerEmail || null,
+          vertical: vertical || null,
+          draftTokenHash: tokenHash,
+        },
+        { actorType: "user", userId: null },
+      );
+      res.json({ id: application.id, draftToken });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // EIN-only duplicate check (public, rate-limited, generic boolean — no enumeration risk)
+  app.post("/api/merchant-applications/check-duplicate", publicLeadRateLimit, async (req, res) => {
+    try {
+      const { ein } = req.body;
+      if (!ein || typeof ein !== "string" || ein.replace(/\D/g, "").length < 9) {
+        return res.json({ exists: false });
+      }
+      const [dup] = await db
+        .select({ id: merchantApplications.id })
+        .from(merchantApplications)
+        .where(
+          and(
+            eq(merchantApplications.ein, ein.replace(/\D/g, "")),
+            or(
+              eq(merchantApplications.status, "submitted"),
+              eq(merchantApplications.status, "under_review"),
+              eq(merchantApplications.status, "approved"),
+            ),
+          ),
+        )
+        .limit(1);
+      res.json({ exists: !!dup });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Autosave non-sensitive draft fields (verified by draftToken)
+  const AUTOSAVE_ALLOWED_FIELDS = new Set([
+    "legalBusinessName", "dba", "businessType", "businessStartDate",
+    "businessAddress", "businessCity", "businessState", "businessZip",
+    "businessPhone", "businessEmail", "website", "vertical",
+    "ownerFirstName", "ownerLastName", "ownerEmail", "ownerPhone",
+    "ownerAddress", "ownerCity", "ownerState", "ownerZip", "ownershipPercent",
+    "estimatedMonthlyVolume", "estimatedAvgTicket", "highestTicket",
+    "currentProcessor", "currentRate", "acceptedCardTypes",
+    "terminalNeeded", "terminalType", "terminalQuantity", "ecommerceNeeded",
+    "preferredProgram", "currentStep",
+  ]);
+
+  app.patch("/api/merchant-applications/:id/autosave", async (req, res) => {
+    try {
+      const appId = Number(req.params.id);
+      const draftToken = (req.headers["x-draft-token"] as string) || req.body._draftToken;
+      if (!draftToken) return res.status(401).json({ message: "Draft token required" });
+
+      const [existing] = await db
+        .select({ id: merchantApplications.id, draftTokenHash: merchantApplications.draftTokenHash, status: merchantApplications.status })
+        .from(merchantApplications)
+        .where(eq(merchantApplications.id, appId))
+        .limit(1);
+      if (!existing) return res.status(404).json({ message: "Application not found" });
+      if (!existing.draftTokenHash || hashToken(draftToken) !== existing.draftTokenHash) {
+        return res.status(403).json({ message: "Invalid draft token" });
+      }
+      if (existing.status === "submitted" || existing.status === "under_review" || existing.status === "approved") {
+        return res.status(409).json({ message: "Application already submitted" });
+      }
+
+      const safeUpdate: Record<string, any> = { status: "in_progress", updatedAt: new Date() };
+      for (const [key, val] of Object.entries(req.body)) {
+        if (AUTOSAVE_ALLOWED_FIELDS.has(key)) safeUpdate[key] = val;
+      }
+
+      await db.update(merchantApplications).set(safeUpdate).where(eq(merchantApplications.id, appId));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Read draft non-sensitive fields — public, verified by draftToken header or ?token= param
+  app.get("/api/merchant-applications/:id/autosave", publicLeadRateLimit, async (req, res) => {
+    try {
+      const appId = Number(req.params.id);
+      const draftToken = (req.headers["x-draft-token"] as string) || (req.query.token as string);
+      if (!draftToken) return res.status(401).json({ message: "Draft token required" });
+
+      const [existing] = await db
+        .select({ id: merchantApplications.id, draftTokenHash: merchantApplications.draftTokenHash, status: merchantApplications.status })
+        .from(merchantApplications)
+        .where(eq(merchantApplications.id, appId))
+        .limit(1);
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      if (!existing.draftTokenHash || hashToken(draftToken) !== existing.draftTokenHash) {
+        return res.status(403).json({ message: "Invalid draft token" });
+      }
+
+      const application = await storage.getMerchantApplication(appId);
+      if (!application) return res.status(404).json({ message: "Not found" });
+
+      // Return only autosave-allowed fields (never SSN, EIN, bank account numbers)
+      const safe: Record<string, any> = {};
+      for (const field of AUTOSAVE_ALLOWED_FIELDS) {
+        if (field in application) safe[field] = (application as any)[field];
+      }
+      res.json(safe);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Finalize: full submission with EIN-only duplicate check
+  app.patch("/api/merchant-applications/:id/finalize", publicLeadRateLimit, async (req, res) => {
+    try {
+      const appId = Number(req.params.id);
+      const draftToken = (req.headers["x-draft-token"] as string) || req.body._draftToken;
+      if (!draftToken) return res.status(401).json({ message: "Draft token required" });
+
+      const [existing] = await db
+        .select({ id: merchantApplications.id, draftTokenHash: merchantApplications.draftTokenHash, status: merchantApplications.status })
+        .from(merchantApplications)
+        .where(eq(merchantApplications.id, appId))
+        .limit(1);
+      if (!existing) return res.status(404).json({ message: "Application not found" });
+      if (!existing.draftTokenHash || hashToken(draftToken) !== existing.draftTokenHash) {
+        return res.status(403).json({ message: "Invalid draft token" });
+      }
+      if (existing.status === "submitted") {
+        return res.status(409).json({ message: "Application already submitted" });
+      }
+
+      // EIN-only duplicate check (not email — avoids user enumeration; generic response only)
+      const { ein } = req.body;
+      if (ein) {
+        const [dup] = await db
+          .select({ id: merchantApplications.id, status: merchantApplications.status })
+          .from(merchantApplications)
+          .where(and(eq(merchantApplications.ein, ein), drizzleSql`${merchantApplications.id} != ${appId}`))
+          .limit(1);
+        if (dup && dup.status !== "draft" && dup.status !== "in_progress") {
+          return res.status(409).json({ message: "An application for this business already exists. Please contact us if you need assistance." });
+        }
+      }
+
+      // Strip all meta/token keys — never write unknown keys to the DB
+      const { _draftToken: _dt, _shareToken, ...bodyRaw } = req.body;
+
+      // Resolve dealId from shareToken (mirrors the POST handler logic)
+      let resolvedDealId: number | undefined;
+      if (_shareToken && typeof _shareToken === "string") {
+        const [matchedDeal] = await db.select({ id: deals.id }).from(deals).where(eq(deals.shareToken, _shareToken)).limit(1);
+        if (matchedDeal) resolvedDealId = matchedDeal.id;
+      }
+
+      // Whitelist only known merchantApplications column keys — prevents unknown-key DB errors
+      const FINALIZE_ALLOWED_FIELDS = new Set([
+        ...AUTOSAVE_ALLOWED_FIELDS,
+        "ein", "ownerSsn", "bankRoutingNumber", "bankAccountNumber", "bankAccountType",
+        "pewcConsent", "reviewConfirmed",
+      ]);
+      const updatePayload: Record<string, any> = {
+        status: "submitted",
+        submittedAt: new Date(),
+        updatedAt: new Date(),
+      };
+      for (const [key, val] of Object.entries(bodyRaw)) {
+        if (FINALIZE_ALLOWED_FIELDS.has(key)) updatePayload[key] = val;
+      }
+      if (resolvedDealId) updatePayload.dealId = resolvedDealId;
+
+      await db.update(merchantApplications).set(updatePayload).where(eq(merchantApplications.id, appId));
+      const updated = await storage.getMerchantApplication(appId);
+
+      // Run GHL sync and workflows async (same as the existing POST handler)
+      if (updated) {
+        const pewcConsent = req.body.pewcConsent === true;
+        const consentEmail = updated.ownerEmail || updated.businessEmail;
+        if (pewcConsent && consentEmail) {
+          recordPewcDecision({
+            email: consentEmail,
+            channel: "web",
+            consentGiven: true,
+            pageUrl: "/merchant-application",
+            metadata: { applicationId: updated.id, source: "finalize_endpoint" },
+          }).catch(() => {});
+        }
+
+        // Resolve or create CRM contact — required for GHL sync call signature
+        (async () => {
+          try {
+            const contactEmail = updated.ownerEmail || updated.businessEmail;
+            let resolvedContactId: number | null = null;
+            if (contactEmail) {
+              const { data: contacts } = await storage.getContacts({ limit: 1000 });
+              const existing = contacts.find((c: any) => c.email?.toLowerCase() === contactEmail.toLowerCase());
+              if (existing) {
+                resolvedContactId = existing.id;
+              } else {
+                const created = await storage.createContact({
+                  firstName: updated.ownerFirstName || "",
+                  lastName: updated.ownerLastName || "",
+                  email: contactEmail,
+                  phone: updated.businessPhone || updated.ownerPhone || undefined,
+                  companyName: updated.legalBusinessName || updated.dba || "",
+                  status: "New",
+                  tags: ["src_merchant_app"],
+                }).catch(() => null);
+                if (created) resolvedContactId = created.id;
+              }
+            }
+            if (resolvedContactId) {
+              await syncMerchantApplicationToGhl(updated.id, resolvedContactId).catch(err =>
+                console.error("[Finalize] GHL sync error:", err)
+              );
+            }
+            const resolvedGhlId = resolvedContactId
+              ? (await storage.getContact(resolvedContactId).catch(() => null))?.ghlContactId ?? null
+              : null;
+            enrollInGhlWorkflow({
+              workflowKey: "merchant_app",
+              ghlContactId: resolvedGhlId,
+              email: consentEmail || undefined,
+              metadata: { applicationId: updated.id },
+            }).catch(() => {});
+          } catch (sideEffectErr) {
+            console.error("[Finalize] Side-effect chain error:", sideEffectErr);
+          }
+        })();
+      }
+
+      res.json(updated || { id: appId, status: "submitted" });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === PREFILL TOKENS (dashboard → share application form link) ===
+
+  app.post("/api/merchant-applications/prefill-token", isDashboardUser, async (req, res) => {
+    try {
+      cleanExpiredPrefillTokens();
+      const token = crypto.randomBytes(20).toString("hex");
+      const {
+        legalBusinessName, dba, businessType, businessPhone, businessEmail,
+        businessAddress, businessCity, businessState, businessZip, website,
+        ownerFirstName, ownerLastName, ownerEmail, ownerPhone,
+        estimatedMonthlyVolume, vertical, currentProcessor, dealId, contactId,
+      } = req.body;
+
+      // Auto-populate from contact record if contactId provided
+      let contact: Awaited<ReturnType<typeof storage.getContact>> | null = null;
+      if (contactId) {
+        contact = await storage.getContact(Number(contactId)).catch(() => null);
+      }
+
+      // Enforce contact↔deal linkage when both are provided
+      if (dealId && contactId) {
+        const deal = await storage.getDeal(Number(dealId)).catch(() => null);
+        if (!deal || deal.contactId !== Number(contactId)) {
+          return res.status(400).json({ message: "Deal is not linked to this contact — cannot generate prefill token" });
+        }
+      }
+
+      prefillTokenMap.set(token, {
+        legalBusinessName: legalBusinessName || contact?.companyName || undefined,
+        dba: dba || undefined,
+        businessType: businessType || undefined,
+        businessPhone: businessPhone || contact?.phone || undefined,
+        businessEmail: businessEmail || contact?.email || undefined,
+        businessAddress: businessAddress || undefined,
+        businessCity: businessCity || undefined,
+        businessState: businessState || undefined,
+        businessZip: businessZip || undefined,
+        website: website || contact?.website || undefined,
+        ownerFirstName: ownerFirstName || contact?.firstName || undefined,
+        ownerLastName: ownerLastName || contact?.lastName || undefined,
+        ownerEmail: ownerEmail || contact?.email || undefined,
+        ownerPhone: ownerPhone || contact?.phone || undefined,
+        estimatedMonthlyVolume: estimatedMonthlyVolume || undefined,
+        vertical: vertical || undefined,
+        currentProcessor: currentProcessor || undefined,
+        dealId: dealId ? Number(dealId) : undefined,
+        expiresAt: Date.now() + PREFILL_TOKEN_TTL_MS,
+      });
+      const baseUrl = process.env.APP_URL || `${req.protocol}://${req.get("host")}`;
+      res.json({ token, url: `${baseUrl}/merchant-application?prefillToken=${token}` });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/merchant-applications/prefill-token/:token", publicLeadRateLimit, (req, res) => {
+    cleanExpiredPrefillTokens();
+    const data = prefillTokenMap.get(req.params.token);
+    if (!data || data.expiresAt < Date.now()) {
+      return res.status(404).json({ message: "Token not found or expired" });
+    }
+    // Strict whitelist — never expose internal IDs, EIN, SSN, DOB, or bank data
+    res.json({
+      legalBusinessName: data.legalBusinessName,
+      dba: data.dba,
+      businessType: data.businessType,
+      businessPhone: data.businessPhone,
+      businessEmail: data.businessEmail,
+      businessAddress: data.businessAddress,
+      businessCity: data.businessCity,
+      businessState: data.businessState,
+      businessZip: data.businessZip,
+      website: data.website,
+      ownerFirstName: data.ownerFirstName,
+      ownerLastName: data.ownerLastName,
+      ownerEmail: data.ownerEmail,
+      ownerPhone: data.ownerPhone,
+      estimatedMonthlyVolume: data.estimatedMonthlyVolume,
+      currentProcessor: data.currentProcessor,
+      vertical: data.vertical,
+    });
+  });
+
   // === MERCHANT APPLICATIONS ===
   app.post("/api/merchant-applications", isAuthenticated, async (req, res) => {
     try {

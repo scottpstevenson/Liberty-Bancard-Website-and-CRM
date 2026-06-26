@@ -103,11 +103,11 @@ const QUEUE_CONFIGS: QueueConfig[] = [
   },
   {
     name: QUEUE_NAMES.ONBOARDING_REMINDER,
-    // concurrency=1: nightly scan; single pass to avoid duplicate notifications.
+    // concurrency=1: runs every 4h to catch abandoned apps within the 24h stale window.
     concurrency: 1,
     attempts: 3,
     backoffDelay: 60000,
-    repeatEveryMs: 24 * 60 * 60 * 1000,
+    repeatEveryMs: 4 * 60 * 60 * 1000,
     jobName: "run",
   },
 ];

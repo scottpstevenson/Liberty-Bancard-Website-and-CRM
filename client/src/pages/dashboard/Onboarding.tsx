@@ -313,16 +313,35 @@ export default function Onboarding() {
                               )}
                             </div>
                           ) : null}
-                          {deal.terminalStatus && (
-                            <Badge
-                              variant="outline"
-                              className="text-xs no-default-hover-elevate no-default-active-elevate mt-1"
-                              data-testid={`badge-terminal-${deal.id}`}
-                            >
-                              <Package className="w-3 h-3 mr-1" />
-                              {deal.terminalStatus}
-                            </Badge>
-                          )}
+                          <div className="flex items-center gap-1 flex-wrap mt-1">
+                            {deal.mid ? (
+                              <Badge
+                                variant="outline"
+                                className="text-xs font-mono text-green-700 dark:text-green-400 border-green-300 no-default-hover-elevate no-default-active-elevate"
+                                data-testid={`badge-mid-${deal.id}`}
+                              >
+                                MID: {deal.mid}
+                              </Badge>
+                            ) : (
+                              <Badge
+                                variant="outline"
+                                className="text-xs text-muted-foreground no-default-hover-elevate no-default-active-elevate"
+                                data-testid={`badge-mid-pending-${deal.id}`}
+                              >
+                                MID Pending
+                              </Badge>
+                            )}
+                            {deal.terminalStatus && (
+                              <Badge
+                                variant="outline"
+                                className="text-xs no-default-hover-elevate no-default-active-elevate"
+                                data-testid={`badge-terminal-${deal.id}`}
+                              >
+                                <Package className="w-3 h-3 mr-1" />
+                                {deal.terminalStatus}
+                              </Badge>
+                            )}
+                          </div>
                         </CardContent>
                       </Card>
                     );

@@ -176,6 +176,7 @@ export interface IStorage {
   updateTicket(id: number, ticket: UpdateTicketRequest): Promise<typeof tickets.$inferSelect | undefined>;
 
   getTasks(opts?: { limit?: number; offset?: number }): Promise<typeof tasks.$inferSelect[]>;
+  getTasksByDeal(dealId: number): Promise<typeof tasks.$inferSelect[]>;
   getTaskByGhlTaskId(ghlTaskId: string): Promise<typeof tasks.$inferSelect | undefined>;
   createTask(task: InsertTask): Promise<typeof tasks.$inferSelect>;
   updateTask(id: number, task: UpdateTaskRequest): Promise<typeof tasks.$inferSelect | undefined>;

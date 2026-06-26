@@ -544,6 +544,109 @@ const PORTAL_STATUS_MAP: Record<string, { label: string; color: string; descript
   rejected: { label: "Needs Correction", color: "text-red-600 dark:text-red-400", description: "This document needs to be re-uploaded. Check the notes or contact your rep." },
 };
 
+type PortalTask = { id: number; title: string; status: string | null; priority: string | null; dueDate: string | null; completedAt: string | null };
+
+function OnboardingTasksCard({ dealId }: { dealId: number | null | undefined }) {
+  const { data: portalTasks, isLoading } = useQuery<PortalTask[]>({
+    queryKey: ["/api/merchant-portal/onboarding-tasks", dealId],
+    queryFn: async () => {
+      if (!dealId) return [];
+      const res = await fetch(`/api/merchant-portal/onboarding-tasks?dealId=${dealId}`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!dealId,
+  });
+
+  if (!dealId || isLoading) return null;
+
+  if (!portalTasks || portalTasks.length === 0) {
+    return (
+      <Card data-testid="card-onboarding-tasks-empty">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <CheckCircle className="w-4 h-4 text-primary" />
+            Onboarding Milestones
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground text-center py-4" data-testid="text-onboarding-tasks-empty">
+            Your onboarding milestones will appear here once assigned.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const formatDue = (d: string | null) => {
+    if (!d) return null;
+    const date = new Date(d);
+    const now = new Date();
+    const overdue = date < now;
+    const label = date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    return { label, overdue };
+  };
+
+  return (
+    <Card data-testid="card-onboarding-tasks">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base flex items-center gap-2">
+          <CheckCircle className="w-4 h-4 text-primary" />
+          Onboarding Milestones
+        </CardTitle>
+        <p className="text-xs text-muted-foreground">Key steps our team is working through to get your account live.</p>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {portalTasks.map(task => {
+          const due = formatDue(task.dueDate);
+          const isDone = task.status === "completed" || task.status === "done";
+          return (
+            <div key={task.id} className="flex flex-col gap-1 py-1.5 border-b last:border-0" data-testid={`portal-task-${task.id}`}>
+              <div className="flex items-center gap-3">
+                <div className={`flex-shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center ${isDone ? "bg-emerald-100 border-emerald-500 dark:bg-emerald-900 dark:border-emerald-400" : "border-muted-foreground/30 bg-muted"}`}>
+                  {isDone && <CheckCircle className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm ${isDone ? "line-through text-muted-foreground" : "text-foreground"}`} data-testid={`portal-task-title-${task.id}`}>{task.title}</p>
+                </div>
+                {due && !isDone && (
+                  <span className={`text-xs shrink-0 ${due.overdue ? "text-red-500" : "text-muted-foreground"}`} data-testid={`portal-task-due-${task.id}`}>
+                    {due.overdue ? "Overdue" : `Due ${due.label}`}
+                  </span>
+                )}
+                {isDone && (
+                  <div className="flex flex-col items-end shrink-0 gap-0.5">
+                    <Badge variant="secondary" className="text-xs" data-testid={`portal-task-done-${task.id}`}>Done</Badge>
+                    {task.completedAt && (
+                      <span className="text-[10px] text-muted-foreground" data-testid={`portal-task-completed-at-${task.id}`}>
+                        {new Date(task.completedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+              {/* KYC upload CTA — shown when task is KYC-related and not yet done */}
+              {!isDone && /kyc|document|identif|passport|license|verif/i.test(task.title) && (
+                <div className="ml-8">
+                  <a
+                    href="#upload-documents"
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-primary underline-offset-2 hover:underline"
+                    data-testid={`link-kyc-upload-${task.id}`}
+                    onClick={e => { e.preventDefault(); document.getElementById("upload-documents")?.scrollIntoView({ behavior: "smooth" }); }}
+                  >
+                    <Upload className="w-3 h-3" />
+                    Upload KYC documents
+                  </a>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </CardContent>
+    </Card>
+  );
+}
+
 function OnboardingTab({ dealId, profile }: { dealId: number | null | undefined; profile: MerchantProfile | null | undefined }) {
   const { data: steps, isLoading } = useQuery<OnboardingStep[]>({
     queryKey: ["/api/onboarding-steps/deal", dealId],
@@ -705,6 +808,8 @@ function OnboardingTab({ dealId, profile }: { dealId: number | null | undefined;
         </CardContent>
       </Card>
 
+      <OnboardingTasksCard dealId={dealId} />
+
       {checklistItems && checklistItems.length > 0 && (
         <Card data-testid="card-document-checklist">
           <CardHeader className="pb-2">
@@ -764,9 +869,21 @@ function OnboardingTab({ dealId, profile }: { dealId: number | null | undefined;
 const MAX_FILE_SIZE_MB = 20;
 const ACCEPTED_TYPES = ".pdf, .png, .jpg, .jpeg, .csv";
 
+const MERCHANT_DOC_CATEGORIES = [
+  "Statement",
+  "Voided Check",
+  "Photo ID",
+  "Bank Statement",
+  "EIN Letter",
+  "Signed Proposal",
+  "KYC",
+  "Other",
+] as const;
+
 function DocumentsTab({ contactId }: { contactId: number | null | undefined }) {
   const { toast } = useToast();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploadCategory, setUploadCategory] = useState<string>("Statement");
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [fileError, setFileError] = useState<string | null>(null);
@@ -810,6 +927,7 @@ function DocumentsTab({ contactId }: { contactId: number | null | undefined }) {
     try {
       const formData = new FormData();
       formData.append("file", selectedFile);
+      formData.append("category", uploadCategory);
       setUploadProgress(30);
       const uploadHeaders: Record<string, string> = {};
       const csrfVal = getCsrfToken();
@@ -827,7 +945,8 @@ function DocumentsTab({ contactId }: { contactId: number | null | undefined }) {
       }
       setUploadProgress(100);
       const newDoc = await res.json().catch(() => null);
-      toast({ title: "Statement uploaded", description: `${selectedFile.name} has been uploaded successfully.` });
+      const categoryLabel = uploadCategory !== "Statement" ? ` (${uploadCategory})` : "";
+      toast({ title: "Document uploaded", description: `${selectedFile.name}${categoryLabel} has been uploaded successfully.` });
       setSelectedFile(null);
       setUploadProgress(0);
       const fileInput = document.querySelector('[data-testid="input-upload-file"]') as HTMLInputElement;
@@ -860,6 +979,16 @@ function DocumentsTab({ contactId }: { contactId: number | null | undefined }) {
         <CardContent className="space-y-3">
           <div className="flex flex-wrap items-start gap-3">
             <div className="flex-1 min-w-0 space-y-2">
+              <Select value={uploadCategory} onValueChange={setUploadCategory} disabled={uploading}>
+                <SelectTrigger className="w-full" data-testid="select-upload-category">
+                  <SelectValue placeholder="Document category" />
+                </SelectTrigger>
+                <SelectContent>
+                  {MERCHANT_DOC_CATEGORIES.map(cat => (
+                    <SelectItem key={cat} value={cat} data-testid={`option-category-${cat.replace(/\s+/g, "-").toLowerCase()}`}>{cat}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <Input
                 type="file"
                 accept=".pdf,.png,.jpg,.jpeg,.csv"

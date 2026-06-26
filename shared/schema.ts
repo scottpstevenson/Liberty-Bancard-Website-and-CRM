@@ -265,6 +265,7 @@ export const DOCUMENT_CATEGORIES = [
   "Signed Proposal",
   "Processing Statement",
   "Rate Review Statement",
+  "KYC",
   "Other",
 ] as const;
 
@@ -1415,6 +1416,7 @@ export const merchantApplications = pgTable("merchant_applications", {
   declineReason: text("decline_reason"),
   submittedAt: timestamp("submitted_at"),
   completedAt: timestamp("completed_at"),
+  draftTokenHash: text("draft_token_hash"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

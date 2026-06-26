@@ -108,6 +108,10 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
     return await query;
   }
 
+  async getTasksByDeal(dealId: number) {
+    return db.select().from(tasks).where(and(eq(tasks.dealId, dealId), isNull(tasks.deletedAt))).orderBy(asc(tasks.createdAt));
+  }
+
 
   async createTask(insertTask: InsertTask) {
     const [task] = await db.insert(tasks).values(insertTask).returning();

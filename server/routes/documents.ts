@@ -139,9 +139,20 @@ export function registerDocumentsRoutes(app: Express) {
       if (!req.file) return res.status(400).json({ message: "No file uploaded" });
 
       const user = req.user as any;
-      const { category, contactId, dealId } = req.body;
+      let { category, contactId, dealId } = req.body;
 
-      if (contactId && !await canAccessContactDocs(user, Number(contactId))) {
+      // Merchant users: derive contactId server-side from their profile — reject client-supplied ownership
+      if (user?.role === "merchant") {
+        const profile = await storage.getMerchantProfileByUser(user.id).catch(() => null);
+        if (!profile) return res.status(403).json({ message: "No merchant profile found" });
+        contactId = String(profile.contactId);
+        dealId = undefined; // merchants cannot scope uploads to a specific deal
+        // Validate category against merchant-allowed list
+        const MERCHANT_ALLOWED_CATEGORIES = new Set(["KYC", "Bank Statement", "Processing Statement", "ID Verification", "Other"]);
+        if (category && !MERCHANT_ALLOWED_CATEGORIES.has(category)) {
+          return res.status(400).json({ message: "Invalid document category" });
+        }
+      } else if (contactId && !await canAccessContactDocs(user, Number(contactId))) {
         return res.status(403).json({ message: "Access denied" });
       }
 
@@ -508,6 +519,38 @@ export function registerDocumentsRoutes(app: Express) {
     res.json(contactDocs);
   });
 
+  app.get("/api/merchant-portal/onboarding-tasks", isAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as any;
+      const requestedDealId = req.query.dealId ? Number(req.query.dealId) : null;
+      if (!requestedDealId) return res.json([]);
+
+      const role = user?.role;
+      const isDashboard = role === "admin" || role === "manager" || role === "agent";
+
+      if (!isDashboard) {
+        // Merchant: validate ownership — only allow access to their own deal
+        const profile = await storage.getMerchantProfileByUser(user.id).catch(() => null);
+        if (!profile || profile.dealId !== requestedDealId) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      }
+
+      const dealTasks = await storage.getTasksByDeal(requestedDealId);
+      const safeTasks = dealTasks.map(t => ({
+        id: t.id,
+        title: t.title,
+        status: t.status,
+        priority: t.priority,
+        dueDate: t.dueDate,
+        completedAt: (t as any).completedAt ?? null,
+      }));
+      res.json(safeTasks);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/merchant-portal/upload-statement", isAuthenticated, upload.single("file"), async (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ message: "No file uploaded" });
@@ -534,10 +577,20 @@ export function registerDocumentsRoutes(app: Express) {
         }
       }
 
-      // Resolve the uploader's contact
-      const { data: allContacts } = await storage.getContacts({ limit: 500 });
-      const uploaderContact = allContacts.find((c: any) => c.userId === user.id || c.email === user.email);
-      const uploaderContactId = uploaderContact?.id || null;
+      // Resolve the uploader's contact via merchant profile (strict ownership — no heuristic)
+      const merchantProfile = await storage.getMerchantProfileByUser(user.id).catch(() => null);
+      let uploaderContactId: number | null = null;
+      let uploaderContact: any = null;
+      if (merchantProfile?.contactId) {
+        uploaderContactId = merchantProfile.contactId;
+        uploaderContact = await storage.getContact(merchantProfile.contactId).catch(() => null);
+      }
+      if (!uploaderContactId) {
+        // Fallback for non-merchant portal users (internal staff forwarding merchant uploads)
+        const { data: allContacts } = await storage.getContacts({ limit: 500 });
+        uploaderContact = allContacts.find((c: any) => c.userId === user.id || c.email === user.email);
+        uploaderContactId = uploaderContact?.id || null;
+      }
 
       // For processing statements run the full 11-step chain; for other doc types use legacy path
       if (docType === "merchant_statement" && uploaderContactId) {
@@ -655,9 +708,13 @@ export function registerDocumentsRoutes(app: Express) {
         }
       }
 
+      // Honour explicit category from client (e.g. "KYC") — overrides filename-derived mapping
+      const explicitCategory = req.body?.category;
+      const resolvedCategory = explicitCategory || categoryMap[docType] || "Other";
+
       const doc = await storage.createDocument({
         type: docType,
-        category: categoryMap[docType] || "Other",
+        category: resolvedCategory,
         fileName,
         fileSize: req.file.size,
         mimeType: req.file.mimetype,
