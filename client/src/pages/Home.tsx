@@ -663,15 +663,15 @@ export default function Home() {
                   </div>
                 ) : (
                   <Card className="border-dashed border-2 border-border/70 overflow-hidden">
-                    <div className="flex items-center justify-between gap-3 border-b border-border bg-muted/40 px-5 py-3">
+                    <div className="accent-rule flex items-center justify-between gap-3 border-b border-border bg-muted/40 px-5 py-3">
                       <span className="text-sm font-semibold text-foreground">Estimate Preview</span>
                       <span className="audit-stamp bg-card">Awaiting input</span>
                     </div>
                     <CardContent className="ledger-texture p-8 text-center">
                       <Calculator className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
-                      <h3 className="text-lg font-display font-semibold text-foreground mb-2" data-testid="text-calculator-empty">Enter Your Numbers</h3>
+                      <h3 className="text-lg font-display font-semibold text-foreground mb-2" data-testid="text-calculator-empty">Run a 60-second effective-rate check</h3>
                       <p className="text-sm text-muted-foreground">
-                        Plug in your monthly volume and total fees from your last statement. We'll instantly estimate your effective rate and compare it against your industry.
+                        Plug in your monthly volume and total fees from your last statement. We'll instantly estimate your effective rate and compare it against your industry benchmark — no upload required.
                       </p>
                     </CardContent>
                   </Card>
@@ -682,7 +682,7 @@ export default function Home() {
         </section>
 
         {/* SECTION 7: Choose Your Path */}
-        <section className="bg-muted/30 py-20" data-testid="section-choose-path">
+        <section className="section-warm py-20" data-testid="section-choose-path">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <h2 className="reveal text-3xl md:text-4xl font-display font-bold text-foreground text-center mb-4" data-testid="text-choose-path-heading">
               Choose the Strategy That Fits
@@ -694,6 +694,7 @@ export default function Home() {
                   <span className="bg-primary text-primary-foreground text-xs font-semibold px-3 py-1 rounded-md">Most Popular</span>
                 </div>
                 <CardHeader className="gap-1">
+                  <span className="report-chip report-chip-neutral w-fit">Best For: High-volume, transparency-first</span>
                   <CardTitle className="text-lg">Wholesale / Interchange-Plus</CardTitle>
                   <CardDescription>See every penny of markup. Pay interchange + a transparent fee.</CardDescription>
                 </CardHeader>
@@ -703,6 +704,10 @@ export default function Home() {
                     <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> No bundled "qualified" tiers</li>
                     <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Full cost transparency</li>
                   </ul>
+                  <div className="mt-4 rounded-md border border-border bg-card px-3 py-2">
+                    <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Illustrative structure</div>
+                    <div className="num text-sm font-semibold text-foreground">Interchange + 0.25%<span className="font-normal text-muted-foreground"> / transaction*</span></div>
+                  </div>
                 </CardContent>
                 <CardFooter>
                   <Link href="/upload-statement" data-testid="link-wholesale-cta">
@@ -716,6 +721,7 @@ export default function Home() {
 
               <Card className="h-full flex flex-col" data-testid="card-zero-percent">
                 <CardHeader className="gap-1">
+                  <span className="report-chip report-chip-neutral w-fit">Best For: Offsetting processing costs</span>
                   <CardTitle className="text-lg">Compliant 0% Programs*</CardTitle>
                   <CardDescription>Pass fees to the cardholder where permitted by law and card brand rules.</CardDescription>
                 </CardHeader>
@@ -725,6 +731,16 @@ export default function Home() {
                     <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Proper disclosures + receipts</li>
                     <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Staff scripts included</li>
                   </ul>
+                  <div className="mt-4 grid grid-cols-2 gap-2">
+                    <div className="rounded-md border border-border bg-card px-2 py-2 text-center">
+                      <div className="text-xs font-semibold text-foreground">Cash Discount</div>
+                      <div className="text-[11px] text-muted-foreground">Lower posted price for cash</div>
+                    </div>
+                    <div className="rounded-md border border-border bg-card px-2 py-2 text-center">
+                      <div className="text-xs font-semibold text-foreground">Surcharging</div>
+                      <div className="text-[11px] text-muted-foreground">Card fee where permitted</div>
+                    </div>
+                  </div>
                 </CardContent>
                 <CardFooter>
                   <Link href="/0-percent-processing" data-testid="link-zero-percent-cta">
@@ -738,17 +754,18 @@ export default function Home() {
 
               <Card className="relative overflow-visible h-full flex flex-col" data-testid="card-terminal">
                 <CardHeader className="gap-1">
+                  <span className="report-chip report-chip-neutral w-fit">Best For: Modern in-person checkout</span>
                   <CardTitle className="text-lg">Liberty Smart Terminal</CardTitle>
                   <CardDescription>Modern checkout with guided onboarding and dedicated support.</CardDescription>
                 </CardHeader>
                 <CardContent className="flex-1">
                   <div className="rounded-md overflow-hidden mb-3">
-                    <img src={imgCloverFlex3} alt="Clover Flex 3 payment terminal" className="w-full h-48 object-contain bg-muted/50 p-2" loading="lazy" width="400" height="192" data-testid="img-home-terminal" />
+                    <img src={imgCloverFlex3} alt="Clover Flex 3 payment terminal" className="w-full h-32 object-contain bg-muted/50 p-2" loading="lazy" width="400" height="128" data-testid="img-home-terminal" />
                   </div>
                   <ul className="space-y-2 text-sm text-muted-foreground">
                     <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Tap, dip, swipe, manual key</li>
                     <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Free for qualifying merchants*</li>
-                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Same-day setup available</li>
+                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Same-day setup when eligible</li>
                   </ul>
                 </CardContent>
                 <CardFooter>
@@ -768,7 +785,7 @@ export default function Home() {
         </section>
 
         {/* SECTION 8: Vertical Credibility */}
-        <section className="bg-muted/30 bg-dots py-20" data-testid="section-verticals">
+        <section className="bg-background bg-dots py-20" data-testid="section-verticals">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal text-center mb-12">
               <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-verticals-heading">
@@ -776,31 +793,48 @@ export default function Home() {
               </h2>
               <p className="text-muted-foreground max-w-xl mx-auto">South Florida roots. Nationwide reach. We know the cost pressures in your industry.</p>
             </div>
-            <div className="reveal grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="reveal grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
               {[
-                { icon: Stethoscope, title: "Medical / Dental / Medspa", points: ["Front desk speed and deposit clarity", "Fewer billing headaches", "HIPAA-aware workflows"] },
-                { icon: Car, title: "Automotive", points: ["High-ticket transaction handling", "Predictable funding schedules", "Chargeback prevention"] },
-                { icon: UtensilsCrossed, title: "Restaurants", points: ["Fast tip-adjusted checkout", "Reliable terminals that don't freeze", "Weekend support when you need it"] },
-                { icon: Wrench, title: "Home Services", points: ["Mobile acceptance on the job", "Cash flow-focused funding", "Simple invoicing support"] },
-                { icon: Store, title: "Retail", points: ["Fast checkout lines", "Modern tap + contactless", "Inventory-friendly integrations"] },
-                { icon: Users, title: "Other Industries", points: ["We've seen every vertical", "The math is the math", "Upload and we'll tailor your review"] },
+                { icon: UtensilsCrossed, title: "Restaurants", bestFor: "Tip-adjust + weekend volume", points: ["Fast tip-adjusted checkout that won't freeze on a Friday night", "Weekend support when your team actually needs it"] },
+                { icon: Stethoscope, title: "Medical / Dental / Medspa", bestFor: "Front-desk speed + clean deposits", points: ["Predictable deposit clarity for the front desk", "HIPAA-aware workflows and fewer billing headaches"] },
+                { icon: Car, title: "Automotive", bestFor: "High-ticket + chargeback safety", points: ["High-ticket transaction handling with predictable funding", "Chargeback prevention built into the workflow"] },
               ].map((item, i) => (
-                <Card key={i} className="hover-elevate" data-testid={`card-vertical-${i}`}>
-                  <CardContent className="p-5">
-                    <div className="flex items-center gap-3 mb-3">
-                      <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
-                        <item.icon className="w-5 h-5 text-primary" />
+                <Card key={i} className="hover-elevate" data-testid={`card-vertical-featured-${i}`}>
+                  <CardContent className="p-6">
+                    <span className="report-chip report-chip-neutral">Best For: {item.bestFor}</span>
+                    <div className="flex items-center gap-3 mt-4 mb-4">
+                      <div className="w-12 h-12 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+                        <item.icon className="w-6 h-6 text-primary" />
                       </div>
-                      <h3 className="font-display font-semibold text-foreground">{item.title}</h3>
+                      <h3 className="text-lg font-display font-semibold text-foreground">{item.title}</h3>
                     </div>
-                    <ul className="space-y-1.5">
+                    <ul className="space-y-2">
                       {item.points.map((point, j) => (
                         <li key={j} className="text-sm text-muted-foreground flex items-start gap-2">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-primary mt-0.5 shrink-0" />
+                          <CheckCircle2 className="w-4 h-4 text-primary mt-0.5 shrink-0" />
                           {point}
                         </li>
                       ))}
                     </ul>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+            <div className="reveal grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {[
+                { icon: Wrench, title: "Home Services", bestFor: "On-the-job mobile acceptance" },
+                { icon: Store, title: "Retail", bestFor: "Fast lines + contactless" },
+                { icon: Users, title: "Other Industries", bestFor: "Every vertical — the math is the math" },
+              ].map((item, i) => (
+                <Card key={i} className="hover-elevate" data-testid={`card-vertical-secondary-${i}`}>
+                  <CardContent className="p-4 flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+                      <item.icon className="w-5 h-5 text-primary" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-display font-semibold text-foreground">{item.title}</h3>
+                      <p className="text-xs text-muted-foreground">Best For: {item.bestFor}</p>
+                    </div>
                   </CardContent>
                 </Card>
               ))}
@@ -811,22 +845,53 @@ export default function Home() {
         {/* SECTION 8.25: Terminal Showcase */}
         <section className="bg-background py-20" data-testid="section-terminal-showcase">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="reveal grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-              <div>
-                <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-terminal-showcase-heading">
-                  The Liberty Smart Terminal
-                </h2>
-                <p className="text-lg text-muted-foreground mb-6 leading-relaxed">
-                  Every merchant we onboard gets the same reliable, modern terminal - configured for their business, with guided setup and dedicated support from day one.
-                </p>
-                <ul className="space-y-3 mb-8">
-                  <li className="flex items-start gap-3"><CheckCircle2 className="w-5 h-5 text-primary mt-0.5 shrink-0" /><span className="text-muted-foreground">Tap, dip, swipe, QR, and manual key entry</span></li>
-                  <li className="flex items-start gap-3"><CheckCircle2 className="w-5 h-5 text-primary mt-0.5 shrink-0" /><span className="text-muted-foreground">Built-in cash discount and surcharge support</span></li>
-                  <li className="flex items-start gap-3"><CheckCircle2 className="w-5 h-5 text-primary mt-0.5 shrink-0" /><span className="text-muted-foreground">Wi-Fi and Ethernet connectivity</span></li>
-                  <li className="flex items-start gap-3"><CheckCircle2 className="w-5 h-5 text-primary mt-0.5 shrink-0" /><span className="text-muted-foreground">Tip adjust, batch close, and on-device reporting</span></li>
-                  <li className="flex items-start gap-3"><CheckCircle2 className="w-5 h-5 text-primary mt-0.5 shrink-0" /><span className="text-muted-foreground">Free for qualifying merchants*</span></li>
-                </ul>
-                <div className="flex flex-wrap items-center gap-3">
+            <div className="reveal text-center max-w-2xl mx-auto mb-10">
+              <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-terminal-showcase-heading">
+                What Setup Looks Like After Approval
+              </h2>
+              <p className="text-lg text-muted-foreground leading-relaxed">
+                Once you're approved, we configure your hardware to match how you actually take payments — with guided setup and dedicated support from day one.
+              </p>
+            </div>
+            <div className="reveal grid grid-cols-1 lg:grid-cols-5 gap-8 items-start">
+              <div className="lg:col-span-2">
+                <div className="rounded-md border border-border bg-muted/30 p-6">
+                  <img src={imgCloverFlex3} alt="Clover Flex 3 handheld POS terminal" className="w-full h-56 object-contain" loading="lazy" width="400" height="224" data-testid="img-showcase-hero" />
+                </div>
+                <div className="mt-4 grid grid-cols-3 gap-3">
+                  <img src={imgCloverStationDuo} alt="Clover Station Duo full register system" className="w-full h-20 rounded-md border border-border bg-muted/30 object-contain p-1.5" loading="lazy" width="160" height="80" data-testid="img-showcase-stand" />
+                  <img src={imgCloverMini3} alt="Clover Mini 3 countertop POS" className="w-full h-20 rounded-md border border-border bg-muted/30 object-contain p-1.5" loading="lazy" width="160" height="80" data-testid="img-showcase-angle" />
+                  <img src={imgPaxA920} alt="PAX A920 smart payment terminal" className="w-full h-20 rounded-md border border-border bg-muted/30 object-contain p-1.5" loading="lazy" width="160" height="80" data-testid="img-showcase-tap" />
+                </div>
+              </div>
+              <div className="lg:col-span-3">
+                <div className="overflow-x-auto rounded-md border border-border">
+                  <table className="w-full text-left text-sm" data-testid="table-terminal-setup">
+                    <thead>
+                      <tr className="bg-muted/50 text-foreground">
+                        <th className="px-4 py-3 font-display font-semibold">Option</th>
+                        <th className="px-4 py-3 font-display font-semibold">Best For</th>
+                        <th className="px-4 py-3 font-display font-semibold">Includes</th>
+                        <th className="px-4 py-3 font-display font-semibold">Notes</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {[
+                        { option: "Smart Terminal", bestFor: "Counter + curbside", includes: "Tap, dip, swipe, key; tip adjust; batch close", notes: "Free for qualifying merchants*" },
+                        { option: "POS Setup", bestFor: "Full-service & retail", includes: "Register, on-device reporting, inventory-friendly", notes: "Hardware varies by plan" },
+                        { option: "Virtual / Keyed", bestFor: "Phone & invoice sales", includes: "Virtual terminal, secure pay links, keyed entry", notes: "No hardware required" },
+                      ].map((row, i) => (
+                        <tr key={i} className="align-top" data-testid={`row-terminal-${i}`}>
+                          <td className="px-4 py-3 font-semibold text-foreground">{row.option}</td>
+                          <td className="px-4 py-3"><span className="report-chip report-chip-neutral">{row.bestFor}</span></td>
+                          <td className="px-4 py-3 text-muted-foreground">{row.includes}</td>
+                          <td className="px-4 py-3 text-muted-foreground">{row.notes}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="mt-5 flex flex-wrap items-center gap-3">
                   <Link href="/upload-statement?terminal=yes" data-testid="link-terminal-showcase-cta">
                     <Button className="gap-2">
                       Check Terminal Eligibility
@@ -835,13 +900,7 @@ export default function Home() {
                   </Link>
                   <Link href="/upload-statement?terminal=yes" className="text-sm text-primary hover:underline" data-testid="link-terminal-showcase-eligibility">See eligibility details →</Link>
                 </div>
-                <p className="text-xs text-muted-foreground mt-3">*Eligibility, underwriting, card brand rules, and applicable laws apply.</p>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <img src={imgCloverFlex3} alt="Clover Flex 3 handheld POS terminal" className="w-full rounded-md object-contain" loading="lazy" width="400" height="400" data-testid="img-showcase-hero" />
-                <img src={imgCloverStationDuo} alt="Clover Station Duo full register system" className="w-full rounded-md object-contain" loading="lazy" width="400" height="400" data-testid="img-showcase-stand" />
-                <img src={imgCloverMini3} alt="Clover Mini 3 countertop POS" className="w-full rounded-md object-contain" loading="lazy" width="400" height="400" data-testid="img-showcase-angle" />
-                <img src={imgPaxA920} alt="PAX A920 smart payment terminal" className="w-full rounded-md object-contain" loading="lazy" width="400" height="400" data-testid="img-showcase-tap" />
+                <p className="text-xs text-muted-foreground mt-3">*Eligibility, underwriting, card brand rules, and applicable laws apply. Free terminal subject to qualification.</p>
               </div>
             </div>
           </div>
@@ -853,10 +912,10 @@ export default function Home() {
             <div className="reveal grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
               <div>
                 <div className="inline-flex items-center gap-2 bg-sky-50 dark:bg-sky-950/30 text-sky-600 dark:text-sky-400 text-xs font-semibold px-3 py-1 rounded-md mb-4">
-                  THE PLATFORM BEHIND YOUR ACCOUNT
+                  Full account visibility
                 </div>
                 <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-platform-heading">
-                  Real People, Backed by Real Infrastructure
+                  After switching, your team gets full operational visibility
                 </h2>
                 <p className="text-muted-foreground mb-6 leading-relaxed">
                   Behind every Liberty merchant account is a full operations platform — so the team supporting you sees your pipeline, tickets, and onboarding in real time, and nothing falls through the cracks.
@@ -866,8 +925,6 @@ export default function Home() {
                     "A dedicated team that sees your full account history",
                     "Support tickets tracked to resolution with SLAs",
                     "Onboarding steps mapped and monitored end to end",
-                    "Proactive alerts before small issues reach you",
-                    "AI-assisted advisors across 7 departments",
                   ].map((item, i) => (
                     <div key={i} className="flex items-center gap-2 text-sm text-foreground">
                       <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
@@ -875,9 +932,9 @@ export default function Home() {
                     </div>
                   ))}
                 </div>
-                <Link href="/dashboard" data-testid="link-platform-dashboard">
+                <Link href="/get-started" data-testid="link-platform-dashboard">
                   <Button variant="outline" className="gap-2">
-                    Explore the Platform
+                    See How Liberty Manages Your Account
                     <ArrowRight className="w-4 h-4" />
                   </Button>
                 </Link>
@@ -893,7 +950,7 @@ export default function Home() {
         </section>
 
         {/* SECTION 8.5: Why Liberty - Differentiators */}
-        <section className="bg-muted/30 py-20" data-testid="section-why-liberty">
+        <section className="bg-background py-20" data-testid="section-why-liberty">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal text-center mb-8">
               <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-why-liberty-heading">
@@ -904,17 +961,20 @@ export default function Home() {
 
             {/* Rate Transparency Callout */}
             <div className="reveal mb-12" data-testid="section-rate-transparency">
-              <div className="max-w-3xl mx-auto bg-background border-2 border-primary/20 rounded-lg p-6 md:p-8">
+              <div className="ledger-texture max-w-3xl mx-auto bg-background border-2 border-primary/20 rounded-lg p-6 md:p-8">
                 <div className="flex items-start gap-4">
                   <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
                     <DollarSign className="w-5 h-5 text-primary" />
                   </div>
                   <div className="flex-1">
-                    <h3 className="text-lg font-display font-bold text-foreground mb-2" data-testid="text-rate-transparency-heading">
-                      What Do Most Merchants Actually Pay?
-                    </h3>
+                    <div className="accent-rule pt-3 mb-2 flex items-center justify-between gap-3">
+                      <h3 className="text-lg font-display font-bold text-foreground" data-testid="text-rate-transparency-heading">
+                        What Do Most Merchants Actually Pay?
+                      </h3>
+                      <span className="audit-stamp shrink-0">Illustrative</span>
+                    </div>
                     <p className="text-muted-foreground text-sm mb-4 leading-relaxed">
-                      On interchange-plus pricing, most merchants end up paying between <strong className="text-foreground">1.7% and 2.3% all-in</strong> — depending on their card mix and volume. That compares to <strong className="text-foreground">2.6%–3.5%+</strong> on flat-rate plans like Square or Stripe.
+                      On interchange-plus pricing, most merchants end up paying between <strong className="num text-foreground">1.7%–2.3%</strong> all-in — depending on their card mix and volume. That compares to <strong className="num text-foreground">2.6%–3.5%+</strong> on flat-rate plans like Square or Stripe.
                     </p>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
                       {[
@@ -922,8 +982,8 @@ export default function Home() {
                         { label: "Retail (mixed cards)", range: "1.75–2.15%", note: "Debit + credit mix" },
                         { label: "Services / B2B", range: "2.00–2.60%", note: "More rewards + keyed" },
                       ].map((item, i) => (
-                        <div key={i} className="bg-muted/50 rounded-md p-3 text-center" data-testid={`text-rate-range-${i}`}>
-                          <div className="text-xs text-muted-foreground mb-1">{item.label}</div>
+                        <div key={i} className="rounded-md border border-primary/15 bg-card p-3 text-center shadow-sm" data-testid={`text-rate-range-${i}`}>
+                          <span className="report-chip report-chip-neutral mx-auto mb-2">{item.label}</span>
                           <div className="num text-lg font-display font-bold text-primary">{item.range}</div>
                           <div className="text-[10px] text-muted-foreground mt-0.5">{item.note}</div>
                         </div>
@@ -944,9 +1004,9 @@ export default function Home() {
                 { icon: FileText, title: "Statement-Based Pricing", desc: "We price off your actual statement, not a generic quote. You see exactly what changes and why." },
                 { icon: Headphones, title: "Direct Human Support", desc: "A real person picks up the phone. No ticket queues, no chatbots, no 3-day wait." },
                 { icon: Banknote, title: "Next-Day Funding*", desc: "For qualifying merchants, funds hit your account the next business day. Cash flow you can count on." },
-                { icon: HandshakeIcon, title: "No Long-Term Contracts", desc: "We earn your business every month. No cancellation fees, no lock-in, no pressure." },
+                { icon: HandshakeIcon, title: "Month-to-Month Terms", desc: "We earn your business every month. Standard processing terms apply — no long-term lock-in, no pressure." },
               ].map((item, i) => (
-                <Card key={i} data-testid={`card-why-liberty-${i}`}>
+                <Card key={i} className="bg-primary/5 border-primary/15" data-testid={`card-why-liberty-${i}`}>
                   <CardContent className="p-5">
                     <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center mb-3">
                       <item.icon className="w-5 h-5 text-primary" />
@@ -964,10 +1024,11 @@ export default function Home() {
         </section>
 
         {/* SECTION 8.75: Savings Guarantee */}
-        <section className="bg-background py-16" data-testid="section-savings-guarantee">
+        <section className="bg-background py-10" data-testid="section-savings-guarantee">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal max-w-3xl mx-auto">
-              <Card className="border-2 border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/20">
+              <Card className="overflow-hidden border-2 border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/20">
+                <div className="h-1 w-full bg-emerald-500" />
                 <CardContent className="p-8">
                   <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5">
                     <div className="w-14 h-14 rounded-full bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center shrink-0">
@@ -1009,7 +1070,7 @@ export default function Home() {
         </section>
 
         {/* SECTION 9: Social Proof / Reviews */}
-        <section className="bg-muted/30 py-20" data-testid="section-reviews">
+        <section className="section-warm py-20" data-testid="section-reviews">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <h2 className="reveal text-3xl md:text-4xl font-display font-bold text-foreground text-center mb-4" data-testid="text-reviews-heading">
               What Merchants Say After Their First Review
@@ -1165,7 +1226,7 @@ export default function Home() {
         </section>
 
         {/* SECTION 11: FAQ */}
-        <section className="bg-muted/30 py-20" data-testid="section-faq">
+        <section className="section-warm py-20" data-testid="section-faq">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal max-w-3xl mx-auto">
               <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-8" data-testid="text-faq-heading">
@@ -1312,7 +1373,7 @@ export default function Home() {
         </section>
 
         {/* SECTION 11.75: No Lock-in Callout */}
-        <section className="bg-muted/30 py-12" data-testid="section-no-lockin">
+        <section className="section-warm py-12" data-testid="section-no-lockin">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal max-w-3xl mx-auto text-center">
               <div className="inline-flex items-center gap-2 bg-primary/10 text-primary text-xs font-semibold px-3 py-1 rounded-md mb-4">
@@ -1334,7 +1395,7 @@ export default function Home() {
 
         {/* SECTION 12: Final CTA — sharp navy block */}
         <section className="reveal relative overflow-hidden bg-primary py-24" data-testid="section-final-cta">
-          <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.06]" aria-hidden="true" />
+          <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.12]" aria-hidden="true" />
           <div className="absolute top-0 left-0 right-0 h-[3px] bg-accent" aria-hidden="true" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16 items-center">
