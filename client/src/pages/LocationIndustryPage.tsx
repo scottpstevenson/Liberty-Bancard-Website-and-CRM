@@ -291,47 +291,48 @@ export default function LocationIndustryPage() {
       />
       <Navbar />
 
-      <main className="flex-grow pt-28">
-        <section className="relative overflow-hidden" data-testid="section-location-hero">
-          <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />
+      <main className="marketing-surface flex-grow pt-28">
+        <section className="marketing-surface relative overflow-hidden bg-background border-b border-border" data-testid="section-location-hero">
+          <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.5]" aria-hidden="true" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 md:py-28">
-            <Breadcrumbs
-              items={[
-                { name: `${data.industryName} Processing`, path: `/industries/${vertical?.industryPageSlug || ""}` },
-                { name: `${data.cityName}, FL`, path: `/locations/${data.citySlug}` },
-              ]}
-              variant="dark"
-              className="mb-4"
-            />
-            <div className="flex items-center gap-2 text-sky-400 mb-4">
-              <MapPin className="w-5 h-5" />
-              <span className="text-sm font-medium" data-testid="text-location-badge">{data.cityName}, Florida</span>
-            </div>
-            <h1 className="text-3xl md:text-4xl lg:text-5xl font-display font-bold text-white mb-6 max-w-3xl leading-tight" data-testid="text-location-hero-title">
-              {data.heroTitle}
-            </h1>
-            <p className="text-white/70 text-lg max-w-2xl mb-8 leading-relaxed" data-testid="text-location-hero-subtitle">
-              {data.heroSubtitle}
-            </p>
-            <div className="flex flex-col sm:flex-row gap-4 flex-wrap">
-              <Link href={`/upload-statement?offer=${data.industrySlug}`} data-testid="link-location-upload" onClick={() => trackStatementUploadCtaClick({ page: `/locations/${data.citySlug}/${data.industrySlug}`, ctaLabel: "Get My Free Analysis", city: data.citySlug, industry: data.industrySlug })}>
-                <Button size="lg" className="gap-2 bg-sky-500 border-sky-500 text-white">
-                  <Upload className="w-4 h-4" />
-                  Get My Free Analysis
-                </Button>
-              </Link>
-              <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-location-book" onClick={() => trackBookingCtaClick({ page: `/locations/${data.citySlug}/${data.industrySlug}`, ctaLabel: "Book a 10-Min Call", ctaLocation: "hero", city: data.citySlug, industry: data.industrySlug })}>
-                <Button size="lg" variant="outline" className="gap-2 bg-white/5 border-white/20 text-white">
-                  <Calendar className="w-4 h-4" />
-                  Book a 10-Min Call
-                </Button>
-              </a>
-              <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-location-hero-phone" onClick={() => trackPhoneCtaClick({ page: `/locations/${data.citySlug}/${data.industrySlug}`, ctaLabel: PHONE_NUMBER, city: data.citySlug, industry: data.industrySlug })}>
-                <Button size="lg" variant="ghost" className="gap-2 text-white/70 hover:text-white hover:bg-white/10 border border-white/20">
-                  <Phone className="w-4 h-4" />
-                  {PHONE_NUMBER}
-                </Button>
-              </a>
+            <div className="accent-rule pt-5">
+              <Breadcrumbs
+                items={[
+                  { name: `${data.industryName} Processing`, path: `/industries/${vertical?.industryPageSlug || ""}` },
+                  { name: `${data.cityName}, FL`, path: `/locations/${data.citySlug}` },
+                ]}
+                className="mb-4"
+              />
+              <div className="flex items-center gap-2 text-accent mb-4">
+                <MapPin className="w-5 h-5" />
+                <span className="text-sm font-medium" data-testid="text-location-badge">{data.cityName}, Florida</span>
+              </div>
+              <h1 className="text-3xl md:text-4xl lg:text-5xl font-display font-bold text-foreground mb-6 max-w-3xl leading-tight" data-testid="text-location-hero-title">
+                {data.heroTitle}
+              </h1>
+              <p className="text-muted-foreground text-lg max-w-2xl mb-8 leading-relaxed" data-testid="text-location-hero-subtitle">
+                {data.heroSubtitle}
+              </p>
+              <div className="flex flex-col sm:flex-row gap-4 flex-wrap">
+                <Link href={`/upload-statement?offer=${data.industrySlug}`} data-testid="link-location-upload" onClick={() => trackStatementUploadCtaClick({ page: `/locations/${data.citySlug}/${data.industrySlug}`, ctaLabel: "Get My Free Analysis", city: data.citySlug, industry: data.industrySlug })}>
+                  <Button size="lg" className="gap-2">
+                    <Upload className="w-4 h-4" />
+                    Get My Free Analysis
+                  </Button>
+                </Link>
+                <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-location-book" onClick={() => trackBookingCtaClick({ page: `/locations/${data.citySlug}/${data.industrySlug}`, ctaLabel: "Book a 10-Min Call", ctaLocation: "hero", city: data.citySlug, industry: data.industrySlug })}>
+                  <Button size="lg" variant="outline" className="gap-2">
+                    <Calendar className="w-4 h-4" />
+                    Book a 10-Min Call
+                  </Button>
+                </a>
+                <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-location-hero-phone" onClick={() => trackPhoneCtaClick({ page: `/locations/${data.citySlug}/${data.industrySlug}`, ctaLabel: PHONE_NUMBER, city: data.citySlug, industry: data.industrySlug })}>
+                  <Button size="lg" variant="ghost" className="gap-2">
+                    <Phone className="w-4 h-4" />
+                    {PHONE_NUMBER}
+                  </Button>
+                </a>
+              </div>
             </div>
           </div>
         </section>
@@ -399,8 +400,8 @@ export default function LocationIndustryPage() {
           </div>
         </section>
 
-        <section className="relative overflow-hidden py-20" data-testid="section-location-cta">
-          <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />
+        <section className="relative overflow-hidden bg-primary text-primary-foreground py-20" data-testid="section-location-cta">
+          <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.06]" aria-hidden="true" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
             <h2 className="text-2xl md:text-3xl font-display font-bold text-white mb-4" data-testid="text-cta-heading">
               {data.cityName} {data.industryName} Owners: See What You're Really Paying
@@ -410,13 +411,13 @@ export default function LocationIndustryPage() {
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center flex-wrap">
               <Link href="/upload-statement" data-testid="link-cta-upload" onClick={() => trackStatementUploadCtaClick({ page: `/locations/${data.citySlug}/${data.industrySlug}`, ctaLabel: "Upload Statement — Free Review", city: data.cityName, industry: data.industryName })}>
-                <Button size="lg" className="gap-2 bg-sky-500 border-sky-500 text-white">
+                <Button size="lg" className="gap-2 bg-accent hover:bg-accent border-accent text-white">
                   <Upload className="w-4 h-4" />
                   Upload Statement — Free Review
                 </Button>
               </Link>
               <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-cta-book" onClick={() => trackBookingCtaClick({ page: `/locations/${data.citySlug}/${data.industrySlug}`, ctaLabel: "Book a 10-Min Call", ctaLocation: "final_cta", city: data.cityName, industry: data.industryName })}>
-                <Button size="lg" variant="outline" className="gap-2 bg-white/5 border-white/20 text-white">
+                <Button size="lg" variant="outline" className="gap-2 bg-transparent border-white/30 text-white hover:bg-white/10">
                   <Calendar className="w-4 h-4" />
                   Book a 10-Min Call
                 </Button>

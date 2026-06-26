@@ -288,24 +288,25 @@ export default function FAQ() {
       />
       <Navbar />
 
-      <main className="flex-grow pt-28" ref={containerRef}>
+      <main className="marketing-surface flex-grow pt-28" ref={containerRef}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
           <Breadcrumbs items={[{ name: "FAQ", path: "/faq" }]} />
         </div>
         <section
-          className="bg-primary text-primary-foreground py-16"
+          className="relative overflow-hidden bg-background border-b border-border py-16"
           data-testid="section-faq-hero"
         >
-          <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center reveal">
-            <HelpCircle className="w-12 h-12 mx-auto mb-4 opacity-80" />
+          <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.5]" aria-hidden="true" />
+          <div className="relative max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center reveal">
+            <HelpCircle className="w-12 h-12 mx-auto mb-4 text-accent" />
             <h1
-              className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-4"
+              className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-4 text-foreground"
               data-testid="text-faq-heading"
             >
               Frequently Asked Questions
             </h1>
             <p
-              className="text-primary-foreground/70 text-lg mb-8 max-w-xl mx-auto"
+              className="text-muted-foreground text-lg mb-8 max-w-xl mx-auto"
               data-testid="text-faq-subheading"
             >
               Find answers to the most common questions about payment processing,
@@ -319,7 +320,7 @@ export default function FAQ() {
                 placeholder="Search questions..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 bg-background text-foreground"
+                className="pl-10 bg-card"
                 data-testid="input-faq-search"
               />
             </div>
@@ -502,10 +503,11 @@ export default function FAQ() {
         </section>
 
         <section
-          className="bg-primary text-primary-foreground py-12"
+          className="relative overflow-hidden bg-primary text-primary-foreground py-12"
           data-testid="section-faq-cta"
         >
-          <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center reveal">
+          <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.06]" aria-hidden="true" />
+          <div className="relative max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center reveal">
             <h2
               className="text-2xl font-bold mb-3"
               data-testid="text-faq-cta-heading"

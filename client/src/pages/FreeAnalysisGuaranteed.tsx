@@ -151,20 +151,18 @@ export default function FreeAnalysisGuaranteed() {
       />
       <Navbar />
 
-      <main className="flex-grow pt-20">
+      <main className="marketing-surface flex-grow pt-20">
         {/* ── Hero ── */}
         <section
-          className="relative overflow-hidden bg-gradient-to-br from-[hsl(222,47%,8%)] via-[hsl(222,47%,13%)] to-[hsl(221,83%,20%)] text-white py-20 lg:py-28"
+          className="marketing-surface relative overflow-hidden bg-background border-b border-border py-20 lg:py-28"
           data-testid="section-hero"
         >
-          <div className="absolute inset-0 pointer-events-none">
-            <div className="absolute top-10 right-1/4 w-64 h-64 rounded-full bg-emerald-500/10 blur-3xl" />
-            <div className="absolute bottom-10 left-1/4 w-48 h-48 rounded-full bg-sky-500/10 blur-3xl" />
-          </div>
+          <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.5]" aria-hidden="true" />
 
           <div className="relative max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+            <div className="accent-rule pt-5">
             <Badge
-              className="mb-5 bg-emerald-500/20 text-emerald-300 border-emerald-500/30 text-sm font-medium"
+              className="mb-5 border border-border bg-card text-muted-foreground shadow-sm text-sm font-medium"
               data-testid="badge-guarantee-label"
             >
               <Gift className="w-4 h-4 mr-1.5" />
@@ -172,15 +170,15 @@ export default function FreeAnalysisGuaranteed() {
             </Badge>
 
             <h1
-              className="text-3xl sm:text-4xl lg:text-5xl font-display font-extrabold leading-tight mb-5"
+              className="text-3xl sm:text-4xl lg:text-5xl font-display font-extrabold leading-tight mb-5 text-foreground"
               data-testid="text-hero-headline"
             >
               If We Can't Save You Money,{" "}
-              <span className="text-emerald-400">We'll Pay You $50</span>
+              <span className="text-emerald-600 dark:text-emerald-400">We'll Pay You $50</span>
             </h1>
 
             <p
-              className="text-lg sm:text-xl text-white/75 max-w-2xl mx-auto mb-8 leading-relaxed"
+              className="text-lg sm:text-xl text-muted-foreground max-w-2xl mx-auto mb-8 leading-relaxed"
               data-testid="text-hero-subheadline"
             >
               Upload your processing statement and we'll find your hidden fees, benchmark you against
@@ -190,44 +188,38 @@ export default function FreeAnalysisGuaranteed() {
 
             <div className="flex flex-col sm:flex-row gap-3 justify-center items-center mb-10">
               <Link href={uploadHref} data-testid="button-hero-cta">
-                <Button
-                  size="lg"
-                  className="bg-emerald-500 hover:bg-emerald-400 text-white font-semibold text-base px-8 py-6 rounded-xl shadow-lg shadow-emerald-500/30"
-                >
+                <Button size="lg" className="font-semibold">
                   <Upload className="w-5 h-5 mr-2" />
                   Get My Free Analysis
                   <ArrowRight className="w-4 h-4 ml-2" />
                 </Button>
               </Link>
               <a href="tel:9542668214" data-testid="link-hero-phone">
-                <Button
-                  variant="outline"
-                  size="lg"
-                  className="border-white/20 text-white hover:bg-white/10 text-base px-8 py-6 rounded-xl"
-                >
+                <Button variant="outline" size="lg">
                   <Phone className="w-4 h-4 mr-2" />
                   Call 954-266-8214
                 </Button>
               </a>
             </div>
 
-            <div className="flex flex-wrap justify-center gap-x-8 gap-y-2 text-sm text-white/60">
+            <div className="flex flex-wrap justify-center gap-x-8 gap-y-2 text-sm text-muted-foreground">
               <span className="flex items-center gap-1.5" data-testid="text-trust-nocall">
-                <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                 No sales call required
               </span>
               <span className="flex items-center gap-1.5" data-testid="text-trust-nocc">
-                <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                 No credit card
               </span>
               <span className="flex items-center gap-1.5" data-testid="text-trust-noobligation">
-                <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                 No obligation
               </span>
               <span className="flex items-center gap-1.5" data-testid="text-trust-24hr">
-                <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                 24-hour turnaround
               </span>
+            </div>
             </div>
           </div>
         </section>
@@ -283,23 +275,24 @@ export default function FreeAnalysisGuaranteed() {
 
         {/* ── Social Proof Bar ── */}
         <section
-          className="bg-[hsl(222,47%,13%)] text-white py-10"
+          className="relative overflow-hidden bg-primary text-primary-foreground py-10"
           data-testid="section-social-proof"
         >
-          <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.06]" aria-hidden="true" />
+          <div className="relative max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 text-center">
               <div data-testid="stat-statements-reviewed">
-                <div className="text-4xl font-display font-bold text-emerald-400 mb-1">3,200+</div>
+                <div className="num text-4xl font-display font-bold text-emerald-400 mb-1">3,200+</div>
                 <div className="text-sm text-white/65">Statements Reviewed</div>
               </div>
               <div data-testid="stat-avg-savings">
-                <div className="text-4xl font-display font-bold text-emerald-400 mb-1">$2,847</div>
+                <div className="num text-4xl font-display font-bold text-emerald-400 mb-1">$2,847</div>
                 <div className="text-sm text-white/65">Average Monthly Savings Found</div>
               </div>
               <div data-testid="stat-rating">
                 <div className="flex justify-center items-baseline gap-1 mb-1">
-                  <span className="text-4xl font-display font-bold text-emerald-400">4.9</span>
-                  <span className="text-2xl font-bold text-emerald-400">/5</span>
+                  <span className="num text-4xl font-display font-bold text-emerald-400">4.9</span>
+                  <span className="num text-2xl font-bold text-emerald-400">/5</span>
                 </div>
                 <div className="flex justify-center gap-0.5 mb-1">
                   {[...Array(5)].map((_, i) => (
@@ -517,14 +510,16 @@ export default function FreeAnalysisGuaranteed() {
 
         {/* ── Final CTA ── */}
         <section
-          className="py-16 bg-gradient-to-br from-[hsl(222,47%,8%)] via-[hsl(222,47%,13%)] to-[hsl(221,83%,20%)] text-white"
+          className="relative overflow-hidden py-16 bg-primary text-primary-foreground"
           data-testid="section-final-cta"
         >
-          <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+          <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.06]" aria-hidden="true" />
+          <div className="absolute top-0 left-0 right-0 h-[3px] bg-accent" aria-hidden="true" />
+          <div className="relative max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
             <div className="w-14 h-14 rounded-full bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center mx-auto mb-6">
               <Gift className="w-7 h-7 text-emerald-400" />
             </div>
-            <h2 className="text-2xl sm:text-3xl font-display font-bold mb-4">
+            <h2 className="text-2xl sm:text-3xl font-display font-bold mb-4 text-white">
               Not Signing Up Feels Irrational
             </h2>
             <p className="text-white/70 mb-8 leading-relaxed">
@@ -534,14 +529,14 @@ export default function FreeAnalysisGuaranteed() {
             <Link href={uploadHref} data-testid="button-final-cta">
               <Button
                 size="lg"
-                className="bg-emerald-500 hover:bg-emerald-400 text-white font-semibold text-base px-10 py-6 rounded-xl shadow-lg shadow-emerald-500/30"
+                className="bg-emerald-500 border-emerald-500 text-white font-semibold"
               >
                 <Upload className="w-5 h-5 mr-2" />
                 Upload My Statement — It's Free
                 <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
             </Link>
-            <p className="text-white/40 text-xs mt-4">
+            <p className="text-white/50 text-xs mt-4">
               Secure upload · 24-hour turnaround · No sales pressure · $50 guarantee if no savings found
             </p>
           </div>

@@ -259,12 +259,13 @@ export default function ISOPartnerProgram() {
         path="/partners"
       />
       <Navbar />
-      <main className="flex-grow pt-28">
+      <main className="marketing-surface flex-grow pt-28">
 
         {/* Hero */}
-        <section className="bg-gradient-to-br from-primary/5 via-background to-background py-16 md:py-24 border-b border-border/30">
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="max-w-3xl">
+        <section className="relative overflow-hidden bg-background py-16 md:py-24 border-b border-border">
+          <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.5]" aria-hidden="true" />
+          <div className="relative max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="accent-rule pt-5 max-w-3xl">
               <Badge variant="outline" className="mb-4 text-primary border-primary/30 bg-primary/5">
                 ISO & Partner Program
               </Badge>

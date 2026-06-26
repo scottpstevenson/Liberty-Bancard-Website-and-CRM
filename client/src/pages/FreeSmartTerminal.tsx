@@ -74,23 +74,21 @@ export default function FreeSmartTerminal() {
       />
       <Navbar />
 
-      <main className="flex-grow pt-28" ref={containerRef}>
+      <main className="marketing-surface flex-grow pt-28" ref={containerRef}>
         {/* Hero */}
-        <section className="relative overflow-hidden" data-testid="section-terminal-hero">
-          <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />
-          <div className="glow-blob w-72 h-72 bg-sky-500 top-16 right-1/4" />
-          <div className="glow-blob glow-blob-2 w-48 h-48 bg-blue-600 bottom-10 left-1/3" />
+        <section className="marketing-surface relative overflow-hidden bg-background border-b border-border" data-testid="section-terminal-hero">
+          <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.5]" aria-hidden="true" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 lg:py-28">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-              <div>
-                <div className="inline-flex items-center gap-2 bg-emerald-500/20 text-emerald-300 text-sm font-semibold px-3 py-1.5 rounded-md mb-6 border border-emerald-500/30" data-testid="badge-terminal-hero">
-                  <Monitor className="w-4 h-4" />
+              <div className="accent-rule pt-5">
+                <div className="inline-flex items-center gap-2 border border-border bg-card text-muted-foreground text-sm font-semibold px-3 py-1.5 rounded-md mb-6 shadow-sm" data-testid="badge-terminal-hero">
+                  <Monitor className="w-4 h-4 text-accent" />
                   Smart Terminal Program
                 </div>
-                <h1 className="text-4xl md:text-5xl font-display font-bold text-white leading-tight mb-6" data-testid="text-terminal-hero-heading">
+                <h1 className="text-4xl md:text-5xl font-display font-bold text-foreground leading-tight mb-6" data-testid="text-terminal-hero-heading">
                   See If Your Business Qualifies for a Smart Terminal at No Upfront Cost.
                 </h1>
-                <p className="text-lg text-white/75 mb-4 leading-relaxed" data-testid="text-terminal-hero-sub">
+                <p className="text-lg text-muted-foreground mb-4 leading-relaxed" data-testid="text-terminal-hero-sub">
                   Qualifying merchants who open a Liberty Bancard processing account may receive terminal placement with no purchase cost. We review your statement to confirm eligibility — no guesswork, no pressure.
                 </p>
                 <div className="flex flex-col sm:flex-row gap-4 flex-wrap mb-3">
@@ -99,7 +97,7 @@ export default function FreeSmartTerminal() {
                     data-testid="link-terminal-primary-cta"
                     onClick={() => trackFreeTerminalEligibilityClick({ page: "/free-smart-terminal", ctaLabel: "Check My Eligibility", offer: "free-terminal" })}
                   >
-                    <Button size="lg" className="gap-2 bg-sky-500 border-sky-500 text-white">
+                    <Button size="lg" className="gap-2">
                       <Upload className="w-4 h-4" />
                       Check My Eligibility — Free
                     </Button>
@@ -111,13 +109,13 @@ export default function FreeSmartTerminal() {
                     data-testid="link-terminal-book-cta"
                     onClick={() => trackBookingCtaClick({ page: "/free-smart-terminal", ctaLabel: "Book a 10-Min Call" })}
                   >
-                    <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
+                    <Button size="lg" variant="outline" className="gap-2">
                       <Calendar className="w-4 h-4" />
                       Book a 10-Min Call
                     </Button>
                   </a>
                 </div>
-                <p className="text-xs text-white/40 mt-2 max-w-lg" data-testid="text-terminal-hero-disclaimer">
+                <p className="text-xs text-muted-foreground/80 mt-2 max-w-lg" data-testid="text-terminal-hero-disclaimer">
                   Terminal placement subject to account approval, underwriting, minimum volume requirements, and eligibility review. Not a guaranteed offer.
                 </p>
               </div>
@@ -298,7 +296,7 @@ export default function FreeSmartTerminal() {
             </div>
             <div className="reveal">
               <Accordion type="single" collapsible className="space-y-2">
-                {faqItems.map((item, i) => (
+                {fstFaqItems.map((item, i) => (
                   <AccordionItem key={i} value={`faq-${i}`} className="border border-border rounded-md px-4" data-testid={`faq-item-${i}`}>
                     <AccordionTrigger className="text-left font-semibold text-sm py-4">
                       {item.question}
@@ -314,8 +312,10 @@ export default function FreeSmartTerminal() {
         </section>
 
         {/* Final CTA */}
-        <section className="bg-primary py-20" data-testid="section-final-cta">
-          <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+        <section className="relative overflow-hidden bg-primary py-20" data-testid="section-final-cta">
+          <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.06]" aria-hidden="true" />
+          <div className="absolute top-0 left-0 right-0 h-[3px] bg-accent" aria-hidden="true" />
+          <div className="relative max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
             <h2 className="text-3xl md:text-4xl font-display font-bold text-primary-foreground mb-4" data-testid="text-final-cta-heading">
               Find Out If You Qualify
             </h2>
@@ -328,7 +328,7 @@ export default function FreeSmartTerminal() {
                 data-testid="link-final-upload"
                 onClick={() => trackFreeTerminalEligibilityClick({ page: "/free-smart-terminal", ctaLabel: "Upload My Statement", ctaLocation: "final_cta" })}
               >
-                <Button size="lg" variant="secondary" className="gap-2">
+                <Button size="lg" className="gap-2 bg-accent hover:bg-accent border-accent text-white">
                   <Upload className="w-4 h-4" />
                   Upload My Statement
                 </Button>
@@ -340,7 +340,7 @@ export default function FreeSmartTerminal() {
                 data-testid="link-final-book"
                 onClick={() => trackBookingCtaClick({ page: "/free-smart-terminal", ctaLabel: "Book a 10-Min Call", ctaLocation: "final_cta" })}
               >
-                <Button size="lg" variant="outline" className="gap-2 bg-white/10 border-white/30 text-white">
+                <Button size="lg" variant="outline" className="gap-2 bg-transparent border-white/30 text-white hover:bg-white/10">
                   <Calendar className="w-4 h-4" />
                   Book a 10-Min Call
                 </Button>
@@ -351,7 +351,7 @@ export default function FreeSmartTerminal() {
                 data-testid="link-final-phone"
                 onClick={() => trackPhoneCtaClick({ page: "/free-smart-terminal", ctaLabel: "Call", ctaLocation: "final_cta" })}
               >
-                <Button size="lg" variant="ghost" className="gap-2 text-white/80 hover:text-white hover:bg-white/10 border border-white/20">
+                <Button size="lg" variant="ghost" className="gap-2 text-white hover:bg-white/10">
                   <Phone className="w-4 h-4" />
                   {PHONE_NUMBER}
                 </Button>

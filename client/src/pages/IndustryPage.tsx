@@ -643,52 +643,44 @@ export default function IndustryPage() {
       />
       <Navbar />
 
-      <main className="flex-grow pt-28">
+      <main className="marketing-surface flex-grow pt-28">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
           <Breadcrumbs
             items={[
               { name: "Industries", path: "/industries" },
               { name: industry.name, path: `/industries/${industry.slug}` },
             ]}
-            variant="dark"
           />
         </div>
-        <section className="relative overflow-hidden" data-testid="section-industry-hero">
-          <div className="absolute inset-0">
-            {industry.image ? (
-              <img src={industry.image} alt={`${industry.name} payment processing`} className="w-full h-full object-cover" width="1408" height="792" />
-            ) : (
-              <div className="w-full h-full bg-gradient-to-br from-[hsl(222,47%,11%)] to-[hsl(221,83%,25%)]" />
-            )}
-            <div className="absolute inset-0 bg-gradient-to-r from-[hsl(222,47%,6%)/0.95] via-[hsl(222,47%,6%)/0.90] to-[hsl(222,47%,6%)/0.80]" />
-          </div>
+        <section className="marketing-surface relative overflow-hidden bg-background border-b border-border" data-testid="section-industry-hero">
+          <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.5]" aria-hidden="true" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 lg:py-28">
-            <div className="max-w-3xl">
-              <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-sm text-white/90 text-sm font-medium px-3 py-1.5 rounded-md mb-6 border border-white/10" data-testid="text-industry-badge">
+            <div className="accent-rule pt-5 max-w-3xl">
+              <div className="inline-flex items-center gap-2 border border-border bg-card text-muted-foreground shadow-sm text-sm font-medium px-3 py-1.5 rounded-md mb-6" data-testid="text-industry-badge">
                 <Icon className="w-4 h-4" />
                 {industry.name} Payment Processing
               </div>
-              <h1 className="text-3xl md:text-4xl lg:text-5xl font-display font-bold text-white leading-tight mb-6" data-testid="text-industry-heading">
+              <h1 className="text-3xl md:text-4xl lg:text-5xl font-display font-bold text-foreground leading-tight mb-6" data-testid="text-industry-heading">
                 {industry.heroTitle}
               </h1>
-              <p className="text-lg text-white/85 mb-8 leading-relaxed max-w-2xl" data-testid="text-industry-subtitle">
+              <p className="text-lg text-muted-foreground mb-8 leading-relaxed max-w-2xl" data-testid="text-industry-subtitle">
                 {industry.heroSubtitle}
               </p>
               <div className="flex flex-col sm:flex-row gap-4 flex-wrap">
                 <Link href="/upload-statement" data-testid="link-industry-hero-upload" onClick={() => trackStatementUploadCtaClick({ page: `/industries/${industry.slug}`, ctaLabel: "Upload Your Statement — Free Review", industry: industry.slug })}>
-                  <Button size="lg" className="gap-2 bg-sky-500 border-sky-500 text-white">
+                  <Button size="lg" className="gap-2">
                     <Upload className="w-4 h-4" />
                     Upload Your Statement — Free Review
                   </Button>
                 </Link>
                 <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-industry-hero-book" onClick={() => trackBookingCtaClick({ page: `/industries/${industry.slug}`, ctaLabel: "Book a 10-Min Call", ctaLocation: "hero", industry: industry.slug })}>
-                  <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
+                  <Button size="lg" variant="outline" className="gap-2">
                     <Calendar className="w-4 h-4" />
                     Book a 10-Min Call
                   </Button>
                 </a>
                 <a href={PHONE_TEL} aria-label={`Call Liberty Bancard at ${PHONE_NUMBER}`} data-testid="link-industry-hero-phone" onClick={() => trackPhoneCtaClick({ page: `/industries/${industry.slug}`, ctaLabel: PHONE_NUMBER, industry: industry.slug })}>
-                  <Button size="lg" variant="ghost" className="gap-2 text-white/70 hover:text-white hover:bg-white/10 border border-white/20">
+                  <Button size="lg" variant="ghost" className="gap-2">
                     <Phone className="w-4 h-4" />
                     {PHONE_NUMBER}
                   </Button>
@@ -800,8 +792,8 @@ export default function IndustryPage() {
           </div>
         </section>
 
-        <section className="relative overflow-hidden py-20" data-testid="section-industry-cta">
-          <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />
+        <section className="relative overflow-hidden bg-primary text-primary-foreground py-20" data-testid="section-industry-cta">
+          <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.06]" aria-hidden="true" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
             <h2 className="text-2xl md:text-3xl font-display font-bold text-white mb-4" data-testid="text-cta-heading">
               See What You're Really Paying
@@ -811,13 +803,13 @@ export default function IndustryPage() {
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center flex-wrap">
               <Link href="/upload-statement" data-testid="link-cta-upload">
-                <Button size="lg" className="gap-2 bg-sky-500 border-sky-500 text-white">
+                <Button size="lg" className="gap-2 bg-accent hover:bg-accent border-accent text-white">
                   <Upload className="w-4 h-4" />
                   Upload Statement — Free Review
                 </Button>
               </Link>
               <Link href="/compare-rates" data-testid="link-cta-compare">
-                <Button size="lg" variant="outline" className="gap-2 bg-white/5 backdrop-blur-sm border-white/20 text-white">
+                <Button size="lg" variant="outline" className="gap-2 bg-transparent border-white/30 text-white hover:bg-white/10">
                   <FileText className="w-4 h-4" />
                   Compare Processors
                 </Button>

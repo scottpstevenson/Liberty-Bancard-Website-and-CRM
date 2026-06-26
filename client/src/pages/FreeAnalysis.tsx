@@ -57,7 +57,7 @@ import {
 } from "lucide-react";
 import { PromoBanner } from "@/components/PromoBanner";
 import { CountdownTimer, getDefaultTarget } from "@/components/CountdownTimer";
-import logoWhite from "@assets/logo-white.png";
+import logoBlue from "@assets/logo-blue.png";
 
 function encodeResults(data: { industry: string; volume: string; processor: string; painPoints: string[] }): string {
   return btoa(JSON.stringify(data));
@@ -457,7 +457,7 @@ export default function FreeAnalysis() {
 
   if (submitted) {
     return (
-      <div className="min-h-screen flex flex-col font-body bg-background">
+      <div className="marketing-surface min-h-screen flex flex-col font-body bg-background">
         <SEO
           title="Your Free Savings Analysis Results"
           description="See your personalized payment processing savings estimate."
@@ -465,32 +465,30 @@ export default function FreeAnalysis() {
           noindex={true}
         />
 
-        <section className="relative overflow-hidden" data-testid="section-results-hero">
-          <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />
-          <div className="glow-blob w-64 h-64 bg-emerald-500 top-10 right-1/4" />
-          <div className="glow-blob glow-blob-2 w-48 h-48 bg-sky-500 bottom-4 left-1/4" />
+        <section className="marketing-surface relative overflow-hidden bg-background border-b border-border" data-testid="section-results-hero">
+          <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.5]" aria-hidden="true" />
           <div className="relative max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16 text-center">
             <Link href="/" data-testid="link-results-logo">
-              <img src={logoWhite} alt="Liberty Bancard" className="h-8 mx-auto mb-8 opacity-80" />
+              <img src={logoBlue} alt="Liberty Bancard" className="h-8 mx-auto mb-8" />
             </Link>
             {affiliateName && (
               <div className="flex items-center justify-center gap-2 mb-4" data-testid="badge-affiliate-branding">
-                <Badge variant="secondary" className="bg-white/10 text-white/90 border-white/20">
+                <Badge variant="secondary" className="border border-border bg-card text-muted-foreground shadow-sm">
                   <UserCheck className="w-3 h-3 mr-1" />
                   Recommended by {affiliateName}{affiliateCompany ? ` at ${affiliateCompany}` : ""}
                 </Badge>
               </div>
             )}
-            <div className="w-16 h-16 rounded-full bg-emerald-500/20 flex items-center justify-center mx-auto mb-4">
-              <CheckCircle className="w-8 h-8 text-emerald-400" />
+            <div className="w-16 h-16 rounded-full bg-emerald-500/10 flex items-center justify-center mx-auto mb-4">
+              <CheckCircle className="w-8 h-8 text-emerald-500" />
             </div>
             <h1
-              className="text-3xl md:text-4xl font-display font-bold text-white mb-2"
+              className="text-3xl md:text-4xl font-display font-bold text-foreground mb-2"
               data-testid="text-results-heading"
             >
               Your Savings Estimate Is Ready
             </h1>
-            <p className="text-white/70">
+            <p className="text-muted-foreground">
               {firstName ? `${firstName}, based` : "Based"} on your answers, here's what we found.
             </p>
           </div>
@@ -713,7 +711,7 @@ export default function FreeAnalysis() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col font-body bg-background">
+    <div className="marketing-surface min-h-screen flex flex-col font-body bg-background">
       <SEO
         title="Free Savings Analysis - See How Much You Could Save"
         description="Take our 60-second quiz to get a personalized processing savings estimate. Free analysis, no obligation. Trusted by 5,000+ merchants nationwide."
@@ -723,30 +721,28 @@ export default function FreeAnalysis() {
 
       <PromoBanner variant="bar" promoId="free-processing" showCountdown />
 
-      <section className="relative overflow-hidden" data-testid="section-quiz-hero">
-        <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />
-        <div className="glow-blob w-64 h-64 bg-sky-500 top-10 right-1/4" />
-        <div className="glow-blob glow-blob-2 w-48 h-48 bg-blue-600 bottom-4 left-1/3" />
+      <section className="marketing-surface relative overflow-hidden bg-background border-b border-border" data-testid="section-quiz-hero">
+        <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.5]" aria-hidden="true" />
         <div className="relative max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-10 lg:py-14 text-center">
           <Link href="/" data-testid="link-quiz-logo">
-            <img src={logoWhite} alt="Liberty Bancard" className="h-8 mx-auto mb-6 opacity-80" />
+            <img src={logoBlue} alt="Liberty Bancard" className="h-8 mx-auto mb-6" />
           </Link>
           <Badge variant="secondary" className="mb-4" data-testid="badge-quiz-time">
             <Clock className="w-3 h-3 mr-1" />
             60-Second Free Analysis
           </Badge>
           <h1
-            className="text-3xl md:text-4xl font-display font-bold text-white mb-2"
+            className="text-3xl md:text-4xl font-display font-bold text-foreground mb-2"
             data-testid="text-quiz-heading"
           >
-            See How Much You Could <span className="text-sky-400">Save</span> on Processing
+            See How Much You Could <span className="text-accent">Save</span> on Processing
           </h1>
-          <p className="text-white/70 mb-3" data-testid="text-quiz-subheadline">
+          <p className="text-muted-foreground mb-3" data-testid="text-quiz-subheadline">
             Answer 5 quick questions. Get a personalized savings estimate in seconds.
           </p>
           {affiliateName && (
             <div className="flex items-center justify-center gap-2 mb-3" data-testid="badge-quiz-affiliate-branding">
-              <Badge variant="secondary" className="bg-white/10 text-white/90 border-white/20">
+              <Badge variant="secondary" className="border border-border bg-card text-muted-foreground shadow-sm">
                 <UserCheck className="w-3 h-3 mr-1" />
                 Recommended by {affiliateName}{affiliateCompany ? ` at ${affiliateCompany}` : ""}
               </Badge>
@@ -754,13 +750,13 @@ export default function FreeAnalysis() {
           )}
           {promoCode && (
             <div className="flex items-center justify-center gap-2 mb-3" data-testid="badge-quiz-promo-applied">
-              <Badge variant="secondary" className="bg-emerald-500/20 text-emerald-300 border-emerald-400/30">
+              <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30">
                 <Zap className="w-3 h-3 mr-1" />
                 Promo {promoCode} applied — check your eligibility below
               </Badge>
             </div>
           )}
-          <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-white/50">
+          <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-muted-foreground/80">
             <span className="flex items-center gap-1" data-testid="text-social-proof-1">
               <Users className="w-3 h-3" />
               5,000+ merchants served

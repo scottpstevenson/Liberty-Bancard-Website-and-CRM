@@ -247,19 +247,19 @@ export default function GetStarted() {
     return (
       <div className="min-h-screen flex flex-col font-body">
         <Navbar />
-        <main className="flex-grow pt-28" ref={resultsRef}>
-          <section className="relative overflow-hidden" data-testid="section-get-started-results-hero">
-            <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />
-            <div className="glow-blob w-64 h-64 bg-emerald-500 top-10 right-1/4" />
-            <div className="glow-blob glow-blob-2 w-48 h-48 bg-sky-500 bottom-4 left-1/4" />
+        <main className="marketing-surface flex-grow pt-28" ref={resultsRef}>
+          <section className="marketing-surface relative overflow-hidden bg-background border-b border-border" data-testid="section-get-started-results-hero">
+            <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.5]" aria-hidden="true" />
             <div className="relative max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-16 lg:py-20 text-center">
-              <div className="w-16 h-16 rounded-full bg-emerald-500/20 flex items-center justify-center mx-auto mb-4">
-                <CheckCircle className="w-8 h-8 text-emerald-400" />
+              <div className="accent-rule pt-5">
+                <div className="w-16 h-16 rounded-full bg-emerald-500/10 flex items-center justify-center mx-auto mb-4">
+                  <CheckCircle className="w-8 h-8 text-emerald-600 dark:text-emerald-400" />
+                </div>
+                <h1 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-2" data-testid="text-results-heading">
+                  Your Personalized Recommendation
+                </h1>
+                <p className="text-muted-foreground">Based on your answers, here's the best path forward.</p>
               </div>
-              <h1 className="text-3xl md:text-4xl font-display font-bold text-white mb-2" data-testid="text-results-heading">
-                Your Personalized Recommendation
-              </h1>
-              <p className="text-white/70">Based on your answers, here's the best path forward.</p>
             </div>
           </section>
 
@@ -379,17 +379,18 @@ export default function GetStarted() {
     <div className="min-h-screen flex flex-col font-body">
       <SEO title="Get Started - Free Statement Analysis" description="Answer a few questions and get a personalized processing recommendation. Free statement review, no obligation." path="/get-started" breadcrumbs={[{ name: "Get Started", path: "/get-started" }]} />
       <Navbar />
-      <main className="flex-grow pt-28">
-        <section className="relative overflow-hidden" data-testid="section-get-started-hero">
-          <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(222,47%,15%)] to-[hsl(221,83%,25%)]" />
-          <div className="glow-blob w-64 h-64 bg-sky-500 top-10 right-1/4" />
+      <main className="marketing-surface flex-grow pt-28">
+        <section className="marketing-surface relative overflow-hidden bg-background border-b border-border" data-testid="section-get-started-hero">
+          <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.5]" aria-hidden="true" />
           <div className="relative max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-16 lg:py-20 text-center">
-            <h1 className="text-3xl md:text-4xl font-display font-bold text-white mb-2" data-testid="text-get-started-heading">
-              Find Your <span className="text-sky-400">Best Path</span> Forward
-            </h1>
-            <p className="text-white/70" data-testid="text-get-started-subheadline">
-              60 seconds. 6 questions. We'll tell you exactly what to do next.
-            </p>
+            <div className="accent-rule pt-5">
+              <h1 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-2" data-testid="text-get-started-heading">
+                Find Your <span className="text-accent">Best Path</span> Forward
+              </h1>
+              <p className="text-muted-foreground" data-testid="text-get-started-subheadline">
+                60 seconds. 6 questions. We'll tell you exactly what to do next.
+              </p>
+            </div>
           </div>
         </section>
 

@@ -72,24 +72,24 @@ export default function SavingsPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 to-blue-950">
-        <div className="w-10 h-10 border-4 border-white border-t-transparent rounded-full animate-spin" />
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
 
   if (error || !data) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 to-blue-950 text-white px-4">
+      <div className="marketing-surface min-h-screen flex items-center justify-center bg-background text-foreground px-4">
         <div className="text-center space-y-4 max-w-md">
-          <AlertTriangle className="w-16 h-16 mx-auto text-amber-400 opacity-80" />
-          <h1 className="text-2xl font-bold">Results Not Found</h1>
-          <p className="text-slate-300">
+          <AlertTriangle className="w-16 h-16 mx-auto text-amber-500" />
+          <h1 className="text-2xl font-bold text-foreground">Results Not Found</h1>
+          <p className="text-muted-foreground">
             This link may have expired or is invalid. Request a fresh analysis from your Liberty Bancard representative.
           </p>
           <a
             href="/upload-statement"
-            className="inline-flex items-center gap-2 mt-4 px-6 py-3 bg-blue-600 hover:bg-blue-500 rounded-lg font-semibold transition-colors"
+            className="inline-flex items-center gap-2 mt-4 px-6 py-3 bg-primary text-primary-foreground rounded-md font-semibold hover-elevate active-elevate-2"
             data-testid="link-get-free-analysis"
           >
             Get My Free Analysis
@@ -124,13 +124,13 @@ export default function SavingsPage() {
         <meta name="description" content="See how much you could save on credit card processing with Liberty Bancard." />
       </Helmet>
 
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 text-white">
-        <header className="border-b border-white/10 bg-white/5 backdrop-blur-sm" data-testid="header-savings">
+      <div className="min-h-screen bg-background text-foreground">
+        <header className="border-b border-border bg-card" data-testid="header-savings">
           <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
-            <span className="font-bold text-lg tracking-tight">Liberty Bancard</span>
+            <span className="font-bold text-lg tracking-tight text-foreground">Liberty Bancard</span>
             <a
               href="/upload-statement"
-              className="text-sm text-blue-300 hover:text-white transition-colors flex items-center gap-1"
+              className="text-sm text-accent hover:underline transition-colors flex items-center gap-1"
               data-testid="link-header-upload"
             >
               Get My Free Analysis <ExternalLink className="w-3 h-3" />
@@ -138,76 +138,79 @@ export default function SavingsPage() {
           </div>
         </header>
 
-        <main className="max-w-4xl mx-auto px-4 py-10 space-y-8">
+        <main className="marketing-surface max-w-4xl mx-auto px-4 py-10 space-y-8">
 
           {/* ── Hero ── */}
           <section className="text-center space-y-3" data-testid="section-hero">
-            <p className="text-blue-300 font-medium text-lg" data-testid="text-merchant-name">
+            <p className="text-accent font-medium text-lg" data-testid="text-merchant-name">
               {data.merchantName || "Your Business"}
             </p>
-            <div className="bg-white/5 border border-white/10 rounded-2xl p-8 space-y-4">
-              <p className="text-slate-300 text-sm uppercase tracking-widest font-semibold">You've Been Overpaying By</p>
+            <div className="relative overflow-hidden bg-card border border-border rounded-lg p-8 space-y-4">
+              <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.5]" aria-hidden="true" />
+              <div className="relative space-y-4">
+              <p className="text-muted-foreground text-sm uppercase tracking-widest font-semibold">You've Been Overpaying By</p>
               <div
-                className="text-6xl sm:text-7xl font-black text-white tabular-nums"
+                className="num text-6xl sm:text-7xl font-black text-foreground"
                 data-testid="text-monthly-savings-hero"
               >
                 {fmtExact(data.monthlySavings)}
-                <span className="text-2xl sm:text-3xl font-bold text-blue-300">/mo</span>
+                <span className="text-2xl sm:text-3xl font-bold text-accent">/mo</span>
               </div>
               <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-2">
                 <div className="text-center">
-                  <p className="text-slate-400 text-xs uppercase tracking-wide">That's</p>
-                  <p className="text-2xl font-bold text-emerald-400" data-testid="text-annual-savings-hero">
+                  <p className="text-muted-foreground text-xs uppercase tracking-wide">That's</p>
+                  <p className="num text-2xl font-bold text-emerald-600 dark:text-emerald-400" data-testid="text-annual-savings-hero">
                     {fmt(data.annualSavings)} this year
                   </p>
                 </div>
-                <div className="hidden sm:block w-px h-8 bg-white/20" />
+                <div className="hidden sm:block w-px h-8 bg-border" />
                 <div className="text-center">
-                  <p className="text-slate-400 text-xs uppercase tracking-wide">Or</p>
-                  <p className="text-2xl font-bold text-emerald-300" data-testid="text-3yr-savings-hero">
+                  <p className="text-muted-foreground text-xs uppercase tracking-wide">Or</p>
+                  <p className="num text-2xl font-bold text-emerald-600 dark:text-emerald-400" data-testid="text-3yr-savings-hero">
                     {fmt(data.threeYearSavings)} over 3 years
                   </p>
                 </div>
+              </div>
               </div>
             </div>
           </section>
 
           {/* ── Comparison Table ── */}
           <section data-testid="section-comparison">
-            <h2 className="text-lg font-bold mb-4 text-slate-200">Side-by-Side Comparison</h2>
-            <div className="grid grid-cols-3 gap-px bg-white/10 rounded-xl overflow-hidden text-sm">
-              <div className="bg-slate-800/60 px-4 py-3 font-medium text-slate-400" />
-              <div className="bg-red-900/30 px-4 py-3 text-center font-semibold text-red-300" data-testid="text-col-current">
+            <h2 className="text-lg font-bold mb-4 text-foreground">Side-by-Side Comparison</h2>
+            <div className="grid grid-cols-3 gap-px bg-border rounded-lg overflow-hidden text-sm">
+              <div className="bg-muted px-4 py-3 font-medium text-muted-foreground" />
+              <div className="bg-red-50 dark:bg-red-950/30 px-4 py-3 text-center font-semibold text-red-700 dark:text-red-300" data-testid="text-col-current">
                 Current Processor
               </div>
-              <div className="bg-emerald-900/30 px-4 py-3 text-center font-semibold text-emerald-300" data-testid="text-col-liberty">
+              <div className="bg-emerald-50 dark:bg-emerald-950/30 px-4 py-3 text-center font-semibold text-emerald-700 dark:text-emerald-300" data-testid="text-col-liberty">
                 Liberty Bancard
               </div>
 
-              <div className="bg-slate-800/40 px-4 py-3 text-slate-400">Effective Rate</div>
-              <div className="bg-red-900/20 px-4 py-3 text-center font-mono text-red-300" data-testid="text-current-rate">
+              <div className="bg-card px-4 py-3 text-muted-foreground">Effective Rate</div>
+              <div className="bg-red-50/60 dark:bg-red-950/20 px-4 py-3 text-center num text-red-700 dark:text-red-300" data-testid="text-current-rate">
                 {data.current.effectiveRate}
               </div>
-              <div className="bg-emerald-900/20 px-4 py-3 text-center font-mono text-emerald-300 flex items-center justify-center gap-1" data-testid="text-liberty-rate">
+              <div className="bg-emerald-50/60 dark:bg-emerald-950/20 px-4 py-3 text-center num text-emerald-700 dark:text-emerald-300 flex items-center justify-center gap-1" data-testid="text-liberty-rate">
                 <CheckCircle2 className="w-3 h-3" />{data.liberty.effectiveRate}
               </div>
 
-              <div className="bg-slate-800/40 px-4 py-3 text-slate-400">Monthly Cost</div>
-              <div className="bg-red-900/20 px-4 py-3 text-center text-red-300" data-testid="text-current-monthly">
+              <div className="bg-card px-4 py-3 text-muted-foreground">Monthly Cost</div>
+              <div className="bg-red-50/60 dark:bg-red-950/20 px-4 py-3 text-center num text-red-700 dark:text-red-300" data-testid="text-current-monthly">
                 {fmtExact(data.current.monthlyFees)}
               </div>
-              <div className="bg-emerald-900/20 px-4 py-3 text-center text-emerald-300" data-testid="text-liberty-monthly">
+              <div className="bg-emerald-50/60 dark:bg-emerald-950/20 px-4 py-3 text-center num text-emerald-700 dark:text-emerald-300" data-testid="text-liberty-monthly">
                 {fmtExact(data.liberty.monthlyFees > 0 ? data.liberty.monthlyFees : 0)}
               </div>
 
-              <div className="bg-slate-800/40 px-4 py-3 font-semibold text-white">Monthly Savings</div>
-              <div className="bg-red-900/20 px-4 py-3 text-center text-slate-400">—</div>
-              <div className="bg-emerald-900/20 px-4 py-3 text-center font-bold text-emerald-300" data-testid="text-monthly-savings-table">
+              <div className="bg-card px-4 py-3 font-semibold text-foreground">Monthly Savings</div>
+              <div className="bg-red-50/60 dark:bg-red-950/20 px-4 py-3 text-center text-muted-foreground">—</div>
+              <div className="bg-emerald-50/60 dark:bg-emerald-950/20 px-4 py-3 text-center num font-bold text-emerald-700 dark:text-emerald-300" data-testid="text-monthly-savings-table">
                 {fmtExact(data.monthlySavings)}
               </div>
             </div>
             {data.savingsPercent > 0 && (
-              <div className="mt-3 flex items-center justify-center gap-2 text-emerald-400 text-sm font-medium">
+              <div className="mt-3 flex items-center justify-center gap-2 text-emerald-600 dark:text-emerald-400 text-sm font-medium">
                 <TrendingDown className="w-4 h-4" />
                 {data.savingsPercent}% lower effective rate with Liberty Bancard
               </div>
@@ -215,12 +218,12 @@ export default function SavingsPage() {
           </section>
 
           {/* ── Share Section ── */}
-          <section className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-4" data-testid="section-share">
+          <section className="bg-card border border-border rounded-lg p-6 space-y-4" data-testid="section-share">
             <div className="flex items-center gap-2">
-              <Share2 className="w-5 h-5 text-blue-300" />
-              <h2 className="text-lg font-bold">Share Your Results</h2>
+              <Share2 className="w-5 h-5 text-accent" />
+              <h2 className="text-lg font-bold text-foreground">Share Your Results</h2>
             </div>
-            <p className="text-slate-300 text-sm">
+            <p className="text-muted-foreground text-sm">
               Know another business owner paying too much? Share this — and show them what's possible.
             </p>
             <div className="flex flex-wrap gap-3">
@@ -228,7 +231,7 @@ export default function SavingsPage() {
                 href={linkedinUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-2 px-4 py-2.5 bg-[#0077B5] hover:bg-[#005e8f] rounded-lg font-medium text-sm transition-colors"
+                className="flex items-center gap-2 px-4 py-2.5 bg-[#0077B5] hover:bg-[#005e8f] text-white rounded-md font-medium text-sm transition-colors"
                 data-testid="button-share-linkedin"
               >
                 <Linkedin className="w-4 h-4" />
@@ -238,7 +241,7 @@ export default function SavingsPage() {
                 href={twitterUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-2 px-4 py-2.5 bg-black hover:bg-slate-800 border border-white/20 rounded-lg font-medium text-sm transition-colors"
+                className="flex items-center gap-2 px-4 py-2.5 bg-black hover:bg-slate-800 text-white border border-white/20 rounded-md font-medium text-sm transition-colors"
                 data-testid="button-share-twitter"
               >
                 <Twitter className="w-4 h-4" />
@@ -248,7 +251,7 @@ export default function SavingsPage() {
                 href={facebookUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-2 px-4 py-2.5 bg-[#1877F2] hover:bg-[#0f5fb5] rounded-lg font-medium text-sm transition-colors"
+                className="flex items-center gap-2 px-4 py-2.5 bg-[#1877F2] hover:bg-[#0f5fb5] text-white rounded-md font-medium text-sm transition-colors"
                 data-testid="button-share-facebook"
               >
                 <DollarSign className="w-4 h-4" />
@@ -256,7 +259,7 @@ export default function SavingsPage() {
               </a>
               <a
                 href={mailtoUrl}
-                className="flex items-center gap-2 px-4 py-2.5 bg-slate-700 hover:bg-slate-600 rounded-lg font-medium text-sm transition-colors"
+                className="flex items-center gap-2 px-4 py-2.5 bg-secondary text-secondary-foreground hover-elevate active-elevate-2 rounded-md font-medium text-sm"
                 data-testid="button-share-email"
               >
                 <Mail className="w-4 h-4" />
@@ -264,7 +267,7 @@ export default function SavingsPage() {
               </a>
               <Button
                 variant="outline"
-                className="flex items-center gap-2 px-4 py-2.5 border-white/20 text-white hover:bg-white/10 rounded-lg font-medium text-sm h-auto"
+                className="gap-2"
                 onClick={handleCopy}
                 data-testid="button-copy-link"
               >
@@ -276,23 +279,23 @@ export default function SavingsPage() {
 
           {/* ── Referral CTA ── */}
           <section
-            className="bg-gradient-to-r from-emerald-900/40 to-blue-900/40 border border-emerald-500/20 rounded-2xl p-6 space-y-3"
+            className="bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900 rounded-lg p-6 space-y-3"
             data-testid="section-referral"
           >
-            <h2 className="text-lg font-bold text-emerald-300">Know Another Business Owner?</h2>
-            <p className="text-slate-300 text-sm">
-              They could save too — and you earn <strong className="text-white">$100</strong> when they sign up.
+            <h2 className="text-lg font-bold text-emerald-700 dark:text-emerald-400">Know Another Business Owner?</h2>
+            <p className="text-muted-foreground text-sm">
+              They could save too — and you earn <strong className="text-foreground">$100</strong> when they sign up.
               Forward them your referral link below.
             </p>
             <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
               <code
-                className="flex-1 text-xs bg-black/30 border border-white/10 rounded-md px-3 py-2 text-blue-200 break-all font-mono"
+                className="flex-1 text-xs bg-muted border border-border rounded-md px-3 py-2 text-foreground break-all font-mono"
                 data-testid="text-referral-link"
               >
                 {data.referralLink}
               </code>
               <button
-                className="shrink-0 flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-sm font-semibold transition-colors"
+                className="shrink-0 flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white hover-elevate active-elevate-2 rounded-md text-sm font-semibold"
                 onClick={async () => {
                   try {
                     await navigator.clipboard.writeText(data.referralLink);
@@ -308,28 +311,31 @@ export default function SavingsPage() {
               </button>
             </div>
             {!data.affiliateCode && (
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-muted-foreground">
                 Don't have a referral account yet?{" "}
-                <a href="/affiliate" className="text-blue-300 hover:underline">Join our affiliate program</a> to earn on every referral.
+                <a href="/affiliate" className="text-accent hover:underline">Join our affiliate program</a> to earn on every referral.
               </p>
             )}
           </section>
 
           {/* ── Apply / Book CTAs ── */}
           <section
-            className="bg-gradient-to-br from-blue-900/60 to-slate-900/60 border border-blue-500/20 rounded-2xl p-8 text-center space-y-5"
+            className="relative overflow-hidden bg-primary rounded-lg p-8 text-center space-y-5"
             data-testid="section-apply-cta"
           >
+            <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.06]" aria-hidden="true" />
+            <div className="absolute top-0 left-0 right-0 h-[3px] bg-accent" aria-hidden="true" />
+            <div className="relative space-y-5">
             <div className="space-y-2">
               <h2 className="text-2xl font-bold text-white">Ready to Start Saving?</h2>
-              <p className="text-slate-300 text-sm max-w-sm mx-auto">
+              <p className="text-white/70 text-sm max-w-sm mx-auto">
                 Lock in these rates today — your application takes about 10 minutes and there's no obligation.
               </p>
             </div>
 
             <a
               href={`/merchant-application?name=${encodeURIComponent(data.merchantName !== "Your Business" ? data.merchantName : "")}&email=${encodeURIComponent(data.contactEmail ?? "")}&volume=${encodeURIComponent(data.monthlyVolume > 0 ? String(Math.round(data.monthlyVolume)) : "")}&token=${encodeURIComponent(token || "")}`}
-              className="inline-flex items-center gap-2 px-8 py-4 bg-emerald-500 hover:bg-emerald-400 rounded-xl font-bold text-lg text-white transition-colors shadow-lg shadow-emerald-900/40"
+              className="inline-flex items-center gap-2 px-8 py-4 bg-emerald-500 hover-elevate active-elevate-2 rounded-md font-bold text-lg text-white"
               data-testid="link-apply-now"
             >
               <Rocket className="w-5 h-5" />
@@ -338,7 +344,7 @@ export default function SavingsPage() {
 
             <div className="flex items-center gap-3">
               <div className="flex-1 h-px bg-white/10" />
-              <span className="text-slate-500 text-xs uppercase tracking-wider">or</span>
+              <span className="text-white/50 text-xs uppercase tracking-wider">or</span>
               <div className="flex-1 h-px bg-white/10" />
             </div>
 
@@ -346,30 +352,31 @@ export default function SavingsPage() {
               href={CALENDAR_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 px-6 py-3 border border-white/20 hover:bg-white/10 rounded-xl font-semibold text-sm text-white transition-colors"
+              className="inline-flex items-center gap-2 px-6 py-3 border border-white/20 hover:bg-white/10 rounded-md font-semibold text-sm text-white transition-colors"
               data-testid="link-book-call"
             >
               <Phone className="w-4 h-4" />
               Book a 15-Minute Call First
             </a>
 
-            <p className="text-xs text-slate-500">No credit card required. Cancel anytime.</p>
+            <p className="text-xs text-white/50">No credit card required. Cancel anytime.</p>
+            </div>
           </section>
         </main>
 
         {/* ── Footer ── */}
-        <footer className="border-t border-white/10 mt-12 py-8 px-4" data-testid="footer-savings">
+        <footer className="border-t border-border mt-12 py-8 px-4" data-testid="footer-savings">
           <div className="max-w-4xl mx-auto text-center space-y-2">
-            <p className="text-slate-500 text-xs max-w-2xl mx-auto">
+            <p className="text-muted-foreground text-xs max-w-2xl mx-auto">
               Results shown are estimates based on statement data provided and are not a guarantee of savings.
               Actual savings may vary based on business type, card mix, transaction volume, and applicable card brand rules.
               Liberty Bancard is a registered ISO/MSP. PCI compliance fees and other pass-through costs may apply.
             </p>
-            <div className="flex items-center justify-center gap-4 text-xs text-slate-600 pt-2">
-              <a href="/" className="hover:text-slate-400 transition-colors">Liberty Bancard</a>
-              <a href="/upload-statement" className="hover:text-slate-400 transition-colors">Free Analysis</a>
-              <a href="/privacy-policy" className="hover:text-slate-400 transition-colors">Privacy</a>
-              <a href="/terms" className="hover:text-slate-400 transition-colors">Terms</a>
+            <div className="flex items-center justify-center gap-4 text-xs text-muted-foreground pt-2">
+              <a href="/" className="hover:text-foreground transition-colors">Liberty Bancard</a>
+              <a href="/upload-statement" className="hover:text-foreground transition-colors">Free Analysis</a>
+              <a href="/privacy-policy" className="hover:text-foreground transition-colors">Privacy</a>
+              <a href="/terms" className="hover:text-foreground transition-colors">Terms</a>
             </div>
           </div>
         </footer>
