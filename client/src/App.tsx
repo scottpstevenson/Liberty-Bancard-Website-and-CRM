@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useEffect } from "react";
+import React, { Suspense, lazy, useEffect, useState } from "react";
 import { Switch, Route, Redirect, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -723,6 +723,7 @@ function PublicLayout() {
   const [location] = useLocation();
   useReferralTracking();
   usePageTracking();
+  const [dockVisible, setDockVisible] = useState(false);
   const isDashboard = location.startsWith("/dashboard");
   const isThanksPage = location.startsWith("/thanks");
   const isAuthPage = location === "/login" || location === "/signup" || location === "/forgot-password" || location === "/reset-password" || location === "/verify-email";
@@ -734,11 +735,11 @@ function PublicLayout() {
       <ErrorBoundary key={location}>
         <Router />
       </ErrorBoundary>
-      {!isDashboard && !isThanksPage && !isAuthPage && !isMobile && !isUploadStatement && <StickyMobileCTA />}
+      {!isDashboard && !isThanksPage && !isAuthPage && !isMobile && !isUploadStatement && <StickyMobileCTA onVisibilityChange={setDockVisible} />}
       {!isDashboard && !isAuthPage && !isMobile && <ExitIntentPopup />}
       {!isDashboard && !isThanksPage && !isAuthPage && !isMobile && <ContactBubble />}
       {!isDashboard && !isAuthPage && !isMobile && <CookieConsent />}
-      {!isDashboard && !isThanksPage && !isAuthPage && !isMobile && <ChatWidget />}
+      {!isDashboard && !isThanksPage && !isAuthPage && !isMobile && <ChatWidget dockVisible={dockVisible} />}
     </>
   );
 }

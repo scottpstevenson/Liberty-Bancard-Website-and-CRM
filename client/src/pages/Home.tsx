@@ -168,7 +168,7 @@ export default function Home() {
       <Navbar />
       <WelcomePopup />
 
-      <main className="marketing-surface flex-grow pt-28" ref={containerRef}>
+      <main className="marketing-surface flex-grow pt-36 sm:pt-28 pb-36 md:pb-0" ref={containerRef}>
 
         {/* SECTION: Hero — Statement Intelligence editorial split */}
         <section className="marketing-surface relative overflow-hidden bg-background border-b border-border" data-testid="section-hero">
@@ -305,7 +305,7 @@ export default function Home() {
               </h2>
               <p className="text-sm text-muted-foreground">The four patterns that show up most on the statements we review.</p>
             </div>
-            <div className="reveal grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="reveal grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               {[
                 { icon: TrendingUp, chip: "Rate Mismatch", text: "You were quoted 1.5% — but your statement shows 3%+ all-in." },
                 { icon: DollarSign, chip: "Fee Creep", text: "Monthly fees keep climbing and nobody explains why." },
@@ -389,7 +389,7 @@ export default function Home() {
         </section>
 
         {/* SECTION 4: What You Get */}
-        <section className="section-warm py-20" data-testid="section-what-you-get">
+        <section className="section-warm py-12 md:py-20" data-testid="section-what-you-get">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="grid grid-cols-1 lg:grid-cols-[1.1fr_0.9fr] gap-10 lg:gap-12 items-start">
               <div className="reveal accent-rule pt-5">
@@ -450,7 +450,7 @@ export default function Home() {
         </section>
 
         {/* SECTION 5: How The Liberty Analysis Works (+ onboarding timeline) */}
-        <section className="bg-background py-20" data-testid="section-how-it-works">
+        <section className="bg-background py-12 md:py-20" data-testid="section-how-it-works">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="text-center mb-2">
               <span className="inline-flex items-center gap-1.5 bg-primary/10 text-primary text-xs font-semibold px-3 py-1 rounded-md uppercase tracking-wider mb-3">The Liberty Analysis</span>
@@ -527,7 +527,7 @@ export default function Home() {
         </section>
 
         {/* SECTION 6: Enhanced Rate Calculator */}
-        <section className="section-warm bg-dots py-20" data-testid="section-calculator">
+        <section className="section-warm bg-dots py-12 md:py-20" data-testid="section-calculator">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-start">
               <div className="reveal">
@@ -682,13 +682,75 @@ export default function Home() {
         </section>
 
         {/* SECTION 7: Choose Your Path */}
-        <section className="section-warm py-20" data-testid="section-choose-path">
+        <section className="section-warm py-12 md:py-20" data-testid="section-choose-path">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <h2 className="reveal text-3xl md:text-4xl font-display font-bold text-foreground text-center mb-4" data-testid="text-choose-path-heading">
               Choose the Strategy That Fits
             </h2>
             <p className="text-center text-muted-foreground mb-12 max-w-xl mx-auto">Every business is different. Here are the most common paths our merchants take.</p>
-            <div className="reveal grid grid-cols-1 md:grid-cols-3 gap-6 items-stretch">
+            {/* Mobile: Accordion — Upload-focused, collapsed by default except Wholesale */}
+            <Accordion type="single" collapsible defaultValue="wholesale" className="md:hidden rounded-lg border border-border overflow-hidden" data-testid="accordion-choose-path">
+              <AccordionItem value="wholesale" className="border-b border-border last:border-0" data-testid="card-wholesale-mobile">
+                <AccordionTrigger className="px-4 py-3 hover:no-underline [&>svg]:shrink-0">
+                  <div className="text-left mr-2">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="bg-primary text-primary-foreground text-[10px] font-semibold px-2 py-0.5 rounded">Most Popular</span>
+                    </div>
+                    <div className="font-display font-semibold text-foreground">Wholesale / Interchange-Plus</div>
+                    <div className="text-xs text-muted-foreground font-normal mt-0.5">Transparent fee on top of interchange — see every penny of markup</div>
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent className="px-4 pb-4">
+                  <ul className="space-y-2 text-sm text-muted-foreground mb-4">
+                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Real interchange passthrough</li>
+                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> No bundled "qualified" tiers</li>
+                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Full cost transparency</li>
+                  </ul>
+                  <Link href="/upload-statement" data-testid="link-wholesale-cta-mobile">
+                    <Button className="gap-2 w-full">Run My Review <ArrowRight className="w-4 h-4" /></Button>
+                  </Link>
+                </AccordionContent>
+              </AccordionItem>
+              <AccordionItem value="zero-percent" className="border-b border-border last:border-0" data-testid="card-zero-percent-mobile">
+                <AccordionTrigger className="px-4 py-3 hover:no-underline [&>svg]:shrink-0">
+                  <div className="text-left mr-2">
+                    <div className="font-display font-semibold text-foreground">Compliant 0% Programs*</div>
+                    <div className="text-xs text-muted-foreground font-normal mt-0.5">Pass fees to the cardholder where permitted by law and card brand rules</div>
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent className="px-4 pb-4">
+                  <ul className="space-y-2 text-sm text-muted-foreground mb-4">
+                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Cash discount or surcharging</li>
+                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Proper disclosures + receipts</li>
+                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Staff scripts included</li>
+                  </ul>
+                  <Link href="/0-percent-processing" data-testid="link-zero-percent-cta-mobile">
+                    <Button variant="outline" className="gap-2 w-full">Check 0% Fit <ArrowRight className="w-4 h-4" /></Button>
+                  </Link>
+                </AccordionContent>
+              </AccordionItem>
+              <AccordionItem value="terminal" className="border-b border-border last:border-0" data-testid="card-terminal-mobile">
+                <AccordionTrigger className="px-4 py-3 hover:no-underline [&>svg]:shrink-0">
+                  <div className="text-left mr-2">
+                    <div className="font-display font-semibold text-foreground">Liberty Smart Terminal</div>
+                    <div className="text-xs text-muted-foreground font-normal mt-0.5">Modern checkout with guided onboarding and dedicated support</div>
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent className="px-4 pb-4">
+                  <ul className="space-y-2 text-sm text-muted-foreground mb-4">
+                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Tap, dip, swipe, manual key</li>
+                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Free for qualifying merchants*</li>
+                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Same-day setup when eligible</li>
+                  </ul>
+                  <Link href="/upload-statement?terminal=yes" data-testid="link-terminal-cta-mobile">
+                    <Button variant="outline" className="gap-2 w-full">Check Eligibility <ArrowRight className="w-4 h-4" /></Button>
+                  </Link>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+
+            {/* Desktop: three-column Card grid — unchanged */}
+            <div className="reveal hidden md:grid md:grid-cols-3 gap-6 items-stretch">
               <Card className="relative overflow-visible h-full flex flex-col border-primary/40 shadow-card-hover" data-testid="card-wholesale">
                 <div className="absolute -top-3 left-4">
                   <span className="bg-primary text-primary-foreground text-xs font-semibold px-3 py-1 rounded-md">Most Popular</span>
@@ -785,7 +847,7 @@ export default function Home() {
         </section>
 
         {/* SECTION 8: Vertical Credibility */}
-        <section className="bg-background bg-dots py-20" data-testid="section-verticals">
+        <section className="bg-background bg-dots py-12 md:py-20" data-testid="section-verticals">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal text-center mb-12">
               <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-verticals-heading">
@@ -793,7 +855,41 @@ export default function Home() {
               </h2>
               <p className="text-muted-foreground max-w-xl mx-auto">South Florida roots. Nationwide reach. We know the cost pressures in your industry.</p>
             </div>
-            <div className="reveal grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+            {/* Mobile: Accordion for top industries */}
+            <Accordion type="single" collapsible className="lg:hidden rounded-lg border border-border overflow-hidden mb-6" data-testid="accordion-verticals">
+              {[
+                { icon: UtensilsCrossed, title: "Restaurants", bestFor: "Tip-adjust + weekend volume", points: ["Fast tip-adjusted checkout that won't freeze on a Friday night", "Weekend support when your team actually needs it"] },
+                { icon: Stethoscope, title: "Medical / Dental / Medspa", bestFor: "Front-desk speed + clean deposits", points: ["Predictable deposit clarity for the front desk", "HIPAA-aware workflows and fewer billing headaches"] },
+                { icon: Car, title: "Automotive", bestFor: "High-ticket + chargeback safety", points: ["High-ticket transaction handling with predictable funding", "Chargeback prevention built into the workflow"] },
+              ].map((item, i) => (
+                <AccordionItem key={i} value={`vertical-${i}`} className="border-b border-border last:border-0" data-testid={`vertical-mobile-${i}`}>
+                  <AccordionTrigger className="px-4 py-3 hover:no-underline [&>svg]:shrink-0">
+                    <div className="flex items-center gap-3 text-left mr-2">
+                      <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+                        <item.icon className="w-4 h-4 text-primary" />
+                      </div>
+                      <div>
+                        <div className="font-display font-semibold text-foreground text-sm">{item.title}</div>
+                        <div className="text-xs text-muted-foreground font-normal">Best For: {item.bestFor}</div>
+                      </div>
+                    </div>
+                  </AccordionTrigger>
+                  <AccordionContent className="px-4 pb-4">
+                    <ul className="space-y-2">
+                      {item.points.map((point, j) => (
+                        <li key={j} className="text-sm text-muted-foreground flex items-start gap-2">
+                          <CheckCircle2 className="w-4 h-4 text-primary mt-0.5 shrink-0" />
+                          {point}
+                        </li>
+                      ))}
+                    </ul>
+                  </AccordionContent>
+                </AccordionItem>
+              ))}
+            </Accordion>
+
+            {/* Desktop: three-column grid — unchanged */}
+            <div className="reveal hidden lg:grid lg:grid-cols-3 gap-6 mb-6">
               {[
                 { icon: UtensilsCrossed, title: "Restaurants", bestFor: "Tip-adjust + weekend volume", points: ["Fast tip-adjusted checkout that won't freeze on a Friday night", "Weekend support when your team actually needs it"] },
                 { icon: Stethoscope, title: "Medical / Dental / Medspa", bestFor: "Front-desk speed + clean deposits", points: ["Predictable deposit clarity for the front desk", "HIPAA-aware workflows and fewer billing headaches"] },
@@ -820,7 +916,8 @@ export default function Home() {
                 </Card>
               ))}
             </div>
-            <div className="reveal grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {/* Secondary compact cards — 2-col on mobile, 3-col on sm+ */}
+            <div className="reveal grid grid-cols-2 sm:grid-cols-3 gap-4">
               {[
                 { icon: Wrench, title: "Home Services", bestFor: "On-the-job mobile acceptance" },
                 { icon: Store, title: "Retail", bestFor: "Fast lines + contactless" },
@@ -843,7 +940,7 @@ export default function Home() {
         </section>
 
         {/* SECTION 8.25: Terminal Showcase */}
-        <section className="bg-background py-20" data-testid="section-terminal-showcase">
+        <section className="bg-background py-12 md:py-20" data-testid="section-terminal-showcase">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal text-center max-w-2xl mx-auto mb-10">
               <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-terminal-showcase-heading">
@@ -865,7 +962,25 @@ export default function Home() {
                 </div>
               </div>
               <div className="lg:col-span-3">
-                <div className="overflow-x-auto rounded-md border border-border">
+                {/* Mobile: stacked cards — four-column table fully absent on mobile */}
+                <div className="md:hidden space-y-3 mb-5">
+                  {[
+                    { option: "Smart Terminal", bestFor: "Counter + curbside", includes: "Tap, dip, swipe, key; tip adjust; batch close", notes: "Free for qualifying merchants*" },
+                    { option: "POS Setup", bestFor: "Full-service & retail", includes: "Register, on-device reporting, inventory-friendly", notes: "Hardware varies by plan" },
+                    { option: "Virtual / Keyed", bestFor: "Phone & invoice sales", includes: "Virtual terminal, secure pay links, keyed entry", notes: "No hardware required" },
+                  ].map((row, i) => (
+                    <div key={i} className="rounded-lg border border-border bg-card p-4" data-testid={`card-terminal-mobile-${i}`}>
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <span className="font-display font-semibold text-foreground text-sm">{row.option}</span>
+                        <span className="report-chip report-chip-neutral shrink-0">{row.bestFor}</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground mb-1"><span className="font-medium text-foreground">Includes:</span> {row.includes}</p>
+                      <p className="text-xs text-muted-foreground">{row.notes}</p>
+                    </div>
+                  ))}
+                </div>
+                {/* Desktop: four-column table */}
+                <div className="hidden md:block overflow-x-auto rounded-md border border-border">
                   <table className="w-full text-left text-sm" data-testid="table-terminal-setup">
                     <thead>
                       <tr className="bg-muted/50 text-foreground">
@@ -906,8 +1021,8 @@ export default function Home() {
           </div>
         </section>
 
-        {/* SECTION 8.4: Platform Preview — the operations backbone */}
-        <section className="bg-background bg-grid py-20 overflow-hidden" data-testid="section-platform-preview">
+        {/* SECTION 8.4: Platform Preview — desktop-only, hidden on mobile */}
+        <section className="hidden md:block bg-background bg-grid py-20 overflow-hidden" data-testid="section-platform-preview">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
               <div>
@@ -950,7 +1065,7 @@ export default function Home() {
         </section>
 
         {/* SECTION 8.5: Why Liberty - Differentiators */}
-        <section className="bg-background py-20" data-testid="section-why-liberty">
+        <section className="bg-background py-12 md:py-20" data-testid="section-why-liberty">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal text-center mb-8">
               <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-why-liberty-heading">
@@ -1070,13 +1185,39 @@ export default function Home() {
         </section>
 
         {/* SECTION 9: Social Proof / Reviews */}
-        <section className="section-warm py-20" data-testid="section-reviews">
+        <section className="section-warm py-12 md:py-20" data-testid="section-reviews">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <h2 className="reveal text-3xl md:text-4xl font-display font-bold text-foreground text-center mb-4" data-testid="text-reviews-heading">
               What Merchants Say After Their First Review
             </h2>
             <p className="text-center text-muted-foreground mb-12 max-w-xl mx-auto">Real business owners. Specific outcomes. Florida-based merchants you can relate to.</p>
-            <div className="reveal grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+            {/* Mobile: single strong testimonial */}
+            <div className="md:hidden mb-6" data-testid="card-review-mobile-primary">
+              <Card>
+                <CardContent className="p-6 flex flex-col">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex gap-0.5">
+                      {Array.from({ length: 5 }).map((_, j) => (
+                        <Star key={j} className="w-4 h-4 fill-amber-400 text-amber-400" />
+                      ))}
+                    </div>
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-primary bg-primary/10 px-2 py-0.5 rounded-full">0% program</span>
+                  </div>
+                  <Quote className="w-6 h-6 text-primary/20 mb-2" />
+                  <p className="text-sm text-foreground mb-5 leading-relaxed">We were paying Square over $1,100 a month. After switching to Liberty Bancard's cash discount program, our processing cost dropped to nearly zero — saving us $340 a month. That money went straight back into our kitchen.</p>
+                  <div className="flex items-center gap-3 pt-4 border-t border-border">
+                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-bold shrink-0">M</div>
+                    <div>
+                      <div className="text-sm font-semibold text-foreground">Maria R.</div>
+                      <div className="text-xs text-muted-foreground">Restaurant Owner · South Miami, FL</div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Desktop: full three-column review grid */}
+            <div className="reveal hidden md:grid md:grid-cols-3 gap-6 mb-10">
               {[
                 {
                   quote: "We were paying Square over $1,100 a month. After switching to Liberty Bancard's cash discount program, our processing cost dropped to nearly zero — saving us $340 a month. That money went straight back into our kitchen.",
@@ -1128,8 +1269,16 @@ export default function Home() {
                 </Card>
               ))}
             </div>
-            {/* Salvaged documented outcomes — compact proof strip */}
-            <div className="reveal grid grid-cols-1 sm:grid-cols-3 gap-4 mb-10" data-testid="grid-outcomes-strip">
+            {/* Mobile: compact outcome CTA */}
+            <div className="md:hidden mb-6 text-center">
+              <Link href="/case-studies" data-testid="link-reviews-case-studies-mobile">
+                <Button variant="outline" className="gap-2 w-full">
+                  See documented case studies <ArrowRight className="w-4 h-4" />
+                </Button>
+              </Link>
+            </div>
+            {/* Desktop: documented outcome strip */}
+            <div className="reveal hidden md:grid md:grid-cols-3 gap-4 mb-10" data-testid="grid-outcomes-strip">
               {[
                 { type: "Full-Service Restaurant", solution: "Cash Discount Program", result: "$4,200/yr", href: "/case-studies#restaurant-square" },
                 { type: "Multi-Location Retail", solution: "Interchange Plus", result: "$3,800/yr", href: "/case-studies#retail-stripe" },
@@ -1165,7 +1314,7 @@ export default function Home() {
         </section>
 
         {/* SECTION 10: Trust / Risk Reversal — sharp navy block */}
-        <section className="reveal relative overflow-hidden bg-primary py-20" data-testid="section-risk-reversal">
+        <section className="reveal relative overflow-hidden bg-primary py-12 md:py-20" data-testid="section-risk-reversal">
           <img src={teamCollab} alt="" aria-hidden="true" className="absolute inset-0 w-full h-full object-cover opacity-[0.15] mix-blend-luminosity" loading="lazy" width="1408" height="792" />
           <div className="absolute top-0 left-0 right-0 h-[3px] bg-accent" aria-hidden="true" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -1199,7 +1348,7 @@ export default function Home() {
         </section>
 
         {/* SECTION 10.5: Security & Compliance Trust Badges */}
-        <section className="bg-background py-16" data-testid="section-security-badges">
+        <section className="bg-background py-10 md:py-16" data-testid="section-security-badges">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <h3 className="text-center text-lg font-display font-bold text-foreground mb-8" data-testid="text-security-heading">
               Security & Compliance Standards
@@ -1226,7 +1375,7 @@ export default function Home() {
         </section>
 
         {/* SECTION 11: FAQ */}
-        <section className="section-warm py-20" data-testid="section-faq">
+        <section className="section-warm py-12 md:py-20" data-testid="section-faq">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal max-w-3xl mx-auto">
               <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-8" data-testid="text-faq-heading">
@@ -1289,7 +1438,7 @@ export default function Home() {
         </div>
 
         {/* SECTION 11.5: Quick Callback Form */}
-        <section className="bg-background bg-grid py-20" data-testid="section-callback">
+        <section className="bg-background bg-grid py-12 md:py-20" data-testid="section-callback">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
               <div>
@@ -1394,7 +1543,7 @@ export default function Home() {
         </section>
 
         {/* SECTION 12: Final CTA — sharp navy block */}
-        <section className="reveal relative overflow-hidden bg-primary py-24" data-testid="section-final-cta">
+        <section className="reveal relative overflow-hidden bg-primary py-14 md:py-24" data-testid="section-final-cta">
           <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.12]" aria-hidden="true" />
           <div className="absolute top-0 left-0 right-0 h-[3px] bg-accent" aria-hidden="true" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
