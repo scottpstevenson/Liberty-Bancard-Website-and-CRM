@@ -88,7 +88,7 @@ export function Navbar() {
               className="flex items-center shrink-0"
               data-testid="link-logo"
             >
-              <img src={logoBlue} alt="Liberty Bancard" className="h-8 w-auto max-w-[200px] md:h-10 md:max-w-none" />
+              <img src={logoBlue} alt="Liberty Bancard" className="h-8 w-auto max-w-[240px] md:h-10 md:max-w-none" />
             </Link>
 
             <div className="hidden lg:flex items-center gap-6">
@@ -297,7 +297,7 @@ export function Navbar() {
             <div className="lg:hidden">
               <Button
                 variant="ghost"
-                size="icon"
+                className="h-11 w-11 p-0"
                 onClick={() => setIsOpen(!isOpen)}
                 data-testid="button-mobile-menu"
                 aria-label={isOpen ? "Close menu" : "Open menu"}

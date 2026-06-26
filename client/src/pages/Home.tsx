@@ -222,7 +222,7 @@ export default function Home() {
                   <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground" data-testid="text-hero-trust-3"><Headphones className="w-3.5 h-3.5 text-accent" /> Real human support</span>
                 </div>
                 {/* Compliance fine print — relocated from navbar strip */}
-                <p className="text-[10px] leading-relaxed text-muted-foreground/60 mt-4 max-w-md" data-testid="text-hero-compliance">
+                <p className="text-xs leading-relaxed text-muted-foreground mt-4 max-w-md" data-testid="text-hero-compliance">
                   Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.
                 </p>
               </div>

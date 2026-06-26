@@ -3,6 +3,10 @@
 @tailwind utilities;
 
 :root {
+  /* Mobile layout tokens — consumed by scroll offsets and safe-area clearance */
+  --mobile-header-height: 76px;
+  --mobile-dock-height: 72px;
+
   /* Corporate Navy & Trustworthy Blue Palette */
   --font-body: 'IBM Plex Sans', system-ui, sans-serif;
   --font-display: 'IBM Plex Sans', system-ui, sans-serif; /* operational default — keep sans for dashboards/portals */
