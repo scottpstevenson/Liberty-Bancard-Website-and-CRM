@@ -174,7 +174,7 @@ export default function Home() {
         {/* SECTION: Hero — Statement Intelligence editorial split */}
         <section className="marketing-surface relative overflow-hidden bg-background border-b border-border" data-testid="section-hero">
           {/* faint ledger texture wash */}
-          <div className="pointer-events-none absolute inset-0 ledger-texture opacity-[0.5]" aria-hidden="true" />
+          <div className="hidden lg:block pointer-events-none absolute inset-0 ledger-texture opacity-[0.5]" aria-hidden="true" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-14 lg:py-24">
             <div className="grid grid-cols-1 lg:grid-cols-[1.05fr_0.95fr] gap-10 lg:gap-16 items-center">
               {/* Left column — message + CTAs */}
@@ -207,29 +207,29 @@ export default function Home() {
                   PDF or photo. 30 seconds. Redact account numbers if you want — we only need totals + fee lines.
                 </p>
                 <div className="si-load si-load-5 flex flex-wrap items-center gap-x-5 gap-y-2 mt-5">
-                  <a href={PHONE_TEL} aria-label="Call Liberty Bancard" className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1.5 transition-colors" data-testid="link-hero-phone" onClick={() => trackPhoneCtaClick({ page: "/", ctaLabel: PHONE_NUMBER, ctaLocation: "hero" })}>
-                    <Phone className="w-3 h-3" />
-                    {PHONE_NUMBER}
+                  <a href={PHONE_TEL} aria-label="Call Liberty Bancard" className="text-sm font-medium text-foreground hover:text-primary flex items-center gap-1.5 transition-colors" data-testid="link-hero-phone" onClick={() => trackPhoneCtaClick({ page: "/", ctaLabel: PHONE_NUMBER, ctaLocation: "hero" })}>
+                    <Phone className="w-4 h-4 text-primary" />
+                    Call {PHONE_NUMBER}
                   </a>
-                  <Link href="/beat-square-stripe" className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1.5 transition-colors" data-testid="link-hero-compare">
+                  <Link href="/beat-square-stripe" className="hidden lg:inline-flex text-xs text-muted-foreground hover:text-foreground items-center gap-1.5 transition-colors" data-testid="link-hero-compare">
                     Compare My Current Setup
                     <ArrowRight className="w-3 h-3" />
                   </Link>
                 </div>
                 {/* compact in-hero trust row */}
-                <div className="si-load si-load-6 flex flex-wrap items-center gap-x-4 gap-y-2 mt-8 pt-6 border-t border-border">
+                <div className="si-load si-load-6 hidden lg:flex flex-wrap items-center gap-x-4 gap-y-2 mt-8 pt-6 border-t border-border">
                   <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground" data-testid="text-hero-trust-1"><BadgeCheck className="w-3.5 h-3.5 text-accent" /> Payment processing</span>
                   <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground" data-testid="text-hero-trust-2"><FileText className="w-3.5 h-3.5 text-accent" /> Line-item breakdown</span>
                   <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground" data-testid="text-hero-trust-3"><Headphones className="w-3.5 h-3.5 text-accent" /> Real human support</span>
                 </div>
                 {/* Compliance fine print — relocated from navbar strip */}
-                <p className="text-xs leading-relaxed text-muted-foreground mt-4 max-w-md" data-testid="text-hero-compliance">
+                <p className="hidden lg:block text-xs leading-relaxed text-muted-foreground mt-4 max-w-md" data-testid="text-hero-compliance">
                   Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.
                 </p>
               </div>
 
               {/* Right column — layered Statement Intelligence audit module */}
-              <div className="relative flex items-center justify-center lg:justify-end" data-testid="hero-visual">
+              <div className="relative hidden lg:flex items-center justify-center lg:justify-end" data-testid="hero-visual">
                 {/* navy authority panel behind the report */}
                 <div className="pointer-events-none absolute -right-2 -top-4 hidden lg:block h-[88%] w-[78%] rounded-xl bg-primary" aria-hidden="true" />
                 <div className="pointer-events-none absolute right-4 top-2 hidden lg:block h-2 w-24 bg-accent rounded-full" aria-hidden="true" />
@@ -276,8 +276,56 @@ export default function Home() {
           </div>
         </section>
 
+        {/* SECTION: Mobile-only sample review — lg:hidden */}
+        <section className="lg:hidden bg-muted/30 border-b border-border py-8" data-testid="section-sample-review-mobile">
+          <div className="max-w-md mx-auto px-4">
+            <p className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground text-center mb-4">Example statement review</p>
+            <div className="relative w-full rounded-xl border border-border bg-card shadow-sm overflow-hidden" data-testid="card-statement-audit-mobile">
+              {/* report header */}
+              <div className="flex items-center justify-between gap-3 bg-primary px-5 py-3.5">
+                <div className="flex items-center gap-2.5">
+                  <div className="flex h-7 w-7 items-center justify-center rounded bg-accent/20">
+                    <FileText className="w-4 h-4 text-sky-300" />
+                  </div>
+                  <div className="leading-tight">
+                    <div className="text-sm font-semibold text-white">Statement Fee Audit</div>
+                    <div className="num text-[10px] text-white/55 tracking-wide">REF · LB-0000 · SAMPLE</div>
+                  </div>
+                </div>
+                <span className="audit-stamp bg-card" data-testid="badge-illustrative-mobile">Illustrative</span>
+              </div>
+              {/* findings ledger */}
+              <div className="px-5">
+                {[
+                  { label: "Effective rate", value: "3.47%", chip: "Above benchmark", tone: "negative" },
+                  { label: "Monthly fixed fees", value: "$127/mo", chip: "Recurring", tone: "negative" },
+                  { label: "Downgrades / card mix", value: "23%", chip: "Reducible", tone: "negative" },
+                  { label: "Add-on fees (PCI, batch)", value: "$38/mo", chip: "Itemized", tone: "negative" },
+                  { label: "Funding timeline", value: "Next-day*", chip: "Eligibility", tone: "neutral" },
+                  { label: "Savings opportunity", value: "Identified", chip: "On review", tone: "positive" },
+                ].map((row, i) => (
+                  <div key={i} className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 py-2.5 border-b border-border/70 last:border-0" data-testid={`row-statement-mobile-${i}`}>
+                    <span className="text-[13px] text-foreground/80 min-w-0 flex-1">{row.label}</span>
+                    <div className="flex items-center gap-2">
+                      <span className={`report-chip report-chip-${row.tone === "negative" ? "negative" : row.tone === "positive" ? "positive" : "neutral"}`}>{row.chip}</span>
+                      <span className={`num text-sm font-semibold whitespace-nowrap ${row.tone === "negative" ? "text-stat-negative" : row.tone === "positive" ? "text-stat-positive" : "text-foreground"}`}>{row.value}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {/* report footer */}
+              <div className="border-t border-border bg-muted/40 px-5 py-3">
+                <p className="text-[10px] leading-relaxed text-muted-foreground">Actual findings require statement review. *Funding timing subject to eligibility, underwriting, and card brand rules.</p>
+              </div>
+            </div>
+            <p className="text-xs leading-relaxed text-muted-foreground mt-3 text-center" data-testid="text-hero-compliance-mobile">
+              Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.
+            </p>
+          </div>
+        </section>
+
         {/* SECTION: Trust strip (merged) */}
-        <section className="bg-card border-b border-border py-6" data-testid="section-trust-badges">
+        <section className="bg-primary/5 border-y border-primary/15 py-6" data-testid="section-trust-badges">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex flex-wrap justify-center items-center gap-x-10 gap-y-4">
               <div className="flex flex-col items-center gap-0.5 text-center" data-testid="trust-badge-years">
@@ -757,7 +805,7 @@ export default function Home() {
         </section>
 
         {/* SECTION 7: Choose Your Path */}
-        <section className="section-warm md:section-navy md:relative md:overflow-hidden py-12 md:py-16" data-testid="section-choose-path">
+        <section className="bg-background border-y border-border md:border-0 md:section-navy md:relative md:overflow-hidden py-12 md:py-16" data-testid="section-choose-path">
           <div className="hidden md:block pointer-events-none absolute inset-0 ledger-texture opacity-[0.08]" aria-hidden="true" />
           <div className="hidden md:block absolute top-0 left-0 right-0 h-[3px] bg-accent" aria-hidden="true" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -924,7 +972,7 @@ export default function Home() {
         </section>
 
         {/* SECTION 8: Vertical Credibility */}
-        <section className="bg-background bg-dots border-t-2 border-primary/20 py-12 md:py-20" data-testid="section-verticals">
+        <section className="section-warm py-12 md:py-20" data-testid="section-verticals">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal text-center mb-12">
               <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-verticals-heading">
@@ -1142,7 +1190,7 @@ export default function Home() {
         </section>
 
         {/* SECTION 8.5: Why Liberty - Differentiators */}
-        <section className="bg-background py-12 md:py-20" data-testid="section-why-liberty">
+        <section className="bg-background border-b border-border py-12 md:py-20" data-testid="section-why-liberty">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal text-center mb-8">
               <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-why-liberty-heading">
@@ -1446,7 +1494,7 @@ export default function Home() {
         </div>
 
         {/* SECTION 11.5: Quick Callback Form */}
-        <section className="bg-background bg-grid py-12 md:py-20 pb-safe-mobile" data-testid="section-callback">
+        <section className="bg-primary/5 border-y border-primary/15 py-12 md:py-20 pb-safe-mobile" data-testid="section-callback">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
               <div>
