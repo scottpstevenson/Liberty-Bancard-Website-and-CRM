@@ -1,0 +1,349 @@
+681 — Homepage Mobile Content Diet + Section Compression
+
+What & Why
+
+The homepage mobile architecture is still too dense after the rhythm repair. The section backgrounds improved, but the mobile page still renders desktop-depth modules as long stacked sections: review contents, “yours to keep,” dual timelines, calculator fallback, strategy accordion, verticals, rate comparison, and full Why Liberty cards.
+
+This creates a 20+ screen mobile page even though the content is mostly repeating the same core idea: upload a statement, Liberty reviews the fees, then presents options before switching.
+
+This task compresses mobile-only content density without redesigning desktop.
+
+The goal is not to remove important selling points. The goal is to make mobile feel like a premium conversion page instead of a documentation page.
+
+⸻
+
+Done Looks Like
+
+At 390px mobile:
+
+* Homepage reads as a clear mobile story, not a stacked desktop page.
+* No single mid-page section consumes more than ~1.25 mobile screens unless it is the hero or final CTA.
+* “What Your Liberty Review Includes” is compressed into a compact mobile summary card, not a tall 6-row report table.
+* “You Keep the Breakdown” is removed as a standalone mobile card and merged into the compact review summary or risk-reversal language.
+* “How The Liberty Analysis Works” is compressed on mobile into one compact process card.
+* The 5-step onboarding timeline is collapsed on mobile or shown as a short “After approval” row, not a full second timeline.
+* Rate Calculator remains desktop-only; mobile shows only a compact CTA row/link to /estimate.
+* Verticals section is compressed on mobile to a compact industry list/chip grid, not mixed accordion plus large standalone cards.
+* “Why Merchants Switch” rate comparison card is desktop-only or replaced on mobile with a short summary CTA.
+* Why Liberty feature cards are compact on mobile, not large full-width stacked cards.
+* StickyMobileCTA remains navy and keeps existing IntersectionObserver trigger logic.
+* Desktop layout at md: and above is unchanged unless explicitly noted.
+* Upload/book CTA destinations and tracking calls remain unchanged.
+
+Target mobile sequence:
+
+Hero
+→ Example Statement Review
+→ Trust Strip
+→ Pain Points
+→ By the Numbers
+→ Services
+→ Review Includes compact summary
+→ How It Works compact process
+→ Choose Your Path accordion
+→ Industries compact
+→ Testimonials
+→ Why Liberty compact
+→ Risk Reversal
+→ FAQ
+→ Final CTA
+
+Target screenshot count at 390px: roughly 10–14 meaningful screenshots, not 20+.
+
+⸻
+
+Out of Scope
+
+* Backend/API changes
+* Upload flow changes
+* Booking URL changes
+* CTA tracking changes
+* StickyMobileCTA trigger logic changes
+* Hero H1 copy changes
+* Desktop redesign
+* New sections
+* New routes
+* Testimonials claim rewrite, unless an unsafe claim is found again
+* Services section copy rewrite, except mobile truncation/summary treatment
+
+⸻
+
+Steps
+
+1. Compress “What Your Liberty Review Includes” on mobile
+
+Current issue: the mobile section renders like a full report document with 6 large rows, then an additional “You Keep the Breakdown” card. This consumes multiple screens.
+
+Desktop: keep existing report-style module.
+
+Mobile: replace with a compact card.
+
+Required mobile structure:
+
+The Liberty Review Includes
+A clear line-by-line look at your current processing costs.
+✓ Effective rate
+✓ Fee drivers
+✓ Downgrades
+✓ Add-ons
+✓ Funding timeline
+✓ Options summary
+You keep the breakdown either way.
+[Upload Statement — Free]
+
+Implementation:
+
+* Keep desktop version as hidden md:block.
+* Add mobile-only version as md:hidden.
+* Use one compact card, not 6 large rows.
+* Use a 2-column bullet grid if it fits cleanly; otherwise use compact stacked rows.
+* Remove the separate “Yours to Keep” mobile card.
+* Keep any compliance note, but make it small and attached to the compact card.
+
+Kill line:
+
+Stop if the mobile Review Includes section still renders as six large full-width rows plus a separate keep-the-breakdown card.
+
+⸻
+
+2. Compress “How The Liberty Analysis Works” on mobile
+
+Current issue: mobile shows a large 3-step process, then a full 5-step onboarding timeline. This reads as 8 sequential steps and consumes multiple screens.
+
+Desktop: keep the richer process/timeline layout.
+
+Mobile: replace with one compact process card.
+
+Required mobile structure:
+
+How It Works
+1. Upload your statement
+2. We review the fee lines
+3. You get clear options
+After approval: setup, terminal shipping, and first batch are tracked by Liberty.
+
+Implementation:
+
+* Keep desktop process/timeline as hidden md:block.
+* Add mobile-only compact version as md:hidden.
+* The mobile version should fit around one screen.
+* Do not show giant numbered circles on mobile.
+* Do not show the full 5-step onboarding timeline on mobile.
+* Preserve the existing compliance/timeline disclaimer in small text if needed.
+
+Kill line:
+
+Stop if mobile still shows both the 3-step analysis timeline and the full 5-step onboarding timeline.
+
+⸻
+
+3. Keep mobile Rate Calculator as CTA-only
+
+Current issue: the Quick Estimate section still appears as a large mobile chapter and contributes to page length.
+
+Required:
+
+* Desktop calculator remains unchanged.
+* Mobile should be a compact CTA band only.
+
+Mobile copy:
+
+Want a quick estimate?
+Run the 60-second rate check using your volume and monthly fees.
+[Open Rate Check]
+
+Requirements:
+
+* No form fields on mobile homepage.
+* No estimate preview card on mobile homepage.
+* Link to /estimate.
+* Must fit in less than half a screen.
+
+Kill line:
+
+Stop if the mobile homepage renders calculator inputs, estimate preview cards, or rate-range cards inside the calculator section.
+
+⸻
+
+4. Keep Choose Path accordion, but reduce vertical weight
+
+Current issue: Choose Path accordion is directionally correct, but the expanded first item is very tall.
+
+Mobile requirements:
+
+* Keep accordion.
+* First item can open by default only if it fits cleanly.
+* Reduce paragraph length inside each accordion item.
+* Keep CTA inside expanded item.
+* Remove extra illustrative structure blocks from mobile if they make the accordion too tall.
+* Desktop cards unchanged.
+
+Kill line:
+
+Stop if the first expanded strategy item takes more than roughly one full mobile screen by itself.
+
+⸻
+
+5. Compress Verticals on mobile
+
+Current issue: Verticals section uses a mixed pattern: first three as accordion, then three standalone large cards. This is visually inconsistent and too long.
+
+Desktop: unchanged.
+
+Mobile: use one consistent compact format.
+
+Preferred mobile structure:
+
+Built for operators who run real businesses
+Restaurants
+Medical / Dental / Medspa
+Automotive
+Home Services
+Retail
+Other Industries
+
+Each row:
+
+Icon + title + one short “best for” line
+
+Requirements:
+
+* No mix of accordion plus standalone cards.
+* Either all compact rows or all accordion rows.
+* Do not show large bordered cards for every vertical on mobile.
+* Section should fit in roughly 1–1.25 screens.
+
+Kill line:
+
+Stop if mobile verticals still render as three accordion rows plus three large standalone cards.
+
+⸻
+
+6. Compress “Why Merchants Switch” on mobile
+
+Current issue: the rate comparison card and feature cards make this section feel like another long report module.
+
+Desktop: keep existing comparison/report card if desired.
+
+Mobile:
+
+* Hide the detailed “What Do Most Merchants Actually Pay?” comparison card or replace it with a compact CTA summary.
+* Do not show three stacked rate cards on mobile.
+* Keep the value proposition but reduce it to quick scan content.
+
+Suggested mobile copy:
+
+Why merchants switch
+Statement-based pricing
+Human support
+Next-day funding eligibility
+Month-to-month terms
+
+Use compact 2x2 cards or rows.
+
+If keeping the rate comparison on mobile, it must be condensed into one short card with a link:
+
+See typical processor comparison →
+
+Kill line:
+
+Stop if the mobile Why Liberty section still renders the full rate comparison card with multiple rate-range cards.
+
+⸻
+
+7. Compact Why Liberty feature cards on mobile
+
+Current issue: feature cards like “Statement-Based Pricing” and “Direct Human Support” are huge full-width blocks.
+
+Desktop: unchanged.
+
+Mobile:
+
+* Convert to 2x2 compact cards or concise list rows.
+* Keep icons.
+* Reduce body copy to one sentence max.
+* Do not render large empty card padding.
+
+Example:
+
+Statement-Based Pricing
+Priced from your actual statement.
+Human Support
+A real person picks up.
+Next-Day Funding*
+For qualifying merchants.
+Month-to-Month Terms
+No long-term lock-in.
+
+Kill line:
+
+Stop if mobile Why Liberty feature cards still render as large full-width cards with oversized padding.
+
+⸻
+
+Mobile Section Budget
+
+The mobile homepage should approximately fit this budget:
+
+Hero: 1 screen
+Sample review: 1 screen
+Trust + Pain: 1 screen
+Stats + Services: 1.5 screens
+Review Includes: 1 screen max
+How It Works: 1 screen max
+Choose Path: 1–1.25 screens
+Industries: 1 screen max
+Testimonials + Why Liberty: 1.5–2 screens
+Risk Reversal + FAQ + Final CTA: 2 screens
+
+Total target: 10–14 meaningful screenshots at 390px.
+
+⸻
+
+Protected Invariants
+
+Do not touch:
+
+* /upload-statement destination
+* CALENDAR_URL
+* phone constants
+* CTA tracking calls
+* StickyMobileCTA IntersectionObserver logic
+* existing desktop layout unless adding hidden md:block / md:hidden pairs
+* backend/API/GHL/analytics
+* form behavior
+* existing data-testid values unless a mobile-only replacement needs unique new IDs
+* compliance fine print
+
+⸻
+
+Validation
+
+Run:
+
+npx tsc --noEmit --skipLibCheck
+npx tsx scripts/smoke-role-guards.ts
+
+Manual screenshots at 390px:
+
+* Hero through trust strip
+* Pain + stats
+* Services
+* Review Includes compact summary
+* How It Works compact process
+* Choose Path accordion
+* Verticals compact
+* Why Liberty compact
+* Risk Reversal / FAQ / Final CTA
+
+Pass conditions:
+
+* No mobile section besides hero/sample-review exceeds ~1.25 screens.
+* Mobile page no longer requires 20+ screenshots.
+* Review Includes is not a 6-row report table on mobile.
+* How It Works is not 8 sequential steps on mobile.
+* Calculator is CTA-only on mobile.
+* Verticals use one consistent compact pattern.
+* Why Liberty comparison card is hidden or condensed on mobile.
+* Sticky CTA does not cover the meaningful end of any card.
+* Desktop 1440px remains visually unchanged for the affected sections.
