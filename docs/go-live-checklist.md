@@ -6,6 +6,28 @@
 
 ---
 
+## CI Automation Coverage
+
+The Wave 12 scripts are wired into GitHub Actions (`.github/workflows/wave12-ci.yml`).
+Every push and pull request to `main` runs them automatically.
+
+| Checklist items | Script | CI job | Required GitHub secrets |
+|---|---|---|---|
+| 4, 5 | `compliance-scan.ts` | `static` | none |
+| (surface check) | `check-api-coverage.ts` | `static` | none |
+| 1, 2, 3 | `smoke-role-guards.ts` | `integration` | `ADMIN_SEED_EMAIL`, `ADMIN_SEED_PASSWORD` |
+| 6, 7, 8 | `test-contactability.ts` | `integration` | `ADMIN_SEED_EMAIL`, `ADMIN_SEED_PASSWORD` |
+| 9, 10 | `test-sequence-compliance.ts` | `integration` | none |
+| 11–14 | `test-forms.ts` | `integration` | none (`GHL_TEST_MODE=true` prevents live GHL) |
+| 15–18 | `seo-audit.ts` | `integration` | none |
+| 19, 20 | `mobile-screenshots.ts` | `integration` | none (exit 2 = env limitation, not a block) |
+
+**To enable CI:** add `ADMIN_SEED_EMAIL` and `ADMIN_SEED_PASSWORD` to the repository's GitHub Actions secrets (Settings → Secrets and variables → Actions). All other scripts run without any secrets.
+
+**Manual items still required before go-live:** visual review of mobile screenshots (item 19), compliance officer sign-off (items 7, 12), and sales/marketing review of active sequence names (item 10). These cannot be automated.
+
+---
+
 ## Checklist
 
 ### 1. Role-Guard Sweep — All Routes Pass
