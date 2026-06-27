@@ -87,7 +87,7 @@ export function StickyMobileCTA({ hidden, onVisibilityChange }: StickyMobileCTAP
         <Link
           href="/upload-statement"
           aria-label="Upload your statement for a free savings analysis"
-          className="flex items-center justify-center gap-2 w-full bg-accent hover:bg-accent/90 text-white font-semibold text-sm rounded-lg py-2.5 transition-colors active:opacity-80"
+          className="flex items-center justify-center gap-2 w-full bg-primary hover:bg-primary/90 text-white font-semibold text-sm rounded-lg py-2.5 transition-colors active:opacity-80"
           data-testid="link-sticky-upload"
           onClick={() => trackStatementUploadCtaClick({ ctaLocation: "sticky_bar", ctaLabel: "Upload Statement — Free" })}
         >

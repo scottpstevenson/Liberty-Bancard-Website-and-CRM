@@ -182,11 +182,11 @@ export default function Home() {
                   <BadgeCheck className="w-3.5 h-3.5 text-accent" />
                   Merchant Services · South Florida
                 </div>
-                <h1 className="si-load si-load-2 text-[2.75rem] leading-[0.98] sm:text-5xl lg:text-[3.5rem] lg:leading-[1.04] font-bold text-foreground mb-5 max-w-[16ch]" data-testid="text-hero-heading">
-                  Merchant Services Built Around <span className="text-accent">Your Statement</span>
+                <h1 className="si-load si-load-2 text-2xl sm:text-3xl md:text-4xl lg:text-[3.5rem] leading-tight md:leading-[1.04] font-bold text-foreground mb-5 max-w-[20ch]" data-testid="text-hero-heading">
+                  <span className="text-accent">Credit Card Processing</span> for Businesses That Deserve Clearer Rates
                 </h1>
                 <p className="si-load si-load-3 text-base sm:text-lg text-muted-foreground leading-relaxed mb-8 max-w-xl" data-testid="text-hero-subheadline">
-                  Liberty Bancard provides credit card processing, terminal setup, and merchant account support for Florida businesses — starting with a free statement review so you can see your fees, options, and next steps before switching.
+                  Liberty Bancard provides merchant accounts, terminal setup, and interchange-plus processing for Florida businesses — starting with a free statement review before you switch.
                 </p>
                 <div className="si-load si-load-4 flex flex-col sm:flex-row gap-3 flex-wrap" data-testid="hero-cta-block">
                   <Link href="/upload-statement" data-testid="link-hero-upload">
@@ -547,7 +547,26 @@ export default function Home() {
         </section>
 
         {/* SECTION 6: Enhanced Rate Calculator */}
-        <section className="section-warm bg-dots py-12 md:py-20" data-testid="section-calculator">
+        {/* Mobile fallback for Rate Calculator — links to /estimate */}
+        <section className="md:hidden section-warm py-10" data-testid="section-calculator-mobile-link">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+            <p className="text-xs font-semibold uppercase tracking-wider text-accent mb-2">Quick Estimate</p>
+            <h2 className="font-display text-2xl font-bold text-foreground mb-3">
+              Run the 60-Second Rate Check
+            </h2>
+            <p className="text-muted-foreground text-sm mb-5 max-w-xs mx-auto">
+              Enter your volume and fees to estimate your effective rate before uploading a statement.
+            </p>
+            <Link href="/estimate" data-testid="link-calculator-mobile-estimate">
+              <Button variant="outline" className="gap-2">
+                <Calculator className="w-4 h-4" />
+                Open Rate Check
+              </Button>
+            </Link>
+          </div>
+        </section>
+
+        <section className="hidden md:block section-warm bg-dots py-12 md:py-20" data-testid="section-calculator">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-start">
               <div className="reveal">
@@ -962,7 +981,7 @@ export default function Home() {
         </section>
 
         {/* SECTION 8.25: Terminal Showcase */}
-        <section className="bg-background py-12 md:py-20" data-testid="section-terminal-showcase">
+        <section className="hidden md:block bg-background py-12 md:py-20" data-testid="section-terminal-showcase">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal text-center max-w-2xl mx-auto mb-10">
               <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-terminal-showcase-heading">
@@ -1160,51 +1179,6 @@ export default function Home() {
           </div>
         </section>
 
-        {/* SECTION 8.75: Savings Guarantee */}
-        <section className="bg-background py-10" data-testid="section-savings-guarantee">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="reveal max-w-3xl mx-auto">
-              <Card className="overflow-hidden border-2 border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/20">
-                <div className="h-1 w-full bg-emerald-500" />
-                <CardContent className="p-8">
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5">
-                    <div className="w-14 h-14 rounded-full bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center shrink-0">
-                      <ShieldCheck className="w-7 h-7 text-emerald-600 dark:text-emerald-400" />
-                    </div>
-                    <div>
-                      <h2 className="text-xl md:text-2xl font-display font-bold text-foreground mb-2" data-testid="text-guarantee-heading">
-                        If the math doesn't support switching, we'll tell you
-                      </h2>
-                      <p className="text-muted-foreground leading-relaxed" data-testid="text-guarantee-body">
-                        We'll show you your real effective rate, compare it to your current processor line by line, and if we can't find meaningful savings — we'll tell you upfront. No pressure, no obligation. The breakdown is yours to keep either way.
-                      </p>
-                    </div>
-                  </div>
-                  <div className="mt-6 pt-5 border-t border-emerald-200 dark:border-emerald-800 grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    {[
-                      "No commitment to see your numbers",
-                      "Honest if the math doesn't work",
-                      "You keep the full breakdown regardless",
-                    ].map((point, i) => (
-                      <div key={i} className="flex items-center gap-2 text-sm text-foreground" data-testid={`guarantee-point-${i}`}>
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                        {point}
-                      </div>
-                    ))}
-                  </div>
-                  <div className="mt-5">
-                    <Link href="/upload-statement" data-testid="link-guarantee-cta">
-                      <Button className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600" onClick={() => trackStatementUploadCtaClick({ page: "/", ctaLabel: "Get My Free Analysis", ctaLocation: "savings-guarantee" })}>
-                        <Upload className="w-4 h-4" />
-                        Get My Free Analysis
-                      </Button>
-                    </Link>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
-        </section>
 
         {/* SECTION 9: Social Proof / Reviews */}
         <section className="section-warm py-12 md:py-20" data-testid="section-reviews">
@@ -1226,7 +1200,8 @@ export default function Home() {
                     <span className="text-[10px] font-semibold uppercase tracking-wider text-primary bg-primary/10 px-2 py-0.5 rounded-full">0% program</span>
                   </div>
                   <Quote className="w-6 h-6 text-primary/20 mb-2" />
-                  <p className="text-sm text-foreground mb-5 leading-relaxed">We were paying Square over $1,100 a month. After switching to Liberty Bancard's cash discount program, our processing cost dropped to nearly zero — saving us $340 a month. That money went straight back into our kitchen.</p>
+                  <p className="text-sm text-foreground mb-3 leading-relaxed">We uploaded our statement, and Liberty showed us exactly where our fees were coming from. We switched programs and our monthly processing cost dropped meaningfully. I wish I'd done it two years earlier.</p>
+                  <p className="text-[10px] text-muted-foreground mb-4 leading-relaxed">* Individual outcomes vary. Based on documented statement review and merchant setup.</p>
                   <div className="flex items-center gap-3 pt-4 border-t border-border">
                     <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-bold shrink-0">M</div>
                     <div>
@@ -1242,7 +1217,7 @@ export default function Home() {
             <div className="reveal hidden md:grid md:grid-cols-3 gap-6 mb-10">
               {[
                 {
-                  quote: "We were paying Square over $1,100 a month. After switching to Liberty Bancard's cash discount program, our processing cost dropped to nearly zero — saving us $340 a month. That money went straight back into our kitchen.",
+                  quote: "We uploaded our statement and Liberty showed us exactly where our fees were coming from. We switched programs and our processing cost dropped meaningfully — I wish I'd done it two years earlier.",
                   name: "Maria R.",
                   role: "Restaurant Owner",
                   city: "South Miami, FL",
@@ -1258,7 +1233,7 @@ export default function Home() {
                   highlight: "Statement review",
                 },
                 {
-                  quote: "We thought Stripe was our only option. Liberty Bancard showed us the exact markup we were paying on top of interchange and switched us to interchange-plus. We're saving over $300 a month without touching our website.",
+                  quote: "We thought Stripe was our only option. Liberty Bancard showed us the exact markup we were paying on top of interchange and switched us to interchange-plus. We're saving meaningfully each month without touching our website.",
                   name: "David K.",
                   role: "Retail Store Owner",
                   city: "Boca Raton, FL",
@@ -1351,11 +1326,12 @@ export default function Home() {
               <p className="text-white/70 leading-relaxed mb-8" data-testid="text-risk-reversal-body-2">
                 You keep the line-item breakdown either way. Use it to negotiate with your current processor, share it with your accountant, or just understand what you're paying for the first time.
               </p>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 mb-8">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 sm:gap-6 mb-8">
                 {[
                   { icon: FileText, label: "No contract required" },
                   { icon: ShieldCheck, label: "Keep the breakdown" },
                   { icon: Scale, label: "Zero obligation" },
+                  { icon: HandshakeIcon, label: "Cancel anytime, no fee" },
                 ].map((item, i) => (
                   <div key={i} className="flex flex-col items-center gap-2 rounded-lg border border-white/15 bg-white/5 px-4 py-5" data-testid={`trust-signal-${i}`}>
                     <div className="w-11 h-11 rounded-full bg-accent/20 border border-accent/30 flex items-center justify-center">
@@ -1369,32 +1345,6 @@ export default function Home() {
           </div>
         </section>
 
-        {/* SECTION 10.5: Security & Compliance Trust Badges */}
-        <section className="bg-background py-10 md:py-16" data-testid="section-security-badges">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <h3 className="text-center text-lg font-display font-bold text-foreground mb-8" data-testid="text-security-heading">
-              Security & Compliance Standards
-            </h3>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-              {[
-                { icon: ShieldCheck, label: "PCI DSS Compliant", desc: "Level 1 payment data security" },
-                { icon: BadgeCheck, label: "EMV Certified", desc: "Chip-card technology standard" },
-                { icon: ShieldCheck, label: "End-to-End Encryption", desc: "All transaction data encrypted" },
-                { icon: BadgeCheck, label: "Tokenization", desc: "Card data replaced with secure tokens" },
-              ].map((badge, i) => (
-                <Card key={i} className="text-center" data-testid={`security-badge-${i}`}>
-                  <CardContent className="p-4 flex flex-col items-center gap-2">
-                    <div className="w-10 h-10 rounded-full bg-emerald-50 dark:bg-emerald-950/30 flex items-center justify-center">
-                      <badge.icon className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-                    </div>
-                    <span className="text-sm font-medium text-foreground">{badge.label}</span>
-                    <span className="text-xs text-muted-foreground">{badge.desc}</span>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </div>
-        </section>
 
         {/* SECTION 11: FAQ */}
         <section className="section-warm py-12 md:py-20" data-testid="section-faq">
@@ -1543,26 +1493,6 @@ export default function Home() {
           </div>
         </section>
 
-        {/* SECTION 11.75: No Lock-in Callout */}
-        <section className="section-warm py-12" data-testid="section-no-lockin">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="reveal max-w-3xl mx-auto text-center">
-              <div className="inline-flex items-center gap-2 bg-primary/10 text-primary text-xs font-semibold px-3 py-1 rounded-md mb-4">
-                <HandshakeIcon className="w-3.5 h-3.5" />
-                No Long-Term Commitment
-              </div>
-              <h2 className="text-2xl font-display font-bold text-foreground mb-3" data-testid="text-no-lockin-heading">
-                Cancel Anytime. No Early Termination Fee. No Penalty.
-              </h2>
-              <p className="text-muted-foreground mb-4 max-w-xl mx-auto" data-testid="text-no-lockin-body">
-                We earn your business every month. No lock-in, no cancellation fees, no penalty for leaving. We're confident in the math — you should be too.
-              </p>
-              <Link href="/terms" className="text-sm text-primary underline font-medium" data-testid="link-no-lockin-terms">
-                Review the merchant terms →
-              </Link>
-            </div>
-          </div>
-        </section>
 
         {/* SECTION 12: Final CTA — sharp navy block */}
         <section className="reveal relative overflow-hidden bg-primary pt-14 pb-20 md:py-24" data-testid="section-final-cta">
