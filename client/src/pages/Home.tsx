@@ -175,15 +175,15 @@ export default function Home() {
         <section className="marketing-surface relative overflow-hidden bg-background border-b border-border" data-testid="section-hero">
           {/* faint ledger texture wash */}
           <div className="hidden lg:block pointer-events-none absolute inset-0 ledger-texture opacity-[0.5]" aria-hidden="true" />
-          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-14 lg:py-24">
+          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8 pb-12 lg:py-24">
             <div className="grid grid-cols-1 lg:grid-cols-[1.05fr_0.95fr] gap-10 lg:gap-16 items-center">
               {/* Left column — message + CTAs */}
-              <div className="accent-rule pt-5">
-                <div className="si-load si-load-1 inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground shadow-sm mb-6" data-testid="text-hero-badge">
+              <div className="pt-2 md:pt-5">
+                <div className="si-load si-load-1 inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground shadow-sm mb-4" data-testid="text-hero-badge">
                   <BadgeCheck className="w-3.5 h-3.5 text-accent" />
                   Merchant Services · South Florida
                 </div>
-                <h1 className="si-load si-load-2 text-2xl sm:text-3xl md:text-4xl lg:text-[3.5rem] leading-tight md:leading-[1.04] font-bold text-foreground mb-5 max-w-[20ch]" data-testid="text-hero-heading">
+                <h1 className="si-load si-load-2 text-xl sm:text-3xl md:text-4xl lg:text-[3.5rem] leading-tight md:leading-[1.04] font-bold text-foreground mb-4 max-w-[20ch]" data-testid="text-hero-heading">
                   <span className="text-accent">Credit Card Processing</span> for Businesses That Deserve Clearer Rates
                 </h1>
                 <p className="si-load si-load-3 text-base sm:text-lg text-muted-foreground leading-relaxed mb-8 max-w-xl" data-testid="text-hero-subheadline">
@@ -197,16 +197,16 @@ export default function Home() {
                     </Button>
                   </Link>
                   <a href={CALENDAR_URL} target="_blank" rel="noopener noreferrer" data-testid="link-hero-book" onClick={() => trackBookingCtaClick({ page: "/", ctaLabel: "Book a 15-Minute Review", ctaLocation: "hero" })}>
-                    <Button size="lg" variant="outline" className="gap-2 w-full sm:w-auto">
+                    <Button size="lg" variant="outline" className="gap-2 w-full sm:w-auto border-border">
                       <Calendar className="w-4 h-4" />
                       Book a 15-Minute Review
                     </Button>
                   </a>
                 </div>
-                <p className="si-load si-load-4 text-xs text-muted-foreground/80 mt-3 max-w-md" data-testid="text-hero-microcopy">
-                  PDF or photo. 30 seconds. Redact account numbers if you want — we only need totals + fee lines.
+                <p className="si-load si-load-4 text-xs text-muted-foreground mt-2 max-w-sm" data-testid="text-hero-microcopy">
+                  Upload a PDF or photo. Takes 30 seconds. You can redact account numbers — totals and fee lines are enough.
                 </p>
-                <div className="si-load si-load-5 flex flex-wrap items-center gap-x-5 gap-y-2 mt-5">
+                <div className="si-load si-load-5 flex flex-wrap items-center gap-x-5 gap-y-2 mt-2">
                   <a href={PHONE_TEL} aria-label="Call Liberty Bancard" className="text-sm font-medium text-foreground hover:text-primary flex items-center gap-1.5 transition-colors" data-testid="link-hero-phone" onClick={() => trackPhoneCtaClick({ page: "/", ctaLabel: PHONE_NUMBER, ctaLocation: "hero" })}>
                     <Phone className="w-4 h-4 text-primary" />
                     Call {PHONE_NUMBER}
@@ -216,7 +216,16 @@ export default function Home() {
                     <ArrowRight className="w-3 h-3" />
                   </Link>
                 </div>
-                {/* compact in-hero trust row */}
+                {/* Mobile: compact proof/trust row — replaces the detached phone row gap */}
+                <div className="si-load si-load-6 lg:hidden flex flex-wrap items-center gap-x-3 gap-y-1.5 mt-4 pt-4 border-t border-border">
+                  {["Free statement review", "No processor login needed", "Florida-based", "Interchange-plus guidance"].map((item, i) => (
+                    <span key={i} className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+                      <BadgeCheck className="w-3 h-3 text-accent shrink-0" />
+                      {item}
+                    </span>
+                  ))}
+                </div>
+                {/* Desktop: compact in-hero trust row */}
                 <div className="si-load si-load-6 hidden lg:flex flex-wrap items-center gap-x-4 gap-y-2 mt-8 pt-6 border-t border-border">
                   <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground" data-testid="text-hero-trust-1"><BadgeCheck className="w-3.5 h-3.5 text-accent" /> Payment processing</span>
                   <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground" data-testid="text-hero-trust-2"><FileText className="w-3.5 h-3.5 text-accent" /> Line-item breakdown</span>

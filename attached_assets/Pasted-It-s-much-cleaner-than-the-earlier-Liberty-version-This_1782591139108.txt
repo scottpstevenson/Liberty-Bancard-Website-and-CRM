@@ -1,0 +1,96 @@
+It’s much cleaner than the earlier Liberty version. This is no longer broken-looking. The brand feels more legitimate, the CTAs are clear, and the mobile hero has a strong conversion path.
+
+But critically: it’s still not 10/10. I’d call this 7.8/10.
+
+What’s working
+
+The logo/header feels professional now. It is clean, not cluttered, and the hamburger is simple.
+
+The headline is strong. “Credit Card Processing for Businesses That Deserve Clearer Rates” is direct and benefit-driven. The blue serif treatment gives it some authority.
+
+The CTA hierarchy is good. Upload statement first, book review second, call third. That is the right conversion order.
+
+The supporting copy is believable. It explains merchant accounts, terminal setup, interchange-plus, Florida, and statement review without sounding spammy.
+
+Biggest issues
+
+1. There is way too much empty space before the hero starts
+
+The header ends around the upper third of the screen, then there is a large blank gap before the little blue accent line and badge.
+
+That makes the page feel like the hero is “floating too low.” On mobile, every pixel above the fold matters. You’re losing prime space before the actual pitch begins.
+
+I would tighten the space between the nav and hero by 32–48px.
+
+2. The small blue accent line feels random
+
+The short horizontal blue line above the badge looks like a leftover decorative element. It does not connect to anything.
+
+Either remove it or make it part of a more intentional system. Right now it feels like a random divider that accidentally survived a redesign.
+
+3. The hero is a little too tall before proof appears
+
+Above the fold includes:
+
+* nav
+* huge blank space
+* badge
+* H1
+* paragraph
+* two CTAs
+* helper text
+* call link
+
+That’s a lot before the user sees proof, savings logic, review example, or trust. The conversion path is clear, but the page needs a little more “why trust this?” sooner.
+
+A compact proof row under the CTAs would help:
+
+Free statement review · No processor login needed · Florida-based · Interchange-plus guidance
+
+4. The helper text under the CTAs is too long and too soft
+
+Current:
+
+PDF or photo. 30 seconds. Redact account numbers if you want — we only need totals + fee lines.
+
+It’s useful, but visually it’s a bit washed out and line-breaks into too much space.
+
+Better:
+
+Upload a PDF or photo. Takes 30 seconds. You can redact account numbers — totals and fee lines are enough.
+
+Make it slightly smaller or tighter, but a little darker.
+
+5. The secondary CTA border is a little heavy
+
+“Book a 15-Minute Review” looks solid, but the black/navy outline is very thick compared to the rest of the soft design. It makes the button feel slightly clunky.
+
+Use a thinner border or softer navy opacity. Keep it clear, just less heavy.
+
+6. H1 line breaks are okay but not perfect
+
+The headline is readable, but the breaks are a bit chunky:
+
+Credit Card Processing for
+Businesses That Deserve
+Clearer Rates
+
+It works, but the first line is visually louder because “Credit Card Processing” is blue. Consider slightly reducing the H1 size or max-width so the rhythm feels more intentional.
+
+7. The call link is too detached
+
+“Call 954-266-8214” is helpful, but it sits alone with a lot of breathing room. It could be part of a compact contact row under the helper copy, or it could be visually grouped with the CTA area.
+
+Right now it feels like a leftover line below the hero buttons.
+
+My fixes in priority order
+
+1. Reduce top hero whitespace after nav.
+2. Remove the random blue accent line.
+3. Tighten CTA/helper/call spacing.
+4. Make helper text darker and cleaner.
+5. Soften the secondary CTA border.
+6. Add a compact proof/trust row near the CTAs.
+7. Slightly tune H1 size/line-height on 375px.
+
+Overall: much improved and credible, but it still needs mobile spacing polish. The current layout is clean, but too airy in the wrong places and a little under-supported above the fold.
