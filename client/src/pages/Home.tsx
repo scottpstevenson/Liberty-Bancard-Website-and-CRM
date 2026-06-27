@@ -297,14 +297,14 @@ export default function Home() {
               {/* findings ledger */}
               <div className="px-5">
                 {[
-                  { label: "Effective rate", value: "3.47%", chip: "Above benchmark", tone: "negative" },
-                  { label: "Monthly fixed fees", value: "$127/mo", chip: "Recurring", tone: "negative" },
+                  { label: "Effective rate", value: "3.47%", chip: "Above benchmark", tone: "negative", testId: "text-statement-audit-mobile-effective-rate" },
+                  { label: "Monthly fixed fees", value: "$127/mo", chip: "Recurring", tone: "negative", testId: "text-statement-audit-mobile-fixed-fees" },
                   { label: "Downgrades / card mix", value: "23%", chip: "Reducible", tone: "negative" },
                   { label: "Add-on fees (PCI, batch)", value: "$38/mo", chip: "Itemized", tone: "negative" },
                   { label: "Funding timeline", value: "Next-day*", chip: "Eligibility", tone: "neutral" },
                   { label: "Savings opportunity", value: "Identified", chip: "On review", tone: "positive" },
                 ].map((row, i) => (
-                  <div key={i} className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 py-2.5 border-b border-border/70 last:border-0" data-testid={`row-statement-mobile-${i}`}>
+                  <div key={i} className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 py-2.5 border-b border-border/70 last:border-0" data-testid={row.testId ?? `row-statement-mobile-${i}`}>
                     <span className="text-[13px] text-foreground/80 min-w-0 flex-1">{row.label}</span>
                     <div className="flex items-center gap-2">
                       <span className={`report-chip report-chip-${row.tone === "negative" ? "negative" : row.tone === "positive" ? "positive" : "neutral"}`}>{row.chip}</span>
@@ -805,7 +805,7 @@ export default function Home() {
         </section>
 
         {/* SECTION 7: Choose Your Path */}
-        <section className="bg-background border-y border-border md:border-0 md:section-navy md:relative md:overflow-hidden py-12 md:py-16" data-testid="section-choose-path">
+        <section className="bg-background border-y border-border md:border-0 md:bg-primary md:text-primary-foreground md:relative md:overflow-hidden py-12 md:py-16" data-testid="section-choose-path">
           <div className="hidden md:block pointer-events-none absolute inset-0 ledger-texture opacity-[0.08]" aria-hidden="true" />
           <div className="hidden md:block absolute top-0 left-0 right-0 h-[3px] bg-accent" aria-hidden="true" />
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
