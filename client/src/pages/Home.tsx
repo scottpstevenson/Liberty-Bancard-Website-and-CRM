@@ -277,7 +277,7 @@ export default function Home() {
         </section>
 
         {/* SECTION: Mobile-only sample review — lg:hidden */}
-        <section className="lg:hidden bg-muted/30 border-b border-border py-8" data-testid="section-sample-review-mobile">
+        <section className="lg:hidden section-warm py-8" data-testid="section-sample-review-mobile">
           <div className="max-w-md mx-auto px-4">
             <p className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground text-center mb-4">Example statement review</p>
             <div className="relative w-full rounded-xl border border-border bg-card shadow-sm overflow-hidden" data-testid="card-statement-audit-mobile">
@@ -325,7 +325,7 @@ export default function Home() {
         </section>
 
         {/* SECTION: Trust strip (merged) */}
-        <section className="bg-primary/5 border-y border-primary/15 py-6" data-testid="section-trust-badges">
+        <section className="bg-background border-b border-border py-6" data-testid="section-trust-badges">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex flex-wrap justify-center items-center gap-x-10 gap-y-4">
               <div className="flex flex-col items-center gap-0.5 text-center" data-testid="trust-badge-years">
@@ -1494,7 +1494,7 @@ export default function Home() {
         </div>
 
         {/* SECTION 11.5: Quick Callback Form */}
-        <section className="bg-primary/5 border-y border-primary/15 py-12 md:py-20 pb-safe-mobile" data-testid="section-callback">
+        <section className="section-warm py-12 md:py-20 pb-safe-mobile" data-testid="section-callback">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
               <div>
