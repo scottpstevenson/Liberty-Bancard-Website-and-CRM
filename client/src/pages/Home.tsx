@@ -181,13 +181,13 @@ export default function Home() {
               <div className="pt-2 md:pt-5">
                 <div className="si-load si-load-1 inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground shadow-sm mb-4" data-testid="text-hero-badge">
                   <BadgeCheck className="w-3.5 h-3.5 text-accent" />
-                  Merchant Services · South Florida
+                  Free Statement Review · No Login Required
                 </div>
                 <h1 className="si-load si-load-2 text-xl sm:text-3xl md:text-4xl lg:text-[3.5rem] leading-tight md:leading-[1.04] font-bold text-foreground mb-4 max-w-[20ch]" data-testid="text-hero-heading">
-                  <span className="text-accent">Credit Card Processing</span> for Businesses That Deserve Clearer Rates
+                  <span className="text-accent">Credit Card Processing</span> Without the Rate Games
                 </h1>
                 <p className="si-load si-load-3 text-base sm:text-lg text-muted-foreground leading-relaxed mb-8 max-w-xl" data-testid="text-hero-subheadline">
-                  Liberty Bancard provides merchant accounts, terminal setup, and interchange-plus processing for Florida businesses — starting with a free statement review before you switch.
+                  Upload a recent processing statement and we'll show your effective rate, markup, monthly fees, and hidden charges — before you switch.
                 </p>
                 <div className="si-load si-load-4 flex flex-col sm:flex-row gap-3 flex-wrap" data-testid="hero-cta-block">
                   <Link href="/upload-statement" data-testid="link-hero-upload">
@@ -218,7 +218,7 @@ export default function Home() {
                 </div>
                 {/* Mobile: compact proof/trust row — replaces the detached phone row gap */}
                 <div className="si-load si-load-6 lg:hidden flex flex-wrap items-center gap-x-3 gap-y-1.5 mt-4 pt-4 border-t border-border">
-                  {["Free statement review", "No processor login needed", "Florida-based", "Interchange-plus guidance"].map((item, i) => (
+                  {["Free statement review", "No processor login needed", "Florida-based"].map((item, i) => (
                     <span key={i} className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
                       <BadgeCheck className="w-3 h-3 text-accent shrink-0" />
                       {item}
