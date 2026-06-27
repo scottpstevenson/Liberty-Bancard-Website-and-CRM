@@ -206,7 +206,7 @@ Return JSON with:
     const { completion } = await logAiCall(
       { triggerType: "statement-analysis", actorType: "system", rawPrompt: JSON.stringify(stmtEngineMessages) },
       () => openai.chat.completions.create({
-        model: "gpt-4o",
+        model: "gpt-5",
         messages: stmtEngineMessages,
         max_tokens: 1000,
         response_format: { type: "json_object" },
@@ -408,7 +408,7 @@ STATEMENT ANALYSIS RESULTS (use these findings):
     const { completion } = await logAiCall(
       { triggerType: "proposal", actorType: "system", rawPrompt: JSON.stringify(propEngineMessages) },
       () => openai.chat.completions.create({
-        model: "gpt-4o",
+        model: "gpt-5",
         messages: propEngineMessages,
         max_tokens: 2000,
         response_format: { type: "json_object" },

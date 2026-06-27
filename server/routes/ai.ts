@@ -62,7 +62,7 @@ OUTPUT FORMAT:
           rawPrompt: JSON.stringify(msgArray),
         },
         () => openai.chat.completions.create({
-          model: "gpt-4o",
+          model: "gpt-5",
           messages: msgArray,
           max_tokens: 1500,
         })
@@ -137,7 +137,7 @@ RULES:
           rawPrompt: JSON.stringify(insightMessages),
         },
         () => openai.chat.completions.create({
-          model: "gpt-4o",
+          model: "gpt-5",
           messages: insightMessages,
           max_tokens: 800,
         })
@@ -207,7 +207,7 @@ FORMAT your response as JSON: {"subject": "...", "body": "..."}${verticalBlock}`
           rawPrompt: JSON.stringify(emailMessages),
         },
         () => openai.chat.completions.create({
-          model: "gpt-4o",
+          model: "gpt-5",
           messages: emailMessages,
           max_tokens: 800,
         })
@@ -331,7 +331,7 @@ Respond ONLY with valid JSON.`
           rawPrompt: JSON.stringify(classifyMessages),
         },
         () => openai.chat.completions.create({
-          model: "gpt-4o",
+          model: "gpt-5",
           messages: classifyMessages,
           max_tokens: 600,
         })
@@ -460,7 +460,7 @@ Return JSON with:
           rawPrompt: JSON.stringify(stmtMessages),
         },
         () => openai.chat.completions.create({
-          model: "gpt-4o",
+          model: "gpt-5",
           messages: stmtMessages,
           max_tokens: 1000,
         })
@@ -632,7 +632,7 @@ Notes: ${deal.notes || "None"}`
           rawPrompt: JSON.stringify(proposalMessages),
         },
         () => openai.chat.completions.create({
-          model: "gpt-4o",
+          model: "gpt-5",
           messages: proposalMessages,
           max_tokens: 2000,
         }));
@@ -1128,7 +1128,7 @@ Based on the above, generate the evidence packet. For the evidenceChecklist, che
       const { completion, flagged: cbFlagged, reviewQueueId: cbReviewId } = await logAiCall(
         { triggerType: "chargeback-copilot", actorType: (req as any).user?.role || "agent", actorId: (req as any).user?.id?.toString(), rawPrompt: JSON.stringify(chargebackMessages) },
         () => openai.chat.completions.create({
-          model: "gpt-4o",
+          model: "gpt-5",
           messages: chargebackMessages,
           max_tokens: 2000,
           response_format: { type: "json_object" },
@@ -1162,7 +1162,7 @@ Based on the above, generate the evidence packet. For the evidenceChecklist, che
           systemPrompt,
           userPrompt,
           rawModelOutput: raw,
-          model: completion.model || "gpt-4o",
+          model: completion.model || "gpt-5",
           promptTokens: completion.usage?.prompt_tokens,
           completionTokens: completion.usage?.completion_tokens,
           generatedByUserId: (req as any).user?.id?.toString(),
@@ -1330,7 +1330,7 @@ Based on the above, generate the evidence packet. For the evidenceChecklist, che
         baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
       });
 
-      const model = log.model || "gpt-4o";
+      const model = log.model || "gpt-5";
       const start = Date.now();
 
       let messages: Array<{ role: "system" | "user" | "assistant"; content: string }>;

@@ -89,7 +89,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
           const { completion } = await logAi(
             { triggerType: "statement-analysis", actorType: "system", rawPrompt: JSON.stringify(pubStmtMessages) },
             () => openai.chat.completions.create({
-              model: "gpt-4o",
+              model: "gpt-5",
               messages: pubStmtMessages,
               max_tokens: 800,
             })

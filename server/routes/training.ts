@@ -168,7 +168,7 @@ Stay in character as the merchant. Be realistic, not a pushover. Don't make it t
       const { completion } = await logAiCall(
         { triggerType: "training-generation", actorType: (req as any).user?.role || "agent", actorId: (req as any).user?.id?.toString(), rawPrompt: JSON.stringify(messages) },
         () => openai.chat.completions.create({
-          model: "gpt-4o",
+          model: "gpt-5",
           messages,
           max_tokens: 600,
         })
@@ -269,7 +269,7 @@ Return valid JSON with:
       const { completion } = await logAiCall(
         { triggerType: "training-generation", actorType: (req as any).user?.role || "agent", actorId: (req as any).user?.id?.toString(), rawPrompt: JSON.stringify(coachMessages) },
         () => openai.chat.completions.create({
-          model: "gpt-4o",
+          model: "gpt-5",
           messages: coachMessages,
           max_tokens: 600,
         })

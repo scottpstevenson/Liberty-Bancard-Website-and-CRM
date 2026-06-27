@@ -198,7 +198,7 @@ Return ONLY JSON:
       const { completion } = await logAiCall(
         { triggerType: "social-generation", actorType: (req as any).user?.role || "agent", actorId: (req as any).user?.id?.toString(), rawPrompt: JSON.stringify(socialMessages) },
         () => openai.chat.completions.create({
-          model: "gpt-4o",
+          model: "gpt-5",
           messages: socialMessages,
           temperature: 0.8,
           response_format: { type: "json_object" },

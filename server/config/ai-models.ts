@@ -6,7 +6,7 @@
 
 export const AI_MODELS = {
   /** General-purpose high-quality model — AI advisors, proposals, blueprint generation */
-  standard: "gpt-4o",
+  standard: "gpt-5",
 
   /** Lightweight fast model — intent classification, enrichment, scoring, campaign copy */
   fast: "gpt-4o-mini",

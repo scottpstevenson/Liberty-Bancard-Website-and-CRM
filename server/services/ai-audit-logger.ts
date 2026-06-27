@@ -5,9 +5,9 @@ import type OpenAI from "openai";
 import { createHash } from "crypto";
 
 const MODEL_COSTS: Record<string, { inputCentsPerToken: number; outputCentsPerToken: number }> = {
+  "gpt-5": { inputCentsPerToken: 0.00025, outputCentsPerToken: 0.001 },
   "gpt-4o-mini": { inputCentsPerToken: 0.000015, outputCentsPerToken: 0.00006 },
   "gpt-4o": { inputCentsPerToken: 0.00025, outputCentsPerToken: 0.001 },
-  "gpt-4o-mini": { inputCentsPerToken: 0.000015, outputCentsPerToken: 0.00006 },
   "gpt-4-turbo": { inputCentsPerToken: 0.001, outputCentsPerToken: 0.003 },
   "gpt-4": { inputCentsPerToken: 0.003, outputCentsPerToken: 0.006 },
   "gpt-3.5-turbo": { inputCentsPerToken: 0.00005, outputCentsPerToken: 0.00015 },

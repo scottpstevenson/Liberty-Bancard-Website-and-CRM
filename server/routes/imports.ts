@@ -210,7 +210,7 @@ Guidelines:
       const { completion } = await logAiCall(
         { triggerType: "content-generation", actorType: (req as any).user?.role || "agent", actorId: (req as any).user?.id?.toString(), rawPrompt: JSON.stringify(importGenMessages) },
         () => openai.chat.completions.create({
-          model: "gpt-4o",
+          model: "gpt-5",
           messages: importGenMessages,
           temperature: 0.7,
           response_format: { type: "json_object" },
