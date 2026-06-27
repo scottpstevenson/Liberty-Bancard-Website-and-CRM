@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/accordion";
 import {
   FileText,
+  CreditCard,
   ShieldCheck,
   Headphones,
   Scale,
@@ -367,26 +368,61 @@ export default function Home() {
           </div>
         </section>
 
-        {/* SECTION 3.7: Processing Infrastructure & Compliance */}
-        <section className="reveal bg-background border-b border-border py-12" data-testid="section-partners">
+        {/* SECTION 3.7: Services / Processing Identity */}
+        <section className="reveal bg-background border-b border-border py-12 md:py-16" data-testid="section-services">
           <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-            <p className="text-center text-lg md:text-xl font-display font-bold text-foreground mb-2">
-              Reviewed with the rules your processor already uses
-            </p>
-            <p className="text-center text-sm text-muted-foreground mb-8 max-w-xl mx-auto">
-              Every review is grounded in the same card-brand and compliance framework your current provider operates under.
-            </p>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+            <div className="reveal text-center mb-8 md:mb-10">
+              <h2 className="text-2xl md:text-3xl font-display font-bold text-foreground mb-2" data-testid="text-services-heading">
+                What Liberty Bancard Handles
+              </h2>
+              <p className="text-sm text-muted-foreground max-w-xl mx-auto" data-testid="text-services-subheadline">
+                Merchant accounts, card processing, terminal setup, and ongoing support — starting with a free statement review before you switch.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
               {[
-                { name: "Card-brand aware review", icon: BadgeCheck },
-                { name: "PCI-aware documentation", icon: ShieldCheck },
-                { name: "Funding & setup clarity", icon: Banknote },
-                { name: "Human support throughout", icon: Headphones },
+                {
+                  icon: CreditCard,
+                  chip: "In-person · Online · Keyed",
+                  title: "Credit Card Processing",
+                  mobile: "Accept cards in person, online, keyed, mobile, or virtual.",
+                  desktop: "Accept cards the way your business actually takes payments — in person, online, keyed, mobile, or through a virtual terminal.",
+                },
+                {
+                  icon: Building,
+                  chip: "Volume-based setup",
+                  title: "Merchant Accounts",
+                  mobile: "A merchant account setup based on your volume, card mix, and eligibility.",
+                  desktop: "Liberty helps configure a merchant account path based on your business type, volume, card mix, and eligibility.",
+                },
+                {
+                  icon: Store,
+                  chip: "Hardware + virtual",
+                  title: "Terminal & POS Setup",
+                  mobile: "Terminals, mobile readers, virtual options, and POS-ready setups.",
+                  desktop: "Countertop terminals, mobile readers, virtual terminals, and POS-ready options configured after approval.",
+                },
+                {
+                  icon: Headphones,
+                  chip: "After approval",
+                  title: "Human Account Support",
+                  mobile: "Real help with onboarding, funding questions, account changes, and support.",
+                  desktop: "A real Liberty advisor helps with onboarding, funding questions, account changes, and day-to-day support.",
+                },
               ].map((item, i) => (
-                <div key={i} className="flex flex-col items-center text-center gap-2 rounded-md border border-border bg-card px-3 py-4 shadow-card" data-testid={`partner-logo-${i}`}>
-                  <item.icon className="w-5 h-5 text-accent shrink-0" />
-                  <span className="text-xs font-semibold text-foreground leading-snug">{item.name}</span>
-                </div>
+                <Card key={i} className="bg-primary/5 border-primary/15" data-testid={`card-service-${i}`}>
+                  <CardContent className="p-4 md:p-6">
+                    <div className="w-10 h-10 md:w-12 md:h-12 rounded-md bg-primary/10 flex items-center justify-center mb-3 md:mb-4">
+                      <item.icon className="w-5 h-5 md:w-6 md:h-6 text-primary" />
+                    </div>
+                    <span className="report-chip report-chip-neutral mb-2 inline-block">{item.chip}</span>
+                    <h3 className="font-display font-bold text-base md:text-lg text-foreground mb-2">{item.title}</h3>
+                    <p className="text-xs md:text-sm text-muted-foreground leading-relaxed">
+                      <span className="md:hidden">{item.mobile}</span>
+                      <span className="hidden md:block">{item.desktop}</span>
+                    </p>
+                  </CardContent>
+                </Card>
               ))}
             </div>
           </div>

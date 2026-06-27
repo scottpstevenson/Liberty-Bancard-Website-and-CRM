@@ -1,0 +1,344 @@
+676 — Homepage Services / Processing Identity Section
+
+Mode
+
+Surgical Build Mode.
+
+Implement the approved preflight plan with the corrections below.
+
+This is a one-section replacement only. Do not redesign the homepage. Do not add new sections beyond replacing section-partners.
+
+⸻
+
+Build Scope
+
+Replace the existing section-partners block in:
+
+client/src/pages/Home.tsx
+
+around lines 370–393 with a new Services / Processing Identity section.
+
+Also add CreditCard to the existing lucide-react import block if not already imported.
+
+No other files should change.
+
+⸻
+
+Purpose
+
+The homepage still needs one early section that clearly explains what Liberty Bancard actually provides.
+
+This section answers:
+
+What does Liberty Bancard handle for merchants?
+
+It should make the business category obvious:
+
+* credit card processing
+* merchant accounts
+* terminal / POS setup
+* virtual / keyed payments
+* human account support
+
+The statement review remains the entry point, not the whole company identity.
+
+⸻
+
+Placement
+
+Replace the current section-partners block directly after the Stats section and before “What You Get.”
+
+Current section to replace:
+
+section-partners
+
+New section:
+
+section-services
+
+Reason:
+
+The sequence should become:
+
+Hero → Trust Strip → Pain Points → Stats → Services → What You Get → How It Works
+
+After Stats, the visitor has trust. The next question is: “What do they actually provide?”
+
+⸻
+
+Section Treatment
+
+Use:
+
+bg-background border-b border-border py-12 md:py-16
+
+Do not use section-warm, because the next section is already warm.
+
+Do not use another dark section, because Stats already provides the navy break.
+
+⸻
+
+Heading
+
+Use:
+
+What Liberty Bancard Handles
+
+Subheadline:
+
+Merchant accounts, card processing, terminal setup, and ongoing support — starting with a free statement review before you switch.
+
+⸻
+
+Layout
+
+Desktop:
+
+grid-cols-2 md:grid-cols-4 gap-4 md:gap-6
+
+Mobile:
+
+Use a 2×2 compact grid, not an accordion.
+
+Important mobile correction:
+
+The preflight card copy is too long for 390px 2×2 cards. Use shorter mobile-friendly copy or responsive copy so the cards stay readable.
+
+Recommended:
+
+* mobile card padding: p-4
+* desktop card padding: md:p-6
+* mobile body text: shorter, one compact sentence
+* desktop body text: fuller copy is acceptable
+
+Do not let this section become another tall mobile card wall.
+
+Kill line:
+
+Stop if the mobile 2×2 grid becomes dense, cramped, or taller than roughly one mobile viewport.
+
+⸻
+
+Card Pattern
+
+Reuse the existing “Why Liberty” card pattern:
+
+Card className="bg-primary/5 border-primary/15"
+CardContent className="p-4 md:p-6"
+Icon container: w-10 h-10 md:w-12 md:h-12 rounded-md bg-primary/10 flex items-center justify-center mb-3 md:mb-4
+Icon: w-5 h-5 md:w-6 md:h-6 text-primary
+Chip: report-chip report-chip-neutral
+Title: font-display font-bold text-base md:text-lg text-foreground mb-2
+Body: text-xs md:text-sm text-muted-foreground leading-relaxed
+
+⸻
+
+Cards
+
+Card 1
+
+Title:
+
+Credit Card Processing
+
+Chip:
+
+In-person · Online · Keyed
+
+Desktop body:
+
+Accept cards the way your business actually takes payments — in person, online, keyed, mobile, or through a virtual terminal.
+
+Mobile body:
+
+Accept cards in person, online, keyed, mobile, or virtual.
+
+Icon:
+
+CreditCard
+
+⸻
+
+Card 2
+
+Title:
+
+Merchant Accounts
+
+Chip:
+
+Volume-based setup
+
+Desktop body:
+
+Liberty helps configure a merchant account path based on your business type, volume, card mix, and eligibility.
+
+Mobile body:
+
+A merchant account setup based on your volume, card mix, and eligibility.
+
+Icon:
+
+Building
+
+⸻
+
+Card 3
+
+Title:
+
+Terminal & POS Setup
+
+Chip:
+
+Hardware + virtual
+
+Desktop body:
+
+Countertop terminals, mobile readers, virtual terminals, and POS-ready options configured after approval.
+
+Mobile body:
+
+Terminals, mobile readers, virtual options, and POS-ready setups.
+
+Icon:
+
+Store
+
+⸻
+
+Card 4
+
+Title:
+
+Human Account Support
+
+Chip:
+
+After approval
+
+Desktop body:
+
+A real Liberty advisor helps with onboarding, funding questions, account changes, and day-to-day support.
+
+Mobile body:
+
+Real help with onboarding, funding questions, account changes, and support.
+
+Icon:
+
+Headphones
+
+⸻
+
+Data Test IDs
+
+Use:
+
+section-services
+text-services-heading
+text-services-subheadline
+card-service-0
+card-service-1
+card-service-2
+card-service-3
+
+Remove/replace:
+
+section-partners
+partner-logo-0
+partner-logo-1
+partner-logo-2
+partner-logo-3
+
+Preflight confirmed those old test IDs have no external references.
+
+⸻
+
+Protected Invariants
+
+Do not touch:
+
+* backend
+* API routes
+* upload flow
+* booking flow
+* form behavior
+* GHL
+* analytics
+* contactability
+* dashboard pages
+* StickyMobileCTA
+* testimonials
+* Rate Calculator
+* Terminal Showcase
+* footer
+* mobile dock
+* CTA destinations
+* tracking calls
+* existing section data-testids outside the replaced block
+
+⸻
+
+Kill Lines
+
+Stop and report if:
+
+* the new section uses generic SaaS language
+* the section does not clearly say what Liberty provides as a processor / merchant services company
+* the section background is section-warm
+* the mobile layout is a single-column stack or accordion
+* the mobile 2×2 grid is cramped or unreadable
+* card body copy contains savings percentages or dollar figures
+* section-partners remains in Home.tsx
+* existing section data-testids outside the replaced block are renamed or removed
+* any backend/API file needs to change
+
+⸻
+
+Validation
+
+Run:
+
+npx tsc --noEmit --skipLibCheck
+npx tsx scripts/smoke-role-guards.ts
+
+Required greps:
+
+grep Home.tsx for "section-partners" → 0 matches
+grep Home.tsx for "section-services" → 1 match
+grep Home.tsx for "Reviewed with the rules" → 0 matches
+grep Home.tsx for "What Liberty Bancard Handles" → 1 match
+grep Home.tsx for "CreditCard" → import + usage
+
+Required screenshots:
+
+Mobile 390px:
+
+* Stats → Services → What You Get transition
+* full Services section showing 2×2 grid
+* confirm cards are readable and not cramped
+
+Desktop 1440px:
+
+* Stats → Services → What You Get transition
+* Services section 4-column layout
+* full page scroll note confirming section count is unchanged
+
+⸻
+
+Final Report Required
+
+Return:
+
+1. files changed
+2. old section removed
+3. new section copy
+4. desktop layout
+5. mobile layout
+6. mobile readability notes
+7. data-testid changes
+8. protected invariants confirmation
+9. screenshots captured
+10. tests run
+11. remaining risks
