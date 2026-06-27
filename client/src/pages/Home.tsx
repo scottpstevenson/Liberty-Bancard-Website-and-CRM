@@ -572,8 +572,35 @@ export default function Home() {
             <h2 className="reveal text-3xl md:text-4xl font-display font-bold text-foreground text-center mb-4" data-testid="text-how-heading">
               How The Liberty Analysis Works
             </h2>
-            <p className="text-center text-muted-foreground mb-12 max-w-xl mx-auto">Three clear steps. Most reviews finish the same business day. You keep the results no matter what.</p>
-            <div className="reveal relative grid grid-cols-1 md:grid-cols-3 gap-8">
+            <p className="text-center text-muted-foreground mb-8 max-w-xl mx-auto">Three clear steps. Most reviews finish the same business day. You keep the results no matter what.</p>
+            {/* Mobile: compact 3-row process list */}
+            <div className="md:hidden rounded-lg border border-border overflow-hidden mb-0" data-testid="section-how-it-works-mobile">
+              {[
+                { step: "1", title: "Upload Your Statement", desc: "PDF or photo — 30 seconds. Redact account numbers if you want." },
+                { step: "2", title: "We Run The Liberty Analysis", desc: "Same business day, we review every fee and calculate your true effective rate." },
+                { step: "3", title: "You Get 2–3 Clear Options", desc: "Real math, no pressure. Keep the full breakdown either way." },
+              ].map((item, i) => (
+                <div key={i} className="flex items-start gap-3 px-4 py-3 border-b border-border last:border-0 bg-card" data-testid={`step-mobile-${item.step}`}>
+                  <div className="w-7 h-7 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold num shrink-0 mt-0.5">
+                    {item.step}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-foreground">{item.title}</p>
+                    <p className="text-xs text-muted-foreground leading-snug mt-0.5">{item.desc}</p>
+                  </div>
+                </div>
+              ))}
+              <div className="px-4 py-3 bg-card border-t border-border">
+                <Link href="/upload-statement" data-testid="link-how-it-works-cta-mobile">
+                  <Button className="gap-2 w-full">
+                    <Upload className="w-4 h-4" />
+                    Start My Liberty Analysis
+                  </Button>
+                </Link>
+              </div>
+            </div>
+            {/* Desktop: 3-step numbered circle grid */}
+            <div className="reveal relative hidden md:grid md:grid-cols-3 gap-8">
               <div className="hidden md:block absolute top-7 left-[16.66%] right-[16.66%] h-0.5 bg-gradient-to-r from-border via-accent/40 to-border" aria-hidden="true" />
               {[
                 { step: "1", icon: Upload, title: "Upload Your Statement", desc: "PDF or photo. 30 seconds. Redact account numbers if you want — we only need totals and fee lines.", cta: "Start Your Liberty Analysis", href: "/upload-statement" },
@@ -852,11 +879,7 @@ export default function Home() {
                   </div>
                 </AccordionTrigger>
                 <AccordionContent className="px-4 pb-4">
-                  <ul className="space-y-2 text-sm text-muted-foreground mb-4">
-                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Real interchange passthrough</li>
-                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> No bundled "qualified" tiers</li>
-                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Full cost transparency</li>
-                  </ul>
+                  <p className="text-sm text-muted-foreground mb-4">Real interchange passthrough — transparent fee on top, no bundled tiers, no guesswork on every line.</p>
                   <Link href="/upload-statement" data-testid="link-wholesale-cta-mobile">
                     <Button className="gap-2 w-full">Run My Review <ArrowRight className="w-4 h-4" /></Button>
                   </Link>
@@ -870,11 +893,7 @@ export default function Home() {
                   </div>
                 </AccordionTrigger>
                 <AccordionContent className="px-4 pb-4">
-                  <ul className="space-y-2 text-sm text-muted-foreground mb-4">
-                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Cash discount or surcharging</li>
-                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Proper disclosures + receipts</li>
-                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Staff scripts included</li>
-                  </ul>
+                  <p className="text-sm text-muted-foreground mb-4">Cash discount or surcharging where permitted — proper disclosures, receipts, and staff scripts included.*</p>
                   <Link href="/0-percent-processing" data-testid="link-zero-percent-cta-mobile">
                     <Button variant="outline" className="gap-2 w-full">Check 0% Fit <ArrowRight className="w-4 h-4" /></Button>
                   </Link>
@@ -888,11 +907,7 @@ export default function Home() {
                   </div>
                 </AccordionTrigger>
                 <AccordionContent className="px-4 pb-4">
-                  <ul className="space-y-2 text-sm text-muted-foreground mb-4">
-                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Tap, dip, swipe, manual key</li>
-                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Free for qualifying merchants*</li>
-                    <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" /> Same-day setup when eligible</li>
-                  </ul>
+                  <p className="text-sm text-muted-foreground mb-4">Tap, dip, swipe, and key entry — free for qualifying merchants, same-day setup when eligible.*</p>
                   <Link href="/upload-statement?terminal=yes" data-testid="link-terminal-cta-mobile">
                     <Button variant="outline" className="gap-2 w-full">Check Eligibility <ArrowRight className="w-4 h-4" /></Button>
                   </Link>
@@ -1006,38 +1021,24 @@ export default function Home() {
               </h2>
               <p className="text-muted-foreground max-w-xl mx-auto">South Florida roots. Nationwide reach. We know the cost pressures in your industry.</p>
             </div>
-            {/* Mobile: Accordion for top industries */}
-            <Accordion type="single" collapsible className="lg:hidden rounded-lg border border-border overflow-hidden mb-6" data-testid="accordion-verticals">
+            {/* Mobile: flat compact icon list — no accordion, no expanded content */}
+            <div className="md:hidden rounded-lg border border-border overflow-hidden mb-6" data-testid="accordion-verticals">
               {[
-                { icon: UtensilsCrossed, title: "Restaurants", bestFor: "Tip-adjust + weekend volume", points: ["Fast tip-adjusted checkout that won't freeze on a Friday night", "Weekend support when your team actually needs it"] },
-                { icon: Stethoscope, title: "Medical / Dental / Medspa", bestFor: "Front-desk speed + clean deposits", points: ["Predictable deposit clarity for the front desk", "HIPAA-aware workflows and fewer billing headaches"] },
-                { icon: Car, title: "Automotive", bestFor: "High-ticket + chargeback safety", points: ["High-ticket transaction handling with predictable funding", "Chargeback prevention built into the workflow"] },
+                { icon: UtensilsCrossed, title: "Restaurants", bestFor: "Tip-adjust + weekend volume" },
+                { icon: Stethoscope, title: "Medical / Dental / Medspa", bestFor: "Front-desk speed + clean deposits" },
+                { icon: Car, title: "Automotive", bestFor: "High-ticket + chargeback safety" },
               ].map((item, i) => (
-                <AccordionItem key={i} value={`vertical-${i}`} className="border-b border-border last:border-0" data-testid={`vertical-mobile-${i}`}>
-                  <AccordionTrigger className="px-4 py-3 hover:no-underline [&>svg]:shrink-0">
-                    <div className="flex items-center gap-3 text-left mr-2">
-                      <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
-                        <item.icon className="w-4 h-4 text-primary" />
-                      </div>
-                      <div>
-                        <div className="font-display font-semibold text-foreground text-sm">{item.title}</div>
-                        <div className="text-xs text-muted-foreground font-normal">Best For: {item.bestFor}</div>
-                      </div>
-                    </div>
-                  </AccordionTrigger>
-                  <AccordionContent className="px-4 pb-4">
-                    <ul className="space-y-2">
-                      {item.points.map((point, j) => (
-                        <li key={j} className="text-sm text-muted-foreground flex items-start gap-2">
-                          <CheckCircle2 className="w-4 h-4 text-primary mt-0.5 shrink-0" />
-                          {point}
-                        </li>
-                      ))}
-                    </ul>
-                  </AccordionContent>
-                </AccordionItem>
+                <div key={i} className="flex items-center gap-3 px-4 py-3 border-b border-border last:border-0 bg-card" data-testid={`vertical-mobile-${i}`}>
+                  <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+                    <item.icon className="w-4 h-4 text-primary" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="font-display font-semibold text-foreground text-sm">{item.title}</div>
+                    <div className="text-xs text-muted-foreground">Best For: {item.bestFor}</div>
+                  </div>
+                </div>
               ))}
-            </Accordion>
+            </div>
 
             {/* Desktop: three-column grid — unchanged */}
             <div className="reveal hidden lg:grid lg:grid-cols-3 gap-6 mb-6">
@@ -1290,7 +1291,7 @@ export default function Home() {
                 { icon: Banknote, title: "Next-Day Funding*", desc: "Funds hit your account the next business day for qualifying merchants." },
                 { icon: HandshakeIcon, title: "Month-to-Month Terms", desc: "No long-term lock-in. We earn your business every month." },
               ].map((item, i) => (
-                <div key={i} className="flex items-start gap-3 rounded-lg border border-border bg-card px-4 py-3" data-testid={`card-why-liberty-${i}`}>
+                <div key={i} className="flex items-start gap-3 rounded-lg border border-border bg-card px-4 py-3" data-testid={`card-why-liberty-mobile-${i}`}>
                   <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
                     <item.icon className="w-4 h-4 text-primary" />
                   </div>
@@ -1309,7 +1310,7 @@ export default function Home() {
                 { icon: Banknote, title: "Next-Day Funding*", desc: "For qualifying merchants, funds hit your account the next business day. Cash flow you can count on." },
                 { icon: HandshakeIcon, title: "Month-to-Month Terms", desc: "We earn your business every month. Standard processing terms apply — no long-term lock-in, no pressure." },
               ].map((item, i) => (
-                <Card key={i} className="bg-primary/5 border-primary/15" data-testid={`card-why-liberty-desktop-${i}`}>
+                <Card key={i} className="bg-primary/5 border-primary/15" data-testid={`card-why-liberty-${i}`}>
                   <CardContent className="p-6">
                     <div className="w-12 h-12 rounded-md bg-primary/10 flex items-center justify-center mb-4">
                       <item.icon className="w-6 h-6 text-primary" />
