@@ -10,7 +10,6 @@ import { useAuth } from "@/hooks/use-auth";
 import { Loader2 } from "lucide-react";
 import { StickyMobileCTA } from "@/components/StickyMobileCTA";
 import { ExitIntentPopup } from "@/components/ExitIntentPopup";
-import { ContactBubble } from "@/components/ContactBubble";
 import { CookieConsent } from "@/components/CookieConsent";
 import ChatWidget from "@/components/ChatWidget";
 import { trackPageView } from "@/lib/tracking";
@@ -736,8 +735,7 @@ function PublicLayout() {
       </ErrorBoundary>
       {!isDashboard && !isThanksPage && !isAuthPage && !isMobile && !isUploadStatement && <StickyMobileCTA />}
       {!isDashboard && !isAuthPage && !isMobile && <ExitIntentPopup />}
-      {!isDashboard && !isThanksPage && !isAuthPage && !isMobile && <ContactBubble />}
-      {!isDashboard && !isAuthPage && !isMobile && <CookieConsent />}
+            {!isDashboard && !isAuthPage && !isMobile && <CookieConsent />}
       {!isDashboard && !isThanksPage && !isAuthPage && !isMobile && <ChatWidget />}
     </>
   );

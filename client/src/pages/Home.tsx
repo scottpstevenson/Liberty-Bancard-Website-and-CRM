@@ -180,13 +180,13 @@ export default function Home() {
               <div className="accent-rule pt-5">
                 <div className="si-load si-load-1 inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground shadow-sm mb-6" data-testid="text-hero-badge">
                   <BadgeCheck className="w-3.5 h-3.5 text-accent" />
-                  Free statement review — keep the breakdown even if you don't switch
+                  Merchant Services · South Florida
                 </div>
                 <h1 className="si-load si-load-2 text-[2.75rem] leading-[0.98] sm:text-5xl lg:text-[3.5rem] lg:leading-[1.04] font-bold text-foreground mb-5 max-w-[16ch]" data-testid="text-hero-heading">
-                  See What Your Processor Is <span className="text-accent">Really Charging</span>
+                  Merchant Services Built Around <span className="text-accent">Your Statement</span>
                 </h1>
                 <p className="si-load si-load-3 text-base sm:text-lg text-muted-foreground leading-relaxed mb-8 max-w-xl" data-testid="text-hero-subheadline">
-                  Upload a recent statement. Liberty turns the fee lines, downgrades, and monthly add-ons into a clear review you can actually use.
+                  Liberty Bancard provides credit card processing, terminal setup, and merchant account support for Florida businesses — starting with a free statement review so you can see your fees, options, and next steps before switching.
                 </p>
                 <div className="si-load si-load-4 flex flex-col sm:flex-row gap-3 flex-wrap" data-testid="hero-cta-block">
                   <Link href="/upload-statement" data-testid="link-hero-upload">
@@ -217,7 +217,7 @@ export default function Home() {
                 </div>
                 {/* compact in-hero trust row */}
                 <div className="si-load si-load-6 flex flex-wrap items-center gap-x-4 gap-y-2 mt-8 pt-6 border-t border-border">
-                  <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground" data-testid="text-hero-trust-1"><BadgeCheck className="w-3.5 h-3.5 text-accent" /> Statement-based review</span>
+                  <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground" data-testid="text-hero-trust-1"><BadgeCheck className="w-3.5 h-3.5 text-accent" /> Payment processing</span>
                   <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground" data-testid="text-hero-trust-2"><FileText className="w-3.5 h-3.5 text-accent" /> Line-item breakdown</span>
                   <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground" data-testid="text-hero-trust-3"><Headphones className="w-3.5 h-3.5 text-accent" /> Real human support</span>
                 </div>
@@ -285,10 +285,10 @@ export default function Home() {
                 <span className="text-xs text-muted-foreground">Local reps, real conversations</span>
               </div>
               <div className="w-px h-10 bg-border hidden sm:block" />
-              <div className="flex flex-col items-center gap-0.5 text-center" data-testid="trust-badge-merchants">
-                <span className="text-lg font-bold text-foreground">Free</span>
-                <span className="text-xs font-semibold text-foreground">Statement Review</span>
-                <span className="text-xs text-muted-foreground">Keep the breakdown either way</span>
+              <div className="flex flex-col items-center gap-0.5 text-center" data-testid="trust-badge-processing">
+                <span className="text-lg font-bold text-foreground">Card Processing</span>
+                <span className="text-xs font-semibold text-foreground">Visa · Mastercard · Amex</span>
+                <span className="text-xs text-muted-foreground">Discover · all major cards</span>
               </div>
               <div className="w-px h-10 bg-border hidden sm:block" />
               <div className="flex flex-col items-center gap-0.5 text-center" data-testid="trust-badge-volume">
@@ -457,7 +457,7 @@ export default function Home() {
         <section className="bg-background py-12 md:py-20" data-testid="section-how-it-works">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="text-center mb-2">
-              <span className="inline-flex items-center gap-1.5 bg-primary/10 text-primary text-xs font-semibold px-3 py-1 rounded-md uppercase tracking-wider mb-3">The Liberty Analysis</span>
+              <span className="inline-flex items-center gap-1.5 bg-primary/10 text-primary text-xs font-semibold px-3 py-1 rounded-md uppercase tracking-wider mb-3">Phase 1 · Analysis</span>
             </div>
             <h2 className="reveal text-3xl md:text-4xl font-display font-bold text-foreground text-center mb-4" data-testid="text-how-heading">
               How The Liberty Analysis Works
@@ -497,7 +497,7 @@ export default function Home() {
                   <h3 className="text-sm font-semibold text-foreground" data-testid="text-timeline-heading">
                     What Happens After You Say Yes
                   </h3>
-                  <span className="num text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Onboarding · 48h target*</span>
+                  <span className="num text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Phase 2 · Onboarding</span>
                 </div>
                 <div className="p-6 sm:p-8">
                   <div className="relative">
@@ -702,12 +702,14 @@ export default function Home() {
         </section>
 
         {/* SECTION 7: Choose Your Path */}
-        <section className="section-warm py-12 md:py-20" data-testid="section-choose-path">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <h2 className="reveal text-3xl md:text-4xl font-display font-bold text-foreground text-center mb-4" data-testid="text-choose-path-heading">
+        <section className="section-warm md:section-navy md:relative md:overflow-hidden py-12 md:py-16" data-testid="section-choose-path">
+          <div className="hidden md:block pointer-events-none absolute inset-0 ledger-texture opacity-[0.08]" aria-hidden="true" />
+          <div className="hidden md:block absolute top-0 left-0 right-0 h-[3px] bg-accent" aria-hidden="true" />
+          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <h2 className="reveal text-3xl md:text-4xl font-display font-bold text-foreground md:text-white text-center mb-4" data-testid="text-choose-path-heading">
               Choose the Strategy That Fits
             </h2>
-            <p className="text-center text-muted-foreground mb-12 max-w-xl mx-auto">Every business is different. Here are the most common paths our merchants take.</p>
+            <p className="text-center text-muted-foreground md:text-white/70 mb-12 max-w-xl mx-auto">Every business is different. Here are the most common paths our merchants take.</p>
             {/* Mobile: Accordion — Upload-focused, collapsed by default except Wholesale */}
             <Accordion type="single" collapsible defaultValue="wholesale" className="md:hidden rounded-lg border border-border overflow-hidden" data-testid="accordion-choose-path">
               <AccordionItem value="wholesale" className="border-b border-border last:border-0" data-testid="card-wholesale-mobile">
@@ -860,14 +862,14 @@ export default function Home() {
                 </CardFooter>
               </Card>
             </div>
-            <p className="text-center text-xs text-muted-foreground mt-6" data-testid="text-choose-path-footnote">
+            <p className="text-center text-xs text-muted-foreground md:text-white/60 mt-6" data-testid="text-choose-path-footnote">
               *Eligibility, underwriting, card brand rules, and applicable laws apply. No savings claims without statement review.
             </p>
           </div>
         </section>
 
         {/* SECTION 8: Vertical Credibility */}
-        <section className="bg-background bg-dots py-12 md:py-20" data-testid="section-verticals">
+        <section className="bg-background bg-dots border-t-2 border-primary/20 py-12 md:py-20" data-testid="section-verticals">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="reveal text-center mb-12">
               <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-verticals-heading">
@@ -1047,19 +1049,19 @@ export default function Home() {
             <div className="reveal grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
               <div>
                 <div className="inline-flex items-center gap-2 bg-sky-50 dark:bg-sky-950/30 text-sky-600 dark:text-sky-400 text-xs font-semibold px-3 py-1 rounded-md mb-4">
-                  Full account visibility
+                  How your account is managed
                 </div>
                 <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4" data-testid="text-platform-heading">
-                  After switching, your team gets full operational visibility
+                  Your account team has full visibility into every step
                 </h2>
                 <p className="text-muted-foreground mb-6 leading-relaxed">
-                  Behind every Liberty merchant account is a full operations platform — so the team supporting you sees your pipeline, tickets, and onboarding in real time, and nothing falls through the cracks.
+                  Every Liberty merchant account is backed by a dedicated team that tracks your onboarding, support tickets, and account history in one place — so nothing falls through the cracks and every issue is resolved with full context.
                 </p>
                 <div className="space-y-3 mb-6">
                   {[
-                    "A dedicated team that sees your full account history",
-                    "Support tickets tracked to resolution with SLAs",
-                    "Onboarding steps mapped and monitored end to end",
+                    "Your onboarding is tracked step-by-step from day one",
+                    "Support issues are logged, assigned, and resolved with SLAs",
+                    "Your account history is always visible to whoever handles your calls",
                   ].map((item, i) => (
                     <div key={i} className="flex items-center gap-2 text-sm text-foreground">
                       <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
@@ -1069,14 +1071,14 @@ export default function Home() {
                 </div>
                 <Link href="/get-started" data-testid="link-platform-dashboard">
                   <Button variant="outline" className="gap-2">
-                    See How Liberty Manages Your Account
+                    See What Your Account Includes
                     <ArrowRight className="w-4 h-4" />
                   </Button>
                 </Link>
               </div>
               <div className="relative">
                 <div className="rounded-md overflow-hidden shadow-2xl border border-border">
-                  <img src={dashboardPreview} alt="Liberty Bancard CRM dashboard showing merchant pipeline and KPI metrics" className="w-full h-auto" loading="lazy" width="1408" height="792" data-testid="img-platform-preview" />
+                  <img src={dashboardPreview} alt="Liberty Bancard merchant account management dashboard — your team's view of your account" className="w-full h-auto" loading="lazy" width="1408" height="792" data-testid="img-platform-preview" />
                 </div>
                 <div className="absolute -bottom-4 -right-4 -z-10 w-full h-full rounded-md bg-gradient-to-br from-sky-500/20 to-primary/20" />
               </div>
@@ -1142,11 +1144,11 @@ export default function Home() {
                 { icon: HandshakeIcon, title: "Month-to-Month Terms", desc: "We earn your business every month. Standard processing terms apply — no long-term lock-in, no pressure." },
               ].map((item, i) => (
                 <Card key={i} className="bg-primary/5 border-primary/15" data-testid={`card-why-liberty-${i}`}>
-                  <CardContent className="p-5">
-                    <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center mb-3">
-                      <item.icon className="w-5 h-5 text-primary" />
+                  <CardContent className="p-6">
+                    <div className="w-12 h-12 rounded-md bg-primary/10 flex items-center justify-center mb-4">
+                      <item.icon className="w-6 h-6 text-primary" />
                     </div>
-                    <h3 className="font-display font-semibold text-foreground mb-1.5">{item.title}</h3>
+                    <h3 className="font-display font-bold text-lg text-foreground mb-2">{item.title}</h3>
                     <p className="text-sm text-muted-foreground leading-relaxed">{item.desc}</p>
                   </CardContent>
                 </Card>
