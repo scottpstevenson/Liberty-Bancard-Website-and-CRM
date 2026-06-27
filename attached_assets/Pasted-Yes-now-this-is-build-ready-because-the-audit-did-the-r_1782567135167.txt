@@ -1,0 +1,357 @@
+Yes — now this is build-ready, because the audit did the right thing: it narrowed the issue to exact line-level fixes instead of another vague “make it premium” redesign.
+
+I would approve the build with 3 corrections before they execute.
+
+Verdict
+
+APPROVED TO BUILD — with guardrails.
+
+This audit correctly identifies the actual root causes:
+
+1. Hero positioning is wrong.
+2. Section architecture is too flat.
+3. Duplicate bubbles are a real mounted-component bug.
+4. Platform Preview is misframed.
+5. Calculator → Choose Path is the worst visual merge.
+
+The plan is scoped enough to build. It avoids backend, API, CTA, tracking, and form risk. Good.
+
+The only things I’d tighten
+
+1. Use Option A hero, not leave it open-ended
+
+Do not let Replit choose between all 3 hero options. Option A is the best balance.
+
+Use:
+
+Merchant Services Built Around Your Statement
+
+It clearly says merchant services but still preserves the statement-review hook.
+
+The subheadline should be slightly refined:
+
+Liberty Bancard provides credit card processing, terminal setup, and merchant account support for Florida businesses — starting with a free statement review so you can see your fees, options, and next steps before switching.
+
+That is cleaner than “processes credit cards for Florida businesses” and less awkward.
+
+2. Be careful making Choose Path navy on mobile
+
+The audit already caught this. The safest direction:
+
+Desktop: section-navy
+Mobile: keep light accordion unless text contrast is fully handled
+
+So use:
+
+section-warm md:section-navy
+
+or build a proper dark mobile accordion wrapper. Do not ship unreadable accordion triggers on navy.
+
+3. Platform section should maybe be compressed, not just reworded
+
+The copy reframe helps, but that section still risks feeling like “look at our internal CRM.” I’d tell Replit:
+
+If the dashboard image still makes the section feel like a SaaS product after copy changes, shrink the image/module and make it a smaller account-support section.
+
+Do not let it remain a massive hero-style visual.
+
+Send this build confirmation
+
+673 — Confirmed Build Scope: Homepage Positioning + Section Architecture Fix
+
+Mode
+
+Proceed to surgical Build Mode using the completed Homepage Architecture Audit.
+
+Do not broaden scope. Do not redesign the entire homepage. Do not touch backend, forms, upload flow, booking flow, GHL, analytics, contactability, dashboards, or CTA destinations.
+
+The audit is approved with the corrections below.
+
+⸻
+
+Build Scope
+
+Implement the confirmed audit checklist:
+
+1. Hero identity rewrite
+2. Trust strip merchant-services signal
+3. Calculator → Choose Path visual break
+4. Verticals chapter break
+5. Platform Preview reframe
+6. How It Works phase labels
+7. Remove duplicate ContactBubble mount
+8. Size up Why Liberty feature cards
+9. Validate desktop/mobile screenshots
+
+⸻
+
+Required Hero Direction
+
+Use this hero positioning.
+
+Badge:
+
+Merchant Services · South Florida
+
+H1:
+
+Merchant Services Built Around Your Statement
+
+Subheadline:
+
+Liberty Bancard provides credit card processing, terminal setup, and merchant account support for Florida businesses — starting with a free statement review so you can see your fees, options, and next steps before switching.
+
+Hero trust row:
+
+Payment processing
+Line-item breakdown
+Real human support
+
+Keep:
+
+* existing primary Upload CTA
+* existing Book CTA
+* existing tertiary compare link
+* existing Statement Fee Audit visual
+* existing compliance fine print
+* existing tracking/destinations
+
+Do not add savings percentages or unsupported guarantees.
+
+⸻
+
+Trust Strip Update
+
+Update the trust strip so it clearly identifies Liberty as a merchant-services / payment-processing company.
+
+Preferred 3-item strip:
+
+FL-Based
+South Florida Team
+Card Processing
+Visa · Mastercard · Amex · Discover
+I+P
+Interchange-Plus Pricing
+
+or add a 4th item only if the layout remains clean:
+
+Terminal Setup
+Counter · Mobile · Virtual
+
+Do not let every strip item be about the free statement review.
+
+⸻
+
+Visual Architecture Fixes
+
+Calculator → Choose Path
+
+The audit confirmed this is the most damaging visual merge.
+
+Change Choose Path from the same warm section treatment to a true desktop visual break.
+
+Preferred:
+
+section-warm md:section-navy
+
+Reason:
+
+* desktop needs the dark chapter break
+* mobile accordion contrast must remain safe unless dark mobile styles are explicitly handled
+
+If making mobile dark too, explicitly update accordion trigger/content text, borders, and CTA contrast.
+
+Kill line:
+
+Stop if mobile Choose Path accordion text becomes low-contrast on navy.
+
+Verticals
+
+Add a visible chapter signal before Verticals.
+
+Use:
+
+bg-background border-t-2 border-primary/20 bg-dots py-12 md:py-20
+
+or equivalent existing section treatment.
+
+Do not leave Verticals visually merged into the previous section.
+
+⸻
+
+Platform Preview Reframe
+
+Reframe the Platform Preview section as account support, not a merchant-facing SaaS product.
+
+Update copy:
+
+Eyebrow:
+
+How your account is managed
+
+H2:
+
+Your account team has full visibility into every step
+
+Body:
+
+Every Liberty merchant account is backed by a dedicated team that tracks your onboarding, tickets, and support history in one place — so nothing falls through the cracks.
+
+CTA:
+
+See What Your Account Includes
+
+Keep href:
+
+/get-started
+
+Update image alt:
+
+Liberty Bancard merchant account management dashboard — your team's view of your account
+
+Important:
+
+If this section still visually feels like Liberty is selling a SaaS dashboard, compress the image/module and make the section smaller. It should support the merchant-services story, not dominate it.
+
+Preserve:
+
+hidden md:block
+
+Do not make this section mobile-visible.
+
+⸻
+
+How It Works Phase Labels
+
+Add phase labels to clarify the two timelines:
+
+Before 3-step analysis timeline:
+
+Phase 1 · Analysis
+
+Inside / near the 5-step onboarding card header:
+
+Phase 2 · Onboarding
+
+Do not change the actual timeline day labels or descriptions.
+
+Do not remove the illustrative timeline disclaimer.
+
+⸻
+
+Duplicate Sticky Bubble Fix
+
+Remove only the public layout mount for ContactBubble.
+
+In App.tsx:
+
+* remove ContactBubble render at line 739
+* remove ContactBubble import if unused
+
+Do not delete ContactBubble.tsx.
+
+Do not touch StickyMobileCTA.
+
+Final desktop Home should show only one sticky chat/contact bubble.
+
+Kill line:
+
+Stop if two sticky bubbles remain visible on Home at lg+ desktop.
+
+⸻
+
+Why Liberty Feature Cards
+
+Size up the cards:
+
+CardContent: p-5 → p-6
+Icon box: w-10 h-10 → w-12 h-12
+Icon: w-5 h-5 → w-6 h-6
+Title: font-semibold → font-bold text-lg
+
+Ensure the cards read as marketing proof, not admin tiles.
+
+⸻
+
+Protected Invariants
+
+Do not change:
+
+* upload/book/phone/compare CTA destinations
+* tracking handlers
+* data-testid attributes
+* backend/API routes
+* form logic
+* GHL/analytics/contactability
+* dashboard pages
+* ContactBubble component file
+* StickyMobileCTA behavior
+* timeline day labels/descriptions
+* compliance disclaimers
+
+⸻
+
+Validation Required
+
+After build, provide screenshots:
+
+Desktop
+
+* hero at 1440px
+* trust strip
+* calculator → choose path transition
+* Choose Path dark desktop section
+* Verticals chapter break
+* Platform Preview reframed
+* Why Liberty feature cards
+* bottom corners proving only one sticky bubble
+
+Mobile 390px
+
+* hero with merchant-services language
+* trust strip
+* Choose Path accordion readable
+* sticky mobile CTA
+* proof there is not a duplicate bubble
+
+Also run:
+
+npx tsx scripts/smoke-role-guards.ts
+
+and confirm no TypeScript/runtime errors.
+
+⸻
+
+Final Report Required
+
+Return:
+
+1. files changed
+2. hero copy before/after
+3. trust strip change
+4. section treatment changes
+5. mobile accordion contrast handling
+6. Platform Preview before/after copy
+7. duplicate bubble source and fix
+8. feature card sizing changes
+9. CTA/tracking preservation
+10. data-testid preservation
+11. screenshots captured
+12. tests run
+13. remaining risks
+
+⸻
+
+Success Definition
+
+This build succeeds when:
+
+A first-time visitor immediately understands Liberty Bancard is a merchant services / credit card processing company.
+
+The statement review should feel like the entry point into Liberty’s processing service, not the whole product.
+
+The page should have obvious visual chapters, not one endless off-white canvas.
+
+Only one sticky chat/contact bubble may appear.
+
+That’s the version I’d send. It gives them permission to build, but it removes the ambiguity that could lead to another half-fix.
