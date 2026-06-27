@@ -479,7 +479,33 @@ export default function Home() {
         {/* SECTION 4: What You Get */}
         <section className="section-warm py-12 md:py-20" data-testid="section-what-you-get">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="grid grid-cols-1 lg:grid-cols-[1.1fr_0.9fr] gap-10 lg:gap-12 items-start">
+            {/* Mobile: compact summary — replaces the 6-row card + Yours to Keep card */}
+            <div className="md:hidden" data-testid="section-review-includes-mobile">
+              <div className="accent-rule pt-4 mb-5">
+                <span className="num text-[11px] font-semibold uppercase tracking-[0.18em] text-accent">The Deliverable</span>
+                <h2 className="text-2xl font-display font-bold text-foreground mb-2 mt-1">
+                  What Your Liberty Review Includes
+                </h2>
+                <p className="text-muted-foreground text-sm">Not a quote. A clear breakdown of what you're paying — fee drivers, downgrades, true effective rate, and 2–3 options to compare.</p>
+              </div>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2 mb-5">
+                {["True effective rate","Fee driver map","Downgrade review","Monthly add-ons","Funding timeline","Options summary"].map((item, i) => (
+                  <div key={i} className="flex items-center gap-2 text-sm text-foreground">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                    {item}
+                  </div>
+                ))}
+              </div>
+              <Link href="/upload-statement" data-testid="link-what-you-get-upload-mobile">
+                <Button className="gap-2 w-full" onClick={() => trackStatementUploadCtaClick({ page: "/", ctaLabel: "Get My Free Analysis", ctaLocation: "what-you-get-mobile" })}>
+                  <Upload className="w-4 h-4" />
+                  Get My Free Analysis
+                </Button>
+              </Link>
+              <p className="text-xs text-muted-foreground mt-2 text-center">Yours to keep either way. No obligation. *Eligibility, underwriting, card brand rules, and applicable laws apply.</p>
+            </div>
+            {/* Desktop: full two-column layout */}
+            <div className="hidden md:grid lg:grid-cols-[1.1fr_0.9fr] gap-10 lg:gap-12 items-start">
               <div className="reveal accent-rule pt-5">
                 <span className="num text-[11px] font-semibold uppercase tracking-[0.18em] text-accent">The Deliverable</span>
                 <h2 className="text-3xl md:text-4xl font-display font-bold text-foreground mb-4 mt-2" data-testid="text-what-you-get-heading">
@@ -574,8 +600,8 @@ export default function Home() {
               ))}
             </div>
 
-            {/* Contained onboarding timeline — secondary report card */}
-            <div className="reveal mt-14 max-w-5xl mx-auto">
+            {/* Contained onboarding timeline — secondary report card — desktop only */}
+            <div className="hidden md:block mt-14 max-w-5xl mx-auto">
               <div className="rounded-xl border border-border bg-card shadow-card overflow-hidden">
                 <div className="flex items-center justify-between gap-3 border-b border-border bg-muted/40 px-5 py-3">
                   <h3 className="text-sm font-semibold text-foreground" data-testid="text-timeline-heading">
@@ -1041,8 +1067,8 @@ export default function Home() {
                 </Card>
               ))}
             </div>
-            {/* Secondary compact cards — 1-col on mobile, 3-col on sm+ */}
-            <div className="reveal grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {/* Secondary compact cards — desktop only */}
+            <div className="hidden md:grid md:grid-cols-3 gap-4">
               {[
                 { icon: Wrench, title: "Home Services", bestFor: "On-the-job mobile acceptance" },
                 { icon: Store, title: "Retail", bestFor: "Fast lines + contactless" },
@@ -1199,8 +1225,25 @@ export default function Home() {
               <p className="text-muted-foreground max-w-xl mx-auto">The differences you feel every day, not just on paper.</p>
             </div>
 
+            {/* Mobile: compact rate teaser — replaces full rate-comparison card */}
+            <div className="md:hidden mb-8 rounded-lg border border-primary/20 bg-background p-5" data-testid="section-why-liberty-mobile">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+                  <DollarSign className="w-4 h-4 text-primary" />
+                </div>
+                <span className="text-sm font-display font-semibold text-foreground">What Do Most Merchants Pay?</span>
+              </div>
+              <p className="text-sm text-muted-foreground mb-3 leading-relaxed">
+                On interchange-plus pricing, most merchants pay <strong className="num text-foreground">1.7%–2.3%</strong> all-in — vs. <strong className="num text-foreground">2.6%–3.5%+</strong> on flat-rate plans like Square or Stripe.
+              </p>
+              <Link href="/beat-square-stripe" className="inline-flex items-center gap-1.5 text-primary text-sm font-medium hover:underline" data-testid="link-rate-transparency-compare-mobile">
+                See full processor comparison <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+              <p className="text-[10px] text-muted-foreground mt-2">*Illustrative. Actual rate depends on your card mix and volume. No savings claims without a statement review.</p>
+            </div>
+            {/* Desktop: full rate transparency card */}
             {/* Rate Transparency Callout */}
-            <div className="reveal mb-12" data-testid="section-rate-transparency">
+            <div className="hidden md:block reveal mb-12" data-testid="section-rate-transparency">
               <div className="max-w-3xl mx-auto bg-background border-2 border-primary/20 rounded-lg p-6 md:p-8">
                 <div className="flex items-start gap-4">
                   <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
@@ -1239,14 +1282,34 @@ export default function Home() {
                 </div>
               </div>
             </div>
-            <div className="reveal grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            {/* Mobile: compact icon list — replaces 4 large padded cards */}
+            <div className="md:hidden grid grid-cols-1 gap-3 mb-2">
+              {[
+                { icon: FileText, title: "Statement-Based Pricing", desc: "Priced off your actual statement — see exactly what changes." },
+                { icon: Headphones, title: "Direct Human Support", desc: "A real person picks up the phone. No ticket queues." },
+                { icon: Banknote, title: "Next-Day Funding*", desc: "Funds hit your account the next business day for qualifying merchants." },
+                { icon: HandshakeIcon, title: "Month-to-Month Terms", desc: "No long-term lock-in. We earn your business every month." },
+              ].map((item, i) => (
+                <div key={i} className="flex items-start gap-3 rounded-lg border border-border bg-card px-4 py-3" data-testid={`card-why-liberty-${i}`}>
+                  <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
+                    <item.icon className="w-4 h-4 text-primary" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-foreground">{item.title}</p>
+                    <p className="text-xs text-muted-foreground leading-snug mt-0.5">{item.desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {/* Desktop: full 4-column card grid */}
+            <div className="hidden md:grid md:grid-cols-2 lg:grid-cols-4 gap-6">
               {[
                 { icon: FileText, title: "Statement-Based Pricing", desc: "We price off your actual statement, not a generic quote. You see exactly what changes and why." },
                 { icon: Headphones, title: "Direct Human Support", desc: "A real person picks up the phone. No ticket queues, no chatbots, no 3-day wait." },
                 { icon: Banknote, title: "Next-Day Funding*", desc: "For qualifying merchants, funds hit your account the next business day. Cash flow you can count on." },
                 { icon: HandshakeIcon, title: "Month-to-Month Terms", desc: "We earn your business every month. Standard processing terms apply — no long-term lock-in, no pressure." },
               ].map((item, i) => (
-                <Card key={i} className="bg-primary/5 border-primary/15" data-testid={`card-why-liberty-${i}`}>
+                <Card key={i} className="bg-primary/5 border-primary/15" data-testid={`card-why-liberty-desktop-${i}`}>
                   <CardContent className="p-6">
                     <div className="w-12 h-12 rounded-md bg-primary/10 flex items-center justify-center mb-4">
                       <item.icon className="w-6 h-6 text-primary" />
