@@ -128,8 +128,10 @@ jobs:
 
       - name: Mobile screenshots (390px viewport)
         run: |
+          set +e
           npx tsx scripts/mobile-screenshots.ts
           code=$?
+          set -e
           if [ $code -eq 2 ]; then
             echo "Mobile screenshots: environment limitation (exit 2) — not a code failure, continuing."
             exit 0
