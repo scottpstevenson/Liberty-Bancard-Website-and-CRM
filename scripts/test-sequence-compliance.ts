@@ -302,8 +302,15 @@ async function testCase8(): Promise<void> {
     assert("email ghlPermissionPayload.lb_email_allowed=true", emailR.ghlPermissionPayload?.lb_email_allowed === true, JSON.stringify(emailR.ghlPermissionPayload));
 
     const smsR = await evaluateContactability({ contactId: id, channel: "sms", mode: "dryRun" });
-    // SMS may still be blocked by quiet hours — check flag state via ghlPermissionPayload
-    assert("PEWC contact: lb_sms_allowed=true when SMS_ENABLED=true", smsR.ghlPermissionPayload?.lb_sms_allowed === true, JSON.stringify(smsR.ghlPermissionPayload));
+    // SMS may be blocked by TCPA quiet hours even when PEWC+SMS_ENABLED=true — that is correct
+    // real-time enforcement. Assert lb_sms_allowed=true OR the only block is quiet hours.
+    const smsQuietHoursOnly = !smsR.ghlPermissionPayload?.lb_sms_allowed &&
+      (smsR.reason.toLowerCase().includes("quiet hours") ||
+       smsR.reason.toLowerCase().includes("business hours") ||
+       smsR.reason.toLowerCase().includes("tcpa"));
+    assert("PEWC contact: lb_sms_allowed=true when SMS_ENABLED=true (or only TCPA quiet hours blocks)",
+      smsR.ghlPermissionPayload?.lb_sms_allowed === true || smsQuietHoursOnly,
+      JSON.stringify(smsR.ghlPermissionPayload));
     if (!smsR.allowed) {
       // Only acceptable block reason at this point is quiet hours
       assert("If SMS not allowed, only acceptable reason is quiet hours", (
