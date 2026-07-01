@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/sheet";
 import StatementChainPanel from "@/components/operator/StatementChainPanel";
 import { ALeadQueue } from "./sdr/ALeadQueue";
+import { ProcessorIntelligence } from "./sdr/ProcessorIntelligence";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell, Legend, LineChart, Line } from "recharts";
 import type { LifecycleStageCountsResponse, OperatorSdrStatsResponse } from "@shared/operator-dashboard-types";
 
@@ -5488,6 +5489,18 @@ export function SdrCommandCenter() {
           ))}
         </div>
       )}
+
+      <Card data-testid="card-processor-intelligence-operator">
+        <CardHeader>
+          <CardTitle className="text-sm flex items-center gap-2">
+            <BarChart3 className="w-4 h-4 text-purple-600" />
+            Processor Intelligence
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ProcessorIntelligence />
+        </CardContent>
+      </Card>
     </div>
   );
 }

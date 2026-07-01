@@ -654,6 +654,18 @@ async function dedupeAndInsert(
         sourceRef: biz.placeId || undefined,
       };
 
+      try {
+        const resolved = await storage.findOrCreateBusinessForMerchant(
+          biz.website || null,
+          biz.businessName,
+          biz.city || null,
+          biz.state || null,
+        );
+        if (resolved?.id) merchantData.businessId = resolved.id;
+      } catch (bizErr) {
+        console.error(`[LeadFinder/Apollo] Business canonical resolution failed for ${biz.businessName}:`, bizErr);
+      }
+
       const merchant = await storage.createSdrMerchant(merchantData);
 
       if (biz.source === "apollo" && (biz.ownerFirstName || biz.ownerLastName)) {
@@ -950,6 +962,18 @@ export async function dedupeAndInsertFree(
         sourceRef: biz.placeId || undefined,
         sourcedVia: biz.source,
       };
+
+      try {
+        const resolved = await storage.findOrCreateBusinessForMerchant(
+          biz.website || null,
+          biz.businessName,
+          biz.city || null,
+          biz.state || null,
+        );
+        if (resolved?.id) merchantData.businessId = resolved.id;
+      } catch (bizErr) {
+        console.error(`[LeadFinder/Free] Business canonical resolution failed for ${biz.businessName}:`, bizErr);
+      }
 
       const merchant = await storage.createSdrMerchant(merchantData);
 

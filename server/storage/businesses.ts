@@ -125,6 +125,30 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   }
 
 
+  async getBusinessByNormalizedNameCity(normalizedName: string, city: string | null, state: string | null): Promise<Business | undefined> {
+    const conditions = [eq(businesses.normalizedName, normalizedName)];
+    if (city) conditions.push(eq(businesses.city, city));
+    if (state) conditions.push(eq(businesses.state, state));
+    const [biz] = await db.select().from(businesses).where(and(...conditions)).limit(1);
+    return biz;
+  }
+
+
+  async findOrCreateBusinessForMerchant(domain: string | null, canonicalName: string, city: string | null, state: string | null): Promise<Business | null> {
+    if (domain) {
+      const byDomain = await this.getBusinessByDomain(domain);
+      if (byDomain) return byDomain;
+      const normalizedName = canonicalName.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
+      const created = await this.createBusiness({ canonicalName, normalizedName, websiteDomain: domain, city, state });
+      return created;
+    }
+    const normalizedName = canonicalName.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
+    const byName = await this.getBusinessByNormalizedNameCity(normalizedName, city, state);
+    if (byName) return byName;
+    return null;
+  }
+
+
   async createBusiness(data: InsertBusiness): Promise<Business> {
     const [biz] = await db.insert(businesses).values(data).returning();
     return biz;

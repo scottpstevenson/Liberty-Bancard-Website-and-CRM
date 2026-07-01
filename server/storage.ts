@@ -572,6 +572,8 @@ export interface IStorage {
   getBusinesses(filters?: { status?: string; vertical?: string; limit?: number }): Promise<Business[]>;
   getBusiness(id: number): Promise<Business | undefined>;
   getBusinessByDomain(domain: string): Promise<Business | undefined>;
+  getBusinessByNormalizedNameCity(normalizedName: string, city: string | null, state: string | null): Promise<Business | undefined>;
+  findOrCreateBusinessForMerchant(domain: string | null, canonicalName: string, city: string | null, state: string | null): Promise<Business | null>;
   createBusiness(data: InsertBusiness): Promise<Business>;
   updateBusiness(id: number, updates: UpdateBusinessRequest): Promise<Business | undefined>;
 

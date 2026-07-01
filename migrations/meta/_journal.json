@@ -337,6 +337,13 @@
       "when": 1782950000000,
       "tag": "0042_sdr_merchants_owner_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1783050000000,
+      "tag": "0043_sdr_business_domain_unique",
+      "breakpoints": true
     }
   ]
 }
