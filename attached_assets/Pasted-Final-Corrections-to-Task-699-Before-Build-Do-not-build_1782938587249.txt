@@ -1,0 +1,138 @@
+Final Corrections to Task #699 Before Build
+
+Do not build the current #699 plan until these corrections are applied.
+
+1. No canonical business creation from name + city alone
+
+This is the most important correction.
+
+Allowed:
+
+domain exists → lookup by websiteDomain
+domain exists + no match → create canonical business if domain is clean and non-ambiguous
+no domain + exact normalizedName/city/state match exists → link to existing business
+no domain + no exact match → skip, leave businessId null, log for manual review
+
+Not allowed:
+
+no domain + name/city/state → create a new canonical business
+
+Rename or scope methods accordingly:
+
+* getBusinessByNormalizedNameCity(...) should be lookup-only.
+* findOrCreateBusinessForMerchant(...) may create only when a valid normalized domain exists.
+* If no domain exists, it may find an existing exact match but must not create.
+
+Kill line:
+
+STOP if the task creates canonical businesses from name + city/state alone.
+
+Update the smoke test:
+
+findOrCreateBusinessForMerchant(null, 'Test Biz', 'Miami', 'FL')
+
+must not create a new business. It should return an existing exact match if one exists, otherwise return null / skipped.
+
+⸻
+
+2. Backfill script must default to dry-run
+
+scripts/backfill-sdr-business-ids.ts must not mutate by default.
+
+Required modes:
+
+--dry-run      default behavior, no writes
+--execute      allows linking existing businesses
+--create-missing-domain-businesses      allows creating missing businesses only when a clean domain exists
+
+Dry-run must report:
+
+* domain matches
+* name/city/state exact matches
+* safe domain creates
+* skipped no-domain/no-match
+* ambiguous matches
+* failures
+
+Kill line:
+
+STOP if running the backfill script with no flags mutates the database.
+
+⸻
+
+3. Unique index migration must be guarded by duplicate checks
+
+Before adding:
+
+CREATE UNIQUE INDEX ... ON businesses (website_domain) WHERE website_domain IS NOT NULL
+
+run a duplicate check.
+
+If duplicates exist, stop and report them. Do not auto-dedupe canonical businesses inside this task.
+
+Kill line:
+
+STOP if the migration runs while duplicate websiteDomain values already exist.
+
+⸻
+
+4. processorSignals migration must be idempotent
+
+Do not assume ON CONFLICT DO NOTHING works unless a real unique constraint exists.
+
+Either:
+
+1. add a guarded unique index on (business_id, vendor_name) after checking duplicates, or
+2. use select-before-insert in the migration script.
+
+If adding the unique index, first run:
+
+SELECT business_id, vendor_name, COUNT(*)
+FROM processor_signals
+GROUP BY business_id, vendor_name
+HAVING COUNT(*) > 1;
+
+If duplicates exist, stop and report.
+
+Kill line:
+
+STOP if running migrate-sdr-processor-signals.ts twice can create duplicate processorSignals rows.
+
+⸻
+
+5. Do not add duplicate processor routes or duplicate dashboards
+
+The preflight confirmed these already exist:
+
+* /api/sdr/processor-intelligence
+* getConversionByProcessor()
+* getProcessorDistribution()
+* ProcessorIntelligence.tsx
+* SdrDashboard rendering processor intelligence
+
+So do not add new duplicate routes.
+
+The only optional UI change is adding the existing ProcessorIntelligence component as a card/section inside OperatorDashboard.
+
+Kill line:
+
+STOP if new duplicate routes `/api/sdr/processor-distribution` or `/api/sdr/processor-conversion` are added.
+
+⸻
+
+Corrected build scope
+
+Build only:
+
+1. Add safe canonical business resolution:
+    * domain lookup
+    * exact name/city/state lookup
+    * domain-based create only
+    * no no-domain creation
+2. Set sdrMerchants.businessId at discovery insert time when safely resolvable.
+3. Add dry-run-first backfill script.
+4. Add idempotent migration from sdrLeadState.enrichmentData.processorSignals into processorSignals only when businessId IS NOT NULL.
+5. Optionally add existing ProcessorIntelligence component into OperatorDashboard as a card/section.
+6. Validate no duplicate canonical businesses or duplicate processorSignals are created.
+
+Do not enable discovery, outreach, sequences, API keys, or feature flags.
