@@ -1,0 +1,117 @@
+Addendum to Task #686 — Approval Conditions Before Build
+
+The handoff plan is approved directionally, but apply these corrections before implementation.
+
+1. Add dedupe before CRM promotion
+
+The new POST /api/sdr/leads/:id/promote route must not blindly create a new CRM contact.
+
+Before calling createContactGhlFirst(), check for existing contact/prospect/business matches using available identifiers:
+
+* owner email
+* owner phone
+* merchant main phone
+* domain
+* website
+* company/business name + city/state
+
+If an existing CRM contact/prospect/business is found, link the SDR lead to the existing record or update the existing record rather than creating a duplicate.
+
+Kill line:
+
+STOP if promoting the same merchant twice can create duplicate CRM contacts.
+
+2. Treat suppress as internal suppression, not merchant opt-out unless explicitly true
+
+The suppress action should mean “do not surface/contact this discovered merchant from SDR discovery,” not necessarily legal DNC/consumer opt-out.
+
+Use status/reason language like:
+
+human_suppressed
+internal_suppression
+not_a_fit
+do_not_surface
+
+If the only existing compliance field is sdrComplianceState.dncBlock, it may be used as an operational hard block, but the audit/event payload must clearly distinguish human internal suppression from merchant-requested DNC/opt-out.
+
+Kill line:
+
+STOP if a human discard/suppress action is recorded as a merchant opt-out or legal DNC request when no such request occurred.
+
+3. Tighten the default queue stages
+
+The default A-lead queue should show only scored/enriched high-priority leads.
+
+Default filter:
+
+priorityBucket IN ('A', 'B')
+stage IN ('ENRICHED', 'SCORED', 'QUALIFIED')
+exclude DEAD, CONVERTED, CONTACTED, REPLIED, CLOSED_WON, OUTREACH_*
+
+Do not include DEDUPED or CLASSIFIED unless those stages are confirmed to have trustworthy A/B priority scoring.
+
+Kill line:
+
+STOP if the default queue shows unscored raw discovery records as A/B review leads.
+
+4. Processor data must be honest
+
+If the processorSignals join returns null, display:
+
+Unknown / not yet detected
+
+Do not infer or fabricate a detected processor from weak text unless that enrichment key is confirmed by the codebase.
+
+The detail drawer can show all available processor signals if present, but the table should use the highest-confidence stored processor signal only.
+
+Kill line:
+
+STOP if the UI shows a processor badge without stored processor evidence or a known enrichment source.
+
+5. Promotion should create a manual sales-ready record, not outreach
+
+After human promotion, the system may create/link the CRM contact/prospect and preserve:
+
+* SDR merchant ID
+* source
+* vertical
+* city/state
+* detected processor if available
+* score/priority bucket
+* suggested pitch
+* statement-upload CTA context
+
+It may create a manual follow-up task if existing CRM patterns support that.
+
+It must not:
+
+* send email
+* send SMS
+* enroll a sequence
+* enroll a GHL workflow
+* trigger auto outreach
+* call voice/ringless/AI orchestrator paths
+
+Kill line:
+
+STOP if promote causes any outbound communication or automated workflow enrollment.
+
+6. Define the query parameter contract clearly
+
+Use one clear backend contract for multi-value filters, either repeated params or comma-separated params.
+
+Example acceptable formats:
+
+/api/sdr/leads?stages=ENRICHED,SCORED,QUALIFIED&priorityBuckets=A,B
+
+or:
+
+/api/sdr/leads?stages[]=ENRICHED&stages[]=SCORED&priorityBuckets[]=A&priorityBuckets[]=B
+
+Pick one and implement both frontend and backend consistently.
+
+Kill line:
+
+STOP if the frontend sends one filter format and the backend expects another.
+
+No feature flags, API keys, secrets, nightly jobs, or outreach settings should be changed in this task.

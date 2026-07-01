@@ -1,0 +1,200 @@
+Yes. The 14-task roadmap is too chopped up.
+
+The clean version is 6 tasks total, maybe 7 max.
+
+Correct combined roadmap
+
+686 — A-Lead Queue with Manual Promote / Discard / Suppress
+
+Keep this standalone.
+
+This is the foundation:
+
+A/B scored leads
+→ human review
+→ promote to CRM / discard / suppress
+→ no automated outreach
+
+Do not combine this with API keys, detector expansion, or discovery activation. It is already a full task.
+
+⸻
+
+687 — Discovery Data Quality + Processor Detector Hardening
+
+Combine old 687, 688, and 689.
+
+This task should handle:
+
+dedup hardening
+phone/domain/company+city matching
+suppressed merchants do not resurface
+processor detector wired into discovery/enrichment
+processorSignals reliably stored
+missing fingerprints added
+A-lead queue shows stored processor evidence
+
+This is one logical task because it all improves lead quality before activation.
+
+Includes:
+
+NMI
+Authorize.net
+WooCommerce
+Lightspeed
+ChowNow
+DoorDash Storefront
+Wix Payments
+Squarespace Commerce
+Jane
+Fresha
+Acuity
+Square Appointments
+Clover Online Ordering
+Toast variants
+
+⸻
+
+688 — Controlled Discovery Activation + Source Performance
+
+Combine old 690, 691, and 692.
+
+This task should handle:
+
+API key readiness
+source health
+budget caps
+small no-outreach pilot
+source quality dashboard
+cost per usable A/B lead
+processor detection rate
+duplicate rate
+promote rate
+
+This is one logical task because adding keys without measuring source quality is pointless.
+
+Important: still no automated outreach.
+
+Run only a small pilot:
+
+25–50 medspas Miami/Fort Lauderdale
+25–50 restaurants Fort Lauderdale
+
+⸻
+
+689 — Sales Prep + Statement Acquisition Command Center
+
+Combine old 693, 694, and maybe 696.
+
+This is where leads become actual sales work.
+
+Build:
+
+AI call opener
+manual email draft
+reason to contact
+processor-specific angle
+likely objection
+recommended CTA
+personalized statement-upload link/context
+statement requested status
+statement uploaded status
+review pending
+review complete
+abandoned upload
+manual reminder task
+sales alert
+optional personalized review page
+
+This should be the “turn an approved lead into a statement” task.
+
+Personalized review pages can live here if they’re lightweight. Do not overbuild them as a separate product yet.
+
+⸻
+
+690 — AI Statement Analyzer + Proposal Generator
+
+Keep this standalone.
+
+This is too important and too complex to bury inside another task.
+
+Build/audit:
+
+OCR/extract statement
+monthly volume
+total fees
+effective rate
+processor name
+fixed fees
+authorization fees
+batch fees
+PCI/add-on fees
+card mix
+downgrades/cost drivers
+merchant-facing breakdown
+internal close notes
+follow-up/proposal draft
+
+This is probably the highest close-rate feature after discovery activation.
+
+⸻
+
+691 — Contactability Bridge + Manual Email Enrollment
+
+Combine old 697 and 698.
+
+This task connects promoted SDR leads to the existing compliance/outreach system.
+
+Build:
+
+promoted SDR contact must pass evaluateContactability()
+DNC/opt-out/PEWC/quiet-hours checks
+CAN-SPAM footer validation
+sequence eligibility
+manual-approved email enrollment only
+no SMS/voice/ringless
+
+This is where email follow-up becomes allowed — but only after human approval and contactability checks.
+
+⸻
+
+692 — Voice / SMS / Ringless Go-Live Audit
+
+Keep this last and standalone.
+
+Do not combine this with email.
+
+This is high-risk and should only happen after everything else works.
+
+Gate:
+
+PEWC evidence required
+DNC clear
+opt-out clear
+quiet hours clear
+script approved
+audit trail present
+tiny test batch only
+
+Until then:
+
+SMS_ENABLED=false
+VOICE_AI_ENABLED=false
+RINGLESS_VM_ENABLED=false
+
+Final compressed roadmap
+
+686 — A-Lead Queue with Manual Promote / Discard / Suppress
+687 — Discovery Data Quality + Processor Detector Hardening
+      dedup, suppression, detector wiring, processor fingerprints
+688 — Controlled Discovery Activation + Source Performance
+      API keys, small no-outreach pilot, source/cost dashboard
+689 — Sales Prep + Statement Acquisition Command Center
+      next-best pitch, manual drafts, upload links, status, reminders, alerts
+690 — AI Statement Analyzer + Proposal Generator
+      extract statement data, fee analysis, proposal, close notes
+691 — Contactability Bridge + Manual Email Enrollment
+      evaluateContactability, CAN-SPAM, manual-approved email only
+692 — Voice / SMS / Ringless Go-Live Audit
+      final compliance gate for high-risk channels
+
+That is the right version. 686 first, then 687, then 688. Do not touch API keys or discovery activation until the queue and data-quality hardening are done.

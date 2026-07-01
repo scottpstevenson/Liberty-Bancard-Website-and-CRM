@@ -1,0 +1,104 @@
+Yes — proceed with this task, but with a few final clarifications.
+
+This preflight is much better because it corrected the earlier bad assumptions:
+
+No stored processor result yet
+No suggestedPitch field yet
+No reusable ReviewQueue
+No real suppression mechanism yet
+No merchant-joined SDR queue yet
+Email-only dedup is all that currently exists
+
+So #686 should be built as the first usable operator workflow, not the entire lead machine.
+
+Final approval
+
+APPROVED TO BUILD #686, with these exact boundaries:
+
+Build A-Lead Review Queue
+Add Promote / Discard / Suppress
+Use email dedup before CRM creation
+Show Unknown processor for now
+No detector wiring
+No suggested pitch generation
+No API keys
+No discovery activation
+No outreach
+
+The only corrections I’d make before proceeding
+
+1. Suppress button wording must be precise
+
+Since they are not setting doNotContactFlag, the UI should not imply permanent global suppression.
+
+Use:
+
+Suppress from SDR Queue
+
+or:
+
+Internal Suppress
+
+Not:
+
+Do Not Contact
+
+Because this task only sets stage/audit reason. Full rediscovery blocking belongs in 687.
+
+2. Promote with no email should show a warning
+
+Since dedup is email-only in #686, if a lead has no email, promoting can create duplicates later.
+
+Add a confirmation warning:
+
+No email is available for deduplication. Promotion may create a duplicate if this merchant already exists under a phone/domain/company match.
+
+Still okay to allow, but the operator should know.
+
+3. “Unknown processor” is correct for #686
+
+Do not let Replit waste time trying to wire detector output here.
+
+Processor detector wiring is 687.
+
+For #686:
+
+Processor: Unknown / not yet detected
+
+is the correct behavior.
+
+4. No standalone route is okay if Operator Dashboard deep-link works
+
+If they build it as:
+
+/dashboard/operator?view=a-lead-queue
+
+that’s fine.
+
+Just make sure there is a visible nav item:
+
+Operator Dashboard → SDR & Outreach → A-Lead Review Queue
+
+5. Final report must list the follow-ups clearly
+
+The final report should explicitly say these are not included in #686:
+
+processor detector storage/wiring
+processor fingerprints
+phone/domain/company dedup
+doNotContactFlag rediscovery guard
+suggestedPitch generation
+API keys / discovery pilot
+
+What to tell Replit
+
+Yes, proceed. Build exactly this scoped #686.
+
+No more planning. No more audit expansion. This is the first real build:
+
+Operator A-Lead Review Queue
++ Promote with email dedup
++ Discard
++ Internal Suppress
++ Audit trail
++ Zero outreach
