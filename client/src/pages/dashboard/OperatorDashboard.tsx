@@ -18,6 +18,7 @@ import {
   Target, TrendingUp, Users, XCircle, Zap, Eye, Filter, ChevronRight, ChevronDown, Server, GitMerge,
   Bot, DollarSign, Hash, Play, Flag, ShieldCheck, FileText, Upload, Database,
   LayoutDashboard, Menu, GitBranch, Megaphone, Sparkles, Settings, Link2, ArrowRight,
+  ListChecks,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSearch, useLocation } from "wouter";
@@ -25,6 +26,7 @@ import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger,
 } from "@/components/ui/sheet";
 import StatementChainPanel from "@/components/operator/StatementChainPanel";
+import { ALeadQueue } from "./sdr/ALeadQueue";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell, Legend, LineChart, Line } from "recharts";
 import type { LifecycleStageCountsResponse, OperatorSdrStatsResponse } from "@shared/operator-dashboard-types";
 
@@ -2579,6 +2581,7 @@ const OPERATOR_NAV_GROUPS: OperatorNavGroup[] = [
     label: "SDR & Outreach",
     icon: Megaphone,
     items: [
+      { value: "a-lead-queue", label: "A-Lead Review Queue", icon: ListChecks },
       { value: "sdr", label: "SDR", icon: Bot },
       { value: "recent-sends", label: "Recent Sends", icon: Send },
       { value: "send-monitoring", label: "Send Monitoring", icon: Activity },
@@ -2652,6 +2655,8 @@ function renderOperatorView(view: string, onNavigate: (v: string) => void) {
       return <VerticalCoveragePanel />;
     case "statement-upload":
       return <StatementUploadFailuresPanel />;
+    case "a-lead-queue":
+      return <ALeadQueue />;
     case "sdr":
       return <SdrCommandCenter />;
     case "recent-sends":

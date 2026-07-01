@@ -16,6 +16,7 @@ import { validateWebhookSignature, getSdrGhlConfig, isSdrGhlConfigured, fetchCal
 import { handleContactUpdated, handleMessageReceived, handleCallOutcome, handleAppointmentBooked, handleAppointmentCanceled, handleOptOut } from "../services/sdr/webhook-handlers";
 import { handleConversationCreated, handleChatMessage, handleSmsThread, handleEmailThread, handleChatBooking } from "../services/sdr/chat-handlers";
 import { parse } from "csv-parse/sync";
+import { createContactGhlFirst } from "../services/contact-writer";
 
 export function registerSdrRoutes(app: Express) {
   // === HEALTH ENDPOINTS ===
@@ -2605,6 +2606,193 @@ export function registerSdrRoutes(app: Express) {
         warnings,
       });
     } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ─── A-LEAD REVIEW QUEUE ────────────────────────────────────────────────────
+
+  app.get("/api/sdr/a-lead-queue", isDashboardUser, requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const leads = await storage.getALeadQueue();
+      res.json(leads);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/sdr/a-lead-queue/:id/promote", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const actorId = String((req.user as any)?.id ?? "");
+      const { reason } = req.body as { reason?: string };
+
+      const lead = await storage.getSdrLeadState(id);
+      if (!lead) return res.status(404).json({ message: "Lead not found" });
+      if (["PROMOTED_TO_CRM", "CONVERTED", "DEAD", "DISCARDED", "SUPPRESSED"].includes(lead.stage)) {
+        return res.status(400).json({ message: `Lead is already in terminal stage: ${lead.stage}` });
+      }
+
+      const merchant = lead.merchantId ? await storage.getSdrMerchant(lead.merchantId) : undefined;
+
+      // Email dedup: ownerEmail first, then lead.email, then merchant mainEmail
+      const candidateEmails = [lead.ownerEmail, lead.email, merchant?.mainEmail].filter(Boolean) as string[];
+      let existingContact: Awaited<ReturnType<typeof storage.getContactByEmail>> | undefined;
+      for (const email of candidateEmails) {
+        const found = await storage.getContactByEmail(email);
+        if (found) { existingContact = found; break; }
+      }
+
+      let contactId: number;
+      const dedupResult: "linked_existing" | "created_new" = existingContact ? "linked_existing" : "created_new";
+
+      if (existingContact) {
+        contactId = existingContact.id;
+        await storage.updateSdrLeadState(id, {
+          contactId: existingContact.id,
+          stage: "PROMOTED_TO_CRM",
+          decisionReason: "human_promote_linked_existing",
+        });
+      } else {
+        const ownerFirstName = lead.ownerName?.split(" ")[0] ?? merchant?.ownerFirstName ?? "";
+        const ownerLastName = lead.ownerName?.split(" ").slice(1).join(" ") ?? merchant?.ownerLastName ?? "";
+        const email = candidateEmails[0] ?? undefined;
+        const phone = lead.phone ?? merchant?.mainPhone ?? undefined;
+
+        const newContact = await createContactGhlFirst({
+          firstName: ownerFirstName,
+          lastName: ownerLastName,
+          email: email ?? null,
+          phone: phone ?? null,
+          companyName: lead.companyName ?? merchant?.businessName ?? null,
+          vertical: lead.vertical ?? merchant?.vertical ?? null,
+          source: merchant?.source ?? "sdr_queue",
+          notes: [
+            `Promoted from A-Lead Review Queue (lead state #${id})`,
+            merchant?.source ? `Source: ${merchant.source}` : null,
+            reason ? `Reason: ${reason}` : null,
+          ].filter(Boolean).join("\n"),
+        }, { actorType: "human", actorId });
+
+        contactId = newContact.id;
+        await storage.updateSdrLeadState(id, {
+          contactId: newContact.id,
+          stage: "PROMOTED_TO_CRM",
+          decisionReason: "human_promote_created_new",
+        });
+      }
+
+      await storage.createSdrLeadEvent({
+        merchantId: lead.merchantId,
+        leadStateId: id,
+        eventType: "human_promote",
+        fromStage: lead.stage,
+        toStage: "PROMOTED_TO_CRM",
+        actorType: "human",
+        payloadJson: { actorUserId: actorId, dedupResult, contactId, reason: reason || null },
+      });
+
+      await storage.createAuditLog({
+        action: "sdr_lead_promoted",
+        entityType: "sdr_lead_state",
+        entityId: id,
+        actorType: "human",
+        actorId,
+        userId: actorId,
+        details: { contactId, dedupResult, reason: reason || null },
+      });
+
+      res.json({ ok: true, contactId, dedupResult });
+    } catch (err: any) {
+      console.error("[A-Lead Promote] Error:", err);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/sdr/a-lead-queue/:id/discard", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const actorId = String((req.user as any)?.id ?? "");
+      const { reason } = req.body as { reason?: string };
+
+      const lead = await storage.getSdrLeadState(id);
+      if (!lead) return res.status(404).json({ message: "Lead not found" });
+      if (["DISCARDED", "SUPPRESSED", "PROMOTED_TO_CRM", "CONVERTED", "DEAD"].includes(lead.stage)) {
+        return res.status(400).json({ message: `Lead is already in terminal stage: ${lead.stage}` });
+      }
+
+      await storage.updateSdrLeadState(id, {
+        stage: "DISCARDED",
+        decisionReason: "human_discarded",
+      });
+
+      await storage.createSdrLeadEvent({
+        merchantId: lead.merchantId,
+        leadStateId: id,
+        eventType: "human_discard",
+        fromStage: lead.stage,
+        toStage: "DISCARDED",
+        actorType: "human",
+        payloadJson: { actorUserId: actorId, reason: reason || null },
+      });
+
+      await storage.createAuditLog({
+        action: "sdr_lead_discarded",
+        entityType: "sdr_lead_state",
+        entityId: id,
+        actorType: "human",
+        actorId,
+        userId: actorId,
+        details: { reason: reason || null },
+      });
+
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[A-Lead Discard] Error:", err);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/sdr/a-lead-queue/:id/suppress", isDashboardUser, requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const actorId = String((req.user as any)?.id ?? "");
+      const { reason } = req.body as { reason?: string };
+
+      const lead = await storage.getSdrLeadState(id);
+      if (!lead) return res.status(404).json({ message: "Lead not found" });
+      if (["DISCARDED", "SUPPRESSED", "PROMOTED_TO_CRM", "CONVERTED", "DEAD"].includes(lead.stage)) {
+        return res.status(400).json({ message: `Lead is already in terminal stage: ${lead.stage}` });
+      }
+
+      await storage.updateSdrLeadState(id, {
+        stage: "SUPPRESSED",
+        decisionReason: "human_suppressed — internal not-a-fit decision, NOT a merchant-requested DNC/opt-out",
+      });
+
+      await storage.createSdrLeadEvent({
+        merchantId: lead.merchantId,
+        leadStateId: id,
+        eventType: "human_suppress",
+        fromStage: lead.stage,
+        toStage: "SUPPRESSED",
+        actorType: "human",
+        payloadJson: { actorUserId: actorId, reason: reason || null },
+      });
+
+      await storage.createAuditLog({
+        action: "sdr_lead_suppressed",
+        entityType: "sdr_lead_state",
+        entityId: id,
+        actorType: "human",
+        actorId,
+        userId: actorId,
+        details: { reason: reason || null },
+      });
+
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[A-Lead Suppress] Error:", err);
       res.status(500).json({ message: err.message });
     }
   });

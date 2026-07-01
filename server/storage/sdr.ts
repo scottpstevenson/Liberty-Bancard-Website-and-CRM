@@ -97,7 +97,7 @@ import {
   roleplayExchanges, type RoleplayExchange, type InsertRoleplayExchange,
   leaderboardSettings, type LeaderboardSettings,
 } from "@shared/schema";
-import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, count } from "drizzle-orm";
+import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, notInArray, or, ilike, count } from "drizzle-orm";
   import { type PaginationParams, type PaginatedResult, normalizePagination } from "./_shared";
 
   export class SdrStorage {
@@ -135,6 +135,32 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   async createSdrMerchantContact(data: InsertSdrMerchantContact) {
     const [c] = await db.insert(sdrMerchantContacts).values(data).returning();
     return c;
+  }
+
+
+  async getALeadQueue(): Promise<Array<SdrLeadState & { merchant: SdrMerchant | null }>> {
+    const TERMINAL_STAGES = [
+      "DISCARDED", "SUPPRESSED", "CONTACTED", "REPLIED",
+      "CLOSED_WON", "PROMOTED_TO_CRM", "DEAD", "CONVERTED",
+    ];
+    const leads = await db
+      .select()
+      .from(sdrLeadState)
+      .where(and(
+        inArray(sdrLeadState.priorityBucket, ["A", "B"]),
+        notInArray(sdrLeadState.stage, TERMINAL_STAGES),
+        isNull(sdrLeadState.contactId),
+      ))
+      .orderBy(desc(sdrLeadState.priorityScore), desc(sdrLeadState.updatedAt))
+      .limit(200);
+
+    if (leads.length === 0) return [];
+
+    const merchantIds = [...new Set(leads.map(l => l.merchantId))];
+    const merchants = await db.select().from(sdrMerchants).where(inArray(sdrMerchants.id, merchantIds));
+    const merchantMap = new Map(merchants.map(m => [m.id, m]));
+
+    return leads.map(lead => ({ ...lead, merchant: merchantMap.get(lead.merchantId) ?? null }));
   }
 
 

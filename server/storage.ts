@@ -597,6 +597,7 @@ export interface IStorage {
   getSdrMerchantContacts(merchantId: number): Promise<SdrMerchantContact[]>;
   createSdrMerchantContact(data: InsertSdrMerchantContact): Promise<SdrMerchantContact>;
 
+  getALeadQueue(): Promise<Array<SdrLeadState & { merchant: SdrMerchant | null }>>;
   getSdrLeadStates(filters?: { stage?: string; priorityBucket?: string; limit?: number }): Promise<SdrLeadState[]>;
   getSdrLeadState(id: number): Promise<SdrLeadState | undefined>;
   getSdrLeadStateByMerchant(merchantId: number): Promise<SdrLeadState | undefined>;
