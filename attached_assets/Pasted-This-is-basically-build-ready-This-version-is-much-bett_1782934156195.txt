@@ -1,0 +1,104 @@
+This is basically build-ready. This version is much better and correctly avoids the bad businessId / processorSignals trap.
+
+But I’d make 4 final corrections before sending it.
+
+Verdict
+
+APPROVED WITH SMALL CORRECTIONS.
+
+The scope is now right:
+
+suppression rediscovery guard
++ getContactByPhone
++ phone dedup in promote
++ SDR-safe processor detection into enrichmentData
++ fingerprint expansion
++ pure tests
+
+No canonical business linking. No processorSignals writes. No discovery activation. Good.
+
+Fix 1 — Phone dedup must still complete promotion
+
+This line is wrong/incomplete:
+
+If a match is found, return { alreadyInCrm: true, contactId, matchedBy: 'phone' }.
+
+It should not just return. It should do the same thing email dedup does:
+
+link existing contact
+set sdrLeadState.contactId
+set stage = CONVERTED
+write sdrLeadEvent
+write audit log
+return action = linked, matchedBy = phone
+
+Otherwise the operator clicks Promote, gets “already in CRM,” but the lead stays in the queue.
+
+Fix 2 — Do not overwrite enrichmentData
+
+When storing:
+
+sdrLeadState.enrichmentData.processorSignals
+
+it must merge with existing enrichment JSON, not replace it.
+
+Required behavior:
+
+existing enrichmentData
++ processorSignals
++ processorDetectionAt
++ processorDetectionSource
+
+Do not wipe other enrichment keys.
+
+Fix 3 — detectFromHtml may need to be exported
+
+The smoke test says:
+
+call detectFromHtml(cannedHtml) directly
+
+That only works if detectFromHtml is exported. If it is currently private, either:
+
+export detectFromHtml
+
+or create a test-safe exported helper like:
+
+detectProcessorsFromHtml(html)
+
+Do not make the test call live URLs.
+
+Fix 4 — Suppression guard should cover SUPPRESSED, DISCARDED, and DEAD
+
+Your earlier #686 plan sometimes used DEAD; this new plan uses DISCARDED / SUPPRESSED.
+
+To avoid mismatch, the guard should check all inactive internal states:
+
+SUPPRESSED
+DISCARDED
+DEAD
+
+Also include statusReason values like:
+
+human_suppressed
+human_discarded
+internal_not_a_fit
+
+Final instruction to Replit
+
+Build it with those 4 corrections.
+
+The task should end with this follow-up gap explicitly documented:
+
+Follow-up: Canonical Business Linking + processorSignals migration.
+
+That follow-up is where you later do:
+
+sdrMerchant → businesses.id
+businessId set
+processorSignals table writes
+getConversionByProcessor dashboard
+orchestrator processor templates
+
+But not now.
+
+So yes: this #690 is the right task after #686, as long as Promote phone-match actually links/converts the lead and enrichmentData is merged safely.
