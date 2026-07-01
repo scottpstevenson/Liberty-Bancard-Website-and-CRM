@@ -2643,6 +2643,40 @@ export function registerSdrRoutes(app: Express) {
         if (found) { existingContact = found; break; }
       }
 
+      // Phone dedup if no email match found
+      if (!existingContact) {
+        const candidatePhone = lead.phone ?? merchant?.mainPhone ?? null;
+        if (candidatePhone) {
+          const phoneMatch = await storage.getContactByPhone(candidatePhone);
+          if (phoneMatch) {
+            await storage.updateSdrLeadState(id, {
+              contactId: phoneMatch.id,
+              stage: "CONVERTED",
+              decisionReason: "human_promote_linked_phone",
+            });
+            await storage.createSdrLeadEvent({
+              merchantId: lead.merchantId,
+              leadStateId: id,
+              eventType: "human_promote",
+              fromStage: lead.stage,
+              toStage: "CONVERTED",
+              actorType: "human",
+              payloadJson: { actorUserId: actorId, dedupResult: "linked_existing", matchedBy: "phone", contactId: phoneMatch.id, reason: reason || null },
+            });
+            await storage.createAuditLog({
+              action: "sdr_lead_promoted",
+              entityType: "sdr_lead_state",
+              entityId: id,
+              actorType: "human",
+              actorId,
+              userId: actorId,
+              details: { contactId: phoneMatch.id, dedupResult: "linked_existing", matchedBy: "phone", reason: reason || null },
+            });
+            return res.json({ ok: true, contactId: phoneMatch.id, dedupResult: "linked_existing", matchedBy: "phone", action: "linked" });
+          }
+        }
+      }
+
       let contactId: number;
       const dedupResult: "linked_existing" | "created_new" = existingContact ? "linked_existing" : "created_new";
 

@@ -27,6 +27,146 @@ const PROCESSOR_FINGERPRINTS: ProcessorFingerprint[] = [
     confidence: 0.85,
   },
   {
+    vendor: "NMI",
+    signalType: "processor",
+    patterns: {
+      scripts: [/secure\.networkmerchants\.com/i, /nmi\.com/i, /gateway\.nmi\.com/i],
+      htmlText: [/network\s+merchants/i, /nmi\s+gateway/i, /powered\s+by\s+nmi/i],
+      metaTags: [/nmi/i, /networkmerchants/i],
+    },
+    confidence: 0.75,
+  },
+  {
+    vendor: "Authorize.net",
+    signalType: "processor",
+    patterns: {
+      scripts: [/authorize\.net/i, /anet\.js/i, /acceptjs/i],
+      htmlText: [/authorize\.net/i, /authorizenet/i, /powered\s+by\s+authorize/i, /accept\.js/i],
+      metaTags: [/authorize\.net/i],
+    },
+    confidence: 0.80,
+  },
+  {
+    vendor: "WooCommerce",
+    signalType: "ecommerce_platform",
+    patterns: {
+      scripts: [/woocommerce/i, /wc-blocks/i, /wc\.min\.js/i],
+      htmlText: [/woocommerce/i, /wc-cart/i, /powered\s+by\s+woocommerce/i, /add-to-cart/i],
+      metaTags: [/woocommerce/i],
+    },
+    confidence: 0.85,
+  },
+  {
+    vendor: "Lightspeed",
+    signalType: "pos",
+    patterns: {
+      scripts: [/lightspeedhq\.com/i, /lightspeedpos\.com/i, /ecwid\.com/i],
+      htmlText: [/lightspeed\s+restaurant/i, /lightspeed\s+retail/i, /powered\s+by\s+lightspeed/i],
+      metaTags: [/lightspeedhq/i, /lightspeed/i],
+    },
+    confidence: 0.75,
+  },
+  {
+    vendor: "ChowNow",
+    signalType: "booking_platform",
+    patterns: {
+      scripts: [/chownow\.com/i, /ordering\.chownow\.com/i],
+      htmlText: [/chownow/i, /order\s+on\s+chownow/i, /powered\s+by\s+chownow/i],
+      metaTags: [/chownow/i],
+    },
+    confidence: 0.80,
+  },
+  {
+    vendor: "DoorDash Storefront",
+    signalType: "ecommerce_platform",
+    patterns: {
+      scripts: [/doordash\.com/i, /order\.doordash\.com/i],
+      htmlText: [/doordash\s+storefront/i, /order\s+on\s+doordash/i, /powered\s+by\s+doordash/i],
+      metaTags: [/doordash/i],
+    },
+    confidence: 0.75,
+  },
+  {
+    vendor: "Wix Payments",
+    signalType: "processor",
+    patterns: {
+      scripts: [/wix\.com/i, /static\.parastorage\.com/i, /cashier\.wix\.com/i],
+      htmlText: [/wix\s+payments/i, /powered\s+by\s+wix/i, /wixsite/i],
+      metaTags: [/wix\.com/i, /wixsite/i],
+    },
+    confidence: 0.75,
+  },
+  {
+    vendor: "Squarespace Commerce",
+    signalType: "ecommerce_platform",
+    patterns: {
+      scripts: [/squarespace\.com/i, /static\.squarespace\.com/i],
+      htmlText: [/squarespace\s+commerce/i, /powered\s+by\s+squarespace/i, /squarespace-checkout/i],
+      metaTags: [/squarespace/i],
+    },
+    confidence: 0.80,
+  },
+  {
+    vendor: "Jane",
+    signalType: "booking_platform",
+    patterns: {
+      scripts: [/jane\.app/i, /janeapp\.com/i],
+      htmlText: [/jane\s+app/i, /book\s+on\s+jane/i, /powered\s+by\s+jane/i, /janeapp/i],
+      metaTags: [/jane\.app/i, /janeapp/i],
+    },
+    confidence: 0.85,
+  },
+  {
+    vendor: "Fresha",
+    signalType: "booking_platform",
+    patterns: {
+      scripts: [/fresha\.com/i, /shedul\.com/i],
+      htmlText: [/fresha/i, /book\s+on\s+fresha/i, /powered\s+by\s+fresha/i, /shedul/i],
+      metaTags: [/fresha/i, /shedul/i],
+    },
+    confidence: 0.85,
+  },
+  {
+    vendor: "Acuity Scheduling",
+    signalType: "booking_platform",
+    patterns: {
+      scripts: [/acuityscheduling\.com/i, /squarespacescheduling\.com/i],
+      htmlText: [/acuity\s+scheduling/i, /book\s+on\s+acuity/i, /powered\s+by\s+acuity/i],
+      metaTags: [/acuityscheduling/i],
+    },
+    confidence: 0.80,
+  },
+  {
+    vendor: "Square Appointments",
+    signalType: "booking_platform",
+    patterns: {
+      scripts: [/squareup\.com\/appointments/i, /square\.site\/appointments/i],
+      htmlText: [/square\s+appointments/i, /book\s+with\s+square/i, /squareup\.com\/appointments/i],
+      metaTags: [/square\s+appointments/i],
+    },
+    confidence: 0.80,
+  },
+  {
+    vendor: "Clover Online Ordering",
+    signalType: "ecommerce_platform",
+    patterns: {
+      scripts: [/clover\.com\/online-ordering/i, /www\.clover\.com\/online/i],
+      htmlText: [/clover\s+online\s+ordering/i, /order\s+online.*clover/i, /clover\s+order\s+online/i],
+      metaTags: [/clover\s+online/i],
+    },
+    confidence: 0.78,
+  },
+  {
+    vendor: "Toast Go",
+    signalType: "pos",
+    patterns: {
+      scripts: [/toasttab\.com/i, /pos\.toasttab\.com/i],
+      htmlText: [/toast\s+go/i, /toast\s+now/i, /toasttab\.com\/order/i, /order\.toasttab/i],
+      metaTags: [/toast\s+go/i, /toasttab/i],
+    },
+    confidence: 0.78,
+  },
+  {
     vendor: "Stripe",
     signalType: "processor",
     patterns: {
@@ -149,7 +289,7 @@ async function fetchWebsiteHtml(url: string): Promise<string | null> {
   }
 }
 
-function detectFromHtml(html: string): DetectionResult[] {
+export function detectFromHtml(html: string): DetectionResult[] {
   const results: DetectionResult[] = [];
 
   const scriptTags = html.match(/<script[^>]*src=["']([^"']+)["'][^>]*>/gi) || [];
@@ -350,6 +490,40 @@ export async function detectProcessors(businessId: number): Promise<DetectionRes
   }
 
   console.log(`[ProcessorDetector] Detected ${finalResults.length} processors for business ${businessId}: ${finalResults.map(r => r.vendor).join(", ")}`);
+  return finalResults;
+}
+
+export async function detectProcessorsForDomain(
+  domain: string,
+  businessName: string,
+  city?: string,
+  state?: string
+): Promise<DetectionResult[]> {
+  let allResults: DetectionResult[] = [];
+  let source: "html" | "serper" = "html";
+
+  const html = await fetchWebsiteHtml(domain);
+  if (html) {
+    const htmlResults = detectFromHtml(html);
+    allResults.push(...htmlResults);
+  }
+
+  if (allResults.length === 0) {
+    source = "serper";
+    const serperResults = await detectFromSerper(businessName, city, state);
+    allResults.push(...serperResults);
+  }
+
+  const uniqueResults = new Map<string, DetectionResult>();
+  for (const result of allResults) {
+    const existing = uniqueResults.get(result.vendor);
+    if (!existing || result.confidence > existing.confidence) {
+      uniqueResults.set(result.vendor, result);
+    }
+  }
+
+  const finalResults = Array.from(uniqueResults.values());
+  console.log(`[ProcessorDetector] Domain scan for ${domain}: ${finalResults.length} processors via ${source}: ${finalResults.map(r => r.vendor).join(", ")}`);
   return finalResults;
 }
 

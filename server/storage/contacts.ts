@@ -127,6 +127,17 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
     return contact;
   }
 
+  async getContactByPhone(phone: string): Promise<typeof contacts.$inferSelect | null> {
+    const digits = phone.replace(/\D/g, "").slice(-10);
+    if (digits.length < 10) return null;
+    const [contact] = await db.select().from(contacts)
+      .where(and(
+        isNull(contacts.archivedAt),
+        sql`regexp_replace(${contacts.phone}, '[^0-9]', '', 'g') LIKE ${'%' + digits}`,
+      ));
+    return contact ?? null;
+  }
+
 
   async createContact(insertContact: InsertContact, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }) {
     const { auditChange } = await import("../services/audit-change");

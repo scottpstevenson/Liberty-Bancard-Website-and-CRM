@@ -451,6 +451,38 @@ async function dedupeAndInsert(
     const existing = await storage.findSdrMerchantByNameCity(biz.businessName, biz.city);
 
     if (existing) {
+      // Suppression guard: skip if the matched merchant is suppressed/dead/discarded
+      const existingLeadState = await storage.getSdrLeadStateByMerchant(existing.id);
+      const isSupp = (existing as any).doNotContactFlag === true
+        || ["SUPPRESSED", "DISCARDED", "DEAD"].includes(existingLeadState?.stage ?? "")
+        || ["human_suppressed", "human_discarded", "internal_not_a_fit"].includes(existingLeadState?.statusReason ?? "");
+      if (isSupp) {
+        console.log(`[LeadFinder/Apollo] Suppressed skip for existing merchant #${existing.id} (${biz.businessName}): doNotContact=${(existing as any).doNotContactFlag}, stage=${existingLeadState?.stage}, reason=${existingLeadState?.statusReason}`);
+        resultRecords.push({
+          jobId,
+          source: biz.source,
+          vertical: biz.vertical,
+          metro: biz.metro,
+          businessName: biz.businessName,
+          phone: biz.phone,
+          email: biz.email,
+          website: biz.website,
+          address: biz.address,
+          city: biz.city,
+          state: biz.state,
+          zip: biz.zip,
+          rating: biz.rating,
+          reviewCount: biz.reviewCount,
+          placeId: biz.placeId,
+          rawData: biz.rawData,
+          status: "suppressed_skip",
+          merchantId: existing.id,
+          dedupReason: `Suppressed: doNotContact=${(existing as any).doNotContactFlag}, stage=${existingLeadState?.stage}`,
+        });
+        duplicatesSkipped++;
+        continue;
+      }
+
       await mergeApolloContact(existing.id, biz);
       const existingSourcedVia = (existing as any).sourcedVia as string | null;
       const confirmedSourcesExact = existingSourcedVia
@@ -497,8 +529,40 @@ async function dedupeAndInsert(
     }
 
     if (fuzzyExisting) {
-      await mergeApolloContact(fuzzyExisting.id, biz);
+      // Suppression guard for fuzzy match
+      const fuzzyLeadState = await storage.getSdrLeadStateByMerchant(fuzzyExisting.id);
       const fuzzyFullRecord = await storage.findSdrMerchantByNameCity(fuzzyExisting.businessName, biz.city);
+      const isFuzzySupp = (fuzzyFullRecord as any)?.doNotContactFlag === true
+        || ["SUPPRESSED", "DISCARDED", "DEAD"].includes(fuzzyLeadState?.stage ?? "")
+        || ["human_suppressed", "human_discarded", "internal_not_a_fit"].includes(fuzzyLeadState?.statusReason ?? "");
+      if (isFuzzySupp) {
+        console.log(`[LeadFinder/Apollo] Suppressed skip for fuzzy merchant #${fuzzyExisting.id} (${biz.businessName}): stage=${fuzzyLeadState?.stage}`);
+        resultRecords.push({
+          jobId,
+          source: biz.source,
+          vertical: biz.vertical,
+          metro: biz.metro,
+          businessName: biz.businessName,
+          phone: biz.phone,
+          email: biz.email,
+          website: biz.website,
+          address: biz.address,
+          city: biz.city,
+          state: biz.state,
+          zip: biz.zip,
+          rating: biz.rating,
+          reviewCount: biz.reviewCount,
+          placeId: biz.placeId,
+          rawData: biz.rawData,
+          status: "suppressed_skip",
+          merchantId: fuzzyExisting.id,
+          dedupReason: `Suppressed (fuzzy): stage=${fuzzyLeadState?.stage}`,
+        });
+        duplicatesSkipped++;
+        continue;
+      }
+
+      await mergeApolloContact(fuzzyExisting.id, biz);
       if (fuzzyFullRecord) {
         const fuzzySourcedVia = (fuzzyFullRecord as any).sourcedVia as string | null;
         const confirmedSourcesFuzzy = fuzzySourcedVia
@@ -538,6 +602,43 @@ async function dedupeAndInsert(
     }
 
     try {
+      // Domain-based inactive pre-check before insert
+      if (biz.website) {
+        const domainMatch = await storage.findSdrMerchantByDomain(biz.website);
+        if (domainMatch) {
+          const domainLeadState = await storage.getSdrLeadStateByMerchant(domainMatch.id);
+          const isDomainSupp = (domainMatch as any).doNotContactFlag === true
+            || ["SUPPRESSED", "DISCARDED", "DEAD"].includes(domainLeadState?.stage ?? "")
+            || ["human_suppressed", "human_discarded", "internal_not_a_fit"].includes(domainLeadState?.statusReason ?? "");
+          if (isDomainSupp) {
+            console.log(`[LeadFinder/Apollo] Domain-based suppressed skip for ${biz.businessName} (domain=${biz.website}): existing merchant #${domainMatch.id}, stage=${domainLeadState?.stage}`);
+            resultRecords.push({
+              jobId,
+              source: biz.source,
+              vertical: biz.vertical,
+              metro: biz.metro,
+              businessName: biz.businessName,
+              phone: biz.phone,
+              email: biz.email,
+              website: biz.website,
+              address: biz.address,
+              city: biz.city,
+              state: biz.state,
+              zip: biz.zip,
+              rating: biz.rating,
+              reviewCount: biz.reviewCount,
+              placeId: biz.placeId,
+              rawData: biz.rawData,
+              status: "suppressed_skip",
+              merchantId: domainMatch.id,
+              dedupReason: `Domain match to suppressed merchant #${domainMatch.id}: stage=${domainLeadState?.stage}`,
+            });
+            duplicatesSkipped++;
+            continue;
+          }
+        }
+      }
+
       const merchantData: InsertSdrMerchant = {
         businessName: biz.businessName,
         website: biz.website,
@@ -710,6 +811,40 @@ export async function dedupeAndInsertFree(
 
     const existing = await storage.findSdrMerchantByNameCity(biz.businessName, biz.city);
     if (existing) {
+      // Suppression guard: skip if the matched merchant is suppressed/dead/discarded
+      const existingLeadState = await storage.getSdrLeadStateByMerchant(existing.id);
+      const isSupp = (existing as any).doNotContactFlag === true
+        || ["SUPPRESSED", "DISCARDED", "DEAD"].includes(existingLeadState?.stage ?? "")
+        || ["human_suppressed", "human_discarded", "internal_not_a_fit"].includes(existingLeadState?.statusReason ?? "");
+      if (isSupp) {
+        console.log(`[LeadFinder/Free] Suppressed skip for existing merchant #${existing.id} (${biz.businessName}): doNotContact=${(existing as any).doNotContactFlag}, stage=${existingLeadState?.stage}`);
+        if (jobId) {
+          resultRecords.push({
+            jobId,
+            source: biz.source,
+            vertical: biz.vertical,
+            metro: biz.metro,
+            businessName: biz.businessName,
+            phone: biz.phone,
+            email: biz.email,
+            website: biz.website,
+            address: biz.address,
+            city: biz.city,
+            state: biz.state,
+            zip: biz.zip,
+            rating: biz.rating,
+            reviewCount: biz.reviewCount,
+            placeId: biz.placeId,
+            rawData: biz.rawData,
+            status: "suppressed_skip",
+            merchantId: existing.id,
+            dedupReason: `Suppressed: doNotContact=${(existing as any).doNotContactFlag}, stage=${existingLeadState?.stage}`,
+          });
+        }
+        duplicatesSkipped++;
+        continue;
+      }
+
       const existingSourcedVia = (existing as any).sourcedVia as string | null;
       const confirmedSources = existingSourcedVia
         ? existingSourcedVia.split(",").map((s: string) => s.trim()).filter(Boolean)
@@ -757,6 +892,45 @@ export async function dedupeAndInsertFree(
     }
 
     try {
+      // Domain-based inactive pre-check before insert
+      if (biz.website) {
+        const domainMatch = await storage.findSdrMerchantByDomain(biz.website);
+        if (domainMatch) {
+          const domainLeadState = await storage.getSdrLeadStateByMerchant(domainMatch.id);
+          const isDomainSupp = (domainMatch as any).doNotContactFlag === true
+            || ["SUPPRESSED", "DISCARDED", "DEAD"].includes(domainLeadState?.stage ?? "")
+            || ["human_suppressed", "human_discarded", "internal_not_a_fit"].includes(domainLeadState?.statusReason ?? "");
+          if (isDomainSupp) {
+            console.log(`[LeadFinder/Free] Domain-based suppressed skip for ${biz.businessName} (domain=${biz.website}): existing merchant #${domainMatch.id}, stage=${domainLeadState?.stage}`);
+            if (jobId) {
+              resultRecords.push({
+                jobId,
+                source: biz.source,
+                vertical: biz.vertical,
+                metro: biz.metro,
+                businessName: biz.businessName,
+                phone: biz.phone,
+                email: biz.email,
+                website: biz.website,
+                address: biz.address,
+                city: biz.city,
+                state: biz.state,
+                zip: biz.zip,
+                rating: biz.rating,
+                reviewCount: biz.reviewCount,
+                placeId: biz.placeId,
+                rawData: biz.rawData,
+                status: "suppressed_skip",
+                merchantId: domainMatch.id,
+                dedupReason: `Domain match to suppressed merchant #${domainMatch.id}: stage=${domainLeadState?.stage}`,
+              });
+            }
+            duplicatesSkipped++;
+            continue;
+          }
+        }
+      }
+
       const resolvedVertical = classifyVertical(null, biz.businessName) !== "Other"
         ? classifyVertical(null, biz.businessName)
         : biz.vertical;

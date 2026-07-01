@@ -711,6 +711,15 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, notInArray,
   }
 
 
+  async findSdrMerchantByDomain(domain: string): Promise<SdrMerchant | undefined> {
+    const normalized = domain.replace(/^https?:\/\//i, "").replace(/\/$/, "").toLowerCase();
+    if (!normalized) return undefined;
+    const [match] = await db.select().from(sdrMerchants)
+      .where(sql`LOWER(REGEXP_REPLACE(COALESCE(${sdrMerchants.domain}, ${sdrMerchants.website}), '^https?://', '', 'g')) = ${normalized}`)
+      .limit(1);
+    return match;
+  }
+
   async findSdrMerchantByNameCity(businessName: string, city: string | null): Promise<SdrMerchant | undefined> {
     const normalizedName = businessName.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
     const conditions = [sql`LOWER(REGEXP_REPLACE(${sdrMerchants.businessName}, '[^a-zA-Z0-9\\s]', '', 'g')) = ${normalizedName}`];

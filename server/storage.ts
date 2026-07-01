@@ -148,6 +148,7 @@ export interface IStorage {
   getContact(id: number): Promise<typeof contacts.$inferSelect | undefined>;
   getContactByGhlContactId(ghlContactId: string): Promise<typeof contacts.$inferSelect | undefined>;
   getContactByEmail(email: string): Promise<typeof contacts.$inferSelect | undefined>;
+  getContactByPhone(phone: string): Promise<typeof contacts.$inferSelect | null>;
   getContactsByIds(ids: number[]): Promise<typeof contacts.$inferSelect[]>;
   getChildLocations(parentContactId: number): Promise<typeof contacts.$inferSelect[]>;
   getParentAccount(contactId: number): Promise<typeof contacts.$inferSelect | null>;
@@ -635,6 +636,7 @@ export interface IStorage {
   createLeadDiscoveryResult(data: InsertLeadDiscoveryResult): Promise<LeadDiscoveryResult>;
   createLeadDiscoveryResultsBulk(data: InsertLeadDiscoveryResult[]): Promise<LeadDiscoveryResult[]>;
   getLeadDiscoveryStats(): Promise<any>;
+  findSdrMerchantByDomain(domain: string): Promise<SdrMerchant | undefined>;
   findSdrMerchantByNameCity(businessName: string, city: string | null): Promise<SdrMerchant | undefined>;
   getSdrMerchantsByCity(city: string): Promise<SdrMerchant[]>;
 

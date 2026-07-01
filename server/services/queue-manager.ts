@@ -715,6 +715,38 @@ async function runFreeContactEnrichmentForMerchant(merchantId: number): Promise<
     }
   }
 
+  // Processor detection: merge into sdrLeadState.enrichmentData (non-fatal)
+  try {
+    const { detectProcessorsForDomain } = await import("./sdr/processor-detector");
+    const { storage: stg } = await import("../storage");
+    const [merchantRow] = await db.select().from(sdrMerchants).where(eq(sdrMerchants.id, merchantId));
+    const domain = merchantRow?.domain || merchantRow?.website;
+    if (domain) {
+      const results = await detectProcessorsForDomain(
+        domain,
+        merchantRow.businessName,
+        merchantRow.city ?? undefined,
+        merchantRow.state ?? undefined
+      );
+      const detectionSource = results.length > 0 && results[0].detectionMethod === "serper" ? "serper" : "html";
+      const leadState = await stg.getSdrLeadStateByMerchant(merchantId);
+      if (leadState) {
+        const existingEnrichment = (leadState.enrichmentData as Record<string, unknown>) ?? {};
+        await stg.updateSdrLeadState(leadState.id, {
+          enrichmentData: {
+            ...existingEnrichment,
+            processorSignals: results,
+            processorDetectionAt: new Date().toISOString(),
+            processorDetectionSource: detectionSource,
+          },
+        });
+        console.log(`[FreeEnrich] Merchant ${merchantId}: processor detection merged (${results.length} signals via ${detectionSource})`);
+      }
+    }
+  } catch (err) {
+    console.error(`[FreeEnrich] Processor detection failed for merchant ${merchantId}:`, err);
+  }
+
   if (emailFound) {
     await db.update(sdrMerchants)
       .set({ ownerEnrichmentStatus: "enriched", updatedAt: new Date() })
