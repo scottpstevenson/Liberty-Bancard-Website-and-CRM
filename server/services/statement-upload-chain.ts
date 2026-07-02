@@ -300,6 +300,21 @@ export async function runStatementUploadChain(
             await storage.updateDeal(capturedDealId, { analysisStatus: "complete" }).catch(() => {});
             console.log(`[StatementChain] Blueprint complete for deal #${capturedDealId}`);
 
+            // NEW: structured analyzer runs after blueprint — non-fatal
+            try {
+              const { analyzeStatement } = await import("./statement-analyzer");
+              await analyzeStatement(capturedDealId);
+            } catch (analyzeErr: any) {
+              console.error(`[StatementChain] Structured analysis failed for deal #${capturedDealId} (non-fatal):`, analyzeErr.message);
+              storage.createAuditLog({
+                action: "statement_analysis_failed",
+                entityType: "deal",
+                entityId: capturedDealId,
+                actorType: "system",
+                details: { error: analyzeErr.message, timestamp: new Date().toISOString() },
+              }).catch(() => {});
+            }
+
             // Run underwriting engine after inline analysis (mirrors BullMQ path)
             try {
               const { runUnderwritingEngine } = await import("./underwriting-engine");
@@ -638,20 +653,43 @@ export async function runStatementUploadChain(
         || `${contact?.firstName || ""} ${contact?.lastName || ""}`.trim()
         || "Merchant";
 
-      // Insert a dedicated proposal row in statement_proposals.
-      // This is the canonical draft proposal entity reps see on the deal detail view.
-      // It is separate from deals.savingsProposal (AI-generated pricing) and
-      // co_branded_proposals (partner-facing PDFs).
-      const [proposalRow] = await db.insert(statementProposals).values({
-        dealId,
-        contactId: input.contactId,
-        status: "draft",
-        merchantName,
-        source: input.source,
-        statementFileName: input.fileName || null,
-        plans: [],
-        notes: "Statement received — awaiting AI analysis to populate pricing plans.",
-      }).returning({ id: statementProposals.id });
+      // Insert a dedicated proposal row in statement_proposals — idempotent.
+      // The analyzer (which runs in BullMQ before Step 10 in some cases) may have
+      // already inserted a row, so check before inserting to avoid duplicate rows.
+      // (No unique constraint on dealId — must select-before-insert.)
+      const [existingProposal] = await db
+        .select({ id: statementProposals.id, status: statementProposals.status })
+        .from(statementProposals)
+        .where(eq(statementProposals.dealId, dealId))
+        .limit(1);
+
+      let proposalRow: { id: number } | undefined;
+      if (existingProposal) {
+        // Row already created by the analyzer — update metadata only, preserve status/analysis
+        await db.update(statementProposals)
+          .set({
+            merchantName,
+            source: input.source,
+            statementFileName: input.fileName || null,
+            updatedAt: new Date(),
+          })
+          .where(eq(statementProposals.dealId, dealId));
+        proposalRow = { id: existingProposal.id };
+        console.log(`[StatementChain] Step 10: reused existing statement_proposals row #${existingProposal.id} for deal #${dealId}`);
+      } else {
+        // No row yet — insert the initial draft
+        const [inserted] = await db.insert(statementProposals).values({
+          dealId,
+          contactId: input.contactId,
+          status: "draft",
+          merchantName,
+          source: input.source,
+          statementFileName: input.fileName || null,
+          plans: [],
+          notes: "Statement received — awaiting AI analysis to populate pricing plans.",
+        }).returning({ id: statementProposals.id });
+        proposalRow = inserted;
+      }
 
       // Also flag the deal so pipeline/deal-card UI can show a "Draft Proposal" badge.
       if (deal && (!deal.proposalStatus || deal.proposalStatus === "none")) {

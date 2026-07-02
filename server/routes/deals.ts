@@ -2,8 +2,8 @@ import type { Express } from "express";
 import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { db } from "../db";
-import { tasks } from "@shared/schema";
-import { eq, and, isNull } from "drizzle-orm";
+import { tasks, statementProposals } from "@shared/schema";
+import { eq, and, isNull, desc } from "drizzle-orm";
 import { z } from "zod";
 import { contacts, insertDealCompetitorSchema, insertDealSchema, insertPipelineStageSchema, insertStageAutomationRuleSchema } from "@shared/schema";
 import { autoEnrollFromTrigger } from "../services/sequence-worker";
@@ -615,6 +615,29 @@ export function registerDealsRoutes(app: Express) {
     }
   });
 
+
+  // === STATEMENT ANALYSIS ===
+  app.get("/api/deals/:id/analysis", isDashboardUser, async (req, res) => {
+    try {
+      const dealId = Number(req.params.id);
+      const deal = await storage.getDeal(dealId);
+      if (!deal) return res.status(404).json({ message: "Deal not found" });
+
+      const [proposal] = await db
+        .select()
+        .from(statementProposals)
+        .where(eq(statementProposals.dealId, dealId))
+        .orderBy(desc(statementProposals.id))
+        .limit(1);
+
+      res.json({
+        analysisStatus: deal.analysisStatus ?? "none",
+        proposal: proposal ?? null,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
 
   // === ENHANCED DEAL STAGE CHANGE WITH AUTOMATION ===
   // (Stage automation is now handled in the existing PUT /api/deals/:id route enhancement)

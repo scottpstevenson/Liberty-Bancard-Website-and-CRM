@@ -8,7 +8,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Loader2, Link2, Copy, Mail, ChevronDown, Eye, FileText, CheckCircle2, Send, ExternalLink, ClipboardList } from "lucide-react";
+import { Loader2, Link2, Copy, Mail, ChevronDown, Eye, FileText, CheckCircle2, Send, ExternalLink, ClipboardList, BarChart2, AlertCircle, Clock } from "lucide-react";
 import type { Deal, Agent } from "@shared/schema";
 import BoardingPanel from "@/components/BoardingPanel";
 import { DealAgentAssignment } from "./DealAgentAssignment";
@@ -38,6 +38,171 @@ interface DealsTabProps {
   isManagerOrAdmin: boolean;
   agentsList: Agent[] | undefined;
   setLocation: (path: string) => void;
+}
+
+interface AnalysisProposal {
+  id: number;
+  status: string;
+  effectiveRate: string | null;
+  savingsEstimate: string | null;
+  notes: string | null;
+  updatedAt: string | null;
+}
+
+interface AnalysisData {
+  analysisStatus: string;
+  proposal: AnalysisProposal | null;
+}
+
+function StatementAnalysisSection({ dealId, analysisStatus }: { dealId: number; analysisStatus: string | null }) {
+  const { data, isLoading } = useQuery<AnalysisData>({
+    queryKey: ["/api/deals", dealId, "analysis"],
+    queryFn: async () => {
+      const res = await fetch(`/api/deals/${dealId}/analysis`);
+      if (!res.ok) return { analysisStatus: "none", proposal: null };
+      return res.json();
+    },
+    enabled: !!dealId,
+    refetchInterval: analysisStatus === "pending" || analysisStatus === "processing" ? 8000 : false,
+  });
+
+  if (isLoading) return (
+    <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
+      <Loader2 className="w-3 h-3 animate-spin" /> Loading analysis...
+    </div>
+  );
+
+  const proposal = data?.proposal;
+  const currentStatus = data?.analysisStatus ?? analysisStatus ?? "none";
+
+  if (currentStatus === "none" && !proposal) return null;
+
+  const statusBadge = () => {
+    if (currentStatus === "pending" || currentStatus === "processing") {
+      return (
+        <Badge variant="outline" className="h-4 px-1 text-[10px] bg-yellow-50 text-yellow-700 border-yellow-200" data-testid={`badge-analysis-status-${dealId}`}>
+          <Clock className="w-2.5 h-2.5 mr-0.5" /> {currentStatus === "pending" ? "Queued" : "Analyzing..."}
+        </Badge>
+      );
+    }
+    if (currentStatus === "failed") {
+      return (
+        <Badge variant="outline" className="h-4 px-1 text-[10px] bg-red-50 text-red-700 border-red-200" data-testid={`badge-analysis-status-${dealId}`}>
+          <AlertCircle className="w-2.5 h-2.5 mr-0.5" /> Analysis Failed
+        </Badge>
+      );
+    }
+    if (proposal?.status === "analyzed") {
+      return (
+        <Badge variant="outline" className="h-4 px-1 text-[10px] bg-green-50 text-green-700 border-green-200" data-testid={`badge-analysis-status-${dealId}`}>
+          <CheckCircle2 className="w-2.5 h-2.5 mr-0.5" /> Analyzed
+        </Badge>
+      );
+    }
+    if (proposal?.status === "failed") {
+      return (
+        <Badge variant="outline" className="h-4 px-1 text-[10px] bg-red-50 text-red-700 border-red-200" data-testid={`badge-analysis-status-${dealId}`}>
+          <AlertCircle className="w-2.5 h-2.5 mr-0.5" /> Analysis Failed
+        </Badge>
+      );
+    }
+    return (
+      <Badge variant="outline" className="h-4 px-1 text-[10px]" data-testid={`badge-analysis-status-${dealId}`}>
+        Draft
+      </Badge>
+    );
+  };
+
+  let parsedExtraction: any = null;
+  if (proposal?.notes) {
+    try { parsedExtraction = JSON.parse(proposal.notes); } catch { /* ignore */ }
+  }
+
+  return (
+    <div className="mt-4 pt-4 border-t space-y-2" data-testid={`section-statement-analysis-${dealId}`}>
+      <div className="flex items-center gap-2 mb-2">
+        <BarChart2 className="w-4 h-4 text-indigo-600" />
+        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Statement Analysis</h4>
+        {statusBadge()}
+      </div>
+
+      {(currentStatus === "pending" || currentStatus === "processing") && (
+        <p className="text-xs text-muted-foreground italic">
+          AI is analyzing the statement. This page will refresh automatically.
+        </p>
+      )}
+
+      {proposal?.status === "analyzed" && (
+        <div className="space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            {proposal.effectiveRate && (
+              <div className="p-2 rounded-md bg-muted/30 border text-xs" data-testid={`text-effective-rate-${dealId}`}>
+                <div className="text-muted-foreground mb-0.5">Effective Rate (Estimated)</div>
+                <div className="font-semibold">{proposal.effectiveRate}</div>
+              </div>
+            )}
+            {proposal.savingsEstimate && (
+              <div className="p-2 rounded-md bg-muted/30 border text-xs" data-testid={`text-savings-estimate-${dealId}`}>
+                <div className="text-muted-foreground mb-0.5">Est. Savings (Draft)</div>
+                <div className="font-semibold text-green-700 dark:text-green-400">
+                  {proposal.savingsEstimate.includes("No clear") || proposal.savingsEstimate.includes("No estimate")
+                    ? proposal.savingsEstimate
+                    : proposal.savingsEstimate}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {parsedExtraction?.extraction && (
+            <div className="p-2 rounded-md bg-muted/30 border text-xs space-y-1">
+              {parsedExtraction.extraction.processorName && parsedExtraction.extraction.processorName !== "Unknown" && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Processor</span>
+                  <span className="font-medium">{parsedExtraction.extraction.processorName}</span>
+                </div>
+              )}
+              {parsedExtraction.extraction.monthlyVolume > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Monthly Volume</span>
+                  <span className="font-medium">${parsedExtraction.extraction.monthlyVolume.toLocaleString()}</span>
+                </div>
+              )}
+              {parsedExtraction.extraction.totalFees > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Total Fees</span>
+                  <span className="font-medium">${parsedExtraction.extraction.totalFees.toLocaleString()}</span>
+                </div>
+              )}
+              {parsedExtraction.extraction.topCostDrivers?.length > 0 && (
+                <div>
+                  <span className="text-muted-foreground block mb-0.5">Top Cost Drivers</span>
+                  <ul className="space-y-0.5">
+                    {parsedExtraction.extraction.topCostDrivers.map((driver: string, i: number) => (
+                      <li key={i} className="flex items-start gap-1">
+                        <span className="text-muted-foreground shrink-0">•</span>
+                        <span>{driver}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
+          <p className="text-[10px] text-muted-foreground italic">
+            All figures are estimated and for internal rep review only. Rep verification required before sharing with merchant.
+          </p>
+        </div>
+      )}
+
+      {(proposal?.status === "failed") && (
+        <p className="text-xs text-muted-foreground">
+          Analysis could not be completed automatically. Rep review required.
+          {parsedExtraction ? "" : proposal.notes ? ` Reason: ${proposal.notes.slice(0, 100)}` : ""}
+        </p>
+      )}
+    </div>
+  );
 }
 
 function CoBrandedProposalsSection({ dealId }: { dealId: number }) {
@@ -352,6 +517,7 @@ export function DealsTab({ deals, contactId, isManagerOrAdmin, agentsList, setLo
               onStatusChange={() => queryClient.invalidateQueries({ queryKey: ["/api/contacts", contactId, "detail"] })}
             />
             {deal.partnerOrgId && <CoBrandedProposalsSection dealId={deal.id} />}
+            <StatementAnalysisSection dealId={deal.id} analysisStatus={(deal as any).analysisStatus ?? null} />
           </CardContent>
         </Card>
       ))}

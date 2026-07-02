@@ -794,6 +794,21 @@ async function runStatementBlueprintJob(dealId: number): Promise<void> {
     await storage.updateDeal(dealId, { analysisStatus: "complete" }).catch(() => {});
     console.log(`[Queue:enrichment] Statement blueprint complete for deal #${dealId}`);
 
+    // NEW: structured analyzer runs after blueprint — non-fatal
+    try {
+      const { analyzeStatement } = await import("./statement-analyzer");
+      await analyzeStatement(dealId);
+    } catch (analyzeErr: any) {
+      console.error(`[Queue:enrichment] Structured analysis failed for deal #${dealId} (non-fatal):`, analyzeErr.message);
+      storage.createAuditLog({
+        action: "statement_analysis_failed",
+        entityType: "deal",
+        entityId: dealId,
+        actorType: "system",
+        details: { error: analyzeErr.message, timestamp: new Date().toISOString() },
+      }).catch(() => {});
+    }
+
     // Run underwriting engine after analysis completes (non-fatal)
     try {
       const { runUnderwritingEngine } = await import("./underwriting-engine");
