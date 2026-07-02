@@ -1,0 +1,150 @@
+Final Corrections to #708 Before Build
+
+The task is approved directionally, but do not build until these corrections are applied.
+
+1. Fix the statement upload token flow
+
+The new statement_requests.uploadToken must connect to a real upload flow.
+
+Current preflight finding:
+
+POST /api/statement-upload/:token currently resolves SDR lead token and calls handleStatementReceived(lead.id)
+
+That is not enough for the new request object unless the token is also resolvable from statement_requests.
+
+Required:
+
+Choose one safe implementation:
+
+Option A — Use the existing real upload flow
+
+Generate a prefilled URL that routes to the existing statement upload flow that already runs the full statement upload chain.
+
+The completed upload must create/update:
+
+* contact/deal linkage
+* document record
+* analysisStatus
+* analysis queue/job
+* statement_requests status
+
+Option B — Extend token handler to support statement_requests tokens
+
+Update the upload token handler so it can resolve:
+
+statement_requests.uploadToken
+
+Then, when a merchant uploads with that token, it must update the matching statement_requests row and run the same real processing path used for normal statement uploads.
+
+Kill line:
+
+STOP if the generated request-statement upload URL can be created but the uploaded file does not flow into the real statement processing/document/analysis path.
+
+Kill line:
+
+STOP if /api/statement-upload/:token only updates status but does not process the uploaded statement.
+
+⸻
+
+2. Split Sales Prep read vs generate routes
+
+Do not make GET /api/contacts/:id/sales-prep generate paid AI output.
+
+Use two routes:
+
+GET /api/contacts/:id/sales-prep
+
+Returns:
+
+* whether the contact is SDR-sourced
+* cached sales prep if it exists
+* cache metadata
+* canGenerate: true/false
+
+And:
+
+POST /api/contacts/:id/sales-prep/generate
+
+Generates only after an explicit button click, checks persistent cache first, then calls OpenAI only if needed.
+
+Kill line:
+
+STOP if a GET request can trigger a paid OpenAI generation.
+
+Kill line:
+
+STOP if ContactDetail page load, tab visibility checks, or React Query prefetch can trigger paid AI generation.
+
+⸻
+
+3. Rename sdrSourceId on statement_requests
+
+Do not use ambiguous naming.
+
+Use:
+
+sdrLeadStateId
+
+not:
+
+sdrSourceId
+
+Reason: the relationship is to sdrLeadState.id, not to a generic SDR source or merchant source.
+
+Kill line:
+
+STOP if a new field name makes it unclear whether it references sdrLeadState, sdrMerchants, or lead source metadata.
+
+⸻
+
+4. Abandoned task dedup should use a stable request marker
+
+The tasks table has no task type. Do not dedupe only with broad title matching like:
+
+title ILIKE '%statement%'
+
+Use a stable marker in the task description, such as:
+
+statement_request_id:<id>
+
+Before creating a task, query for an open pending task with that marker.
+
+Kill line:
+
+STOP if the abandoned-statement worker can create duplicate tasks because dedupe relies only on a broad title match.
+
+⸻
+
+5. Sales Prep tab visibility must not require generating prep
+
+The ContactDetail UI should determine SDR-sourced status using a lightweight check:
+
+* existing loaded contact/SDR relation if already available
+* or GET /api/contacts/:id/sales-prep returning sdrSourced and cached state only
+
+The tab should not generate prep just to decide whether it should render.
+
+⸻
+
+Corrected build scope
+
+Build:
+
+1. statement_requests table.
+2. contact_ai_cache table.
+3. Manual request-statement route that creates a request/token and does not send outbound.
+4. Real upload/status connection so uploaded files update the request and flow through the real statement processing path.
+5. Cached Sales Prep with GET = read/cache/status and POST = explicit generate.
+6. Sales Prep tab visible only for SDR-linked contacts.
+7. Abandoned statement worker that creates one internal task per request using a stable dedupe marker.
+8. Validation script and role-guard tests.
+
+Do not:
+
+* add contacts.sdrSourceId
+* trigger OpenAI on GET/page load
+* call sendStatementRequest
+* call outbound email/SMS
+* enroll sequences
+* enroll GHL workflows
+* create duplicate abandoned tasks
