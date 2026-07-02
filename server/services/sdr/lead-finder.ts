@@ -782,7 +782,8 @@ export async function dedupeAndInsertFree(
     reviewCount: number | null;
     placeId: string | null;
   }>,
-  jobId?: number
+  jobId?: number,
+  maxInsert?: number
 ): Promise<{ newInserted: number; duplicatesSkipped: number }> {
   let newInserted = 0;
   let duplicatesSkipped = 0;
@@ -904,6 +905,8 @@ export async function dedupeAndInsertFree(
     }
 
     try {
+      if (maxInsert !== undefined && newInserted >= maxInsert) break;
+
       // Domain-based inactive pre-check before insert
       if (biz.website) {
         const domainMatch = await storage.findSdrMerchantByDomain(biz.website);
@@ -1205,6 +1208,220 @@ export async function runLeadDiscovery(
     newInserted: totalNewInserted,
     duplicatesSkipped: totalDuplicatesSkipped,
     enrichmentQueued: totalEnrichmentQueued,
+  };
+}
+
+export interface PilotDiscoveryProviders {
+  searchSerperFn?: (v: string, m: string, s: string, n: number) => Promise<NormalizedBusiness[]>;
+  searchOutscraperFn?: (v: string, m: string, s: string, n: number) => Promise<NormalizedBusiness[]>;
+  searchApifyFn?: (v: string, m: string, s: string, n: number) => Promise<NormalizedBusiness[]>;
+  dedupeAndInsertFn?: (businesses: NormalizedBusiness[], jobId: number) => Promise<{ newInserted: number; duplicatesSkipped: number; enrichmentQueued: number; results: any[] }>;
+  updateJobFn?: (id: number, data: any) => Promise<void>;
+}
+
+export interface PilotDiscoveryOptions {
+  limit: number;
+  sources: string[];
+  verticals?: string[];
+  metros?: string[];
+  jobId?: number;
+  _providers?: PilotDiscoveryProviders;
+}
+
+export async function runPilotDiscovery(options: PilotDiscoveryOptions): Promise<{
+  jobId: number;
+  rawFound: number;
+  newInserted: number;
+  duplicatesSkipped: number;
+}> {
+  const { verifyEmail } = await import("./zerobounce");
+  const p = options._providers ?? {};
+
+  const ALLOWED_PAID_SOURCES = ["serper", "outscraper", "apify"];
+  const ALLOWED_FREE_SOURCES = ["osm", "yellowpages", "bbb"];
+  const globalCap = Math.min(options.limit ?? 25, 50);
+
+  const paidSources = (options.sources || []).filter(s => ALLOWED_PAID_SOURCES.includes(s));
+  const freeSources = (options.sources || []).filter(s => ALLOWED_FREE_SOURCES.includes(s));
+  // Apollo enrichment runs silently post-discovery whenever APOLLO_API_KEY is configured;
+  // it is not a user-selectable discovery source.
+  const runApolloEnrichment = isApolloConfigured();
+
+  const matrix = await getSearchMatrix();
+  const verticals = options.verticals?.length ? options.verticals : matrix.verticals.slice(0, 2);
+  const metros = options.metros?.length ? options.metros : matrix.metros.slice(0, 1);
+  const state = matrix.state || "FL";
+
+  const jobId = options.jobId;
+  if (!jobId) {
+    throw new Error("[PilotDiscovery] jobId is required — caller must create the job record");
+  }
+
+  const updateJob = p.updateJobFn ?? ((id: number, data: any) => storage.updateLeadDiscoveryJob(id, data));
+  await updateJob(jobId, { status: "running", startedAt: new Date() });
+
+  let totalRawFound = 0;
+  let totalNewInserted = 0;
+  let totalDuplicatesSkipped = 0;
+  const errorMessages: string[] = [];
+
+  try {
+    const allBusinesses: NormalizedBusiness[] = [];
+
+    // --- Paid sources: rolling remaining budget — fetch budget decrements per source ---
+    for (const source of paidSources) {
+      const remaining = globalCap - allBusinesses.length;
+      if (remaining <= 0) break;
+      try {
+        for (const vertical of verticals.slice(0, 1)) {
+          const rem2 = globalCap - allBusinesses.length;
+          if (rem2 <= 0) break;
+          for (const metro of metros.slice(0, 1)) {
+            const remInner = globalCap - allBusinesses.length;
+            if (remInner <= 0) break;
+            let results: NormalizedBusiness[] = [];
+
+            if (source === "outscraper") {
+              results = await (p.searchOutscraperFn ?? searchOutscraperForDiscovery)(vertical, metro, state, remInner);
+            } else if (source === "apify") {
+              results = await (p.searchApifyFn ?? searchApifyForDiscovery)(vertical, metro, state, remInner);
+            } else if (source === "serper") {
+              results = await (p.searchSerperFn ?? searchSerperForDiscovery)(vertical, metro, state, remInner);
+            }
+
+            // Defensive slice ensures we never exceed the rolling budget
+            allBusinesses.push(...results.slice(0, remInner));
+          }
+        }
+      } catch (err) {
+        const msg = `Pilot error with ${source}: ${err}`;
+        console.error(`[PilotDiscovery] ${msg}`);
+        errorMessages.push(msg);
+      }
+    }
+
+    // allBusinesses is already within globalCap via rolling remInner passed to each API call
+    totalRawFound += allBusinesses.length;
+
+    let insertedMerchants: Array<{ merchantId: number; source: string; businessName: string }> = [];
+
+    if (allBusinesses.length > 0) {
+      const insertFn = p.dedupeAndInsertFn ?? dedupeAndInsert;
+      const dedupeResult = await insertFn(allBusinesses, jobId);
+      totalNewInserted += dedupeResult.newInserted;
+      totalDuplicatesSkipped += dedupeResult.duplicatesSkipped;
+      insertedMerchants = (dedupeResult.results as any[])
+        .filter((r: any) => r.status === "inserted" && r.merchantId != null)
+        .map((r: any) => ({ merchantId: r.merchantId as number, source: r.source as string, businessName: r.businessName as string }));
+    }
+
+    if (runApolloEnrichment && insertedMerchants.length > 0) {
+      const apolloResults: NormalizedBusiness[] = [];
+      for (const vertical of verticals.slice(0, 1)) {
+        for (const metro of metros.slice(0, 1)) {
+          try {
+            const aResults = await searchApolloForDiscoveryLocal(vertical, metro, state, Math.min(insertedMerchants.length, 50));
+            apolloResults.push(...aResults);
+          } catch (err) {
+            console.error(`[PilotDiscovery] Apollo enrichment error for ${vertical}/${metro}:`, err);
+          }
+        }
+      }
+
+      if (apolloResults.length > 0) {
+        const apolloByName = new Map<string, NormalizedBusiness>();
+        for (const r of apolloResults) {
+          apolloByName.set(normalizeBusinessName(r.businessName), r);
+        }
+
+        for (const { merchantId, businessName } of insertedMerchants) {
+          const merchantNorm = normalizeBusinessName(businessName);
+          const apolloMatch = apolloByName.get(merchantNorm) ||
+            [...apolloByName.entries()].find(([k]) => jaroWinkler(k, merchantNorm) >= FUZZY_THRESHOLD)?.[1];
+
+          if (apolloMatch && (apolloMatch.ownerFirstName || apolloMatch.ownerLastName)) {
+            try {
+              await mergeApolloContact(merchantId, { ...apolloMatch, source: "apollo" });
+            } catch (err) {
+              console.error(`[PilotDiscovery] Apollo mergeContact error for merchant ${merchantId}:`, err);
+            }
+
+            if (apolloMatch.ownerEmail) {
+              try {
+                const zbResult = await verifyEmail(apolloMatch.ownerEmail);
+                const leadState = await storage.getSdrLeadStateByMerchant(merchantId);
+                if (leadState) {
+                  const existingData = (leadState.enrichmentData as Record<string, any>) || {};
+                  await storage.updateSdrLeadState(leadState.id, {
+                    enrichmentData: { ...existingData, emailVerification: zbResult },
+                  });
+                }
+              } catch (zbErr) {
+                console.error(`[PilotDiscovery] ZeroBounce error for merchant ${merchantId}:`, zbErr);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // --- Free sources: rolling remaining budget — both fetch and insert are capped ---
+    for (const source of freeSources) {
+      const remaining = globalCap - (totalRawFound + totalNewInserted);
+      if (remaining <= 0) break;
+      try {
+        if (source === "osm") {
+          const { runOsmDiscovery } = await import("./osm-discovery");
+          const osmCounts = await runOsmDiscovery({ jobId, maxInsert: remaining, maxFetch: remaining });
+          totalRawFound += osmCounts.found;
+          totalNewInserted += osmCounts.newInserted;
+          totalDuplicatesSkipped += osmCounts.duplicatesSkipped;
+        } else if (source === "yellowpages") {
+          const { runYellowPagesDiscovery } = await import("./yellowpages-discovery");
+          const ypCounts = await runYellowPagesDiscovery({ jobId, maxInsert: remaining, maxFetch: remaining });
+          totalRawFound += ypCounts.found;
+          totalNewInserted += ypCounts.newInserted;
+          totalDuplicatesSkipped += ypCounts.duplicatesSkipped;
+        } else if (source === "bbb") {
+          const { runBBBDiscovery } = await import("./bbb-discovery");
+          const bbbCounts = await runBBBDiscovery({ jobId, maxInsert: remaining, maxFetch: remaining });
+          totalRawFound += bbbCounts.found;
+          totalNewInserted += bbbCounts.newInserted;
+          totalDuplicatesSkipped += bbbCounts.duplicatesSkipped;
+        }
+      } catch (err) {
+        const msg = `Pilot error with ${source}: ${err}`;
+        console.error(`[PilotDiscovery] ${msg}`);
+        errorMessages.push(msg);
+      }
+    }
+
+    const finalRaw = Math.min(totalRawFound, globalCap);
+    await updateJob(jobId, {
+      status: errorMessages.length > 0 ? "completed_with_errors" : "completed",
+      rawFound: finalRaw,
+      newInserted: totalNewInserted,
+      duplicatesSkipped: totalDuplicatesSkipped,
+      errorsCount: errorMessages.length,
+      errorLog: errorMessages.length > 0 ? errorMessages.join("\n") : undefined,
+      completedAt: new Date(),
+    });
+
+    console.log(`[PilotDiscovery] Complete: cap=${globalCap}, rawFound=${totalRawFound}, newInserted=${totalNewInserted}`);
+  } catch (fatalErr) {
+    console.error("[PilotDiscovery] Fatal error:", fatalErr);
+    await updateJob(jobId, {
+      status: "failed",
+      errorLog: String(fatalErr),
+      completedAt: new Date(),
+    });
+  }
+
+  return {
+    jobId,
+    rawFound: Math.min(totalRawFound, globalCap),
+    newInserted: totalNewInserted,
+    duplicatesSkipped: totalDuplicatesSkipped,
   };
 }
 

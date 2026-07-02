@@ -230,10 +230,14 @@ export async function runOsmDiscovery(options?: {
   stateCodes?: string[];
   verticals?: string[];
   jobId?: number;
+  maxInsert?: number;
+  maxFetch?: number;
 }): Promise<{ found: number; newInserted: number; duplicatesSkipped: number; states: string[] }> {
   const targetStateCodes = options?.stateCodes || US_STATE_BBOXES.map(s => s.code);
   const targetVerticals = options?.verticals;
   const jobId = options?.jobId;
+  const maxInsert = options?.maxInsert;
+  const maxFetch = options?.maxFetch;
 
   const targetStates = US_STATE_BBOXES.filter(s => targetStateCodes.includes(s.code));
   const targetVerticalConfigs = targetVerticals
@@ -262,7 +266,11 @@ export async function runOsmDiscovery(options?: {
           stateFound += businesses.length;
           totalFound += businesses.length;
 
+          if (maxFetch !== undefined && totalFound >= maxFetch) break;
+
           if (businesses.length > 0) {
+            const remaining = maxInsert !== undefined ? maxInsert - totalNewInserted : undefined;
+            if (remaining !== undefined && remaining <= 0) break;
             const { dedupeAndInsertFree } = await import("./lead-finder");
             const counts = await dedupeAndInsertFree(businesses.map(b => ({
               businessName: b.businessName,
@@ -280,7 +288,7 @@ export async function runOsmDiscovery(options?: {
               rating: null,
               reviewCount: null,
               placeId: null,
-            })), jobId);
+            })), jobId, remaining);
             totalNewInserted += counts.newInserted;
             totalDuplicatesSkipped += counts.duplicatesSkipped;
           }

@@ -204,11 +204,15 @@ export async function runYellowPagesDiscovery(options?: {
   states?: string[];
   citiesPerState?: number;
   jobId?: number;
+  maxInsert?: number;
+  maxFetch?: number;
 }): Promise<{ found: number; newInserted: number; duplicatesSkipped: number }> {
   const targetVerticals = options?.verticals || Object.keys(VERTICAL_SEARCH_TERMS);
   const targetStates = options?.states || Object.keys(DEFAULT_CITIES_BY_STATE);
   const citiesPerState = options?.citiesPerState || 5;
   const jobId = options?.jobId;
+  const maxInsert = options?.maxInsert;
+  const maxFetch = options?.maxFetch;
 
   let totalFound = 0;
   let totalNewInserted = 0;
@@ -224,10 +228,13 @@ export async function runYellowPagesDiscovery(options?: {
         const terms = VERTICAL_SEARCH_TERMS[vertical] || [vertical];
 
         try {
+          if (maxFetch !== undefined && totalFound >= maxFetch) break;
           const businesses = await scrapeVerticalCity(vertical, terms, city, state);
           totalFound += businesses.length;
 
           if (businesses.length > 0) {
+            const remaining = maxInsert !== undefined ? maxInsert - totalNewInserted : undefined;
+            if (remaining !== undefined && remaining <= 0) break;
             const { dedupeAndInsertFree } = await import("./lead-finder");
             const counts = await dedupeAndInsertFree(businesses.map(b => ({
               businessName: b.businessName,
@@ -245,7 +252,7 @@ export async function runYellowPagesDiscovery(options?: {
               rating: null,
               reviewCount: null,
               placeId: null,
-            })), jobId);
+            })), jobId, remaining);
             totalNewInserted += counts.newInserted;
             totalDuplicatesSkipped += counts.duplicatesSkipped;
             console.log(`[YP] ${vertical}/${city}/${state}: ${businesses.length} found, ${counts.newInserted} new`);

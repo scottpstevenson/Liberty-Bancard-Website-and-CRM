@@ -2,11 +2,15 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Loader2, AlertTriangle, BarChart3, Search, MapPin, Building2, Zap, Settings, Play, Square, CheckCircle2, XCircle, RefreshCw, Clock, TrendingUp, Mail } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Loader2, AlertTriangle, BarChart3, Search, MapPin, Building2, Zap, Settings, Play, Square, CheckCircle2, XCircle, RefreshCw, Clock, TrendingUp, Mail, Key, FlaskConical } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useState } from "react";
 import { DiscoveryConfigCard, type SearchMatrixConfig, type SourceStatusData } from "./DiscoveryConfigCard";
+import { SourcePerformancePanel } from "./SourcePerformancePanel";
 
 interface DiscoveryStatsData {
   today: {
@@ -48,11 +52,33 @@ interface DiscoveryJob {
   createdAt: string;
   searchVerticals: string[] | null;
   searchMetros: string[] | null;
+  dataSources: string[] | null;
 }
+
+interface KeyStatusData {
+  serper: boolean;
+  outscraper: boolean;
+  apify: boolean;
+  apollo: boolean;
+  zeroBounce: boolean;
+}
+
+const PAID_SOURCES = [
+  { key: "serper", label: "Serper" },
+  { key: "outscraper", label: "Outscraper" },
+  { key: "apify", label: "Apify" },
+];
+const FREE_SOURCES = [
+  { key: "osm", label: "OpenStreetMap (OSM)" },
+  { key: "yellowpages", label: "Yellow Pages" },
+  { key: "bbb", label: "BBB" },
+];
 
 export function DiscoveryDashboard() {
   const { toast } = useToast();
   const [showConfig, setShowConfig] = useState(false);
+  const [pilotLimit, setPilotLimit] = useState(25);
+  const [pilotSources, setPilotSources] = useState<string[]>(["osm"]);
 
   const { data: stats, isLoading: statsLoading, isError: statsError, refetch: refetchStats } = useQuery<DiscoveryStatsData>({
     queryKey: ["/api/sdr/discovery/stats"],
@@ -78,6 +104,11 @@ export function DiscoveryDashboard() {
 
   const { data: jobs, isError: jobsError, refetch: refetchJobs } = useQuery<DiscoveryJob[]>({
     queryKey: ["/api/sdr/discovery/jobs"],
+    refetchInterval: 10000,
+  });
+
+  const { data: keyStatus } = useQuery<KeyStatusData>({
+    queryKey: ["/api/sdr/discovery/key-status"],
   });
 
   const runDiscoveryMutation = useMutation({
@@ -141,6 +172,35 @@ export function DiscoveryDashboard() {
     },
   });
 
+  const runPilotMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/sdr/discovery/pilot", {
+        limit: pilotLimit,
+        sources: pilotSources,
+      });
+      return res.json() as Promise<{ message: string; jobId: number; safeLimit: number }>;
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Pilot started",
+        description: `Job #${data.jobId} — cap: ${data.safeLimit} results`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/sdr/discovery/jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sdr/discovery/source-performance"] });
+    },
+    onError: (err: any) => {
+      toast({ title: "Pilot failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const togglePilotSource = (src: string) => {
+    setPilotSources(prev =>
+      prev.includes(src) ? prev.filter(s => s !== src) : [...prev, src]
+    );
+  };
+
+  const hasPaidKey = keyStatus && (keyStatus.serper || keyStatus.outscraper || keyStatus.apify);
+
   if (statsLoading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -165,6 +225,8 @@ export function DiscoveryDashboard() {
 
   const todayStats = stats?.today || { rawFound: 0, newInserted: 0, duplicatesSkipped: 0, enrichmentQueued: 0, jobCount: 0, dedupRate: 0 };
   const weekStats = stats?.week || { rawFound: 0, newInserted: 0, duplicatesSkipped: 0, enrichmentQueued: 0, jobCount: 0 };
+
+  const pilotJobs = (jobs || []).filter(j => j.triggerType === "pilot");
 
   return (
     <div className="space-y-4">
@@ -305,6 +367,161 @@ export function DiscoveryDashboard() {
           onTestApollo={() => testApolloMutation.mutate()}
         />
       )}
+
+      {/* API Key Readiness Card */}
+      <Card data-testid="card-key-status">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <Key className="w-4 h-4" />
+            API Key Readiness
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            {[
+              { key: "serper", label: "Serper" },
+              { key: "outscraper", label: "Outscraper" },
+              { key: "apify", label: "Apify" },
+              { key: "apollo", label: "Apollo" },
+              { key: "zeroBounce", label: "ZeroBounce" },
+              { key: "osm", label: "OSM (free)", alwaysGreen: true },
+            ].map(({ key, label, alwaysGreen }) => {
+              const active = alwaysGreen || (keyStatus ? (keyStatus as any)[key] === true : false);
+              return (
+                <div key={key} className="flex items-center gap-2 text-sm" data-testid={`key-status-${key}`}>
+                  {active ? (
+                    <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0" />
+                  ) : (
+                    <XCircle className="w-4 h-4 text-muted-foreground shrink-0" />
+                  )}
+                  <span className={active ? "text-foreground" : "text-muted-foreground"}>{label}</span>
+                </div>
+              );
+            })}
+          </div>
+          <p className="text-xs text-muted-foreground mt-3" data-testid="text-key-restart-note">
+            Newly added Replit Secrets require a server restart to take effect.
+          </p>
+        </CardContent>
+      </Card>
+
+      {/* Run Pilot Section */}
+      <Card data-testid="card-run-pilot">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <FlaskConical className="w-4 h-4" />
+            Run Pilot Discovery
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center gap-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="pilot-limit" className="text-xs">Result Limit (1–50)</Label>
+              <Input
+                id="pilot-limit"
+                type="number"
+                min={1}
+                max={50}
+                value={pilotLimit}
+                onChange={e => setPilotLimit(Math.min(50, Math.max(1, Number(e.target.value))))}
+                className="w-24 h-8 text-sm"
+                data-testid="input-pilot-limit"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Paid Sources</p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {PAID_SOURCES.map(({ key, label }) => (
+                <div key={key} className="flex items-center gap-2" data-testid={`checkbox-source-${key}`}>
+                  <Checkbox
+                    id={`pilot-src-${key}`}
+                    checked={pilotSources.includes(key)}
+                    onCheckedChange={() => togglePilotSource(key)}
+                  />
+                  <Label htmlFor={`pilot-src-${key}`} className="text-sm cursor-pointer">{label}</Label>
+                  {keyStatus && !(keyStatus as any)[key] && (
+                    <Badge variant="outline" className="text-[10px] px-1">No key</Badge>
+                  )}
+                </div>
+              ))}
+              <div className="flex items-center gap-2 col-span-full" data-testid="checkbox-source-apollo-note">
+                <span className="text-xs text-muted-foreground italic">Apollo — paid B2B/person-contact source (runs as enrichment only, not merchant discovery)</span>
+              </div>
+            </div>
+
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mt-3">Free Sources</p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {FREE_SOURCES.map(({ key, label }) => (
+                <div key={key} className="flex items-center gap-2" data-testid={`checkbox-source-${key}`}>
+                  <Checkbox
+                    id={`pilot-src-${key}`}
+                    checked={pilotSources.includes(key)}
+                    onCheckedChange={() => togglePilotSource(key)}
+                  />
+                  <Label htmlFor={`pilot-src-${key}`} className="text-sm cursor-pointer">{label}</Label>
+                  <Badge variant="secondary" className="text-[10px] px-1">Free</Badge>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {!hasPaidKey && pilotSources.some(s => PAID_SOURCES.map(p => p.key).includes(s)) && (
+            <p className="text-xs text-amber-600 dark:text-amber-400" data-testid="text-no-paid-keys-warning">
+              Configure at least one API key to run a paid source pilot.
+            </p>
+          )}
+
+          <Button
+            size="sm"
+            onClick={() => runPilotMutation.mutate()}
+            disabled={runPilotMutation.isPending || pilotSources.length === 0}
+            data-testid="btn-run-pilot"
+          >
+            {runPilotMutation.isPending ? (
+              <><Loader2 className="w-4 h-4 mr-1 animate-spin" />Starting...</>
+            ) : (
+              <><FlaskConical className="w-4 h-4 mr-1" />Run Pilot ({Math.min(pilotLimit, 50)} max results)</>
+            )}
+          </Button>
+
+          {pilotJobs.length > 0 && (
+            <div className="space-y-2 mt-3">
+              <p className="text-xs font-medium text-muted-foreground">Pilot Jobs</p>
+              {pilotJobs.slice(0, 5).map((job) => (
+                <div key={job.id} className="border rounded-lg p-3 space-y-1" data-testid={`pilot-job-${job.id}`}>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium">Pilot #{job.id}</span>
+                    <Badge variant={
+                      job.status === "completed" ? "secondary" :
+                      job.status === "running" ? "outline" :
+                      job.status === "failed" ? "destructive" : "secondary"
+                    } className="text-xs">
+                      {job.status === "running" && <Loader2 className="w-3 h-3 mr-1 animate-spin" />}
+                      {job.status}
+                    </Badge>
+                    <Badge variant="outline" className="text-xs bg-amber-50 dark:bg-amber-950 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300">
+                      Manual Review Required
+                    </Badge>
+                  </div>
+                  {job.dataSources && job.dataSources.length > 0 && (
+                    <p className="text-xs text-muted-foreground">Sources: {job.dataSources.join(", ")}</p>
+                  )}
+                  <div className="flex gap-4 text-xs text-muted-foreground">
+                    <span>{job.rawFound ?? 0} found</span>
+                    <span className="text-green-600">{job.newInserted ?? 0} new</span>
+                    <span className="text-orange-600">{job.duplicatesSkipped ?? 0} dupes</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Source Performance Panel */}
+      <SourcePerformancePanel />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card data-testid="card-discovery-by-vertical">

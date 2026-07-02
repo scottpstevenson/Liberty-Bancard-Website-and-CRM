@@ -191,11 +191,15 @@ export async function runBBBDiscovery(options?: {
   states?: string[];
   citiesPerState?: number;
   jobId?: number;
+  maxInsert?: number;
+  maxFetch?: number;
 }): Promise<{ found: number; newInserted: number; duplicatesSkipped: number; accreditedFound: number }> {
   const targetVerticals = options?.verticals || Object.keys(VERTICAL_SEARCH_TERMS);
   const targetStates = options?.states || Object.keys(DEFAULT_CITIES_BY_STATE);
   const citiesPerState = options?.citiesPerState || 5;
   const jobId = options?.jobId;
+  const maxInsert = options?.maxInsert;
+  const maxFetch = options?.maxFetch;
 
   let totalFound = 0;
   let totalNewInserted = 0;
@@ -212,6 +216,7 @@ export async function runBBBDiscovery(options?: {
         const searchTerm = VERTICAL_SEARCH_TERMS[vertical] || vertical;
 
         try {
+          if (maxFetch !== undefined && totalFound >= maxFetch) break;
           const allBusinesses: BBBBusiness[] = [];
           let page = 1;
           let hasMore = true;
@@ -229,6 +234,8 @@ export async function runBBBDiscovery(options?: {
           accreditedFound += accredCount;
 
           if (allBusinesses.length > 0) {
+            const remaining = maxInsert !== undefined ? maxInsert - totalNewInserted : undefined;
+            if (remaining !== undefined && remaining <= 0) break;
             const { dedupeAndInsertFree } = await import("./lead-finder");
             const counts = await dedupeAndInsertFree(allBusinesses.map(b => ({
               businessName: b.businessName,
@@ -246,7 +253,7 @@ export async function runBBBDiscovery(options?: {
               rating: null,
               reviewCount: null,
               placeId: null,
-            })), jobId);
+            })), jobId, remaining);
             totalNewInserted += counts.newInserted;
             totalDuplicatesSkipped += counts.duplicatesSkipped;
 

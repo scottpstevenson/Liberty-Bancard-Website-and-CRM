@@ -882,6 +882,109 @@ export function registerSdrRoutes(app: Express) {
     }
   });
 
+  app.get("/api/sdr/discovery/key-status", isAuthenticated, async (_req, res) => {
+    res.json({
+      serper: !!process.env.SERPER_API_KEY,
+      outscraper: !!process.env.OUTSCRAPER_API_KEY,
+      apify: !!process.env.APIFY_TOKEN,
+      apollo: !!process.env.APOLLO_API_KEY,
+      zeroBounce: !!process.env.ZEROBOUNCE_API_KEY,
+    });
+  });
+
+  app.post("/api/sdr/discovery/pilot", isAuthenticated, async (req, res) => {
+    if ((req as any).user?.role !== 'admin') return res.status(403).json({ message: "Admin only" });
+    try {
+      const safeLimit = Math.min(req.body.limit ?? 25, 50);
+      const { sources, verticals, metros } = req.body;
+      const job = await storage.createLeadDiscoveryJob({
+        status: "pending",
+        triggerType: "pilot",
+        searchVerticals: verticals,
+        searchMetros: metros,
+        dataSources: sources,
+        startedAt: new Date(),
+      });
+      const { runPilotDiscovery } = await import("../services/sdr/lead-finder");
+      runPilotDiscovery({ limit: safeLimit, sources: sources || [], verticals, metros, jobId: job.id }).catch(err =>
+        console.error("[PilotDiscovery API] Error:", err)
+      );
+      res.json({ message: "Pilot discovery started", jobId: job.id, safeLimit });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
+  app.get("/api/sdr/discovery/source-performance", isAuthenticated, async (_req, res) => {
+    try {
+      const jobs = await storage.getLeadDiscoveryJobs(100);
+      const pilotJobs = jobs.filter(j => j.triggerType === "pilot");
+
+      const sourceMap: Record<string, {
+        leadsFound: number;
+        newInserted: number;
+        duplicatesSkipped: number;
+        costEstimate: number;
+        abLeads: number;
+        processorCoverage: number;
+        totalScored: number;
+      }> = {};
+
+      for (const job of pilotJobs) {
+        const results = await storage.getLeadDiscoveryResults(job.id);
+        for (const r of results) {
+          const src = r.source || "unknown";
+          if (!sourceMap[src]) {
+            sourceMap[src] = { leadsFound: 0, newInserted: 0, duplicatesSkipped: 0, costEstimate: 0, abLeads: 0, processorCoverage: 0, totalScored: 0 };
+          }
+          sourceMap[src].leadsFound++;
+          if (r.status === "inserted") sourceMap[src].newInserted++;
+          if (r.status?.startsWith("duplicate")) sourceMap[src].duplicatesSkipped++;
+
+          if (r.merchantId) {
+            const leadState = await storage.getSdrLeadStateByMerchant(r.merchantId);
+            if (leadState) {
+              sourceMap[src].totalScored++;
+              if (leadState.qualificationTier === "A" || leadState.qualificationTier === "B") {
+                sourceMap[src].abLeads++;
+              }
+              const enrichData = (leadState.enrichmentData as Record<string, any>) || {};
+              if (enrichData.processorSignals && Object.keys(enrichData.processorSignals).length > 0) {
+                sourceMap[src].processorCoverage++;
+              }
+            }
+          }
+        }
+        if (job.costEstimate) {
+          const srcs = job.dataSources || [];
+          for (const s of srcs) {
+            if (sourceMap[s]) {
+              sourceMap[s].costEstimate += (job.costEstimate || 0) / Math.max(srcs.length, 1);
+            }
+          }
+        }
+      }
+
+      const performance = Object.entries(sourceMap).map(([source, data]) => ({
+        source,
+        leadsFound: data.leadsFound,
+        newInserted: data.newInserted,
+        duplicatesSkipped: data.duplicatesSkipped,
+        duplicateRate: data.leadsFound > 0 ? Math.round((data.duplicatesSkipped / data.leadsFound) * 100) : 0,
+        abRate: data.totalScored > 0 ? Math.round((data.abLeads / data.totalScored) * 100) : null,
+        processorCoverage: data.totalScored > 0 ? Math.round((data.processorCoverage / data.totalScored) * 100) : null,
+        costEstimate: Math.round(data.costEstimate * 100) / 100,
+        costPerAbLead: data.abLeads > 0 ? Math.round((data.costEstimate / data.abLeads) * 100) / 100 : null,
+      }));
+
+      res.json({ performance, pilotJobCount: pilotJobs.length });
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ message: errMsg });
+    }
+  });
+
   app.get("/api/sdr/discovery/status", isAuthenticated, async (_req, res) => {
     try {
       const { isDiscoveryRunning, isNightlyDiscoveryRunning } = await import("../services/sdr/lead-finder");
