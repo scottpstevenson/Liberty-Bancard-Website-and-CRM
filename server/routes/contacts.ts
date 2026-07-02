@@ -1139,4 +1139,173 @@ export function registerContactsRoutes(app: Express) {
     }
   });
 
+  // ─── SDR Contactability Status (read-only, dryRun) ────────────────────────
+  app.get("/api/contacts/:id/contactability-status", isDashboardUser, async (req, res) => {
+    try {
+      const contactId = parseInt(req.params.id);
+      if (isNaN(contactId)) return res.status(400).json({ message: "Invalid contact id" });
+
+      const sdrRows = await db.select({ id: sdrLeadState.id }).from(sdrLeadState)
+        .where(eq(sdrLeadState.contactId, contactId)).limit(1);
+      if (sdrRows.length === 0) {
+        return res.json({ sdrSourced: false });
+      }
+
+      const { evaluateContactability } = await import("../services/contactability");
+      const result = await evaluateContactability({
+        contactId,
+        channel: "email",
+        mode: "dryRun",
+        campaignType: "sdr_outreach",
+      });
+
+      return res.json({
+        sdrSourced: true,
+        allowed: result.allowed,
+        reason: result.reason,
+        channel: "email",
+      });
+    } catch (err: any) {
+      console.error("[SDR contactability-status GET]", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ─── SDR Manual Email Enrollment ──────────────────────────────────────────
+  app.post("/api/contacts/:id/sdr-enroll", isDashboardUser, async (req, res) => {
+    try {
+      const contactId = parseInt(req.params.id);
+      if (isNaN(contactId)) return res.status(400).json({ message: "Invalid contact id" });
+
+      // Gate 1: parse and validate body
+      const bodySchema = z.object({
+        sequenceId: z.number().int().positive(),
+        confirmed: z.boolean(),
+      });
+      const parsed = bodySchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "Invalid request body", errors: parsed.error.errors });
+      const { sequenceId, confirmed } = parsed.data;
+
+      if (!confirmed) {
+        return res.status(400).json({ message: "Explicit confirmation required" });
+      }
+
+      // Gate 2: contact must exist
+      const contact = await storage.getContact(contactId);
+      if (!contact) return res.status(404).json({ message: "Contact not found" });
+
+      // Gate 3: must be SDR-sourced
+      const sdrRows = await db.select({ id: sdrLeadState.id }).from(sdrLeadState)
+        .where(eq(sdrLeadState.contactId, contactId)).limit(1);
+      if (sdrRows.length === 0) {
+        return res.status(403).json({ message: "Contact is not SDR-sourced" });
+      }
+
+      // Gate 4: sequence must exist and be active
+      const sequence = await storage.getFollowUpSequence(sequenceId);
+      if (!sequence || sequence.status !== "active") {
+        return res.status(422).json({ message: "Sequence not found or not active" });
+      }
+
+      // Gate 5: sequence must be email-only
+      const emailOnlyViolation = await checkEmailOnlyViolation(sequenceId, sequence);
+      if (emailOnlyViolation) {
+        return res.status(422).json({ message: "Sequence is not email-only — SMS, voice, and ringless are not permitted for SDR contacts" });
+      }
+
+      // Gate 6: sequence eligibility check
+      const { canEnrollContactInSequence } = await import("../services/sequence-eligibility");
+      const eligibility = await canEnrollContactInSequence(contactId, sequence);
+      if (!eligibility.allowed) {
+        return res.status(422).json({ message: eligibility.reason ?? "Contact is not eligible for this sequence" });
+      }
+
+      // Gate 7: contactability gate (enforcement mode — writes audit log internally on block)
+      const { evaluateContactability } = await import("../services/contactability");
+      const contactability = await evaluateContactability({
+        contactId,
+        channel: "email",
+        mode: "enforcement",
+        campaignType: "sdr_outreach",
+      });
+      if (!contactability.allowed) {
+        return res.status(403).json({ message: contactability.reason });
+      }
+
+      // Gate 8: duplicate active enrollment guard (after contactability, before insert)
+      const existingEnrollments = await storage.getContactEnrollments(contactId);
+      const alreadyEnrolled = existingEnrollments.some(
+        e => e.sequenceId === sequenceId && e.status === "active"
+      );
+      if (alreadyEnrolled) {
+        return res.status(409).json({ alreadyEnrolled: true, message: "Already enrolled in this sequence" });
+      }
+
+      // Compute nextActionAt from first step delay (mirrors smart-router.ts pattern)
+      const steps = await storage.getSequenceSteps(sequenceId);
+      const firstStep = steps.find(s => s.stepOrder === 1) || steps[0];
+      const delayMs = firstStep
+        ? ((firstStep.delayDays || 0) * 86400000) + ((firstStep.delayHours || 0) * 3600000)
+        : 0;
+      const nextActionAt = new Date(Date.now() + Math.max(delayMs, 1000));
+
+      // Enroll
+      await storage.createSequenceEnrollment({
+        sequenceId,
+        contactId,
+        status: "active",
+        currentStep: 0,
+        nextActionAt,
+      });
+
+      // Write manual enrollment audit log (distinct from contactability audit in consentAuditLogs)
+      await storage.createAuditLog({
+        action: "sdr_manual_enrollment",
+        entityType: "contact",
+        entityId: contactId,
+        details: {
+          sequenceId,
+          sequenceName: sequence.name,
+          confirmedBy: (req.user as any)?.id ?? "unknown",
+        },
+      });
+
+      return res.json({ enrolled: true, sequenceId, sequenceName: sequence.name });
+    } catch (err: any) {
+      console.error("[SDR sdr-enroll POST]", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+}
+
+/**
+ * Returns true if the sequence violates email-only constraints.
+ * A sequence is email-only if:
+ *  - channelsAllowed is null/empty OR equals ["email"]
+ *  - No steps have actionType of "sms", "call", or "voicemail_drop"
+ */
+async function checkEmailOnlyViolation(
+  sequenceId: number,
+  sequence: { channelsAllowed?: string[] | null }
+): Promise<boolean> {
+  const blocked_step_types = ["sms", "call", "voicemail_drop"];
+
+  // If channelsAllowed is explicitly set and not ["email"], it's a violation
+  const channels = sequence.channelsAllowed;
+  if (channels && channels.length > 0) {
+    if (channels.length !== 1 || channels[0] !== "email") {
+      return true;
+    }
+  }
+
+  // Also inspect steps for non-email outbound actions
+  const steps = await storage.getSequenceSteps(sequenceId);
+  for (const step of steps) {
+    if (blocked_step_types.includes(step.actionType)) {
+      return true;
+    }
+  }
+
+  return false;
 }
