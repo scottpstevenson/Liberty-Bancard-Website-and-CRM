@@ -1,0 +1,107 @@
+This one is finally build-ready, with one correction.
+
+The scope is now right:
+
+controlled pilot
++ key readiness
++ source performance
++ ZeroBounce no-key/mocked verification
++ no outreach
++ no duplicate processor intel
+
+But I would remove Apollo from runPilotDiscovery search sources unless the code already treats Apollo as enrichment-only. Apollo should not be a discovery source in the same sense as Serper/Outscraper/Apify/OSM/YellowPages/BBB. It should enrich contacts after a merchant lead is discovered, not source the merchant list by itself.
+
+Final verdict
+
+APPROVED WITH ONE ADDENDUM.
+
+Send this before build:
+
+Addendum to #703 — Final Build Guard
+
+Approved to build, with one correction:
+
+Apollo is enrichment, not a primary pilot discovery source
+
+Do not treat Apollo as a primary merchant discovery source unless the existing code already has a proven Apollo merchant-discovery path.
+
+The pilot source selector should include merchant discovery sources only:
+
+serper
+outscraper
+apify
+osm
+yellowpages
+bbb
+
+Apollo should remain a contact enrichment provider that runs after a merchant is discovered.
+
+Correct flow:
+
+merchant discovered from Serper / Outscraper / Apify / OSM / YellowPages / BBB
+→ enrich owner/contact via Apollo if APOLLO_API_KEY exists
+→ verify Apollo email through ZeroBounce if ZEROBOUNCE_API_KEY exists
+→ store verification metadata in sdrLeadState.enrichmentData.emailVerification
+→ queue remains human-review only
+
+Kill line:
+
+STOP if the pilot route treats Apollo as the merchant source unless an existing Apollo merchant-discovery function already exists and is confirmed safe.
+
+Pilot hard cap must apply globally and per source
+
+The pilot must not return more than 50 total businesses per run.
+
+If multiple sources are selected, enforce both:
+
+max 50 total businesses per pilot run
+max 50 per source internally
+
+The stricter global cap wins.
+
+Kill line:
+
+STOP if selecting multiple sources can return 50 results per source and exceed 50 total businesses in one pilot run.
+
+ZeroBounce remains enrichment-only
+
+ZeroBounce must not run bulk verification on existing records in this task.
+
+It should only run when Apollo or another enrichment step provides a new email during the pilot/enrichment flow.
+
+No email should be deleted.
+
+Invalid/spamtrap/abuse/do_not_mail results should be retained with unsafe/unverified metadata.
+
+No discovery/outreach activation
+
+This task must not enable:
+
+NIGHTLY_DISCOVERY_ENABLED
+ORCHESTRATOR_ENABLED
+SMS_ENABLED
+VOICE_AI_ENABLED
+RINGLESS_VM_ENABLED
+LEGACY_OUTREACH_ENABLED
+
+No sequence enrollment.
+No GHL workflow enrollment.
+No email send.
+No SMS.
+No call.
+No AI/orchestrator action.
+
+What this task now correctly does
+
+It gives you a safe way to answer:
+
+Are the sources working?
+Which sources find usable merchants?
+Are the leads becoming A/B leads?
+Are processor signals being detected?
+Are Apollo emails verified or risky?
+What is the rough cost per useful lead?
+
+without turning on the full machine.
+
+So yes — build #703 after that addendum. This is the right next activation step.

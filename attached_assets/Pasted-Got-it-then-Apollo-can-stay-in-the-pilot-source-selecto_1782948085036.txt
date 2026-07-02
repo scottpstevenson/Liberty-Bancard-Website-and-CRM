@@ -1,0 +1,77 @@
+Got it — then Apollo can stay in the pilot source selector, but the addendum should change from “remove Apollo” to “treat Apollo as an expensive/high-intent source with stricter controls.”
+
+So the corrected position is:
+
+Apollo is allowed as a pilot source
+because searchApolloForDiscoveryLocal exists and is already used in the main discovery loop.
+
+But it still needs hard caps and clear labeling.
+
+Revised addendum
+
+Addendum to #703 — Apollo Source Correction
+
+Apollo is confirmed to have an existing merchant-discovery function:
+
+searchApolloForDiscoveryLocal
+
+in lead-finder.ts, used in the main discovery loop.
+
+Therefore Apollo may remain in the pilot source selector.
+
+Required Apollo-specific safeguards
+
+Apollo must be treated as a paid/high-intent discovery source, not a free enrichment-only source.
+
+The pilot route may allow:
+
+serper
+outscraper
+apify
+apollo
+osm
+yellowpages
+bbb
+
+But Apollo must obey the same pilot constraints:
+
+max 50 total businesses per pilot run
+max 50 per source internally
+outreachEnabled = false
+sequenceEnrollment = false
+manualReviewRequired = true
+no emails sent
+no CRM auto-promotion
+no GHL workflow enrollment
+no sequence enrollment
+
+Apollo + ZeroBounce flow
+
+Correct flow:
+
+Apollo discovers or enriches merchant/contact data
+→ if owner email is returned, call ZeroBounce verification when ZEROBOUNCE_API_KEY exists
+→ store verification metadata in sdrLeadState.enrichmentData.emailVerification
+→ retain the email even if unsafe/unverified
+→ mark status clearly as valid / unsafe / unverified / unknown
+→ route all leads to human review only
+
+Pilot UI labeling
+
+In the pilot source selector, label Apollo clearly:
+
+Apollo — paid B2B/person-contact source
+
+Do not visually group it with free sources.
+
+Kill line
+
+STOP if Apollo pilot discovery can bypass the 50-result cap, skip ZeroBounce verification for returned owner emails, auto-promote contacts, enroll sequences, or trigger outreach.
+
+Global pilot cap still applies
+
+Even with multiple selected sources, the pilot must not return more than 50 total businesses per run.
+
+STOP if selecting multiple sources can return 50 results per source and exceed 50 total businesses in one pilot run.
+
+So yes — #703 is approved with Apollo included, as long as Apollo is capped, labeled, verified through ZeroBounce for returned emails, and kept no-outreach/human-review only.

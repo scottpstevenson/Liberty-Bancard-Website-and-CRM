@@ -1,0 +1,200 @@
+Corrections to Task 691 — Controlled Discovery Activation + Source Performance
+
+Task 691 is approved directionally, but it is not build-ready until these corrections are applied.
+
+Prerequisites
+
+Do not build or run this task until these are complete:
+
+* #686 A-Lead Queue with manual promote/discard/suppress
+* #690 SDR processor detection stored in sdrLeadState.enrichmentData.processorSignals
+
+If #699 canonical business linking is not complete yet, processor conversion analytics may be sparse or empty. That is acceptable, but the UI must state that canonical linking is required for full conversion analytics.
+
+⸻
+
+1. Pilot route must be isolated and hard-capped
+
+The pilot endpoint must not call a normal nightly discovery path that can use the full search matrix or default 200-result limits.
+
+Required:
+
+POST /api/sdr/discovery/pilot
+
+must enforce:
+
+limit = Math.min(requestedLimit || 25, 50)
+outreachEnabled = false
+sequenceEnrollment = false
+manualReviewRequired = true
+
+The hard cap must apply inside the actual discovery call, not just in the UI.
+
+Kill line:
+
+STOP if the pilot route can fetch more than 50 businesses from any source in one run.
+
+Kill line:
+
+STOP if pilot discovery can enroll sequences, send email, create outreach tasks, trigger workflow enrollment, or call SDR orchestrator paths.
+
+⸻
+
+2. Do not enable nightly discovery from UI
+
+The UI may show:
+
+NIGHTLY_DISCOVERY_ENABLED: false / true
+
+But it must not provide a toggle.
+
+Nightly discovery remains Replit Secrets / env controlled only.
+
+Kill line:
+
+STOP if the dashboard can flip NIGHTLY_DISCOVERY_ENABLED to true.
+
+⸻
+
+3. API key readiness must expose booleans only
+
+Add:
+
+GET /api/sdr/discovery/key-status
+
+Return booleans only:
+
+serper
+outscraper
+apify
+apollo
+zeroBounce
+
+Do not return secret values, partial secret values, prefixes, or raw environment variable names.
+
+Note: Replit Secrets may still require an app restart after adding keys. The endpoint should read from process.env inside the handler, but the UI should not promise that newly added secrets appear without restart.
+
+⸻
+
+4. ZeroBounce requires storage preflight before implementation
+
+Before wiring ZeroBounce, confirm where Apollo owner emails are stored:
+
+* sdr_merchant_contacts
+* sdr_lead_state.enrichmentData
+* sdr_merchants.mainEmail
+* another table
+
+Do not assume fields like:
+
+emailStatus
+verifiedEmail
+emailVerified
+
+exist.
+
+If no dedicated columns exist, store verification metadata in existing enrichment JSON:
+
+emailVerification: {
+  provider: "zerobounce",
+  status,
+  subStatus,
+  verifiedAt,
+  skipped,
+  reason
+}
+
+Invalid, abuse, or spamtrap results must not delete the email. They should mark the email as not verified / unsafe for automated outreach.
+
+Catch-all and unknown should be treated as risky/unverified, not fully verified.
+
+Kill line:
+
+STOP if invalid or risky emails are deleted instead of retained with verification status.
+
+Kill line:
+
+STOP if a ZeroBounce result is stored as trusted/verified without a status of valid.
+
+⸻
+
+5. ZeroBounce tests must not call live external API
+
+Do not rely on live ZeroBounce sandbox/test addresses in CI or smoke tests.
+
+Allowed tests:
+
+* no-key behavior returns { status: "unknown", skipped: true }
+* mocked ZeroBounce client returns valid / invalid / catch-all fixture results
+* enrichment correctly stores verification metadata from mocked results
+
+Kill line:
+
+STOP if `scripts/test-discovery-activation.ts` depends on live ZeroBounce API access.
+
+⸻
+
+6. Do not duplicate existing processor intelligence routes or components
+
+The codebase already has:
+
+/api/sdr/processor-intelligence
+ProcessorIntelligence.tsx
+getConversionByProcessor()
+getProcessorDistribution()
+
+Do not add duplicate routes:
+
+/api/sdr/processor-distribution
+/api/sdr/processor-conversion
+
+At most, add an Operator Dashboard card/link that reuses the existing processor intelligence endpoint/component.
+
+Kill line:
+
+STOP if duplicate processor intelligence routes are added.
+
+⸻
+
+7. Source Performance panel should be pilot-safe
+
+The Source Performance panel should report:
+
+* source
+* leads found
+* duplicate rate
+* A/B rate
+* processor detection coverage
+* estimated cost
+* cost per A/B lead
+
+If no pilot jobs exist, show:
+
+Run a pilot to see source stats.
+
+Do not imply paid source quality until real pilot data exists.
+
+⸻
+
+Corrected build scope
+
+This task should build only:
+
+1. API key readiness card.
+2. Manual no-outreach pilot route with hard cap 50.
+3. Pilot run UI in Discovery Dashboard.
+4. Source performance panel based on discovery job results.
+5. ZeroBounce verification service, only after confirming Apollo email storage.
+6. ZeroBounce mocked/no-key tests.
+7. Optional Operator Dashboard card/link reusing existing Processor Intelligence.
+
+Do not:
+
+* enable nightly discovery
+* enable orchestrator
+* enable email/SMS/voice/ringless
+* enroll sequences
+* send outreach
+* add duplicate processor routes
+* rely on live ZeroBounce calls in tests
+* mutate Replit Secrets
