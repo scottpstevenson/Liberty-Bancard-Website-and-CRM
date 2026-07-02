@@ -5,6 +5,8 @@ import {
   liveChats, liveChatMessages,
   type LiveChat, type InsertLiveChat, type LiveChatMessage, type InsertLiveChatMessage,
   contacts, companies, deals, tickets, tasks, documents, auditLogs, notifications, workflowRuns, workflows, rfis, users,
+  statementRequests, contactAiCache,
+  type StatementRequest, type InsertStatementRequest, type ContactAiCache, type InsertContactAiCache,
   chargebacks,
   type Chargeback, type InsertChargeback, type UpdateChargebackRequest,
   messageTemplates, collateralPackets, ghlActivityLog, slaConfigs,
@@ -763,6 +765,64 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, notInArray,
       .from(ghlWorkflowMappings)
       .where(eq(ghlWorkflowMappings.sequenceName, sequenceName));
     return row?.ghlWorkflowId || null;
+  }
+
+  // ── Statement Requests ────────────────────────────────────────────────────────
+
+  async createStatementRequest(data: InsertStatementRequest): Promise<StatementRequest> {
+    const [row] = await db.insert(statementRequests).values(data).returning();
+    return row;
+  }
+
+  async getStatementRequestByContactId(contactId: number): Promise<StatementRequest | null> {
+    const [row] = await db.select().from(statementRequests)
+      .where(eq(statementRequests.contactId, contactId))
+      .orderBy(desc(statementRequests.createdAt))
+      .limit(1);
+    return row ?? null;
+  }
+
+  async getStatementRequestByToken(token: string): Promise<StatementRequest | null> {
+    const [row] = await db.select().from(statementRequests)
+      .where(eq(statementRequests.uploadToken, token));
+    return row ?? null;
+  }
+
+  async updateStatementRequest(id: number, fields: Partial<InsertStatementRequest>): Promise<StatementRequest> {
+    const [row] = await db.update(statementRequests)
+      .set({ ...fields, updatedAt: new Date() })
+      .where(eq(statementRequests.id, id))
+      .returning();
+    return row;
+  }
+
+  async listOpenStatementRequests(olderThanDays: number): Promise<StatementRequest[]> {
+    const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
+    return db.select().from(statementRequests)
+      .where(and(eq(statementRequests.status, "requested"), lt(statementRequests.requestedAt, cutoff)));
+  }
+
+  // ── Contact AI Cache ──────────────────────────────────────────────────────────
+
+  async getContactAiCache(contactId: number, cacheKey: string): Promise<ContactAiCache | null> {
+    const [row] = await db.select().from(contactAiCache)
+      .where(and(eq(contactAiCache.contactId, contactId), eq(contactAiCache.cacheKey, cacheKey)));
+    return row ?? null;
+  }
+
+  async setContactAiCache(contactId: number, cacheKey: string, output: Record<string, unknown>, model: string): Promise<ContactAiCache> {
+    const existing = await this.getContactAiCache(contactId, cacheKey);
+    if (existing) {
+      const [row] = await db.update(contactAiCache)
+        .set({ output, model, generatedAt: new Date() })
+        .where(and(eq(contactAiCache.contactId, contactId), eq(contactAiCache.cacheKey, cacheKey)))
+        .returning();
+      return row;
+    }
+    const [row] = await db.insert(contactAiCache)
+      .values({ contactId, cacheKey, output, model, generatedAt: new Date() })
+      .returning();
+    return row;
   }
 
   // ── Live Chat ────────────────────────────────────────────────────────────────

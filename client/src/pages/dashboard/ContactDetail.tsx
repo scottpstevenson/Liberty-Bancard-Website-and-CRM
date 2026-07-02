@@ -51,6 +51,7 @@ import { LocationsTab } from "./contact-detail-tabs/LocationsTab";
 import { CompanyIntelligenceTab } from "./contact-detail-tabs/CompanyIntelligenceTab";
 import { CommunicationHealthTab } from "./contact-detail-tabs/CommunicationHealthTab";
 import { OfferIntelligenceTab } from "./contact-detail-tabs/OfferIntelligenceTab";
+import { SalesPrepTab } from "./contact-detail-tabs/SalesPrepTab";
 
 // ── Churn Risk Panel ──────────────────────────────────────────────────────────
 type MerchantHealthScore = {
@@ -529,6 +530,12 @@ export default function ContactDetail() {
 
   const { data: allCompanies = [] } = useQuery<Company[]>({
     queryKey: ["/api/companies"],
+  });
+
+  const { data: salesPrepStatus } = useQuery<{ sdrSourced: boolean }>({
+    queryKey: [`/api/contacts/${contactId}/sales-prep`],
+    staleTime: Infinity,
+    enabled: !!contactId,
   });
 
   const addCompanyAssociation = useMutation({
@@ -1246,6 +1253,12 @@ export default function ContactDetail() {
               Co. Intelligence
             </TabsTrigger>
           )}
+          {salesPrepStatus?.sdrSourced && (
+            <TabsTrigger value="sales-prep" data-testid="tab-sales-prep">
+              <Bot className="h-3.5 w-3.5 mr-1" />
+              Sales Prep
+            </TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="overview" data-testid="tab-content-overview">
@@ -1335,6 +1348,12 @@ export default function ContactDetail() {
         {contact.isParentAccount && (
           <TabsContent value="company-intelligence" data-testid="tab-content-company-intelligence">
             <CompanyIntelligenceTab contact={contact} />
+          </TabsContent>
+        )}
+
+        {salesPrepStatus?.sdrSourced && (
+          <TabsContent value="sales-prep" data-testid="tab-content-sales-prep">
+            <SalesPrepTab contactId={contactId} />
           </TabsContent>
         )}
       </Tabs>

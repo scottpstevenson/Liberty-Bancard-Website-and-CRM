@@ -2,9 +2,11 @@ import type { Express } from "express";
 import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
-import { pool } from "../db";
+import { pool, db } from "../db";
+import { sdrLeadState, insertCompanySchema, insertContactSchema } from "@shared/schema";
+import { eq } from "drizzle-orm";
+import crypto from "crypto";
 import { enrollContactInGhlWorkflow } from "../services/ghl-workflow-enrollment";
-import { insertCompanySchema, insertContactSchema } from "@shared/schema";
 import { enrichContactBatch, isContactEnrichRunning } from "../services/enrichment";
 import { enrichContactFromLinkedIn, bulkEnrichFromLinkedIn } from "../services/linkedin-enrichment";
 import { getSerperUsage, isSerperConfigured, resetSerperUsage } from "../services/serper";
@@ -1016,6 +1018,123 @@ export function registerContactsRoutes(app: Express) {
         })),
       });
     } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ─── Statement Request ────────────────────────────────────────────────────────
+
+  app.post("/api/contacts/:id/request-statement", isDashboardUser, async (req, res) => {
+    try {
+      const contactId = parseInt(req.params.id);
+      if (isNaN(contactId)) return res.status(400).json({ message: "Invalid contact id" });
+
+      const contact = await storage.getContact(contactId);
+      if (!contact) return res.status(404).json({ message: "Contact not found" });
+
+      const token = crypto.randomBytes(24).toString("hex");
+      const baseUrl = process.env.APP_URL
+        || (process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(",")[0]}` : null)
+        || (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : null)
+        || "https://libertybancard.com";
+      const uploadUrl = `${baseUrl}/statement-upload/${token}`;
+
+      const sdrRows = await db.select({ id: sdrLeadState.id }).from(sdrLeadState)
+        .where(eq(sdrLeadState.contactId, contactId)).limit(1);
+      const sdrLeadStateId = sdrRows[0]?.id ?? null;
+
+      const statementRequest = await storage.createStatementRequest({
+        contactId,
+        sdrLeadStateId,
+        status: "requested",
+        uploadToken: token,
+        uploadUrl,
+        requestedAt: new Date(),
+        createdBy: (req.user as any)?.id ?? null,
+      });
+
+      await storage.createAuditLog({
+        action: "statement_request_created",
+        entityType: "contact",
+        entityId: contactId,
+        actorType: "user",
+        actorId: (req.user as any)?.id ?? null,
+        details: { statementRequestId: statementRequest.id, uploadUrl },
+      });
+
+      if (req.query.createTask === "true") {
+        const marker = `statement_request_id:${statementRequest.id}`;
+        await storage.createTask({
+          contactId,
+          title: "Request statement from merchant",
+          description: `Statement request created. Upload URL sent. ${marker}`,
+          priority: "normal",
+          status: "pending",
+          assignedTo: (req.user as any)?.id ?? undefined,
+        });
+      }
+
+      res.json({ statementRequest, uploadUrl });
+    } catch (err: any) {
+      console.error("[RequestStatement]", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ─── Sales Prep ───────────────────────────────────────────────────────────────
+
+  app.get("/api/contacts/:id/sales-prep", isDashboardUser, async (req, res) => {
+    try {
+      const contactId = parseInt(req.params.id);
+      if (isNaN(contactId)) return res.status(400).json({ message: "Invalid contact id" });
+
+      const contact = await storage.getContact(contactId);
+      if (!contact) return res.status(404).json({ message: "Contact not found" });
+
+      const sdrRows = await db.select({ id: sdrLeadState.id }).from(sdrLeadState)
+        .where(eq(sdrLeadState.contactId, contactId)).limit(1);
+      const sdrSourced = sdrRows.length > 0;
+
+      if (!sdrSourced) {
+        return res.json({ sdrSourced: false, cached: null, cacheKey: null, generatedAt: null, canGenerate: false });
+      }
+
+      const { checkSalesPrepCache } = await import("../services/sales-prep");
+      const cached = await checkSalesPrepCache(contactId);
+
+      res.json({
+        sdrSourced: true,
+        cached: cached ? cached.output : null,
+        cacheKey: cached ? cached.cacheKey : null,
+        generatedAt: cached ? cached.generatedAt : null,
+        canGenerate: true,
+      });
+    } catch (err: any) {
+      console.error("[SalesPrep GET]", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/contacts/:id/sales-prep/generate", isDashboardUser, async (req, res) => {
+    try {
+      const contactId = parseInt(req.params.id);
+      if (isNaN(contactId)) return res.status(400).json({ message: "Invalid contact id" });
+
+      const contact = await storage.getContact(contactId);
+      if (!contact) return res.status(404).json({ message: "Contact not found" });
+
+      const sdrRows = await db.select({ id: sdrLeadState.id }).from(sdrLeadState)
+        .where(eq(sdrLeadState.contactId, contactId)).limit(1);
+      if (sdrRows.length === 0) {
+        return res.status(400).json({ message: "Contact is not SDR-sourced; sales prep not available" });
+      }
+
+      const { generateSalesPrepAi } = await import("../services/sales-prep");
+      const result = await generateSalesPrepAi(contactId);
+
+      res.json(result);
+    } catch (err: any) {
+      console.error("[SalesPrep POST generate]", err.message);
       res.status(500).json({ message: err.message });
     }
   });

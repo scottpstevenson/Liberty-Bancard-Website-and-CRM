@@ -11,6 +11,7 @@ export const QUEUE_NAMES = {
   DIGESTS: "digests",
   MID_INGESTION: "mid-ingestion",
   ONBOARDING_REMINDER: "onboarding-reminder",
+  ABANDONED_STATEMENT: "abandoned-statement",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -108,6 +109,15 @@ const QUEUE_CONFIGS: QueueConfig[] = [
     attempts: 3,
     backoffDelay: 60000,
     repeatEveryMs: 4 * 60 * 60 * 1000,
+    jobName: "run",
+  },
+  {
+    name: QUEUE_NAMES.ABANDONED_STATEMENT,
+    // concurrency=1: nightly; checks for statement requests that haven't been uploaded in 3+ days.
+    concurrency: 1,
+    attempts: 3,
+    backoffDelay: 60000,
+    repeatEveryMs: 24 * 60 * 60 * 1000,
     jobName: "run",
   },
 ];
@@ -321,6 +331,13 @@ class QueueManager {
         }
         case QUEUE_NAMES.ONBOARDING_REMINDER: {
           await runOnboardingReminderTick();
+          break;
+        }
+        case QUEUE_NAMES.ABANDONED_STATEMENT: {
+          if (featureFlags.SDR_ENABLED) {
+            const { runAbandonedStatementCheck } = await import("./abandoned-statement-worker");
+            await runAbandonedStatementCheck();
+          }
           break;
         }
         default:

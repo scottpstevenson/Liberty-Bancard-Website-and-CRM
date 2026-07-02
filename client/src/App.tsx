@@ -29,6 +29,7 @@ const VerifyEmail = lazy(() => import("@/pages/VerifyEmail"));
 const Home = lazy(() => import("@/pages/Home"));
 const GetStarted = lazy(() => import("@/pages/GetStarted"));
 const UploadStatement = lazy(() => import("@/pages/UploadStatement"));
+const MerchantStatementUpload = lazy(() => import("@/pages/MerchantStatementUpload"));
 const ZeroPercent = lazy(() => import("@/pages/ZeroPercent"));
 const BeatSquareStripe = lazy(() => import("@/pages/BeatSquareStripe"));
 const AboutContact = lazy(() => import("@/pages/AboutContact"));
@@ -295,6 +296,7 @@ function Router() {
         <Route path="/" component={Home} />
         <Route path="/get-started" component={GetStarted} />
         <Route path="/upload-statement" component={UploadStatement} />
+        <Route path="/statement-upload/:token" component={MerchantStatementUpload} />
         <Route path="/0-percent-processing" component={ZeroPercent} />
         <Route path="/beat-square-stripe" component={BeatSquareStripe} />
         <Route path="/free-smart-terminal" component={FreeSmartTerminal} />

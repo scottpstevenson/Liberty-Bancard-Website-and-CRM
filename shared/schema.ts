@@ -4183,3 +4183,57 @@ export const analyticsEvents = pgTable("analytics_events", {
 export type AnalyticsEvent = typeof analyticsEvents.$inferSelect;
 export const insertAnalyticsEventSchema = createInsertSchema(analyticsEvents).omit({ id: true, createdAt: true });
 export type InsertAnalyticsEvent = z.infer<typeof insertAnalyticsEventSchema>;
+
+// ─── Statement Requests ───────────────────────────────────────────────────────
+export const statementRequests = pgTable("statement_requests", {
+  id: serial("id").primaryKey(),
+  contactId: integer("contact_id").references(() => contacts.id).notNull(),
+  dealId: integer("deal_id").references(() => deals.id),
+  sdrLeadStateId: integer("sdr_lead_state_id").references(() => sdrLeadState.id),
+  status: text("status").notNull().default("requested"),
+  uploadToken: text("upload_token").notNull(),
+  uploadUrl: text("upload_url").notNull(),
+  requestedAt: timestamp("requested_at").notNull(),
+  uploadedAt: timestamp("uploaded_at"),
+  reviewedAt: timestamp("reviewed_at"),
+  abandonedAt: timestamp("abandoned_at"),
+  lastReminderTaskAt: timestamp("last_reminder_task_at"),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("statement_requests_upload_token_idx").on(table.uploadToken),
+  index("statement_requests_contact_id_idx").on(table.contactId),
+  index("statement_requests_status_idx").on(table.status),
+]);
+
+export const insertStatementRequestSchema = createInsertSchema(statementRequests).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type StatementRequest = typeof statementRequests.$inferSelect;
+export type InsertStatementRequest = z.infer<typeof insertStatementRequestSchema>;
+
+// ─── Contact AI Cache ─────────────────────────────────────────────────────────
+export const contactAiCache = pgTable("contact_ai_cache", {
+  id: serial("id").primaryKey(),
+  contactId: integer("contact_id").references(() => contacts.id).notNull(),
+  cacheKey: text("cache_key").notNull(),
+  output: jsonb("output").notNull(),
+  model: text("model"),
+  generatedAt: timestamp("generated_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("contact_ai_cache_contact_key_idx").on(table.contactId, table.cacheKey),
+  index("contact_ai_cache_contact_id_idx").on(table.contactId),
+]);
+
+export const insertContactAiCacheSchema = createInsertSchema(contactAiCache).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type ContactAiCache = typeof contactAiCache.$inferSelect;
+export type InsertContactAiCache = z.infer<typeof insertContactAiCacheSchema>;

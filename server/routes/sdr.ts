@@ -1342,27 +1342,98 @@ export function registerSdrRoutes(app: Express) {
 
   app.get("/api/statement-upload/:token", async (req, res) => {
     try {
+      const token = req.params.token;
+
+      // Check statement_requests table first (CRM-issued manual request tokens)
+      const statementReq = await storage.getStatementRequestByToken(token);
+      if (statementReq) {
+        const contact = await storage.getContact(statementReq.contactId);
+        return res.json({
+          merchantId: null,
+          companyName: contact?.businessName ?? contact?.firstName ?? "Merchant",
+          valid: true,
+          source: "statement_request",
+        });
+      }
+
+      // Fallback: legacy SDR lead upload token
       const { findLeadByUploadToken } = await import("../services/sdr/statement-flow");
-      const lead = await findLeadByUploadToken(req.params.token);
+      const lead = await findLeadByUploadToken(token);
       if (!lead) return res.status(404).json({ message: "Invalid or expired upload link" });
-      res.json({ merchantId: lead.merchantId, companyName: lead.companyName, valid: true });
+      res.json({ merchantId: lead.merchantId, companyName: lead.companyName, valid: true, source: "sdr" });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
       res.status(500).json({ message: errMsg });
     }
   });
 
-  app.post("/api/statement-upload/:token", async (req, res) => {
-    try {
-      const { findLeadByUploadToken, handleStatementReceived } = await import("../services/sdr/statement-flow");
-      const lead = await findLeadByUploadToken(req.params.token);
-      if (!lead) return res.status(404).json({ message: "Invalid or expired upload link" });
-      const result = await handleStatementReceived(lead.id);
-      res.json({ success: result });
-    } catch (err: unknown) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ message: errMsg });
-    }
+  app.post("/api/statement-upload/:token", async (req, res, next) => {
+    const { upload } = await import("./helpers");
+    upload.single("statementFile")(req, res, async (multerErr) => {
+      if (multerErr) {
+        return res.status(400).json({ message: `File upload error: ${multerErr.message}` });
+      }
+      try {
+        const token = req.params.token;
+
+        // Check statement_requests table first
+        const statementReq = await storage.getStatementRequestByToken(token);
+        if (statementReq) {
+          const { runStatementUploadChain } = await import("../services/statement-upload-chain");
+          const chainResult = await runStatementUploadChain({
+            contactId: statementReq.contactId,
+            dealId: statementReq.dealId ?? undefined,
+            fileBuffer: (req as any).file?.buffer,
+            fileName: (req as any).file?.originalname,
+            source: "dashboard",
+          });
+          await storage.updateStatementRequest(statementReq.id, {
+            status: "uploaded",
+            uploadedAt: new Date(),
+          });
+          const { handleStatementReceived } = await import("../services/sdr/statement-flow");
+          if (statementReq.sdrLeadStateId) {
+            await handleStatementReceived(statementReq.sdrLeadStateId).catch(() => {});
+          }
+          return res.json({ success: true, chain: chainResult });
+        }
+
+        // Fallback: check sdrLeadState token
+        const { findLeadByUploadToken, handleStatementReceived } = await import("../services/sdr/statement-flow");
+        const lead = await findLeadByUploadToken(token);
+        if (!lead) return res.status(404).json({ message: "Invalid or expired upload link" });
+
+        const result = await handleStatementReceived(lead.id);
+
+        // If there is a linked statement_requests row via sdrLeadStateId, update it too
+        if (lead.contactId) {
+          const linkedReq = await storage.getStatementRequestByContactId(lead.contactId);
+          if (linkedReq && linkedReq.status === "requested") {
+            await storage.updateStatementRequest(linkedReq.id, {
+              status: "uploaded",
+              uploadedAt: new Date(),
+            });
+          }
+
+          // Also run the full chain so document + deal analysis are created
+          if ((req as any).file?.buffer) {
+            const { runStatementUploadChain } = await import("../services/statement-upload-chain");
+            await runStatementUploadChain({
+              contactId: lead.contactId,
+              dealId: lead.dealId ?? undefined,
+              fileBuffer: (req as any).file?.buffer,
+              fileName: (req as any).file?.originalname,
+              source: "dashboard",
+            });
+          }
+        }
+
+        return res.json({ success: result });
+      } catch (err: unknown) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        return res.status(500).json({ message: errMsg });
+      }
+    });
   });
 
   setInterval(async () => {
