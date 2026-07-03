@@ -10,6 +10,7 @@ import { handleAppointmentBooked as schedulingHandleBooked, handleAppointmentCan
 import { enrollInAppointmentWorkflow, tagContactForInboxOrganization } from "../ghl-workflow-enrollment";
 import { checkAndLogCompliance } from "./compliance-engine";
 import { processCommunicationEvent } from "../communication-feedback";
+import { getCanonicalLeadVertical } from "./vertical-resolver";
 
 const contactUpdatedSchema = z.object({
   contactId: z.string().optional(),
@@ -200,7 +201,10 @@ export async function handleMessageReceived(rawPayload: unknown): Promise<void> 
           .filter(line => line.length > 10);
 
         const classification = await classifyIntent(messageText, {
-          merchantVertical: merchant.vertical || undefined,
+          merchantVertical: getCanonicalLeadVertical({
+            subvertical: merchant.subvertical,
+            vertical: merchant.vertical,
+          }),
           currentStage: state?.currentStage,
           merchantName: merchant.businessName,
           conversationHistory,

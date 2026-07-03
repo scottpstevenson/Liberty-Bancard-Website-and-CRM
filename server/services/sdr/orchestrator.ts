@@ -10,6 +10,7 @@ import { sendGhlEmail, sendGhlSms, isGhlConfigured } from "../ghl";
 import { resolveVoiceScriptForLead, buildGhlVoicePayload } from "./voice-orchestrator";
 import { selectBestInbox, recordSend, rollbackSend, recordBounce, recordDelivered } from "./inbox-rotation";
 import { tagContactForInboxOrganization } from "../ghl-workflow-enrollment";
+import { getCanonicalLeadVertical } from "./vertical-resolver";
 import { ingestBusiness } from "./dedupe";
 import { featureFlags } from "../feature-flags";
 import OpenAI from "openai";
@@ -732,11 +733,18 @@ async function executeEmailAction(lead: SdrLeadState, strongerCta?: boolean): Pr
       if (lead.contactId && lead.ghlContactId) {
         const vertKey = normalizeVerticalKey(lead.vertical);
         const resolvedSeqName = resolveVerticalSequenceName(vertKey, lead.vertical);
+        const [taggingMerchant] = lead.merchantId
+          ? await db.select().from(sdrMerchants).where(eq(sdrMerchants.id, lead.merchantId))
+          : [];
+        const canonicalVertical = getCanonicalLeadVertical({
+          subvertical: taggingMerchant?.subvertical,
+          vertical: taggingMerchant?.vertical ?? lead.vertical,
+        });
         tagContactForInboxOrganization({
           contactId: lead.contactId,
           ghlContactId: lead.ghlContactId,
           sequenceName: resolvedSeqName,
-          vertical: lead.vertical || undefined,
+          vertical: canonicalVertical,
           stage: "active",
         }).catch(err => console.warn("[SDR Orchestrator] Inbox tagging failed:", err));
       }
@@ -878,11 +886,18 @@ async function executeSmsAction(lead: SdrLeadState): Promise<boolean> {
       if (lead.contactId && lead.ghlContactId) {
         const smsVertKey = normalizeVerticalKey(lead.vertical);
         const smsResolvedSeqName = resolveVerticalSequenceName(smsVertKey, lead.vertical);
+        const [smsTaggingMerchant] = lead.merchantId
+          ? await db.select().from(sdrMerchants).where(eq(sdrMerchants.id, lead.merchantId))
+          : [];
+        const smsCanonicalVertical = getCanonicalLeadVertical({
+          subvertical: smsTaggingMerchant?.subvertical,
+          vertical: smsTaggingMerchant?.vertical ?? lead.vertical,
+        });
         tagContactForInboxOrganization({
           contactId: lead.contactId,
           ghlContactId: lead.ghlContactId,
           sequenceName: smsResolvedSeqName,
-          vertical: lead.vertical || undefined,
+          vertical: smsCanonicalVertical,
           stage: "active",
         }).catch(err => console.warn("[SDR Orchestrator] SMS inbox tagging failed:", err));
       }

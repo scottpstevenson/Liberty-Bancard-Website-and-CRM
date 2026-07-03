@@ -8,6 +8,7 @@ import { onStageChange } from "./ghl-sync-rules";
 import { routeBotContext, analyzeForHandoff, executeHandoff, classifyMessageIntent, generateSmartReply } from "./conversation-ai";
 import { getAllowedTransitions } from "./stage-rules";
 import { scoreLeadFull } from "./scoring";
+import { getCanonicalLeadVertical } from "./vertical-resolver";
 
 async function markSequenceEmailReplied(ghlContactId: string, channel: "email" | "sms"): Promise<void> {
   try {
@@ -325,7 +326,10 @@ export async function handleChatMessage(rawPayload: unknown): Promise<{ reply?: 
   }
 
   const intent = classifyMessageIntent(payload.body);
-  const reply = generateSmartReply(intent, merchant.vertical || undefined);
+  const reply = generateSmartReply(intent, getCanonicalLeadVertical({
+    subvertical: merchant.subvertical,
+    vertical: merchant.vertical,
+  }));
 
   let sent = false;
   if (isSdrGhlConfigured() && reply) {
@@ -404,7 +408,10 @@ export async function handleSmsThread(rawPayload: unknown): Promise<{ reply?: st
   }
 
   const intent = classifyMessageIntent(payload.body);
-  const reply = generateSmartReply(intent, merchant.vertical || undefined);
+  const reply = generateSmartReply(intent, getCanonicalLeadVertical({
+    subvertical: merchant.subvertical,
+    vertical: merchant.vertical,
+  }));
 
   let sent = false;
   if (isSdrGhlConfigured() && reply) {
@@ -471,7 +478,10 @@ export async function handleEmailThread(rawPayload: unknown): Promise<{ reply?: 
   }
 
   const intent = classifyMessageIntent(payload.body);
-  const reply = generateSmartReply(intent, merchant.vertical || undefined);
+  const reply = generateSmartReply(intent, getCanonicalLeadVertical({
+    subvertical: merchant.subvertical,
+    vertical: merchant.vertical,
+  }));
 
   let sent = false;
   if (isSdrGhlConfigured() && reply) {
