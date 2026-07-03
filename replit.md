@@ -79,3 +79,4 @@ The SMTP service is in `server/services/smtp-email.ts`.
 - **Outscraper API**: For Google Maps bulk business data pulls.
 - **Apify API**: For Yelp and Facebook business scraping.
 - **Apollo.io API**: For B2B contact and company discovery.
+- **`LIBERTY_TARGET_EFFECTIVE_RATE_BPS`** (env var): Liberty's target effective processing rate in basis points (e.g. `150` = 1.50%), used by `server/services/statement-analyzer.ts` to compute merchant savings estimates (`monthlyVolume × (bps / 10000)` vs. the merchant's extracted fees). If unset (outside `TEST_MODE`/`SKIP_AI`), the analyzer shows "No estimate available — rep review required" instead of a dollar figure.
