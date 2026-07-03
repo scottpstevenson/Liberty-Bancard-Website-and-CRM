@@ -139,6 +139,67 @@ function classifyVertical(category: string | null, name: string): string {
   return "Other";
 }
 
+/**
+ * Canonical campaign verticals used by smart-router.ts ROUTING_RULES / seed-vertical-campaigns.ts
+ * trigger configs. This is the *fine-grained* mapping layer sitting on top of the coarse
+ * classifyVertical() bucket above — classifyVertical() is left untouched so existing callers
+ * (search-result labeling, lead_discovery_results.vertical, etc.) keep their current behavior.
+ *
+ * Order matters: Med Spa is checked before the generic Salon keyword set so aesthetic/medspa
+ * businesses never fall through to the plain "Salon" campaign (they have different compliance
+ * and messaging needs).
+ */
+export interface DiscoveryVerticalMapping {
+  canonicalVertical: string;
+  classifierBucket: string;
+  rawCategory: string | null;
+  confidence: "high" | "medium" | "low";
+  matchedRule: string | null;
+}
+
+export const CANONICAL_DISCOVERY_VERTICALS = ["Med Spa", "Salon", "Dental", "Auto Repair", "Restaurant"] as const;
+
+const BUCKET_TO_CANONICAL: Record<string, string | undefined> = {
+  "Auto": "Auto Repair",
+  "Restaurant": "Restaurant",
+  "Salon/Spa": "Salon",
+};
+
+export function normalizeDiscoveryVertical(input: {
+  rawCategory?: string | null;
+  businessName?: string | null;
+  source?: string | null;
+  classifierBucket?: string | null;
+}): DiscoveryVerticalMapping {
+  const rawCategory = input.rawCategory ?? null;
+  const businessName = input.businessName ?? "";
+  const classifierBucket = input.classifierBucket || classifyVertical(rawCategory, businessName);
+  const text = `${rawCategory || ""} ${businessName}`.toLowerCase();
+
+  if (/med.?spa|medical spa|medspa|aesthetic|botox|dermal filler|laser (hair|skin)|iv therapy|cryotherapy|coolsculpt|cosmetic injectio/.test(text)) {
+    return { canonicalVertical: "Med Spa", classifierBucket, rawCategory, confidence: "high", matchedRule: "medspa_keyword" };
+  }
+  if (/dental|dentist|orthodont|oral surg|endodont|periodont/.test(text)) {
+    return { canonicalVertical: "Dental", classifierBucket, rawCategory, confidence: "high", matchedRule: "dental_keyword" };
+  }
+  if (/\bauto\b|automotive|car wash|vehicle|mechanic|\btire\b|collision|body shop|transmission|\bbrake\b|oil change|muffler|smog check/.test(text)) {
+    return { canonicalVertical: "Auto Repair", classifierBucket, rawCategory, confidence: "high", matchedRule: "auto_repair_keyword" };
+  }
+  if (/restaurant|pizzeria|pizza|burger|sushi|\bcafe\b|coffee shop|bakery|\bbar\b|\bgrill\b|\bdiner\b|bistro|eatery|steakhouse|taqueria/.test(text)) {
+    return { canonicalVertical: "Restaurant", classifierBucket, rawCategory, confidence: "high", matchedRule: "restaurant_keyword" };
+  }
+  if (/\bsalon\b|\bspa\b|beauty|\bhair\b|\bnail\b|barber|cosmetolog|waxing|esthetician/.test(text)) {
+    return { canonicalVertical: "Salon", classifierBucket, rawCategory, confidence: "high", matchedRule: "salon_keyword" };
+  }
+
+  const bucketMapped = BUCKET_TO_CANONICAL[classifierBucket];
+  if (bucketMapped) {
+    return { canonicalVertical: bucketMapped, classifierBucket, rawCategory, confidence: "medium", matchedRule: "bucket_fallback" };
+  }
+
+  return { canonicalVertical: classifierBucket, classifierBucket, rawCategory, confidence: "low", matchedRule: null };
+}
+
 export async function getSearchMatrix(): Promise<SearchMatrixConfig> {
   const saved = await storage.getSystemSetting("lead_discovery_matrix") as SearchMatrixConfig | null;
   return saved || {
@@ -639,6 +700,12 @@ async function dedupeAndInsert(
         }
       }
 
+      const discoveryMapping = normalizeDiscoveryVertical({
+        businessName: biz.businessName,
+        source: biz.source,
+        classifierBucket: biz.vertical,
+      });
+
       const merchantData: InsertSdrMerchant = {
         businessName: biz.businessName,
         website: biz.website,
@@ -650,6 +717,7 @@ async function dedupeAndInsert(
         state: biz.state,
         zip: biz.zip,
         vertical: biz.vertical,
+        subvertical: discoveryMapping.canonicalVertical,
         source: `discovery_${biz.source}`,
         sourceRef: biz.placeId || undefined,
       };
@@ -950,6 +1018,13 @@ export async function dedupeAndInsertFree(
         ? classifyVertical(null, biz.businessName)
         : biz.vertical;
 
+      const discoveryMapping = normalizeDiscoveryVertical({
+        rawCategory: biz.vertical,
+        businessName: biz.businessName,
+        source: biz.source,
+        classifierBucket: resolvedVertical,
+      });
+
       const merchantData: InsertSdrMerchant = {
         businessName: biz.businessName,
         website: biz.website,
@@ -961,6 +1036,7 @@ export async function dedupeAndInsertFree(
         state: biz.state,
         zip: biz.zip,
         vertical: resolvedVertical,
+        subvertical: discoveryMapping.canonicalVertical,
         source: `discovery_${biz.source}`,
         sourceRef: biz.placeId || undefined,
         sourcedVia: biz.source,

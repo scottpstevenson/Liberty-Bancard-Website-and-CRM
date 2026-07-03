@@ -2873,7 +2873,7 @@ export function registerSdrRoutes(app: Express) {
           email: email ?? null,
           phone: phone ?? null,
           companyName: lead.companyName ?? merchant?.businessName ?? null,
-          vertical: lead.vertical ?? merchant?.vertical ?? null,
+          vertical: merchant?.subvertical ?? lead.vertical ?? merchant?.vertical ?? null,
           source: merchant?.source ?? "sdr_queue",
           notes: [
             `Promoted from A-Lead Review Queue (lead state #${id})`,
