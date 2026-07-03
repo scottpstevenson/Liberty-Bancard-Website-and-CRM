@@ -370,7 +370,7 @@ const SMS_TEMPLATES: Record<string, string[]> = {
   ],
 };
 
-function normalizeVerticalKey(vertical: string | null | undefined): string {
+export function normalizeVerticalKey(vertical: string | null | undefined): string {
   if (!vertical) return "";
   const v = vertical.toLowerCase().trim();
 
@@ -432,7 +432,7 @@ const VERTICAL_SEQUENCE_MAP: Record<string, string> = {
   "Professional Services":  "V-Legal: SDR Outbound Prospecting",
 };
 
-function resolveVerticalSequenceName(verticalKey: string, rawVertical: string | null | undefined): string {
+export function resolveVerticalSequenceName(verticalKey: string, rawVertical: string | null | undefined): string {
   return VERTICAL_SEQUENCE_MAP[verticalKey] || "1. Switch & Save — Statement Audit";
 }
 

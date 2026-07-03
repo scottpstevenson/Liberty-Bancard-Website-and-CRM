@@ -174,7 +174,7 @@ async function resolveGhlWorkflowId(sequenceName: string): Promise<string | null
   return process.env.GHL_DEFAULT_WORKFLOW_ID || null;
 }
 
-function getVerticalTag(vertical: string | null | undefined): string {
+export function getVerticalTag(vertical: string | null | undefined): string {
   if (!vertical) return "LB-VERTICAL-GENERAL";
   const v = vertical.toLowerCase().trim();
   if (/auto|automotive|repair|collision|body shop|tire/i.test(v)) return "LB-AUTO";
