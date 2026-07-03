@@ -1,0 +1,127 @@
+Addendum to #721 — Discovery Vertical Classification Mapper
+
+Approved directionally. Before implementation, run a short preflight to confirm the exact vertical ownership and storage path.
+
+Required preflight before coding
+
+Confirm:
+
+1. The canonical vertical source of truth:
+    * server/services/smart-router.ts
+    * server/services/seed-vertical-campaigns.ts
+    * any shared VERTICALS constant
+    * any contact/deal vertical enum or accepted strings
+2. Where discovered merchant vertical is stored:
+    * sdr_merchants.vertical
+    * sdr_lead_state.enrichmentData
+    * lead_discovery_results
+    * Outscraper raw payload fields
+3. Which field smart-router.ts currently reads when matching vertical campaign sequences.
+4. Whether sdr_merchants.vertical is safe to change from coarse bucket to canonical vertical, or whether this task needs separate fields:
+    * rawCategory
+    * classifierBucket
+    * canonicalVertical
+    * verticalMappingConfidence
+    * verticalMappingRule
+5. Whether a migration is required. Prefer no schema change if enrichmentData or existing source metadata can safely hold mapping details.
+
+Kill line:
+
+STOP if implementation changes the meaning of `sdr_merchants.vertical` without proving every current caller can handle canonical vertical strings.
+
+⸻
+
+Preferred implementation
+
+Do not delete or replace classifyVertical().
+
+Add a new mapper:
+
+normalizeDiscoveryVertical({
+  rawCategory,
+  businessName,
+  source,
+  classifierBucket,
+})
+
+Return:
+
+{
+  canonicalVertical,
+  classifierBucket,
+  rawCategory,
+  confidence,
+  matchedRule
+}
+
+Then store/preserve both:
+
+classifierBucket = old classifyVertical output
+canonicalVertical = campaign-routing vertical
+rawCategory = source category from Outscraper/import
+
+Campaign routing should use canonicalVertical when present and fall back to the existing vertical/classifier behavior when absent.
+
+Kill line:
+
+STOP if raw Outscraper category is overwritten or lost.
+
+Kill line:
+
+STOP if unknown categories crash discovery/import/scoring.
+
+⸻
+
+Mapping rules required
+
+Use exact canonical strings confirmed from seeded sequence source of truth.
+
+Expected mappings:
+
+medical spa / med spa / botox / aesthetics / injectables → Med Spa
+hair salon / barber / nail salon / beauty salon → Salon
+dentist / dental clinic / orthodontist / oral surgeon → Dental
+auto repair / mechanic / tire shop / body shop → Auto Repair
+restaurant / bar / cafe / pizza / sushi → Restaurant
+
+Do not invent new vertical strings.
+
+Kill line:
+
+STOP if `Med Spa`, `Dental`, `Salon`, `Auto Repair`, or `Restaurant` do not exactly match existing campaign sequence vertical labels.
+
+⸻
+
+Tests
+
+Add fixture tests for:
+
+medical spa → Med Spa
+botox clinic → Med Spa
+hair salon → Salon
+nail salon → Salon
+dentist → Dental
+orthodontist → Dental
+auto repair shop → Auto Repair
+tire shop → Auto Repair
+restaurant → Restaurant
+pizza restaurant → Restaurant
+unknown category → fallback, no crash
+
+Also add at least one routing test:
+
+Med Spa canonicalVertical routes to Med Spa sequence, not Salon/Spa.
+
+⸻
+
+Out of scope
+
+Do not:
+
+* activate discovery
+* enroll sequences
+* send outreach
+* rewrite seeded campaign copy
+* delete the old classifier
+* change broad scoring weights
+* add schema migrations unless preflight proves existing metadata storage is insufficient
