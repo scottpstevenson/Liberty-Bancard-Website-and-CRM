@@ -40,6 +40,7 @@ async function testMedSpaMapping() {
     { businessName: "Radiance Med Spa & Aesthetics", rawCategory: null },
     { businessName: "Downtown Botox & Fillers", rawCategory: "Botox clinic" },
     { businessName: "Elite Aesthetics Injectables", rawCategory: "aesthetics" },
+    { businessName: "Injectables", rawCategory: "injectables" },
   ];
 
   for (const c of cases) {
@@ -47,6 +48,16 @@ async function testMedSpaMapping() {
     assert(result.canonicalVertical === "Med Spa", `"${c.businessName}" -> Med Spa`, `got ${result.canonicalVertical}`);
     assert(result.rawCategory === c.rawCategory, `rawCategory preserved unmodified for "${c.businessName}"`);
   }
+
+  // Generic business name with no med-spa cue in the name at all — only the raw
+  // provider category carries the signal. Proves rawCategory (not just
+  // businessName) drives the mapping, which is what the primary discovery
+  // insert path (dedupeAndInsert) depends on.
+  const genericNameResult = normalizeDiscoveryVertical({ businessName: "ABC Wellness LLC", rawCategory: "medical spa" });
+  assert(genericNameResult.canonicalVertical === "Med Spa", "Generic business name + raw category 'medical spa' still maps to Med Spa", genericNameResult.canonicalVertical);
+
+  const injectablesOnlyResult = normalizeDiscoveryVertical({ businessName: "River City Wellness", rawCategory: "injectables" });
+  assert(injectablesOnlyResult.canonicalVertical === "Med Spa", "Generic business name + raw category 'injectables' still maps to Med Spa", injectablesOnlyResult.canonicalVertical);
 }
 
 async function testSalonMapping() {
@@ -138,6 +149,37 @@ async function testSubverticalPersistence() {
     "coarse vertical field remains alongside subvertical (not overwritten)");
 }
 
+async function testDedupeAndInsertUsesRealRawCategory() {
+  console.log("\n[9b] Primary discovery insert path (dedupeAndInsert) feeds real provider category, not just the coarse bucket");
+  const src = (await import("fs")).readFileSync("server/services/sdr/lead-finder.ts", "utf8");
+
+  assert(
+    src.includes("rawCategory: biz.category ?? null,\n        businessName: biz.businessName,\n        source: biz.source,\n        classifierBucket: biz.vertical,"),
+    "dedupeAndInsert passes biz.category (raw provider category) as rawCategory into normalizeDiscoveryVertical, not just the coarse classifierBucket"
+  );
+
+  assert(
+    src.includes("category?: string | null;"),
+    "NormalizedBusiness interface carries a category field distinct from the coarse 'vertical' bucket"
+  );
+
+  const categoryAssignments = (src.match(/category:\s*(place\.category \|\| null|r\.category \?\? null)/g) || []).length;
+  assert(categoryAssignments === 4, `All 4 paid-source search functions (serper, outscraper, apify, apollo) populate category from the raw provider payload (found ${categoryAssignments})`, "expected 4");
+
+  const { normalizeDiscoveryVertical } = await import("../server/services/sdr/lead-finder");
+  const dedupeAndInsertStyleMapping = normalizeDiscoveryVertical({
+    rawCategory: "medical spa",
+    businessName: "Generic Wellness Group LLC",
+    source: "outscraper",
+    classifierBucket: "Salon/Spa",
+  });
+  assert(
+    dedupeAndInsertStyleMapping.canonicalVertical === "Med Spa",
+    "Simulated dedupeAndInsert call (raw category='medical spa', coarse bucket='Salon/Spa', generic name) still resolves subvertical to Med Spa, not Salon",
+    dedupeAndInsertStyleMapping.canonicalVertical
+  );
+}
+
 async function testPromotionRoutesOffSubvertical() {
   console.log("\n[10] Lead->contact promotion prefers subvertical over coarse vertical");
   const src = (await import("fs")).readFileSync("server/routes/sdr.ts", "utf8");
@@ -187,6 +229,7 @@ async function main() {
   await testUnknownCategoryFallback();
   await testClassifyVerticalUntouched();
   await testSubverticalPersistence();
+  await testDedupeAndInsertUsesRealRawCategory();
   await testPromotionRoutesOffSubvertical();
   await testMedSpaRoutesToMedSpaSequence();
 

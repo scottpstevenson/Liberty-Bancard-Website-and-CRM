@@ -50,6 +50,7 @@ interface NormalizedBusiness {
   reviewCount: number | null;
   placeId: string | null;
   vertical: string;
+  category?: string | null;
   metro: string;
   source: string;
   rawData: Record<string, any>;
@@ -176,7 +177,7 @@ export function normalizeDiscoveryVertical(input: {
   const classifierBucket = input.classifierBucket || classifyVertical(rawCategory, businessName);
   const text = `${rawCategory || ""} ${businessName}`.toLowerCase();
 
-  if (/med.?spa|medical spa|medspa|aesthetic|botox|dermal filler|laser (hair|skin)|iv therapy|cryotherapy|coolsculpt|cosmetic injectio/.test(text)) {
+  if (/med.?spa|medical spa|medspa|aesthetic|botox|injectable|dermal filler|laser (hair|skin)|iv therapy|cryotherapy|coolsculpt|cosmetic injectio/.test(text)) {
     return { canonicalVertical: "Med Spa", classifierBucket, rawCategory, confidence: "high", matchedRule: "medspa_keyword" };
   }
   if (/dental|dentist|orthodont|oral surg|endodont|periodont/.test(text)) {
@@ -282,6 +283,7 @@ async function searchSerperForDiscovery(
           reviewCount: place.reviewsCount ? parseInt(place.reviewsCount) : null,
           placeId: place.cid || place.placeId || null,
           vertical: classifyVertical(place.category || null, place.title),
+          category: place.category || null,
           metro,
           source: "serper",
           rawData: place,
@@ -320,6 +322,7 @@ async function searchOutscraperForDiscovery(
       reviewCount: r.reviewCount,
       placeId: r.placeId,
       vertical: classifyVertical(r.category, r.name),
+      category: r.category ?? null,
       metro,
       source: "outscraper",
       rawData: r.rawData,
@@ -353,6 +356,7 @@ async function searchApifyForDiscovery(
       reviewCount: r.reviewCount,
       placeId: null,
       vertical: classifyVertical(r.category, r.name),
+      category: r.category ?? null,
       metro,
       source: "apify",
       rawData: r.rawData,
@@ -388,6 +392,7 @@ async function searchApolloForDiscoveryLocal(
         reviewCount: null,
         placeId: null,
         vertical: classifyVertical(r.category, r.name),
+        category: r.category ?? null,
         metro,
         source: "apollo",
         rawData: r.rawData,
@@ -701,6 +706,7 @@ async function dedupeAndInsert(
       }
 
       const discoveryMapping = normalizeDiscoveryVertical({
+        rawCategory: biz.category ?? null,
         businessName: biz.businessName,
         source: biz.source,
         classifierBucket: biz.vertical,
