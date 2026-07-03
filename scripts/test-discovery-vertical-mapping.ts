@@ -110,6 +110,124 @@ async function testRestaurantMapping() {
   }
 }
 
+async function testRetailMapping() {
+  console.log("\n[6b] Retail mapping (Task #724)");
+  const { normalizeDiscoveryVertical } = await import("../server/services/sdr/lead-finder");
+
+  const cases = ["Downtown Boutique", "Corner Convenience Store", "Main Street Gift Shop", "Metro Apparel"];
+  for (const businessName of cases) {
+    const result = normalizeDiscoveryVertical({ businessName });
+    assert(result.canonicalVertical === "Retail", `"${businessName}" -> Retail`, `got ${result.canonicalVertical}`);
+  }
+
+  const rawCategoryResult = normalizeDiscoveryVertical({ businessName: "Acme LLC", rawCategory: "boutique" });
+  assert(rawCategoryResult.canonicalVertical === "Retail", "Raw category 'boutique' -> Retail", rawCategoryResult.canonicalVertical);
+}
+
+async function testGymMapping() {
+  console.log("\n[6c] Gym/Fitness mapping (Task #724)");
+  const { normalizeDiscoveryVertical } = await import("../server/services/sdr/lead-finder");
+
+  const cases = ["Iron Works Gym", "Downtown CrossFit", "Sunrise Yoga Studio", "Elite Fitness Center"];
+  for (const businessName of cases) {
+    const result = normalizeDiscoveryVertical({ businessName });
+    assert(result.canonicalVertical === "Gym", `"${businessName}" -> Gym`, `got ${result.canonicalVertical}`);
+  }
+
+  const rawCategoryResult = normalizeDiscoveryVertical({ businessName: "Acme LLC", rawCategory: "gym" });
+  assert(rawCategoryResult.canonicalVertical === "Gym", "Raw category 'gym' -> Gym", rawCategoryResult.canonicalVertical);
+}
+
+async function testHotelMapping() {
+  console.log("\n[6d] Hotel mapping (Task #724)");
+  const { normalizeDiscoveryVertical } = await import("../server/services/sdr/lead-finder");
+
+  const cases = ["Seaside Hotel", "Downtown Motel", "Sunset Resort", "Harbor Inn"];
+  for (const businessName of cases) {
+    const result = normalizeDiscoveryVertical({ businessName });
+    assert(result.canonicalVertical === "Hotel", `"${businessName}" -> Hotel`, `got ${result.canonicalVertical}`);
+  }
+
+  const rawCategoryResult = normalizeDiscoveryVertical({ businessName: "Acme LLC", rawCategory: "hotel" });
+  assert(rawCategoryResult.canonicalVertical === "Hotel", "Raw category 'hotel' -> Hotel", rawCategoryResult.canonicalVertical);
+}
+
+async function testLandscapingMapping() {
+  console.log("\n[6e] Landscaping mapping (Task #724)");
+  const { normalizeDiscoveryVertical } = await import("../server/services/sdr/lead-finder");
+
+  const cases = ["Green Thumb Landscaping", "ProCare Lawn Service", "Citywide Tree Service", "Sparkle Cleaning Service"];
+  for (const businessName of cases) {
+    const result = normalizeDiscoveryVertical({ businessName });
+    assert(result.canonicalVertical === "Landscaping", `"${businessName}" -> Landscaping`, `got ${result.canonicalVertical}`);
+  }
+
+  const rawCategoryResult = normalizeDiscoveryVertical({ businessName: "Acme LLC", rawCategory: "landscaping" });
+  assert(rawCategoryResult.canonicalVertical === "Landscaping", "Raw category 'landscaping' -> Landscaping", rawCategoryResult.canonicalVertical);
+}
+
+async function testConstructionMapping() {
+  console.log("\n[6f] Construction mapping (Task #724)");
+  const { normalizeDiscoveryVertical } = await import("../server/services/sdr/lead-finder");
+
+  const cases = ["ABC General Contractor", "Sunrise Remodeling", "Metro Roofing Co", "Precision Electrician Services"];
+  for (const businessName of cases) {
+    const result = normalizeDiscoveryVertical({ businessName });
+    assert(result.canonicalVertical === "Construction", `"${businessName}" -> Construction`, `got ${result.canonicalVertical}`);
+  }
+
+  const rawCategoryResult = normalizeDiscoveryVertical({ businessName: "Acme LLC", rawCategory: "general contractor" });
+  assert(rawCategoryResult.canonicalVertical === "Construction", "Raw category 'general contractor' -> Construction", rawCategoryResult.canonicalVertical);
+}
+
+async function testLegalMapping() {
+  console.log("\n[6g] Legal mapping (Task #724)");
+  const { normalizeDiscoveryVertical } = await import("../server/services/sdr/lead-finder");
+
+  const cases = ["Smith & Associates Law Firm", "Downtown Attorney Group", "Jones Legal Services", "Metro Accounting Firm"];
+  for (const businessName of cases) {
+    const result = normalizeDiscoveryVertical({ businessName });
+    assert(result.canonicalVertical === "Legal", `"${businessName}" -> Legal`, `got ${result.canonicalVertical}`);
+  }
+
+  const rawCategoryResult = normalizeDiscoveryVertical({ businessName: "Acme LLC", rawCategory: "law firm" });
+  assert(rawCategoryResult.canonicalVertical === "Legal", "Raw category 'law firm' -> Legal", rawCategoryResult.canonicalVertical);
+}
+
+async function testNewVerticalsRouteToExistingRules() {
+  console.log("\n[6h] Routing-priority proof: each new canonical vertical matches its existing ROUTING_RULES entry (Task #724)");
+  const smartRouterSrc = (await import("fs")).readFileSync("server/services/smart-router.ts", "utf8");
+  const { normalizeDiscoveryVertical } = await import("../server/services/sdr/lead-finder");
+
+  // Extract each ROUTING_RULES entry's verticals array via a light-weight regex parse
+  // (avoids importing smart-router.ts's private ROUTING_RULES const directly).
+  const ruleBlocks = [...smartRouterSrc.matchAll(/verticals:\s*\[([^\]]*)\][^}]*sequenceKeywords:\s*\[([^\]]*)\]/g)]
+    .map(m => ({
+      verticals: m[1].split(",").map(s => s.trim().replace(/^"|"$/g, "")).filter(Boolean),
+      sequenceKeywords: m[2].split(",").map(s => s.trim().replace(/^"|"$/g, "")).filter(Boolean),
+    }));
+
+  const cases: Array<{ businessName: string; expectedCanonical: string; expectedKeywordFragment: string }> = [
+    { businessName: "Downtown Boutique", expectedCanonical: "Retail", expectedKeywordFragment: "retail" },
+    { businessName: "Iron Works Gym", expectedCanonical: "Gym", expectedKeywordFragment: "gym" },
+    { businessName: "Seaside Hotel", expectedCanonical: "Hotel", expectedKeywordFragment: "hotel" },
+    { businessName: "Green Thumb Landscaping", expectedCanonical: "Landscaping", expectedKeywordFragment: "landscaping" },
+    { businessName: "ABC General Contractor", expectedCanonical: "Construction", expectedKeywordFragment: "construction" },
+    { businessName: "Smith & Associates Law Firm", expectedCanonical: "Legal", expectedKeywordFragment: "legal" },
+  ];
+
+  for (const c of cases) {
+    const mapping = normalizeDiscoveryVertical({ businessName: c.businessName });
+    assert(mapping.canonicalVertical === c.expectedCanonical, `"${c.businessName}" classifies to ${c.expectedCanonical}`, mapping.canonicalVertical);
+
+    const vertical = mapping.canonicalVertical;
+    const matchedRules = ruleBlocks.filter(rule => rule.verticals.some(v => vertical.toLowerCase().includes(v.toLowerCase())));
+    assert(matchedRules.length > 0, `${c.expectedCanonical} canonical vertical matches an existing ROUTING_RULES entry`, JSON.stringify(matchedRules));
+    const hasExpectedSequence = matchedRules.some(rule => rule.sequenceKeywords.some(k => k.toLowerCase().includes(c.expectedKeywordFragment)));
+    assert(hasExpectedSequence, `${c.expectedCanonical} matched rule includes a "${c.expectedKeywordFragment}" sequence keyword`, JSON.stringify(matchedRules));
+  }
+}
+
 async function testUnknownCategoryFallback() {
   console.log("\n[7] Unknown category falls back without crashing");
   const { normalizeDiscoveryVertical } = await import("../server/services/sdr/lead-finder");
@@ -226,6 +344,13 @@ async function main() {
   await testDentalMapping();
   await testAutoRepairMapping();
   await testRestaurantMapping();
+  await testRetailMapping();
+  await testGymMapping();
+  await testHotelMapping();
+  await testLandscapingMapping();
+  await testConstructionMapping();
+  await testLegalMapping();
+  await testNewVerticalsRouteToExistingRules();
   await testUnknownCategoryFallback();
   await testClassifyVerticalUntouched();
   await testSubverticalPersistence();

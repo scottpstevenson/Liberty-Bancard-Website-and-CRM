@@ -158,12 +158,19 @@ export interface DiscoveryVerticalMapping {
   matchedRule: string | null;
 }
 
-export const CANONICAL_DISCOVERY_VERTICALS = ["Med Spa", "Salon", "Dental", "Auto Repair", "Restaurant"] as const;
+export const CANONICAL_DISCOVERY_VERTICALS = [
+  "Med Spa", "Salon", "Dental", "Auto Repair", "Restaurant",
+  "Retail", "Gym", "Hotel", "Landscaping", "Construction", "Legal",
+] as const;
 
 const BUCKET_TO_CANONICAL: Record<string, string | undefined> = {
   "Auto": "Auto Repair",
   "Restaurant": "Restaurant",
   "Salon/Spa": "Salon",
+  "Retail": "Retail",
+  "Fitness/Recreation": "Gym",
+  "Construction": "Construction",
+  "Legal": "Legal",
 };
 
 export function normalizeDiscoveryVertical(input: {
@@ -191,6 +198,24 @@ export function normalizeDiscoveryVertical(input: {
   }
   if (/\bsalon\b|\bspa\b|beauty|\bhair\b|\bnail\b|barber|cosmetolog|waxing|esthetician/.test(text)) {
     return { canonicalVertical: "Salon", classifierBucket, rawCategory, confidence: "high", matchedRule: "salon_keyword" };
+  }
+  if (/\bhotel\b|\bmotel\b|\bresort\b|hospitality|\binn\b|bed and breakfast|\bbnb\b/.test(text)) {
+    return { canonicalVertical: "Hotel", classifierBucket, rawCategory, confidence: "high", matchedRule: "hotel_keyword" };
+  }
+  if (/landscap|lawn care|lawn service|tree service|cleaning service|janitorial|pest control|pressure wash/.test(text)) {
+    return { canonicalVertical: "Landscaping", classifierBucket, rawCategory, confidence: "high", matchedRule: "landscaping_keyword" };
+  }
+  if (/\bconstruct|contractor|remodel|renovation|\broofing\b|\bhvac\b|\bplumb|electrician/.test(text)) {
+    return { canonicalVertical: "Construction", classifierBucket, rawCategory, confidence: "high", matchedRule: "construction_keyword" };
+  }
+  if (/law firm|attorney|\blegal\b|\blawyer\b|\bcpa\b|accounting firm|bookkeep/.test(text)) {
+    return { canonicalVertical: "Legal", classifierBucket, rawCategory, confidence: "high", matchedRule: "legal_keyword" };
+  }
+  if (/\bgym\b|fitness center|\bcrossfit\b|\byoga\b|\bpilates\b|health club|personal training/.test(text)) {
+    return { canonicalVertical: "Gym", classifierBucket, rawCategory, confidence: "high", matchedRule: "gym_keyword" };
+  }
+  if (/\bretail\b|boutique|\bstore\b|gift shop|clothing store|apparel|convenience store|general merchandise/.test(text)) {
+    return { canonicalVertical: "Retail", classifierBucket, rawCategory, confidence: "high", matchedRule: "retail_keyword" };
   }
 
   const bucketMapped = BUCKET_TO_CANONICAL[classifierBucket];
