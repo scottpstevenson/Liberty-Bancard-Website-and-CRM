@@ -1,0 +1,110 @@
+Addendum to #725 — Sync Inbox Tagging With Canonical Vertical
+
+Approved directionally, but run a focused preflight before implementation.
+
+Required preflight
+
+Find every place inbound reply/inbox tagging reads SDR lead vertical data.
+
+Search for:
+
+grep -R "lead\.vertical\|vertical.*tag\|inbox.*vertical\|reply.*vertical\|subvertical\|sdr.*vertical" server/services server/routes client/src -n
+
+Confirm the exact files that own:
+
+1. inbound SMS reply handling
+2. inbound email reply handling
+3. SDR orchestrator reply tagging
+4. inbox/thread tag generation
+5. reporting/dashboard labels that show reply vertical
+6. lead-to-contact promotion vertical fallback, if already implemented
+
+Do not assume lead-finder.ts is the relevant owner for reply tagging.
+
+Kill line:
+
+STOP if this task only updates discovery/classification code but the inbound reply tagging path still reads the coarse `vertical` field.
+
+⸻
+
+Required helper
+
+Add or reuse a helper such as:
+
+function getCanonicalLeadVertical(lead: { subvertical?: string | null; vertical?: string | null }) {
+  return lead.subvertical?.trim() || lead.vertical?.trim() || "Unknown";
+}
+
+Use it wherever inbox/reply tagging needs the lead vertical.
+
+Do not hardcode vertical names.
+
+Kill line:
+
+STOP if the fix enumerates Med Spa, Salon, Dental, Auto Repair, Restaurant, Retail, Gym/Fitness, etc. instead of generically preferring `subvertical`.
+
+⸻
+
+Required behavior
+
+For a lead with:
+
+vertical = "Salon/Spa"
+subvertical = "Med Spa"
+
+reply tagging must use:
+
+Med Spa
+
+For a lead with:
+
+vertical = "Retail"
+subvertical = "Retail"
+
+or any future canonical value, reply tagging must use:
+
+Retail
+
+For an older lead with:
+
+vertical = "Salon/Spa"
+subvertical = null
+
+reply tagging must still use:
+
+Salon/Spa
+
+No historical backfill is required.
+
+⸻
+
+Tests
+
+Add or extend tests for:
+
+Med Spa subvertical beats Salon/Spa coarse vertical
+Retail subvertical beats generic/coarse vertical after #724 lands
+Null subvertical falls back to vertical
+Empty-string subvertical falls back to vertical
+Unknown/null vertical does not crash
+
+Add at least one end-to-end-ish reply tagging fixture if the code has an existing reply handler test.
+
+Kill line:
+
+STOP if there is no regression test proving inbound reply tags use `subvertical` over `vertical`.
+
+⸻
+
+Out of scope
+
+Do not:
+
+* reclassify historical leads
+* modify classifyVertical()
+* add new canonical verticals
+* add routing rules
+* change seeded sequence copy
+* activate outreach
+* send replies
+* modify discovery activation settings
