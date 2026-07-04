@@ -921,11 +921,26 @@ export function registerSdrRoutes(app: Express) {
       const jobs = await storage.getLeadDiscoveryJobs(100);
       const pilotJobs = jobs.filter(j => j.triggerType === "pilot");
 
+      // Estimate-only per-result cost constants, for display purposes only —
+      // NOT billing-accurate figures. Sources not listed here have genuinely
+      // unknown per-result pricing and are reported as costTracked: false
+      // rather than being defaulted to $0.
+      // Free/no-cost sources are listed explicitly with a cost of 0 so they
+      // are distinguishable from "cost unknown".
+      const SOURCE_COST_PER_RESULT_ESTIMATE: Record<string, { perResult: number; basis: string }> = {
+        outscraper: { perResult: 0.021, basis: "outscraper_per_result_estimate" },
+        serper: { perResult: 0.001, basis: "serper_per_query_estimate" },
+        apify: { perResult: 0.05, basis: "apify_per_result_estimate" },
+        apollo: { perResult: 0.05, basis: "apollo_per_contact_estimate" },
+        osm: { perResult: 0, basis: "free_source" },
+        yellowpages: { perResult: 0, basis: "free_source" },
+        bbb: { perResult: 0, basis: "free_source" },
+      };
+
       const sourceMap: Record<string, {
         leadsFound: number;
         newInserted: number;
         duplicatesSkipped: number;
-        costEstimate: number;
         abLeads: number;
         processorCoverage: number;
         totalScored: number;
@@ -936,7 +951,7 @@ export function registerSdrRoutes(app: Express) {
         for (const r of results) {
           const src = r.source || "unknown";
           if (!sourceMap[src]) {
-            sourceMap[src] = { leadsFound: 0, newInserted: 0, duplicatesSkipped: 0, costEstimate: 0, abLeads: 0, processorCoverage: 0, totalScored: 0 };
+            sourceMap[src] = { leadsFound: 0, newInserted: 0, duplicatesSkipped: 0, abLeads: 0, processorCoverage: 0, totalScored: 0 };
           }
           sourceMap[src].leadsFound++;
           if (r.status === "inserted") sourceMap[src].newInserted++;
@@ -956,27 +971,37 @@ export function registerSdrRoutes(app: Express) {
             }
           }
         }
-        if (job.costEstimate) {
-          const srcs = job.dataSources || [];
-          for (const s of srcs) {
-            if (sourceMap[s]) {
-              sourceMap[s].costEstimate += (job.costEstimate || 0) / Math.max(srcs.length, 1);
-            }
-          }
-        }
+        // Deliberately NOT using job.costEstimate here: leadDiscoveryJobs
+        // stores a single job-level cost with no per-source attribution, so
+        // splitting it evenly across dataSources would misrepresent sources
+        // that produced very different result volumes. Instead, cost is
+        // derived per source from actual result counts × a labeled
+        // per-result estimate (see SOURCE_COST_PER_RESULT_ESTIMATE above).
       }
 
-      const performance = Object.entries(sourceMap).map(([source, data]) => ({
-        source,
-        leadsFound: data.leadsFound,
-        newInserted: data.newInserted,
-        duplicatesSkipped: data.duplicatesSkipped,
-        duplicateRate: data.leadsFound > 0 ? Math.round((data.duplicatesSkipped / data.leadsFound) * 100) : 0,
-        abRate: data.totalScored > 0 ? Math.round((data.abLeads / data.totalScored) * 100) : null,
-        processorCoverage: data.totalScored > 0 ? Math.round((data.processorCoverage / data.totalScored) * 100) : null,
-        costEstimate: Math.round(data.costEstimate * 100) / 100,
-        costPerAbLead: data.abLeads > 0 ? Math.round((data.costEstimate / data.abLeads) * 100) / 100 : null,
-      }));
+      const performance = Object.entries(sourceMap).map(([source, data]) => {
+        const pricing = SOURCE_COST_PER_RESULT_ESTIMATE[source];
+        const costTracked = !!pricing;
+        const costEstimate = costTracked ? Math.round(data.leadsFound * pricing.perResult * 100) / 100 : null;
+        const costBasis = costTracked ? pricing.basis : "not_tracked";
+        const costPerAbLead = costTracked && costEstimate !== null && data.abLeads > 0
+          ? Math.round((costEstimate / data.abLeads) * 100) / 100
+          : null;
+
+        return {
+          source,
+          leadsFound: data.leadsFound,
+          newInserted: data.newInserted,
+          duplicatesSkipped: data.duplicatesSkipped,
+          duplicateRate: data.leadsFound > 0 ? Math.round((data.duplicatesSkipped / data.leadsFound) * 100) : 0,
+          abRate: data.totalScored > 0 ? Math.round((data.abLeads / data.totalScored) * 100) : null,
+          processorCoverage: data.totalScored > 0 ? Math.round((data.processorCoverage / data.totalScored) * 100) : null,
+          costTracked,
+          costEstimate,
+          costBasis,
+          costPerAbLead,
+        };
+      });
 
       res.json({ performance, pilotJobCount: pilotJobs.length });
     } catch (err: unknown) {

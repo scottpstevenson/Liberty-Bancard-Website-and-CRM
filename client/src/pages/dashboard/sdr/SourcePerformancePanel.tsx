@@ -11,7 +11,9 @@ interface SourcePerf {
   duplicateRate: number;
   abRate: number | null;
   processorCoverage: number | null;
-  costEstimate: number;
+  costTracked: boolean;
+  costEstimate: number | null;
+  costBasis: string;
   costPerAbLead: number | null;
 }
 
@@ -105,9 +107,15 @@ export function SourcePerformancePanel() {
                   </div>
                   <div data-testid={`stat-perf-cost-${row.source}`}>
                     <span className="block font-medium text-foreground">
-                      ${row.costEstimate.toFixed(2)}
-                      {row.costPerAbLead !== null && (
-                        <span className="text-muted-foreground ml-1">/ ${row.costPerAbLead.toFixed(2)} per A/B</span>
+                      {row.costTracked && row.costEstimate !== null ? (
+                        <>
+                          ${row.costEstimate.toFixed(2)}
+                          {row.costPerAbLead !== null && (
+                            <span className="text-muted-foreground ml-1">/ ${row.costPerAbLead.toFixed(2)} per A/B</span>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-muted-foreground">Cost not tracked</span>
                       )}
                     </span>
                     Est. Cost
