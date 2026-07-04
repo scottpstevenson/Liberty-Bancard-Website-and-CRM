@@ -198,7 +198,7 @@ export interface IStorage {
   getLastAuditLogByAction(action: string, entityType: string, entityId: number): Promise<typeof auditLogs.$inferSelect | undefined>;
   createAuditLog(log: InsertAuditLog): Promise<typeof auditLogs.$inferSelect>;
   createChannelAuditLog(entry: InsertChannelAuditLog): Promise<ChannelAuditLog>;
-  getChannelAuditLog(channel: string): Promise<ChannelAuditLog[]>;
+  getChannelAuditLog(channel: string, filters?: { action?: string; actor?: string; startDate?: Date; endDate?: Date; limit?: number; offset?: number }): Promise<{ entries: ChannelAuditLog[]; total: number }>;
   getAiAuditLog(id: number): Promise<import("@shared/schema").AiAuditLog | undefined>;
   getAiAuditLogs(filters?: { triggerType?: string; startDate?: Date; endDate?: Date; limit?: number; offset?: number; flaggedOnly?: boolean }): Promise<import("@shared/schema").AiAuditLog[]>;
   getAiAuditLogTotals(filters?: { startDate?: Date; endDate?: Date }): Promise<{ totalCalls: number; totalPromptTokens: number; totalCompletionTokens: number; totalCostCents: number; byTriggerType: Record<string, { calls: number; promptTokens: number; completionTokens: number; costCents: number }> }>;

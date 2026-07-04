@@ -166,11 +166,40 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
     return log;
   }
 
-  async getChannelAuditLog(channel: string): Promise<ChannelAuditLog[]> {
-    return db.select().from(channelAuditLog)
-      .where(eq(channelAuditLog.channel, channel))
-      .orderBy(desc(channelAuditLog.createdAt))
-      .limit(100);
+  async getChannelAuditLog(channel: string, filters?: {
+    action?: string;
+    actor?: string;
+    startDate?: Date;
+    endDate?: Date;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ entries: ChannelAuditLog[]; total: number }> {
+    const conditions = [eq(channelAuditLog.channel, channel)];
+    if (filters?.action) conditions.push(eq(channelAuditLog.action, filters.action));
+    if (filters?.actor) {
+      const actorCondition = or(
+        ilike(channelAuditLog.actorEmail, `%${filters.actor}%`),
+        ilike(channelAuditLog.actorUserId, `%${filters.actor}%`)
+      );
+      if (actorCondition) conditions.push(actorCondition);
+    }
+    if (filters?.startDate) conditions.push(gte(channelAuditLog.createdAt, filters.startDate));
+    if (filters?.endDate) conditions.push(lte(channelAuditLog.createdAt, filters.endDate));
+
+    const whereClause = and(...conditions);
+    const limit = filters?.limit ?? 100;
+    const offset = filters?.offset ?? 0;
+
+    const [entries, [{ value: total }]] = await Promise.all([
+      db.select().from(channelAuditLog)
+        .where(whereClause)
+        .orderBy(desc(channelAuditLog.createdAt))
+        .limit(limit)
+        .offset(offset),
+      db.select({ value: count() }).from(channelAuditLog).where(whereClause),
+    ]);
+
+    return { entries, total: Number(total) };
   }
 
   async getAiAuditLog(id: number): Promise<AiAuditLog | undefined> {

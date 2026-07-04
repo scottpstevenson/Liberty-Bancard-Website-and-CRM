@@ -8,9 +8,9 @@ import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "@/components/ui/dialog";
-import { Loader2, Play, Square, Pause, Shield, Activity, Server, Mail, AlertTriangle, CheckCircle2, XCircle, Zap, RefreshCw, Radio, ArrowRightLeft, Plus, Pencil, ListChecks, Circle, Phone, MessageSquare, Mic, Voicemail, Search, Lock, ShieldCheck, ChevronDown, ChevronRight, History } from "lucide-react";
+import { Loader2, Play, Square, Pause, Shield, Activity, Server, Mail, AlertTriangle, CheckCircle2, XCircle, Zap, RefreshCw, Radio, ArrowRightLeft, Plus, Pencil, ListChecks, Circle, Phone, MessageSquare, Mic, Voicemail, Search, Lock, ShieldCheck, ChevronDown, ChevronRight, History, Download, FileText } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 
 interface AppHealthData {
@@ -1895,14 +1895,76 @@ const CHANNEL_AUDIT_ACTION_LABELS: Record<string, string> = {
 function ChannelHistoryDialog({ channel, open, onOpenChange }: { channel: ChannelChecklistResult["channel"]; open: boolean; onOpenChange: (open: boolean) => void }) {
   const meta = CHANNEL_GATE_LABELS[channel];
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+  const [actionFilter, setActionFilter] = useState<string>("all");
+  const [actorFilter, setActorFilter] = useState<string>("");
+  const [actorFilterDebounced, setActorFilterDebounced] = useState<string>("");
+  const [startDate, setStartDate] = useState<string>("");
+  const [endDate, setEndDate] = useState<string>("");
+  const [page, setPage] = useState(0);
+  const [exporting, setExporting] = useState<"csv" | "pdf" | null>(null);
+  const { toast } = useToast();
+  const PAGE_SIZE = 25;
+
+  useEffect(() => {
+    const t = setTimeout(() => setActorFilterDebounced(actorFilter), 300);
+    return () => clearTimeout(t);
+  }, [actorFilter]);
+
+  const buildFilterParams = () => {
+    const params = new URLSearchParams();
+    if (actionFilter !== "all") params.set("action", actionFilter);
+    if (actorFilterDebounced.trim()) params.set("actor", actorFilterDebounced.trim());
+    if (startDate) params.set("startDate", new Date(startDate).toISOString());
+    if (endDate) {
+      const d = new Date(endDate);
+      d.setHours(23, 59, 59, 999);
+      params.set("endDate", d.toISOString());
+    }
+    return params;
+  };
+
   const historyQuery = useQuery({
-    queryKey: [`/api/activation/channel-audit-log/${channel}`],
+    queryKey: [`/api/activation/channel-audit-log/${channel}`, actionFilter, actorFilterDebounced, startDate, endDate, page],
     queryFn: async () => {
-      const res = await apiRequest("GET", `/api/activation/channel-audit-log/${channel}`);
-      return res.json() as Promise<{ channel: string; entries: ChannelAuditLogEntry[] }>;
+      const params = buildFilterParams();
+      params.set("limit", String(PAGE_SIZE));
+      params.set("offset", String(page * PAGE_SIZE));
+      const res = await apiRequest("GET", `/api/activation/channel-audit-log/${channel}?${params.toString()}`);
+      return res.json() as Promise<{ channel: string; entries: ChannelAuditLogEntry[]; total: number; limit: number; offset: number }>;
     },
     enabled: open,
   });
+
+  const resetFilters = () => {
+    setActionFilter("all");
+    setActorFilter("");
+    setActorFilterDebounced("");
+    setStartDate("");
+    setEndDate("");
+    setPage(0);
+  };
+
+  const handleExport = async (format: "csv" | "pdf") => {
+    setExporting(format);
+    try {
+      const params = buildFilterParams();
+      params.set("format", format);
+      const res = await apiRequest("GET", `/api/activation/channel-audit-log/${channel}/export?${params.toString()}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `channel-audit-${channel}.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      toast({ title: "Export failed", description: err.message, variant: "destructive" });
+    } finally {
+      setExporting(null);
+    }
+  };
 
   const toggleExpanded = (id: number) => {
     setExpandedIds((prev) => {
@@ -1913,6 +1975,9 @@ function ChannelHistoryDialog({ channel, open, onOpenChange }: { channel: Channe
     });
   };
 
+  const total = historyQuery.data?.total ?? 0;
+  const hasNextPage = (page + 1) * PAGE_SIZE < total;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto" data-testid={`dialog-channel-history-${channel}`}>
@@ -1921,6 +1986,85 @@ function ChannelHistoryDialog({ channel, open, onOpenChange }: { channel: Channe
             <ListChecks className="w-4 h-4" /> {meta.name} Approval History
           </DialogTitle>
         </DialogHeader>
+
+        <div className="space-y-2 border-b pb-3 mb-1">
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <Label className="text-[11px] text-muted-foreground">Action</Label>
+              <Select value={actionFilter} onValueChange={(v) => { setActionFilter(v); setPage(0); }}>
+                <SelectTrigger className="h-8 text-xs" data-testid={`select-filter-action-${channel}`}>
+                  <SelectValue placeholder="All actions" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All actions</SelectItem>
+                  {Object.entries(CHANNEL_AUDIT_ACTION_LABELS).map(([key, label]) => (
+                    <SelectItem key={key} value={key}>{label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-[11px] text-muted-foreground">Actor (email or ID)</Label>
+              <Input
+                className="h-8 text-xs"
+                placeholder="Search actor…"
+                value={actorFilter}
+                onChange={(e) => { setActorFilter(e.target.value); setPage(0); }}
+                data-testid={`input-filter-actor-${channel}`}
+              />
+            </div>
+            <div>
+              <Label className="text-[11px] text-muted-foreground">From</Label>
+              <Input
+                type="date"
+                className="h-8 text-xs"
+                value={startDate}
+                onChange={(e) => { setStartDate(e.target.value); setPage(0); }}
+                data-testid={`input-filter-start-date-${channel}`}
+              />
+            </div>
+            <div>
+              <Label className="text-[11px] text-muted-foreground">To</Label>
+              <Input
+                type="date"
+                className="h-8 text-xs"
+                value={endDate}
+                onChange={(e) => { setEndDate(e.target.value); setPage(0); }}
+                data-testid={`input-filter-end-date-${channel}`}
+              />
+            </div>
+          </div>
+          <div className="flex items-center justify-between gap-2 pt-1">
+            <Button size="sm" variant="ghost" className="h-7 text-xs px-2" onClick={resetFilters} data-testid={`button-reset-filters-${channel}`}>
+              Clear filters
+            </Button>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs px-2"
+                onClick={() => handleExport("csv")}
+                disabled={exporting !== null}
+                data-testid={`button-export-csv-${channel}`}
+              >
+                {exporting === "csv" ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Download className="w-3 h-3 mr-1" />}
+                CSV
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs px-2"
+                onClick={() => handleExport("pdf")}
+                disabled={exporting !== null}
+                data-testid={`button-export-pdf-${channel}`}
+              >
+                {exporting === "pdf" ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <FileText className="w-3 h-3 mr-1" />}
+                PDF
+              </Button>
+            </div>
+          </div>
+        </div>
+
         {historyQuery.isLoading ? (
           <div className="flex items-center justify-center py-8 text-muted-foreground text-sm">
             <Loader2 className="w-4 h-4 animate-spin mr-2" /> Loading history…
@@ -1929,7 +2073,7 @@ function ChannelHistoryDialog({ channel, open, onOpenChange }: { channel: Channe
           <p className="text-sm text-destructive py-4">Failed to load history.</p>
         ) : !historyQuery.data?.entries?.length ? (
           <p className="text-sm text-muted-foreground py-4" data-testid={`text-no-history-${channel}`}>
-            No approval-gate activity has been recorded for this channel yet.
+            No approval-gate activity matches the current filters.
           </p>
         ) : (
           <ul className="space-y-2">
@@ -1981,6 +2125,36 @@ function ChannelHistoryDialog({ channel, open, onOpenChange }: { channel: Channe
               );
             })}
           </ul>
+        )}
+
+        {total > PAGE_SIZE && (
+          <div className="flex items-center justify-between pt-2 border-t text-xs text-muted-foreground">
+            <span data-testid={`text-pagination-summary-${channel}`}>
+              Showing {Math.min(page * PAGE_SIZE + 1, total)}–{Math.min((page + 1) * PAGE_SIZE, total)} of {total}
+            </span>
+            <div className="flex gap-1">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs px-2"
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
+                disabled={page === 0 || historyQuery.isFetching}
+                data-testid={`button-history-prev-page-${channel}`}
+              >
+                Previous
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs px-2"
+                onClick={() => setPage((p) => p + 1)}
+                disabled={!hasNextPage || historyQuery.isFetching}
+                data-testid={`button-history-next-page-${channel}`}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
         )}
       </DialogContent>
     </Dialog>

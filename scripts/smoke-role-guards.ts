@@ -142,6 +142,8 @@ const CASES: GuardCase[] = [
   { method: "POST", path: "/api/activation/channel-test-batch/sms",        anon: [401], merchant: [403], admin: [200, 403], agent: [403], description: "channel test batch dry-run — sms (admin only; never sends)" },
   { method: "GET",  path: "/api/activation/channel-audit-log/sms",         anon: [401], merchant: [403], admin: [200], agent: [403], description: "channel approval history — sms (admin only; read-only)" },
   { method: "GET",  path: "/api/activation/channel-audit-log/bogus",       anon: [401], merchant: [403], admin: [400], agent: [403], description: "channel approval history — invalid channel key rejected" },
+  { method: "GET",  path: "/api/activation/channel-audit-log/sms/export?format=csv", anon: [401], merchant: [403], admin: [200], agent: [403], description: "channel approval history export — sms CSV (admin only; read-only)" },
+  { method: "GET",  path: "/api/activation/channel-audit-log/sms/export?format=pdf", anon: [401], merchant: [403], admin: [200], agent: [403], description: "channel approval history export — sms PDF (admin only; read-only)" },
 ];
 
 async function ensureAgentUser(): Promise<void> {

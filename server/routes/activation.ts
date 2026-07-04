@@ -1066,12 +1066,138 @@ export function registerActivationRoutes(app: Express) {
 
   // Read-only history of past checklist views / approvals / test-batch
   // previews for a channel. Never mutates anything.
+  function parseChannelAuditFilters(req: any): {
+    action?: string;
+    actor?: string;
+    startDate?: Date;
+    endDate?: Date;
+    limit?: number;
+    offset?: number;
+  } {
+    const { action, actor, startDate, endDate, limit, offset } = req.query;
+    const parsed: ReturnType<typeof parseChannelAuditFilters> = {};
+    if (action && typeof action === "string") parsed.action = action;
+    if (actor && typeof actor === "string") parsed.actor = actor;
+    if (startDate && typeof startDate === "string") {
+      const d = new Date(startDate);
+      if (!isNaN(d.getTime())) parsed.startDate = d;
+    }
+    if (endDate && typeof endDate === "string") {
+      const d = new Date(endDate);
+      if (!isNaN(d.getTime())) parsed.endDate = d;
+    }
+    if (limit && typeof limit === "string") {
+      const n = parseInt(limit, 10);
+      if (!isNaN(n) && n > 0) parsed.limit = Math.min(n, 1000);
+    }
+    if (offset && typeof offset === "string") {
+      const n = parseInt(offset, 10);
+      if (!isNaN(n) && n >= 0) parsed.offset = n;
+    }
+    return parsed;
+  }
+
   app.get("/api/activation/channel-audit-log/:channel", requireRole("admin"), async (req, res) => {
     const channel = validateChannelParam(req, res);
     if (!channel) return;
     try {
-      const entries = await storage.getChannelAuditLog(channel);
-      res.json({ channel, entries });
+      const filters = parseChannelAuditFilters(req);
+      const { entries, total } = await storage.getChannelAuditLog(channel, filters);
+      res.json({
+        channel,
+        entries,
+        total,
+        limit: filters.limit ?? 100,
+        offset: filters.offset ?? 0,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // CSV/PDF export of the (filtered) channel approval audit trail, including
+  // checklist snapshots. Read-only — never mutates anything.
+  app.get("/api/activation/channel-audit-log/:channel/export", requireRole("admin"), async (req, res) => {
+    const channel = validateChannelParam(req, res);
+    if (!channel) return;
+    const format = String(req.query.format || "csv").toLowerCase();
+    if (format !== "csv" && format !== "pdf") {
+      return res.status(400).json({ message: 'Invalid format. Must be "csv" or "pdf".' });
+    }
+    try {
+      const filters = parseChannelAuditFilters(req);
+      const { entries } = await storage.getChannelAuditLog(channel, { ...filters, limit: 5000, offset: 0 });
+
+      if (format === "csv") {
+        const headers = ["ID", "Channel", "Action", "Actor Email", "Actor User ID", "Notes", "Checklist Passed", "Checklist Snapshot", "Created At"];
+        const rows = entries.map((e) => {
+          const snapshot = e.checklistSnapshot as any;
+          return [
+            e.id,
+            e.channel,
+            e.action,
+            e.actorEmail || "",
+            e.actorUserId || "",
+            e.notes || "",
+            snapshot?.passed === true ? "Yes" : snapshot?.passed === false ? "No" : "",
+            snapshot ? JSON.stringify(snapshot) : "",
+            e.createdAt ? new Date(e.createdAt).toISOString() : "",
+          ];
+        });
+        const csv = [headers.join(","), ...rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","))].join("\n");
+        res.setHeader("Content-Type", "text/csv");
+        res.setHeader("Content-Disposition", `attachment; filename=channel-audit-${channel}.csv`);
+        return res.send(csv);
+      }
+
+      const PDFDocument = (await import("pdfkit")).default;
+      const doc = new PDFDocument({ size: "LETTER", margin: 40, info: { Title: `Channel Approval Audit Trail – ${channel}` } });
+      const chunks: Buffer[] = [];
+      doc.on("data", (c: Buffer) => chunks.push(c));
+      doc.on("end", () => {
+        const buffer = Buffer.concat(chunks);
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader("Content-Disposition", `attachment; filename=channel-audit-${channel}.pdf`);
+        res.send(buffer);
+      });
+      doc.on("error", (err: any) => res.status(500).json({ message: err.message }));
+
+      doc.fontSize(16).font("Helvetica-Bold").text(`Channel Approval Audit Trail — ${channel}`);
+      doc.fontSize(9).font("Helvetica").fillColor("#555").text(`Generated ${new Date().toLocaleString()}`);
+      if (filters.startDate || filters.endDate || filters.action || filters.actor) {
+        const filterParts: string[] = [];
+        if (filters.action) filterParts.push(`Action: ${filters.action}`);
+        if (filters.actor) filterParts.push(`Actor: ${filters.actor}`);
+        if (filters.startDate) filterParts.push(`From: ${filters.startDate.toLocaleDateString()}`);
+        if (filters.endDate) filterParts.push(`To: ${filters.endDate.toLocaleDateString()}`);
+        doc.text(`Filters — ${filterParts.join(" | ")}`);
+      }
+      doc.moveDown(0.75);
+      doc.fillColor("#000");
+
+      if (entries.length === 0) {
+        doc.fontSize(10).text("No entries match the selected filters.");
+      }
+
+      for (const e of entries) {
+        if (doc.y > doc.page.height - 120) doc.addPage();
+        const snapshot = e.checklistSnapshot as any;
+        doc.fontSize(10).font("Helvetica-Bold").text(`#${e.id} — ${e.action}`, { continued: true })
+          .font("Helvetica").text(`   ${e.createdAt ? new Date(e.createdAt).toLocaleString() : ""}`);
+        doc.fontSize(9).text(`Actor: ${e.actorEmail || e.actorUserId || "unknown"}`);
+        if (e.notes) doc.text(`Notes: ${e.notes}`);
+        if (snapshot?.passed !== undefined) doc.text(`Checklist passed at time of action: ${snapshot.passed ? "Yes" : "No"}`);
+        if (Array.isArray(snapshot?.items)) {
+          for (const item of snapshot.items) {
+            doc.fontSize(8).fillColor(item.ok ? "#166534" : "#991b1b")
+              .text(`  ${item.ok ? "PASS" : "FAIL"} — ${item.label}: ${item.detail || ""}`);
+          }
+          doc.fillColor("#000");
+        }
+        doc.moveDown(0.5);
+      }
+
+      doc.end();
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
