@@ -1894,6 +1894,7 @@ const CHANNEL_AUDIT_ACTION_LABELS: Record<string, string> = {
 
 function ChannelHistoryDialog({ channel, open, onOpenChange }: { channel: ChannelChecklistResult["channel"]; open: boolean; onOpenChange: (open: boolean) => void }) {
   const meta = CHANNEL_GATE_LABELS[channel];
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const historyQuery = useQuery({
     queryKey: [`/api/activation/channel-audit-log/${channel}`],
     queryFn: async () => {
@@ -1902,6 +1903,15 @@ function ChannelHistoryDialog({ channel, open, onOpenChange }: { channel: Channe
     },
     enabled: open,
   });
+
+  const toggleExpanded = (id: number) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1923,20 +1933,53 @@ function ChannelHistoryDialog({ channel, open, onOpenChange }: { channel: Channe
           </p>
         ) : (
           <ul className="space-y-2">
-            {historyQuery.data.entries.map((entry) => (
-              <li key={entry.id} className="rounded-md border p-3 text-xs space-y-1" data-testid={`history-entry-${channel}-${entry.id}`}>
-                <div className="flex items-center justify-between">
-                  <Badge variant={entry.action === "enable_approved" ? "default" : "outline"}>
-                    {CHANNEL_AUDIT_ACTION_LABELS[entry.action] || entry.action}
-                  </Badge>
-                  <span className="text-muted-foreground">{new Date(entry.createdAt).toLocaleString()}</span>
-                </div>
-                <p className="text-muted-foreground">
-                  Actor: {entry.actorEmail || entry.actorUserId || "unknown"}
-                </p>
-                {entry.notes && <p className="text-muted-foreground">Notes: {entry.notes}</p>}
-              </li>
-            ))}
+            {historyQuery.data.entries.map((entry) => {
+              const snapshot = entry.checklistSnapshot as ChannelChecklistResult | null;
+              const isExpanded = expandedIds.has(entry.id);
+              return (
+                <li key={entry.id} className="rounded-md border p-3 text-xs space-y-1" data-testid={`history-entry-${channel}-${entry.id}`}>
+                  <div className="flex items-center justify-between">
+                    <Badge variant={entry.action === "enable_approved" ? "default" : "outline"}>
+                      {CHANNEL_AUDIT_ACTION_LABELS[entry.action] || entry.action}
+                    </Badge>
+                    <span className="text-muted-foreground">{new Date(entry.createdAt).toLocaleString()}</span>
+                  </div>
+                  <p className="text-muted-foreground">
+                    Actor: {entry.actorEmail || entry.actorUserId || "unknown"}
+                  </p>
+                  {entry.notes && <p className="text-muted-foreground">Notes: {entry.notes}</p>}
+                  {snapshot && (
+                    <div>
+                      <button
+                        type="button"
+                        onClick={() => toggleExpanded(entry.id)}
+                        className="flex items-center gap-1 text-muted-foreground hover:text-foreground"
+                        data-testid={`button-toggle-snapshot-${channel}-${entry.id}`}
+                      >
+                        {isExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                        Checklist snapshot at this time ({snapshot.passed ? "Passed" : "Incomplete"})
+                      </button>
+                      {isExpanded && (
+                        <div className="mt-2 rounded-md border bg-muted/30 p-2 space-y-1.5" data-testid={`snapshot-${channel}-${entry.id}`}>
+                          {snapshot.items?.map((item) => (
+                            <div key={item.key} className="flex items-start gap-1.5">
+                              {item.ok ? <CheckCircle2 className="w-3 h-3 text-green-600 shrink-0 mt-0.5" /> : <XCircle className="w-3 h-3 text-red-600 shrink-0 mt-0.5" />}
+                              <div>
+                                <span className="font-medium">{item.label}</span>
+                                <p className="text-muted-foreground">{item.detail}</p>
+                              </div>
+                            </div>
+                          ))}
+                          <p className="text-[11px] text-muted-foreground pt-1">
+                            Currently enabled at that time: {snapshot.currentlyEnabled ? "Yes" : "No"}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
       </DialogContent>
