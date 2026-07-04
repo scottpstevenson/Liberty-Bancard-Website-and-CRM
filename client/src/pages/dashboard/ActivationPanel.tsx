@@ -8,7 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "@/components/ui/dialog";
-import { Loader2, Play, Square, Pause, Shield, Activity, Server, Mail, AlertTriangle, CheckCircle2, XCircle, Zap, RefreshCw, Radio, ArrowRightLeft, Plus, Pencil, ListChecks, Circle, Phone, MessageSquare, Mic, Voicemail, Search, Lock, ShieldCheck, ChevronDown, ChevronRight } from "lucide-react";
+import { Loader2, Play, Square, Pause, Shield, Activity, Server, Mail, AlertTriangle, CheckCircle2, XCircle, Zap, RefreshCw, Radio, ArrowRightLeft, Plus, Pencil, ListChecks, Circle, Phone, MessageSquare, Mic, Voicemail, Search, Lock, ShieldCheck, ChevronDown, ChevronRight, History } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
@@ -1682,6 +1682,7 @@ export default function ActivationPanel() {
           <ComplianceChannelTab data={complianceQuery.data} isLoading={complianceQuery.isLoading} />
           <ChannelSafetyMatrix query={channelSafetyQuery} />
           <BlockReasonSummaryCard />
+          <ChannelApprovalGate />
         </TabsContent>
       </Tabs>
     </div>
@@ -1827,6 +1828,324 @@ function ComplianceChannelTab({ data, isLoading }: { data?: ComplianceChannelSta
       <p className="text-xs text-muted-foreground text-right">
         Last updated: {new Date(data.lastUpdated).toLocaleString()} · Strict-consent states: {data.strictStates.join(", ")}
       </p>
+    </div>
+  );
+}
+
+interface ChannelChecklistItem {
+  key: string;
+  label: string;
+  ok: boolean;
+  detail: string;
+}
+
+interface ChannelChecklistResult {
+  channel: "sms" | "voice_ai" | "ringless_vm";
+  passed: boolean;
+  items: ChannelChecklistItem[];
+  currentlyEnabled: boolean;
+  evaluatedAt: string;
+}
+
+const CHANNEL_GATE_LABELS: Record<ChannelChecklistResult["channel"], { name: string; icon: JSX.Element; envFlag: string }> = {
+  sms: { name: "SMS", icon: <MessageSquare className="w-5 h-5" />, envFlag: "SMS_ENABLED" },
+  voice_ai: { name: "AI Voice", icon: <Mic className="w-5 h-5" />, envFlag: "VOICE_AI_ENABLED" },
+  ringless_vm: { name: "Ringless Voicemail", icon: <Voicemail className="w-5 h-5" />, envFlag: "RINGLESS_VM_ENABLED" },
+};
+
+interface ChannelTestBatchCandidate {
+  id: number;
+  firstName: string | null;
+  lastName: string | null;
+  phone: string | null;
+  email: string | null;
+  consentTier: string;
+  reason: string;
+}
+
+interface ChannelTestBatchResult {
+  channel: string;
+  dryRun: boolean;
+  sent: boolean;
+  auditId: number;
+  scannedCount: number;
+  candidateCount: number;
+  candidates: ChannelTestBatchCandidate[];
+  note: string;
+}
+
+interface ChannelAuditLogEntry {
+  id: number;
+  channel: string;
+  action: string;
+  checklistSnapshot: unknown;
+  actorUserId: string | null;
+  actorEmail: string | null;
+  notes: string | null;
+  createdAt: string;
+}
+
+const CHANNEL_AUDIT_ACTION_LABELS: Record<string, string> = {
+  checklist_viewed: "Checklist viewed",
+  enable_approved: "Approved to enable",
+  disabled_recorded: "Disable recorded",
+  test_batch_preview: "Test batch previewed",
+};
+
+function ChannelHistoryDialog({ channel, open, onOpenChange }: { channel: ChannelChecklistResult["channel"]; open: boolean; onOpenChange: (open: boolean) => void }) {
+  const meta = CHANNEL_GATE_LABELS[channel];
+  const historyQuery = useQuery({
+    queryKey: [`/api/activation/channel-audit-log/${channel}`],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/activation/channel-audit-log/${channel}`);
+      return res.json() as Promise<{ channel: string; entries: ChannelAuditLogEntry[] }>;
+    },
+    enabled: open,
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto" data-testid={`dialog-channel-history-${channel}`}>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <ListChecks className="w-4 h-4" /> {meta.name} Approval History
+          </DialogTitle>
+        </DialogHeader>
+        {historyQuery.isLoading ? (
+          <div className="flex items-center justify-center py-8 text-muted-foreground text-sm">
+            <Loader2 className="w-4 h-4 animate-spin mr-2" /> Loading history…
+          </div>
+        ) : historyQuery.isError ? (
+          <p className="text-sm text-destructive py-4">Failed to load history.</p>
+        ) : !historyQuery.data?.entries?.length ? (
+          <p className="text-sm text-muted-foreground py-4" data-testid={`text-no-history-${channel}`}>
+            No approval-gate activity has been recorded for this channel yet.
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {historyQuery.data.entries.map((entry) => (
+              <li key={entry.id} className="rounded-md border p-3 text-xs space-y-1" data-testid={`history-entry-${channel}-${entry.id}`}>
+                <div className="flex items-center justify-between">
+                  <Badge variant={entry.action === "enable_approved" ? "default" : "outline"}>
+                    {CHANNEL_AUDIT_ACTION_LABELS[entry.action] || entry.action}
+                  </Badge>
+                  <span className="text-muted-foreground">{new Date(entry.createdAt).toLocaleString()}</span>
+                </div>
+                <p className="text-muted-foreground">
+                  Actor: {entry.actorEmail || entry.actorUserId || "unknown"}
+                </p>
+                {entry.notes && <p className="text-muted-foreground">Notes: {entry.notes}</p>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ChannelApprovalCard({ channel }: { channel: ChannelChecklistResult["channel"] }) {
+  const { toast } = useToast();
+  const meta = CHANNEL_GATE_LABELS[channel];
+  const [lastResult, setLastResult] = useState<ChannelChecklistResult | null>(null);
+  const [lastAction, setLastAction] = useState<{ type: string; message: string } | null>(null);
+  const [approvalModalOpen, setApprovalModalOpen] = useState(false);
+  const [approvalModalData, setApprovalModalData] = useState<{ auditId: number; manualStep: string; envFlag: string } | null>(null);
+  const [testBatchResult, setTestBatchResult] = useState<ChannelTestBatchResult | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+
+  const checklistMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("GET", `/api/activation/channel-checklist/${channel}`);
+      return res.json() as Promise<ChannelChecklistResult>;
+    },
+    onSuccess: (data) => { setLastResult(data); setLastAction(null); },
+    onError: (err: any) => toast({ title: "Failed to load checklist", description: err.message, variant: "destructive" }),
+  });
+
+  const approveMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/activation/channel-enable/${channel}`, {});
+      return res.json();
+    },
+    onSuccess: (data) => {
+      if (data.approvedToEnable) {
+        setLastAction({ type: "approved", message: data.manualStep });
+        setApprovalModalData({ auditId: data.auditId, manualStep: data.manualStep, envFlag: meta.envFlag });
+        setApprovalModalOpen(true);
+        toast({ title: "Approval recorded", description: `Audit #${data.auditId} — manual Replit Secret change still required.` });
+      } else {
+        setLastResult(data.checklist);
+        toast({ title: "Not approved", description: data.message, variant: "destructive" });
+      }
+    },
+    onError: (err: any) => toast({ title: "Approval failed", description: err.message, variant: "destructive" }),
+  });
+
+  const testBatchMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/activation/channel-test-batch/${channel}`, {});
+      return res.json() as Promise<ChannelTestBatchResult>;
+    },
+    onSuccess: (data) => {
+      setTestBatchResult(data);
+      setLastAction({ type: "test_batch", message: `Dry-run preview of ${data.candidateCount} eligible candidate(s) out of ${data.scannedCount} scanned — no messages were sent.` });
+      toast({ title: "Dry-run preview generated", description: `Audit #${data.auditId} — ${data.candidateCount} candidate(s) previewed, nothing sent.` });
+    },
+    onError: (err: any) => toast({ title: "Preview failed", description: err.message, variant: "destructive" }),
+  });
+
+  return (
+    <Card data-testid={`channel-gate-card-${channel}`}>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2">
+          {meta.icon} {meta.name} Go-Live Approval
+          {lastResult && (
+            <Badge variant={lastResult.passed ? "default" : "destructive"} className="ml-1">
+              {lastResult.passed ? "Checklist Passed" : "Checklist Incomplete"}
+            </Badge>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-xs text-muted-foreground">
+          This panel only records an audited approval decision. It never sets <span className="font-mono">{meta.envFlag}</span> —
+          that remains a manual Replit Secret change plus app restart.
+        </p>
+
+        <div className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => checklistMutation.mutate()}
+            disabled={checklistMutation.isPending}
+            data-testid={`button-run-checklist-${channel}`}
+          >
+            {checklistMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <ListChecks className="w-3.5 h-3.5 mr-1" />}
+            Run Checklist
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => approveMutation.mutate()}
+            disabled={approveMutation.isPending || !lastResult?.passed}
+            data-testid={`button-approve-enable-${channel}`}
+          >
+            {approveMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <ShieldCheck className="w-3.5 h-3.5 mr-1" />}
+            Approve to Enable
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => testBatchMutation.mutate()}
+            disabled={testBatchMutation.isPending}
+            data-testid={`button-test-batch-${channel}`}
+          >
+            {testBatchMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <Play className="w-3.5 h-3.5 mr-1" />}
+            Preview Test Batch (Dry Run)
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setHistoryOpen(true)}
+            data-testid={`button-view-history-${channel}`}
+          >
+            <History className="w-3.5 h-3.5 mr-1" />
+            View History
+          </Button>
+        </div>
+
+        <ChannelHistoryDialog channel={channel} open={historyOpen} onOpenChange={setHistoryOpen} />
+
+        {lastResult && (
+          <div className="rounded-md border bg-muted/30 p-3 space-y-2">
+            {lastResult.items.map((item) => (
+              <div key={item.key} className="flex items-start gap-2 text-xs" data-testid={`checklist-item-${channel}-${item.key}`}>
+                {item.ok ? <CheckCircle2 className="w-3.5 h-3.5 text-green-600 shrink-0 mt-0.5" /> : <XCircle className="w-3.5 h-3.5 text-red-600 shrink-0 mt-0.5" />}
+                <div>
+                  <span className="font-medium">{item.label}</span>
+                  <p className="text-muted-foreground">{item.detail}</p>
+                </div>
+              </div>
+            ))}
+            <p className="text-[11px] text-muted-foreground pt-1">
+              Currently enabled: {lastResult.currentlyEnabled ? "Yes" : "No"} · Evaluated {new Date(lastResult.evaluatedAt).toLocaleString()}
+            </p>
+          </div>
+        )}
+
+        {lastAction && (
+          <div className="rounded-md border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/20 p-3 text-xs text-blue-800 dark:text-blue-300">
+            {lastAction.message}
+          </div>
+        )}
+
+        {testBatchResult && (
+          <div className="rounded-md border bg-muted/30 p-3 space-y-2" data-testid={`test-batch-preview-${channel}`}>
+            <p className="text-[11px] font-medium">
+              Eligible test candidates ({testBatchResult.candidateCount} of {testBatchResult.scannedCount} scanned) — preview only, nothing sent
+            </p>
+            {testBatchResult.candidates.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No eligible candidates found for this channel right now.</p>
+            ) : (
+              <ul className="space-y-1.5">
+                {testBatchResult.candidates.map((c) => (
+                  <li key={c.id} className="text-xs flex flex-col gap-0.5 border-b last:border-b-0 pb-1.5 last:pb-0" data-testid={`test-batch-candidate-${channel}-${c.id}`}>
+                    <span className="font-medium">{c.firstName} {c.lastName} <span className="text-muted-foreground font-normal">({c.phone || c.email || "no contact info"})</span></span>
+                    <span className="text-muted-foreground">Consent tier: {c.consentTier} · {c.reason}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </CardContent>
+
+      <Dialog open={approvalModalOpen} onOpenChange={setApprovalModalOpen}>
+        <DialogContent data-testid={`dialog-approval-instructions-${channel}`}>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-green-600" /> {meta.name} Approval Recorded
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            <p className="text-muted-foreground">
+              Audit #{approvalModalData?.auditId} has been recorded. This approval does <span className="font-semibold">not</span> enable
+              the channel by itself.
+            </p>
+            <div className="rounded-md border bg-muted/40 p-3 text-xs">
+              {approvalModalData?.manualStep}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              To finish activating {meta.name}, an operator must manually set the Replit Secret{" "}
+              <span className="font-mono">{approvalModalData?.envFlag}=true</span> and restart the app.
+            </p>
+          </div>
+          <DialogClose asChild>
+            <Button size="sm" className="w-full mt-2" data-testid={`button-close-approval-dialog-${channel}`}>
+              Got it
+            </Button>
+          </DialogClose>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+}
+
+function ChannelApprovalGate() {
+  return (
+    <div className="space-y-3" data-testid="channel-approval-gate">
+      <div>
+        <h3 className="text-sm font-semibold">Voice / SMS / Ringless Go-Live Approval Gate</h3>
+        <p className="text-xs text-muted-foreground">
+          Audit-only approval workflow. Approving a channel here records a compliance decision — it does not flip any feature flag.
+          Enabling the channel still requires an operator to manually set the corresponding Replit Secret and restart the app.
+        </p>
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+        <ChannelApprovalCard channel="sms" />
+        <ChannelApprovalCard channel="voice_ai" />
+        <ChannelApprovalCard channel="ringless_vm" />
+      </div>
     </div>
   );
 }

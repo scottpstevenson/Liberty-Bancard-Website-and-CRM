@@ -2087,6 +2087,31 @@ export const insertConsentAuditLogSchema = createInsertSchema(consentAuditLogs).
 export type ConsentAuditLog = typeof consentAuditLogs.$inferSelect;
 export type InsertConsentAuditLog = z.infer<typeof insertConsentAuditLogSchema>;
 
+// Task #695 — Voice/SMS/Ringless Go-Live Audit (Approval Gate, not activation).
+// Append-only audit trail for channel approval-gate actions. This table is
+// never used to enable/disable a channel — SMS_ENABLED, VOICE_AI_ENABLED, and
+// RINGLESS_VM_ENABLED remain Replit Secrets requiring manual operator action.
+// Canonical channel keys: "sms" | "voice_ai" | "ringless_vm" — never "voice",
+// "ringless", or bare "call".
+export const channelAuditLog = pgTable("channel_audit_log", {
+  id: serial("id").primaryKey(),
+  channel: text("channel").notNull(),
+  action: text("action").notNull(), // checklist_viewed | enable_approved | disabled_recorded | test_batch_preview
+  checklistSnapshot: jsonb("checklist_snapshot"),
+  actorUserId: text("actor_user_id"),
+  actorEmail: text("actor_email"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertChannelAuditLogSchema = createInsertSchema(channelAuditLog).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type ChannelAuditLog = typeof channelAuditLog.$inferSelect;
+export type InsertChannelAuditLog = z.infer<typeof insertChannelAuditLogSchema>;
+
 export const calendarEvents = pgTable("calendar_events", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),

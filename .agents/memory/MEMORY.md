@@ -24,3 +24,4 @@
 - [Finalize IIFE contact lookup](finalize-iife-contact-lookup.md) — storage.getContacts({limit:1000}) silently skips contacts in DBs >1000 rows; use indexed db.select by email; also capture req.ip before IIFE starts.
 - [Compliance scanner allowlist design](compliance-scanner-allowlist.md) — FILE_CONTEXT_RULES (file-level auto-pass) was rejected; per-call-site CALL_SITE_ALLOWLIST is required; scanner must skip function definition lines to avoid matching declarations; non-email sends need explicit category entries.
 - [Discovery vertical classification mapping](discovery-vertical-mapping.md) — coarse classifyVertical() bucket and canonical normalizeDiscoveryVertical() output are separate on purpose; know which callers want which.
+- [Audit-only approval-gate pattern](audit-only-approval-gate.md) — approval endpoints must re-verify checklist server-side, write only to an audit-log table, and never touch process.env or Secrets APIs directly.

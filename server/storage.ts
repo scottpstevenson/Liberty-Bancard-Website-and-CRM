@@ -98,6 +98,7 @@ import {
   roleplaySessions, type RoleplaySession, type InsertRoleplaySession,
   roleplayExchanges, type RoleplayExchange, type InsertRoleplayExchange,
   leaderboardSettings, type LeaderboardSettings,
+  type ChannelAuditLog, type InsertChannelAuditLog,
 } from "@shared/schema";
 import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, count } from "drizzle-orm";
 
@@ -196,6 +197,8 @@ export interface IStorage {
   getAuditLogsByEntity(entityType: string, entityId: number | string, limit?: number): Promise<typeof auditLogs.$inferSelect[]>;
   getLastAuditLogByAction(action: string, entityType: string, entityId: number): Promise<typeof auditLogs.$inferSelect | undefined>;
   createAuditLog(log: InsertAuditLog): Promise<typeof auditLogs.$inferSelect>;
+  createChannelAuditLog(entry: InsertChannelAuditLog): Promise<ChannelAuditLog>;
+  getChannelAuditLog(channel: string): Promise<ChannelAuditLog[]>;
   getAiAuditLog(id: number): Promise<import("@shared/schema").AiAuditLog | undefined>;
   getAiAuditLogs(filters?: { triggerType?: string; startDate?: Date; endDate?: Date; limit?: number; offset?: number; flaggedOnly?: boolean }): Promise<import("@shared/schema").AiAuditLog[]>;
   getAiAuditLogTotals(filters?: { startDate?: Date; endDate?: Date }): Promise<{ totalCalls: number; totalPromptTokens: number; totalCompletionTokens: number; totalCostCents: number; byTriggerType: Record<string, { calls: number; promptTokens: number; completionTokens: number; costCents: number }> }>;

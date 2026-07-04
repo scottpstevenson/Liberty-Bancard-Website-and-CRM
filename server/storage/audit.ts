@@ -12,6 +12,7 @@ import {
   prospects, prospectLists, enrichmentJobs, campaigns, campaignSteps, outboundMessages, notes,
   emailLogs, callLogs, stageAutomationRules, followUpSequences, sequenceSteps, sequenceEnrollments,
   sunbizEntities, consentAuditLogs, calendarEvents,
+  channelAuditLog, type ChannelAuditLog, type InsertChannelAuditLog,
   merchantApplications, merchantProfiles, equipmentOrders, agents, agentQuotas, agentMerchants, residualReports, merchantResiduals,
   healthAlerts, dealCompetitors, partners, referrals, commissionTiers, knowledgeBase, reviewRequests, testimonialSubmissions, onboardingSteps, midDailyStats,
   sdrMerchants, sdrMerchantContacts, sdrLeadState, sdrLeadEvents, sdrChannelAttempts, sdrComplianceState,
@@ -158,6 +159,18 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   async createAuditLog(insertLog: InsertAuditLog) {
     const [log] = await db.insert(auditLogs).values(insertLog).returning();
     return log;
+  }
+
+  async createChannelAuditLog(entry: InsertChannelAuditLog): Promise<ChannelAuditLog> {
+    const [log] = await db.insert(channelAuditLog).values(entry).returning();
+    return log;
+  }
+
+  async getChannelAuditLog(channel: string): Promise<ChannelAuditLog[]> {
+    return db.select().from(channelAuditLog)
+      .where(eq(channelAuditLog.channel, channel))
+      .orderBy(desc(channelAuditLog.createdAt))
+      .limit(100);
   }
 
   async getAiAuditLog(id: number): Promise<AiAuditLog | undefined> {

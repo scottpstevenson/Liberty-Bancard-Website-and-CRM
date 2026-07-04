@@ -129,6 +129,19 @@ const CASES: GuardCase[] = [
   // SDR / admin health endpoints — isDashboardUser guard; merchant → 403
   { method: "GET",    path: "/api/admin/health",                     anon: [401], merchant: [403], admin: [200], description: "admin health check (isDashboardUser)" },
   { method: "GET",    path: "/api/sdr/compliance-channel-status",    anon: [401], merchant: [403], admin: [200], description: "SDR compliance channel status (isDashboardUser)" },
+
+  // ── Task #695: Voice/SMS/Ringless Go-Live Audit — Approval Gate (admin-only) ──
+  // All three routes require requireRole("admin"); merchant/agent → 403.
+  // POST routes are audit-only writes (never touch env/secrets) but still go
+  // through CSRF middleware in the test harness, so admin may see 403 there.
+  { method: "GET",  path: "/api/activation/channel-checklist/sms",         anon: [401], merchant: [403], admin: [200], agent: [403], description: "channel checklist — sms (admin only)" },
+  { method: "GET",  path: "/api/activation/channel-checklist/voice_ai",    anon: [401], merchant: [403], admin: [200], agent: [403], description: "channel checklist — voice_ai (admin only)" },
+  { method: "GET",  path: "/api/activation/channel-checklist/ringless_vm", anon: [401], merchant: [403], admin: [200], agent: [403], description: "channel checklist — ringless_vm (admin only)" },
+  { method: "GET",  path: "/api/activation/channel-checklist/bogus",       anon: [401], merchant: [403], admin: [400], agent: [403], description: "channel checklist — invalid channel key rejected" },
+  { method: "POST", path: "/api/activation/channel-enable/sms",            anon: [401], merchant: [403], admin: [200, 400, 403], agent: [403], description: "channel enable approval — sms (admin only; audit-only, never sets env)" },
+  { method: "POST", path: "/api/activation/channel-test-batch/sms",        anon: [401], merchant: [403], admin: [200, 403], agent: [403], description: "channel test batch dry-run — sms (admin only; never sends)" },
+  { method: "GET",  path: "/api/activation/channel-audit-log/sms",         anon: [401], merchant: [403], admin: [200], agent: [403], description: "channel approval history — sms (admin only; read-only)" },
+  { method: "GET",  path: "/api/activation/channel-audit-log/bogus",       anon: [401], merchant: [403], admin: [400], agent: [403], description: "channel approval history — invalid channel key rejected" },
 ];
 
 async function ensureAgentUser(): Promise<void> {

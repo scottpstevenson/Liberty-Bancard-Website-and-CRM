@@ -1,12 +1,165 @@
 import type { Express } from "express";
+import fs from "fs";
+import path from "path";
 import { isAdmin, isAuthenticated, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { db } from "../db";
-import { sql, desc, and, gte } from "drizzle-orm";
-import { emailLogs, callLogs, outboundMessages, auditLogs } from "@shared/schema";
+import { sql, desc, and, gte, eq } from "drizzle-orm";
+import { emailLogs, callLogs, outboundMessages, auditLogs, followUpSequences, sequenceSteps, consentAuditLogs } from "@shared/schema";
 import { featureFlags } from "../services/feature-flags";
 import { runStageProgressionSweep } from "../services/stage-progression";
 import { getGhlCircuitState } from "../services/ghl-sync";
+
+// ── Task #695: Voice/SMS/Ringless Go-Live Audit — Approval Gate ────────────
+// This is a READ/AUDIT-ONLY approval layer. Nothing in this section ever
+// reads/writes process.env.SMS_ENABLED, VOICE_AI_ENABLED, or
+// RINGLESS_VM_ENABLED, and nothing calls a Replit Secrets mutation API.
+// Those flags remain Replit Secrets requiring manual operator action +
+// restart. Canonical channel keys are fixed and non-negotiable: "sms",
+// "voice_ai", "ringless_vm" — never "voice", "ringless", or bare "call".
+export const VALID_CHANNELS = ["sms", "voice_ai", "ringless_vm"] as const;
+export type ChannelKey = typeof VALID_CHANNELS[number];
+
+const CHANNEL_ACTION_TYPE: Record<ChannelKey, string> = {
+  sms: "sms",
+  voice_ai: "call",
+  ringless_vm: "voicemail_drop",
+};
+
+const CHANNEL_ENV_FLAG: Record<ChannelKey, "SMS_ENABLED" | "VOICE_AI_ENABLED" | "RINGLESS_VM_ENABLED"> = {
+  sms: "SMS_ENABLED",
+  voice_ai: "VOICE_AI_ENABLED",
+  ringless_vm: "RINGLESS_VM_ENABLED",
+};
+
+export interface ChannelChecklistItem {
+  key: string;
+  label: string;
+  ok: boolean;
+  detail: string;
+}
+
+export interface ChannelChecklistResult {
+  channel: ChannelKey;
+  passed: boolean;
+  items: ChannelChecklistItem[];
+  currentlyEnabled: boolean;
+  evaluatedAt: string;
+}
+
+/**
+ * Server-side, non-trusted-client checklist evaluator. Every route that
+ * gates on this MUST call this function itself and MUST NOT trust a
+ * client-submitted `{ allPassed: true }` (or similar) body.
+ */
+export async function evaluateChannelChecklist(channel: ChannelKey): Promise<ChannelChecklistResult> {
+  const actionType = CHANNEL_ACTION_TYPE[channel];
+
+  // 1. Proven active sequence step using the canonical actionType mapping
+  //    (sequence-worker.ts:285-294) — the only real source of truth for
+  //    which channels have live outbound scripts/templates.
+  let sequenceStepFound = false;
+  let sequenceDetail = `No proven active ${channel} sequence step found.`;
+  try {
+    const rows = await db
+      .select({
+        sequenceId: followUpSequences.id,
+        sequenceName: followUpSequences.name,
+        stepId: sequenceSteps.id,
+      })
+      .from(sequenceSteps)
+      .innerJoin(followUpSequences, eq(sequenceSteps.sequenceId, followUpSequences.id))
+      .where(and(eq(sequenceSteps.actionType, actionType), eq(followUpSequences.status, "active")))
+      .limit(5);
+    sequenceStepFound = rows.length > 0;
+    if (sequenceStepFound) {
+      sequenceDetail = `Found ${rows.length} active step(s) with actionType="${actionType}" (e.g. sequence "${rows[0].sequenceName}")`;
+    }
+  } catch (err: any) {
+    sequenceDetail = `Error evaluating sequence steps: ${err.message}`;
+  }
+
+  // 2. PEWC (Prior Express Written Consent) evidence — real predicate from
+  //    contactability.ts:168-173, since no pewc_consents table exists.
+  let pewcFound = false;
+  let pewcDetail = "No express written consent evidence found in consent_audit_logs.";
+  try {
+    const [row] = await db
+      .select({ id: consentAuditLogs.id })
+      .from(consentAuditLogs)
+      .where(
+        and(
+          eq(consentAuditLogs.consentType, "express_written"),
+          sql`${consentAuditLogs.disclosureVersion} IS NOT NULL`,
+          sql`${consentAuditLogs.consentedPhone} IS NOT NULL`
+        )
+      )
+      .limit(1);
+    pewcFound = !!row;
+    if (pewcFound) {
+      pewcDetail = "At least one express_written consent record with a disclosure version and consented phone found.";
+    }
+  } catch (err: any) {
+    pewcDetail = `Error evaluating PEWC evidence: ${err.message}`;
+  }
+
+  // 3. Quiet hours are enforced structurally (no global system_settings
+  //    on/off row exists) via isWithinBusinessHours() inside the
+  //    contactability gate. This runs the REAL function at two known
+  //    reference times (a Tuesday 10am ET business-hours slot and a
+  //    Tuesday 2am ET quiet-hours slot) and confirms it actually returns
+  //    true/false as expected, plus confirms the contactability source
+  //    still wires it in — behavioral proof, not just a string match.
+  let quietHoursOk = false;
+  let quietHoursDetail = "Could not verify isWithinBusinessHours() enforces quiet hours.";
+  try {
+    const { isWithinBusinessHours } = await import("../services/sdr/voice-orchestrator");
+    // Tuesday July 7, 2026, 10:00 ET (business hours) vs. 2:00 ET (quiet hours).
+    const businessHoursSample = new Date("2026-07-07T14:00:00.000Z"); // 10:00 ET
+    const quietHoursSample = new Date("2026-07-07T06:00:00.000Z"); // 02:00 ET
+    const duringBusinessHours = isWithinBusinessHours("America/New_York", businessHoursSample);
+    const duringQuietHours = isWithinBusinessHours("America/New_York", quietHoursSample);
+
+    const source = fs.readFileSync(path.join(process.cwd(), "server/services/contactability.ts"), "utf-8");
+    const wiredIntoGate = source.includes("isWithinBusinessHours");
+
+    quietHoursOk = duringBusinessHours === true && duringQuietHours === false && wiredIntoGate;
+    quietHoursDetail = quietHoursOk
+      ? "isWithinBusinessHours() correctly allows a Tue 10am ET sample and blocks a Tue 2am ET sample, and evaluateContactability() calls it before any send."
+      : `Quiet-hours behavior check failed (businessHours=${duringBusinessHours}, quietHours=${duringQuietHours}, wiredIntoGate=${wiredIntoGate}).`;
+  } catch (err: any) {
+    quietHoursDetail = `Error verifying quiet-hours enforcement: ${err.message}`;
+  }
+
+  const items: ChannelChecklistItem[] = [
+    {
+      key: "active_sequence_step",
+      label: `Proven active sequence step (actionType="${actionType}")`,
+      ok: sequenceStepFound,
+      detail: sequenceDetail,
+    },
+    {
+      key: "pewc_consent_evidence",
+      label: "PEWC express written consent evidence exists",
+      ok: pewcFound,
+      detail: pewcDetail,
+    },
+    {
+      key: "quiet_hours_enforcement",
+      label: "Quiet hours enforcement wired into compliance path",
+      ok: quietHoursOk,
+      detail: quietHoursDetail,
+    },
+  ];
+
+  return {
+    channel,
+    passed: items.every((i) => i.ok),
+    items,
+    currentlyEnabled: featureFlags[CHANNEL_ENV_FLAG[channel]] === true,
+    evaluatedAt: new Date().toISOString(),
+  };
+}
 
 export function registerActivationRoutes(app: Express) {
   // === ACTIVATION DIAGNOSTICS ===
@@ -837,6 +990,200 @@ export function registerActivationRoutes(app: Express) {
         overallStatus,
         items,
         warnings,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === CHANNEL COMPLIANCE APPROVAL GATE (Task #695) ===
+  // Approval-gate only. Nothing below this line ever sets, pauses, or
+  // resumes SMS_ENABLED / VOICE_AI_ENABLED / RINGLESS_VM_ENABLED — those are
+  // Replit Secrets requiring manual operator action + restart.
+
+  function validateChannelParam(req: any, res: any): ChannelKey | null {
+    const channel = String(req.params.channel || "");
+    if (!(VALID_CHANNELS as readonly string[]).includes(channel)) {
+      res.status(400).json({
+        message: `Invalid channel "${channel}". Must be one of: ${VALID_CHANNELS.join(", ")}`,
+      });
+      return null;
+    }
+    return channel as ChannelKey;
+  }
+
+  // Read-only history of past checklist views / approvals / test-batch
+  // previews for a channel. Never mutates anything.
+  app.get("/api/activation/channel-audit-log/:channel", requireRole("admin"), async (req, res) => {
+    const channel = validateChannelParam(req, res);
+    if (!channel) return;
+    try {
+      const entries = await storage.getChannelAuditLog(channel);
+      res.json({ channel, entries });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/activation/channel-checklist/:channel", requireRole("admin"), async (req, res) => {
+    const channel = validateChannelParam(req, res);
+    if (!channel) return;
+    try {
+      const checklist = await evaluateChannelChecklist(channel);
+      const actorUserId = (req.user as any)?.id ?? null;
+      const actorEmail = (req.user as any)?.email ?? null;
+      await storage.createChannelAuditLog({
+        channel,
+        action: "checklist_viewed",
+        checklistSnapshot: checklist,
+        actorUserId,
+        actorEmail,
+        notes: null,
+      });
+      res.json(checklist);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/activation/channel-enable/:channel", requireRole("admin"), async (req, res) => {
+    const channel = validateChannelParam(req, res);
+    if (!channel) return;
+    try {
+      // Re-run the checklist server-side. A client-submitted { allPassed: true }
+      // (or similar) body is never trusted for this decision.
+      const checklist = await evaluateChannelChecklist(channel);
+      const actorUserId = (req.user as any)?.id ?? null;
+      const actorEmail = (req.user as any)?.email ?? null;
+      const envFlag = CHANNEL_ENV_FLAG[channel];
+
+      if (!checklist.passed) {
+        await storage.createChannelAuditLog({
+          channel,
+          action: "checklist_viewed",
+          checklistSnapshot: checklist,
+          actorUserId,
+          actorEmail,
+          notes: "Approval request denied — checklist requirements not met.",
+        });
+        return res.status(400).json({
+          approvedToEnable: false,
+          message: "Checklist requirements not met. Approval cannot be granted.",
+          checklist,
+        });
+      }
+
+      const auditRow = await storage.createChannelAuditLog({
+        channel,
+        action: "enable_approved",
+        checklistSnapshot: checklist,
+        actorUserId,
+        actorEmail,
+        notes: req.body?.notes ? String(req.body.notes).slice(0, 2000) : null,
+      });
+
+      // This route only records an approval decision. It NEVER sets the
+      // env flag — that remains a manual Replit Secrets action + restart.
+      res.json({
+        approvedToEnable: true,
+        auditId: auditRow.id,
+        currentlyEnabled: featureFlags[envFlag] === true,
+        manualStep: `Approval recorded (audit #${auditRow.id}). To actually activate this channel, an operator must manually set the Replit Secret ${envFlag}=true and restart the app. This system never modifies environment variables or secrets on its own.`,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/activation/channel-test-batch/:channel", requireRole("admin"), async (req, res) => {
+    const channel = validateChannelParam(req, res);
+    if (!channel) return;
+    const TEST_BATCH_LIMIT = 5;
+    const POOL_SCAN_LIMIT = 100;
+    try {
+      const { contacts } = await import("@shared/schema");
+      const { isNotNull } = await import("drizzle-orm");
+      const { evaluateContactability } = await import("../services/contactability");
+
+      // Pull a candidate pool, then run each one through the SAME
+      // channel-aware, real contactability evaluation used by live sends
+      // (in dryRun mode — no send/queue side effects). Only contacts that
+      // would actually be ALLOWED on this channel right now are returned.
+      const pool = await db
+        .select({
+          id: contacts.id,
+          firstName: contacts.firstName,
+          lastName: contacts.lastName,
+          phone: contacts.phone,
+          email: contacts.email,
+          state: contacts.state,
+          leadSource: contacts.leadSource,
+          sourceCategory: contacts.sourceCategory,
+        })
+        .from(contacts)
+        .where(and(eq(contacts.doNotContact, false), isNotNull(contacts.phone), sql`${contacts.phone} <> ''`))
+        .limit(POOL_SCAN_LIMIT);
+
+      const candidates: Array<{
+        id: number;
+        firstName: string | null;
+        lastName: string | null;
+        phone: string | null;
+        email: string | null;
+        consentTier: string;
+        reason: string;
+      }> = [];
+      const evaluated: Array<{ contactId: number; allowed: boolean; reason: string }> = [];
+
+      for (const contact of pool) {
+        if (candidates.length >= TEST_BATCH_LIMIT) break;
+        const result = await evaluateContactability({
+          contactId: contact.id,
+          channel,
+          leadSource: contact.leadSource ?? undefined,
+          sourceCategory: contact.sourceCategory ?? undefined,
+          state: contact.state ?? undefined,
+          mode: "dryRun",
+        });
+        evaluated.push({ contactId: contact.id, allowed: result.allowed, reason: result.reason });
+        if (result.allowed) {
+          candidates.push({
+            id: contact.id,
+            firstName: contact.firstName,
+            lastName: contact.lastName,
+            phone: contact.phone,
+            email: contact.email,
+            consentTier: result.consentTier,
+            reason: result.reason,
+          });
+        }
+      }
+
+      const actorUserId = (req.user as any)?.id ?? null;
+      const actorEmail = (req.user as any)?.email ?? null;
+      const auditRow = await storage.createChannelAuditLog({
+        channel,
+        action: "test_batch_preview",
+        checklistSnapshot: {
+          scannedCount: pool.length,
+          eligibleCount: candidates.length,
+          previewedContactIds: candidates.map((c) => c.id),
+          evaluated,
+        },
+        actorUserId,
+        actorEmail,
+        notes: "Dry-run preview only — no outbound communication was sent or queued.",
+      });
+
+      res.json({
+        channel,
+        dryRun: true,
+        sent: false,
+        auditId: auditRow.id,
+        scannedCount: pool.length,
+        candidateCount: candidates.length,
+        candidates,
+        note: "This is a preview only. No SMS, call, ringless voicemail, email, or sequence step was sent or queued.",
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
