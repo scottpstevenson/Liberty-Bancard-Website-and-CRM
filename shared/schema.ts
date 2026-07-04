@@ -2307,6 +2307,7 @@ export const NOTIFICATION_EVENT_TYPES = [
   "comment_reply",
   "daily_digest",
   "weekly_digest",
+  "channel_approved",
 ] as const;
 
 export const CONTACT_COMPANY_ROLES = [

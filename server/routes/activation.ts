@@ -9,6 +9,58 @@ import { emailLogs, callLogs, outboundMessages, auditLogs, followUpSequences, se
 import { featureFlags } from "../services/feature-flags";
 import { runStageProgressionSweep } from "../services/stage-progression";
 import { getGhlCircuitState } from "../services/ghl-sync";
+import { createPreferenceAwareNotification, sendCriticalEmailNotification } from "../services/digest-service";
+
+const CHANNEL_LABEL: Record<string, string> = {
+  sms: "SMS",
+  voice_ai: "Voice AI",
+  ringless_vm: "Ringless Voicemail",
+};
+
+// Alerts the rest of the team (compliance/ops/admins) that a channel has
+// been approved via the Approval Gate and is now waiting on a manual
+// Replit Secret flip + restart. Purely informational — never touches
+// process.env or the Secrets API.
+async function notifyChannelApproved(params: {
+  channel: ChannelKey;
+  envFlag: string;
+  actorEmail: string | null;
+  auditId: number;
+  manualStep: string;
+}): Promise<void> {
+  const { channel, envFlag, actorEmail, auditId, manualStep } = params;
+  const label = CHANNEL_LABEL[channel] || channel;
+  const approvedBy = actorEmail || "an admin";
+  const title = `${label} approved for go-live`;
+  const message = `${approvedBy} approved the ${label} channel (audit #${auditId}). ${manualStep}`;
+
+  try {
+    const teamUsers = await storage.getUsersByRole(["admin", "manager"]);
+    await Promise.all(
+      teamUsers.map((user) =>
+        createPreferenceAwareNotification(
+          {
+            channel: "activation",
+            recipientId: user.id,
+            title,
+            message,
+            type: "info",
+            metadata: { channel, envFlag, auditId, actorEmail },
+          },
+          "channel_approved"
+        )
+      )
+    );
+  } catch (err) {
+    console.error(`[Activation] Failed to create internal notifications for ${channel} approval:`, err);
+  }
+
+  await sendCriticalEmailNotification({
+    eventType: "channel_approved",
+    subject: `[Liberty Bancard] ${label} approved for go-live — manual action required`,
+    body: `${title}\n\n${message}`,
+  });
+}
 
 // ── Task #695: Voice/SMS/Ringless Go-Live Audit — Approval Gate ────────────
 // This is a READ/AUDIT-ONLY approval layer. Nothing in this section ever
@@ -1082,13 +1134,22 @@ export function registerActivationRoutes(app: Express) {
         notes: req.body?.notes ? String(req.body.notes).slice(0, 2000) : null,
       });
 
+      const manualStep = `Approval recorded (audit #${auditRow.id}). To actually activate this channel, an operator must manually set the Replit Secret ${envFlag}=true and restart the app. This system never modifies environment variables or secrets on its own.`;
+
+      // Notify the rest of the team (compliance/ops) that a channel has been
+      // approved and is now waiting on a manual Secret flip + restart. This
+      // is purely informational — it never touches process.env or Secrets.
+      notifyChannelApproved({ channel, envFlag, actorEmail, auditId: auditRow.id, manualStep }).catch((err) => {
+        console.error(`[Activation] Failed to send channel-approved notification for ${channel}:`, err);
+      });
+
       // This route only records an approval decision. It NEVER sets the
       // env flag — that remains a manual Replit Secrets action + restart.
       res.json({
         approvedToEnable: true,
         auditId: auditRow.id,
         currentlyEnabled: featureFlags[envFlag] === true,
-        manualStep: `Approval recorded (audit #${auditRow.id}). To actually activate this channel, an operator must manually set the Replit Secret ${envFlag}=true and restart the app. This system never modifies environment variables or secrets on its own.`,
+        manualStep,
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
