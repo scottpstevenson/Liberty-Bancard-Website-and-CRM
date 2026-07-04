@@ -26,3 +26,4 @@
 - [Discovery vertical classification mapping](discovery-vertical-mapping.md) — coarse classifyVertical() bucket and canonical normalizeDiscoveryVertical() output are separate on purpose; know which callers want which.
 - [Audit-only approval-gate pattern](audit-only-approval-gate.md) — approval endpoints must re-verify checklist server-side, write only to an audit-log table, and never touch process.env or Secrets APIs directly.
 - [CSRF for manual API testing](csrf-manual-api-testing.md) — curl testing of POST routes needs session cookie + `x-csrf-token` header from `/api/csrf-token` (`token` field, not `csrfToken`); PEWC checklist needs disclosureVersion+consentedPhone too.
+- [OpenAI max_tokens param rejected](openai-max-tokens-param.md) — proposal-engine.ts OpenAI calls 400 on `max_tokens`; model requires `max_completion_tokens`; likely affects other call sites too.

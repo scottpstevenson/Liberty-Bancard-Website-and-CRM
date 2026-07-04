@@ -18,6 +18,7 @@ import { generateDealBlueprint } from "./deal-blueprint";
 import { autoEnrollFromTrigger } from "./sequence-worker";
 import { ACTIVE_DEAL_STAGES, statementProposals } from "@shared/schema";
 import { db } from "../db";
+import { eq } from "drizzle-orm";
 
 export interface StatementUploadInput {
   contactId: number;
