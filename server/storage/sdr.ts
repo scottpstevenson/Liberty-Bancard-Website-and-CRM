@@ -16,6 +16,7 @@ import {
   merchantApplications, merchantProfiles, equipmentOrders, agents, agentQuotas, agentMerchants, residualReports, merchantResiduals,
   healthAlerts, dealCompetitors, partners, referrals, commissionTiers, knowledgeBase, reviewRequests, testimonialSubmissions, onboardingSteps, midDailyStats,
   sdrMerchants, sdrMerchantContacts, sdrLeadState, sdrLeadEvents, sdrChannelAttempts, sdrComplianceState,
+  processorSignals, type ProcessorEvidence,
   sendingIdentities,
   leadDiscoveryJobs, leadDiscoveryResults,
   type SendingIdentity, type InsertSendingIdentity,
@@ -140,7 +141,7 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, notInArray,
   }
 
 
-  async getALeadQueue(): Promise<Array<SdrLeadState & { merchant: SdrMerchant | null }>> {
+  async getALeadQueue(): Promise<Array<SdrLeadState & { merchant: SdrMerchant | null; processorEvidence: ProcessorEvidence }>> {
     const TERMINAL_STAGES = [
       "DISCARDED", "SUPPRESSED", "CONTACTED", "REPLIED",
       "CLOSED_WON", "PROMOTED_TO_CRM", "DEAD", "CONVERTED",
@@ -162,7 +163,58 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, notInArray,
     const merchants = await db.select().from(sdrMerchants).where(inArray(sdrMerchants.id, merchantIds));
     const merchantMap = new Map(merchants.map(m => [m.id, m]));
 
-    return leads.map(lead => ({ ...lead, merchant: merchantMap.get(lead.merchantId) ?? null }));
+    // Resolve canonical processor evidence in bulk for every business id present
+    // on either the merchant record or the lead itself (merchant takes priority).
+    const businessIds = [...new Set(
+      leads
+        .map(l => merchantMap.get(l.merchantId)?.businessId ?? l.businessId)
+        .filter((id): id is number => id != null)
+    )];
+
+    const canonicalMap = new Map<number, ProcessorEvidence>();
+    if (businessIds.length > 0) {
+      const signals = await db
+        .select()
+        .from(processorSignals)
+        .where(inArray(processorSignals.businessId, businessIds))
+        .orderBy(desc(processorSignals.confidenceScore), desc(processorSignals.detectedAt));
+
+      for (const signal of signals) {
+        if (!canonicalMap.has(signal.businessId)) {
+          canonicalMap.set(signal.businessId, {
+            vendor: signal.vendorName,
+            confidence: signal.confidenceScore ?? null,
+            source: "processorSignals",
+            detectedAt: signal.detectedAt ? signal.detectedAt.toISOString() : null,
+          });
+        }
+      }
+    }
+
+    return leads.map(lead => {
+      const merchant = merchantMap.get(lead.merchantId) ?? null;
+      const businessId = merchant?.businessId ?? lead.businessId ?? null;
+      let processorEvidence: ProcessorEvidence =
+        (businessId != null && canonicalMap.get(businessId)) || { vendor: null, confidence: null, source: "none", detectedAt: null };
+
+      if (processorEvidence.source === "none") {
+        const enrichData = (lead.enrichmentData as Record<string, any>) || {};
+        const fallbackSignals = Array.isArray(enrichData.processorSignals) ? enrichData.processorSignals : [];
+        if (fallbackSignals.length > 0) {
+          const best = fallbackSignals.reduce((a: any, b: any) => ((b?.confidence ?? 0) > (a?.confidence ?? 0) ? b : a));
+          if (best?.vendor) {
+            processorEvidence = {
+              vendor: best.vendor,
+              confidence: typeof best.confidence === "number" ? best.confidence : null,
+              source: "enrichmentData",
+              detectedAt: enrichData.processorDetectionAt ?? null,
+            };
+          }
+        }
+      }
+
+      return { ...lead, merchant, processorEvidence };
+    });
   }
 
 

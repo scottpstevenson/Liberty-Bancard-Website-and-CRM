@@ -25,7 +25,7 @@ import {
   type EnrichmentRun, type InsertEnrichmentRun,
   type SdrMerchant, type InsertSdrMerchant,
   type SdrMerchantContact, type InsertSdrMerchantContact,
-  type SdrLeadState, type InsertSdrLeadState,
+  type SdrLeadState, type InsertSdrLeadState, type ProcessorEvidence,
   type SdrLeadEvent, type InsertSdrLeadEvent,
   type SdrChannelAttempt, type InsertSdrChannelAttempt,
   type SdrComplianceState, type InsertSdrComplianceState,
@@ -603,7 +603,7 @@ export interface IStorage {
   getSdrMerchantContacts(merchantId: number): Promise<SdrMerchantContact[]>;
   createSdrMerchantContact(data: InsertSdrMerchantContact): Promise<SdrMerchantContact>;
 
-  getALeadQueue(): Promise<Array<SdrLeadState & { merchant: SdrMerchant | null }>>;
+  getALeadQueue(): Promise<Array<SdrLeadState & { merchant: SdrMerchant | null; processorEvidence: ProcessorEvidence }>>;
   getSdrLeadStates(filters?: { stage?: string; priorityBucket?: string; limit?: number }): Promise<SdrLeadState[]>;
   getSdrLeadState(id: number): Promise<SdrLeadState | undefined>;
   getSdrLeadStateByMerchant(merchantId: number): Promise<SdrLeadState | undefined>;

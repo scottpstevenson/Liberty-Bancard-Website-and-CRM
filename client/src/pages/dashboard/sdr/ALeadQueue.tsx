@@ -20,6 +20,13 @@ interface ScoreBreakdown {
   [key: string]: number | undefined;
 }
 
+interface ProcessorEvidence {
+  vendor: string | null;
+  confidence: number | null;
+  source: "processorSignals" | "enrichmentData" | "none";
+  detectedAt: string | null;
+}
+
 interface ALeadItem {
   id: number;
   stage: string;
@@ -38,6 +45,7 @@ interface ALeadItem {
   fitScore: number | null;
   revenueScore: number | null;
   scoreBreakdown: ScoreBreakdown | null;
+  processorEvidence: ProcessorEvidence | null;
   createdAt: string | null;
   updatedAt: string | null;
   merchant: {
@@ -302,9 +310,39 @@ export function ALeadQueue() {
                           </div>
                         </td>
                         <td className="px-3 py-3">
-                          <Badge variant="secondary" className="text-xs whitespace-nowrap" data-testid={`badge-processor-${lead.id}`}>
-                            Unknown
-                          </Badge>
+                          {lead.processorEvidence?.vendor ? (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Badge
+                                    variant="outline"
+                                    className="text-xs whitespace-nowrap bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800"
+                                    data-testid={`badge-processor-${lead.id}`}
+                                  >
+                                    {lead.processorEvidence.vendor}
+                                  </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent className="text-xs max-w-[200px]">
+                                  <div className="space-y-1">
+                                    {lead.processorEvidence.confidence != null && (
+                                      <div className="flex justify-between gap-3">
+                                        <span className="text-muted-foreground">Confidence</span>
+                                        <span className="font-mono font-medium">{Math.round(lead.processorEvidence.confidence * 100)}%</span>
+                                      </div>
+                                    )}
+                                    <div className="flex justify-between gap-3">
+                                      <span className="text-muted-foreground">Source</span>
+                                      <span className="font-mono font-medium">{lead.processorEvidence.source}</span>
+                                    </div>
+                                  </div>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          ) : (
+                            <Badge variant="secondary" className="text-xs whitespace-nowrap" data-testid={`badge-processor-${lead.id}`}>
+                              Unknown / not yet detected
+                            </Badge>
+                          )}
                         </td>
                         <td className="px-3 py-3 max-w-[150px]">
                           {ownerName && (

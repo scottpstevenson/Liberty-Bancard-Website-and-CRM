@@ -3035,6 +3035,13 @@ export const insertProcessorSignalSchema = createInsertSchema(processorSignals).
 export type ProcessorSignal = typeof processorSignals.$inferSelect;
 export type InsertProcessorSignal = z.infer<typeof insertProcessorSignalSchema>;
 
+export type ProcessorEvidence = {
+  vendor: string | null;
+  confidence: number | null;
+  source: "processorSignals" | "enrichmentData" | "none";
+  detectedAt: string | null;
+};
+
 export const adSignals = pgTable("ad_signals", {
   id: serial("id").primaryKey(),
   businessId: integer("business_id").references(() => businesses.id).notNull(),
