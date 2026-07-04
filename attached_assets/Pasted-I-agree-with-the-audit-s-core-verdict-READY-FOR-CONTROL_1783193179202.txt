@@ -1,0 +1,330 @@
+I agree with the audit’s core verdict:
+
+READY FOR CONTROLLED PILOT
+NOT READY FOR SCALE
+
+But I would be slightly stricter than the report in one way: fix the three P1s before the first real pilot, even though none are P0s. They are small enough that there is no reason to start a revenue pilot with known operator-trust and analytics issues.
+
+My blunt read
+
+Liberty is now structurally strong. The scary risks are mostly handled:
+
+no uncapped discovery
+no accidental outbound
+no SDR contactability bypass
+no SMS/voice/ringless self-activation
+no fake channel enablement
+no automatic proposal send from the new analyzer
+no obvious role-guard gap
+no vertical routing/reply mismatch
+
+That is a big deal.
+
+But for actual sales success, the remaining P1s matter because they affect operator confidence:
+
+operator sees Unknown processor even when data exists
+admin may see $0 source cost and misread source quality
+statement-chain logs a false failure every upload
+
+None of those are catastrophic, but all three make the system feel less trustworthy.
+
+Do these 4 things next, in this order
+
+1. Fix Step 10 false-failure first
+
+This is the fastest win. Add the missing eq import and verify Step 10 stops false-failing.
+
+Reason: diagnostics need to be clean before a pilot. If every statement upload logs a false failure, people will stop trusting the step log.
+
+2. Surface processor data in A-Lead Queue
+
+This is the biggest sales-ops issue.
+
+The whole point of processor detection is to help a rep say:
+
+This Toast/Square/Clover/Stripe lead is worth calling first because we know the payment stack.
+
+If the queue says Unknown for everyone, the most useful intelligence is hidden.
+
+3. Fix source cost analytics
+
+Before spending even small money on Outscraper/Apollo/Serper, the UI must not imply leads are free when cost is simply untracked.
+
+Acceptable output:
+
+Cost tracked: $0.42
+
+or:
+
+Cost not tracked for this source/run
+
+Not acceptable:
+
+$0 cost per lead
+
+when no cost was actually calculated.
+
+4. Run the 9-script go/no-go suite in Build mode
+
+The audit saying scripts exist is good. But the pilot decision should require actual exits:
+
+npx tsx scripts/smoke-role-guards.ts
+npx tsx scripts/test-sequence-compliance.ts
+npx tsx scripts/test-contactability.ts
+npx tsx scripts/test-sdr-manual-enroll.ts
+npx tsx scripts/test-channel-audit.ts
+npx tsx scripts/test-discovery-vertical-mapping.ts
+npx tsx scripts/test-statement-analyzer.ts
+npx tsx scripts/test-sales-prep.ts
+npx tsx scripts/test-discovery-activation.ts
+
+If any fail, fix before pilot.
+
+Exact next task queue
+
+Task 727 — Clean Pilot Diagnostics: Statement Chain Step 10 Fix
+
+727 — Clean Pilot Diagnostics: Fix Statement Upload Chain Step 10 False Failure
+
+What & Why
+
+The end-to-end audit found that server/services/statement-upload-chain.ts calls eq(statementProposals.dealId, dealId) in Step 10 but does not import eq from drizzle-orm.
+
+This causes Step 10 to throw a ReferenceError every time the statement upload chain runs. The error is caught, so the worker does not crash, but the chain logs a false failed step on every statement upload.
+
+That creates diagnostic noise during the pilot and makes operators distrust statement-processing status.
+
+Done Looks Like
+
+* eq is imported correctly in statement-upload-chain.ts.
+* Step 10 no longer false-fails.
+* A statement upload can create or confirm a draft proposal entity without throwing.
+* No duplicate statement_proposals rows are created.
+* Existing statement analyzer/proposal behavior is unchanged.
+* No outbound email, SMS, workflow, or sequence behavior changes.
+
+Required Changes
+
+* Add the correct eq import from drizzle-orm.
+* Verify the Step 10 de-dupe logic works.
+* Do not modify the statement analyzer.
+* Do not modify proposal-engine.ts.
+* Do not modify generateDealBlueprint.
+* Do not change proposal auto-send behavior.
+
+Kill Lines
+
+STOP if this task changes proposal-send behavior.
+STOP if this task changes statement analyzer math/extraction behavior.
+STOP if Step 10 can create duplicate statement_proposals rows for the same deal.
+STOP if any outbound communication is introduced.
+
+Validation
+
+Run:
+
+npx tsc --noEmit --skipLibCheck
+npx tsx scripts/test-statement-analyzer.ts
+npx tsx scripts/smoke-role-guards.ts
+
+Manual check:
+
+* Upload or simulate one test statement.
+* Confirm Step 10 no longer logs a false failure.
+* Confirm no duplicate statement_proposals row is created.
+
+⸻
+
+Task 728 — Surface Real Processor Detection in A-Lead Queue
+
+728 — Surface Real Processor Detection in A-Lead Queue
+
+What & Why
+
+The A-Lead Queue currently renders a hardcoded Unknown processor badge for every lead, even when processor detection exists in backend data.
+
+This hides one of the highest-value SDR prioritization signals from operators.
+
+Done Looks Like
+
+* A-Lead Queue API returns processor evidence when available.
+* A-Lead Queue table shows the detected processor vendor instead of static Unknown.
+* If no processor signal exists, it honestly shows Unknown / not yet detected.
+* The row can show confidence/source if available.
+* No fabricated processor value is shown.
+* Existing queue actions — promote, discard, suppress — are unchanged.
+
+Required Data Sources
+
+Use the best available source in this priority order:
+
+processorSignals table via businessId
+sdrLeadState.enrichmentData.processorSignals
+fallback: Unknown / not yet detected
+
+If both table and enrichment data exist, prefer canonical processorSignals.
+
+Required Changes
+
+* Update the A-Lead Queue backend response to include processor data.
+* Update ALeadQueue.tsx to render the real processor vendor.
+* Preserve unknown state honestly.
+* Add/extend a fixture test for one lead with known processor evidence and one without.
+
+Kill Lines
+
+STOP if the UI still hardcodes "Unknown" when processor evidence exists.
+STOP if the UI shows a processor badge without stored detector evidence.
+STOP if this task modifies processor detection logic itself.
+STOP if promote/discard/suppress behavior changes.
+
+Validation
+
+Run:
+
+npx tsc --noEmit --skipLibCheck
+npx tsx scripts/smoke-role-guards.ts
+
+Manual check:
+
+* Seed or find one A/B lead with processor evidence.
+* Confirm the queue displays the real vendor.
+* Confirm a lead without evidence still displays Unknown / not yet detected.
+
+⸻
+
+Task 729 — Fix Discovery Source Cost Analytics
+
+729 — Fix Discovery Source Cost Analytics
+
+What & Why
+
+The audit found that discovery source performance can show misleading $0 cost or null cost-per-A/B-lead when leadDiscoveryJobs.costEstimate is missing or unpopulated.
+
+This can cause admins to misread paid discovery performance and scale sources based on fake economics.
+
+Done Looks Like
+
+* Source performance never implies a source is free unless cost is truly known as zero.
+* Pilot jobs either store a real estimated cost or show Cost not tracked.
+* Cost-per-A/B-lead is calculated only when cost and A/B lead count are both known.
+* Source-level cost estimates are transparent.
+* No paid discovery is activated by this task.
+
+Required Changes
+
+* Inspect how costEstimate is populated for pilot jobs.
+* Populate costEstimate at job creation when source pricing is known.
+* If source cost cannot be known, return an explicit costTracked: false.
+* Update Source Performance UI to display Not tracked instead of $0 when cost is missing.
+* Avoid naive cost splitting across sources unless per-source cost attribution is actually known.
+
+Suggested Source Cost Defaults
+
+Use existing config if available. If no config exists, define explicit constants for estimate display only:
+
+serper: estimated per query/result if known
+outscraper: estimated per result if known
+apify: estimated per result/run if known
+apollo: estimated per result if known
+free/internal sources: 0 only if truly free
+
+If pricing is not confirmed in code/config, mark as not tracked.
+
+Kill Lines
+
+STOP if missing costEstimate renders as $0.
+STOP if costPerAbLead is calculated from null/unknown cost.
+STOP if this task runs paid discovery.
+STOP if this task changes API keys, Replit Secrets, or discovery flags.
+STOP if this task activates nightly discovery.
+
+Validation
+
+Run:
+
+npx tsc --noEmit --skipLibCheck
+npx tsx scripts/test-discovery-activation.ts
+npx tsx scripts/smoke-role-guards.ts
+
+Manual check:
+
+* View Source Performance with a job that has no cost.
+* Confirm UI says Cost not tracked.
+* View or seed a job with known cost.
+* Confirm cost-per-A/B-lead is calculated honestly.
+
+⸻
+
+Task 730 — Controlled Pilot Go/No-Go Script Execution
+
+730 — Controlled Pilot Go/No-Go Validation Run
+
+What & Why
+
+The end-to-end audit found no P0 blockers, but the required validation scripts were not executed in Plan Mode.
+
+Before a real controlled revenue pilot, run the full safety suite and record results.
+
+Done Looks Like
+
+All pilot-relevant validation scripts are executed in Build mode, results are captured, and any failure becomes a fix task before pilot launch.
+
+Commands
+
+Run:
+
+npx tsc --noEmit --skipLibCheck
+npx tsx scripts/smoke-role-guards.ts
+npx tsx scripts/test-sequence-compliance.ts
+npx tsx scripts/test-contactability.ts
+npx tsx scripts/test-sdr-manual-enroll.ts
+npx tsx scripts/test-channel-audit.ts
+npx tsx scripts/test-discovery-vertical-mapping.ts
+npx tsx scripts/test-statement-analyzer.ts
+npx tsx scripts/test-sales-prep.ts
+npx tsx scripts/test-discovery-activation.ts
+
+Kill Lines
+
+STOP if any script fails and the task still reports pilot-ready.
+STOP if any test sends email, SMS, voice, ringless voicemail, GHL workflow, or sequence enrollment outside mock/test mode.
+STOP if any test flips discovery/channel env flags.
+STOP if any test calls live paid discovery sources without explicit approval.
+
+Final Report Required
+
+Return a table:
+
+Command | Result | Notes | Follow-up required?
+
+If all pass, return:
+
+Pilot validation suite passed. Ready for controlled pilot under defined limits.
+
+If any fail, return:
+
+Not ready for pilot until these failures are fixed:
+
+Then list failures.
+
+Pilot limits I would use
+
+After those tasks pass, run the first pilot with strict limits:
+
+Discovery: max 50 total records
+Sources: Outscraper/Serper only first, Apollo only if key + ZeroBounce verified path are clean
+Location: Miami / Miami-Dade
+Verticals: Restaurant, Med Spa, Auto Repair, Salon, Dental
+Queue: human review only
+Promotion: manual only
+Outreach: manual confirmed email-only sequence only
+SMS/Voice/Ringless: off
+Statement proposal: draft / rep review only
+Admins: only admin/manager can run pilot controls
+
+Bottom line
+
+The audit is a good result. Liberty is very close.
+
+But I would not start the first real pilot until the three P1 fixes and the validation run are complete. After that, yes — Liberty is ready for a controlled revenue pilot.
