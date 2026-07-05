@@ -153,7 +153,6 @@ const LeadIntelligence = lazy(() => import("@/pages/dashboard/LeadIntelligence")
 const StatementReview = lazy(() => import("@/pages/dashboard/StatementReview"));
 const Outreach = lazy(() => import("@/pages/dashboard/Outreach"));
 const OutreachCommand = lazy(() => import("@/pages/dashboard/OutreachCommand"));
-const LeadEngine = lazy(() => import("@/pages/dashboard/LeadEngine"));
 const LeadCommandCenter = lazy(() => import("@/pages/dashboard/LeadCommandCenter"));
 const LeadImports = lazy(() => import("@/pages/dashboard/LeadImports"));
 const BlazeIntegration = lazy(() => import("@/pages/dashboard/BlazeIntegration"));
@@ -519,7 +518,7 @@ function Router() {
           <ProtectedRoute component={OutreachCommand} />
         </Route>
         <Route path="/dashboard/lead-engine">
-          <ProtectedRoute component={LeadEngine} />
+          <Redirect to="/dashboard/lead-intelligence" />
         </Route>
         <Route path="/dashboard/lead-command-center">
           <ProtectedRoute component={LeadCommandCenter} />

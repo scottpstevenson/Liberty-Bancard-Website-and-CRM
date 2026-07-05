@@ -73,6 +73,8 @@ import {
   FileText,
   Linkedin,
   Code2,
+  Monitor,
+  Database,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -200,8 +202,6 @@ const merchantItems: MenuItem[] = [
 
 const agentResourceItems: MenuItem[] = [
   { icon: BookOpen, label: "Collateral", href: "/assets", roles: ["agent"] },
-  { icon: GraduationCap, label: "Training", href: "/dashboard/training", roles: ["agent"] },
-  { icon: HelpCircle, label: "Support", href: "/dashboard/knowledge-base", roles: ["agent"] },
 ];
 
 const adminItems: MenuItem[] = [
@@ -215,8 +215,10 @@ const adminItems: MenuItem[] = [
   { icon: Pencil, label: "Blog Generator", href: "/dashboard/blog-generator", roles: ["admin"] },
   { icon: FileText, label: "Content Engine", href: "/dashboard/content", roles: ["admin", "manager"] },
   { icon: Linkedin, label: "LinkedIn Composer", href: "/dashboard/social", roles: ["admin", "manager"] },
-  { icon: GraduationCap, label: "Training Hub Setup", href: "/dashboard/training", roles: ["admin", "manager"] },
   { icon: SearchIcon, label: "SEO Health", href: "/dashboard/seo-health", roles: ["admin", "manager"] },
+  { icon: Monitor, label: "Terminal ROI", href: "/dashboard/terminal-roi", roles: ["admin", "manager"] },
+  { icon: ShieldCheck, label: "Consent Audit", href: "/dashboard/consent-audit", roles: ["admin", "manager"] },
+  { icon: Database, label: "Data Requests", href: "/dashboard/data-requests", roles: ["admin", "manager"] },
 ];
 
 const formItems: MenuItem[] = [
