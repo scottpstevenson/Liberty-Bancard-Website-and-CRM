@@ -1,0 +1,116 @@
+Approved directionally, but I would not add a real production API route just for this test.
+
+This should be fixed with a direct test seeding helper, unless the app already has a safe test-only route pattern.
+
+Verdict
+
+APPROVED WITH ADDENDUM.
+
+The problem is real:
+
+Sales Prep smoke test only proves non-SDR fallback
+It does not prove SDR-sourced generation/cache behavior
+
+But this line is risky:
+
+either a real API route, or direct-DB seeding helper
+
+A new route like:
+
+POST /api/sdr/lead-state
+
+should not be added to production code just to seed tests unless it is behind a hard TEST_MODE guard and role protection. The cleaner solution is direct DB seeding inside scripts/test-sales-prep.ts.
+
+Use this addendum:
+
+Final Addendum to #743 — Sales Prep SDR Fixture Coverage
+
+Approved to build, but do not add a general production route just to create sdrLeadState rows for tests.
+
+Preferred implementation
+
+Update scripts/test-sales-prep.ts to seed the required fixture data directly in the test database.
+
+The script should create:
+
+test contact
+test sdr_merchants row if required by FK/shape
+test sdr_lead_state row with contactId = test contact id
+
+Then run the real Sales Prep API routes:
+
+GET /api/contacts/:id/sales-prep
+POST /api/contacts/:id/sales-prep/generate
+POST /api/contacts/:id/sales-prep/generate again
+GET /api/contacts/:id/sales-prep again
+
+Do not mock the Sales Prep route itself. Only seed the database state needed to make the contact SDR-sourced.
+
+Required assertions
+
+The smoke test must prove:
+
+1. Non-SDR contact returns sdrSourced=false, cached=null, canGenerate=false.
+2. SDR-sourced test contact returns sdrSourced=true.
+3. POST /generate with TEST_MODE=true returns fixture sales prep output.
+4. First POST creates persistent cache.
+5. Second POST returns the same cached generatedAt, not a regenerated output.
+6. GET after generation returns cached output.
+7. No skipped generate-path notes remain.
+
+Route guard
+
+Do not add:
+
+POST /api/sdr/lead-state
+
+unless absolutely necessary.
+
+If a route is added, it must be:
+
+TEST_MODE-only
+admin-only
+unavailable in production
+clearly named as test fixture route
+
+But preferred path remains direct DB seeding inside the script.
+
+Cleanup requirement
+
+The script must clean up fixture rows it creates:
+
+contact_ai_cache
+sdr_lead_state
+sdr_merchants
+contacts
+
+or use unique test identifiers and remove them at the end.
+
+Kill lines
+
+STOP if this task adds an unrestricted production API route for creating sdrLeadState rows.
+STOP if the test passes while Tests 3–5 are still skipped.
+STOP if the test mocks the Sales Prep endpoint instead of exercising the real route.
+STOP if the test does not verify cache-hit behavior by comparing generatedAt across calls.
+STOP if test fixture rows are left behind without cleanup.
+STOP if this task changes sales-prep generation logic instead of the test harness.
+
+Validation
+
+Run:
+
+TEST_MODE=true SKIP_AI=true DRY_RUN=true npx tsx scripts/test-sales-prep.ts
+
+Final report must include:
+
+Total assertions/checks executed:
+Generate-path assertions executed: yes/no
+Skipped generate-path notes: 0 expected
+Final exit code:
+Fixture cleanup completed: yes/no
+
+Final verdict
+
+Build #743 with direct DB seeding.
+
+This is important before the final pilot suite because Sales Prep is one of the core conversion tools. Right now the test only proves the fallback path; after this, it should prove the real SDR-sourced generation and cache flow.
