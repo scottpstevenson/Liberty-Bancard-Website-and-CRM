@@ -1,0 +1,150 @@
+748 — Sidebar Navigation Cleanup: Remove Duplicates, Add Real Orphans, Soft-Retire Redundant Lead Engine
+
+What & Why
+
+The sidebar audit found that the Liberty dashboard navigation is mostly legitimate and data-backed, but has a few real navigation issues:
+
+1. Three true duplicate entries point to the same routes.
+2. Several real working pages are routed but invisible in the sidebar.
+3. /dashboard/lead-engine is redundant because its content is already covered by Lead Intelligence and Sunbiz Lead Gen.
+4. PCI Assessment is a placeholder and should be handled separately.
+
+This task cleans up the sidebar without restructuring the whole product.
+
+⸻
+
+Done Looks Like
+
+* Duplicate Training / Support sidebar entries are removed.
+* Functional orphaned pages are added to the Administration group.
+* /dashboard/lead-engine is no longer shown as a primary sidebar item.
+* Existing role-based variants like My Pipeline / Pipeline remain unchanged.
+* PCI Assessment is not touched in this task.
+* No backend routes, permissions, or page logic are broken.
+* Desktop and mobile sidebar still render correctly.
+
+⸻
+
+Required Changes
+
+1. Remove true duplicate sidebar entries
+
+Remove these duplicate entries:
+
+Training Hub Setup → /dashboard/training
+Training under Agent Resources → /dashboard/training
+Support under Agent Resources → /dashboard/knowledge-base
+
+Keep:
+
+Training → /dashboard/training
+Knowledge Base → /dashboard/knowledge-base
+
+Do not remove role-based variants such as:
+
+My Pipeline / Pipeline
+My Contacts / Contacts
+My Tasks / Tasks
+My Calendar / Calendar
+
+Those are intentional role-based labels.
+
+⸻
+
+2. Add real orphaned pages to the Administration group
+
+Add these routed, functional pages to the sidebar:
+
+Terminal ROI → /dashboard/terminal-roi
+Consent Audit → /dashboard/consent-audit
+Data Requests → /dashboard/data-requests
+
+Place them under Administration unless an existing more precise compliance/admin group exists.
+
+Use existing icons and nav item conventions.
+
+⸻
+
+3. Soft-retire Lead Engine from primary navigation
+
+/dashboard/lead-engine is redundant because it wraps functionality already available through:
+
+Lead Intelligence
+Sunbiz Lead Gen
+
+Remove Lead Engine from sidebar navigation if present.
+
+Do not hard-delete the route unless a grep confirms there are no internal links, bookmarks, redirects, or tests expecting it.
+
+Preferred behavior:
+
+Keep route available as legacy
+or redirect /dashboard/lead-engine → /dashboard/lead-intelligence
+
+Kill line:
+
+STOP if this task deletes /dashboard/lead-engine and breaks an existing direct URL or internal link.
+
+⸻
+
+4. Do not touch PCI Assessment
+
+PCI Assessment is currently a placeholder/local checklist with no backend persistence.
+
+Do not add it to the sidebar in this task.
+
+Do not wire backend persistence in this task.
+
+Decision deferred:
+
+Either build real PCI backend persistence later
+or remove/retire the placeholder route later
+
+⸻
+
+Out of Scope
+
+Do not:
+
+* merge Lead Command Center / Outreach Command / Outreach / Prospects / Cold Leads
+* merge Automation and Workflows
+* change page permissions
+* change backend data fetching
+* change route guards
+* change dashboard layout
+* reorganize the whole sidebar taxonomy
+* touch PCI Assessment
+* delete functional pages
+
+⸻
+
+Kill Lines
+
+STOP if role-based variants like My Pipeline / Pipeline are removed.
+STOP if any real data-backed page becomes unreachable.
+STOP if Lead Engine is hard-deleted without checking internal links.
+STOP if PCI Assessment is added to nav despite being a placeholder.
+STOP if this task changes backend routes, permissions, or data-fetching logic.
+STOP if mobile sidebar rendering regresses.
+
+⸻
+
+Validation
+
+Run:
+
+npx tsc --noEmit --skipLibCheck
+npx tsx scripts/smoke-role-guards.ts
+
+Manual checks:
+
+* Admin sidebar no longer shows duplicate Training entries.
+* Agent sidebar no longer shows both Training and Training under Agent Resources.
+* Agent sidebar no longer shows Support duplicating Knowledge Base.
+* Terminal ROI appears in sidebar and opens.
+* Consent Audit appears in sidebar and opens.
+* Data Requests appears in sidebar and opens.
+* Lead Engine is no longer a primary nav item.
+* Direct /dashboard/lead-engine still does not break, or redirects cleanly.
+* PCI Assessment remains unchanged.
+* Mobile sidebar still opens and scrolls correctly.

@@ -1,0 +1,133 @@
+Final Addendum to #747 — Mobile Dashboard Layout Bugs
+
+Approved to build.
+
+Keep this task focused on mobile dashboard layout stability. Do not redesign the dashboard navigation system.
+
+Required fixes
+
+1. Mobile sidebar drawer must have a real surface
+
+The mobile sidebar/sheet must render with:
+
+* solid themed background
+* readable foreground text
+* correct border/shadow
+* correct z-index above overlay
+* no transparency/bleed-through in light mode
+* no dark-mode regression
+
+Preferred class behavior:
+
+bg-background or bg-sidebar
+text-foreground or text-sidebar-foreground
+border-r
+shadow-xl
+z-above-overlay
+
+Verify the overlay dims the page behind the drawer, not the drawer content itself.
+
+Kill line:
+
+STOP if the drawer remains visually transparent, low-contrast, or unreadable in light mode.
+
+⸻
+
+2. SDR Dashboard tabs must become mobile-safe
+
+The SDR dashboard has too many tabs for a phone-width static tab row.
+
+Use one of these safe patterns:
+
+horizontal scroll tab row
+
+or:
+
+wrapped multi-row tab list with height auto and clean margin below
+
+Do not allow tabs to overlap the header or summary cards.
+
+Recommended mobile behavior:
+
+overflow-x-auto
+no flex overlap
+no absolute positioning
+proper bottom margin before cards
+tabs have min-width / whitespace-nowrap if horizontally scrolling
+content starts below the tab container
+
+Desktop tab layout should remain unchanged.
+
+Kill line:
+
+STOP if the Summary/Discovery/Funnel/etc. tabs overlap the page header or summary cards at mobile widths.
+
+⸻
+
+3. Fix the shared pattern if possible
+
+Before adding page-specific padding hacks, inspect whether the dashboard tab issue comes from a shared Tabs/TabsList class or layout wrapper.
+
+If multiple dashboards use the same tab pattern, fix the shared responsive class pattern once.
+
+If SDR Dashboard has custom tab markup, fix it locally and then spot-check:
+
+Discovery Dashboard
+Operator Dashboard
+Activation Panel / ContactDetail if tab-heavy
+
+Kill line:
+
+STOP if the fix only works on one screenshot but another tab-heavy dashboard still overlaps on mobile.
+
+⸻
+
+Out of scope
+
+Do not:
+
+* modify the separate /mobile PWA
+* remove dashboard tabs
+* reorganize sidebar nav items
+* change desktop layout structure
+* hide important tabs on mobile without an accessible replacement
+* add new product features
+* change auth/routing/backend behavior
+
+⸻
+
+Validation
+
+Test these viewport widths:
+
+375px wide
+390px wide
+430px wide
+
+Test in:
+
+light mode
+dark mode
+
+Required manual checks:
+
+1. Open /dashboard/* on mobile width.
+2. Open the sidebar drawer in light mode.
+3. Confirm drawer is fully readable.
+4. Go to /dashboard/sdr.
+5. Confirm header, tab row, and summary cards do not overlap.
+6. Scroll the tab list if needed.
+7. Confirm desktop layout is unchanged at normal desktop width.
+8. Spot-check at least two other dashboard pages with tabs/dense headers.
+
+Final report required
+
+Return:
+
+1. Files changed.
+2. Root cause of sidebar contrast bug.
+3. Root cause of SDR tab overlap.
+4. Mobile widths tested.
+5. Light/dark mode verification.
+6. Other dashboard pages spot-checked.
+7. Confirmation that /mobile PWA was untouched.
