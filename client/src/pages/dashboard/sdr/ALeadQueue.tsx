@@ -261,7 +261,7 @@ export function ALeadQueue() {
                     const ownerEmail = lead.ownerEmail ?? lead.email ?? lead.merchant?.mainEmail;
                     const ownerPhone = lead.ownerPhone ?? lead.phone ?? lead.merchant?.mainPhone;
                     const ownerName = lead.ownerName ??
-                      [lead.merchant?.ownerFirstName, lead.merchant?.ownerLastName].filter(Boolean).join(" ") || null;
+                      ([lead.merchant?.ownerFirstName, lead.merchant?.ownerLastName].filter(Boolean).join(" ") || null);
 
                     return (
                       <tr
