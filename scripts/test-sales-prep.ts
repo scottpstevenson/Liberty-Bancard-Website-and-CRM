@@ -24,14 +24,18 @@ function assert(condition: boolean, label: string) {
 }
 
 async function login(email: string, password: string): Promise<string[]> {
-  const res = await fetch(`${BASE_URL}/api/login`, {
+  const res = await fetch(`${BASE_URL}/api/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),
   });
   if (!res.ok) throw new Error(`Login failed: ${res.status} ${await res.text()}`);
-  const setCookie = res.headers.get("set-cookie") || "";
-  return [setCookie];
+  const setCookieHeaders = res.headers.getSetCookie
+    ? res.headers.getSetCookie()
+    : [res.headers.get("set-cookie") || ""];
+  return setCookieHeaders
+    .map((c) => c.split(";")[0])
+    .filter(Boolean);
 }
 
 async function authFetch(
@@ -40,11 +44,17 @@ async function authFetch(
   options: RequestInit = {},
 ): Promise<Response> {
   const cookieHeader = cookies.join("; ");
+  const csrfCookie = cookies.find((c) => c.startsWith("csrf_token="));
+  const csrfToken = csrfCookie ? csrfCookie.split("=").slice(1).join("=") : undefined;
+  const method = (options.method || "GET").toUpperCase();
+  const needsCsrf = !["GET", "HEAD", "OPTIONS"].includes(method);
+
   return fetch(`${BASE_URL}${path}`, {
     ...options,
     headers: {
       ...options.headers,
       Cookie: cookieHeader,
+      ...(needsCsrf && csrfToken ? { "x-csrf-token": csrfToken } : {}),
     },
   });
 }
@@ -57,6 +67,7 @@ async function createTestContact(cookies: string[]): Promise<number> {
       firstName: "SalesPrep",
       lastName: "TestContact",
       email: `sales-prep-test-${Date.now()}@example.test`,
+      phone: "5555550100",
       companyName: "Test Merchant Inc",
       leadSource: "test",
     }),
