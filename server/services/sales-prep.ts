@@ -39,9 +39,8 @@ export async function generateSalesPrepAi(contactId: number): Promise<{ output: 
   if (testMode || !hasApiKey) {
     const contact = await storage.getContact(contactId);
     const fixture = buildFixture(contact?.companyName || `Contact #${contactId}`);
-    const now = new Date();
-    await storage.setContactAiCache(contactId, CACHE_KEY, fixture as unknown as Record<string, unknown>, TEST_MODEL);
-    return { output: fixture, generatedAt: now, fromCache: false, model: TEST_MODEL };
+    const persisted = await storage.setContactAiCache(contactId, CACHE_KEY, fixture as unknown as Record<string, unknown>, TEST_MODEL);
+    return { output: fixture, generatedAt: persisted.generatedAt, fromCache: false, model: TEST_MODEL };
   }
 
   const contact = await storage.getContact(contactId);
@@ -96,7 +95,6 @@ Be specific to the merchant's industry and current processor. Keep each field un
     output = buildFixture(companyName);
   }
 
-  const now = new Date();
-  await storage.setContactAiCache(contactId, CACHE_KEY, output as unknown as Record<string, unknown>, LIVE_MODEL);
-  return { output, generatedAt: now, fromCache: false, model: LIVE_MODEL };
+  const persisted = await storage.setContactAiCache(contactId, CACHE_KEY, output as unknown as Record<string, unknown>, LIVE_MODEL);
+  return { output, generatedAt: persisted.generatedAt, fromCache: false, model: LIVE_MODEL };
 }
