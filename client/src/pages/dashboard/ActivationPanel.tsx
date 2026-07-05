@@ -808,7 +808,7 @@ export default function ActivationPanel() {
       )}
 
       <Tabs defaultValue={identities.length === 0 ? "wizard" : "status"}>
-        <TabsList data-testid="tabs-activation">
+        <TabsList className="flex-wrap h-auto gap-1" data-testid="tabs-activation">
           <TabsTrigger value="runbook" data-testid="tab-runbook">Day-1 Runbook</TabsTrigger>
           <TabsTrigger value="wizard" data-testid="tab-identity-wizard">Identity Wizard</TabsTrigger>
           <TabsTrigger value="status" data-testid="tab-status">System Status</TabsTrigger>

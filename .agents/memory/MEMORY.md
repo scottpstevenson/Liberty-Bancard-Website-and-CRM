@@ -27,3 +27,5 @@
 - [Audit-only approval-gate pattern](audit-only-approval-gate.md) — approval endpoints must re-verify checklist server-side, write only to an audit-log table, and never touch process.env or Secrets APIs directly.
 - [CSRF for manual API testing](csrf-manual-api-testing.md) — curl testing of POST routes needs session cookie + `x-csrf-token` header from `/api/csrf-token` (`token` field, not `csrfToken`); PEWC checklist needs disclosureVersion+consentedPhone too.
 - [OpenAI max_tokens param rejected](openai-max-tokens-param.md) — proposal-engine.ts OpenAI calls 400 on `max_tokens`; model requires `max_completion_tokens`; likely affects other call sites too.
+- [Sidebar CSS vars missing](sidebar-css-vars-missing.md) — tailwind.config.ts can reference `--sidebar*` CSS vars that don't exist in index.css, silently breaking bg-sidebar colors (invisible mobile drawer).
+- [TabsList wrap/overlap convention](tabs-wrap-convention.md) — fixed h-10 TabsList + page-level flex-wrap without h-auto causes wrapped tab rows to overlap surrounding content; use `flex-wrap h-auto gap-1`.

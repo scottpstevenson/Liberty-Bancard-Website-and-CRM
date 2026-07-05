@@ -49,6 +49,19 @@
   --stat-negative: 0 66% 48%;
   --shadow-card: 0 1px 2px -1px hsl(222 47% 11% / 0.08), 0 2px 6px -1px hsl(222 47% 11% / 0.06);
   --shadow-elevated: 0 12px 32px -12px hsl(222 47% 11% / 0.28), 0 4px 10px -4px hsl(222 47% 11% / 0.12);
+
+  /* Sidebar tokens — consumed by client/src/components/ui/sidebar.tsx (bg-sidebar,
+     text-sidebar-foreground, border-sidebar-border, etc). These MUST be defined or
+     the sidebar (including the mobile drawer) renders with a transparent/invalid
+     background, making it blend into the page overlay. */
+  --sidebar: 0 0% 100%;
+  --sidebar-foreground: 222 47% 11%;
+  --sidebar-border: 214.3 31.8% 91.4%;
+  --sidebar-ring: 222 47% 11%;
+  --sidebar-primary: 222 47% 11%;
+  --sidebar-primary-foreground: 210 40% 98%;
+  --sidebar-accent: 210 40% 96.1%;
+  --sidebar-accent-foreground: 222 47% 11%;
 }
 
 .dark {
@@ -86,6 +99,16 @@
   --stat-negative: 0 72% 62%;
   --shadow-card: 0 1px 2px -1px hsl(0 0% 0% / 0.4), 0 2px 6px -1px hsl(0 0% 0% / 0.3);
   --shadow-elevated: 0 12px 32px -12px hsl(0 0% 0% / 0.55), 0 4px 10px -4px hsl(0 0% 0% / 0.4);
+
+  /* Sidebar tokens (dark) — see :root comment above. */
+  --sidebar: 222 47% 10%;
+  --sidebar-foreground: 210 40% 98%;
+  --sidebar-border: 217.2 32.6% 17.5%;
+  --sidebar-ring: 212.7 26.8% 83.9%;
+  --sidebar-primary: 210 40% 98%;
+  --sidebar-primary-foreground: 222 47% 11%;
+  --sidebar-accent: 217.2 32.6% 17.5%;
+  --sidebar-accent-foreground: 210 40% 98%;
 }
 
 @layer base {

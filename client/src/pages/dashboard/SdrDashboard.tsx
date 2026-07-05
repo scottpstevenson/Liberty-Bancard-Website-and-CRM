@@ -26,7 +26,7 @@ export default function SdrDashboard() {
       </div>
 
       <Tabs defaultValue="summary" data-testid="tabs-sdr">
-        <TabsList className="flex-wrap">
+        <TabsList className="flex-wrap h-auto gap-1">
           <TabsTrigger value="summary" data-testid="tab-sdr-summary">Summary</TabsTrigger>
           <TabsTrigger value="discovery" data-testid="tab-sdr-discovery">Discovery</TabsTrigger>
           <TabsTrigger value="funnel" data-testid="tab-sdr-funnel">Funnel</TabsTrigger>

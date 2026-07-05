@@ -260,7 +260,7 @@ export default function OutreachCommand() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="flex-wrap">
+        <TabsList className="flex-wrap h-auto gap-1">
           <TabsTrigger value="overview" data-testid="tab-overview">Pipeline</TabsTrigger>
           <TabsTrigger value="import" data-testid="tab-import">Import</TabsTrigger>
           <TabsTrigger value="enrichment" data-testid="tab-enrichment">Enrich & Classify</TabsTrigger>

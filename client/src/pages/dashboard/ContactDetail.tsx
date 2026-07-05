@@ -1210,7 +1210,7 @@ export default function ContactDetail() {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} data-testid="contact-tabs">
-        <TabsList className="flex flex-wrap gap-1" data-testid="contact-tabs-list">
+        <TabsList className="flex flex-wrap h-auto gap-1" data-testid="contact-tabs-list">
           <TabsTrigger value="overview" data-testid="tab-overview">Overview</TabsTrigger>
           <TabsTrigger value="deals" data-testid="tab-deals">Deals ({deals.length})</TabsTrigger>
           <TabsTrigger value="tickets" data-testid="tab-tickets">Tickets ({tickets.length})</TabsTrigger>
