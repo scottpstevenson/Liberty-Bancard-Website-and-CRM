@@ -1,0 +1,149 @@
+Final Addendum to #755 — Fix Misleading Success States
+
+Approved to build.
+
+This task is about truthful UI state and usable outputs. Do not add new SMS/email providers or redesign CRM messaging.
+
+⸻
+
+Part A — Call Outcome follow-up SMS
+
+Required behavior
+
+The follow-up SMS action must return the actual send outcome.
+
+Allowed result states:
+
+sent
+not_configured
+failed
+skipped
+
+The UI must not show “sent” unless a real send was attempted and confirmed successful by the configured provider path.
+
+If GHL or SMS configuration is missing, return:
+
+not_configured
+
+and show a clear UI message such as:
+
+Follow-up SMS was not sent — SMS provider is not configured.
+
+Kill lines
+
+STOP if the UI says SMS sent when no provider was configured.
+STOP if missing GHL/SMS config is treated as success.
+STOP if this task adds a new SMS provider integration.
+STOP if this task changes contactability or consent rules.
+
+⸻
+
+Part B — Ticket AI Classify suggested reply
+
+Required behavior
+
+When AI Classify returns a suggested reply, it must become usable by the agent.
+
+Preferred behavior:
+
+populate the ticket reply textarea/draft field with the suggested reply
+
+Acceptable behavior:
+
+show suggested reply in a persistent editable draft panel with a clear Insert/Use button
+
+Not acceptable:
+
+toast only, then the suggested reply disappears
+
+The agent must still explicitly send the reply. Do not auto-send.
+
+Kill lines
+
+STOP if AI Classify auto-sends a reply.
+STOP if the suggested reply is only shown in a transient toast.
+STOP if this task changes ticket classification categories beyond what is needed to wire the reply.
+
+⸻
+
+Part C — Notification email digest toggle
+
+Required behavior
+
+The Notifications page must distinguish between:
+
+preference saved
+delivery pipeline active
+delivery pipeline inactive/not configured
+
+If the user enables email digest but the digest service cannot actually deliver, the UI should say something like:
+
+Preference saved, but digest email delivery is not currently active.
+
+For admin users, surface a clear health/status signal if possible:
+
+Digest service inactive
+Email provider not configured
+Background scheduler not running
+Last digest run: never / timestamp
+
+Do not pretend email delivery is active just because the preference saved.
+
+Kill lines
+
+STOP if toggling Email shows full success while digest delivery is inactive.
+STOP if this task creates a new email provider integration.
+STOP if this task changes notification preference semantics.
+STOP if this task sends test emails during validation without explicit approval.
+
+⸻
+
+Out of scope
+
+Do not:
+
+build a new SMS provider
+build a new email provider
+redesign Tickets UI
+redesign Notifications UI
+auto-send AI ticket replies
+change contactability rules
+change digest scheduling architecture
+trigger real outbound messages in validation
+
+⸻
+
+Validation
+
+Run:
+
+npx tsc --noEmit --skipLibCheck
+npx tsx scripts/smoke-role-guards.ts
+
+Manual checks:
+
+1. Disable/missing GHL/SMS config path.
+2. Trigger Call Outcome follow-up SMS.
+3. Confirm UI says not configured / not sent, not sent successfully.
+4. Open a ticket and click AI Classify.
+5. Confirm suggested reply appears in an editable reply box or persistent insertable draft.
+6. Confirm reply is not auto-sent.
+7. Open Notifications.
+8. Toggle email digest.
+9. Confirm UI distinguishes preference saved from actual digest delivery availability.
+
+⸻
+
+Final report required
+
+Return:
+
+Call Outcome false-success root cause:
+SMS result states implemented:
+Ticket AI Classify usability root cause:
+Suggested reply destination:
+Digest false-success root cause:
+Digest health/status behavior:
+Files changed:
+Validation commands run:
+Real outbound messages sent: yes/no
