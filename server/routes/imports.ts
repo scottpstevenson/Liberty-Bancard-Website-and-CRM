@@ -25,6 +25,7 @@ import { parse } from "csv-parse/sync";
 import bcrypt from "bcryptjs";
 import path from "path";
 import fs from "fs";
+import * as XLSX from "xlsx";
 import { uploadLarge, trackReferral, normalizePhoneForImport, classifyVerticalForImport, sendConfirmationSms } from "./helpers";
 import { recordPewcDecision } from "../services/consent-evidence";
 import { evaluateContactability } from "../services/contactability";
@@ -1416,10 +1417,24 @@ Guidelines:
 
       const filePath = req.file.path;
       const fileName = req.file.originalname || "upload.csv";
+      const isExcel = /\.(xlsx|xls)$/i.test(fileName);
 
       let csvContent: string;
       try {
-        csvContent = fs.readFileSync(filePath, "utf-8");
+        if (isExcel) {
+          const workbook = XLSX.readFile(filePath, { cellDates: true });
+          const firstSheetName = workbook.SheetNames[0];
+          if (!firstSheetName) {
+            return res.status(400).json({ message: "Excel file has no sheets" });
+          }
+          const sheet = workbook.Sheets[firstSheetName];
+          csvContent = XLSX.utils.sheet_to_csv(sheet);
+        } else {
+          csvContent = fs.readFileSync(filePath, "utf-8");
+        }
+      } catch (err: any) {
+        try { fs.unlinkSync(filePath); } catch {}
+        return res.status(400).json({ message: `Could not read uploaded file: ${err.message}` });
       } finally {
         try { fs.unlinkSync(filePath); } catch {}
       }
@@ -1433,7 +1448,7 @@ Guidelines:
       }) as Record<string, string>[];
 
       if (records.length === 0) {
-        return res.status(400).json({ message: "CSV file is empty or could not be parsed" });
+        return res.status(400).json({ message: isExcel ? "Excel file is empty or could not be parsed" : "CSV file is empty or could not be parsed" });
       }
 
       const headers = Object.keys(records[0]).map(h => h.toLowerCase().trim());
