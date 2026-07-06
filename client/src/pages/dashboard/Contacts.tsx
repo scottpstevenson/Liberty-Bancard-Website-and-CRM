@@ -57,9 +57,11 @@ interface BulkMessageResult {
   results: { contactId: number; status: string; error?: string }[];
 }
 
-function formatRelativeTime(dateStr: string): string {
-  const now = Date.now();
+function formatRelativeTime(dateStr: string | null | undefined): string {
+  if (!dateStr) return "Never";
   const date = new Date(dateStr).getTime();
+  if (isNaN(date)) return "Unknown date";
+  const now = Date.now();
   const diffMs = now - date;
   const diffSec = Math.floor(diffMs / 1000);
   const diffMin = Math.floor(diffSec / 60);
@@ -203,6 +205,7 @@ function DuplicateFinderDialog({ open, onOpenChange }: { open: boolean; onOpenCh
   const { toast } = useToast();
   const [selectedGroup, setSelectedGroup] = useState<DuplicateGroup | null>(null);
   const [primaryId, setPrimaryId] = useState<string>("");
+  const [isMerging, setIsMerging] = useState(false);
 
   const { data: duplicates, isLoading } = useQuery<DuplicateGroup[]>({
     queryKey: ["/api/contacts/duplicates"],
@@ -214,24 +217,50 @@ function DuplicateFinderDialog({ open, onOpenChange }: { open: boolean; onOpenCh
       const res = await apiRequest("POST", "/api/contacts/merge", { primaryId, duplicateId });
       return res.json();
     },
-    onSuccess: () => {
-      toast({ title: "Contacts merged", description: "Duplicate contact has been merged into the primary record." });
-      queryClient.invalidateQueries({ queryKey: ["/api/contacts/duplicates"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
-      setSelectedGroup(null);
-      setPrimaryId("");
-    },
-    onError: (err: any) => {
-      toast({ title: "Merge failed", description: err.message, variant: "destructive" });
-    },
   });
 
-  const handleMerge = () => {
-    if (!selectedGroup || !primaryId) return;
+  const handleMerge = async () => {
+    if (!selectedGroup || !primaryId || isMerging) return;
     const primary = Number(primaryId);
-    const duplicateIds = selectedGroup.contacts.filter(c => c.id !== primary).map(c => c.id);
-    for (const dupId of duplicateIds) {
-      mergeMutation.mutate({ primaryId: primary, duplicateId: dupId });
+    const duplicates = selectedGroup.contacts.filter((c: any) => c.id !== primary);
+    setIsMerging(true);
+
+    const succeeded: { id: number; name: string }[] = [];
+    const failed: { id: number; name: string; reason: string }[] = [];
+
+    for (const dup of duplicates) {
+      const name = `${dup.firstName || ""} ${dup.lastName || ""}`.trim() || `#${dup.id}`;
+      try {
+        await mergeMutation.mutateAsync({ primaryId: primary, duplicateId: dup.id });
+        succeeded.push({ id: dup.id, name });
+      } catch (err: any) {
+        failed.push({ id: dup.id, name, reason: err?.message || "Unknown error" });
+      }
+    }
+
+    setIsMerging(false);
+    queryClient.invalidateQueries({ queryKey: ["/api/contacts/duplicates"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
+
+    if (failed.length === 0) {
+      toast({
+        title: "Contacts merged",
+        description: `${succeeded.length} duplicate contact${succeeded.length !== 1 ? "s" : ""} merged into the primary record.`,
+      });
+      setSelectedGroup(null);
+      setPrimaryId("");
+    } else if (succeeded.length === 0) {
+      toast({
+        title: "Merge failed",
+        description: `All ${failed.length} merge${failed.length !== 1 ? "s" : ""} failed: ${failed.map(f => `${f.name} (${f.reason})`).join("; ")}`,
+        variant: "destructive",
+      });
+    } else {
+      toast({
+        title: "Merge partially completed",
+        description: `Merged: ${succeeded.length}. Failed: ${failed.map(f => `${f.name} (${f.reason})`).join("; ")}`,
+        variant: "destructive",
+      });
     }
   };
 
@@ -363,11 +392,11 @@ function DuplicateFinderDialog({ open, onOpenChange }: { open: boolean; onOpenCh
               </Button>
               <Button
                 onClick={handleMerge}
-                disabled={!primaryId || mergeMutation.isPending}
+                disabled={!primaryId || isMerging}
                 data-testid="button-confirm-merge"
               >
                 <Merge className="h-4 w-4 mr-2" />
-                {mergeMutation.isPending ? "Merging..." : "Confirm Merge"}
+                {isMerging ? "Merging..." : "Confirm Merge"}
               </Button>
             </div>
           </div>

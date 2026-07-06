@@ -49,11 +49,17 @@ function getFirstDayOfMonth(year: number, month: number): number {
   return new Date(year, month, 1).getDay();
 }
 
-function formatTime(dateStr: string): string {
-  return new Date(dateStr).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const INVALID_DATE_KEY = "invalid";
+
+function formatTime(dateStr: string | null | undefined): string {
+  if (!dateStr) return "--:--";
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return "Unknown time";
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 function formatDateKey(date: Date): string {
+  if (isNaN(date.getTime())) return INVALID_DATE_KEY;
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
@@ -189,6 +195,8 @@ export default function CalendarPage() {
     return map;
   }, [calendarItems]);
 
+  const invalidDateEvents = eventsByDate.get(INVALID_DATE_KEY) || [];
+
   const daysInMonth = getDaysInMonth(currentYear, currentMonth);
   const firstDay = getFirstDayOfMonth(currentYear, currentMonth);
 
@@ -322,6 +330,26 @@ export default function CalendarPage() {
               </div>
             </CardContent>
           </Card>
+
+          {invalidDateEvents.length > 0 && (
+            <Card className="mt-4 border-amber-300" data-testid="card-invalid-date-events">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm text-amber-700 dark:text-amber-400" data-testid="text-invalid-date-warning">
+                  {invalidDateEvents.length} event{invalidDateEvents.length === 1 ? "" : "s"} with an unrecognized date could not be placed on the calendar
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {invalidDateEvents.map(evt => (
+                    <div key={evt.id} className="text-sm flex items-center justify-between gap-2" data-testid={`row-invalid-date-event-${evt.id}`}>
+                      <span className="truncate">{evt.title}</span>
+                      <span className="text-xs text-muted-foreground">Invalid date</span>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         <div className="space-y-4">

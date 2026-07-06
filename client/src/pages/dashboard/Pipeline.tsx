@@ -73,10 +73,12 @@ interface MidSummary {
   fetchedAt: string | null;
 }
 
-function fmtCompactCurrency(n: number) {
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
-  if (n >= 1_000) return `$${(n / 1_000).toFixed(n >= 10_000 ? 0 : 1)}k`;
-  return `$${n.toFixed(0)}`;
+function fmtCompactCurrency(n: unknown): string {
+  const val = typeof n === "number" ? n : Number(n);
+  if (n === null || n === undefined || n === "" || !isFinite(val)) return "Value unknown";
+  if (val >= 1_000_000) return `$${(val / 1_000_000).toFixed(val >= 10_000_000 ? 0 : 1)}M`;
+  if (val >= 1_000) return `$${(val / 1_000).toFixed(val >= 10_000 ? 0 : 1)}k`;
+  return `$${val.toFixed(0)}`;
 }
 
 function VolumeSparkline({ values }: { values: number[] }) {
@@ -171,6 +173,7 @@ function SortableDealCard({
   getContactVertical,
   midSummary,
   proposals,
+  proposalsFailed,
 }: {
   deal: Deal;
   isDealArchived: boolean;
@@ -184,6 +187,7 @@ function SortableDealCard({
   getContactVertical: (id: number | null) => string | null;
   midSummary?: MidSummary;
   proposals?: CoBrandedProposal[];
+  proposalsFailed?: boolean;
 }) {
   const [, navigateTo] = useLocation();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -272,9 +276,9 @@ function SortableDealCard({
               {deal.offerPath}
             </Badge>
           )}
-          {proposals && proposals.length > 0 && (() => {
-            const accepted = proposals.some(p => p.status === "accepted");
-            const viewed = proposals.some(p => (p as any).viewCount > 0 || p.status === "viewed");
+          {proposals && proposals.length > 0 ? (() => {
+            const accepted = proposals.some(p => p && p.status === "accepted");
+            const viewed = proposals.some(p => p && ((p as any).viewCount > 0 || p.status === "viewed"));
             if (accepted) {
               return (
                 <Badge variant="outline" className="text-xs bg-green-100 text-green-800 border-green-200 no-default-hover-elevate no-default-active-elevate" data-testid={`badge-proposal-accepted-${deal.id}`}>
@@ -290,7 +294,11 @@ function SortableDealCard({
               );
             }
             return null;
-          })()}
+          })() : proposalsFailed ? (
+            <Badge variant="outline" className="text-xs bg-muted text-muted-foreground border-dashed no-default-hover-elevate no-default-active-elevate" data-testid={`badge-proposal-unavailable-${deal.id}`} title="Could not load proposal status for this deal">
+              Details unavailable
+            </Badge>
+          ) : null}
           {deal.proposalStatus && deal.proposalStatus !== "none" && (
             <Badge 
               variant="outline" 
@@ -308,7 +316,11 @@ function SortableDealCard({
           {deal.mid && <DealMidBadge summary={midSummary} />}
           <div className="text-xs text-muted-foreground" data-testid={`text-deal-date-${deal.id}`}>
             <Calendar className="w-3 h-3 inline-block mr-1" />
-            {deal.createdAt ? new Date(deal.createdAt).toLocaleDateString() : "N/A"}
+            {(() => {
+              if (!deal.createdAt) return "N/A";
+              const d = new Date(deal.createdAt);
+              return isNaN(d.getTime()) ? "Unknown date" : d.toLocaleDateString();
+            })()}
           </div>
         </CardContent>
       </Card>
@@ -331,6 +343,7 @@ function DroppableColumn({
   setCreateOpen,
   midSummaries,
   proposalsByDeal,
+  proposalsFailedByDeal,
 }: {
   stage: string;
   colorClass: string;
@@ -346,6 +359,7 @@ function DroppableColumn({
   setCreateOpen: (open: boolean) => void;
   midSummaries: Record<string, MidSummary>;
   proposalsByDeal: Record<string, CoBrandedProposal[]>;
+  proposalsFailedByDeal?: Record<string, boolean>;
 }) {
   return (
     <div className="w-[270px] flex-shrink-0" data-testid={`stage-column-${stage.replace(/\s+/g, "-").toLowerCase()}`}>
@@ -374,6 +388,7 @@ function DroppableColumn({
                 getContactVertical={getContactVertical}
                 midSummary={midSummaries[String(deal.id)]}
                 proposals={proposalsByDeal[String(deal.id)]}
+                proposalsFailed={proposalsFailedByDeal?.[String(deal.id)]}
               />
             );
           })}
@@ -603,6 +618,7 @@ export default function Pipeline() {
 
   // Cache for deal proposals to show badges on cards
   const [proposalsByDeal, setProposalsByDeal] = useState<Record<string, CoBrandedProposal[]>>({});
+  const [proposalsFailedByDeal, setProposalsFailedByDeal] = useState<Record<string, boolean>>({});
 
   const [selectedDealIds, setSelectedDealIds] = useState<Set<number>>(new Set());
   const [showArchived, setShowArchived] = useState(false);
@@ -627,17 +643,22 @@ export default function Pipeline() {
       if (result.data && result.data.length > 0) {
         (async () => {
           const newProposalsByDeal: Record<string, CoBrandedProposal[]> = {};
+          const newProposalsFailedByDeal: Record<string, boolean> = {};
           await Promise.all(result.data.map(async (deal: Deal) => {
             try {
               const pRes = await fetch(`/api/deals/${deal.id}/co-branded-proposals`, { credentials: "include" });
               if (pRes.ok) {
                 newProposalsByDeal[String(deal.id)] = await pRes.json();
+              } else {
+                newProposalsFailedByDeal[String(deal.id)] = true;
               }
             } catch (err) {
               console.error(`Error fetching proposals for deal ${deal.id}:`, err);
+              newProposalsFailedByDeal[String(deal.id)] = true;
             }
           }));
           setProposalsByDeal(newProposalsByDeal);
+          setProposalsFailedByDeal(newProposalsFailedByDeal);
         })();
       }
       
@@ -1446,6 +1467,7 @@ export default function Pipeline() {
                   setCreateOpen={setCreateOpen}
                   midSummaries={midSummaries}
                   proposalsByDeal={proposalsByDeal}
+                  proposalsFailedByDeal={proposalsFailedByDeal}
                 />
               );
             })}

@@ -77,7 +77,7 @@ export function registerDocumentsRoutes(app: Express) {
   }
 
   // Log a document access event to the audit log.
-  function logDocumentAccess(userId: string | undefined, docId: number, action: 'view' | 'download' | 'bulk_download', role?: string) {
+  function logDocumentAccess(userId: string | undefined, docId: number, action: 'view' | 'download' | 'bulk_download' | 'bulk_delete', role?: string) {
     storage.createAuditLog({
       userId: userId || null,
       action: `document_${action}`,
@@ -372,6 +372,82 @@ export function registerDocumentsRoutes(app: Express) {
       await archive.finalize();
     } catch (err: any) {
       if (!res.headersSent) res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/documents/bulk-delete - delete multiple documents independently
+  app.post("/api/documents/bulk-delete", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const { ids } = req.body;
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ message: "ids must be a non-empty array" });
+      }
+      const numIds = ids.map(Number).filter(n => !isNaN(n));
+      if (numIds.length === 0) {
+        return res.status(400).json({ message: "No valid document IDs" });
+      }
+
+      const user = req.user as any;
+      const uploadsDir = path.join(process.cwd(), "uploads");
+
+      const succeeded: { id: number; filename?: string }[] = [];
+      const failed: { id: number; filename?: string; reason: string }[] = [];
+
+      for (const id of numIds) {
+        let filename: string | undefined;
+        try {
+          const doc = await storage.getDocumentById(id);
+          if (!doc) {
+            failed.push({ id, reason: "Document not found" });
+            continue;
+          }
+          filename = doc.fileName;
+
+          if (doc.storageKey) {
+            const tryPaths = [
+              path.join(uploadsDir, doc.storageKey.replace(/^uploads\//, "")),
+              path.join(uploadsDir, "merchant_docs", path.basename(doc.storageKey)),
+              path.join(uploadsDir, path.basename(doc.storageKey)),
+            ];
+            for (const p of tryPaths) {
+              if (fs.existsSync(p)) {
+                fs.unlinkSync(p);
+                break;
+              }
+            }
+          }
+
+          await storage.deleteDocument(id);
+          logDocumentAccess(String(user?.id || ''), id, 'bulk_delete', user?.role);
+          succeeded.push({ id, filename });
+        } catch (err: any) {
+          console.error(`[bulk-delete] failed to delete document ${id}:`, err);
+          failed.push({ id, filename, reason: err?.message || "Unknown error" });
+        }
+      }
+
+      storage.createAuditLog({
+        userId: String(user?.id || ''),
+        action: 'document_bulk_delete',
+        entityType: 'document',
+        entityId: null as any,
+        actorType: 'user',
+        actorId: String(user?.id || ''),
+        details: { documentIds: numIds, succeededCount: succeeded.length, failedCount: failed.length },
+      }).catch(err => console.error('[doc-audit] bulk delete log failed:', err));
+
+      const attempted = numIds.length;
+      const result = { attempted, succeeded, failed };
+
+      if (failed.length === 0) {
+        return res.status(200).json(result);
+      }
+      if (succeeded.length === 0) {
+        return res.status(500).json(result);
+      }
+      return res.status(207).json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
     }
   });
 

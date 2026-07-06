@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, getCsrfToken } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { DOCUMENT_CATEGORIES } from "@shared/schema";
 import type { Document, Contact } from "@shared/schema";
@@ -76,6 +76,13 @@ export default function DocumentVault() {
   const [deleteTarget, setDeleteTarget] = useState<Document | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [isBulkDownloading, setIsBulkDownloading] = useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+  const [bulkDeleteResult, setBulkDeleteResult] = useState<{
+    attempted: number;
+    succeeded: { id: number; filename?: string }[];
+    failed: { id: number; filename?: string; reason: string }[];
+  } | null>(null);
 
   const { data: docs = [], isLoading: docsLoading } = useQuery<Document[]>({
     queryKey: ["/api/merchant-documents", categoryFilter, statusFilter],
@@ -168,6 +175,47 @@ export default function DocumentVault() {
     });
   }
 
+  async function handleBulkDelete() {
+    const ids = Array.from(selectedIds);
+    if (!ids.length) return;
+    setIsBulkDeleting(true);
+    setShowBulkDeleteConfirm(false);
+    try {
+      const csrfToken = getCsrfToken();
+      const res = await fetch("/api/documents/bulk-delete", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
+        },
+        credentials: "include",
+        body: JSON.stringify({ ids }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!data || typeof data.attempted !== "number") {
+        throw new Error(data?.message || "Bulk delete failed");
+      }
+      setBulkDeleteResult(data);
+      queryClient.invalidateQueries({ queryKey: ["/api/merchant-documents"] });
+      setSelectedIds(new Set());
+      if (data.failed.length === 0) {
+        toast({ title: `Deleted ${data.succeeded.length} document${data.succeeded.length !== 1 ? "s" : ""}` });
+      } else if (data.succeeded.length === 0) {
+        toast({ title: "Bulk delete failed", description: `All ${data.failed.length} document(s) failed to delete`, variant: "destructive" });
+      } else {
+        toast({
+          title: "Bulk delete partially completed",
+          description: `${data.succeeded.length} succeeded, ${data.failed.length} failed`,
+          variant: "destructive",
+        });
+      }
+    } catch (err: any) {
+      toast({ title: "Bulk delete failed", description: err.message, variant: "destructive" });
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  }
+
   async function handleBulkDownload() {
     const ids = Array.from(selectedIds);
     if (!ids.length) return;
@@ -216,6 +264,19 @@ export default function DocumentVault() {
               >
                 <Package className="h-4 w-4 mr-2" />
                 {isBulkDownloading ? "Downloading..." : `Download ${selectedIds.size} as ZIP`}
+              </Button>
+            )}
+            {selectedIds.size > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-destructive hover:text-destructive"
+                onClick={() => setShowBulkDeleteConfirm(true)}
+                disabled={isBulkDeleting}
+                data-testid="button-bulk-delete"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                {isBulkDeleting ? "Deleting..." : `Delete ${selectedIds.size} selected`}
               </Button>
             )}
             <div className="text-sm text-muted-foreground" data-testid="text-doc-count">
@@ -517,6 +578,64 @@ export default function DocumentVault() {
               data-testid="button-confirm-delete"
             >
               Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Delete Confirmation Dialog */}
+      <Dialog open={showBulkDeleteConfirm} onOpenChange={setShowBulkDeleteConfirm}>
+        <DialogContent data-testid="dialog-confirm-bulk-delete">
+          <DialogHeader>
+            <DialogTitle>Delete {selectedIds.size} Document{selectedIds.size !== 1 ? "s" : ""}</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Are you sure you want to permanently delete {selectedIds.size} selected document{selectedIds.size !== 1 ? "s" : ""}?
+            Each document will be deleted independently — if some fail, the rest will still be removed. This action cannot be undone.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBulkDeleteConfirm(false)} data-testid="button-cancel-bulk-delete">
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleBulkDelete}
+              disabled={isBulkDeleting}
+              data-testid="button-confirm-bulk-delete"
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Delete Results Dialog */}
+      <Dialog open={!!bulkDeleteResult} onOpenChange={open => !open && setBulkDeleteResult(null)}>
+        <DialogContent data-testid="dialog-bulk-delete-result">
+          <DialogHeader>
+            <DialogTitle>Bulk Delete Results</DialogTitle>
+          </DialogHeader>
+          {bulkDeleteResult && (
+            <div className="space-y-3 text-sm" data-testid="text-bulk-delete-summary">
+              <p>
+                Attempted: <span className="font-medium">{bulkDeleteResult.attempted}</span>{" "}
+                &middot; Succeeded: <span className="font-medium text-green-700 dark:text-green-400">{bulkDeleteResult.succeeded.length}</span>{" "}
+                &middot; Failed: <span className="font-medium text-red-700 dark:text-red-400">{bulkDeleteResult.failed.length}</span>
+              </p>
+              {bulkDeleteResult.failed.length > 0 && (
+                <div className="space-y-1 max-h-48 overflow-y-auto">
+                  {bulkDeleteResult.failed.map(f => (
+                    <div key={f.id} className="text-xs text-muted-foreground" data-testid={`text-bulk-delete-failure-${f.id}`}>
+                      {f.filename || `Document #${f.id}`}: {f.reason}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button onClick={() => setBulkDeleteResult(null)} data-testid="button-close-bulk-delete-result">
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>
