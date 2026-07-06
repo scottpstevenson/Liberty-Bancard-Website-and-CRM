@@ -1,61 +1,90 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { Shield, ShieldCheck, ShieldAlert, AlertTriangle } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Shield, ShieldCheck, ShieldAlert, AlertTriangle, AlertCircle } from "lucide-react";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { PCI_REQUIREMENTS } from "@shared/pci-requirements";
 
-const PCI_CATEGORIES = [
-  {
-    name: "Network Security",
-    icon: Shield,
-    items: [
-      { id: "ns1", label: "Firewall installed and configured to protect cardholder data" },
-      { id: "ns2", label: "No vendor-supplied default passwords or security parameters in use" },
-      { id: "ns3", label: "Network access to cardholder data environment is restricted" },
-    ],
-  },
-  {
-    name: "Data Protection",
-    icon: ShieldCheck,
-    items: [
-      { id: "dp1", label: "Cardholder data is not stored unless absolutely necessary" },
-      { id: "dp2", label: "Cardholder data is encrypted during transmission over public networks" },
-      { id: "dp3", label: "Systems and applications are kept up to date with security patches" },
-    ],
-  },
-  {
-    name: "Access Control",
-    icon: ShieldAlert,
-    items: [
-      { id: "ac1", label: "Each person with system access has a unique user ID" },
-      { id: "ac2", label: "Physical access to cardholder data is restricted" },
-      { id: "ac3", label: "All access to network resources and cardholder data is logged and monitored" },
-    ],
-  },
-  {
-    name: "Regular Testing",
-    icon: AlertTriangle,
-    items: [
-      { id: "rt1", label: "Regular vulnerability scans are performed" },
-      { id: "rt2", label: "Security systems and processes are tested regularly" },
-      { id: "rt3", label: "An incident response plan is maintained and tested" },
-    ],
-  },
-];
+const CATEGORY_ICONS: Record<string, typeof Shield> = {
+  "Network Security": Shield,
+  "Data Protection": ShieldCheck,
+  "Access Control": ShieldAlert,
+  "Regular Testing": AlertTriangle,
+};
+
+const PCI_CATEGORIES = Array.from(new Set(PCI_REQUIREMENTS.map((r) => r.category))).map((categoryName) => ({
+  name: categoryName,
+  icon: CATEGORY_ICONS[categoryName] ?? Shield,
+  items: PCI_REQUIREMENTS.filter((r) => r.category === categoryName).map((r) => ({ id: r.id, label: r.label })),
+}));
 
 const ALL_ITEMS = PCI_CATEGORIES.flatMap((c) => c.items);
 
+interface PciAssessmentState {
+  checkedRequirementIds: string[];
+  updatedAt: string | null;
+  updatedBy: string | null;
+}
+
 export default function PciAssessment() {
   const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const { data, isLoading, isError, error } = useQuery<PciAssessmentState>({
+    queryKey: ["/api/admin/pci-assessment"],
+  });
+
+  useEffect(() => {
+    if (data) {
+      setChecked(new Set(data.checkedRequirementIds));
+    }
+  }, [data]);
+
+  const saveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+  const latestRequestIdRef = useRef(0);
+
+  const mutation = useMutation({
+    mutationFn: async (checkedRequirementIds: string[]) => {
+      const res = await apiRequest("PATCH", "/api/admin/pci-assessment", { checkedRequirementIds });
+      return res.json();
+    },
+  });
 
   const toggle = (id: string) => {
-    setChecked((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+    const next = new Set(checked);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setChecked(next);
+    setSaveError(null);
+
+    const nextIds = Array.from(next);
+    const requestId = ++latestRequestIdRef.current;
+
+    // Chain saves serially so rapid consecutive toggles are sent to the
+    // server in order, instead of racing and letting an older request's
+    // response overwrite a newer one.
+    saveQueueRef.current = saveQueueRef.current
+      .catch(() => {})
+      .then(() => mutation.mutateAsync(nextIds))
+      .then((response: PciAssessmentState) => {
+        queryClient.setQueryData(["/api/admin/pci-assessment"], response);
+        if (requestId === latestRequestIdRef.current) {
+          setSaveError(null);
+        }
+      })
+      .catch((err: any) => {
+        // Only surface the error / resync if no newer toggle has already
+        // superseded this request.
+        if (requestId === latestRequestIdRef.current) {
+          setSaveError(err?.message || "Failed to save checklist. Your change was not saved.");
+          queryClient.invalidateQueries({ queryKey: ["/api/admin/pci-assessment"] });
+        }
+      });
   };
 
   const total = ALL_ITEMS.length;
@@ -80,6 +109,36 @@ export default function PciAssessment() {
     statusColor = "bg-red-600 text-white";
   }
 
+  if (isLoading) {
+    return (
+      <div className="space-y-6 p-4 md:p-6" data-testid="page-pci-assessment">
+        <Skeleton className="h-8 w-64" />
+        <Skeleton className="h-24 w-full" />
+        <Skeleton className="h-16 w-full" />
+        <div className="grid gap-4 md:grid-cols-2">
+          <Skeleton className="h-40 w-full" />
+          <Skeleton className="h-40 w-full" />
+        </div>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="space-y-6 p-4 md:p-6" data-testid="page-pci-assessment">
+        <h1 className="text-2xl font-bold text-foreground" data-testid="text-pci-heading">
+          PCI-DSS Self-Assessment
+        </h1>
+        <Alert variant="destructive" data-testid="alert-pci-load-error">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            Failed to load PCI assessment checklist: {(error as any)?.message || "Unknown error"}. Please refresh to try again.
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 p-4 md:p-6" data-testid="page-pci-assessment">
       <div className="flex flex-wrap items-center gap-3">
@@ -90,6 +149,13 @@ export default function PciAssessment() {
           {statusLabel}
         </Badge>
       </div>
+
+      {saveError && (
+        <Alert variant="destructive" data-testid="alert-pci-save-error">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{saveError}</AlertDescription>
+        </Alert>
+      )}
 
       <Card data-testid="card-pci-intro">
         <CardContent className="pt-6 space-y-3">

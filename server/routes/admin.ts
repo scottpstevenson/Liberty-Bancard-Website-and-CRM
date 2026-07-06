@@ -1,5 +1,5 @@
 import type { Express } from "express";
-import { isAuthenticated, requireRole } from "../replit_integrations/auth";
+import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { authStorage } from "../replit_integrations/auth/storage";
 import { storage } from "../storage";
 import { db } from "../db";
@@ -86,6 +86,53 @@ export function registerAdminRoutes(app: Express) {
         set: { value: mfaRequired, updatedAt: new Date() },
       });
       res.json({ mfaRequired });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === PCI ASSESSMENT CHECKLIST ===
+  const PCI_ASSESSMENT_SETTINGS_KEY = "pci_assessment_checklist_state";
+
+  app.get("/api/admin/pci-assessment", isDashboardUser, async (req, res) => {
+    try {
+      const { systemSettings } = await import("@shared/schema");
+      const { eq: eqOp } = await import("drizzle-orm");
+      const [setting] = await db.select().from(systemSettings).where(eqOp(systemSettings.key, PCI_ASSESSMENT_SETTINGS_KEY));
+      const value = (setting?.value as { checkedRequirementIds?: string[]; updatedAt?: string; updatedBy?: string } | null) ?? null;
+      res.json({
+        checkedRequirementIds: Array.isArray(value?.checkedRequirementIds) ? value!.checkedRequirementIds : [],
+        updatedAt: value?.updatedAt ?? null,
+        updatedBy: value?.updatedBy ?? null,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/admin/pci-assessment", isDashboardUser, async (req, res) => {
+    try {
+      const { checkedRequirementIds } = req.body || {};
+      if (!Array.isArray(checkedRequirementIds) || !checkedRequirementIds.every((id: unknown) => typeof id === "string")) {
+        return res.status(400).json({ message: "checkedRequirementIds must be an array of strings" });
+      }
+      const { PCI_REQUIREMENT_ID_SET } = await import("@shared/pci-requirements");
+      const unknownIds = checkedRequirementIds.filter((id: string) => !PCI_REQUIREMENT_ID_SET.has(id));
+      if (unknownIds.length > 0) {
+        return res.status(400).json({ message: `Unknown PCI requirement id(s): ${unknownIds.join(", ")}` });
+      }
+      const { systemSettings } = await import("@shared/schema");
+      const dedupedIds = Array.from(new Set(checkedRequirementIds));
+      const value = {
+        checkedRequirementIds: dedupedIds,
+        updatedAt: new Date().toISOString(),
+        updatedBy: (req.user as any)?.id ?? null,
+      };
+      await db.insert(systemSettings).values({ key: PCI_ASSESSMENT_SETTINGS_KEY, value }).onConflictDoUpdate({
+        target: systemSettings.key,
+        set: { value, updatedAt: new Date() },
+      });
+      res.json(value);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
