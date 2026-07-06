@@ -1,0 +1,253 @@
+Final Addendum to #753 — Tasks, Review Queue, and Automation Reliability
+
+Approved to build with these scope guards.
+
+This task fixes existing broken dashboard behavior. It must not become a CRM automation redesign.
+
+⸻
+
+Required sequence
+
+Implement in this order:
+
+1. Fix Tasks page crash/read failures.
+2. Fix AI task generator/schema mismatch.
+3. Fix Review Queue lead-submission detail rendering.
+4. Verify Automation / AI Command Center Run Now buttons.
+
+Do not start broad UI redesigns or schema expansions unless the exact root cause requires it.
+
+⸻
+
+Part A — Tasks page reliability
+
+Required behavior
+
+The Tasks page must render safely for:
+
+admin
+manager
+agent
+
+It must not crash on:
+
+null dueDate
+invalid dueDate
+unknown status
+missing assignee
+missing related contact/deal
+empty task list
+malformed legacy task row
+
+Required fix pattern
+
+Harden both sides if needed:
+
+server returns normalized task fields
+client renders safe fallbacks
+
+Example fallbacks:
+
+due date missing → No due date
+unknown status → Unknown
+missing priority → Normal
+missing title → Untitled task
+
+Schema guard
+
+Before changing schema, inspect:
+
+shared/schema.ts tasks table
+server/routes/tickets-tasks.ts reads/writes
+server/routes/ai.ts task-generation writes
+
+Prefer fixing the AI task generator to write fields that actually exist on the current tasks table.
+
+Do not add migrations unless the current schema truly cannot represent required task data.
+
+⸻
+
+Part B — AI task generator/schema mismatch
+
+If AI task generation currently writes non-existent task fields, fix the writer.
+
+Required behavior:
+
+generated tasks save successfully
+generated tasks appear on Tasks page
+generated tasks do not break task reads
+generated tasks have valid status/priority/dueDate values
+
+Kill line:
+
+STOP if generated tasks are silently dropped or written with fields the tasks table does not support.
+
+⸻
+
+Part C — Review Queue lead-submission details
+
+The Review Queue must not show No details available when metadata exists.
+
+Required behavior
+
+For quiz/lead-submission entries, render actual captured submission fields such as:
+
+name
+business
+email
+phone
+industry
+monthly volume
+current processor
+message
+source
+utm fields
+
+But do not rely on a tiny hardcoded whitelist only.
+
+Safe rendering rule
+
+Use a two-level approach:
+
+1. Render known important fields first in a clean order.
+2. Then render any remaining safe metadata keys as label/value rows.
+
+Do not dump raw JSON directly into the UI.
+
+Sensitive-field guard
+
+Do not render:
+
+tokens
+passwords
+auth headers
+internal IDs unless already shown elsewhere
+raw cookies
+secret keys
+private system metadata
+
+Kill line:
+
+STOP if a submission with metadata still renders No details available.
+
+⸻
+
+Part D — Automation / AI Command Center Run Now buttons
+
+Each Run Now button must be verified end-to-end:
+
+Smart Task Generation
+Deal Auto-Progression
+Prospect Routing
+AI Insights
+
+For each button, confirm:
+
+request is sent
+server route executes
+side effect occurs, or a clear no-op reason is returned
+run count updates
+last-run timestamp updates
+errors are visible to the user
+
+No silent success
+
+A button must not show success if nothing ran.
+
+Allowed result states:
+
+success
+partial_success
+no_op_with_reason
+failed_with_reason
+
+Not allowed:
+
+clicked → spinner disappears → no result, no run count, no error
+
+Safety guard
+
+Run Now checks must not send real external communication unless that was already the explicit existing behavior and is safe in test mode.
+
+Do not trigger:
+
+real email
+real SMS
+voice calls
+ringless voicemail
+GHL workflow send
+paid discovery
+channel activation
+
+during validation.
+
+Use safe flags where supported:
+
+TEST_MODE=true SKIP_AI=true DRY_RUN=true
+
+⸻
+
+Out of scope
+
+Do not:
+
+redesign the Tasks UI
+redesign the Review Queue UI
+add new automation types
+change role-based access rules
+change task ownership rules
+change dedupe logic
+activate outbound channels
+add paid discovery calls
+
+⸻
+
+Kill Lines
+
+STOP if this task changes dashboard role permissions.
+STOP if this task adds schema migrations before proving existing schema cannot support the fix.
+STOP if the Tasks page still crashes on null/invalid due dates.
+STOP if AI-generated tasks still write non-existent fields.
+STOP if Review Queue still shows No details available when metadata exists.
+STOP if Run Now buttons report success without a visible side effect, run-count update, timestamp update, or no-op reason.
+STOP if validation sends real outbound email/SMS/voice/ringless/GHL workflows.
+STOP if this task touches unrelated lead import, discovery, or statement proposal logic.
+
+⸻
+
+Validation
+
+Run:
+
+npx tsc --noEmit --skipLibCheck
+npx tsx scripts/smoke-role-guards.ts
+
+If task/automation scripts exist, run targeted tests for those too.
+
+Manual checks required:
+
+1. Open Tasks page as admin.
+2. Open Tasks page as manager.
+3. Open Tasks page as agent.
+4. Confirm empty/malformed/null due-date tasks do not crash render.
+5. Trigger AI task generation in safe/test mode and confirm generated tasks persist and display.
+6. Open Review Queue quiz/lead-submission entry and confirm captured details render.
+7. Click each AI Command Center Run Now button in safe/test mode.
+8. Confirm each button updates run count/last-run timestamp or returns a visible no-op/failure reason.
+
+⸻
+
+Final report required
+
+Return:
+
+Tasks crash root cause:
+AI task schema mismatch root cause:
+Review Queue No-details root cause:
+Automation buttons verified:
+Buttons fixed:
+Buttons that returned no-op with reason:
+Files changed:
+Validation commands run:
+Roles manually checked:
+Outbound side effects confirmed absent: yes/no
