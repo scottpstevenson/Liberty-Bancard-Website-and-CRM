@@ -3,6 +3,123 @@ import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integra
 import { storage } from "../storage";
 import { getProcessor, getDefaultProcessor, getEnabledAdapterNames, ingestMidDataForActiveMids } from "../services/processors/registry";
 
+const IN_FLIGHT_BOARDING_STATUSES = ["submitted", "under_review", "more_info_needed"];
+
+interface BoardingRefreshResult {
+  dealId: number;
+  outcome: "success" | "failed" | "skipped";
+  status?: string;
+  mid?: string;
+  message?: string;
+  moreInfoRequest?: string;
+  declineReason?: string;
+  error?: string;
+}
+
+async function performBoardingStatusRefresh(dealId: number): Promise<BoardingRefreshResult> {
+  try {
+    const deal = await storage.getDeal(dealId);
+    if (!deal) return { dealId, outcome: "skipped", error: "Deal not found" };
+    if (!deal.processorApplicationId) {
+      return { dealId, outcome: "skipped", error: "No processor application ID on this deal. Submit first." };
+    }
+
+    const dealLog = (deal.boardingLog as any[]) || [];
+    const submittedEntry = [...dealLog].reverse().find((e: any) => e.event === "submitted");
+    const dealProcessorName = submittedEntry?.processor || undefined;
+    const processor = dealProcessorName ? getProcessor(dealProcessorName) : getDefaultProcessor();
+    const result = await processor.getMerchantStatus(deal.processorApplicationId);
+
+    if (!result.success) {
+      return { dealId, outcome: "failed", error: result.error || "Failed to check boarding status" };
+    }
+
+    const logEntry: Record<string, any> = {
+      timestamp: new Date().toISOString(),
+      event: "status_check",
+      status: result.status,
+      message: result.message,
+    };
+
+    if (result.moreInfoRequest) logEntry.moreInfoRequest = result.moreInfoRequest;
+    if (result.declineReason) logEntry.declineReason = result.declineReason;
+    if (result.mid) logEntry.mid = result.mid;
+
+    const existingLog = (deal.boardingLog as any[]) || [];
+
+    const updates: Record<string, any> = {
+      boardingStatus: result.status,
+      boardingLog: [...existingLog, logEntry],
+    };
+
+    if (result.status === "approved" && result.mid) {
+      updates.mid = result.mid;
+      updates.boardingApprovedAt = new Date();
+
+      if (deal.pipeline === "onboarding") {
+        updates.stage = "Approved";
+      }
+    }
+
+    await storage.updateDeal(dealId, updates);
+
+    await storage.createAuditLog({
+      action: "boarding_status_refreshed",
+      entityType: "deal",
+      entityId: dealId,
+      details: { status: result.status, mid: result.mid, message: result.message },
+    });
+
+    if (result.status === "more_info_needed" && result.moreInfoRequest) {
+      const existingTasks = await storage.getTasks();
+      const hasInfoTask = existingTasks.some(
+        t => t.dealId === dealId && t.title?.includes("More Info Required") && t.status === "pending"
+      );
+      if (!hasInfoTask) {
+        await storage.createTask({
+          dealId,
+          contactId: deal.contactId || undefined,
+          title: `More Info Required — Processor for Deal #${dealId}`,
+          assignedTo: deal.owner || "Scott Stevenson",
+          priority: "high",
+          dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
+          description: `Processor request: ${result.moreInfoRequest}`,
+        });
+
+        await storage.createNotification({
+          channel: "internal",
+          title: "Processor Needs More Info",
+          message: `Deal #${dealId} — ${result.moreInfoRequest}`,
+          type: "urgent",
+          metadata: { dealId, eventType: "boarding_more_info" },
+        });
+      }
+    }
+
+    return {
+      dealId,
+      outcome: "success",
+      status: result.status,
+      mid: result.mid,
+      message: result.message,
+      moreInfoRequest: result.moreInfoRequest,
+      declineReason: result.declineReason,
+    };
+  } catch (err: any) {
+    return { dealId, outcome: "failed", error: err.message || "Unknown error" };
+  }
+}
+
+async function runWithConcurrencyLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = [];
+  for (let i = 0; i < items.length; i += limit) {
+    const batch = items.slice(i, i + limit);
+    const batchResults = await Promise.all(batch.map(fn));
+    results.push(...batchResults);
+  }
+  return results;
+}
+
 export function registerBoardingRoutes(app: Express) {
   app.post("/api/deals/:id/submit-to-processor", isDashboardUser, async (req, res) => {
     try {
@@ -132,82 +249,14 @@ export function registerBoardingRoutes(app: Express) {
   app.post("/api/deals/:id/refresh-boarding-status", isDashboardUser, async (req, res) => {
     try {
       const dealId = Number(req.params.id);
-      const deal = await storage.getDeal(dealId);
-      if (!deal) return res.status(404).json({ message: "Deal not found" });
-      if (!deal.processorApplicationId) {
-        return res.status(400).json({ message: "No processor application ID on this deal. Submit first." });
+      const result = await performBoardingStatusRefresh(dealId);
+
+      if (result.outcome === "skipped") {
+        const status = result.error === "Deal not found" ? 404 : 400;
+        return res.status(status).json({ message: result.error });
       }
-
-      const dealLog = (deal.boardingLog as any[]) || [];
-      const submittedEntry = [...dealLog].reverse().find((e: any) => e.event === "submitted");
-      const dealProcessorName = submittedEntry?.processor || undefined;
-      const processor = dealProcessorName ? getProcessor(dealProcessorName) : getDefaultProcessor();
-      const result = await processor.getMerchantStatus(deal.processorApplicationId);
-
-      if (!result.success) {
+      if (result.outcome === "failed") {
         return res.status(500).json({ message: result.error || "Failed to check boarding status" });
-      }
-
-      const logEntry: Record<string, any> = {
-        timestamp: new Date().toISOString(),
-        event: "status_check",
-        status: result.status,
-        message: result.message,
-      };
-
-      if (result.moreInfoRequest) logEntry.moreInfoRequest = result.moreInfoRequest;
-      if (result.declineReason) logEntry.declineReason = result.declineReason;
-      if (result.mid) logEntry.mid = result.mid;
-
-      const existingLog = (deal.boardingLog as any[]) || [];
-
-      const updates: Record<string, any> = {
-        boardingStatus: result.status,
-        boardingLog: [...existingLog, logEntry],
-      };
-
-      if (result.status === "approved" && result.mid) {
-        updates.mid = result.mid;
-        updates.boardingApprovedAt = new Date();
-
-        if (deal.pipeline === "onboarding") {
-          updates.stage = "Approved";
-        }
-      }
-
-      await storage.updateDeal(dealId, updates);
-
-      await storage.createAuditLog({
-        action: "boarding_status_refreshed",
-        entityType: "deal",
-        entityId: dealId,
-        details: { status: result.status, mid: result.mid, message: result.message },
-      });
-
-      if (result.status === "more_info_needed" && result.moreInfoRequest) {
-        const existingTasks = await storage.getTasks();
-        const hasInfoTask = existingTasks.some(
-          t => t.dealId === dealId && t.title?.includes("More Info Required") && t.status === "pending"
-        );
-        if (!hasInfoTask) {
-          await storage.createTask({
-            dealId,
-            contactId: deal.contactId || undefined,
-            title: `More Info Required — Processor for Deal #${dealId}`,
-            assignedTo: deal.owner || "Scott Stevenson",
-            priority: "high",
-            dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
-            description: `Processor request: ${result.moreInfoRequest}`,
-          });
-
-          await storage.createNotification({
-            channel: "internal",
-            title: "Processor Needs More Info",
-            message: `Deal #${dealId} — ${result.moreInfoRequest}`,
-            type: "urgent",
-            metadata: { dealId, eventType: "boarding_more_info" },
-          });
-        }
       }
 
       res.json({
@@ -220,6 +269,63 @@ export function registerBoardingRoutes(app: Express) {
       });
     } catch (err: any) {
       console.error("[Boarding] Status refresh error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/boarding/refresh-all", isDashboardUser, async (req, res) => {
+    try {
+      const requestedIds = Array.isArray(req.body?.dealIds)
+        ? (req.body.dealIds as any[]).map((id) => Number(id)).filter((id) => !isNaN(id))
+        : undefined;
+
+      let targetDealIds: number[];
+      if (requestedIds && requestedIds.length > 0) {
+        targetDealIds = requestedIds;
+      } else {
+        const allDealsResult = await storage.getDeals({ limit: 10000 });
+        targetDealIds = allDealsResult.data
+          .filter((d) => IN_FLIGHT_BOARDING_STATUSES.includes(d.boardingStatus || ""))
+          .map((d) => d.id);
+      }
+
+      if (targetDealIds.length === 0) {
+        return res.json({
+          resultState: "no_op_with_reason",
+          reason: "No in-flight boarding deals to refresh.",
+          attempted: 0,
+          succeeded: 0,
+          failed: 0,
+          skipped: 0,
+          results: [],
+        });
+      }
+
+      const CONCURRENCY = 4;
+      const results = await runWithConcurrencyLimit(targetDealIds, CONCURRENCY, performBoardingStatusRefresh);
+
+      const succeeded = results.filter((r) => r.outcome === "success").length;
+      const failed = results.filter((r) => r.outcome === "failed").length;
+      const skipped = results.filter((r) => r.outcome === "skipped").length;
+
+      let resultState: "success" | "partial_success" | "failed" | "no_op_with_reason";
+      if (succeeded === results.length) {
+        resultState = "success";
+      } else if (succeeded > 0) {
+        resultState = "partial_success";
+      } else {
+        resultState = "failed";
+      }
+
+      await storage.createAuditLog({
+        action: "boarding_bulk_refresh",
+        entityType: "deal",
+        details: { attempted: results.length, succeeded, failed, skipped },
+      });
+
+      res.json({ resultState, attempted: results.length, succeeded, failed, skipped, results });
+    } catch (err: any) {
+      console.error("[Boarding] Bulk refresh error:", err.message);
       res.status(500).json({ message: err.message });
     }
   });

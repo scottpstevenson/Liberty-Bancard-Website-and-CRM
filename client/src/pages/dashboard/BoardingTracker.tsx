@@ -140,27 +140,59 @@ export default function BoardingTracker() {
     });
   }, [submissions, search]);
 
+  interface BulkRefreshResult {
+    resultState: "success" | "partial_success" | "failed" | "no_op_with_reason";
+    reason?: string;
+    attempted: number;
+    succeeded: number;
+    failed: number;
+    skipped: number;
+    results: Array<{
+      dealId: number;
+      outcome: "success" | "failed" | "skipped";
+      status?: string;
+      error?: string;
+    }>;
+  }
+
   const refreshAllMutation = useMutation({
     mutationFn: async () => {
       const inFlight = submissions.filter((s) =>
         IN_FLIGHT_STATUSES.includes(s.boardingStatus as BoardingStatus)
       );
-      const results = await Promise.allSettled(
-        inFlight.map((s) =>
-          apiRequest("POST", `/api/deals/${s.dealId}/refresh-boarding-status`, {})
-        )
-      );
-      const succeeded = results.filter((r) => r.status === "fulfilled").length;
-      const failed = results.length - succeeded;
-      return { total: results.length, succeeded, failed };
+      const res = await apiRequest("POST", "/api/boarding/refresh-all", {
+        dealIds: inFlight.map((s) => s.dealId),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: "Refresh failed" }));
+        throw new Error(err.message || "Refresh failed");
+      }
+      return res.json() as Promise<BulkRefreshResult>;
     },
     onSuccess: (result) => {
-      toast({
-        title: "Statuses refreshed",
-        description: `${result.succeeded} of ${result.total} updated${
-          result.failed > 0 ? ` · ${result.failed} failed` : ""
-        }.`,
-      });
+      if (result.resultState === "no_op_with_reason") {
+        toast({ title: "Nothing to refresh", description: result.reason || "No in-flight deals." });
+      } else if (result.resultState === "success") {
+        toast({
+          title: "Statuses refreshed",
+          description: `${result.succeeded} of ${result.attempted} updated successfully.`,
+        });
+      } else if (result.resultState === "partial_success") {
+        const firstFailure = result.results.find((r) => r.outcome === "failed" || r.outcome === "skipped");
+        toast({
+          title: "Refresh partially completed",
+          description: `${result.succeeded} of ${result.attempted} updated · ${result.failed} failed · ${result.skipped} skipped.${
+            firstFailure ? ` e.g. Deal #${firstFailure.dealId}: ${firstFailure.error}` : ""
+          }`,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Refresh failed",
+          description: `All ${result.attempted} deals failed to refresh. ${result.results[0]?.error || ""}`,
+          variant: "destructive",
+        });
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/boarding/submissions"] });
     },
     onError: (err: any) => {

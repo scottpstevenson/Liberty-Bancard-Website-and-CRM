@@ -4,6 +4,7 @@ import { storage } from "../storage";
 import { z } from "zod";
 import { insertChargebackSchema, CHARGEBACK_DEADLINE_DAYS } from "@shared/schema";
 import { createPreferenceAwareNotification } from "../services/digest-service";
+import { generateChargebackEvidencePdf } from "../services/chargeback-pdf";
 
 export function registerChargebacksRoutes(app: Express) {
   app.get("/api/chargebacks", isDashboardUser, async (req, res) => {
@@ -149,6 +150,44 @@ export function registerChargebacksRoutes(app: Express) {
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/chargebacks/:id/pdf", isDashboardUser, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const cb = await storage.getChargeback(id);
+      if (!cb) return res.status(404).json({ message: "Not found" });
+      if (!cb.aiEvidencePacket) {
+        return res.status(400).json({ message: "No evidence packet has been generated for this chargeback yet. Build the evidence packet first." });
+      }
+
+      const [contact, deal] = await Promise.all([
+        cb.contactId ? storage.getContact(cb.contactId) : null,
+        cb.dealId ? storage.getDeal(cb.dealId) : null,
+      ]);
+
+      const pdfBuffer = await generateChargebackEvidencePdf({
+        chargeback: cb,
+        contact: contact
+          ? { companyName: contact.companyName, firstName: contact.firstName, lastName: contact.lastName, email: contact.email, phone: contact.phone }
+          : null,
+        deal: deal ? { id: deal.id, stage: deal.stage, pipeline: deal.pipeline, owner: deal.owner } : null,
+      });
+
+      await storage.createAuditLog({
+        action: "chargeback_pdf_downloaded",
+        entityType: "chargeback",
+        entityId: cb.id,
+        details: { chargebackId: cb.id },
+      });
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="chargeback-evidence-${cb.id}.pdf"`);
+      res.send(pdfBuffer);
+    } catch (err: any) {
+      console.error("[Chargebacks] PDF generation error:", err.message);
+      res.status(500).json({ message: "Failed to generate PDF" });
     }
   });
 

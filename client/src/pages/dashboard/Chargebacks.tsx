@@ -125,148 +125,6 @@ function ChecklistStatusIcon({ status }: { status: string }) {
   return <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />;
 }
 
-function triggerPrint(cb: Chargeback, packet: AiPacket, editedRebuttal: string, editedChecklist: ChecklistItem[]) {
-  const finalLetter = editedRebuttal || packet.rebuttalletter;
-  const finalChecklist = editedChecklist.length ? editedChecklist : packet.evidenceChecklist;
-  const mp = packet.merchantProfile;
-  const win = window.open("", "_blank");
-  if (!win) return;
-
-  const doc = win.document;
-  doc.open();
-  doc.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Chargeback Evidence Packet</title><style>
-    body{font-family:Georgia,serif;margin:40px;color:#111;font-size:14px;line-height:1.6}
-    .letterhead{border-bottom:3px solid #1e3a5f;padding-bottom:16px;margin-bottom:20px}
-    .letterhead-name{font-size:22px;font-weight:bold;color:#1e3a5f}
-    .letterhead-meta{font-size:12px;color:#555;margin-top:4px}
-    h1{font-size:18px;margin-bottom:4px;color:#1e3a5f}
-    h2{font-size:15px;margin-top:28px;margin-bottom:8px;border-bottom:1px solid #ccc;padding-bottom:4px;color:#1e3a5f}
-    .dispute-meta{color:#555;font-size:12px;margin-bottom:20px;padding:10px 14px;background:#f9f9f9;border:1px solid #e5e5e5;border-radius:4px}
-    .dispute-meta-row{margin-bottom:3px}
-    .letter{white-space:pre-wrap;margin-top:8px}
-    table{width:100%;border-collapse:collapse;margin-top:8px;font-size:13px}
-    th{text-align:left;padding:6px 8px;background:#1e3a5f;color:#fff;border:1px solid #1e3a5f}
-    td{padding:6px 8px;border:1px solid #ddd;vertical-align:top}
-    .included{color:#15803d;font-weight:bold}
-    .missing{color:#dc2626;font-weight:bold}
-    .partial{color:#d97706;font-weight:bold}
-    .footer{margin-top:40px;font-size:11px;color:#777;border-top:1px solid #eee;padding-top:12px;text-align:center}
-    @media print{body{margin:20px}}
-  </style></head><body></body></html>`);
-  doc.close();
-
-  const body = doc.body;
-
-  // Merchant letterhead
-  const lh = doc.createElement("div");
-  lh.className = "letterhead";
-  const lhName = doc.createElement("div");
-  lhName.className = "letterhead-name";
-  lhName.textContent = mp?.merchantName || "Merchant";
-  lh.appendChild(lhName);
-  const lhDetails: string[] = [];
-  if (mp?.address) lhDetails.push(mp.address);
-  if (mp?.city || mp?.state) lhDetails.push([mp?.city, mp?.state].filter(Boolean).join(", "));
-  if (mp?.website) lhDetails.push(mp.website);
-  if (mp?.vertical) lhDetails.push(`Industry: ${mp.vertical}`);
-  if (mp?.mid) lhDetails.push(`MID: ${mp.mid}`);
-  if (lhDetails.length) {
-    const lhMeta = doc.createElement("div");
-    lhMeta.className = "letterhead-meta";
-    lhMeta.textContent = lhDetails.join("  ·  ");
-    lh.appendChild(lhMeta);
-  }
-  body.appendChild(lh);
-
-  const h1 = doc.createElement("h1");
-  h1.textContent = "Chargeback Evidence Packet & Rebuttal Letter";
-  body.appendChild(h1);
-
-  // Dispute metadata box
-  const meta = doc.createElement("div");
-  meta.className = "dispute-meta";
-  const metaRows = [
-    ["Reason Code", cb.reasonCode],
-    ["Card Brand", cb.cardBrand],
-    ["Dispute Amount", formatCurrency(cb.amount)],
-    ["Transaction Date", formatDate(cb.transactionDate)],
-    ["Response Deadline", formatDate(cb.responseDeadline)],
-    ["Win Likelihood", packet.winLikelihood.estimate],
-    ["Generated", new Date(packet.generatedAt).toLocaleString()],
-    packet.finalizedAt ? ["Finalized", new Date(packet.finalizedAt).toLocaleString()] : null,
-  ].filter(Boolean) as [string, string][];
-  metaRows.forEach(([label, value]) => {
-    const row = doc.createElement("div");
-    row.className = "dispute-meta-row";
-    const b = doc.createElement("strong");
-    b.textContent = `${label}: `;
-    row.appendChild(b);
-    row.appendChild(doc.createTextNode(value));
-    meta.appendChild(row);
-  });
-  body.appendChild(meta);
-
-  if (packet.reasonCodeContext) {
-    const h2ctx = doc.createElement("h2");
-    h2ctx.textContent = "Dispute Context";
-    body.appendChild(h2ctx);
-    const p = doc.createElement("p");
-    p.textContent = packet.reasonCodeContext;
-    body.appendChild(p);
-  }
-
-  const h2letter = doc.createElement("h2");
-  h2letter.textContent = "Rebuttal Letter";
-  body.appendChild(h2letter);
-  const letterDiv = doc.createElement("div");
-  letterDiv.className = "letter";
-  letterDiv.textContent = finalLetter;
-  body.appendChild(letterDiv);
-
-  const h2list = doc.createElement("h2");
-  h2list.textContent = "Evidence Checklist";
-  body.appendChild(h2list);
-  const table = doc.createElement("table");
-  const thead = doc.createElement("thead");
-  thead.innerHTML = "<tr><th>Evidence Item</th><th>Status</th><th>Notes</th></tr>";
-  table.appendChild(thead);
-  const tbody = doc.createElement("tbody");
-  finalChecklist.forEach(c => {
-    const tr = doc.createElement("tr");
-    const tdItem = doc.createElement("td");
-    tdItem.textContent = c.item;
-    const tdStatus = doc.createElement("td");
-    tdStatus.className = c.status;
-    tdStatus.textContent = c.status.charAt(0).toUpperCase() + c.status.slice(1);
-    const tdNotes = doc.createElement("td");
-    tdNotes.textContent = c.notes || "";
-    tr.appendChild(tdItem);
-    tr.appendChild(tdStatus);
-    tr.appendChild(tdNotes);
-    tbody.appendChild(tr);
-  });
-  table.appendChild(tbody);
-  body.appendChild(table);
-
-  const h2win = doc.createElement("h2");
-  h2win.textContent = "Win Likelihood Assessment";
-  body.appendChild(h2win);
-  const pwin = doc.createElement("p");
-  const strong = doc.createElement("strong");
-  strong.textContent = packet.winLikelihood.estimate;
-  pwin.appendChild(strong);
-  pwin.appendChild(doc.createTextNode(` — ${packet.winLikelihood.rationale}`));
-  body.appendChild(pwin);
-
-  const footer = doc.createElement("div");
-  footer.className = "footer";
-  footer.textContent = "Generated by Liberty Bancard AI Chargeback Copilot  |  This packet is for internal use only. Verify all evidence before submission.";
-  body.appendChild(footer);
-
-  win.focus();
-  setTimeout(() => win.print(), 500);
-}
-
 interface CopilotPanelProps {
   chargeback: Chargeback;
   onClose: () => void;
@@ -317,6 +175,28 @@ function CopilotPanel({ chargeback: cb, onClose }: CopilotPanelProps) {
       toast({ title: "Packet finalized", description: "Changes saved. Ready to download." });
     },
     onError: (err: any) => toast({ title: "Finalization failed", description: err.message, variant: "destructive" }),
+  });
+
+  const downloadPdfMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/chargebacks/${cb.id}/pdf`, { credentials: "include" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: "Failed to generate PDF" }));
+        throw new Error(err.message || "Failed to generate PDF");
+      }
+      return res.blob();
+    },
+    onSuccess: (blob) => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `chargeback-evidence-${cb.id}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    },
+    onError: (err: any) => toast({ title: "Download failed", description: err.message, variant: "destructive" }),
   });
 
   const updateChecklistItem = (i: number, changes: Partial<ChecklistItem>) => {
@@ -522,12 +402,13 @@ function CopilotPanel({ chargeback: cb, onClose }: CopilotPanelProps) {
           </Button>
 
           <Button
-            onClick={() => triggerPrint(cb, packet, editedRebuttal, editedChecklist)}
+            onClick={() => downloadPdfMutation.mutate()}
+            disabled={downloadPdfMutation.isPending}
             variant="outline"
             size="sm"
             data-testid="button-download-pdf"
           >
-            <Download className="w-3 h-3 mr-1" />
+            {downloadPdfMutation.isPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Download className="w-3 h-3 mr-1" />}
             Download PDF
           </Button>
         </div>
