@@ -34,3 +34,4 @@
 - [Raw fetch CSRF gap](csrf-raw-fetch-gap.md) — POST/PATCH/DELETE calls made via raw `fetch` (not `apiRequest`) skip the X-CSRF-Token header and get 403'd for real logged-in users; always attach `getCsrfToken()`.
 - [Truthful state signals](truthful-state-signals.md) — external-provider actions (SMS/email/digest) need enum states (sent/not_configured/failed/skipped), not a single boolean.
 - [QueueManager partial-init leak](queue-manager-init-failure.md) — getQueueManager() must not cache a manager whose initialize() threw partway through, or dual sync mechanisms (BullMQ + legacy fallback) can both go live.
+- [SSRF-safe webhook testing](blaze-ssrf-webhook-testing.md) — role-gate + DNS-resolve/block private ranges + no auto-redirects, needed for ANY "test connection" button that fetches a user-supplied URL.

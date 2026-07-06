@@ -13,6 +13,7 @@ import {
   Zap,
   CheckCircle2,
   XCircle,
+  AlertTriangle,
   RefreshCw,
   Globe,
   Mail,
@@ -28,15 +29,36 @@ import {
 interface BlazeSettings {
   enabled: boolean;
   webhookUrl: string;
+  workspaceId?: string;
   zapierConnected: boolean;
   lastSyncAt: string | null;
   contentTypes: string[];
 }
 
+interface BlazeTestResult {
+  status: "connected" | "not_configured" | "auth_failed" | "workspace_not_found" | "webhook_unreachable" | "request_failed" | "configured_unverified";
+  success: boolean;
+  message: string;
+}
+
+const BLAZE_STATUS_META: Record<
+  string,
+  { label: string; variant: "default" | "outline" | "destructive" | "secondary"; icon: typeof CheckCircle2 }
+> = {
+  connected: { label: "Connected", variant: "default", icon: CheckCircle2 },
+  not_configured: { label: "Not Configured", variant: "outline", icon: XCircle },
+  auth_failed: { label: "Authentication Failed", variant: "destructive", icon: XCircle },
+  workspace_not_found: { label: "Workspace Not Found", variant: "destructive", icon: XCircle },
+  webhook_unreachable: { label: "Webhook Unreachable", variant: "destructive", icon: XCircle },
+  request_failed: { label: "Request Failed", variant: "destructive", icon: XCircle },
+  configured_unverified: { label: "Configured (Unverified)", variant: "secondary", icon: AlertTriangle },
+};
+
 export default function BlazeIntegration() {
   const { toast } = useToast();
   const [webhookUrl, setWebhookUrl] = useState("");
   const [workspaceId, setWorkspaceId] = useState("");
+  const [testResult, setTestResult] = useState<BlazeTestResult | null>(null);
 
   const { data: settings, isLoading } = useQuery<BlazeSettings>({
     queryKey: ["/api/integrations/blaze"],
@@ -59,12 +81,19 @@ export default function BlazeIntegration() {
   const testMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/integrations/blaze/test");
-      return res.json();
+      return (await res.json()) as BlazeTestResult;
     },
     onSuccess: (data) => {
-      toast({ title: data.success ? "Connection OK" : "Test Failed", description: data.message });
+      setTestResult(data);
+      const meta = BLAZE_STATUS_META[data.status];
+      toast({
+        title: meta?.label || (data.success ? "Connection OK" : "Test Failed"),
+        description: data.message,
+        variant: data.success ? "default" : data.status === "configured_unverified" ? "default" : "destructive",
+      });
     },
     onError: (err: Error) => {
+      setTestResult(null);
       toast({ title: "Test Failed", description: err.message, variant: "destructive" });
     },
   });
@@ -187,6 +216,27 @@ export default function BlazeIntegration() {
                 Test Connection
               </Button>
             </div>
+
+            {testResult && (() => {
+              const meta = BLAZE_STATUS_META[testResult.status];
+              const Icon = meta?.icon || AlertTriangle;
+              return (
+                <div
+                  className="flex items-start gap-2 p-3 rounded-md border bg-muted/30"
+                  data-testid="result-blaze-test"
+                >
+                  <Icon className="w-4 h-4 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <Badge variant={meta?.variant || "outline"} data-testid="badge-blaze-test-status">
+                      {meta?.label || testResult.status}
+                    </Badge>
+                    <p className="text-xs text-muted-foreground" data-testid="text-blaze-test-message">
+                      {testResult.message}
+                    </p>
+                  </div>
+                </div>
+              );
+            })()}
           </CardContent>
         </Card>
 

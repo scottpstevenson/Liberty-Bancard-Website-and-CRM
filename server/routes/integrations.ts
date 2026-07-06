@@ -10,6 +10,8 @@ import { getWorkflowStatus, GHL_WORKFLOW_REGISTRY, getPlatformEmailConfig, getWo
 import { buildSequenceList } from "../services/sequence-blueprints";
 import { requireInternalWebhookSecret } from "../middleware/internal-webhook-auth";
 import { publicLeadRateLimit } from "../middleware/public-rate-limit";
+import dns from "node:dns/promises";
+import net from "node:net";
 
 export function registerIntegrationsRoutes(app: Express) {
   // === GHL INTEGRATION ===
@@ -426,7 +428,69 @@ export function registerIntegrationsRoutes(app: Express) {
     res.json(saved || defaultBlazeSettings);
   });
 
-  app.post("/api/integrations/blaze", isAuthenticated, async (req, res) => {
+  // SSRF guard: blocks requests to loopback, private (RFC1918), link-local
+  // (incl. cloud metadata 169.254.169.254), unique-local, and multicast
+  // ranges. Resolves the hostname first so DNS rebinding can't bypass the
+  // check (the resolved IP — not the original hostname — is what gets used
+  // for the outbound request).
+  function isBlockedIp(ip: string): boolean {
+    const type = net.isIP(ip);
+    if (type === 4) {
+      const parts = ip.split(".").map(Number);
+      const [a, b] = parts;
+      if (a === 127) return true; // loopback
+      if (a === 10) return true; // RFC1918
+      if (a === 172 && b >= 16 && b <= 31) return true; // RFC1918
+      if (a === 192 && b === 168) return true; // RFC1918
+      if (a === 169 && b === 254) return true; // link-local / cloud metadata
+      if (a === 0) return true; // "this" network
+      if (a >= 224) return true; // multicast/reserved
+      return false;
+    }
+    if (type === 6) {
+      const lower = ip.toLowerCase();
+      if (lower === "::1") return true; // loopback
+      if (lower.startsWith("fe80:") || lower.startsWith("fe80::")) return true; // link-local
+      if (lower.startsWith("fc") || lower.startsWith("fd")) return true; // unique local
+      if (lower.startsWith("::ffff:")) {
+        const v4 = lower.split(":").pop() || "";
+        if (net.isIP(v4) === 4) return isBlockedIp(v4);
+      }
+      return false;
+    }
+    return true; // unknown/unparseable — fail closed
+  }
+
+  async function resolveSafeHttpUrl(rawUrl: string): Promise<{ ok: true; url: URL } | { ok: false; reason: string }> {
+    let parsed: URL;
+    try {
+      parsed = new URL(rawUrl);
+    } catch {
+      return { ok: false, reason: "invalid_url" };
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return { ok: false, reason: "invalid_protocol" };
+    }
+    const hostname = parsed.hostname.toLowerCase();
+    if (hostname === "localhost" || hostname.endsWith(".localhost")) {
+      return { ok: false, reason: "blocked_host" };
+    }
+    const literalIpType = net.isIP(hostname);
+    if (literalIpType) {
+      if (isBlockedIp(hostname)) return { ok: false, reason: "blocked_host" };
+      return { ok: true, url: parsed };
+    }
+    try {
+      const records = await dns.lookup(hostname, { all: true, verbatim: false });
+      if (!records.length) return { ok: false, reason: "dns_failed" };
+      if (records.some((r) => isBlockedIp(r.address))) return { ok: false, reason: "blocked_host" };
+      return { ok: true, url: parsed };
+    } catch {
+      return { ok: false, reason: "dns_failed" };
+    }
+  }
+
+  app.post("/api/integrations/blaze", isAuthenticated, requireRole("admin", "manager"), async (req, res) => {
     const { webhookUrl, workspaceId } = req.body;
     const current = (await storage.getSystemSetting(BLAZE_SETTINGS_KEY)) || { ...defaultBlazeSettings };
     const updated = {
@@ -444,12 +508,130 @@ export function registerIntegrationsRoutes(app: Express) {
     res.json({ success: true, settings: updated });
   });
 
-  app.post("/api/integrations/blaze/test", isAuthenticated, async (req, res) => {
+  app.post("/api/integrations/blaze/test", isAuthenticated, requireRole("admin", "manager"), async (req, res) => {
     const saved = (await storage.getSystemSetting(BLAZE_SETTINGS_KEY)) || defaultBlazeSettings;
+
+    // No config at all — nothing to test.
     if (!saved.webhookUrl && !saved.workspaceId) {
-      return res.json({ success: false, message: "No Blaze.ai webhook URL or workspace ID configured. Use Zapier integration as the recommended approach." });
+      return res.json({
+        status: "not_configured",
+        success: false,
+        message: "No Blaze.ai webhook URL or workspace ID configured. Use Zapier integration as the recommended approach.",
+      });
     }
-    res.json({ success: true, message: "Settings saved. Connect via Zapier for the most reliable integration with Blaze.ai." });
+
+    // Only a workspace ID is set. Blaze.ai does not expose a public, non-mutating
+    // endpoint we can use to verify a workspace ID, so we do not fake a result.
+    if (!saved.webhookUrl) {
+      return res.json({
+        status: "configured_unverified",
+        success: false,
+        message: "Blaze is configured, but no safe live test endpoint is available. No test event was sent.",
+      });
+    }
+
+    // Resolve + validate the URL before ever making an outbound request.
+    // Blocks SSRF against loopback/private/link-local/cloud-metadata hosts,
+    // and re-validates the resolved IP (not just the hostname) to close the
+    // DNS-rebinding gap.
+    const safe = await resolveSafeHttpUrl(saved.webhookUrl);
+    if (!safe.ok) {
+      if (safe.reason === "dns_failed") {
+        return res.json({
+          status: "webhook_unreachable",
+          success: false,
+          message: "Could not resolve the Blaze webhook host.",
+        });
+      }
+      return res.json({
+        status: "request_failed",
+        success: false,
+        message: "The configured Blaze webhook URL is not a valid, externally reachable http(s) URL.",
+      });
+    }
+    const parsedUrl = safe.url;
+
+    // A webhook URL is "workspace-specific" (and a 404 provably means
+    // "workspace not found", rather than just a wrong/generic path) only
+    // when the configured workspace ID actually appears as a distinct
+    // segment of the URL's path or query string.
+    const workspaceId = (saved.workspaceId || "").trim();
+    const isWorkspaceScopedUrl =
+      workspaceId.length > 0 &&
+      (parsedUrl.pathname.split("/").includes(workspaceId) ||
+        Array.from(parsedUrl.searchParams.values()).includes(workspaceId));
+
+    // Non-mutating reachability check: a HEAD request confirms the endpoint is
+    // reachable and reports auth status without sending any lead/event payload.
+    const controller = new AbortController();
+    const timeoutMs = 5000;
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(parsedUrl.toString(), {
+        method: "HEAD",
+        redirect: "manual",
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      if (response.status === 401 || response.status === 403) {
+        return res.json({
+          status: "auth_failed",
+          success: false,
+          message: "Blaze rejected the request as unauthorized. Check the configured credentials.",
+        });
+      }
+      if (response.status === 404) {
+        if (isWorkspaceScopedUrl) {
+          return res.json({
+            status: "workspace_not_found",
+            success: false,
+            message: "Blaze reported that the configured workspace ID could not be found.",
+          });
+        }
+        return res.json({
+          status: "request_failed",
+          success: false,
+          message: "The Blaze webhook URL returned 404 Not Found.",
+        });
+      }
+      if (response.status >= 200 && response.status < 300) {
+        return res.json({
+          status: "connected",
+          success: true,
+          message: "The Blaze webhook endpoint responded successfully.",
+        });
+      }
+      if (response.status === 405 || (response.status >= 300 && response.status < 400)) {
+        // Something is listening (e.g. a POST-only receiver, or a redirect),
+        // but that alone isn't a confirmed provider response — do not send a
+        // test payload to find out, just report it as unverified.
+        return res.json({
+          status: "configured_unverified",
+          success: false,
+          message: "Blaze is configured and the endpoint is reachable, but it does not offer a safe way to confirm the connection without sending a live event. No test event was sent.",
+        });
+      }
+      return res.json({
+        status: "request_failed",
+        success: false,
+        message: `The Blaze webhook responded with an unexpected status (${response.status}).`,
+      });
+    } catch (err: any) {
+      clearTimeout(timeout);
+      if (err?.name === "AbortError") {
+        return res.json({
+          status: "webhook_unreachable",
+          success: false,
+          message: `Timed out after ${timeoutMs / 1000}s trying to reach the Blaze webhook URL.`,
+        });
+      }
+      return res.json({
+        status: "webhook_unreachable",
+        success: false,
+        message: "Could not reach the Blaze webhook URL.",
+      });
+    }
   });
 
   app.post("/api/webhooks/blaze", requireInternalWebhookSecret, async (req, res) => {
