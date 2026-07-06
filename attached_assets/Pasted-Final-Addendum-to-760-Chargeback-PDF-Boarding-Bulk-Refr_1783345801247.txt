@@ -1,0 +1,165 @@
+Final Addendum to #760 — Chargeback PDF + Boarding Bulk Refresh Polish
+
+Approved to build.
+
+The AI model/max token issue is out of scope and already resolved. Do not reopen AI model routing, token budgets, Blog Generator, Social, Chat, Training, or Chargeback Copilot in this task.
+
+⸻
+
+Part A — Chargebacks real PDF generation
+
+Required behavior
+
+The Chargebacks “Download PDF” action must generate an actual downloadable PDF file, not call window.print().
+
+The generated PDF should include the chargeback evidence packet content already shown in the UI, such as:
+
+merchant/deal/contact info
+chargeback details
+timeline/evidence summary
+supporting notes
+uploaded evidence/document references if available
+generated timestamp
+
+Implementation guard
+
+Before adding a new dependency, check whether the app already has an existing PDF-generation pattern or library.
+
+Preferred order:
+
+1. Reuse existing server-side PDF utility if present.
+2. Add a small server-side PDF generation helper specific to chargebacks.
+3. Avoid broad/general PDF infrastructure unless already needed elsewhere.
+
+The server route should return a real PDF response with appropriate headers:
+
+Content-Type: application/pdf
+Content-Disposition: attachment; filename="chargeback-evidence-<id>.pdf"
+
+Security guard
+
+The PDF route must preserve existing dashboard auth/role/ownership checks.
+
+Do not expose raw document paths or unauthenticated evidence files.
+
+Kill lines:
+
+STOP if Download PDF still uses window.print().
+STOP if the PDF route is unauthenticated.
+STOP if the PDF exposes raw server file paths or private storage keys.
+STOP if this task builds a broad PDF generation platform instead of the chargeback evidence PDF.
+STOP if existing chargeback evidence data is removed or simplified just to make PDF generation easier.
+
+⸻
+
+Part B — Boarding Refresh All reliability
+
+Required behavior
+
+“Refresh All Statuses” must handle large in-flight queues reliably.
+
+Do not use an unbounded client-side request storm.
+
+Use one of these safe patterns:
+
+server-side bulk refresh endpoint with per-deal results
+
+or:
+
+client-side limited concurrency, e.g. 3-5 requests at a time
+
+Preferred: server-side bulk endpoint if the backend already owns the boarding status provider logic.
+
+Result reporting
+
+The action should return/report:
+
+attempted
+succeeded
+failed
+skipped
+per-deal failure reason where available
+
+The UI should not show full success if only some deals refreshed.
+
+Allowed states:
+
+success
+partial_success
+failed
+no_op_with_reason
+
+Not allowed:
+
+spinner disappears with no clear result
+one failed deal aborts the entire refresh
+unbounded parallel API calls
+
+Provider/rate-limit guard
+
+If the boarding status API has rate limits or provider constraints, respect them with batching, backoff, or limited concurrency.
+
+Do not change provider credentials or status semantics.
+
+Kill lines:
+
+STOP if Refresh All fires unbounded parallel requests.
+STOP if one failed boarding status blocks all other deals from being attempted.
+STOP if the UI reports success when some deals failed.
+STOP if this task changes boarding status mapping/business rules.
+STOP if this task changes API keys, provider credentials, or environment flags.
+
+⸻
+
+Out of scope
+
+Do not:
+
+touch AI model identifiers
+touch max_completion_tokens / token budgets
+touch Chat/Training/Chargeback Copilot AI routing
+touch Blog Generator or Social
+build a general PDF service unrelated to chargebacks
+redesign Chargebacks or Boarding UI
+change boarding provider mappings
+change chargeback business logic
+
+⸻
+
+Validation
+
+Run:
+
+npx tsc --noEmit --skipLibCheck
+npx tsx scripts/smoke-role-guards.ts
+
+Manual checks:
+
+1. Open a chargeback evidence packet.
+2. Click Download PDF.
+3. Confirm a real .pdf downloads.
+4. Open the PDF and confirm formatting is consistent and readable.
+5. Confirm the route requires dashboard auth.
+6. Open Boarding Tracker with multiple in-flight deals.
+7. Run Refresh All Statuses.
+8. Confirm large batches complete with no timeout/request storm.
+9. Confirm per-deal failures are reported, not hidden.
+10. Confirm partial success is not displayed as full success.
+
+⸻
+
+Final report required
+
+Return:
+
+Chargeback PDF previous behavior:
+PDF generation approach used:
+PDF route/auth guard:
+Boarding refresh previous failure mode:
+Bulk/limited-concurrency approach used:
+Per-deal result shape:
+Files changed:
+Validation commands run:
+Manual PDF check completed: yes/no
+Manual large-batch refresh check completed: yes/no
+AI model/token code touched: yes/no
