@@ -1,0 +1,198 @@
+#!/usr/bin/env tsx
+/**
+ * Task #752 — CSV Import Reconciliation Smoke Test
+ *
+ * Verifies that `/api/leads/import-csv` never drops rows invisibly:
+ *
+ *   totalRows === createdCount + duplicateCount + invalidCount + skippedCount + errorCount
+ *
+ * Scenarios covered:
+ *  1. Mixed file (2 valid, 1 blank row, 1 missing-contact-method row, 1 valid) — first upload.
+ *  2. Same file uploaded a second time — all previously-inserted rows should now
+ *     resolve as app-level duplicates (not silently vanish).
+ *  3. All-invalid file — every row should be counted as invalid, zero created.
+ *  4. Outscraper-shaped file with NO email column at all — multiple valid rows
+ *     (phone/company only) must all actually import. Regression test for a bug
+ *     where contacts.email is NOT NULL + unique-indexed, and persisting "" for
+ *     every no-email row collided on that index after the first such row,
+ *     causing onConflictDoNothing() to silently DB-conflict-skip every
+ *     subsequent valid no-email row. Uses a randomly generated company/phone
+ *     suffix per run so repeated runs never collide with prior runs' leftover
+ *     dev-DB data (see fixtures/csv-import/outscraper_missing_emails.csv for a
+ *     static, human-readable reference copy of the same shape).
+ *
+ * Run with the dev server up:
+ *   BASE_URL=http://localhost:5000 npx tsx scripts/test-import-reconciliation.ts
+ *
+ * Requires a logged-in-capable test user. Uses the dedicated Playwright test user
+ * seeded for this project (see scripts/create-test-user.ts) so it never touches
+ * the real admin account's session/2FA state.
+ *
+ * Exits 0 if all assertions pass, 1 if any fail.
+ */
+
+import fs from "fs";
+import path from "path";
+
+const BASE_URL = process.env.BASE_URL ?? "http://127.0.0.1:5000";
+const TEST_EMAIL = process.env.TEST_USER_EMAIL ?? "playwright-test@libertybancard.internal";
+const TEST_PASSWORD = process.env.TEST_USER_PASSWORD ?? "PlaywrightTest2024!";
+
+let passed = 0;
+let failed = 0;
+const failures: string[] = [];
+
+function assert(condition: boolean, message: string) {
+  if (condition) {
+    passed++;
+    console.log(`  \u2713 ${message}`);
+  } else {
+    failed++;
+    failures.push(message);
+    console.error(`  \u2717 ${message}`);
+  }
+}
+
+function extractCookie(setCookieHeaders: string[]): string {
+  return setCookieHeaders.map((c) => c.split(";")[0]).join("; ");
+}
+
+async function login(): Promise<string> {
+  const res = await fetch(`${BASE_URL}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: TEST_EMAIL, password: TEST_PASSWORD }),
+  });
+  if (!res.ok) {
+    throw new Error(`Login failed: ${res.status} ${await res.text()}`);
+  }
+  const setCookie = res.headers.getSetCookie?.() ?? [];
+  return extractCookie(setCookie);
+}
+
+async function getCsrfToken(cookie: string): Promise<string> {
+  const res = await fetch(`${BASE_URL}/api/csrf-token`, {
+    headers: { Cookie: cookie },
+  });
+  const data = await res.json();
+  return data.token;
+}
+
+async function uploadCsv(cookie: string, csrf: string, filePath: string): Promise<any> {
+  const fileBuffer = fs.readFileSync(filePath);
+  return uploadCsvContent(cookie, csrf, fileBuffer, path.basename(filePath));
+}
+
+async function uploadCsvContent(
+  cookie: string,
+  csrf: string,
+  content: Buffer | string,
+  fileName: string,
+): Promise<any> {
+  const form = new FormData();
+  form.append("file", new Blob([content], { type: "text/csv" }), fileName);
+
+  const res = await fetch(`${BASE_URL}/api/leads/import-csv`, {
+    method: "POST",
+    headers: {
+      Cookie: cookie,
+      "x-csrf-token": csrf,
+    },
+    body: form,
+  });
+  const body = await res.json();
+  return { status: res.status, body };
+}
+
+function assertReconciled(label: string, body: any) {
+  const { inserted = 0, duplicatesSkipped = 0, invalidRows = 0, skippedRows = 0, errors = 0 } = body;
+  const totalRows = body.import?.totalRows;
+  const reconciledTotal = inserted + duplicatesSkipped + invalidRows + skippedRows + errors;
+  assert(
+    typeof totalRows === "number",
+    `${label}: response includes import.totalRows (got ${totalRows})`,
+  );
+  assert(
+    reconciledTotal === totalRows,
+    `${label}: totalRows(${totalRows}) === created(${inserted}) + duplicates(${duplicatesSkipped}) + invalid(${invalidRows}) + skipped(${skippedRows}) + errors(${errors}) = ${reconciledTotal}`,
+  );
+  assert(
+    typeof body.invalidRows === "number" && typeof body.skippedRows === "number",
+    `${label}: response JSON exposes both invalidRows and skippedRows fields`,
+  );
+  assert(
+    typeof body.import?.invalidRows === "number" && typeof body.import?.skippedRows === "number",
+    `${label}: persisted csv_imports record has invalidRows and skippedRows columns populated`,
+  );
+}
+
+async function main() {
+  console.log(`\nCSV Import Reconciliation Smoke Test (against ${BASE_URL})\n`);
+
+  const cookie = await login();
+  const csrf = await getCsrfToken(cookie);
+
+  console.log("Scenario 1: mixed file, first upload (2 new + 1 blank-invalid + 1 missing-contact-invalid + 1 new)");
+  const mixedPath = path.join(process.cwd(), "fixtures/csv-import/reconciliation_mixed.csv");
+  const first = await uploadCsv(cookie, csrf, mixedPath);
+  assert(first.status === 201, `Scenario 1: HTTP 201 (got ${first.status})`);
+  assertReconciled("Scenario 1", first.body);
+  assert(first.body.invalidRows >= 1, `Scenario 1: at least 1 invalid row detected (got ${first.body.invalidRows})`);
+
+  console.log("\nScenario 2: same mixed file uploaded again (all rows should resolve as duplicates or invalid, none created)");
+  const second = await uploadCsv(cookie, csrf, mixedPath);
+  assert(second.status === 201, `Scenario 2: HTTP 201 (got ${second.status})`);
+  assertReconciled("Scenario 2", second.body);
+  assert(second.body.inserted === 0, `Scenario 2: zero new inserts on re-upload (got ${second.body.inserted})`);
+  assert(second.body.duplicatesSkipped >= 1, `Scenario 2: duplicates detected on re-upload (got ${second.body.duplicatesSkipped})`);
+
+  console.log("\nScenario 3: all-invalid file (every row invalid, zero created)");
+  const invalidPath = path.join(process.cwd(), "fixtures/csv-import/reconciliation_all_invalid.csv");
+  const third = await uploadCsv(cookie, csrf, invalidPath);
+  assert(third.status === 201, `Scenario 3: HTTP 201 (got ${third.status})`);
+  assertReconciled("Scenario 3", third.body);
+  assert(third.body.inserted === 0, `Scenario 3: zero inserts (got ${third.body.inserted})`);
+  assert(
+    third.body.invalidRows === third.body.import?.totalRows,
+    `Scenario 3: all rows counted invalid (invalidRows=${third.body.invalidRows}, totalRows=${third.body.import?.totalRows})`,
+  );
+
+  console.log(
+    "\nScenario 4: Outscraper-shaped file, multiple valid rows with NO email column at all (phone/company only)",
+  );
+  // Generated fresh (unique company names + phone numbers) on every run so
+  // this scenario is idempotent regardless of leftover data from prior runs.
+  const runId = Date.now().toString(36);
+  const outscraperCsv = [
+    "Name,Telephone,Category,Rating,Review_Count,Address,Website,City,State",
+    `Zzq ${runId} Auto Repair,(305) 555-9${runId.slice(-3)}1,Auto Repair,4.6,42,300 Sunshine Blvd,,Miami,FL`,
+    `Zzq ${runId} Nail Spa,(305) 555-9${runId.slice(-3)}2,Salon/Spa,4.4,58,301 Coastal Way,,Miami,FL`,
+    `Zzq ${runId} Family Dental,(305) 555-9${runId.slice(-3)}3,Healthcare,4.8,31,302 Downtown St,,Miami,FL`,
+    `Zzq ${runId} Pizza Co,(305) 555-9${runId.slice(-3)}4,Restaurant,4.2,120,303 Palm Tree Ave,,Miami,FL`,
+    "",
+  ].join("\n");
+  const fourth = await uploadCsvContent(cookie, csrf, outscraperCsv, `outscraper_missing_emails_${runId}.csv`);
+  assert(fourth.status === 201, `Scenario 4: HTTP 201 (got ${fourth.status})`);
+  assertReconciled("Scenario 4", fourth.body);
+  assert(
+    fourth.body.inserted === 4,
+    `Scenario 4: all 4 valid no-email rows are actually imported, not silently skipped (got inserted=${fourth.body.inserted}, skippedRows=${fourth.body.skippedRows})`,
+  );
+  assert(
+    fourth.body.skippedRows === 0,
+    `Scenario 4: no rows fall into the DB-conflict skipped bucket (got skippedRows=${fourth.body.skippedRows})`,
+  );
+
+  console.log(`\n${passed} passed, ${failed} failed\n`);
+  if (failed > 0) {
+    console.error("Failures:");
+    for (const f of failures) console.error(`  - ${f}`);
+    process.exit(1);
+  }
+  process.exit(0);
+}
+
+main().catch((err) => {
+  console.error("Test script crashed:", err);
+  process.exit(1);
+});

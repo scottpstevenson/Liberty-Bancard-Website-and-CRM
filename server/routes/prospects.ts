@@ -11,7 +11,7 @@ import { getRoutingRecommendation, routeContact } from "../services/smart-router
 import { getEntityDetail, parseSunbizCsv, searchSunbiz, streamCorevtFromZip } from "../services/sunbiz-scraper";
 import { isMassEnrichmentRunning, promoteQualifiedToContacts, reEnrichAllSunbizEntities, runMassEnrichment } from "../services/daily-outreach";
 import { createContactGhlFirst } from "../services/contact-writer";
-import { convertToProspect, deepEnrichEntity, enrichSunbizEntity, isPipelineRunning, processSunbizEnrichmentQueue, runAutoDeduplication, runBulkAIClassification, runDailyEnrichmentPipeline } from "../services/sunbiz-enrichment";
+import { convertToProspect, deepEnrichEntity, enrichSunbizEntitySafe, isPipelineRunning, processSunbizEnrichmentBatch, processSunbizEnrichmentQueue, runAutoDeduplication, runBulkAIClassification, runDailyEnrichmentPipeline } from "../services/sunbiz-enrichment";
 import { parse } from "csv-parse/sync";
 import path from "path";
 import fs from "fs";
@@ -631,21 +631,28 @@ export function registerProspectsRoutes(app: Express) {
 
   app.post("/api/sunbiz/entities/:id/enrich", isAuthenticated, async (req, res) => {
     try {
-      const result = await enrichSunbizEntity(Number(req.params.id));
-      if (!result) return res.status(404).json({ message: "Entity not found" });
-      res.json(result);
+      const outcome = await enrichSunbizEntitySafe(Number(req.params.id));
+      if (outcome.status === "skipped") return res.status(404).json({ message: outcome.reason, ...outcome });
+      res.json(outcome);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      // enrichSunbizEntitySafe is designed to never throw, but guard the
+      // route anyway so a single bad record can never surface a bare 500.
+      console.error("[Enrich] Unexpected error in single-entity enrich route:", err?.message || err);
+      res.status(200).json({ entityId: Number(req.params.id), status: "failed", reason: err?.message ? String(err.message).slice(0, 500) : "Unknown enrichment error" });
     }
   });
 
   app.post("/api/sunbiz/enrich-batch", isAuthenticated, async (req, res) => {
     try {
       const limit = req.body.limit || 10;
-      const processed = await processSunbizEnrichmentQueue(limit);
-      res.json({ processed });
+      const batch = await processSunbizEnrichmentBatch(limit);
+      res.json(batch);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      // Should be unreachable — processSunbizEnrichmentBatch resolves every
+      // record via the non-throwing safe wrapper — but never let a batch
+      // enrichment failure surface as an opaque 500 to the UI.
+      console.error("[Enrich] Unexpected error in enrich-batch route:", err?.message || err);
+      res.status(200).json({ results: [], summary: { total: 0, success: 0, partial_success: 0, skipped: 0, failed: 0 }, message: err?.message || "Batch enrichment encountered an unexpected error" });
     }
   });
 

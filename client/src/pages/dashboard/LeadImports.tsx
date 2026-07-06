@@ -380,7 +380,9 @@ export default function LeadImports() {
                 <TableHead>Format</TableHead>
                 <TableHead>Total Rows</TableHead>
                 <TableHead>New</TableHead>
-                <TableHead>Skipped</TableHead>
+                <TableHead>Duplicates</TableHead>
+                <TableHead>Invalid</TableHead>
+                <TableHead>Skipped/Errors</TableHead>
                 <TableHead>Deals</TableHead>
                 <TableHead>Lead Breakdown</TableHead>
                 <TableHead>Status</TableHead>
@@ -397,6 +399,8 @@ export default function LeadImports() {
                     <TableCell><Skeleton className="h-4 w-16" /></TableCell>
                     <TableCell><Skeleton className="h-4 w-16" /></TableCell>
                     <TableCell><Skeleton className="h-4 w-16" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-16" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-16" /></TableCell>
                     <TableCell><Skeleton className="h-4 w-32" /></TableCell>
                     <TableCell><Skeleton className="h-5 w-20" /></TableCell>
                     <TableCell><Skeleton className="h-4 w-24" /></TableCell>
@@ -404,7 +408,7 @@ export default function LeadImports() {
                 ))
               ) : imports.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center h-24 text-muted-foreground" data-testid="text-no-imports">
+                  <TableCell colSpan={11} className="text-center h-24 text-muted-foreground" data-testid="text-no-imports">
                     No imports yet. Upload a CSV or Excel file above to get started.
                   </TableCell>
                 </TableRow>
@@ -438,6 +442,16 @@ export default function LeadImports() {
                     <TableCell data-testid={`text-skipped-${imp.id}`}>
                       <span className="text-muted-foreground">
                         {(imp.duplicatesSkipped ?? 0).toLocaleString()}
+                      </span>
+                    </TableCell>
+                    <TableCell data-testid={`text-invalid-${imp.id}`}>
+                      <span className={(imp.invalidRows ?? 0) > 0 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}>
+                        {(imp.invalidRows ?? 0).toLocaleString()}
+                      </span>
+                    </TableCell>
+                    <TableCell data-testid={`text-errors-${imp.id}`}>
+                      <span className={((imp.skippedRows ?? 0) + (imp.errorsCount ?? 0)) > 0 ? "text-red-600 dark:text-red-400" : "text-muted-foreground"}>
+                        {((imp.skippedRows ?? 0) + (imp.errorsCount ?? 0)).toLocaleString()}
                       </span>
                     </TableCell>
                     <TableCell data-testid={`text-deals-${imp.id}`}>
@@ -512,7 +526,29 @@ export default function LeadImports() {
                   <p className="text-sm text-muted-foreground">Duplicates Skipped</p>
                   <p className="font-medium">{(imp.duplicatesSkipped ?? 0).toLocaleString()}</p>
                 </div>
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground">Invalid Rows</p>
+                  <p className="font-medium text-amber-600 dark:text-amber-400" data-testid={`text-detail-invalid-${imp.id}`}>{(imp.invalidRows ?? 0).toLocaleString()}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground">Skipped (DB conflict)</p>
+                  <p className="font-medium text-red-600 dark:text-red-400" data-testid={`text-detail-skipped-${imp.id}`}>{(imp.skippedRows ?? 0).toLocaleString()}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground">Errors</p>
+                  <p className="font-medium text-red-600 dark:text-red-400" data-testid={`text-detail-errors-${imp.id}`}>{(imp.errorsCount ?? 0).toLocaleString()}</p>
+                </div>
               </div>
+
+              {(imp.totalRows ?? 0) > 0 && (() => {
+                const reconciled = (imp.newRecords ?? 0) + (imp.duplicatesSkipped ?? 0) + (imp.invalidRows ?? 0) + (imp.skippedRows ?? 0) + (imp.errorsCount ?? 0);
+                const mismatch = reconciled !== (imp.totalRows ?? 0);
+                return mismatch ? (
+                  <p className="text-xs text-destructive" data-testid={`text-reconciliation-mismatch-${imp.id}`}>
+                    Warning: accounted rows ({reconciled}) do not match total rows ({imp.totalRows}).
+                  </p>
+                ) : null;
+              })()}
 
               {(imp.totalRows ?? 0) > 0 && (
                 <div className="space-y-1">

@@ -2325,6 +2325,8 @@ export const csvImports = pgTable("csv_imports", {
   totalRows: integer("total_rows").default(0),
   newRecords: integer("new_records").default(0),
   duplicatesSkipped: integer("duplicates_skipped").default(0),
+  invalidRows: integer("invalid_rows").default(0),
+  skippedRows: integer("skipped_rows").default(0),
   errorsCount: integer("errors_count").default(0),
   verticalBreakdown: jsonb("vertical_breakdown"),
   importSource: text("import_source"),

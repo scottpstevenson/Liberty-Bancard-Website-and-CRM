@@ -134,7 +134,11 @@ export default function LeadGenCleaner() {
       return res.json();
     },
     onSuccess: (data) => {
-      toast({ title: "Batch Enrichment", description: `Enriched ${data.processed} entities.` });
+      const s = data?.summary;
+      const description = s
+        ? `${s.success} succeeded, ${s.partial_success} partial, ${s.skipped} skipped, ${s.failed} failed (of ${s.total}).`
+        : `Enriched ${data.processed ?? 0} entities.`;
+      toast({ title: "Batch Enrichment", description });
       queryClient.invalidateQueries({ queryKey: ["/api/sunbiz/entities"] });
       queryClient.invalidateQueries({ queryKey: ["/api/sunbiz/stats"] });
     },

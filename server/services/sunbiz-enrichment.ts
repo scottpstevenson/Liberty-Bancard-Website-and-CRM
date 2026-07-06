@@ -858,6 +858,108 @@ export async function enrichSunbizEntity(entityId: number): Promise<SunbizEntity
   return updated || entity;
 }
 
+export type SunbizEnrichmentStatus = "success" | "partial_success" | "skipped" | "failed";
+
+export interface SunbizEnrichmentOutcome {
+  entityId: number;
+  entityName?: string;
+  status: SunbizEnrichmentStatus;
+  reason: string;
+  entity?: SunbizEntity;
+}
+
+// Non-throwing wrapper around enrichSunbizEntity(). One bad record (bad data,
+// network timeout, scraper exception, AI failure, etc.) must never crash a
+// batch — every entity resolves to success/partial_success/skipped/failed
+// with a human-readable reason instead of propagating an exception.
+export async function enrichSunbizEntitySafe(entityId: number): Promise<SunbizEnrichmentOutcome> {
+  let existing: SunbizEntity | null = null;
+  try {
+    existing = await storage.getSunbizEntity(entityId);
+  } catch (err: any) {
+    console.error(`[Enrich] Failed to load entity ${entityId} before enrichment:`, err?.message || err);
+    return { entityId, status: "failed", reason: `Could not load entity: ${err?.message ? String(err.message).slice(0, 300) : "unknown error"}` };
+  }
+
+  if (!existing) {
+    return { entityId, status: "skipped", reason: "Entity not found" };
+  }
+
+  try {
+    const result = await enrichSunbizEntity(entityId);
+    if (!result) {
+      return { entityId, entityName: existing.entityName, status: "skipped", reason: "Entity not found during enrichment" };
+    }
+
+    const hasContact = !!(result.email || result.phone || result.ownerEmail || result.ownerPhone);
+
+    if (result.enrichmentStatus === "enriched" && hasContact) {
+      return { entityId, entityName: result.entityName, status: "success", reason: "Enrichment completed and contact data was found", entity: result };
+    }
+    if (result.enrichmentStatus === "enriched") {
+      return { entityId, entityName: result.entityName, status: "partial_success", reason: "Enrichment completed but no email/phone contact data was found", entity: result };
+    }
+    // enrichmentStatus stayed "pending" here, meaning scraping ran but AI
+    // classification failed — some raw data may still have been captured.
+    return { entityId, entityName: result.entityName, status: "partial_success", reason: "AI classification failed; entity left pending for retry", entity: result };
+  } catch (err: any) {
+    const reason = err?.message ? String(err.message).slice(0, 500) : "Unknown enrichment error";
+    console.error(`[Enrich] Entity ${entityId} (${existing.entityName}) enrichment failed:`, err?.message || err);
+    try {
+      await storage.updateSunbizEntity(entityId, { enrichmentStatus: "failed" });
+    } catch (updateErr: any) {
+      console.error(`[Enrich] Also failed to mark entity ${entityId} as failed:`, updateErr?.message || updateErr);
+    }
+    return { entityId, entityName: existing.entityName, status: "failed", reason };
+  }
+}
+
+export interface SunbizEnrichmentBatchResult {
+  results: SunbizEnrichmentOutcome[];
+  summary: {
+    total: number;
+    success: number;
+    partial_success: number;
+    skipped: number;
+    failed: number;
+  };
+}
+
+// Batch entry point used by the "Enrich All" UI/API. Every entity is
+// processed via the non-throwing enrichSunbizEntitySafe() wrapper, so one bad
+// record can never 500 the whole batch — the endpoint always returns 200
+// with a per-record + summary breakdown.
+export async function processSunbizEnrichmentBatch(limit: number = 10): Promise<SunbizEnrichmentBatchResult> {
+  const results: SunbizEnrichmentOutcome[] = [];
+  if (sunbizQueueRunning) {
+    return { results, summary: { total: 0, success: 0, partial_success: 0, skipped: 0, failed: 0 } };
+  }
+  sunbizQueueRunning = true;
+  try {
+    const pending = await storage.getSunbizEntitiesByStatus("pending");
+    const toProcess = pending.slice(0, limit);
+
+    for (const entity of toProcess) {
+      const outcome = await enrichSunbizEntitySafe(entity.id);
+      results.push(outcome);
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+  } finally {
+    sunbizQueueRunning = false;
+  }
+
+  const summary = results.reduce(
+    (acc, r) => {
+      acc.total++;
+      acc[r.status]++;
+      return acc;
+    },
+    { total: 0, success: 0, partial_success: 0, skipped: 0, failed: 0 }
+  );
+
+  return { results, summary };
+}
+
 const VERTICAL_KEYWORDS: Record<string, string[]> = {
   "Restaurant": ["restaurant", "grill", "pizza", "sushi", "cafe", "café", "bistro", "diner", "taco", "burrito", "bbq", "barbecue", "bakery", "catering", "food truck", "steakhouse", "seafood", "wings", "sandwich", "deli", "donut", "doughnut", "cupcake", "ice cream", "frozen yogurt", "juice bar", "smoothie", "coffee shop", "coffee house", "brewpub", "taproom", "bar & grill", "bar and grill", "cantina", "trattoria", "ramen", "pho", "thai", "chinese", "indian", "japanese", "mexican", "italian", "mediterranean", "bagel", "pub ", "tavern", "brewery", "winery", "distillery", "food service", "kitchen", "eatery", "chophouse", "oyster", "creamery", "gelato", "acai", "poke", "hibachi", "buffet", "pancake", "waffle", "brunch", "soul food", "fried chicken", "burger", "hot dog", "sub shop", "wrap", "noodle", "dim sum", "korean bbq", "shawarma", "falafel", "crepe"],
   "Retail": ["store", "shop", "boutique", "mart", "outlet", "wholesale", "retail", "gallery", "market", "emporium", "supermarket", "convenience", "gift shop", "antique", "thrift", "consignment", "furniture store", "hardware", "pet store", "toy store", "book store", "bookstore", "clothing", "apparel", "shoes", "jewelry store", "jeweler", "florist", "flower shop", "wine shop", "liquor store", "smoke shop", "vape", "smoke & vape", "cigar", "sporting goods", "surf shop", "bike shop", "music store", "instrument", "optical", "eyewear", "sunglasses", "nutrition store", "supplement", "vitamin", "cell phone", "phone repair", "mattress", "luggage", "candle", "soap", "bath & body", "home décor", "home decor", "frame shop", "art supply", "craft", "hobby", "comic", "game store", "pawn", "resale", "dollar store", "variety", "general store"],
@@ -1075,14 +1177,11 @@ export async function processSunbizEnrichmentQueue(limit: number = 5): Promise<n
     let processed = 0;
 
     for (const entity of toProcess) {
-      try {
-        await enrichSunbizEntity(entity.id);
+      const outcome = await enrichSunbizEntitySafe(entity.id);
+      if (outcome.status === "success" || outcome.status === "partial_success") {
         processed++;
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      } catch (err) {
-        console.error(`Sunbiz enrichment failed for entity ${entity.id}:`, err);
-        await storage.updateSunbizEntity(entity.id, { enrichmentStatus: "failed" });
       }
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
 
     return processed;

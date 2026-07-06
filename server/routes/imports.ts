@@ -1,4 +1,5 @@
 import type { Express } from "express";
+import { randomUUID } from "crypto";
 import { isAuthenticated, isAdmin, isAffiliate, isDashboardUser } from "../replit_integrations/auth";
 import rateLimit from "express-rate-limit";
 import { storage } from "../storage";
@@ -1631,7 +1632,16 @@ Guidelines:
         contactInserts.push({
           firstName: firstName || companyName || "Unknown",
           lastName: lastName || "",
-          email: email || "",
+          // contacts.email is NOT NULL with a unique index (per non-archived
+          // row). Persisting "" for every row lacking a real email would
+          // collide on that unique index after the first such row, causing
+          // onConflictDoNothing() to silently skip every subsequent valid
+          // no-email row. Generate a synthetic, guaranteed-unique
+          // placeholder instead so valid rows without an email can still be
+          // imported. This placeholder is never added to `emailSet` (that
+          // only happens when the CSV-parsed `email` is truthy), so it has
+          // no effect on app-level email dedupe.
+          email: email || `no-email-${randomUUID()}@no-email.libertybancard.internal`,
           phone: phone || "",
           companyName: companyName || "",
           title: mapped.title || (sourceFormat === "google_maps_outscraper" ? "Owner" : null),
@@ -1654,11 +1664,22 @@ Guidelines:
         });
       }
 
+      let skippedRows = 0;
+
       for (let i = 0; i < contactInserts.length; i += batchSize) {
         const batch = contactInserts.slice(i, i + batchSize);
         try {
           const result = await db.insert(contacts).values(batch).onConflictDoNothing().returning();
           inserted += result.length;
+          // onConflictDoNothing() can silently skip rows that hit a DB-level
+          // conflict without throwing. Those rows are neither inserted,
+          // duplicates (per our app-level dedupe), nor errors — count them
+          // explicitly so no row ever vanishes from the reconciliation total.
+          const conflictSkipped = batch.length - result.length;
+          if (conflictSkipped > 0) {
+            skippedRows += conflictSkipped;
+            console.warn(`[CSV Import] ${conflictSkipped} row(s) in batch silently skipped by DB conflict (import ${importRecord.id})`);
+          }
           for (const r of result) {
             insertedContactIds.push(r.id);
             const { auditChange } = await import("../services/audit-change");
@@ -1691,6 +1712,7 @@ Guidelines:
             }
           }
         } catch (batchErr: any) {
+          console.warn(`[CSV Import] Batch insert failed for import ${importRecord.id}, falling back to per-row insert:`, batchErr?.message || batchErr);
           for (const single of batch) {
             try {
               const [result] = await db.insert(contacts).values(single).onConflictDoNothing().returning();
@@ -1702,9 +1724,16 @@ Guidelines:
                 try {
                   await scoreContact(result.id);
                 } catch {}
+              } else {
+                // No row returned and no exception thrown: the DB silently
+                // skipped this row via onConflictDoNothing(). Track it so
+                // it isn't an invisible dropped row.
+                skippedRows++;
+                console.warn(`[CSV Import] Row silently skipped by DB conflict during per-row fallback (import ${importRecord.id})`);
               }
-            } catch {
+            } catch (rowErr: any) {
               errors++;
+              console.error(`[CSV Import] Row insert failed for import ${importRecord.id}:`, rowErr?.message || rowErr);
             }
           }
         }
@@ -1749,6 +1778,8 @@ Guidelines:
       await storage.updateCsvImport(importRecord.id, {
         newRecords: inserted,
         duplicatesSkipped: duplicatesSkipped,
+        invalidRows: invalidRows,
+        skippedRows: skippedRows,
         errorsCount: errors,
         verticalBreakdown: verticalCounts,
         status: "completed",
@@ -1759,6 +1790,11 @@ Guidelines:
         coldLeads,
       });
 
+      const reconciledTotal = inserted + duplicatesSkipped + invalidRows + skippedRows + errors;
+      if (reconciledTotal !== records.length) {
+        console.error(`[CSV Import] Reconciliation mismatch for import ${importRecord.id}: total=${records.length} but created(${inserted})+duplicates(${duplicatesSkipped})+invalid(${invalidRows})+skipped(${skippedRows})+errors(${errors})=${reconciledTotal}`);
+      }
+
       const updatedImport = await storage.getCsvImport(importRecord.id);
 
       res.status(201).json({
@@ -1766,6 +1802,7 @@ Guidelines:
         inserted,
         duplicatesSkipped,
         invalidRows,
+        skippedRows,
         errors,
         dealsCreated,
         verticalBreakdown: verticalCounts,

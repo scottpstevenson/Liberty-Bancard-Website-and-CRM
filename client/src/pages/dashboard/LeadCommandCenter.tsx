@@ -416,7 +416,16 @@ export default function LeadCommandCenter() {
       }
       return Promise.all(promises);
     },
-    onSuccess: () => { toast({ title: "Enrichment Started", description: "Selected leads are being enriched." }); invalidateAll(); setSelectedIds(new Set()); },
+    onSuccess: (results: any[]) => {
+      const batchResult = results?.find((r) => r?.summary);
+      const s = batchResult?.summary;
+      const description = s
+        ? `${s.success} succeeded, ${s.partial_success} partial, ${s.skipped} skipped, ${s.failed} failed (of ${s.total}).`
+        : "Selected leads are being enriched.";
+      toast({ title: "Enrichment Started", description });
+      invalidateAll();
+      setSelectedIds(new Set());
+    },
     onError: (err: any) => { toast({ title: "Enrichment Error", description: err.message, variant: "destructive" }); },
   });
 

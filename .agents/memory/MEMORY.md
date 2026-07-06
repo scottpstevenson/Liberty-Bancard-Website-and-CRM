@@ -29,3 +29,4 @@
 - [OpenAI max_tokens param rejected](openai-max-tokens-param.md) — proposal-engine.ts OpenAI calls 400 on `max_tokens`; model requires `max_completion_tokens`; likely affects other call sites too.
 - [Sidebar CSS vars missing](sidebar-css-vars-missing.md) — tailwind.config.ts can reference `--sidebar*` CSS vars that don't exist in index.css, silently breaking bg-sidebar colors (invisible mobile drawer).
 - [TabsList wrap/overlap convention](tabs-wrap-convention.md) — fixed h-10 TabsList + page-level flex-wrap without h-auto causes wrapped tab rows to overlap surrounding content; use `flex-wrap h-auto gap-1`.
+- [CSV import row accounting](csv-import-row-accounting.md) — onConflictDoNothing() silently drops rows without throwing; must diff batch vs result length and count it, or totalRows can never reconcile.
