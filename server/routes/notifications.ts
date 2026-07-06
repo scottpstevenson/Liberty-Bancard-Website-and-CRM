@@ -251,14 +251,39 @@ export function registerNotificationsRoutes(app: Express) {
   app.get("/api/notifications/digest-availability", isAuthenticated, async (req, res) => {
     try {
       const health = await computeDigestHealth();
-      // Only report deliverable=true when we have positive confirmation of both
-      // an email provider AND a running scheduler. An unknown scheduler state
-      // must never be reported as deliverable — that would re-introduce a
-      // false-success signal for regular users.
-      const deliverable = health.emailProviderConfigured && health.schedulerActive === true;
+      // Only report deliveryAvailable=true when we have positive confirmation
+      // of both an email provider AND a running scheduler. An unknown
+      // scheduler state must never be reported as available — that would
+      // re-introduce a false-success signal for regular users.
+      const deliveryAvailable = health.emailProviderConfigured && health.schedulerActive === true;
+      // Scoped status enum — never names which provider (GHL/SMTP) is
+      // configured, and never surfaces scheduler internals or raw errors.
+      let status: "active" | "not_configured" | "inactive" | "unknown";
+      if (!health.emailProviderConfigured) {
+        status = "not_configured";
+      } else if (health.schedulerActive === true) {
+        status = "active";
+      } else if (health.schedulerActive === false) {
+        status = "inactive";
+      } else {
+        status = "unknown";
+      }
+
+      const message = deliveryAvailable
+        ? "Email digest is active."
+        : status === "not_configured"
+          ? "Email digest preference saved, but delivery is not currently active."
+          : status === "unknown"
+            ? "Email digest delivery status is unavailable."
+            : (health.reason || "Email digest preference saved, but delivery is not currently active.");
+
       res.json({
-        deliverable,
-        reason: deliverable ? null : health.reason,
+        deliveryAvailable,
+        status,
+        message,
+        // Kept for backward compatibility with any existing consumer.
+        deliverable: deliveryAvailable,
+        reason: deliveryAvailable ? null : health.reason,
       });
     } catch (err: any) {
       console.error("Get digest availability error:", err.message);

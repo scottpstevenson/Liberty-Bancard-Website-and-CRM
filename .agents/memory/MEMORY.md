@@ -36,3 +36,5 @@
 - [QueueManager partial-init leak](queue-manager-init-failure.md) — getQueueManager() must not cache a manager whose initialize() threw partway through, or dual sync mechanisms (BullMQ + legacy fallback) can both go live.
 - [SSRF-safe webhook testing](blaze-ssrf-webhook-testing.md) — role-gate + DNS-resolve/block private ranges + no auto-redirects, needed for ANY "test connection" button that fetches a user-supplied URL.
 - [PUT routes with raw string dates](date-string-update-coercion.md) — storage.updateDeal/updateCalendarEvent 500 on JSON date strings ("value.toISOString is not a function"); coerce string→Date before db.update() on timestamp columns.
+- [Call follow-up SMS/email test isolation](call-follow-up-sequence-side-effect.md) — /api/call-follow-ups/send enrolls into OUTCOME_TO_SEQUENCE as a side effect; picking a mapped outcome in tests can 500 if that sequence is paused.
+- [jsdom component render testing without vitest/jest](jsdom-component-render-testing.md) — real-render React/Radix trees in a plain npx-tsx script when the project forbids test frameworks.

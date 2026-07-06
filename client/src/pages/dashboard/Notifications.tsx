@@ -29,8 +29,12 @@ type DigestHealth = {
 };
 
 type DigestAvailability = {
-  deliverable: boolean;
-  reason: string | null;
+  deliveryAvailable: boolean;
+  status: "active" | "not_configured" | "inactive" | "unknown";
+  message: string;
+  // Backward-compatible aliases kept by the backend for older consumers.
+  deliverable?: boolean;
+  reason?: string | null;
 };
 
 type NotificationRecord = {
@@ -329,10 +333,10 @@ export default function Notifications() {
       // Only surface the digest-delivery caveat for the digest toggles themselves
       // (digestDaily/digestWeekly), not for unrelated per-event email toggles.
       const enablingDigest = (params.digestDaily === true || params.digestWeekly === true);
-      if (enablingDigest && digestAvailability && !digestAvailability.deliverable) {
+      if (enablingDigest && digestAvailability && !digestAvailability.deliveryAvailable) {
         toast({
           title: "Preference saved",
-          description: digestAvailability.reason || "Note: digest emails are not currently deliverable, so this preference will have no effect until delivery is available.",
+          description: digestAvailability.message || "Note: digest emails are not currently deliverable, so this preference will have no effect until delivery is available.",
         });
       }
     },
@@ -550,9 +554,9 @@ export default function Notifications() {
                       </CardContent>
                     </Card>
                   )}
-                  {digestAvailability && !digestAvailability.deliverable && (
+                  {digestAvailability && !digestAvailability.deliveryAvailable && (
                     <p className="text-xs text-amber-600 dark:text-amber-400" data-testid="text-digest-toggle-caveat">
-                      {digestAvailability.reason || "Note: toggling these preferences saves your choice, but digest emails are not currently deliverable."}
+                      {digestAvailability.message || "Note: toggling these preferences saves your choice, but digest emails are not currently deliverable."}
                     </p>
                   )}
                   {digestTypes.map((eventType) => {

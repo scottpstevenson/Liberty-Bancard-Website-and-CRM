@@ -26,6 +26,7 @@ import { ResponsiveTable } from "@/components/ui/responsive-table";
 import { toastError } from "@/lib/toast-helpers";
 import type { Ticket, Contact, TicketComment } from "@shared/schema";
 import { TICKET_CATEGORIES, SUPPORT_STAGES } from "@shared/schema";
+import { useTicketDraft } from "@/hooks/use-ticket-draft";
 
 function getPriorityVariant(priority: string | null): "destructive" | "secondary" {
   return priority === "Urgent" ? "destructive" : "secondary";
@@ -116,15 +117,17 @@ function TicketConversation({
   onDraftInserted?: () => void;
 }) {
   const { toast } = useToast();
-  const [replyContent, setReplyContent] = useState("");
+  const { replyContent, setReplyContent: handleReplyContentChange, discard: handleDiscardDraft, clearAfterSend } = useTicketDraft(
+    ticket.id,
+    draftToInsert,
+    onDraftInserted
+  );
   const [isInternal, setIsInternal] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
 
   useEffect(() => {
     if (draftToInsert && draftToInsert.text) {
-      setReplyContent(draftToInsert.text);
       setIsInternal(false);
-      onDraftInserted?.();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftToInsert?.nonce]);
@@ -145,7 +148,7 @@ function TicketConversation({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/tickets", ticket.id, "comments"] });
-      setReplyContent("");
+      clearAfterSend();
       toast({ title: "Reply added" });
     },
     onError: (err: Error) => {
@@ -241,7 +244,7 @@ function TicketConversation({
                     key={i}
                     className="w-full text-left px-3 py-2 text-sm hover:bg-accent transition-colors border-b last:border-b-0"
                     onClick={() => {
-                      setReplyContent(qr.text);
+                      handleReplyContentChange(qr.text);
                       setShowTemplates(false);
                       setIsInternal(false);
                     }}
@@ -256,12 +259,17 @@ function TicketConversation({
         </div>
         <Textarea
           value={replyContent}
-          onChange={(e) => setReplyContent(e.target.value)}
+          onChange={(e) => handleReplyContentChange(e.target.value)}
           placeholder={isInternal ? "Add an internal note..." : "Type your reply..."}
           className="resize-none"
           rows={4}
           data-testid="input-reply-content"
         />
+        {replyContent.trim() && (
+          <p className="text-xs text-muted-foreground" data-testid="text-draft-saved-indicator">
+            Draft saved for this ticket — it will still be here if you navigate away.
+          </p>
+        )}
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div className="flex items-center gap-2">
             <Switch
@@ -276,19 +284,32 @@ function TicketConversation({
               <Lock className="w-3.5 h-3.5 text-muted-foreground" />
             )}
           </div>
-          <Button
-            onClick={handleSubmitReply}
-            disabled={!replyContent.trim() || addCommentMutation.isPending}
-            className="gap-2"
-            data-testid="button-submit-reply"
-          >
-            {addCommentMutation.isPending ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Send className="w-4 h-4" />
+          <div className="flex items-center gap-2">
+            {replyContent.trim() && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleDiscardDraft}
+                disabled={addCommentMutation.isPending}
+                data-testid="button-discard-draft"
+              >
+                Discard draft
+              </Button>
             )}
-            {isInternal ? "Add Note" : "Send Reply"}
-          </Button>
+            <Button
+              onClick={handleSubmitReply}
+              disabled={!replyContent.trim() || addCommentMutation.isPending}
+              className="gap-2"
+              data-testid="button-submit-reply"
+            >
+              {addCommentMutation.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Send className="w-4 h-4" />
+              )}
+              {isInternal ? "Add Note" : "Send Reply"}
+            </Button>
+          </div>
         </div>
       </div>
     </div>

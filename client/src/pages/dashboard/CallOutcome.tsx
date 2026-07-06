@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -19,6 +19,8 @@ import {
   FileText, ArrowRight, Eye, Edit3, ChevronDown, ChevronUp
 } from "lucide-react";
 import type { Contact, Deal } from "@shared/schema";
+import { computeSmsEligibility } from "@shared/sms-eligibility";
+import { SmsFollowUpSection } from "@/components/call-outcome/SmsFollowUpSection";
 
 const OUTCOMES = [
   "Connected - Send Review Summary",
@@ -220,6 +222,24 @@ export default function CallOutcome() {
   const outcomeInfo = selectedOutcome ? OUTCOME_LABELS[selectedOutcome] : null;
   const selectedContact = contacts?.find(c => c.id === Number(selectedContactId));
 
+  // Proactive SMS eligibility gate — this is a UX improvement only. The
+  // backend /api/call-follow-ups/send remains the final authority on
+  // whether an SMS actually sends (it re-checks phone/consent itself).
+  const smsEligibility = computeSmsEligibility({
+    selectedContactId,
+    contactsLoading,
+    contact: selectedContact,
+  });
+
+  // If eligibility is lost (contact changed, no phone, no consent), force
+  // sendSms back off so a stale "checked" value can never be submitted for
+  // an ineligible contact just because the checkbox is visually disabled.
+  useEffect(() => {
+    if (!smsEligibility.eligible) {
+      setSendSms(false);
+    }
+  }, [smsEligibility.eligible, selectedContactId]);
+
   const resetAll = () => {
     form.reset();
     setSelectedContactId("");
@@ -369,34 +389,13 @@ export default function CallOutcome() {
 
             <Separator />
 
-            <div className="space-y-3" data-testid="section-sms-draft">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <MessageSquare className="w-4 h-4 text-green-500" />
-                  <span className="font-semibold text-sm">SMS Follow-Up</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    checked={sendSms}
-                    onCheckedChange={(v) => setSendSms(!!v)}
-                    data-testid="checkbox-send-sms"
-                  />
-                  <span className="text-xs text-muted-foreground">Send this</span>
-                </div>
-              </div>
-              <Textarea
-                value={editSmsBody}
-                onChange={(e) => setEditSmsBody(e.target.value)}
-                rows={3}
-                className="text-sm resize-none"
-                data-testid="input-sms-body"
-              />
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>{editSmsBody.length} characters</span>
-                {editSmsBody.length > 300 && <span className="text-amber-500">Consider shortening for SMS</span>}
-                {!selectedContact?.consentSms && <span className="text-red-500">Contact has not consented to SMS</span>}
-              </div>
-            </div>
+            <SmsFollowUpSection
+              eligibility={smsEligibility}
+              sendSms={sendSms}
+              onSendSmsChange={setSendSms}
+              smsBody={editSmsBody}
+              onSmsBodyChange={setEditSmsBody}
+            />
 
             {drafts.nextSteps && (
               <>
