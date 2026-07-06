@@ -91,7 +91,7 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
             () => openai.chat.completions.create({
               model: "gpt-5",
               messages: pubStmtMessages,
-              max_tokens: 800,
+              max_completion_tokens: 8000,
             })
           );
 

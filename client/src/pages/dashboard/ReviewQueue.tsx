@@ -124,8 +124,93 @@ function getCheckedCount(state: Record<string, boolean>, checklist: ChecklistIte
   return checklist.filter((ci) => state[ci.key] === true).length;
 }
 
+// Keys already surfaced by the "known fields" section above, or that are
+// purely internal bookkeeping and shouldn't be shown as a raw label/value row.
+const META_CONSUMED_KEYS = new Set([
+  "contactName", "firstName", "lastName", "email", "phone",
+  "companyName", "businessName", "source", "industry", "vertical",
+  "monthlyVolume", "currentProcessor", "painPoints", "recommendedProgram",
+  "estimatedSavings", "utmSource", "utmCampaign", "subject", "category",
+  "priority", "description", "offerPath", "goal", "promoCode",
+]);
+
+// Fields that must never be rendered even in the "remaining metadata" fallback
+// section: secrets/credentials, raw auth material, and internal IDs that are
+// either shown elsewhere (item.sourceId) or are not meaningful to a reviewer.
+const META_SENSITIVE_KEY_PATTERN = /token|password|secret|apikey|api_key|auth|cookie|session|privatekey|private_key|ssn|ein|ssn_|account_?number|routing_?number|card_?number|cvv|signature|hash|credential/i;
+const META_HIDDEN_KEYS = new Set([
+  "contactId", "dealId", "ticketId", "sourceId", "id", "userId",
+  "entityId", "entityType", "ghlContactId", "ghlWorkflowId", "ghlTaskId",
+  "ip", "ipAddress", "userAgent",
+]);
+
+function humanizeMetaKey(key: string): string {
+  return key
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^./, (c) => c.toUpperCase());
+}
+
+const META_MAX_FLATTEN_DEPTH = 3;
+
+function formatMetaScalar(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  const str = String(value).trim();
+  return str && str !== "—" ? str : null;
+}
+
+// Recursively flattens metadata values into human-readable "Parent > Child"
+// label/value pairs instead of ever rendering raw JSON. Sensitive keys are
+// redacted at every nesting level, not just the top level, so a non-sensitive
+// parent key (e.g. "details") cannot smuggle a nested "token" or "authHeader"
+// field into the UI.
+function flattenMetaValue(
+  label: string,
+  value: unknown,
+  depth: number,
+  out: Array<[string, string]>,
+): void {
+  if (value === null || value === undefined) return;
+  if (depth > META_MAX_FLATTEN_DEPTH) return;
+
+  if (Array.isArray(value)) {
+    const scalars = value
+      .filter((v) => v === null || v === undefined || typeof v !== "object")
+      .map((v) => formatMetaScalar(v))
+      .filter((v): v is string => !!v);
+    if (scalars.length === value.length && scalars.length > 0) {
+      out.push([label, scalars.join(", ")]);
+      return;
+    }
+    value.forEach((item, idx) => {
+      flattenMetaValue(`${label} #${idx + 1}`, item, depth + 1, out);
+    });
+    return;
+  }
+
+  if (typeof value === "object") {
+    for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+      if (META_SENSITIVE_KEY_PATTERN.test(key) || META_HIDDEN_KEYS.has(key)) continue;
+      flattenMetaValue(`${label} \u2013 ${humanizeMetaKey(key)}`, nested, depth + 1, out);
+    }
+    return;
+  }
+
+  const scalar = formatMetaScalar(value);
+  if (scalar) out.push([label, scalar]);
+}
+
+function formatMetaValue(key: string, value: unknown): Array<[string, string]> {
+  const rows: Array<[string, string]> = [];
+  flattenMetaValue(humanizeMetaKey(key), value, 0, rows);
+  return rows;
+}
+
 function MetaDisplay({ meta }: { meta: ReviewQueueMeta }) {
-  const rows: Array<[string, string]> = (
+  const knownRows: Array<[string, string]> = (
     [
       ["Contact Name", getContactName(meta)],
       ["Email", meta.email],
@@ -149,14 +234,23 @@ function MetaDisplay({ meta }: { meta: ReviewQueueMeta }) {
     ] as Array<[string, string | undefined]>
   ).filter((row): row is [string, string] => !!row[1] && row[1] !== "—");
 
+  // Second level: any remaining metadata keys not already shown above, so new
+  // or unexpected fields from any current source still render instead of
+  // silently disappearing behind a fixed whitelist.
+  const extraRows: Array<[string, string]> = Object.entries(meta as Record<string, unknown>)
+    .filter(([key]) => !META_CONSUMED_KEYS.has(key) && !META_HIDDEN_KEYS.has(key) && !META_SENSITIVE_KEY_PATTERN.test(key))
+    .flatMap(([key, value]) => formatMetaValue(key, value));
+
+  const rows = [...knownRows, ...extraRows];
+
   if (rows.length === 0) {
     return <p className="text-sm text-muted-foreground">No details available.</p>;
   }
 
   return (
     <dl className="grid grid-cols-1 gap-y-2 text-sm">
-      {rows.map(([label, value]) => (
-        <div key={label} className="flex gap-2">
+      {rows.map(([label, value], idx) => (
+        <div key={`${label}-${idx}`} className="flex gap-2">
           <dt className="w-40 shrink-0 font-medium text-muted-foreground">{label}</dt>
           <dd className="flex-1 text-foreground break-words">{value}</dd>
         </div>

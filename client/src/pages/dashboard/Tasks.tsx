@@ -25,10 +25,29 @@ import type { Task } from "@shared/schema";
 const STATUS_OPTIONS = ["pending", "in_progress", "completed"] as const;
 const PRIORITY_OPTIONS = ["normal", "high", "urgent"] as const;
 
+function isValidDate(value: unknown): value is Date {
+  return value instanceof Date && !isNaN(value.getTime());
+}
+
+function formatDueDate(dueDate: Task["dueDate"]): string {
+  if (!dueDate) return "No due date";
+  const parsed = new Date(dueDate);
+  return isValidDate(parsed) ? parsed.toLocaleDateString() : "No due date";
+}
+
 function isOverdue(task: Task): boolean {
   if (!task.dueDate) return false;
   if (task.status === "completed") return false;
-  return new Date() > new Date(task.dueDate);
+  const due = new Date(task.dueDate);
+  if (!isValidDate(due)) return false;
+  return new Date() > due;
+}
+
+function humanizeUnknownLabel(value: string): string {
+  return value
+    .replace(/[_-]+/g, " ")
+    .trim()
+    .replace(/\w\S*/g, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()) || "Unknown";
 }
 
 function getStatusLabel(status: string | null): string {
@@ -36,7 +55,7 @@ function getStatusLabel(status: string | null): string {
     case "pending": return "Pending";
     case "in_progress": return "In Progress";
     case "completed": return "Completed";
-    default: return status || "Pending";
+    default: return status ? humanizeUnknownLabel(status) : "Unknown";
   }
 }
 
@@ -45,7 +64,7 @@ function getPriorityLabel(priority: string | null): string {
     case "urgent": return "Urgent";
     case "high": return "High";
     case "normal": return "Normal";
-    default: return priority || "Normal";
+    default: return priority ? humanizeUnknownLabel(priority) : "Normal";
   }
 }
 
@@ -564,7 +583,7 @@ export default function Tasks() {
                   </TableCell>
                   <TableCell>
                     <div className="space-y-1">
-                      <div className="font-medium" data-testid={`text-task-title-${task.id}`}>{task.title}</div>
+                      <div className="font-medium" data-testid={`text-task-title-${task.id}`}>{task.title || "Untitled task"}</div>
                       {task.description && (
                         <div className="text-xs text-muted-foreground line-clamp-1" data-testid={`text-task-desc-${task.id}`}>{task.description}</div>
                       )}
@@ -575,7 +594,7 @@ export default function Tasks() {
                   </TableCell>
                   <TableCell className="hidden sm:table-cell" data-testid={`text-task-due-${task.id}`}>
                     <div className="flex items-center gap-2">
-                      {task.dueDate ? new Date(task.dueDate).toLocaleDateString() : "No date"}
+                      {formatDueDate(task.dueDate)}
                       {overdue && (
                         <Badge variant="destructive" className="text-xs no-default-hover-elevate no-default-active-elevate" data-testid={`badge-overdue-${task.id}`}>
                           Overdue

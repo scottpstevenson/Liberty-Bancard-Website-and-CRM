@@ -74,11 +74,29 @@ function AICommandCenter() {
       const res = await apiRequest("POST", endpoint, actionKey === "route_prospects" ? {} : undefined);
       return res.json();
     },
-    onSuccess: (_data, actionKey) => {
+    onSuccess: (data, actionKey) => {
       queryClient.invalidateQueries({ queryKey: ["/api/ai/command-center"] });
+      const label = commandCenter?.aiActions.find(a => a.key === actionKey)?.label || actionKey;
+
+      if (data?.reason) {
+        toast({
+          title: "No Action Taken",
+          description: `${label}: ${data.reason}`,
+        });
+        return;
+      }
+
+      const countLabel = data?.generated !== undefined
+        ? `${data.generated} task${data.generated === 1 ? "" : "s"} generated`
+        : data?.routed !== undefined
+        ? `${data.routed} prospect${data.routed === 1 ? "" : "s"} routed`
+        : data?.progressed !== undefined
+        ? `${data.progressed} deal${data.progressed === 1 ? "" : "s"} progressed`
+        : undefined;
+
       toast({
         title: "AI Action Complete",
-        description: `Successfully ran ${commandCenter?.aiActions.find(a => a.key === actionKey)?.label || actionKey}`,
+        description: countLabel ? `${label}: ${countLabel}` : `Successfully ran ${label}`,
       });
     },
     onError: (error: Error) => {

@@ -208,7 +208,7 @@ Return JSON with:
       () => openai.chat.completions.create({
         model: "gpt-5",
         messages: stmtEngineMessages,
-        max_tokens: 1000,
+        max_completion_tokens: 10000,
         response_format: { type: "json_object" },
         temperature: 0.3,
       }));
@@ -410,7 +410,7 @@ STATEMENT ANALYSIS RESULTS (use these findings):
       () => openai.chat.completions.create({
         model: "gpt-5",
         messages: propEngineMessages,
-        max_tokens: 2000,
+        max_completion_tokens: 8000,
         response_format: { type: "json_object" },
         temperature: 0.4,
       }));

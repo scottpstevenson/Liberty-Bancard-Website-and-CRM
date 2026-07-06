@@ -609,7 +609,23 @@ export function registerDealsRoutes(app: Express) {
         }
       }
 
-      res.json({ progressed: progressions.length, progressions });
+      const noOpReason = progressions.length === 0
+        ? "No active sales deals met the criteria for automatic stage advancement."
+        : undefined;
+
+      if (noOpReason) {
+        // Record that the button was actually run, even though no deal qualified —
+        // otherwise the Command Center's run-count/last-run would look like the
+        // action never executed even though it did (it just found nothing to do).
+        await storage.createAuditLog({
+          action: "deal_auto_progressed",
+          entityType: "system",
+          entityId: 0,
+          details: { progressed: 0, actorId: (req as any).user?.id, resultState: "no_op_with_reason", reason: noOpReason },
+        }).catch((err: any) => console.error("[AI] Failed to write no-op deal_auto_progressed audit log:", err.message));
+      }
+
+      res.json({ progressed: progressions.length, progressions, reason: noOpReason });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

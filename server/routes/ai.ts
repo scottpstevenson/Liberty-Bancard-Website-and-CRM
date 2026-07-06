@@ -64,7 +64,7 @@ OUTPUT FORMAT:
         () => openai.chat.completions.create({
           model: "gpt-5",
           messages: msgArray,
-          max_tokens: 1500,
+          max_completion_tokens: 5000,
         })
       );
 
@@ -139,11 +139,26 @@ RULES:
         () => openai.chat.completions.create({
           model: "gpt-5",
           messages: insightMessages,
-          max_tokens: 800,
+          max_completion_tokens: 3200,
         })
       );
 
       const insightsContent = completion.choices[0]?.message?.content || "No insights available.";
+
+      await storage.createAuditLog({
+        action: "ai_insights_generated",
+        entityType: "system",
+        entityId: 0,
+        details: {
+          actorId: (req as any).user?.id,
+          resultState: "success",
+          activeDeals: activeDeals.length,
+          stallingDeals: stallingDeals.length,
+          openTickets: openTickets.length,
+          breachedTickets: breachedTickets.length,
+        },
+      }).catch((err: any) => console.error("[AI] Failed to write ai_insights_generated audit log:", err.message));
+
       res.json({ insights: insightsContent });
     } catch (err: any) {
       res.status(500).json({ message: err.message || "AI insights error" });
@@ -209,7 +224,7 @@ FORMAT your response as JSON: {"subject": "...", "body": "..."}${verticalBlock}`
         () => openai.chat.completions.create({
           model: "gpt-5",
           messages: emailMessages,
-          max_tokens: 800,
+          max_completion_tokens: 3200,
         })
       );
 
@@ -288,7 +303,24 @@ FORMAT your response as JSON: {"subject": "...", "body": "..."}${verticalBlock}`
         )
       );
 
-      res.json({ generated: created.length, tasks: created });
+      const noOpReason = created.length === 0
+        ? "No stalling deals, SLA-breached tickets, or stale new leads matched the generation criteria."
+        : undefined;
+
+      await storage.createAuditLog({
+        action: "ai_tasks_generated",
+        entityType: "system",
+        entityId: 0,
+        details: {
+          generated: created.length,
+          taskIds: created.map(t => t.id),
+          actorId: (req as any).user?.id,
+          resultState: created.length > 0 ? "success" : "no_op_with_reason",
+          reason: noOpReason,
+        },
+      }).catch((err: any) => console.error("[AI] Failed to write ai_tasks_generated audit log:", err.message));
+
+      res.json({ generated: created.length, tasks: created, reason: noOpReason });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -333,7 +365,7 @@ Respond ONLY with valid JSON.`
         () => openai.chat.completions.create({
           model: "gpt-5",
           messages: classifyMessages,
-          max_tokens: 600,
+          max_completion_tokens: 3000,
         })
       );
 
@@ -462,7 +494,7 @@ Return JSON with:
         () => openai.chat.completions.create({
           model: "gpt-5",
           messages: stmtMessages,
-          max_tokens: 1000,
+          max_completion_tokens: 10000,
         })
       );
 
@@ -634,7 +666,7 @@ Notes: ${deal.notes || "None"}`
         () => openai.chat.completions.create({
           model: "gpt-5",
           messages: proposalMessages,
-          max_tokens: 2000,
+          max_completion_tokens: 8000,
         }));
 
       const raw = completion.choices[0]?.message?.content || "";
@@ -1130,7 +1162,7 @@ Based on the above, generate the evidence packet. For the evidenceChecklist, che
         () => openai.chat.completions.create({
           model: "gpt-5",
           messages: chargebackMessages,
-          max_tokens: 2000,
+          max_completion_tokens: 8000,
           response_format: { type: "json_object" },
         })
       );
@@ -1348,7 +1380,7 @@ Based on the above, generate the evidence packet. For the evidenceChecklist, che
       const completion = await openai.chat.completions.create({
         model,
         messages,
-        max_tokens: 1500,
+        max_completion_tokens: 5000,
       });
 
       const durationMs = Date.now() - start;

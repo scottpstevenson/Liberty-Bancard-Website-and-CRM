@@ -170,7 +170,7 @@ Stay in character as the merchant. Be realistic, not a pushover. Don't make it t
         () => openai.chat.completions.create({
           model: "gpt-5",
           messages,
-          max_tokens: 600,
+          max_completion_tokens: 3000,
         })
       );
 
@@ -271,7 +271,7 @@ Return valid JSON with:
         () => openai.chat.completions.create({
           model: "gpt-5",
           messages: coachMessages,
-          max_tokens: 600,
+          max_completion_tokens: 3000,
         })
       );
 

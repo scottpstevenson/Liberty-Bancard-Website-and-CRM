@@ -200,8 +200,33 @@ export function registerSearchRoutes(app: Express) {
 
   app.post("/api/ai/route-prospects-bulk", isAuthenticated, async (req, res) => {
     try {
-      const { prospectIds } = req.body;
-      if (!prospectIds || !Array.isArray(prospectIds)) return res.status(400).json({ message: "prospectIds array required" });
+      let { prospectIds } = req.body;
+      if (prospectIds !== undefined && !Array.isArray(prospectIds)) {
+        return res.status(400).json({ message: "prospectIds must be an array" });
+      }
+
+      // Auto-select a batch of unrouted prospects when no explicit selection is
+      // provided (e.g. the AI Command Center "Run Now" button has no selection UI).
+      if (!prospectIds || prospectIds.length === 0) {
+        const rawProspects = await storage.getProspectsByStatus("raw");
+        prospectIds = rawProspects.slice(0, 50).map(p => p.id);
+
+        if (prospectIds.length === 0) {
+          await storage.createAuditLog({
+            action: "prospect_routed",
+            entityType: "system",
+            entityId: 0,
+            details: {
+              routed: 0,
+              requested: 0,
+              actorId: (req as any).user?.id,
+              resultState: "no_op_with_reason",
+              reason: "No unrouted prospects found to route.",
+            },
+          }).catch((err: any) => console.error("[AI] Failed to write prospect_routed audit log:", err.message));
+          return res.json({ routed: 0, results: [], reason: "No unrouted prospects found to route." });
+        }
+      }
 
       const campaigns = await storage.getCampaigns();
       const sdrCampaigns = campaigns.filter(c => c.name.startsWith("SDR-"));
@@ -225,7 +250,26 @@ export function registerSearchRoutes(app: Express) {
         }
       }
 
-      res.json({ routed: results.length, results });
+      const noOpReason = results.length === 0
+        ? (sdrCampaigns.length === 0
+          ? "No active SDR campaigns exist to route prospects into."
+          : "None of the provided prospect IDs matched a valid, routable prospect.")
+        : undefined;
+
+      await storage.createAuditLog({
+        action: "prospect_routed",
+        entityType: "system",
+        entityId: 0,
+        details: {
+          routed: results.length,
+          requested: prospectIds.length,
+          actorId: (req as any).user?.id,
+          resultState: results.length > 0 ? (results.length < prospectIds.length ? "partial_success" : "success") : "no_op_with_reason",
+          reason: noOpReason,
+        },
+      }).catch((err: any) => console.error("[AI] Failed to write prospect_routed audit log:", err.message));
+
+      res.json({ routed: results.length, results, reason: noOpReason });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
