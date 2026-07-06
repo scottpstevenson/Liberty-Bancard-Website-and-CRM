@@ -1,0 +1,95 @@
+Final Addendum to #776 — Pipeline Board Proposal Retry Indicator
+
+Approved to build.
+
+This task extends the #764 proposal-load failure handling from the deal detail panel to the Kanban board cards.
+
+Required behavior
+
+A board card must distinguish between:
+
+proposal exists
+no proposal exists
+proposal status unknown / failed to load
+
+The board must not silently render no badge when proposal status failed to load.
+
+Board-card behavior
+
+If the initial board-level proposal batch fetch fails for a deal, the card should show a lightweight state such as:
+
+Details unavailable
+Retry
+
+or:
+
+Proposal status unavailable
+Retry
+
+Retry should re-fetch proposal status for that deal or revalidate the proposal-status query without requiring a full page reload.
+
+Preferred behavior:
+
+retry only the affected deal's proposal status
+
+Acceptable behavior:
+
+retry/revalidate the proposal-status batch query
+
+Do not force a full browser reload.
+
+Data-truth guard
+
+Do not treat fetch failure as “no proposal.”
+
+Use explicit state:
+
+proposalStatus: "accepted" | "pending" | "draft" | "none" | "failed_to_load" | "unknown"
+
+or equivalent existing state shape.
+
+Detail-panel consistency
+
+The board-level failure state should use the same copy/semantics as the detail panel where practical:
+
+Details unavailable
+Retry
+
+Retry from the board and retry from the detail panel should not conflict or create divergent state.
+
+Kill lines
+
+STOP if a proposal-status fetch failure renders the same as no proposal.
+STOP if the board card has no retry/revalidation affordance after proposal-status failure.
+STOP if retry requires a full page reload.
+STOP if stale proposal data is shown as current after a failed fetch.
+STOP if this task changes proposal status/business rules.
+STOP if this task changes deal stage movement or Kanban drag/drop behavior.
+
+Validation
+
+Run:
+
+npx tsc --noEmit --skipLibCheck
+
+Manual checks:
+
+1. Simulate the initial board-level proposal-status fetch failing.
+2. Confirm affected board cards show Details unavailable / Proposal status unavailable.
+3. Confirm Retry is visible.
+4. Click Retry and confirm it re-fetches proposal status.
+5. Confirm a true no-proposal deal still shows no proposal / normal empty state.
+6. Confirm opening the detail panel still shows its own retry behavior from #764.
+7. Confirm drag/drop and stage updates still work.
+
+Final report required
+
+Return:
+
+Board proposal-status failure root cause:
+Board failure state added:
+Retry approach: per-deal / batch revalidation
+No-proposal vs failed-load distinction confirmed: yes/no
+Detail-panel behavior preserved: yes/no
+Files changed:
+Validation commands run:

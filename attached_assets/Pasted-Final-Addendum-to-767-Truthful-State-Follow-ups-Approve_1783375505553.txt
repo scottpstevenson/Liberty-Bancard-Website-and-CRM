@@ -1,0 +1,226 @@
+Final Addendum to #767 — Truthful-State Follow-ups
+
+Approved to build.
+
+This task makes #755’s truthful-state fixes proactive, durable, and covered by regression tests. Keep it narrow.
+
+⸻
+
+Part A — Proactive Call Outcome SMS eligibility
+
+Required behavior
+
+The Call Outcome “Send SMS” toggle must be disabled before submission when the selected contact is not SMS-eligible.
+
+Disable when:
+
+no phone number
+no SMS consent / SMS not allowed
+eligibility still loading
+
+The disabled state must include a clear tooltip/helper reason:
+
+SMS unavailable — no phone number on file.
+SMS unavailable — SMS consent is not recorded.
+Checking SMS eligibility…
+
+Source-of-truth guard
+
+Do not invent separate frontend-only consent logic.
+
+Preferred source order:
+
+1. existing backend contactability/SMS eligibility response
+2. existing contact detail fields if they already include canonical phone/consent status
+3. small read-only eligibility field added to the existing Call Outcome/contact payload
+
+The backend /api/call-follow-ups/send must still enforce the final skip/block result. Frontend disabling is a UX improvement, not the authority.
+
+Kill lines
+
+STOP if the Send SMS toggle is enabled for a contact with no phone number.
+STOP if the Send SMS toggle is enabled for a contact with no SMS consent.
+STOP if frontend-only eligibility can bypass backend skip/block logic.
+STOP if this task changes SMS consent/contactability rules.
+STOP if this task sends real SMS during validation.
+
+⸻
+
+Part B — Ticket reply draft durability
+
+Required behavior
+
+AI-inserted and hand-edited ticket reply drafts must not disappear silently when the agent navigates away.
+
+Allowed implementations:
+
+autosave draft
+or
+navigation-away confirmation prompt
+
+Preferred if lightweight:
+
+per-ticket local/session draft persistence with clear cleanup after send
+
+Acceptable if backend draft infrastructure already exists:
+
+persist ticket reply draft server-side
+
+Do not build a full new messaging draft system unless one already exists.
+
+Draft cleanup requirement
+
+Drafts must clear after the reply is successfully sent or explicitly discarded.
+
+Sensitive data guard
+
+If using browser storage, scope it tightly:
+
+ticket id
+current user/session where available
+draft body
+updated timestamp
+
+Do not store auth tokens, internal secrets, raw API payloads, or unrelated ticket metadata.
+
+Kill lines
+
+STOP if AI-inserted reply text disappears silently on navigation.
+STOP if hand-edited reply text disappears silently on navigation.
+STOP if drafts persist after successful send.
+STOP if this task auto-sends AI replies.
+STOP if this task changes AI reply generation logic.
+
+⸻
+
+Part C — Agent-facing digest delivery status
+
+Required behavior
+
+Regular agents need a scoped, non-infrastructure-revealing status for their own digest email delivery.
+
+They should not receive the full admin health payload.
+
+Allowed agent response shape:
+
+{
+  emailDigestEnabled: boolean;
+  deliveryAvailable: boolean;
+  status: "active" | "not_configured" | "inactive" | "unknown";
+  message: string;
+}
+
+Admin/manager may continue to see fuller health details if already implemented.
+
+Agent copy examples
+
+Email digest is active.
+Email digest preference saved, but delivery is not currently active.
+Email digest delivery status is unavailable.
+
+Do not expose provider secrets, scheduler internals, raw worker errors, API keys, or infrastructure stack traces to agents.
+
+Important correction
+
+Do not leave agents with a false-positive “looks enabled” state if delivery cannot happen.
+
+If email digest controls are visible to agents, a scoped status signal must be visible too.
+
+Kill lines
+
+STOP if an agent can enable email digest and see full success while delivery is inactive.
+STOP if agents receive the full admin digest health payload.
+STOP if agents get a blanket 403 for their own digest delivery status.
+STOP if this task builds new digest delivery infrastructure.
+
+⸻
+
+Part D — Regression tests
+
+Add tests for the original #755 behaviors and these follow-ups.
+
+Required coverage:
+
+/api/call-follow-ups/send returns truthful sent/skipped/not_configured/failed result
+Call Outcome SMS toggle disables with reason for no phone/no consent
+AI Classify suggested reply can be inserted into reply box
+Ticket reply draft survives navigation or blocks navigation with confirmation
+Digest health/status endpoint returns scoped agent payload
+Digest health/status endpoint preserves fuller admin/manager behavior where applicable
+
+Tests can be component, route-level, or integration tests depending on existing test patterns.
+
+Do not require live providers.
+
+Use safe flags:
+
+TEST_MODE=true SKIP_AI=true DRY_RUN=true
+
+Kill lines
+
+STOP if any #755 behavior remains without automated regression coverage.
+STOP if tests send real SMS/email/GHL workflows.
+STOP if tests rely on live AI generation.
+STOP if tests only assert buttons render but not the truthful-state behavior.
+
+⸻
+
+Out of scope
+
+Do not:
+
+redesign Call Outcome
+redesign Tickets
+redesign Notifications
+change SMS/contactability rules
+build new SMS provider infrastructure
+build new digest delivery infrastructure
+auto-send AI ticket replies
+change ticket classification categories
+
+⸻
+
+Validation
+
+Run:
+
+npx tsc --noEmit --skipLibCheck
+npx tsx scripts/smoke-role-guards.ts
+
+Run the new targeted tests for:
+
+call-follow-ups
+Call Outcome SMS eligibility UI
+ticket AI reply insertion/draft persistence
+digest health/status by role
+
+Manual checks:
+
+1. Select contact with no phone and confirm SMS toggle is disabled with reason.
+2. Select contact with phone but no SMS consent and confirm SMS toggle is disabled with reason.
+3. Select SMS-eligible contact and confirm toggle can be enabled.
+4. Insert AI suggested ticket reply.
+5. Navigate away/back and confirm draft persists or navigation prompt appears.
+6. Send/discard draft and confirm it clears.
+7. Log in as agent and confirm scoped digest delivery status is visible.
+8. Log in as admin/manager and confirm admin digest health still works.
+9. Confirm no real SMS/email/GHL workflow was sent.
+
+⸻
+
+Final report required
+
+Return:
+
+SMS eligibility source of truth:
+Call Outcome disabled reasons implemented:
+Backend send enum test added: yes/no
+AI reply insertion test added: yes/no
+Draft durability approach:
+Draft cleanup confirmed: yes/no
+Agent digest status shape:
+Admin digest health preserved: yes/no
+Tests added:
+Files changed:
+Validation commands run:
+Real outbound sent: yes/no
