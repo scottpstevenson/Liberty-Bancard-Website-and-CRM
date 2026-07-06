@@ -11,6 +11,18 @@ export const JOB_NAMES = {
   ANOMALY_DETECTION: "anomaly-detection",
   WEEKLY_DIGEST: "weekly-digest",
   MID_INGESTION: "mid-ingestion",
+  // Pseudo-job used purely as a visible health signal, not a real recurring
+  // tick. recordWorkerSuccess() is called when BullMQ initializes the GHL
+  // sync queue; recordWorkerFailure() is called when the process falls back
+  // to the legacy setInterval GHL sync loop. Lets operators see fallback
+  // mode in the same Job Queue health table instead of only in server logs.
+  GHL_SYNC_MODE: "ghl-sync-mode",
+  // Tracks isolated failures of the specific sub-call inside each tick
+  // (separate from the overall tick's own job name), so a persistently
+  // broken sequence-enrollment or enrichment sub-task is visible even
+  // though the outer tick itself keeps "succeeding" due to error isolation.
+  SEQUENCE_ENROLLMENT_PROCESSOR: "sequence-enrollment-processor",
+  ENRICHMENT_QUEUE_PROCESSOR: "enrichment-queue-processor",
 } as const;
 
 export type JobName = (typeof JOB_NAMES)[keyof typeof JOB_NAMES];

@@ -33,3 +33,4 @@
 - [AI Command Center run tracking](ai-command-center-run-tracking.md) — run-count/last-run reads audit_logs by action string; every branch (incl. no-op) must write a row or the button looks like it never ran.
 - [Raw fetch CSRF gap](csrf-raw-fetch-gap.md) — POST/PATCH/DELETE calls made via raw `fetch` (not `apiRequest`) skip the X-CSRF-Token header and get 403'd for real logged-in users; always attach `getCsrfToken()`.
 - [Truthful state signals](truthful-state-signals.md) — external-provider actions (SMS/email/digest) need enum states (sent/not_configured/failed/skipped), not a single boolean.
+- [QueueManager partial-init leak](queue-manager-init-failure.md) — getQueueManager() must not cache a manager whose initialize() threw partway through, or dual sync mechanisms (BullMQ + legacy fallback) can both go live.

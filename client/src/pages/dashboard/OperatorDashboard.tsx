@@ -1403,6 +1403,9 @@ const JOB_LABELS: Record<string, string> = {
   "anomaly-detection": "Anomaly Detection",
   "weekly-digest": "Weekly Digest",
   "mid-ingestion": "MID Ingestion",
+  "ghl-sync-mode": "GHL Sync Mode (bullmq vs. fallback)",
+  "sequence-enrollment-processor": "Sequence Enrollment Processor",
+  "enrichment-queue-processor": "Enrichment Queue Processor",
 };
 
 function formatRelativeTime(dateStr: string | null): string {

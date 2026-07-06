@@ -8,7 +8,7 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import { startSlaWorker } from "./services/sla-worker";
 import { startAutoSyncLoop } from "./services/ghl-sync";
-import { getQueueManager, shutdownQueueManager } from "./services/queue-manager";
+import { getQueueManager, shutdownQueueManager, claimLegacyGhlSync } from "./services/queue-manager";
 import { seedDefaultData } from "./services/seed-workflows";
 import { seedSequences } from "./services/seed-sequences";
 import { seedVerticalCampaigns } from "./services/seed-vertical-campaigns";
@@ -347,12 +347,33 @@ app.use((req, res, next) => {
       // SLA checks, sequence processing, enrichment, discovery, and digests.
       // Requires a real Redis connection (REDIS_URL). Without it, falls back
       // to lightweight setInterval workers so the server still functions.
-      getQueueManager().then(qm => {
+      getQueueManager().then(async qm => {
         log("[Queue] BullMQ job queues initialized");
-      }).catch(err => {
+        // BullMQ's GHL_SYNC repeatable job is now the sole active GHL sync mechanism.
+        // getQueueManager() tears down any partially-created queues/workers on failure
+        // before propagating the error, so this branch and the legacy-fallback branch
+        // below are mutually exclusive within a process.
+        log("GHL sync mode: bullmq");
+        // Also record a visible health signal so the Operator Dashboard's Job Queue
+        // panel reflects sync mode, not just the startup log.
+        const { recordWorkerSuccess, JOB_NAMES } = await import("./services/job-registry");
+        await recordWorkerSuccess(JOB_NAMES.GHL_SYNC_MODE).catch(() => {});
+      }).catch(async err => {
         console.error("[Queue] Failed to initialize BullMQ — falling back to setInterval workers:", err.message);
         startSlaWorker();
+        // Claim GHL sync duty for the legacy interval BEFORE starting it, so that
+        // if BullMQ later becomes available (e.g. Redis recovers and something
+        // else lazily calls getQueueManager() to enqueue an enrichment job), it
+        // will permanently exclude GHL_SYNC from the queues/workers it manages —
+        // guaranteeing only one GHL sync mechanism is ever active in this process.
+        claimLegacyGhlSync();
         startAutoSyncLoop();
+        log("GHL sync mode: legacy_interval_fallback");
+        const { recordWorkerFailure, JOB_NAMES } = await import("./services/job-registry");
+        await recordWorkerFailure(
+          JOB_NAMES.GHL_SYNC_MODE,
+          `GHL sync running in legacy interval fallback mode — BullMQ unavailable: ${err.message}`
+        ).catch(() => {});
         if (featureFlags.LEGACY_OUTREACH_ENABLED) {
           startDailyOutreachWorker();
         }

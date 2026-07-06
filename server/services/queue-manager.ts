@@ -151,13 +151,59 @@ export interface DlqItem {
 }
 
 let _queueManager: QueueManager | null = null;
+// In-flight initialization promise. Guards against a race where two concurrent
+// first-time callers (e.g. index.ts's startup call and a request-triggered
+// enqueueStatementAnalysis()/free-contact-enrichment call landing in the same
+// tick) could each see `_queueManager === null` and spin up two separate
+// QueueManager instances — which would create duplicate GHL_SYNC queues/workers.
+let _initPromise: Promise<QueueManager> | null = null;
+
+// Process-lifetime GHL sync mode gate. Once the legacy setInterval fallback
+// claims GHL sync duty (see claimLegacyGhlSync()), BullMQ must never create
+// the GHL_SYNC queue/worker/repeatable-job again in this process — even if a
+// later, unrelated call to getQueueManager() (e.g. to enqueue an enrichment
+// job) succeeds in bringing up BullMQ for other queues. This is the single
+// source of truth for "which mechanism owns GHL sync", independent of
+// whether BullMQ itself is up or down.
+let _legacyGhlSyncClaimed = false;
+
+/** Called once by server/index.ts when it falls back to the legacy setInterval
+ * GHL sync loop, so BullMQ (now or later) permanently excludes GHL_SYNC from
+ * the queues/workers/repeatable-jobs it manages for the rest of this process. */
+export function claimLegacyGhlSync(): void {
+  _legacyGhlSyncClaimed = true;
+}
+
+export function isLegacyGhlSyncClaimed(): boolean {
+  return _legacyGhlSyncClaimed;
+}
 
 export async function getQueueManager(): Promise<QueueManager> {
-  if (!_queueManager) {
-    _queueManager = new QueueManager();
-    await _queueManager.initialize();
-  }
-  return _queueManager;
+  if (_queueManager) return _queueManager;
+  if (_initPromise) return _initPromise;
+
+  _initPromise = (async () => {
+    const qm = new QueueManager();
+    try {
+      await qm.initialize();
+    } catch (err) {
+      // initialize() can throw partway through setupQueues/setupWorkers/setupRepeatableJobs,
+      // meaning some BullMQ queues/workers (e.g. GHL_SYNC) may already be created and
+      // actively consuming repeatable jobs. Tear those down before propagating the error so
+      // callers that fall back to the legacy setInterval mechanism never run both at once.
+      console.error("[QueueManager] Initialization failed — shutting down partially-initialized queues/workers to prevent duplicate sync execution:", (err as Error).message);
+      await qm.shutdown().catch(shutdownErr =>
+        console.error("[QueueManager] Failed to tear down partially-initialized queue manager:", (shutdownErr as Error).message)
+      );
+      _initPromise = null;
+      throw err;
+    }
+    _queueManager = qm;
+    _initPromise = null;
+    return qm;
+  })();
+
+  return _initPromise;
 }
 
 export async function shutdownQueueManager(): Promise<void> {
@@ -165,6 +211,7 @@ export async function shutdownQueueManager(): Promise<void> {
     await _queueManager.shutdown();
     _queueManager = null;
   }
+  _initPromise = null;
 }
 
 interface ThroughputEntry {
@@ -192,6 +239,15 @@ class QueueManager {
   private throughputBaseline: Map<string, ThroughputEntry> = new Map();
   private jobHistory: Map<string, HistoryBucket[]> = new Map();
 
+  /** Configs to actually manage. Excludes GHL_SYNC whenever the legacy
+   * setInterval fallback has already claimed GHL sync duty for this process,
+   * so BullMQ can never stand up a second, competing GHL sync mechanism. */
+  private activeConfigs(): QueueConfig[] {
+    if (!_legacyGhlSyncClaimed) return QUEUE_CONFIGS;
+    console.warn("[QueueManager] Legacy GHL sync already active for this process — excluding GHL_SYNC from BullMQ setup.");
+    return QUEUE_CONFIGS.filter(c => c.name !== QUEUE_NAMES.GHL_SYNC);
+  }
+
   async initialize(): Promise<void> {
     this.connection = await getRedisConnection();
     await this.setupQueues();
@@ -201,7 +257,7 @@ class QueueManager {
   }
 
   private async setupQueues(): Promise<void> {
-    for (const config of QUEUE_CONFIGS) {
+    for (const config of this.activeConfigs()) {
       const queue = new Queue(config.name, {
         connection: this.connection,
         defaultJobOptions: {
@@ -221,7 +277,7 @@ class QueueManager {
   private async setupWorkers(): Promise<void> {
     const { featureFlags } = await import("./feature-flags");
 
-    for (const config of QUEUE_CONFIGS) {
+    for (const config of this.activeConfigs()) {
       const processor = this.buildProcessor(config.name, featureFlags);
       const worker = new Worker(config.name, processor, {
         connection: this.connection,
@@ -347,7 +403,7 @@ class QueueManager {
   }
 
   private async setupRepeatableJobs(): Promise<void> {
-    for (const config of QUEUE_CONFIGS) {
+    for (const config of this.activeConfigs()) {
       const queue = this.queues.get(config.name);
       if (!queue) continue;
 
@@ -621,15 +677,32 @@ async function runSequencesTick(): Promise<void> {
   const { processSequenceEnrollments } = await import("./sequence-worker");
   const { processSendQueue } = await import("./campaign-engine");
   const { runSunbizAutoConvert } = await import("./sunbiz-cron");
-
-  const result = await processSequenceEnrollments();
   const { storage } = await import("../storage");
-  await storage.setSystemSetting("sequence_runner_last_tick", {
-    at: new Date().toISOString(),
-    processed: (result as any).processed ?? 0,
-    sent: (result as any).sent ?? 0,
-    enabled: true,
-  }).catch(() => {});
+
+  // Isolate processSequenceEnrollments so a thrown error still (a) gets structured
+  // job/tick-context logging, (b) does not block sibling sub-tasks in this tick,
+  // and (c) does not skip the post-tick "sequence_runner_last_tick" health bookkeeping.
+  let result: { processed?: number; sent?: number } = {};
+  let sequenceError: Error | null = null;
+  try {
+    result = await processSequenceEnrollments();
+    const { recordWorkerSuccess, JOB_NAMES } = await import("./job-registry");
+    await recordWorkerSuccess(JOB_NAMES.SEQUENCE_ENROLLMENT_PROCESSOR);
+  } catch (err) {
+    sequenceError = err instanceof Error ? err : new Error(String(err));
+    console.error(`[Queue:sequences] processSequenceEnrollments error (tick=sequences, job=processSequenceEnrollments):`, sequenceError.message);
+    const { recordWorkerFailure, JOB_NAMES } = await import("./job-registry");
+    await recordWorkerFailure(JOB_NAMES.SEQUENCE_ENROLLMENT_PROCESSOR, sequenceError.message);
+  } finally {
+    await storage.setSystemSetting("sequence_runner_last_tick", {
+      at: new Date().toISOString(),
+      processed: (result as any).processed ?? 0,
+      sent: (result as any).sent ?? 0,
+      enabled: true,
+      ...(sequenceError ? { lastError: sequenceError.message } : {}),
+    }).catch(() => {});
+  }
+
   await processSendQueue().catch(err => console.error("[Queue:sequences] Campaign send queue error:", err));
   await runSunbizAutoConvert().catch(err => console.error("[Queue:sequences] Sunbiz auto-convert error:", err));
 }
@@ -637,7 +710,22 @@ async function runSequencesTick(): Promise<void> {
 async function runEnrichmentTick(): Promise<void> {
   const { processEnrichmentQueue } = await import("./enrichment");
   const { featureFlags } = await import("./feature-flags");
-  await processEnrichmentQueue();
+
+  // Isolate processEnrichmentQueue so a thrown error still gets structured
+  // job/tick-context logging and does not prevent sibling enrichment sub-tasks
+  // (Sunbiz enrichment, free contact enrichment) from running, and does not skip
+  // the worker-level "completed" bookkeeping (recordWorkerSuccess) for this tick.
+  try {
+    await processEnrichmentQueue();
+    const { recordWorkerSuccess, JOB_NAMES } = await import("./job-registry");
+    await recordWorkerSuccess(JOB_NAMES.ENRICHMENT_QUEUE_PROCESSOR);
+  } catch (err) {
+    const e = err instanceof Error ? err : new Error(String(err));
+    console.error(`[Queue:enrichment] processEnrichmentQueue error (tick=enrichment, job=processEnrichmentQueue):`, e.message);
+    const { recordWorkerFailure, JOB_NAMES } = await import("./job-registry");
+    await recordWorkerFailure(JOB_NAMES.ENRICHMENT_QUEUE_PROCESSOR, e.message);
+  }
+
   if (featureFlags.SUNBIZ_ENRICHMENT_ENABLED) {
     const { processSunbizEnrichmentQueue } = await import("./sunbiz-enrichment");
     await processSunbizEnrichmentQueue(5).catch(err => console.error("[Queue:enrichment] Sunbiz enrichment error (best-effort):", err));
