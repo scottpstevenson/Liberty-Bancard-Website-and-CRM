@@ -160,8 +160,22 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
   async updateDeal(id: number, updates: UpdateDealRequest, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }) {
     const { auditChange } = await import("../services/audit-change");
     const [before] = await db.select().from(deals).where(eq(deals.id, id));
+    const DEAL_TIMESTAMP_FIELDS: string[] = [
+      "nextFollowUp", "expectedGoLiveDate", "goLiveDate", "lastStatementReviewDate",
+      "nextStatementReviewDate", "proposalGeneratedAt", "proposalEmailSentAt", "lastNudgeAt",
+      "nextNudgeAt", "blueprintGeneratedAt", "closedAt", "boardingSubmittedAt",
+      "boardingApprovedAt", "shareLastViewedAt", "archivedAt",
+    ];
+    const coercedUpdates: Record<string, unknown> = { ...updates };
+    for (const field of DEAL_TIMESTAMP_FIELDS) {
+      const value = coercedUpdates[field as string];
+      if (typeof value === "string") {
+        const parsed = new Date(value);
+        coercedUpdates[field as string] = isNaN(parsed.getTime()) ? null : parsed;
+      }
+    }
     return await db.transaction(async (tx) => {
-      const [updated] = await tx.update(deals).set({ ...updates, updatedAt: new Date() }).where(eq(deals.id, id)).returning();
+      const [updated] = await tx.update(deals).set({ ...coercedUpdates, updatedAt: new Date() } as typeof deals.$inferInsert).where(eq(deals.id, id)).returning();
       if (updated) {
         await auditChange({
           userId: auditCtx?.userId ?? null,

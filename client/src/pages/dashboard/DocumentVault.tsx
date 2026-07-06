@@ -221,9 +221,13 @@ export default function DocumentVault() {
     if (!ids.length) return;
     setIsBulkDownloading(true);
     try {
+      const csrfToken = getCsrfToken();
       const res = await fetch("/api/documents/bulk-download", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
+        },
         credentials: "include",
         body: JSON.stringify({ ids }),
       });

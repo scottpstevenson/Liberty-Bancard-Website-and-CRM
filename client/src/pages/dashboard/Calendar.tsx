@@ -80,6 +80,7 @@ interface CalendarItem {
   contactId?: number | null;
   dealId?: number | null;
   source: "event" | "deal";
+  rawId: number;
 }
 
 export default function CalendarPage() {
@@ -147,6 +148,46 @@ export default function CalendarPage() {
     },
   });
 
+  const [fixingItemId, setFixingItemId] = useState<string | null>(null);
+  const [fixDate, setFixDate] = useState<string>("");
+
+  const fixEventDateMutation = useMutation({
+    mutationFn: async ({ item, newDate }: { item: CalendarItem; newDate: string }) => {
+      const iso = new Date(`${newDate}T09:00:00`).toISOString();
+      if (item.source === "event") {
+        return apiRequest("PUT", `/api/calendar-events/${item.rawId}`, { startTime: iso, endTime: iso });
+      }
+      return apiRequest("PUT", `/api/deals/${item.rawId}`, { nextFollowUp: iso });
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/calendar-events"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/deals"] });
+      setFixingItemId(null);
+      setFixDate("");
+      toast({ title: variables.item.source === "event" ? "Event date fixed" : "Follow-up date fixed" });
+    },
+    onError: () => {
+      toast({ title: "Failed to fix date", variant: "destructive" });
+    },
+  });
+
+  const removeInvalidDateMutation = useMutation({
+    mutationFn: async (item: CalendarItem) => {
+      if (item.source === "event") {
+        return apiRequest("DELETE", `/api/calendar-events/${item.rawId}`);
+      }
+      return apiRequest("PUT", `/api/deals/${item.rawId}`, { nextFollowUp: null });
+    },
+    onSuccess: (_data, item) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/calendar-events"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/deals"] });
+      toast({ title: item.source === "event" ? "Event removed" : "Follow-up cleared" });
+    },
+    onError: () => {
+      toast({ title: "Failed to remove event", variant: "destructive" });
+    },
+  });
+
   const calendarItems = useMemo(() => {
     const items: CalendarItem[] = [];
 
@@ -161,13 +202,16 @@ export default function CalendarPage() {
         contactId: evt.contactId,
         dealId: evt.dealId,
         source: "event",
+        rawId: evt.id,
       });
     });
 
     allDeals?.forEach(deal => {
       if (deal.nextFollowUp) {
         const followUpDate = new Date(deal.nextFollowUp);
-        if (followUpDate >= startOfMonth && followUpDate <= endOfMonth) {
+        const isInRange = !isNaN(followUpDate.getTime()) && followUpDate >= startOfMonth && followUpDate <= endOfMonth;
+        // Invalid dates can't be range-checked — surface them regardless of month so they aren't silently dropped.
+        if (isInRange || isNaN(followUpDate.getTime())) {
           items.push({
             id: `deal_followup_${deal.id}`,
             title: `Follow-up: Deal #${deal.id}`,
@@ -177,6 +221,7 @@ export default function CalendarPage() {
             contactId: deal.contactId,
             dealId: deal.id,
             source: "deal",
+            rawId: deal.id,
           });
         }
       }
@@ -341,9 +386,62 @@ export default function CalendarPage() {
               <CardContent>
                 <div className="space-y-2">
                   {invalidDateEvents.map(evt => (
-                    <div key={evt.id} className="text-sm flex items-center justify-between gap-2" data-testid={`row-invalid-date-event-${evt.id}`}>
-                      <span className="truncate">{evt.title}</span>
-                      <span className="text-xs text-muted-foreground">Invalid date</span>
+                    <div key={evt.id} className="text-sm space-y-2 border-b last:border-b-0 pb-2 last:pb-0" data-testid={`row-invalid-date-event-${evt.id}`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate">{evt.title}</span>
+                        <span className="text-xs text-muted-foreground shrink-0">Invalid date</span>
+                      </div>
+                      {fixingItemId === evt.id ? (
+                        <div className="flex items-center gap-2">
+                          <Input
+                            type="date"
+                            value={fixDate}
+                            onChange={e => setFixDate(e.target.value)}
+                            className="h-8 text-xs"
+                            data-testid={`input-fix-date-${evt.id}`}
+                          />
+                          <Button
+                            size="sm"
+                            className="h-8 px-2 text-xs"
+                            disabled={!fixDate || fixEventDateMutation.isPending}
+                            onClick={() => fixEventDateMutation.mutate({ item: evt, newDate: fixDate })}
+                            data-testid={`button-save-fix-${evt.id}`}
+                          >
+                            Save
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 px-2 text-xs"
+                            onClick={() => { setFixingItemId(null); setFixDate(""); }}
+                            data-testid={`button-cancel-fix-${evt.id}`}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-xs"
+                            onClick={() => { setFixingItemId(evt.id); setFixDate(formatDateKey(today)); }}
+                            data-testid={`button-edit-invalid-date-${evt.id}`}
+                          >
+                            Fix Date
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-xs text-destructive hover:text-destructive"
+                            disabled={removeInvalidDateMutation.isPending}
+                            onClick={() => removeInvalidDateMutation.mutate(evt)}
+                            data-testid={`button-delete-invalid-date-${evt.id}`}
+                          >
+                            {evt.source === "event" ? "Delete" : "Clear Follow-Up"}
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

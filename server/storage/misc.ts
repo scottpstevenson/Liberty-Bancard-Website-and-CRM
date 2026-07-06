@@ -203,7 +203,15 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
 
 
   async updateCalendarEvent(id: number, data: Partial<InsertCalendarEvent>): Promise<CalendarEvent | undefined> {
-    const [updated] = await db.update(calendarEvents).set(data).where(eq(calendarEvents.id, id)).returning();
+    const coerced: Record<string, unknown> = { ...data };
+    for (const field of ["startTime", "endTime"]) {
+      const value = coerced[field];
+      if (typeof value === "string") {
+        const parsed = new Date(value);
+        if (!isNaN(parsed.getTime())) coerced[field] = parsed;
+      }
+    }
+    const [updated] = await db.update(calendarEvents).set(coerced as Partial<InsertCalendarEvent>).where(eq(calendarEvents.id, id)).returning();
     return updated;
   }
 

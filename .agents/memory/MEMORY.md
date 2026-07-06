@@ -35,3 +35,4 @@
 - [Truthful state signals](truthful-state-signals.md) — external-provider actions (SMS/email/digest) need enum states (sent/not_configured/failed/skipped), not a single boolean.
 - [QueueManager partial-init leak](queue-manager-init-failure.md) — getQueueManager() must not cache a manager whose initialize() threw partway through, or dual sync mechanisms (BullMQ + legacy fallback) can both go live.
 - [SSRF-safe webhook testing](blaze-ssrf-webhook-testing.md) — role-gate + DNS-resolve/block private ranges + no auto-redirects, needed for ANY "test connection" button that fetches a user-supplied URL.
+- [PUT routes with raw string dates](date-string-update-coercion.md) — storage.updateDeal/updateCalendarEvent 500 on JSON date strings ("value.toISOString is not a function"); coerce string→Date before db.update() on timestamp columns.

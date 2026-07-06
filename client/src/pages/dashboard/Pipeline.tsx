@@ -614,6 +614,7 @@ export default function Pipeline() {
     acceptedAt: string | null; deliveredAt: string | null; token: string; viewerUrl: string;
   }>>([]);
   const [dealProposalsLoading, setDealProposalsLoading] = useState(false);
+  const [dealProposalsFailed, setDealProposalsFailed] = useState(false);
   const [proposalPlan, setProposalPlan] = useState("interchangePlus");
 
   // Cache for deal proposals to show badges on cards
@@ -1077,7 +1078,9 @@ export default function Pipeline() {
     setEditVertical(deal.vertical || "");
     setDetailOpen(true);
     setTerminalEcon(null);
+    setDealProposalsFailed(false);
     if ((deal as any).partnerOrgId) {
+      setDealProposals([]);
       loadDealProposals(deal.id).catch(err => console.error("[Pipeline] loadDealProposals", err));
     } else {
       setDealProposals([]);
@@ -1089,11 +1092,19 @@ export default function Pipeline() {
 
   const loadDealProposals = async (dealId: number) => {
     setDealProposalsLoading(true);
+    setDealProposalsFailed(false);
     try {
       const res = await fetch(`/api/deals/${dealId}/co-branded-proposals`, { credentials: "include" });
-      if (res.ok) setDealProposals(await res.json());
-    } catch (err) { console.error("[Pipeline] loadDealProposals error:", err); }
-    finally { setDealProposalsLoading(false); }
+      if (res.ok) {
+        setDealProposals(await res.json());
+        setDealProposalsFailed(false);
+      } else {
+        setDealProposalsFailed(true);
+      }
+    } catch (err) {
+      console.error("[Pipeline] loadDealProposals error:", err);
+      setDealProposalsFailed(true);
+    } finally { setDealProposalsLoading(false); }
   };
 
   const handleGenerateCoBrandedProposal = async () => {
@@ -1717,6 +1728,23 @@ export default function Pipeline() {
                   {dealProposalsLoading ? (
                     <div className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
                       <Loader2 className="w-4 h-4 animate-spin" /> Loading...
+                    </div>
+                  ) : dealProposalsFailed ? (
+                    <div
+                      className="flex items-center justify-between gap-2 p-2.5 border border-dashed rounded-md bg-muted/30"
+                      data-testid="badge-proposal-detail-unavailable"
+                    >
+                      <span className="text-xs text-muted-foreground">Details unavailable — could not load proposal status for this deal.</span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2 text-xs shrink-0"
+                        onClick={() => loadDealProposals(selectedDeal.id)}
+                        disabled={dealProposalsLoading}
+                        data-testid="button-retry-deal-proposals"
+                      >
+                        <RotateCcw className="w-3 h-3 mr-1" /> Retry
+                      </Button>
                     </div>
                   ) : dealProposals.length === 0 ? (
                     <p className="text-xs text-muted-foreground">No proposals yet. Click "Generate" to create one.</p>
