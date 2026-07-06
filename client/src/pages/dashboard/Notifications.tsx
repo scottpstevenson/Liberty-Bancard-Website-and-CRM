@@ -14,8 +14,24 @@ import { DataState } from "@/components/ui/data-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { toastError } from "@/lib/toast-helpers";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import type { NotificationPreference } from "@shared/schema";
 import { NOTIFICATION_EVENT_TYPES } from "@shared/schema";
+
+type DigestHealth = {
+  emailProviderConfigured: boolean;
+  ghlConfigured: boolean;
+  smtpConfigured: boolean;
+  schedulerActive: boolean | null;
+  lastDailyDigestSentAt: string | null;
+  lastWeeklyDigestSentAt: string | null;
+  reason: string | null;
+};
+
+type DigestAvailability = {
+  deliverable: boolean;
+  reason: string | null;
+};
 
 type NotificationRecord = {
   id: number;
@@ -165,12 +181,26 @@ function getEventDescription(eventType: string): string {
 
 export default function Notifications() {
   const { toast } = useToast();
+  const { user } = useAuth();
   const qc = useQueryClient();
   const [, navigate] = useLocation();
   const [category, setCategory] = useState("all");
   const [offset, setOffset] = useState(0);
   const [allLoaded, setAllLoaded] = useState<NotificationRecord[]>([]);
   const [prefsOpen, setPrefsOpen] = useState(false);
+
+  const isAdminOrManager = user?.role === "admin" || user?.role === "manager";
+  const { data: digestHealth } = useQuery<DigestHealth>({
+    queryKey: ["/api/notifications/digest-health"],
+    enabled: isAdminOrManager && prefsOpen,
+  });
+  // Minimal, non-privileged signal available to every user so the digest
+  // toggle can distinguish "preference saved" from "will actually be
+  // delivered" regardless of role.
+  const { data: digestAvailability } = useQuery<DigestAvailability>({
+    queryKey: ["/api/notifications/digest-availability"],
+    enabled: prefsOpen,
+  });
 
   const queryKey = ["/api/notifications", category, offset];
 
@@ -292,9 +322,19 @@ export default function Notifications() {
   const updatePrefMutation = useMutation({
     mutationFn: async (params: { eventType: string; enabled?: boolean; emailEnabled?: boolean; digestDaily?: boolean; digestWeekly?: boolean }) => {
       await apiRequest("PUT", "/api/notification-preferences", params);
+      return params;
     },
-    onSuccess: () => {
+    onSuccess: (params) => {
       qc.invalidateQueries({ queryKey: ["/api/notification-preferences"] });
+      // Only surface the digest-delivery caveat for the digest toggles themselves
+      // (digestDaily/digestWeekly), not for unrelated per-event email toggles.
+      const enablingDigest = (params.digestDaily === true || params.digestWeekly === true);
+      if (enablingDigest && digestAvailability && !digestAvailability.deliverable) {
+        toast({
+          title: "Preference saved",
+          description: digestAvailability.reason || "Note: digest emails are not currently deliverable, so this preference will have no effect until delivery is available.",
+        });
+      }
     },
     onError: (err: Error) => {
       toastError(err, { title: "Failed to update preference" });
@@ -463,6 +503,58 @@ export default function Notifications() {
                   <p className="text-sm text-muted-foreground">
                     Control which automated digest emails you receive.
                   </p>
+                  {isAdminOrManager && (
+                    <Card data-testid="card-digest-health">
+                      <CardContent className="p-4 space-y-2">
+                        <div className="flex items-center gap-2">
+                          {digestHealth ? (
+                            digestHealth.emailProviderConfigured ? (
+                              <CheckCheck className="w-4 h-4 text-green-500" />
+                            ) : (
+                              <AlertTriangle className="w-4 h-4 text-amber-500" />
+                            )
+                          ) : (
+                            <Info className="w-4 h-4 text-muted-foreground" />
+                          )}
+                          <span className="text-sm font-medium" data-testid="text-digest-health-title">
+                            Digest Delivery Status
+                          </span>
+                        </div>
+                        {!digestHealth ? (
+                          <p className="text-xs text-muted-foreground">Loading delivery status...</p>
+                        ) : (
+                          <div className="space-y-1 text-xs text-muted-foreground" data-testid="text-digest-health-detail">
+                            <p>
+                              Email provider:{" "}
+                              <span className={digestHealth.emailProviderConfigured ? "text-green-600 dark:text-green-400" : "text-amber-600 dark:text-amber-400"}>
+                                {digestHealth.emailProviderConfigured
+                                  ? `Active (${digestHealth.ghlConfigured ? "GHL" : "SMTP"})`
+                                  : "Not configured"}
+                              </span>
+                            </p>
+                            <p>
+                              Scheduler:{" "}
+                              <span className={digestHealth.schedulerActive === true ? "text-green-600 dark:text-green-400" : "text-amber-600 dark:text-amber-400"}>
+                                {digestHealth.schedulerActive === true ? "Running" : digestHealth.schedulerActive === false ? "Paused" : "Unknown"}
+                              </span>
+                            </p>
+                            <p>Last daily digest sent: {digestHealth.lastDailyDigestSentAt || "Never"}</p>
+                            <p>Last weekly digest sent: {digestHealth.lastWeeklyDigestSentAt || "Never"}</p>
+                            {digestHealth.reason && (
+                              <p className="text-amber-600 dark:text-amber-400 pt-1" data-testid="text-digest-health-reason">
+                                {digestHealth.reason}
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  )}
+                  {digestAvailability && !digestAvailability.deliverable && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400" data-testid="text-digest-toggle-caveat">
+                      {digestAvailability.reason || "Note: toggling these preferences saves your choice, but digest emails are not currently deliverable."}
+                    </p>
+                  )}
                   {digestTypes.map((eventType) => {
                     const pref = getPref(eventType);
                     const isDaily = eventType === "daily_digest";

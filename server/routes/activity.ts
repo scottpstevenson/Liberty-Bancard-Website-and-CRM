@@ -447,6 +447,10 @@ Respond in this exact JSON format:
 
       let emailSent = false;
       let smsSent = false;
+      // Truthful SMS result state — the UI must never say "sent" unless a real
+      // provider send was attempted and confirmed successful.
+      let smsResult: "sent" | "not_configured" | "failed" | "skipped" = "skipped";
+      let smsMessage = "Follow-up SMS was not requested.";
 
       if (sendEmail && emailBody && contact.email) {
         try {
@@ -473,17 +477,40 @@ Respond in this exact JSON format:
         }
       }
 
-      if (sendSms && smsBody && contact.phone && contact.consentSms) {
-        try {
-          const { sendGhlSms } = await import("../services/ghl");
-          const result = await sendGhlSms({
-            contactId: Number(contactId),
-            body: smsBody,
-          });
-          smsSent = result?.success === true;
-        } catch (smsErr: any) {
-          console.log("[Call Follow-Up] GHL SMS not configured:", smsErr.message);
-          smsSent = false;
+      if (sendSms) {
+        const { isGhlConfigured } = await import("../services/ghl");
+        if (!smsBody) {
+          smsResult = "skipped";
+          smsMessage = "Follow-up SMS was not sent — no message body was provided.";
+        } else if (!contact.phone) {
+          smsResult = "skipped";
+          smsMessage = "Follow-up SMS was not sent — contact has no phone number on file.";
+        } else if (!contact.consentSms) {
+          smsResult = "skipped";
+          smsMessage = "Follow-up SMS was not sent — contact has not consented to SMS.";
+        } else if (!isGhlConfigured()) {
+          smsResult = "not_configured";
+          smsMessage = "Follow-up SMS was not sent — SMS provider is not configured.";
+        } else {
+          try {
+            const { sendGhlSms } = await import("../services/ghl");
+            const result = await sendGhlSms({
+              contactId: Number(contactId),
+              body: smsBody,
+            });
+            if (result?.success === true) {
+              smsSent = true;
+              smsResult = "sent";
+              smsMessage = "Follow-up SMS sent.";
+            } else {
+              smsResult = "failed";
+              smsMessage = `Follow-up SMS failed to send${result?.error ? `: ${result.error}` : "."}`;
+            }
+          } catch (smsErr: any) {
+            console.log("[Call Follow-Up] SMS send error:", smsErr.message);
+            smsResult = "failed";
+            smsMessage = `Follow-up SMS failed to send: ${smsErr.message}`;
+          }
         }
       }
 
@@ -539,6 +566,8 @@ Respond in this exact JSON format:
         callLogId: callLog.id,
         emailSent,
         smsSent,
+        smsResult,
+        smsMessage,
         stageUpdated: !!dealId && !!OUTCOME_TO_STAGE[outcome],
         newStage: dealId ? (OUTCOME_TO_STAGE[outcome] || null) : null,
         sequenceEnrolled,

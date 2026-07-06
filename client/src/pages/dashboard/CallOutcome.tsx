@@ -163,7 +163,14 @@ export default function CallOutcome() {
       queryClient.invalidateQueries({ queryKey: ["/api/deals"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       queryClient.invalidateQueries({ queryKey: ["/api/call-logs"] });
-      toast({ title: "Follow-ups sent and call logged", description: `Stage updated to: ${data.newStage || "unchanged"}` });
+      const smsCaveat = data.smsResult && data.smsResult !== "sent" && data.smsMessage && data.smsMessage !== "Follow-up SMS was not requested."
+        ? ` ${data.smsMessage}`
+        : "";
+      toast({
+        title: "Call logged and follow-ups processed",
+        description: `Stage updated to: ${data.newStage || "unchanged"}.${smsCaveat}`,
+        variant: data.smsResult === "failed" || data.smsResult === "not_configured" ? "destructive" : undefined,
+      });
     },
     onError: (err: Error) => {
       toast({ title: "Failed to send follow-ups", description: err.message, variant: "destructive" });
@@ -247,10 +254,28 @@ export default function CallOutcome() {
                     <span>Follow-up email sent</span>
                   </div>
                 )}
-                {sendResult?.smsSent && (
-                  <div className="flex items-center justify-center gap-2">
+                {sendResult?.smsResult === "sent" && (
+                  <div className="flex items-center justify-center gap-2" data-testid="text-sms-sent">
                     <MessageSquare className="w-4 h-4 text-green-500" />
                     <span>Follow-up SMS sent</span>
+                  </div>
+                )}
+                {sendResult?.smsResult === "not_configured" && (
+                  <div className="flex items-center justify-center gap-2 text-amber-600 dark:text-amber-400" data-testid="text-sms-not-configured">
+                    <MessageSquare className="w-4 h-4" />
+                    <span>{sendResult.smsMessage || "Follow-up SMS was not sent — SMS provider is not configured."}</span>
+                  </div>
+                )}
+                {sendResult?.smsResult === "failed" && (
+                  <div className="flex items-center justify-center gap-2 text-red-600 dark:text-red-400" data-testid="text-sms-failed">
+                    <MessageSquare className="w-4 h-4" />
+                    <span>{sendResult.smsMessage || "Follow-up SMS failed to send."}</span>
+                  </div>
+                )}
+                {sendResult?.smsResult === "skipped" && sendResult?.smsMessage && sendResult.smsMessage !== "Follow-up SMS was not requested." && (
+                  <div className="flex items-center justify-center gap-2 text-muted-foreground" data-testid="text-sms-skipped">
+                    <MessageSquare className="w-4 h-4" />
+                    <span>{sendResult.smsMessage}</span>
                   </div>
                 )}
                 {sendResult?.stageUpdated && (

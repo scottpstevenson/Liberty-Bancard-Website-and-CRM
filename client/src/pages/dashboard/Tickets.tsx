@@ -106,11 +106,28 @@ const QUICK_REPLIES = [
   },
 ];
 
-function TicketConversation({ ticket }: { ticket: Ticket }) {
+function TicketConversation({
+  ticket,
+  draftToInsert,
+  onDraftInserted,
+}: {
+  ticket: Ticket;
+  draftToInsert?: { text: string; nonce: number } | null;
+  onDraftInserted?: () => void;
+}) {
   const { toast } = useToast();
   const [replyContent, setReplyContent] = useState("");
   const [isInternal, setIsInternal] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
+
+  useEffect(() => {
+    if (draftToInsert && draftToInsert.text) {
+      setReplyContent(draftToInsert.text);
+      setIsInternal(false);
+      onDraftInserted?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftToInsert?.nonce]);
 
   const { data: comments, isLoading: commentsLoading } = useQuery<TicketComment[]>({
     queryKey: ["/api/tickets", ticket.id, "comments"],
@@ -295,6 +312,7 @@ export default function Tickets() {
   const [editStatus, setEditStatus] = useState("");
   const [editAssignedTo, setEditAssignedTo] = useState("");
   const [aiResult, setAiResult] = useState<{category: string; priority: string; suggestedResponse: string; tags: string[]; estimatedResolutionHours: number} | null>(null);
+  const [draftToInsert, setDraftToInsert] = useState<{ text: string; nonce: number } | null>(null);
 
   const { data: ticketsResult, isLoading, isError, refetch } = useQuery<{ data: Ticket[]; total: number }>({
     queryKey: ["/api/tickets"],
@@ -400,6 +418,7 @@ export default function Tickets() {
     setEditStatus(ticket.status || "New Ticket");
     setEditAssignedTo(ticket.assignedTo || "");
     setAiResult(null);
+    setDraftToInsert(null);
     setDetailOpen(true);
   };
 
@@ -689,10 +708,25 @@ export default function Tickets() {
                           <Badge key={tag} variant="secondary" className="text-xs no-default-hover-elevate">{tag}</Badge>
                         ))}
                       </div>
-                      <div className="text-sm text-muted-foreground bg-muted/50 p-2 rounded-md">
+                      <div className="text-sm text-muted-foreground bg-muted/50 p-2 rounded-md" data-testid="text-ai-suggested-response">
                         <div className="font-medium text-xs mb-1">Suggested Response:</div>
                         {aiResult.suggestedResponse}
                       </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-1.5 text-xs"
+                        onClick={() =>
+                          setDraftToInsert({ text: aiResult.suggestedResponse, nonce: Date.now() })
+                        }
+                        data-testid="button-insert-ai-response"
+                      >
+                        <MessageSquareText className="w-3.5 h-3.5" />
+                        Insert into Reply
+                      </Button>
+                      <p className="text-xs text-muted-foreground">
+                        This only fills the reply box below — nothing is sent until you review it and click Send Reply.
+                      </p>
                     </CardContent>
                   </Card>
                 )}
@@ -735,7 +769,11 @@ export default function Tickets() {
 
               <Separator />
 
-              <TicketConversation ticket={selectedTicket} />
+              <TicketConversation
+                ticket={selectedTicket}
+                draftToInsert={draftToInsert}
+                onDraftInserted={() => setDraftToInsert(null)}
+              />
             </div>
           )}
         </DialogContent>

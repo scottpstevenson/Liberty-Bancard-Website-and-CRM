@@ -3,7 +3,53 @@ import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integra
 import { storage } from "../storage";
 import { isGhlConfigured, sendGhlEmailForMerchant } from "../services/ghl";
 import { buildDailyDigest } from "../services/digest-service";
+import { isSmtpConfigured } from "../services/smtp-email";
+import { getQueueManager, QUEUE_NAMES } from "../services/queue-manager";
 import type { InsertNotificationPreference } from "@shared/schema";
+
+async function computeDigestHealth() {
+  const ghlConfigured = isGhlConfigured();
+  const smtpConfigured = isSmtpConfigured();
+  const emailProviderConfigured = ghlConfigured || smtpConfigured;
+
+  const lastDailyDigestDate = await storage.getSystemSetting("last_daily_digest_date");
+  const lastWeeklyDigestDate = await storage.getSystemSetting("last_weekly_digest_date");
+
+  // Real scheduler status: check whether the digests BullMQ queue exists and is
+  // not paused. If the queue manager or queue isn't available (e.g. mock/init
+  // failure), treat the scheduler as unknown rather than assuming it's active.
+  let schedulerActive: boolean | null = null;
+  try {
+    const qm = await getQueueManager();
+    const digestsQueue = qm.getQueue(QUEUE_NAMES.DIGESTS);
+    if (digestsQueue) {
+      const paused = await digestsQueue.isPaused();
+      schedulerActive = !paused;
+    }
+  } catch (err: any) {
+    console.error("[digest-health] Failed to read digests queue status:", err.message);
+    schedulerActive = null;
+  }
+
+  let reason: string | null = null;
+  if (!emailProviderConfigured) {
+    reason = "No email provider is configured (GHL and SMTP are both unset). Digest emails cannot be delivered.";
+  } else if (schedulerActive === false) {
+    reason = "The digest scheduler is currently paused. Digest emails will not be sent until it resumes.";
+  } else if (schedulerActive === null) {
+    reason = "Digest scheduler status could not be confirmed, so delivery cannot be guaranteed right now.";
+  }
+
+  return {
+    emailProviderConfigured,
+    ghlConfigured,
+    smtpConfigured,
+    schedulerActive,
+    lastDailyDigestSentAt: lastDailyDigestDate || null,
+    lastWeeklyDigestSentAt: lastWeeklyDigestDate || null,
+    reason,
+  };
+}
 
 export function registerNotificationsRoutes(app: Express) {
   // Lightweight unread count — uses SQL COUNT, scoped to current user
@@ -181,6 +227,41 @@ export function registerNotificationsRoutes(app: Express) {
       res.json(pref);
     } catch (err: any) {
       console.error("Update notification preference error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === DIGEST DELIVERY HEALTH (full) === (admin/manager only — reveals which
+  // provider (GHL/SMTP) is configured, not just whether one is)
+  app.get("/api/notifications/digest-health", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const health = await computeDigestHealth();
+      res.json(health);
+    } catch (err: any) {
+      console.error("Get digest health error:", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === DIGEST DELIVERY AVAILABILITY (minimal) === (any authenticated user —
+  // exposes only whether digest delivery is currently available, without
+  // naming which internal provider is configured, so the toggle UI can
+  // distinguish "preference saved" from "will actually be delivered" for
+  // every user, not just admins/managers.
+  app.get("/api/notifications/digest-availability", isAuthenticated, async (req, res) => {
+    try {
+      const health = await computeDigestHealth();
+      // Only report deliverable=true when we have positive confirmation of both
+      // an email provider AND a running scheduler. An unknown scheduler state
+      // must never be reported as deliverable — that would re-introduce a
+      // false-success signal for regular users.
+      const deliverable = health.emailProviderConfigured && health.schedulerActive === true;
+      res.json({
+        deliverable,
+        reason: deliverable ? null : health.reason,
+      });
+    } catch (err: any) {
+      console.error("Get digest availability error:", err.message);
       res.status(500).json({ message: err.message });
     }
   });
