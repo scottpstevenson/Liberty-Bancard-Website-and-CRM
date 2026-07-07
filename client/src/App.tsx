@@ -212,6 +212,15 @@ const UnderwritingPage = lazy(() => import("@/pages/dashboard/Underwriting"));
 const SystemReadiness = lazy(() => import("@/pages/dashboard/SystemReadiness"));
 const EmailHealth = lazy(() => import("@/pages/dashboard/EmailHealth"));
 
+// ─── Dashboard Hub Pages ───────────────────────────────────────────────────────
+const OnboardingHub = lazy(() => import("@/pages/dashboard/OnboardingHub"));
+const OutreachHub = lazy(() => import("@/pages/dashboard/OutreachHub"));
+const GhlIntegrationHub = lazy(() => import("@/pages/dashboard/GhlIntegrationHub"));
+const PlaybooksHub = lazy(() => import("@/pages/dashboard/PlaybooksHub"));
+const ContentHub = lazy(() => import("@/pages/dashboard/ContentHub"));
+const ReportingHub = lazy(() => import("@/pages/dashboard/ReportingHub"));
+const MerchantSuccessHub = lazy(() => import("@/pages/dashboard/MerchantSuccessHub"));
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 function AgentRoute({ component: Component }: { component: React.ComponentType }) {
@@ -428,7 +437,7 @@ function Router() {
           <ProtectedRoute component={Pipeline} />
         </Route>
         <Route path="/dashboard/onboarding">
-          <ProtectedRoute component={Onboarding} />
+          <ProtectedRoute component={OnboardingHub} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/tickets">
           <ProtectedRoute component={Tickets} />
@@ -446,10 +455,10 @@ function Router() {
           <ProtectedRoute component={ReviewComplete} />
         </Route>
         <Route path="/dashboard/review-requests">
-          <ProtectedRoute component={ReviewRequests} />
+          <Redirect to="/dashboard/merchant-success?tab=reviews" />
         </Route>
         <Route path="/dashboard/testimonial-submissions">
-          <ProtectedRoute component={TestimonialSubmissions} />
+          <Redirect to="/dashboard/merchant-success?tab=testimonials" />
         </Route>
         <Route path="/dashboard/onboarding-kickoff">
           <ProtectedRoute component={OnboardingKickoff} />
@@ -467,10 +476,10 @@ function Router() {
           <ProtectedRoute component={CaseStudyIntake} />
         </Route>
         <Route path="/dashboard/ghl-settings">
-          <ProtectedRoute component={GhlSettings} allowedRoles={["admin", "manager"]} />
+          <Redirect to="/dashboard/ghl-integration?tab=settings" />
         </Route>
         <Route path="/dashboard/ghl-workflows">
-          <ProtectedRoute component={GhlWorkflowManager} allowedRoles={["admin", "manager"]} />
+          <Redirect to="/dashboard/ghl-integration?tab=workflow-ids" />
         </Route>
         <Route path="/dashboard/automation">
           <ProtectedRoute component={Automation} />
@@ -488,13 +497,13 @@ function Router() {
           <ProtectedRoute component={Campaigns} />
         </Route>
         <Route path="/dashboard/outreach-analytics">
-          <ProtectedRoute component={OutreachAnalytics} />
+          <Redirect to="/dashboard/reporting?tab=outreach-analytics" />
         </Route>
         <Route path="/dashboard/reporting">
-          <ProtectedRoute component={Reporting} />
+          <ProtectedRoute component={ReportingHub} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/win-loss">
-          <ProtectedRoute component={WinLoss} />
+          <Redirect to="/dashboard/reporting?tab=win-loss" />
         </Route>
         <Route path="/dashboard/stage-rules">
           <ProtectedRoute component={StageRules} allowedRoles={["admin", "manager"]} />
@@ -512,10 +521,10 @@ function Router() {
           <ProtectedRoute component={StatementReview} />
         </Route>
         <Route path="/dashboard/outreach">
-          <ProtectedRoute component={Outreach} />
+          <Redirect to="/dashboard/outreach-hub?tab=overview" />
         </Route>
         <Route path="/dashboard/outreach-command">
-          <ProtectedRoute component={OutreachCommand} />
+          <Redirect to="/dashboard/outreach-hub?tab=command" />
         </Route>
         <Route path="/dashboard/lead-engine">
           <Redirect to="/dashboard/lead-intelligence" />
@@ -524,7 +533,7 @@ function Router() {
           <ProtectedRoute component={LeadCommandCenter} />
         </Route>
         <Route path="/dashboard/blaze">
-          <ProtectedRoute component={BlazeIntegration} />
+          <Redirect to="/dashboard/content-hub?tab=blaze" />
         </Route>
         <Route path="/dashboard/merchant-applications">
           <ProtectedRoute component={MerchantApplicationsList} />
@@ -533,7 +542,7 @@ function Router() {
           <ProtectedRoute component={BoardingTracker} />
         </Route>
         <Route path="/dashboard/onboarding-board">
-          <ProtectedRoute component={OnboardingBoard} />
+          <Redirect to="/dashboard/onboarding?tab=board" />
         </Route>
         <Route path="/dashboard/merchant-portal">
           <ProtectedRoute component={MerchantPortal} />
@@ -545,10 +554,10 @@ function Router() {
           <ProtectedRoute component={Chargebacks} />
         </Route>
         <Route path="/dashboard/nps">
-          <ProtectedRoute component={NpsDashboard} />
+          <Redirect to="/dashboard/merchant-success?tab=nps" />
         </Route>
         <Route path="/dashboard/retention-campaigns">
-          <ProtectedRoute component={RetentionCampaigns} />
+          <Redirect to="/dashboard/merchant-success?tab=retention" />
         </Route>
         <Route path="/dashboard/agent-management">
           <ProtectedRoute component={AgentManagement} />
@@ -599,13 +608,13 @@ function Router() {
           <ProtectedRoute component={AuditLogs} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/blog-generator">
-          <ProtectedRoute component={BlogGenerator} />
+          <Redirect to="/dashboard/content-hub?tab=blog" />
         </Route>
         <Route path="/dashboard/content">
-          <ProtectedRoute component={ContentEditor} />
+          <Redirect to="/dashboard/content-hub?tab=content" />
         </Route>
         <Route path="/dashboard/social">
-          <ProtectedRoute component={SocialComposer} />
+          <Redirect to="/dashboard/content-hub?tab=linkedin" />
         </Route>
         <Route path="/dashboard/sdr">
           <ProtectedRoute component={SdrDashboard} />
@@ -659,16 +668,16 @@ function Router() {
           <ProtectedRoute component={VirtualTerminal} />
         </Route>
         <Route path="/dashboard/ghl-sequence-guide">
-          <ProtectedRoute component={GhlSequenceGuide} />
+          <Redirect to="/dashboard/ghl-integration?tab=sequence-guide" />
         </Route>
         <Route path="/dashboard/marketing-playbook">
-          <ProtectedRoute component={MarketingPlaybook} />
+          <Redirect to="/dashboard/playbooks?tab=marketing" />
         </Route>
         <Route path="/dashboard/growth-playbook">
-          <ProtectedRoute component={GrowthPlaybook} />
+          <Redirect to="/dashboard/playbooks?tab=growth" />
         </Route>
         <Route path="/dashboard/growth-kpi">
-          <ProtectedRoute component={GrowthKPI} allowedRoles={["admin", "manager"]} />
+          <Redirect to="/dashboard/reporting?tab=growth" />
         </Route>
         <Route path="/dashboard/widget-generator">
           <ProtectedRoute component={WidgetGenerator} allowedRoles={["admin", "manager"]} />
@@ -677,7 +686,7 @@ function Router() {
         <Route path="/partners/embed-widget" component={PartnerEmbedWidget} />
 
         <Route path="/dashboard/cold-leads">
-          <ProtectedRoute component={ColdLeads} />
+          <Redirect to="/dashboard/outreach-hub?tab=prospects" />
         </Route>
 
         <Route path="/dashboard/underwriting">
@@ -686,6 +695,23 @@ function Router() {
 
         <Route path="/dashboard/conversation-ai">
           <ProtectedRoute component={ConversationAI} allowedRoles={["admin", "manager"]} />
+        </Route>
+
+        {/* ─── Hub Routes ───────────────────────────────────────────────────── */}
+        <Route path="/dashboard/outreach-hub">
+          <ProtectedRoute component={OutreachHub} allowedRoles={["admin", "manager"]} />
+        </Route>
+        <Route path="/dashboard/ghl-integration">
+          <ProtectedRoute component={GhlIntegrationHub} allowedRoles={["admin", "manager"]} />
+        </Route>
+        <Route path="/dashboard/playbooks">
+          <ProtectedRoute component={PlaybooksHub} />
+        </Route>
+        <Route path="/dashboard/content-hub">
+          <ProtectedRoute component={ContentHub} allowedRoles={["admin", "manager"]} />
+        </Route>
+        <Route path="/dashboard/merchant-success">
+          <ProtectedRoute component={MerchantSuccessHub} allowedRoles={["admin", "manager"]} />
         </Route>
 
         <Route component={NotFound} />

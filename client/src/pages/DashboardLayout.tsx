@@ -142,7 +142,6 @@ const merchantOpsItems: MenuItem[] = [
   { icon: ClipboardList, label: "Applications", href: "/dashboard/merchant-applications", roles: ["admin", "manager"], badgeKey: "pendingApplications" },
   { icon: Send, label: "Boarding", href: "/dashboard/boarding", roles: ["admin", "manager"] },
   { icon: Package, label: "Onboarding", href: "/dashboard/onboarding", roles: ["admin", "manager"] },
-  { icon: ClipboardList, label: "Onboarding Board", href: "/dashboard/onboarding-board", roles: ["admin", "manager"] },
   { icon: Rocket, label: "Onboarding Kickoff", href: "/dashboard/onboarding-kickoff", roles: ["admin", "manager"] },
   { icon: FileBarChart, label: "Statement Review", href: "/dashboard/statement-review", roles: ["admin", "manager"] },
   { icon: ShieldCheck, label: "Underwriting", href: "/dashboard/underwriting", roles: ["admin", "manager"] },
@@ -157,13 +156,12 @@ const merchantOpsItems: MenuItem[] = [
 const leadEngineItems: MenuItem[] = [
   { icon: Bot, label: "AI SDR", href: "/dashboard/sdr", roles: ["admin", "manager"] },
   { icon: MessageCircle, label: "Chat Bot Settings", href: "/dashboard/conversation-ai", roles: ["admin", "manager"] },
-  { icon: RocketIcon, label: "Outreach Command", href: "/dashboard/outreach-command", roles: ["admin", "manager"] },
+  { icon: RocketIcon, label: "Outreach Hub", href: "/dashboard/outreach-hub", roles: ["admin", "manager"] },
   { icon: Brain, label: "Lead Command Center", href: "/dashboard/lead-command-center", roles: ["admin", "manager"] },
   { icon: Upload, label: "Lead Imports", href: "/dashboard/lead-imports", roles: ["admin", "manager"] },
   { icon: Target, label: "Prospects", href: "/dashboard/prospects", roles: ["admin", "manager"] },
   { icon: FileSearch, label: "Sunbiz Lead Gen", href: "/dashboard/lead-gen", roles: ["admin", "manager"] },
   { icon: Sparkles, label: "Lead Intelligence", href: "/dashboard/lead-intelligence", roles: ["admin", "manager"] },
-  { icon: RefreshCw, label: "Outreach Prospects", href: "/dashboard/cold-leads", roles: ["admin", "manager"] },
   { icon: CreditCard, label: "Card BIN Lookup", href: "/dashboard/bin-lookup", roles: ["admin", "manager", "agent"] },
   { icon: PhoneCall, label: "Call Outcome", href: "/dashboard/call-outcome", roles: ["admin", "manager", "agent"] },
   { icon: FileCheck, label: "Review Complete", href: "/dashboard/review-complete", roles: ["admin", "manager", "agent"] },
@@ -178,7 +176,6 @@ const automationItems: MenuItem[] = [
   { icon: Zap, label: "Workflows", href: "/dashboard/workflows", roles: ["admin", "manager"] },
   { icon: ListOrdered, label: "Sequences", href: "/dashboard/sequences", roles: ["admin", "manager"] },
   { icon: GitBranch, label: "Stage Rules", href: "/dashboard/stage-rules", roles: ["admin", "manager"] },
-  { icon: Repeat, label: "Outreach", href: "/dashboard/outreach", roles: ["admin", "manager"] },
   { icon: Megaphone, label: "Campaigns", href: "/dashboard/campaigns", roles: ["admin", "manager"] },
   { icon: Mail, label: "Email Health", href: "/dashboard/email-health", roles: ["admin", "manager"] },
   { icon: Mailbox, label: "Inbox Health", href: "/dashboard/inbox-health", roles: ["admin", "manager"] },
@@ -194,9 +191,6 @@ const intelligenceItems: MenuItem[] = [
   { icon: PieChart, label: "Reporting", href: "/dashboard/reporting", roles: ["admin", "manager"] },
   { icon: DollarSign, label: "Revenue Dashboard", href: "/dashboard/residual-revenue", roles: ["admin", "manager"] },
   { icon: TrendingUp, label: "Forecasting", href: "/dashboard/forecasting", roles: ["admin", "manager"] },
-  { icon: BarChart3, label: "Growth Metrics", href: "/dashboard/growth-kpi", roles: ["admin", "manager"] },
-  { icon: Trophy, label: "Win/Loss Analysis", href: "/dashboard/win-loss", roles: ["admin", "manager"] },
-  { icon: BarChart2, label: "Outreach Analytics", href: "/dashboard/outreach-analytics", roles: ["admin", "manager"] },
   { icon: Activity, label: "System Monitor", href: "/dashboard/operator", roles: ["admin", "manager"], badgeKey: "jobAlerts" },
   { icon: Activity, label: "System Readiness", href: "/dashboard/system-readiness", roles: ["admin", "manager"] },
   { icon: SearchIcon, label: "SEO Health", href: "/dashboard/seo-health", roles: ["admin", "manager"] },
@@ -213,27 +207,16 @@ const growthItems: MenuItem[] = [
   { icon: Link2, label: "Partner Orgs", href: "/dashboard/partner-orgs", roles: ["admin"] },
   { icon: FileCheck, label: "Co-Branded Proposals", href: "/dashboard/co-branded-proposals", roles: ["admin", "manager"] },
   { icon: Code2, label: "Widget Generator", href: "/dashboard/widget-generator", roles: ["admin", "manager"] },
-  { icon: Star, label: "Review Requests", href: "/dashboard/review-requests", roles: ["admin", "manager"] },
-  { icon: MessageSquare, label: "Testimonials", href: "/dashboard/testimonial-submissions", roles: ["admin", "manager"] },
-  { icon: ThumbsUp, label: "NPS / CSAT", href: "/dashboard/nps", roles: ["admin", "manager"] },
-  { icon: RefreshCw, label: "Retention Campaigns", href: "/dashboard/retention-campaigns", roles: ["admin", "manager"] },
-  { icon: Megaphone, label: "Marketing Playbook", href: "/dashboard/marketing-playbook", roles: ["admin", "manager", "agent"] },
-  { icon: TrendingUp, label: "Growth Playbook", href: "/dashboard/growth-playbook", roles: ["admin", "manager"] },
+  { icon: HeartPulse, label: "Merchant Success", href: "/dashboard/merchant-success", roles: ["admin", "manager"] },
+  { icon: BookOpen, label: "Playbooks", href: "/dashboard/playbooks", roles: ["admin", "manager", "agent"] },
   { icon: BookOpen, label: "Case Study Intake", href: "/dashboard/case-study-intake", roles: ["admin", "manager"] },
   { icon: BookOpen, label: "Collateral", href: "/assets", roles: ["agent"] },
 ];
 
 // ─── SYSTEM ───────────────────────────────────────────────────────────────────
-// All 3 GHL items here per spec (GHL hub will collapse them in #789).
-// Content tools here (Content hub in #789). PCI Assessment surfaced here per spec.
 const systemItems: MenuItem[] = [
-  { icon: Settings, label: "GHL Settings", href: "/dashboard/ghl-settings", roles: ["admin"] },
-  { icon: Workflow, label: "GHL Workflow IDs", href: "/dashboard/ghl-workflows", roles: ["admin"] },
-  { icon: BookOpen, label: "GHL Sequence Guide", href: "/dashboard/ghl-sequence-guide", roles: ["admin", "manager"] },
-  { icon: Pencil, label: "Blog Generator", href: "/dashboard/blog-generator", roles: ["admin"] },
-  { icon: FileText, label: "Content Engine", href: "/dashboard/content", roles: ["admin", "manager"] },
-  { icon: Linkedin, label: "LinkedIn Composer", href: "/dashboard/social", roles: ["admin", "manager"] },
-  { icon: Wand2, label: "Blaze.ai Marketing", href: "/dashboard/blaze", roles: ["admin", "manager"] },
+  { icon: Workflow, label: "GHL Integration", href: "/dashboard/ghl-integration", roles: ["admin", "manager"] },
+  { icon: FileText, label: "Content Hub", href: "/dashboard/content-hub", roles: ["admin", "manager"] },
   { icon: ShieldCheck, label: "PCI Assessment", href: "/dashboard/pci-assessment", roles: ["admin", "manager"] },
   { icon: UserCog, label: "User Management", href: "/dashboard/user-management", roles: ["admin"] },
   { icon: ShieldCheck, label: "Permissions Audit", href: "/dashboard/permissions", roles: ["admin"] },
@@ -297,7 +280,7 @@ function GhlAlertBanner({ role }: { role: UserRole }) {
         )}
       </span>
       <Link
-        href="/dashboard/ghl-settings"
+        href="/dashboard/ghl-integration"
         data-testid="link-ghl-banner-fix"
         className="underline underline-offset-2 font-semibold text-red-800 dark:text-red-200 hover:opacity-80 whitespace-nowrap shrink-0"
       >
