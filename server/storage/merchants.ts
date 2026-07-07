@@ -98,6 +98,7 @@ import {
   leaderboardSettings, type LeaderboardSettings,
 } from "@shared/schema";
 import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, count } from "drizzle-orm";
+import { coerceDateFields } from "../utils/date-coerce";
   import { type PaginationParams, type PaginatedResult, normalizePagination } from "./_shared";
 
   export class MerchantsStorage {
@@ -139,9 +140,13 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
 
   async updateMerchantApplication(id: number, updates: Partial<InsertMerchantApplication>, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }) {
     const { auditChange } = await import("../services/audit-change");
+    const coercedUpdates = coerceDateFields(
+      updates as Record<string, unknown>,
+      ["esignedAt", "approvedAt", "declinedAt", "submittedAt", "completedAt"],
+    );
     const [before] = await db.select().from(merchantApplications).where(eq(merchantApplications.id, id));
     return await db.transaction(async (tx) => {
-      const [updated] = await tx.update(merchantApplications).set({ ...updates, updatedAt: new Date() }).where(eq(merchantApplications.id, id)).returning();
+      const [updated] = await tx.update(merchantApplications).set({ ...coercedUpdates, updatedAt: new Date() } as typeof merchantApplications.$inferInsert).where(eq(merchantApplications.id, id)).returning();
       if (updated) {
         await auditChange({
           userId: auditCtx?.userId ?? null,
@@ -214,7 +219,11 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
 
 
   async updateEquipmentOrder(id: number, updates: Partial<InsertEquipmentOrder>) {
-    const [updated] = await db.update(equipmentOrders).set({ ...updates, updatedAt: new Date() }).where(eq(equipmentOrders.id, id)).returning();
+    const coercedUpdates = coerceDateFields(
+      updates as Record<string, unknown>,
+      ["orderedAt", "shippedAt", "deliveredAt", "approvedAt"],
+    );
+    const [updated] = await db.update(equipmentOrders).set({ ...coercedUpdates, updatedAt: new Date() } as typeof equipmentOrders.$inferInsert).where(eq(equipmentOrders.id, id)).returning();
     return updated;
   }
 

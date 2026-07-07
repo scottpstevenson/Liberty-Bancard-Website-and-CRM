@@ -2,6 +2,7 @@ import type { Express, RequestHandler } from "express";
 import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
+import { DateValidationError } from "../utils/date-coerce";
 import { and, eq, or, sql as drizzleSql } from "drizzle-orm";
 import { insertEquipmentOrderSchema, insertMerchantApplicationSchema, insertMerchantProfileSchema, insertOnboardingStepSchema, contacts, deals, merchantApplications } from "@shared/schema";
 import { db } from "../db";
@@ -626,7 +627,14 @@ export function registerMerchantsRoutes(app: Express) {
       const existing = await storage.getMerchantApplication(appId);
       if (!existing) return res.status(404).json({ message: "Not found" });
 
-      const updates = { ...req.body } as Record<string, any>;
+      const merchantAppDateSchema = z.object({
+        esignedAt: z.coerce.date().optional().nullable(),
+        approvedAt: z.coerce.date().optional().nullable(),
+        declinedAt: z.coerce.date().optional().nullable(),
+        submittedAt: z.coerce.date().optional().nullable(),
+        completedAt: z.coerce.date().optional().nullable(),
+      }).passthrough();
+      const updates = { ...merchantAppDateSchema.parse(req.body) } as Record<string, any>;
       const incomingNote = typeof updates.underwritingNotes === "string"
         ? updates.underwritingNotes.trim()
         : "";
@@ -710,6 +718,8 @@ export function registerMerchantsRoutes(app: Express) {
 
       res.json(updated);
     } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join(".") });
+      if (err instanceof DateValidationError) return res.status(400).json({ message: err.message, field: err.field });
       res.status(400).json({ message: err.message });
     }
   });
@@ -1424,10 +1434,19 @@ export function registerMerchantsRoutes(app: Express) {
 
   app.patch("/api/equipment-orders/:id", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const updated = await storage.updateEquipmentOrder(Number(req.params.id), req.body);
+      const equipmentDateSchema = z.object({
+        orderedAt: z.coerce.date().optional().nullable(),
+        shippedAt: z.coerce.date().optional().nullable(),
+        deliveredAt: z.coerce.date().optional().nullable(),
+        approvedAt: z.coerce.date().optional().nullable(),
+      }).passthrough();
+      const body = equipmentDateSchema.parse(req.body);
+      const updated = await storage.updateEquipmentOrder(Number(req.params.id), body);
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join(".") });
+      if (err instanceof DateValidationError) return res.status(400).json({ message: err.message, field: err.field });
       res.status(400).json({ message: err.message });
     }
   });
@@ -1480,10 +1499,17 @@ export function registerMerchantsRoutes(app: Express) {
 
   app.patch("/api/onboarding-steps/:id", requireRole("admin", "manager"), async (req, res) => {
     try {
-      const updated = await storage.updateOnboardingStep(Number(req.params.id), req.body, { userId: (req.user as any)?.id ?? null });
+      const onboardingDateSchema = z.object({
+        completedAt: z.coerce.date().optional().nullable(),
+        dueDate: z.coerce.date().optional().nullable(),
+      }).passthrough();
+      const body = onboardingDateSchema.parse(req.body);
+      const updated = await storage.updateOnboardingStep(Number(req.params.id), body, { userId: (req.user as any)?.id ?? null });
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join(".") });
+      if (err instanceof DateValidationError) return res.status(400).json({ message: err.message, field: err.field });
       res.status(400).json({ message: err.message });
     }
   });

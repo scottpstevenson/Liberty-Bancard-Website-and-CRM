@@ -98,6 +98,7 @@ import {
   leaderboardSettings, type LeaderboardSettings,
 } from "@shared/schema";
 import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, count } from "drizzle-orm";
+import { coerceDateFields } from "../utils/date-coerce";
   import { type PaginationParams, type PaginatedResult, normalizePagination } from "./_shared";
 
   export class ProspectsStorage {
@@ -151,7 +152,11 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
 
 
   async updateProspect(id: number, updates: UpdateProspectRequest) {
-    const [updated] = await db.update(prospects).set({ ...updates, updatedAt: new Date() }).where(eq(prospects.id, id)).returning();
+    const coercedUpdates = coerceDateFields(
+      updates as Record<string, unknown>,
+      ["enrichedAt", "lastContactedAt"],
+    );
+    const [updated] = await db.update(prospects).set({ ...coercedUpdates, updatedAt: new Date() } as typeof prospects.$inferInsert).where(eq(prospects.id, id)).returning();
     return updated;
   }
 

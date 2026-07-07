@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { isAuthenticated } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
+import { DateValidationError } from "../utils/date-coerce";
 import { insertEnrichmentJobSchema, insertProspectListSchema, insertProspectSchema } from "@shared/schema";
 import { enrichProspect, processEnrichmentQueue, runEnrichmentJob } from "../services/enrichment";
 import { autoEnrollFromTrigger } from "../services/sequence-worker";
@@ -87,10 +88,17 @@ export function registerProspectsRoutes(app: Express) {
 
   app.put("/api/prospects/:id", isAuthenticated, async (req, res) => {
     try {
-      const updated = await storage.updateProspect(Number(req.params.id), req.body);
+      const prospectDateSchema = z.object({
+        enrichedAt: z.coerce.date().optional().nullable(),
+        lastContactedAt: z.coerce.date().optional().nullable(),
+      }).passthrough();
+      const body = prospectDateSchema.parse(req.body);
+      const updated = await storage.updateProspect(Number(req.params.id), body);
       if (!updated) return res.status(404).json({ message: "Prospect not found" });
       res.json(updated);
     } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join(".") });
+      if (err instanceof DateValidationError) return res.status(400).json({ message: err.message, field: err.field });
       res.status(500).json({ message: err.message });
     }
   });

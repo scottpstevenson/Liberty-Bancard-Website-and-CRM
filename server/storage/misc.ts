@@ -100,6 +100,7 @@ import {
   leaderboardSettings, type LeaderboardSettings,
 } from "@shared/schema";
 import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, count } from "drizzle-orm";
+import { coerceDateFields } from "../utils/date-coerce";
   import { type PaginationParams, type PaginatedResult, normalizePagination } from "./_shared";
 
   export class MiscStorage {
@@ -148,9 +149,13 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
 
   async updateOnboardingStep(id: number, updates: Partial<InsertOnboardingStep>, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }) {
     const { auditChange } = await import("../services/audit-change");
+    const coercedUpdates = coerceDateFields(
+      updates as Record<string, unknown>,
+      ["completedAt", "dueDate"],
+    );
     const [before] = await db.select().from(onboardingSteps).where(eq(onboardingSteps.id, id));
     return await db.transaction(async (tx) => {
-      const [updated] = await tx.update(onboardingSteps).set(updates).where(eq(onboardingSteps.id, id)).returning();
+      const [updated] = await tx.update(onboardingSteps).set(coercedUpdates as typeof onboardingSteps.$inferInsert).where(eq(onboardingSteps.id, id)).returning();
       if (updated) {
         await auditChange({
           userId: auditCtx?.userId ?? null,

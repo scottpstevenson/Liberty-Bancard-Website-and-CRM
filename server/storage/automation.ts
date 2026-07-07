@@ -98,6 +98,7 @@ import {
   leaderboardSettings, type LeaderboardSettings,
 } from "@shared/schema";
 import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, count } from "drizzle-orm";
+import { coerceDateFields } from "../utils/date-coerce";
   import { type PaginationParams, type PaginatedResult, normalizePagination } from "./_shared";
 
   export class AutomationStorage {
@@ -231,7 +232,11 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
 
 
   async updateSequenceEnrollment(id: number, updates: Partial<InsertSequenceEnrollment>) {
-    const [updated] = await db.update(sequenceEnrollments).set({ ...updates, updatedAt: new Date() }).where(eq(sequenceEnrollments.id, id)).returning();
+    const coercedUpdates = coerceDateFields(
+      updates as Record<string, unknown>,
+      ["nextActionAt", "completedAt", "pausedAt"],
+    );
+    const [updated] = await db.update(sequenceEnrollments).set({ ...coercedUpdates, updatedAt: new Date() } as typeof sequenceEnrollments.$inferInsert).where(eq(sequenceEnrollments.id, id)).returning();
     return updated;
   }
 

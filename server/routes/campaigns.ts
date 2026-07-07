@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { isAuthenticated, isDashboardUser } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
+import { DateValidationError } from "../utils/date-coerce";
 import { contacts, followUpSequences, sequenceEnrollments, insertCampaignSchema, insertCampaignStepSchema, insertFollowUpSequenceSchema, insertSequenceEnrollmentSchema, insertSequenceStepSchema } from "@shared/schema";
 import type { AbTestConfig, AbTestResults } from "@shared/schema";
 import { getCampaignAnalytics, processSendQueue, queueCampaignMessages } from "../services/campaign-engine";
@@ -444,10 +445,18 @@ export function registerCampaignsRoutes(app: Express) {
 
   app.put("/api/sequence-enrollments/:id", isAuthenticated, async (req, res) => {
     try {
-      const updated = await storage.updateSequenceEnrollment(Number(req.params.id), req.body);
+      const enrollmentDateSchema = z.object({
+        nextActionAt: z.coerce.date().optional().nullable(),
+        completedAt: z.coerce.date().optional().nullable(),
+        pausedAt: z.coerce.date().optional().nullable(),
+      }).passthrough();
+      const body = enrollmentDateSchema.parse(req.body);
+      const updated = await storage.updateSequenceEnrollment(Number(req.params.id), body);
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join(".") });
+      if (err instanceof DateValidationError) return res.status(400).json({ message: err.message, field: err.field });
       res.status(500).json({ message: err.message });
     }
   });

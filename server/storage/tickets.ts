@@ -98,6 +98,7 @@ import {
   leaderboardSettings, type LeaderboardSettings,
 } from "@shared/schema";
 import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, count } from "drizzle-orm";
+import { coerceDateFields } from "../utils/date-coerce";
   import { type PaginationParams, type PaginatedResult, normalizePagination } from "./_shared";
 
   export class TicketsStorage {
@@ -124,7 +125,11 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
 
 
   async updateTicket(id: number, updates: UpdateTicketRequest) {
-    const [updated] = await db.update(tickets).set({ ...updates, updatedAt: new Date() }).where(eq(tickets.id, id)).returning();
+    const coercedUpdates = coerceDateFields(
+      updates as Record<string, unknown>,
+      ["slaDeadline", "firstResponseAt", "resolvedAt"],
+    );
+    const [updated] = await db.update(tickets).set({ ...coercedUpdates, updatedAt: new Date() } as typeof tickets.$inferInsert).where(eq(tickets.id, id)).returning();
     return updated;
   }
 

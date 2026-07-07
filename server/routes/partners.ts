@@ -8,6 +8,7 @@ import { db } from "../db";
 import { users } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
+import { DateValidationError } from "../utils/date-coerce";
 import { insertPartnerSchema, insertReferralSchema } from "@shared/schema";
 import type { InsertPartner } from "@shared/schema";
 import bcrypt from "bcryptjs";
@@ -791,10 +792,17 @@ export function registerPartnersRoutes(app: Express) {
 
   app.patch("/api/referrals/:id", isDashboardUser, async (req, res) => {
     try {
-      const updated = await storage.updateReferral(Number(req.params.id), req.body);
+      const referralDateSchema = z.object({
+        paidAt: z.coerce.date().optional().nullable(),
+        convertedAt: z.coerce.date().optional().nullable(),
+      }).passthrough();
+      const body = referralDateSchema.parse(req.body);
+      const updated = await storage.updateReferral(Number(req.params.id), body);
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join(".") });
+      if (err instanceof DateValidationError) return res.status(400).json({ message: err.message, field: err.field });
       res.status(400).json({ message: err.message });
     }
   });

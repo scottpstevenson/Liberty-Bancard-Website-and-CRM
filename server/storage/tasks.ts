@@ -98,6 +98,7 @@ import {
   leaderboardSettings, type LeaderboardSettings,
 } from "@shared/schema";
 import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, count } from "drizzle-orm";
+import { coerceDateFields } from "../utils/date-coerce";
   import { type PaginationParams, type PaginatedResult, normalizePagination } from "./_shared";
 
   export class TasksStorage {
@@ -120,7 +121,11 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
 
 
   async updateTask(id: number, updates: UpdateTaskRequest) {
-    const [updated] = await db.update(tasks).set(updates).where(eq(tasks.id, id)).returning();
+    const coercedUpdates = coerceDateFields(
+      updates as Record<string, unknown>,
+      ["dueDate", "completedAt", "deletedAt"],
+    );
+    const [updated] = await db.update(tasks).set(coercedUpdates as typeof tasks.$inferInsert).where(eq(tasks.id, id)).returning();
     return updated;
   }
 

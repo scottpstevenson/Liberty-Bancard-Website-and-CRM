@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { isAuthenticated, isDashboardUser, requireRole } from "../replit_integrations/auth";
 import { storage } from "../storage";
 import { z } from "zod";
+import { DateValidationError } from "../utils/date-coerce";
 import { pool, db } from "../db";
 import { sdrLeadState, insertCompanySchema, insertContactSchema } from "@shared/schema";
 import { eq } from "drizzle-orm";
@@ -183,7 +184,21 @@ export function registerContactsRoutes(app: Express) {
     try {
       const contactId = Number(req.params.id);
       const existing = await storage.getContact(contactId);
-      const updated = await updateContactGhlFirst(contactId, req.body, { actorType: "user", userId: (req.user as any)?.id ?? null });
+      const contactDateSchema = z.object({
+        lastScoredAt: z.coerce.date().optional().nullable(),
+        smsOptInAt: z.coerce.date().optional().nullable(),
+        emailOptInAt: z.coerce.date().optional().nullable(),
+        lastContactedAt: z.coerce.date().optional().nullable(),
+        coolingUntil: z.coerce.date().optional().nullable(),
+        linkedinEnrichedAt: z.coerce.date().optional().nullable(),
+        archivedAt: z.coerce.date().optional().nullable(),
+        lastSyncedAt: z.coerce.date().optional().nullable(),
+        bouncedAt: z.coerce.date().optional().nullable(),
+        lastVoicemailAt: z.coerce.date().optional().nullable(),
+        offerRoutedAt: z.coerce.date().optional().nullable(),
+      }).passthrough();
+      const body = contactDateSchema.parse(req.body);
+      const updated = await updateContactGhlFirst(contactId, body, { actorType: "user", userId: (req.user as any)?.id ?? null });
       if (!updated) return res.status(404).json({ message: "Not found" });
 
       // Re-extract relationships when key identifiers change
@@ -226,6 +241,8 @@ export function registerContactsRoutes(app: Express) {
       const statusCode = updated._ghlSyncFailed ? 202 : 200;
       res.status(statusCode).json(updated);
     } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message, field: err.errors[0].path.join(".") });
+      if (err instanceof DateValidationError) return res.status(400).json({ message: err.message, field: err.field });
       if (isUniqueEmailViolation(err)) {
         const existing = await storage.getContactByEmail(req.body?.email || "").catch(() => undefined);
         return res.status(409).json({

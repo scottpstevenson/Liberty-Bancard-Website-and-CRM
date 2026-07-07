@@ -98,6 +98,7 @@ import {
   leaderboardSettings, type LeaderboardSettings,
 } from "@shared/schema";
 import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, count } from "drizzle-orm";
+import { coerceDateFields } from "../utils/date-coerce";
   import { type PaginationParams, type PaginatedResult, normalizePagination } from "./_shared";
 
   export class ContactsStorage {
@@ -160,9 +161,15 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
 
   async updateContact(id: number, updates: UpdateContactRequest, auditCtx?: { userId?: string | null; actorType?: string; actorId?: string | null }) {
     const { auditChange } = await import("../services/audit-change");
+    const coercedUpdates = coerceDateFields(
+      updates as Record<string, unknown>,
+      ["lastScoredAt", "smsOptInAt", "emailOptInAt", "lastContactedAt", "coolingUntil",
+       "linkedinEnrichedAt", "archivedAt", "lastSyncedAt", "bouncedAt",
+       "lastVoicemailAt", "offerRoutedAt"],
+    );
     const [before] = await db.select().from(contacts).where(eq(contacts.id, id));
     return await db.transaction(async (tx) => {
-      const [updated] = await tx.update(contacts).set({ ...updates, updatedAt: new Date() }).where(eq(contacts.id, id)).returning();
+      const [updated] = await tx.update(contacts).set({ ...coercedUpdates, updatedAt: new Date() } as typeof contacts.$inferInsert).where(eq(contacts.id, id)).returning();
       if (updated) {
         await auditChange({
           userId: auditCtx?.userId ?? null,

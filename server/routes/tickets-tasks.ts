@@ -9,6 +9,17 @@ import { enrollInGhlWorkflow } from "../services/ghl-workflows";
 import { createPreferenceAwareNotification } from "../services/digest-service";
 import { parse } from "csv-parse/sync";
 
+const updateTicketSchema = insertTicketSchema.partial().extend({
+  slaDeadline: z.coerce.date().optional().nullable(),
+  firstResponseAt: z.coerce.date().optional().nullable(),
+  resolvedAt: z.coerce.date().optional().nullable(),
+});
+
+const updateTaskSchema = insertTaskSchema.partial().extend({
+  dueDate: z.coerce.date().optional().nullable(),
+  completedAt: z.coerce.date().optional().nullable(),
+});
+
 export function registerTicketsTasksRoutes(app: Express) {
   // === TICKETS ===
   app.get("/api/tickets", isDashboardUser, async (req, res) => {
@@ -58,9 +69,13 @@ export function registerTicketsTasksRoutes(app: Express) {
   app.put("/api/tickets/:id", isDashboardUser, async (req, res) => {
     try {
       const ticketId = Number(req.params.id);
+      const parseResult = updateTicketSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({ message: parseResult.error.errors[0].message });
+      }
       const { data: existing } = await storage.getTickets({ limit: 500 });
       const oldTicket = existing.find(t => t.id === ticketId);
-      const updated = await storage.updateTicket(ticketId, req.body);
+      const updated = await storage.updateTicket(ticketId, parseResult.data);
       if (!updated) return res.status(404).json({ message: "Not found" });
 
       if (oldTicket) {
@@ -136,7 +151,11 @@ export function registerTicketsTasksRoutes(app: Express) {
 
   app.put("/api/tasks/:id", isDashboardUser, async (req, res) => {
     try {
-      const updated = await storage.updateTask(Number(req.params.id), req.body);
+      const parseResult = updateTaskSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({ message: parseResult.error.errors[0].message });
+      }
+      const updated = await storage.updateTask(Number(req.params.id), parseResult.data);
       if (!updated) return res.status(404).json({ message: "Not found" });
       res.json(updated);
     } catch (err: any) {
