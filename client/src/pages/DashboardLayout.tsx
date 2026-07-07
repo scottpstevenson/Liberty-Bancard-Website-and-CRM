@@ -120,12 +120,9 @@ const workItems: MenuItem[] = [
   { icon: ClipboardList, label: "Tasks", href: "/dashboard/tasks", roles: ["admin", "manager"] },
   { icon: Calendar, label: "My Calendar", href: "/dashboard/calendar", roles: ["agent"] },
   { icon: Calendar, label: "Calendar", href: "/dashboard/calendar", roles: ["admin", "manager"] },
-  { icon: Inbox, label: "Messages", href: "/dashboard/sms-inbox", roles: ["admin", "manager", "agent"], badgeKey: "smsUnread" },
-  { icon: Ticket, label: "Tickets", href: "/dashboard/tickets", roles: ["admin", "manager"] },
-  { icon: FileQuestion, label: "RFIs", href: "/dashboard/rfis", roles: ["admin", "manager"] },
-  { icon: ListChecks, label: "Review Queue", href: "/dashboard/review-queue", roles: ["admin", "manager"], badgeKey: "reviewQueuePending" },
+  { icon: Inbox, label: "Comms Hub", href: "/dashboard/comms-hub", roles: ["admin", "manager", "agent"] },
+  { icon: Ticket, label: "Support Hub", href: "/dashboard/support-hub", roles: ["admin", "manager"] },
   { icon: MessageSquare, label: "AI Advisor", href: "/dashboard/chat", roles: ["admin", "manager", "agent"] },
-  { icon: MessageCircle, label: "Live Chat", href: "/dashboard/live-chat", roles: ["admin", "manager", "agent"], badgeKey: "liveChatUnread" },
 ];
 // Note: /dashboard/notifications is accessible via the topbar bell icon and is intentionally
 // excluded from the sidebar to keep WORK at 12 visible items for admin.
@@ -145,8 +142,7 @@ const merchantOpsItems: MenuItem[] = [
   { icon: Rocket, label: "Onboarding Kickoff", href: "/dashboard/onboarding-kickoff", roles: ["admin", "manager"] },
   { icon: FileBarChart, label: "Statement Review", href: "/dashboard/statement-review", roles: ["admin", "manager"] },
   { icon: ShieldCheck, label: "Underwriting", href: "/dashboard/underwriting", roles: ["admin", "manager"] },
-  { icon: ShieldAlert, label: "Chargebacks", href: "/dashboard/chargebacks", roles: ["admin", "manager"] },
-  { icon: HeartPulse, label: "Merchant Health", href: "/dashboard/merchant-health", roles: ["admin", "manager"] },
+  { icon: ShieldAlert, label: "Merchant Risk", href: "/dashboard/merchant-risk", roles: ["admin", "manager"] },
   { icon: FolderOpen, label: "Document Vault", href: "/dashboard/document-vault", roles: ["admin", "manager"] },
   { icon: HelpCircle, label: "Knowledge Base", href: "/dashboard/knowledge-base" },
   { icon: GraduationCap, label: "Training", href: "/dashboard/training", roles: ["admin", "manager", "agent"] },
@@ -154,8 +150,7 @@ const merchantOpsItems: MenuItem[] = [
 
 // ─── LEAD ENGINE ──────────────────────────────────────────────────────────────
 const leadEngineItems: MenuItem[] = [
-  { icon: Bot, label: "AI SDR", href: "/dashboard/sdr", roles: ["admin", "manager"] },
-  { icon: MessageCircle, label: "Chat Bot Settings", href: "/dashboard/conversation-ai", roles: ["admin", "manager"] },
+  { icon: Bot, label: "SDR Hub", href: "/dashboard/sdr-hub", roles: ["admin", "manager"] },
   { icon: RocketIcon, label: "Outreach Hub", href: "/dashboard/outreach-hub", roles: ["admin", "manager"] },
   { icon: Brain, label: "Lead Command Center", href: "/dashboard/lead-command-center", roles: ["admin", "manager"] },
   { icon: Upload, label: "Lead Imports", href: "/dashboard/lead-imports", roles: ["admin", "manager"] },
@@ -177,8 +172,7 @@ const automationItems: MenuItem[] = [
   { icon: ListOrdered, label: "Sequences", href: "/dashboard/sequences", roles: ["admin", "manager"] },
   { icon: GitBranch, label: "Stage Rules", href: "/dashboard/stage-rules", roles: ["admin", "manager"] },
   { icon: Megaphone, label: "Campaigns", href: "/dashboard/campaigns", roles: ["admin", "manager"] },
-  { icon: Mail, label: "Email Health", href: "/dashboard/email-health", roles: ["admin", "manager"] },
-  { icon: Mailbox, label: "Inbox Health", href: "/dashboard/inbox-health", roles: ["admin", "manager"] },
+  { icon: Mail, label: "Deliverability", href: "/dashboard/deliverability-hub", roles: ["admin", "manager"] },
   { icon: RocketIcon, label: "Go-Live Controls", href: "/dashboard/activation", roles: ["admin"] },
   { icon: ArrowRightLeft, label: "Round-Robin", href: "/dashboard/round-robin", roles: ["admin", "manager"] },
   { icon: Settings, label: "Settings → Integrations", href: "/dashboard/settings/integrations", roles: ["admin"] },
@@ -186,17 +180,11 @@ const automationItems: MenuItem[] = [
 ];
 
 // ─── INTELLIGENCE ─────────────────────────────────────────────────────────────
-// Reporting is the first item per spec. Growth Metrics, Win/Loss, Outreach Analytics here.
 const intelligenceItems: MenuItem[] = [
   { icon: PieChart, label: "Reporting", href: "/dashboard/reporting", roles: ["admin", "manager"] },
-  { icon: DollarSign, label: "Revenue Dashboard", href: "/dashboard/residual-revenue", roles: ["admin", "manager"] },
-  { icon: TrendingUp, label: "Forecasting", href: "/dashboard/forecasting", roles: ["admin", "manager"] },
-  { icon: Activity, label: "System Monitor", href: "/dashboard/operator", roles: ["admin", "manager"], badgeKey: "jobAlerts" },
-  { icon: Activity, label: "System Readiness", href: "/dashboard/system-readiness", roles: ["admin", "manager"] },
-  { icon: SearchIcon, label: "SEO Health", href: "/dashboard/seo-health", roles: ["admin", "manager"] },
-  { icon: Monitor, label: "Terminal ROI", href: "/dashboard/terminal-roi", roles: ["admin", "manager"] },
+  { icon: DollarSign, label: "Financial Hub", href: "/dashboard/financial-hub", roles: ["admin", "manager"] },
+  { icon: Activity, label: "System Health", href: "/dashboard/system-health", roles: ["admin", "manager"] },
   { icon: Trophy, label: "Leaderboard", href: "/dashboard/leaderboard", roles: ["admin", "manager", "agent"] },
-  { icon: ShieldCheck, label: "Consent Audit", href: "/dashboard/consent-audit", roles: ["admin", "manager"] },
 ];
 
 // ─── GROWTH & PARTNERS ────────────────────────────────────────────────────────
@@ -217,10 +205,7 @@ const growthItems: MenuItem[] = [
 const systemItems: MenuItem[] = [
   { icon: Workflow, label: "GHL Integration", href: "/dashboard/ghl-integration", roles: ["admin", "manager"] },
   { icon: FileText, label: "Content Hub", href: "/dashboard/content-hub", roles: ["admin", "manager"] },
-  { icon: ShieldCheck, label: "PCI Assessment", href: "/dashboard/pci-assessment", roles: ["admin", "manager"] },
-  { icon: UserCog, label: "User Management", href: "/dashboard/user-management", roles: ["admin"] },
-  { icon: ShieldCheck, label: "Permissions Audit", href: "/dashboard/permissions", roles: ["admin"] },
-  { icon: ClipboardList, label: "Audit Log", href: "/dashboard/audit-logs", roles: ["admin"] },
+  { icon: UserCog, label: "Admin Hub", href: "/dashboard/admin-hub", roles: ["admin", "manager"] },
   { icon: ShieldCheck, label: "Security Settings", href: "/dashboard/security", roles: ["admin", "manager", "agent", "merchant"] },
 ];
 

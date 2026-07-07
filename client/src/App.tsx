@@ -220,6 +220,14 @@ const PlaybooksHub = lazy(() => import("@/pages/dashboard/PlaybooksHub"));
 const ContentHub = lazy(() => import("@/pages/dashboard/ContentHub"));
 const ReportingHub = lazy(() => import("@/pages/dashboard/ReportingHub"));
 const MerchantSuccessHub = lazy(() => import("@/pages/dashboard/MerchantSuccessHub"));
+const SupportHub = lazy(() => import("@/pages/dashboard/SupportHub"));
+const CommsHub = lazy(() => import("@/pages/dashboard/CommsHub"));
+const SDRHub = lazy(() => import("@/pages/dashboard/SDRHub"));
+const DeliverabilityHub = lazy(() => import("@/pages/dashboard/DeliverabilityHub"));
+const FinancialHub = lazy(() => import("@/pages/dashboard/FinancialHub"));
+const SystemHealthHub = lazy(() => import("@/pages/dashboard/SystemHealthHub"));
+const AdminHub = lazy(() => import("@/pages/dashboard/AdminHub"));
+const MerchantRiskHub = lazy(() => import("@/pages/dashboard/MerchantRiskHub"));
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -440,7 +448,7 @@ function Router() {
           <ProtectedRoute component={OnboardingHub} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/tickets">
-          <ProtectedRoute component={Tickets} />
+          <Redirect to="/dashboard/support-hub?tab=tickets" />
         </Route>
         <Route path="/dashboard/tasks">
           <ProtectedRoute component={Tasks} />
@@ -467,10 +475,10 @@ function Router() {
           <ProtectedRoute component={Workflows} />
         </Route>
         <Route path="/dashboard/rfis">
-          <ProtectedRoute component={RFIs} />
+          <Redirect to="/dashboard/support-hub?tab=rfis" />
         </Route>
         <Route path="/dashboard/review-queue">
-          <ProtectedRoute component={ReviewQueuePage} allowedRoles={["admin", "manager"]} />
+          <Redirect to="/dashboard/support-hub?tab=review-queue" />
         </Route>
         <Route path="/dashboard/case-study-intake">
           <ProtectedRoute component={CaseStudyIntake} />
@@ -548,10 +556,10 @@ function Router() {
           <ProtectedRoute component={MerchantPortal} />
         </Route>
         <Route path="/dashboard/merchant-health">
-          <ProtectedRoute component={MerchantHealth} />
+          <Redirect to="/dashboard/merchant-risk?tab=health" />
         </Route>
         <Route path="/dashboard/chargebacks">
-          <ProtectedRoute component={Chargebacks} />
+          <Redirect to="/dashboard/merchant-risk?tab=chargebacks" />
         </Route>
         <Route path="/dashboard/nps">
           <Redirect to="/dashboard/merchant-success?tab=nps" />
@@ -563,7 +571,7 @@ function Router() {
           <ProtectedRoute component={AgentManagement} />
         </Route>
         <Route path="/dashboard/residual-revenue">
-          <ProtectedRoute component={ResidualRevenue} />
+          <Redirect to="/dashboard/financial-hub?tab=revenue" />
         </Route>
         <Route path="/dashboard/referral-program">
           <ProtectedRoute component={ReferralProgram} />
@@ -578,16 +586,16 @@ function Router() {
           <ProtectedRoute component={KnowledgeBase} />
         </Route>
         <Route path="/dashboard/consent-audit">
-          <ProtectedRoute component={ConsentAudit} />
+          <Redirect to="/dashboard/admin-hub?tab=consent" />
         </Route>
         <Route path="/dashboard/calendar">
           <ProtectedRoute component={Calendar} />
         </Route>
         <Route path="/dashboard/user-management">
-          <ProtectedRoute component={UserManagement} allowedRoles={["admin", "manager"]} />
+          <Redirect to="/dashboard/admin-hub?tab=users" />
         </Route>
         <Route path="/dashboard/permissions">
-          <ProtectedRoute component={Permissions} allowedRoles={["admin", "manager"]} />
+          <Redirect to="/dashboard/admin-hub?tab=permissions" />
         </Route>
         <Route path="/dashboard/security">
           <ProtectedRoute component={SecuritySettings} />
@@ -596,16 +604,16 @@ function Router() {
           <ProtectedRoute component={SettingsIntegrations} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/forecasting">
-          <ProtectedRoute component={Forecasting} />
+          <Redirect to="/dashboard/financial-hub?tab=forecasting" />
         </Route>
         <Route path="/dashboard/pci-assessment">
-          <ProtectedRoute component={PciAssessment} />
+          <Redirect to="/dashboard/admin-hub?tab=pci" />
         </Route>
         <Route path="/dashboard/data-requests">
           <ProtectedRoute component={DataRequests} />
         </Route>
         <Route path="/dashboard/audit-logs">
-          <ProtectedRoute component={AuditLogs} allowedRoles={["admin", "manager"]} />
+          <Redirect to="/dashboard/admin-hub?tab=audit-log" />
         </Route>
         <Route path="/dashboard/blog-generator">
           <Redirect to="/dashboard/content-hub?tab=blog" />
@@ -617,10 +625,10 @@ function Router() {
           <Redirect to="/dashboard/content-hub?tab=linkedin" />
         </Route>
         <Route path="/dashboard/sdr">
-          <ProtectedRoute component={SdrDashboard} />
+          <Redirect to="/dashboard/sdr-hub?tab=sdr" />
         </Route>
         <Route path="/dashboard/sms-inbox">
-          <ProtectedRoute component={SmsInbox} />
+          <Redirect to="/dashboard/comms-hub?tab=messages" />
         </Route>
         <Route path="/dashboard/bin-lookup">
           <ProtectedRoute component={BinLookup} />
@@ -629,22 +637,22 @@ function Router() {
           <ProtectedRoute component={RoundRobinAdmin} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/inbox-health">
-          <ProtectedRoute component={InboxHealth} allowedRoles={["admin", "manager"]} />
+          <Redirect to="/dashboard/deliverability-hub?tab=inbox-health" />
         </Route>
         <Route path="/dashboard/email-health">
-          <ProtectedRoute component={EmailHealth} allowedRoles={["admin", "manager"]} />
+          <Redirect to="/dashboard/deliverability-hub?tab=email-health" />
         </Route>
         <Route path="/dashboard/activation">
           <ProtectedRoute component={ActivationPanel} allowedRoles={["admin", "manager"]} />
         </Route>
         <Route path="/dashboard/operator">
-          <ProtectedRoute component={OperatorDashboard} allowedRoles={["admin", "manager"]} />
+          <Redirect to="/dashboard/system-health?tab=monitor" />
         </Route>
         <Route path="/dashboard/seo-health">
-          <ProtectedRoute component={SeoHealth} />
+          <Redirect to="/dashboard/system-health?tab=seo" />
         </Route>
         <Route path="/dashboard/system-readiness">
-          <ProtectedRoute component={SystemReadiness} allowedRoles={["admin", "manager"]} />
+          <Redirect to="/dashboard/system-health?tab=readiness" />
         </Route>
         <Route path="/dashboard/training">
           <ProtectedRoute component={Training} />
@@ -653,13 +661,13 @@ function Router() {
           <ProtectedRoute component={Leaderboard} />
         </Route>
         <Route path="/dashboard/terminal-roi">
-          <ProtectedRoute component={TerminalROI} allowedRoles={["admin", "manager"]} />
+          <Redirect to="/dashboard/financial-hub?tab=terminal-roi" />
         </Route>
         <Route path="/dashboard/my-day">
           <AgentRoute component={SalesRepHome} />
         </Route>
         <Route path="/dashboard/live-chat">
-          <ProtectedRoute component={LiveChatDashboard} />
+          <Redirect to="/dashboard/comms-hub?tab=live-chat" />
         </Route>
         <Route path="/dashboard/document-vault">
           <ProtectedRoute component={DocumentVault} />
@@ -694,7 +702,7 @@ function Router() {
         </Route>
 
         <Route path="/dashboard/conversation-ai">
-          <ProtectedRoute component={ConversationAI} allowedRoles={["admin", "manager"]} />
+          <Redirect to="/dashboard/sdr-hub?tab=chatbot" />
         </Route>
 
         {/* ─── Hub Routes ───────────────────────────────────────────────────── */}
@@ -712,6 +720,40 @@ function Router() {
         </Route>
         <Route path="/dashboard/merchant-success">
           <ProtectedRoute component={MerchantSuccessHub} allowedRoles={["admin", "manager"]} />
+        </Route>
+        <Route path="/dashboard/support-hub">
+          <ProtectedRoute component={SupportHub} allowedRoles={["admin", "manager"]} />
+        </Route>
+        <Route path="/dashboard/comms-hub">
+          <ProtectedRoute component={CommsHub} />
+        </Route>
+        <Route path="/dashboard/sdr-hub">
+          <ProtectedRoute component={SDRHub} allowedRoles={["admin", "manager"]} />
+        </Route>
+        <Route path="/dashboard/deliverability-hub">
+          <ProtectedRoute component={DeliverabilityHub} allowedRoles={["admin", "manager"]} />
+        </Route>
+        <Route path="/dashboard/financial-hub">
+          <ProtectedRoute component={FinancialHub} allowedRoles={["admin", "manager"]} />
+        </Route>
+        <Route path="/dashboard/system-health">
+          <ProtectedRoute component={SystemHealthHub} allowedRoles={["admin", "manager"]} />
+        </Route>
+        <Route path="/dashboard/admin-hub">
+          <ProtectedRoute component={AdminHub} allowedRoles={["admin", "manager"]} />
+        </Route>
+        <Route path="/dashboard/merchant-risk">
+          <ProtectedRoute component={MerchantRiskHub} allowedRoles={["admin", "manager"]} />
+        </Route>
+        {/* ─── Alias Redirects (legacy deep-links) ─────────────────────────── */}
+        <Route path="/dashboard/ghl-workflow-ids">
+          <Redirect to="/dashboard/ghl-integration?tab=workflow-ids" />
+        </Route>
+        <Route path="/dashboard/social-composer">
+          <Redirect to="/dashboard/content-hub?tab=linkedin" />
+        </Route>
+        <Route path="/dashboard/blaze-integration">
+          <Redirect to="/dashboard/content-hub?tab=blaze" />
         </Route>
 
         <Route component={NotFound} />
