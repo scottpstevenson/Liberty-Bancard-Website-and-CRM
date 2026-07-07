@@ -14,11 +14,72 @@ interface BoardingRefreshResult {
   moreInfoRequest?: string;
   declineReason?: string;
   error?: string;
+  alertCreated?: boolean;
+  existingAlert?: boolean;
+}
+
+async function recordBoardingFailureAndAlert(
+  deal: any,
+  dealId: number,
+  errorMessage: string
+): Promise<{ alertCreated: boolean; existingAlert: boolean }> {
+  const existingLog = (deal.boardingLog as any[]) || [];
+
+  const lastStatusCheck = [...existingLog].reverse().find((e: any) => e.event === "status_check");
+  const isConsecutiveFailure = lastStatusCheck?.outcome === "failed";
+
+  const failureEntry: Record<string, any> = {
+    timestamp: new Date().toISOString(),
+    event: "status_check",
+    outcome: "failed",
+    error: errorMessage,
+  };
+
+  await storage.updateDeal(dealId, {
+    boardingLog: [...existingLog, failureEntry],
+  });
+
+  if (!isConsecutiveFailure) {
+    return { alertCreated: false, existingAlert: false };
+  }
+
+  const existingTasks = await storage.getTasks();
+  const hasPersistentAlert = existingTasks.some(
+    (t) =>
+      t.dealId === dealId &&
+      t.title?.includes("Persistent Boarding Failure") &&
+      t.status === "pending"
+  );
+
+  if (hasPersistentAlert) {
+    return { alertCreated: false, existingAlert: true };
+  }
+
+  await storage.createTask({
+    dealId,
+    contactId: deal.contactId || undefined,
+    title: `Persistent Boarding Failure — Deal #${dealId}`,
+    assignedTo: deal.owner || "Scott Stevenson",
+    priority: "high",
+    dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    description: `Boarding status refresh has failed on consecutive attempts. Latest error: ${errorMessage}`,
+  });
+
+  await storage.createNotification({
+    channel: "internal",
+    title: "Persistent Boarding Failure",
+    message: `Deal #${dealId} has failed consecutive boarding status refreshes. Error: ${errorMessage}`,
+    type: "urgent",
+    metadata: { dealId, eventType: "boarding_persistent_failure" },
+  });
+
+  return { alertCreated: true, existingAlert: false };
 }
 
 async function performBoardingStatusRefresh(dealId: number): Promise<BoardingRefreshResult> {
+  let deal: Awaited<ReturnType<typeof storage.getDeal>> | undefined = undefined;
   try {
-    const deal = await storage.getDeal(dealId);
+    deal = await storage.getDeal(dealId);
     if (!deal) return { dealId, outcome: "skipped", error: "Deal not found" };
     if (!deal.processorApplicationId) {
       return { dealId, outcome: "skipped", error: "No processor application ID on this deal. Submit first." };
@@ -31,7 +92,17 @@ async function performBoardingStatusRefresh(dealId: number): Promise<BoardingRef
     const result = await processor.getMerchantStatus(deal.processorApplicationId);
 
     if (!result.success) {
-      return { dealId, outcome: "failed", error: result.error || "Failed to check boarding status" };
+      const alertInfo = await recordBoardingFailureAndAlert(
+        deal,
+        dealId,
+        result.error || "Failed to check boarding status"
+      );
+      return {
+        dealId,
+        outcome: "failed",
+        error: result.error || "Failed to check boarding status",
+        ...alertInfo,
+      };
     }
 
     const logEntry: Record<string, any> = {
@@ -106,6 +177,14 @@ async function performBoardingStatusRefresh(dealId: number): Promise<BoardingRef
       declineReason: result.declineReason,
     };
   } catch (err: any) {
+    if (deal != null) {
+      try {
+        const alertInfo = await recordBoardingFailureAndAlert(deal, dealId, err.message || "Unknown error");
+        return { dealId, outcome: "failed", error: err.message || "Unknown error", ...alertInfo };
+      } catch {
+        // ignore secondary failure — return bare failed result
+      }
+    }
     return { dealId, outcome: "failed", error: err.message || "Unknown error" };
   }
 }

@@ -645,6 +645,33 @@ export default function Chargebacks() {
   const [selectedCb, setSelectedCb] = useState<Chargeback | null>(null);
   const [copilotCb, setCopilotCb] = useState<Chargeback | null>(null);
   const [form, setForm] = useState<ChargebackFormState>(DEFAULT_FORM);
+  const [downloadingPdfId, setDownloadingPdfId] = useState<number | null>(null);
+
+  async function downloadRowPdf(e: React.MouseEvent, cbId: number) {
+    e.stopPropagation();
+    if (downloadingPdfId !== null) return;
+    setDownloadingPdfId(cbId);
+    try {
+      const res = await fetch(`/api/chargebacks/${cbId}/pdf`, { credentials: "include" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: "Failed to generate PDF" }));
+        throw new Error(err.message || "Failed to generate PDF");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `chargeback-evidence-${cbId}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      toast({ title: "Download failed", description: err.message, variant: "destructive" });
+    } finally {
+      setDownloadingPdfId(null);
+    }
+  }
 
   const queryParams = new URLSearchParams();
   if (statusFilter !== "all") queryParams.set("status", statusFilter);
@@ -890,6 +917,27 @@ export default function Chargebacks() {
                       >
                         <Sparkles className="w-3 h-3 mr-1" />
                         {aiPacket ? "View Packet" : "Build Packet"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-xs"
+                        onClick={e => {
+                          if (!aiPacket) {
+                            e.stopPropagation();
+                            toast({ title: "No evidence packet", description: "Build an evidence packet first before downloading the PDF.", variant: "destructive" });
+                            return;
+                          }
+                          downloadRowPdf(e, cb.id);
+                        }}
+                        disabled={downloadingPdfId === cb.id}
+                        aria-label={`Download PDF for chargeback ${cb.id}`}
+                        data-testid={`button-pdf-${cb.id}`}
+                        title={aiPacket ? "Download evidence PDF" : "Build packet first"}
+                      >
+                        {downloadingPdfId === cb.id
+                          ? <Loader2 className="w-3 h-3 animate-spin" />
+                          : <Download className="w-3 h-3" />}
                       </Button>
                       <ChevronRight className="w-4 h-4 text-muted-foreground" />
                     </div>
