@@ -1,0 +1,118 @@
+804 — Apply Outreach Compliance Migration and Re-run Readiness Tests
+
+What & Why
+
+The automated outreach readiness audit found that the outreach architecture is mostly in place, but the development database is missing the contacts.opted_out_email column declared in migration 0047_contacts_opted_out_email.sql and shared/schema.ts.
+
+Because the migration is unapplied, any Drizzle read/write against contacts can fail with:
+
+column "opted_out_email" of relation "contacts" does not exist
+
+This causes:
+
+GET /api/contacts → 500
+GET /api/dashboard/stats → 500
+test-sequence-compliance.ts → crash
+test-contactability.ts → partial crash
+test-sdr-manual-enroll.ts → crash
+sequence worker contact loads → unsafe/unreliable
+
+Before any outreach rollout decision, apply the migration and re-run the dry-run readiness suite.
+
+Done Looks Like
+
+* Migration 0047_contacts_opted_out_email.sql is applied to the current database.
+* contacts.opted_out_email exists in the live DB.
+* Contact reads and writes no longer 500 because of the missing column.
+* GET /api/contacts succeeds.
+* GET /api/dashboard/stats succeeds.
+* Outreach/contactability dry-run tests run past the previous crash point.
+* No outbound email, SMS, voice, ringless, GHL workflow, or real enrollment is triggered.
+
+Required Steps
+
+1. Apply migrations
+
+Run:
+
+npx tsx scripts/migrate.ts
+
+or use the project’s canonical migration command if different.
+
+2. Verify column exists
+
+Run a read-only check:
+
+SELECT column_name
+FROM information_schema.columns
+WHERE table_name = 'contacts'
+  AND column_name = 'opted_out_email';
+
+Expected:
+
+opted_out_email
+
+3. Verify broken endpoints recover
+
+Check:
+
+GET /api/contacts
+GET /api/dashboard/stats
+
+Expected:
+
+200 responses, no missing-column error
+
+4. Re-run dry-run readiness tests
+
+Run:
+
+npx tsc --noEmit --skipLibCheck
+npx tsx scripts/smoke-role-guards.ts
+TEST_MODE=true SKIP_AI=true DRY_RUN=true npx tsx scripts/test-sequence-compliance.ts
+TEST_MODE=true SKIP_AI=true DRY_RUN=true npx tsx scripts/test-contactability.ts
+TEST_MODE=true SKIP_AI=true DRY_RUN=true npx tsx scripts/test-sdr-manual-enroll.ts
+TEST_MODE=true SKIP_AI=true DRY_RUN=true npx tsx scripts/test-channel-audit.ts
+
+Kill Lines
+
+STOP if any real email, SMS, voice, ringless voicemail, GHL workflow, or real enrollment is triggered.
+STOP if migration applies to the wrong database.
+STOP if contacts.opted_out_email still does not exist after migration.
+STOP if /api/contacts still 500s after migration.
+STOP if the report claims outreach-ready while compliance/contactability tests still crash.
+STOP if this task changes contactability logic, sequence worker logic, feature flags, or GHL credentials.
+
+Out of Scope
+
+Do not:
+
+change outreach logic
+activate sequences
+turn on ORCHESTRATOR_ENABLED
+turn on SMS_ENABLED
+turn on VOICE_AI_ENABLED
+turn on RINGLESS_VM_ENABLED
+change GHL credentials
+send test emails
+build new outreach features
+modify contactability gates
+modify sequence worker gates
+
+Final Report Required
+
+Return:
+
+Migration command run:
+Migration applied successfully: yes/no
+contacts.opted_out_email exists: yes/no
+GET /api/contacts result:
+GET /api/dashboard/stats result:
+test-sequence-compliance result:
+test-contactability result:
+test-sdr-manual-enroll result:
+test-channel-audit result:
+smoke-role-guards result:
+tsc result:
+Real outbound sent: yes/no
+Remaining blockers:
