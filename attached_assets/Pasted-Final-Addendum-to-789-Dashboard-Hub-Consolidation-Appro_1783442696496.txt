@@ -1,0 +1,152 @@
+Final Addendum to #789 — Dashboard Hub Consolidation
+
+Approved to build.
+
+This task is the route-preserving hub consolidation pass after #788A. Keep it focused on lightweight tab hubs and sidebar reduction.
+
+Critical role-gating guard
+
+Do not expose admin-only child pages to agents through a hub.
+
+For each hub:
+
+hub route may be accessible to any role that can access at least one child tab
+each tab must enforce the same role visibility as its original sidebar/page
+unauthorized tabs must be hidden or blocked
+old child routes must keep their original ProtectedRoute / allowedRoles behavior
+
+Do not simply use “most permissive role of children” and render all tabs.
+
+Example:
+
+If Content Hub contains admin-only Blog Generator and admin-only Blaze.ai, keep Content Hub admin-only.
+If a hub ever mixes manager/admin/agent tabs, hide unauthorized tabs per role.
+
+Kill line:
+
+STOP if an agent can access an admin-only child page through a hub tab.
+
+⸻
+
+Route preservation guard
+
+Every old route must still work.
+
+Allowed:
+
+old route remains mounted to original component
+old route redirects to hub with ?tab=
+
+Not allowed:
+
+old route removed
+old route returns 404
+old route redirects to a hub tab that the original role could not access
+
+If replacing an existing route like /dashboard/reporting with a Reporting hub, preserve the original Reporting component as the default overview tab and avoid recursive imports.
+
+Kill line:
+
+STOP if /dashboard/reporting imports a ReportingHub that imports itself recursively.
+
+⸻
+
+Hub implementation guard
+
+These must be lightweight wrappers only.
+
+Allowed:
+
+Tabs wrapper
+query-param tab selection
+render existing child components
+redirect old routes to tab params
+
+Not allowed:
+
+rewriting child page internals
+moving data-fetching logic
+merging business logic
+changing backend calls
+changing workflow behavior
+changing reporting calculations
+
+If a child component assumes full-page layout/header, keep it functional rather than aggressively restyling it.
+
+⸻
+
+Sidebar ownership corrections
+
+Use these ownership rules:
+
+Outreach Analytics → Reporting hub only
+Win/Loss → Reporting hub only
+Merchant Health → Merchant Ops only, not Intelligence
+GHL Integration → System
+Content Hub → System
+Playbooks → Growth & Partners
+Merchant Success → Growth & Partners
+Onboarding → Merchant Ops
+
+Kill lines:
+
+STOP if Outreach Analytics appears in both Outreach Hub and Reporting as sidebar destinations.
+STOP if Win/Loss remains standalone and also appears as a Reporting tab.
+STOP if Merchant Health appears in two sidebar groups.
+
+⸻
+
+Query-param tab behavior
+
+Each hub should support direct links like:
+
+/dashboard/outreach-hub?tab=command
+/dashboard/ghl-integration?tab=workflow-ids
+/dashboard/playbooks?tab=growth
+/dashboard/content-hub?tab=blog
+/dashboard/reporting?tab=win-loss
+/dashboard/merchant-success?tab=nps
+/dashboard/onboarding?tab=board
+
+Invalid tab params should safely fall back to the default tab.
+
+⸻
+
+Validation addition
+
+In addition to the listed validation, manually check old routes for every absorbed page:
+
+/dashboard/onboarding-board
+/dashboard/outreach
+/dashboard/outreach-command
+/dashboard/cold-leads
+/dashboard/ghl-settings
+/dashboard/ghl-workflow-ids
+/dashboard/ghl-sequence-guide
+/dashboard/marketing-playbook
+/dashboard/growth-playbook
+/dashboard/content-editor or existing Content Engine route
+/dashboard/blog-generator
+/dashboard/social-composer
+/dashboard/blaze-integration
+/dashboard/growth-kpi
+/dashboard/win-loss
+/dashboard/outreach-analytics
+/dashboard/review-requests
+/dashboard/testimonial-submissions
+/dashboard/nps
+/dashboard/retention-campaigns
+
+Each must either render or redirect cleanly.
+
+⸻
+
+Final report addition
+
+Also return:
+
+Mixed-role hubs found:
+Per-tab role gating implemented:
+Old route redirect map:
+Recursive route/import issues avoided: yes/no
+Unauthorized tab exposure checked: yes/no
