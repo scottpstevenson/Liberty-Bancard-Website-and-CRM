@@ -38,3 +38,4 @@
 - [PUT routes with raw string dates](date-string-update-coercion.md) — storage.updateDeal/updateCalendarEvent 500 on JSON date strings ("value.toISOString is not a function"); coerce string→Date before db.update() on timestamp columns.
 - [Call follow-up SMS/email test isolation](call-follow-up-sequence-side-effect.md) — /api/call-follow-ups/send enrolls into OUTCOME_TO_SEQUENCE as a side effect; picking a mapped outcome in tests can 500 if that sequence is paused.
 - [jsdom component render testing without vitest/jest](jsdom-component-render-testing.md) — real-render React/Radix trees in a plain npx-tsx script when the project forbids test frameworks.
+- [CAN-SPAM footer injection](can-spam-footer-injection.md) — HMAC secrets diverge between test/server processes; db.select partial fields crashes on undefined columns; contacts schema column must match DB; worker channel gate fail-closes before custom gates.

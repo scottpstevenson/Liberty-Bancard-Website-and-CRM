@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { storage } from "../storage";
 import { z } from "zod";
 import { and } from "drizzle-orm";
+import { verifyUnsubscribeToken } from "../services/unsubscribe-token";
 import { sendGhlEmail, sendGhlSms } from "../services/ghl";
 import { autoEnrollFromTrigger } from "../services/sequence-worker";
 import { triggerWorkflowsByEvent } from "../services/workflow-executor";
@@ -963,6 +964,70 @@ Current Provider: ${contact.currentProvider || "Unknown"}`
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       res.status(400).json({ message: err.message || "Subscription failed" });
+    }
+  });
+
+  // ── CAN-SPAM unsubscribe endpoint ─────────────────────────────────────────
+  app.get("/unsubscribe", async (req, res) => {
+    const token = typeof req.query.t === "string" ? req.query.t : "";
+    const result = verifyUnsubscribeToken(token);
+
+    if (!result.valid) {
+      return res.status(400).send(
+        "<!DOCTYPE html><html><head><title>Invalid Link</title></head><body>" +
+        "<h2>This unsubscribe link is invalid or has expired.</h2>" +
+        "<p>If you wish to unsubscribe, please reply directly to any email you received and ask to be removed.</p>" +
+        "</body></html>"
+      );
+    }
+
+    const { contactId } = result;
+
+    try {
+      const UNSUB_PAGE =
+        "<!DOCTYPE html><html><head><title>Unsubscribed</title></head><body style='font-family:Arial,sans-serif;max-width:600px;margin:60px auto;text-align:center;'>" +
+        "<h2 style='color:#333;'>You have been unsubscribed.</h2>" +
+        "<p style='color:#666;'>You will no longer receive marketing emails from Liberty Bancard.</p>" +
+        "<p style='color:#999;font-size:12px;'>If you unsubscribed by mistake or have questions, reply to any email we sent you.</p>" +
+        "</body></html>";
+
+      const contact = await storage.getContact(contactId);
+      if (!contact) {
+        return res.send(UNSUB_PAGE);
+      }
+
+      const alreadyOptedOut = contact.optedOutEmail === true ||
+        contact.emailStatus === "opted_out" || contact.consentTier === "opted_out";
+
+      if (!alreadyOptedOut) {
+        await storage.updateContact(contactId, {
+          optedOutEmail: true,
+          emailStatus: "opted_out",
+          consentTier: "opted_out",
+        } as any);
+
+        await storage.createAuditLog({
+          action: "contact_email_unsubscribed_via_link",
+          entityType: "contact",
+          entityId: contactId,
+          actorType: "system",
+          details: {
+            source: "email_footer",
+            contactId,
+            email: contact.email,
+          },
+        });
+      }
+
+      return res.send(UNSUB_PAGE);
+    } catch (err: any) {
+      console.error("[unsubscribe] error processing opt-out:", err?.message);
+      return res.status(500).send(
+        "<!DOCTYPE html><html><head><title>Error</title></head><body>" +
+        "<h2>An error occurred.</h2>" +
+        "<p>Please try again or reply directly to any email and ask to be removed.</p>" +
+        "</body></html>"
+      );
     }
   });
 

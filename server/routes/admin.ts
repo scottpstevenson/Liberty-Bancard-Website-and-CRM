@@ -1170,4 +1170,29 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // ── CAN-SPAM cold-email config health ─────────────────────────────────────
+  app.get("/api/admin/cold-email-health", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const mailingAddress = await storage.getSystemSetting("compliance_mailing_address") as string | null | undefined;
+      const hasMailingAddress = !!mailingAddress && String(mailingAddress).trim().length > 0;
+
+      const hasUnsubscribeTokenSecret =
+        !!(process.env.UNSUBSCRIBE_TOKEN_SECRET || process.env.SESSION_SECRET);
+
+      const appUrl = process.env.APP_URL;
+      const hasAppUrl = !!(appUrl && appUrl.trim().length > 0);
+
+      const coldEmailReady = hasMailingAddress && hasUnsubscribeTokenSecret && hasAppUrl;
+
+      res.json({
+        hasMailingAddress,
+        hasUnsubscribeTokenSecret,
+        hasAppUrl,
+        coldEmailReady,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
 }

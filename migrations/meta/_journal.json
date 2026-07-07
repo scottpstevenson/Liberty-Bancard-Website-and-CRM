@@ -365,6 +365,13 @@
       "when": 1783400000000,
       "tag": "0046_csv_import_reconciliation",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1751896200000,
+      "tag": "0047_contacts_opted_out_email",
+      "breakpoints": true
     }
   ]
 }

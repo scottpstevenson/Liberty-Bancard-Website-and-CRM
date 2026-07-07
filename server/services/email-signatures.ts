@@ -1,4 +1,6 @@
 import { storage } from "../storage";
+import { generateUnsubscribeToken } from "./unsubscribe-token";
+import type { FollowUpSequence } from "@shared/schema";
 
 export interface EmailSignature {
   name: string;
@@ -118,6 +120,59 @@ export function getEmailSignaturePlainText(
   if (activePromo) text += `\n\nP.S. ${activePromo.headline} — ${activePromo.description}`;
   text += `\nEligibility, underwriting, card brand rules, and applicable laws apply.`;
   return text;
+}
+
+const TRANSACTIONAL_FAMILIES = new Set([
+  "closed_won",
+  "closed-won-onboarding",
+  "onboarding_step",
+  "merchant_welcome",
+  "no_show",
+  "no-show-recovery",
+  "booked-appointment",
+  "support",
+  "ticket",
+]);
+
+const TRANSACTIONAL_TRIGGER_TYPES = new Set([
+  "deal_stage_changed",
+  "merchant_approved",
+  "application_submitted",
+  "onboarding_complete",
+  "ticket_created",
+  "support_submitted",
+]);
+
+export function isColdOutreachSequence(sequence: Pick<FollowUpSequence, "sequenceFamily" | "triggerType">): boolean {
+  const family = sequence.sequenceFamily ?? "";
+  const trigger = sequence.triggerType ?? "";
+
+  if (family === "cold-email-manual-call" || family === "cold_email_manual_call") return true;
+  if (trigger === "contact_created" || trigger === "form_submitted") return true;
+
+  if (TRANSACTIONAL_FAMILIES.has(family)) return false;
+  if (TRANSACTIONAL_TRIGGER_TYPES.has(trigger)) return false;
+
+  return true;
+}
+
+export function getComplianceFooterHtml(contactId: number, mailingAddress: string, baseUrl: string): string {
+  const token = generateUnsubscribeToken(contactId);
+  const unsubscribeUrl = `${baseUrl}/unsubscribe?t=${encodeURIComponent(token)}`;
+  const safeAddress = escapeHtml(mailingAddress);
+  const safeUrl = escapeHtml(unsubscribeUrl);
+
+  return `
+<br/>
+<table style="font-family:Arial,sans-serif;font-size:11px;color:#999;border-collapse:collapse;margin-top:16px;border-top:1px solid #eee;padding-top:12px;" width="100%">
+  <tr>
+    <td style="padding-top:10px;font-size:11px;color:#999;line-height:1.5;">
+      Liberty Bancard | ${safeAddress}<br/>
+      You are receiving this email because you expressed interest in merchant payment processing services.<br/>
+      To opt out of future marketing emails, <a href="${safeUrl}" style="color:#999;text-decoration:underline;">click here to unsubscribe</a>.
+    </td>
+  </tr>
+</table>`;
 }
 
 export async function getStoredSignature(type: string): Promise<EmailSignature> {

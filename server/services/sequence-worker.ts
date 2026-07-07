@@ -1,6 +1,6 @@
 import { storage } from "../storage";
 import { sendGhlEmail, sendGhlSms, isGhlConfigured } from "./ghl";
-import { getEmailSignatureHtml } from "./email-signatures";
+import { getEmailSignatureHtml, getComplianceFooterHtml, isColdOutreachSequence } from "./email-signatures";
 import { createPreferenceAwareNotification } from "./digest-service";
 import { enrollContactInGhlWorkflow, tagContactForInboxOrganization } from "./ghl-workflow-enrollment";
 import { addNote as ghlAddNote, addTag as ghlAddTag, triggerWorkflow as ghlTriggerWorkflow, isSdrGhlConfigured } from "./sdr/ghl-client";
@@ -363,7 +363,55 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
               }
             }
 
-            const emailBody = interpolate(bodyToSend) + getEmailSignatureHtml("sales");
+            let complianceFooter = "";
+            if (isColdOutreachSequence(sequence) && enrollment.contactId) {
+              const appUrl = process.env.APP_URL;
+              const testMode = process.env.TEST_MODE === "true";
+              const mailingAddress = await storage.getSystemSetting("compliance_mailing_address") as string | null | undefined;
+              let blockReason: string | null = null;
+
+              if (!mailingAddress) {
+                blockReason = "sequence_send_blocked_no_mailing_address";
+              } else if (!appUrl) {
+                blockReason = "sequence_send_blocked_no_unsubscribe_base_url";
+              } else {
+                try {
+                  const { getUnsubscribeTokenSecret } = await import("./unsubscribe-token");
+                  getUnsubscribeTokenSecret();
+                } catch {
+                  if (!testMode) {
+                    blockReason = "sequence_send_blocked_no_unsubscribe_secret";
+                  }
+                }
+              }
+
+              if (blockReason) {
+                await storage.createAuditLog({
+                  action: blockReason,
+                  entityType: "contact",
+                  entityId: enrollment.contactId,
+                  actorType: "system",
+                  details: {
+                    enrollmentId: enrollment.id,
+                    sequenceId: sequence.id,
+                    sequenceName: sequence.name,
+                    stepOrder: step.stepOrder,
+                    reason: blockReason,
+                  },
+                });
+                await storage.updateSequenceEnrollment(enrollment.id, {
+                  status: "paused",
+                });
+                stepExecuted = false;
+                break;
+              }
+
+              if (!blockReason && mailingAddress && appUrl) {
+                complianceFooter = getComplianceFooterHtml(enrollment.contactId, mailingAddress, appUrl);
+              }
+            }
+
+            const emailBody = interpolate(bodyToSend) + getEmailSignatureHtml("sales") + complianceFooter;
             if (isGhlConfigured() && enrollment.contactId) {
               try {
                 await sendGhlEmail({
