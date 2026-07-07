@@ -17,7 +17,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Calendar, Sparkles, Loader2, Download, ChevronDown, ChevronUp, Archive, Settings, ArrowUp, ArrowDown, Pencil, Trash2, RotateCcw, MoreVertical, TrendingUp, TrendingDown, UserRound, AlertTriangle, Activity, ArrowUpDown, FileText, Copy, ExternalLink, Send, CheckCircle2, History, User, Bot, Monitor, ShieldCheck, ShieldAlert, ShieldX, Clock } from "lucide-react";
+import { Plus, Calendar, Sparkles, Loader2, Download, ChevronDown, ChevronUp, Archive, Settings, ArrowUp, ArrowDown, Pencil, Trash2, RotateCcw, MoreVertical, TrendingUp, TrendingDown, UserRound, AlertTriangle, Activity, ArrowUpDown, FileText, Copy, ExternalLink, Send, CheckCircle2, History, User, Bot, Monitor, ShieldCheck, ShieldAlert, ShieldX, Clock, RefreshCw } from "lucide-react";
 import TerminalEconomicsCard from "@/components/TerminalEconomicsCard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
@@ -174,6 +174,8 @@ function SortableDealCard({
   midSummary,
   proposals,
   proposalsFailed,
+  onRetryProposals,
+  proposalsRetrying,
 }: {
   deal: Deal;
   isDealArchived: boolean;
@@ -188,6 +190,8 @@ function SortableDealCard({
   midSummary?: MidSummary;
   proposals?: CoBrandedProposal[];
   proposalsFailed?: boolean;
+  onRetryProposals?: (dealId: number) => void;
+  proposalsRetrying?: boolean;
 }) {
   const [, navigateTo] = useLocation();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -295,9 +299,27 @@ function SortableDealCard({
             }
             return null;
           })() : proposalsFailed ? (
-            <Badge variant="outline" className="text-xs bg-muted text-muted-foreground border-dashed no-default-hover-elevate no-default-active-elevate" data-testid={`badge-proposal-unavailable-${deal.id}`} title="Could not load proposal status for this deal">
-              Details unavailable
-            </Badge>
+            <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+              <Badge variant="outline" className="text-xs bg-muted text-muted-foreground border-dashed no-default-hover-elevate no-default-active-elevate" data-testid={`badge-proposal-unavailable-${deal.id}`} title="Could not load proposal status for this deal">
+                Details unavailable
+              </Badge>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-5 w-5 shrink-0 text-muted-foreground hover:text-foreground"
+                aria-label="Retry loading proposal status"
+                disabled={proposalsRetrying}
+                data-testid={`button-retry-proposals-${deal.id}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRetryProposals?.(deal.id);
+                }}
+              >
+                {proposalsRetrying
+                  ? <Loader2 className="h-3 w-3 animate-spin" />
+                  : <RefreshCw className="h-3 w-3" />}
+              </Button>
+            </div>
           ) : null}
           {deal.proposalStatus && deal.proposalStatus !== "none" && (
             <Badge 
@@ -344,6 +366,8 @@ function DroppableColumn({
   midSummaries,
   proposalsByDeal,
   proposalsFailedByDeal,
+  onRetryProposals,
+  proposalsRetryingByDeal,
 }: {
   stage: string;
   colorClass: string;
@@ -360,6 +384,8 @@ function DroppableColumn({
   midSummaries: Record<string, MidSummary>;
   proposalsByDeal: Record<string, CoBrandedProposal[]>;
   proposalsFailedByDeal?: Record<string, boolean>;
+  onRetryProposals?: (dealId: number) => void;
+  proposalsRetryingByDeal?: Record<string, boolean>;
 }) {
   return (
     <div className="w-[270px] flex-shrink-0" data-testid={`stage-column-${stage.replace(/\s+/g, "-").toLowerCase()}`}>
@@ -389,6 +415,8 @@ function DroppableColumn({
                 midSummary={midSummaries[String(deal.id)]}
                 proposals={proposalsByDeal[String(deal.id)]}
                 proposalsFailed={proposalsFailedByDeal?.[String(deal.id)]}
+                onRetryProposals={onRetryProposals}
+                proposalsRetrying={proposalsRetryingByDeal?.[String(deal.id)]}
               />
             );
           })}
@@ -620,6 +648,7 @@ export default function Pipeline() {
   // Cache for deal proposals to show badges on cards
   const [proposalsByDeal, setProposalsByDeal] = useState<Record<string, CoBrandedProposal[]>>({});
   const [proposalsFailedByDeal, setProposalsFailedByDeal] = useState<Record<string, boolean>>({});
+  const [proposalsRetryingByDeal, setProposalsRetryingByDeal] = useState<Record<string, boolean>>({});
 
   const [selectedDealIds, setSelectedDealIds] = useState<Set<number>>(new Set());
   const [showArchived, setShowArchived] = useState(false);
@@ -633,6 +662,35 @@ export default function Pipeline() {
   const [editMid, setEditMid] = useState("");
   const [editVertical, setEditVertical] = useState("");
 
+  const fetchSingleDealProposals = async (dealId: number): Promise<CoBrandedProposal[] | null> => {
+    try {
+      const pRes = await fetch(`/api/deals/${dealId}/co-branded-proposals`, { credentials: "include" });
+      if (pRes.ok) {
+        const data: CoBrandedProposal[] = await pRes.json();
+        setProposalsByDeal(prev => ({ ...prev, [String(dealId)]: data }));
+        setProposalsFailedByDeal(prev => { const next = { ...prev }; delete next[String(dealId)]; return next; });
+        return data;
+      } else {
+        // Clear stale cached proposals so the failure badge always takes precedence over old data
+        setProposalsByDeal(prev => { const next = { ...prev }; delete next[String(dealId)]; return next; });
+        setProposalsFailedByDeal(prev => ({ ...prev, [String(dealId)]: true }));
+        return null;
+      }
+    } catch (err) {
+      console.error(`Error fetching proposals for deal ${dealId}:`, err);
+      // Clear stale cached proposals so the failure badge always takes precedence over old data
+      setProposalsByDeal(prev => { const next = { ...prev }; delete next[String(dealId)]; return next; });
+      setProposalsFailedByDeal(prev => ({ ...prev, [String(dealId)]: true }));
+      return null;
+    }
+  };
+
+  const retryDealProposals = async (dealId: number) => {
+    setProposalsRetryingByDeal(prev => ({ ...prev, [String(dealId)]: true }));
+    await fetchSingleDealProposals(dealId);
+    setProposalsRetryingByDeal(prev => { const next = { ...prev }; delete next[String(dealId)]; return next; });
+  };
+
   const { data: dealsResult, isLoading: dealsLoading, isError: dealsError, refetch: refetchDeals } = useQuery<{ data: Deal[]; total: number }>({
     queryKey: ["/api/deals", { pipeline: "sales" }],
     queryFn: async () => {
@@ -640,26 +698,10 @@ export default function Pipeline() {
       if (!res.ok) throw new Error("Failed to fetch deals");
       const result = await res.json();
       
-      // Batch fetch proposals for all deals to show badges
+      // Batch fetch proposals for all deals to show badges — reuses shared fetch/update path
       if (result.data && result.data.length > 0) {
         (async () => {
-          const newProposalsByDeal: Record<string, CoBrandedProposal[]> = {};
-          const newProposalsFailedByDeal: Record<string, boolean> = {};
-          await Promise.all(result.data.map(async (deal: Deal) => {
-            try {
-              const pRes = await fetch(`/api/deals/${deal.id}/co-branded-proposals`, { credentials: "include" });
-              if (pRes.ok) {
-                newProposalsByDeal[String(deal.id)] = await pRes.json();
-              } else {
-                newProposalsFailedByDeal[String(deal.id)] = true;
-              }
-            } catch (err) {
-              console.error(`Error fetching proposals for deal ${deal.id}:`, err);
-              newProposalsFailedByDeal[String(deal.id)] = true;
-            }
-          }));
-          setProposalsByDeal(newProposalsByDeal);
-          setProposalsFailedByDeal(newProposalsFailedByDeal);
+          await Promise.all(result.data.map((deal: Deal) => fetchSingleDealProposals(deal.id)));
         })();
       }
       
@@ -1094,9 +1136,11 @@ export default function Pipeline() {
     setDealProposalsLoading(true);
     setDealProposalsFailed(false);
     try {
-      const res = await fetch(`/api/deals/${dealId}/co-branded-proposals`, { credentials: "include" });
-      if (res.ok) {
-        setDealProposals(await res.json());
+      // fetchSingleDealProposals updates the board cache (proposalsByDeal / proposalsFailedByDeal)
+      // as a side-effect, keeping the Kanban card and the detail panel in sync via one fetch path.
+      const data = await fetchSingleDealProposals(dealId);
+      if (data !== null) {
+        setDealProposals(data);
         setDealProposalsFailed(false);
       } else {
         setDealProposalsFailed(true);
@@ -1479,6 +1523,8 @@ export default function Pipeline() {
                   midSummaries={midSummaries}
                   proposalsByDeal={proposalsByDeal}
                   proposalsFailedByDeal={proposalsFailedByDeal}
+                  onRetryProposals={retryDealProposals}
+                  proposalsRetryingByDeal={proposalsRetryingByDeal}
                 />
               );
             })}
