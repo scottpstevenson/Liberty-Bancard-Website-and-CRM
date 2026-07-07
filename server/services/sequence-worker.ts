@@ -862,6 +862,99 @@ export async function autoEnrollFromTrigger(triggerType: string, data: {
       if (alreadyInSequence) continue;
 
       const steps = await storage.getSequenceSteps(seq.id);
+
+      // Pre-enrollment contactability gate — mirrors the same channel-resolution logic used
+      // by Gate (b) in processSequenceEnrollments so both gates use identical channel mapping.
+      {
+        type AutomatedActionChannel = "email" | "sms" | "voice_ai" | "ringless_vm" | "manual_call";
+        const automatedChannelMap: Record<string, AutomatedActionChannel> = {
+          email: "email",
+          sms: "sms",
+          call: "voice_ai",
+          voicemail_drop: "ringless_vm",
+          // task steps create a CRM task only — gated via manual_call to block DNC contacts
+          task: "manual_call",
+        };
+
+        // Resolve the FULL set of outbound channels this sequence could execute.
+        // Strategy: always take the UNION of step-derived channels AND any declared
+        // outboundChannels — never let a narrower declaration hide channels that steps
+        // will actually try to execute (which Gate (b) checks per step.actionType).
+        //
+        // Step-derived: map each step.actionType → channel, same as Gate (b).
+        const stepChannels = new Set<AutomatedActionChannel>();
+        for (const step of steps) {
+          const ch = automatedChannelMap[step.actionType];
+          if (ch) stepChannels.add(ch);
+        }
+
+        // Declared: triggerConfig.outboundChannels (used by enrollContactInGhlWorkflow path)
+        const declaredChannels = new Set<AutomatedActionChannel>();
+        if (
+          Array.isArray(triggerConfig.outboundChannels) &&
+          (triggerConfig.outboundChannels as string[]).length > 0
+        ) {
+          for (const c of triggerConfig.outboundChannels as string[]) {
+            if (["email", "sms", "voice_ai", "ringless_vm", "manual_call"].includes(c)) {
+              declaredChannels.add(c as AutomatedActionChannel);
+            }
+          }
+        }
+
+        // Union — a contact must pass every channel the sequence could reach
+        const channelSet = new Set<AutomatedActionChannel>([...stepChannels, ...declaredChannels]);
+
+        // Fail-closed: no channels resolved from either source → require all automated channels
+        if (channelSet.size === 0) {
+          for (const ch of ["email", "sms", "voice_ai", "ringless_vm"] as AutomatedActionChannel[]) {
+            channelSet.add(ch);
+          }
+        }
+
+        const { evaluateContactability } = await import("./contactability");
+        let enrollmentBlocked = false;
+        let blockedChannel: string | undefined;
+        let blockReason: string | undefined;
+        let blockConsentTier: string | undefined;
+        let blockLifecycleStage: string | undefined;
+
+        for (const channel of channelSet) {
+          const check = await evaluateContactability({
+            contactId: data.contactId,
+            channel,
+            campaignType: "auto_enrollment",
+            mode: "enforcement",
+          });
+          if (!check.allowed) {
+            enrollmentBlocked = true;
+            blockedChannel = channel;
+            blockReason = check.reason;
+            blockConsentTier = check.consentTier;
+            blockLifecycleStage = check.lifecycleStage;
+            break;
+          }
+        }
+
+        if (enrollmentBlocked) {
+          await storage.createAuditLog({
+            action: "auto_enrollment_blocked_contactability",
+            entityType: "contact",
+            entityId: data.contactId,
+            actorType: "system",
+            details: {
+              sequenceId: seq.id,
+              sequenceName: seq.name,
+              triggerType,
+              blockedChannel,
+              reason: blockReason,
+              consentTier: blockConsentTier,
+              lifecycleStage: blockLifecycleStage,
+            },
+          });
+          continue;
+        }
+      }
+
       const firstStep = steps.find(s => s.stepOrder === 1) || steps[0];
       const delayMs = firstStep
         ? ((firstStep.delayDays || 0) * 86400000) + ((firstStep.delayHours || 0) * 3600000)
