@@ -1,0 +1,283 @@
+This preflight is very good and it confirms the answer:
+
+Do not turn on full automated outreach yet.
+Liberty is still manual-confirmed email outreach only.
+
+But I would not create another audit task yet. The preflight already found the core blockers. Creating a full #789 audit now will mostly restate the same thing.
+
+The right move is:
+
+Build 3 blocker fixes
+→ then rerun #789 as the final go/no-go audit
+
+The blockers are clear
+
+P0 for cold auto email
+
+No platform-level unsubscribe footer / physical address enforcement.
+
+If GHL templates are the only place CAN-SPAM elements exist, Liberty cannot safely auto-send cold email until every send path verifies this.
+
+P1 / possible P0
+
+autoEnrollFromTrigger creates enrollment records before contactability enforcement.
+
+The worker checks before send, which is good, but enrollment creation should not happen for ineligible contacts.
+
+P1
+
+No real global kill switch for sequence-worker sends.
+
+The current pause only affects the SDR orchestrator, not the sequence worker. That is not enough for auto outreach.
+
+P1
+
+No send caps/throttles in sequence worker.
+
+Auto outreach needs a daily cap before anything runs unattended.
+
+What I’d tell Replit next
+
+790 — Pre-Enrollment Contactability Gate for Auto Outreach
+
+790 — Add Pre-Enrollment Contactability Gate to autoEnrollFromTrigger
+
+What & Why
+
+Preflight for #789 found that autoEnrollFromTrigger() creates sequence enrollment records before contactability is evaluated. Contactability is enforced later inside processSequenceEnrollments, so sends are blocked at execution time, but ineligible contacts can still be auto-enrolled.
+
+For automated outreach, enrollment creation itself must be gated so the system does not create outbound intent for contacts that are opted out, missing required contact info, suppressed, bounced, or ineligible for the sequence channel.
+
+Done Looks Like
+
+* autoEnrollFromTrigger() evaluates contactability before writing an enrollment record.
+* Contacts that fail contactability are not enrolled.
+* Blocked auto-enrollment attempts are logged/audited with a clear reason.
+* Existing manual enrollment behavior is unchanged.
+* Existing sequence worker execution-time contactability gates remain in place.
+* No SMS, voice, ringless, GHL workflow, or email is sent during validation.
+
+Required Changes
+
+In server/services/sequence-worker.ts, update autoEnrollFromTrigger() so that before createSequenceEnrollment or equivalent write:
+
+1. Load the target sequence and steps.
+2. Determine required outbound channel(s).
+3. Run evaluateContactability or the existing canonical enforcement path.
+4. If blocked, do not create the enrollment.
+5. Log/audit blocked reason.
+6. If allowed, create the enrollment as before.
+
+Important
+
+Keep the existing execution-time gates inside processSequenceEnrollments.
+
+This task adds a pre-enrollment gate. It does not replace send-time enforcement.
+
+Kill Lines
+
+STOP if autoEnrollFromTrigger can create an enrollment for an opted-out contact.
+STOP if autoEnrollFromTrigger can create an enrollment for a contact missing required email/phone for the sequence channel.
+STOP if execution-time contactability gates are removed or weakened.
+STOP if manual confirmed enrollment behavior changes.
+STOP if SMS/voice/ringless gates are weakened.
+STOP if this task activates any sequence or sends outbound messages.
+
+Validation
+
+Run:
+
+npx tsc --noEmit --skipLibCheck
+TEST_MODE=true SKIP_AI=true DRY_RUN=true npx tsx scripts/test-contactability.ts
+TEST_MODE=true SKIP_AI=true DRY_RUN=true npx tsx scripts/test-sequence-compliance.ts
+TEST_MODE=true SKIP_AI=true DRY_RUN=true npx tsx scripts/test-sdr-manual-enroll.ts
+
+Add or update a test proving:
+
+autoEnrollFromTrigger blocks opted-out contact before enrollment write
+autoEnrollFromTrigger blocks missing-email contact for email sequence
+autoEnrollFromTrigger allows eligible contact for email-only sequence
+sequence worker still re-checks contactability before send
+
+Final Report Required
+
+Return:
+
+Pre-enrollment gate added:
+Contactability function used:
+Blocked auto-enrollment audit/log behavior:
+Execution-time gates preserved:
+Tests added:
+Validation commands run:
+Outbound sent: yes/no
+
+⸻
+
+791 — Enforce Cold Email Compliance Requirements Before Sequence Send
+
+791 — Enforce Cold Email Compliance Requirements Before Sequence Send
+
+What & Why
+
+Preflight for #789 found that automated sequence emails are sent through sendGhlEmail(), but the platform does not verify unsubscribe language, unsubscribe link, physical mailing address, or sender identity before sending.
+
+Compliance currently depends entirely on GHL template content. That is not safe enough for automated cold outreach.
+
+Done Looks Like
+
+* Automated cold email sends cannot execute unless the sequence/template has verified compliance elements.
+* Required compliance elements include unsubscribe/opt-out path and business mailing identity/address.
+* Missing compliance elements block the send with a clear error.
+* Blocked sends are logged/audited.
+* No email template is assumed compliant without explicit verification.
+* Existing manual/internal/non-cold flows are not broken.
+
+Required Checks
+
+Before a sequence email step can send, verify:
+
+unsubscribe link or opt-out instructions present
+business/company identity present
+physical mailing address present
+reply/sender identity present
+
+If GHL templates are opaque and cannot be inspected safely from platform code, add a sequence-level compliance approval field/state such as:
+
+emailComplianceVerified: true
+complianceVerifiedAt
+complianceVerifiedBy
+
+Then block automated cold email for unverified sequences.
+
+Preferred Behavior
+
+For automated cold outreach:
+
+sequence not verified → block send
+verified sequence → allow send if all other gates pass
+
+Do not inject fake compliance text blindly unless the send path guarantees it appears in every email body.
+
+Kill Lines
+
+STOP if an automated cold email can send from an unverified sequence/template.
+STOP if the system assumes GHL template compliance without a verified flag or actual inspection.
+STOP if opted-out contacts can still be emailed.
+STOP if this task weakens contactability or unsubscribe suppression.
+STOP if this task sends real emails during validation.
+
+Validation
+
+Run:
+
+npx tsc --noEmit --skipLibCheck
+TEST_MODE=true SKIP_AI=true DRY_RUN=true npx tsx scripts/test-sequence-compliance.ts
+TEST_MODE=true SKIP_AI=true DRY_RUN=true npx tsx scripts/test-contactability.ts
+
+Add/update tests proving:
+
+unverified cold email sequence is blocked
+verified compliant sequence is allowed in dry-run
+missing unsubscribe blocks send
+missing physical address blocks send
+opted-out contact still blocks regardless of compliance verification
+
+Final Report Required
+
+Return:
+
+Compliance enforcement approach:
+Template inspection or verified flag:
+Blocked send behavior:
+Audit/log behavior:
+Tests added:
+Validation commands run:
+Real email sent: yes/no
+
+⸻
+
+792 — Global Outreach Kill Switch and Send Caps
+
+792 — Add Global Outreach Kill Switch and Sequence Worker Send Caps
+
+What & Why
+
+Preflight for #789 found that globalPaused only affects the SDR orchestrator and is in-memory. The sequence worker does not check it, so an admin may believe outreach is paused while sequence sends continue.
+
+The sequence worker also lacks platform-level daily send caps/throttles. Automated outreach needs a durable global pause and basic send caps before it can run unattended.
+
+Done Looks Like
+
+* A durable global outbound pause exists and is checked by the sequence worker before sending.
+* Pause state survives server restart.
+* Admin/manager can see whether outbound is paused.
+* Sequence worker respects the pause before email/SMS/voice/ringless steps.
+* Daily send caps exist for automated email outreach.
+* Cap hits pause/skip further sends with a clear reason.
+* No SMS/voice/ringless behavior is enabled by this task.
+
+Required Changes
+
+Add or reuse a persisted system setting such as:
+
+outbound_global_paused: true/false
+outbound_daily_email_cap: number
+
+Before any sequence step send, the worker must check:
+
+global outbound pause
+channel enabled
+daily cap remaining
+contactability
+opt-out/suppression
+bounce status
+
+If paused or capped, do not send. Mark/log the step as skipped/deferred with reason.
+
+Kill Lines
+
+STOP if sequence-worker sends continue while global outbound pause is enabled.
+STOP if pause state resets on server restart.
+STOP if the admin UI/API says paused but sequence-worker still sends.
+STOP if automated email can exceed the configured daily cap.
+STOP if this task enables SMS/voice/ringless.
+STOP if this task changes GHL credentials or channel env flags.
+
+Validation
+
+Run:
+
+npx tsc --noEmit --skipLibCheck
+TEST_MODE=true SKIP_AI=true DRY_RUN=true npx tsx scripts/test-sequence-compliance.ts
+TEST_MODE=true SKIP_AI=true DRY_RUN=true npx tsx scripts/test-channel-audit.ts
+
+Add/update tests proving:
+
+global pause blocks sequence-worker email send
+pause survives settings reload/restart simulation if practical
+daily cap blocks sends after threshold
+blocked/capped sends are logged with reason
+SMS/voice/ringless remain off
+
+Final Report Required
+
+Return:
+
+Global pause storage:
+Sequence-worker pause check location:
+Daily cap mechanism:
+Cap exceeded behavior:
+Admin visibility:
+Tests added:
+Validation commands run:
+Outbound sent: yes/no
+
+Bottom line
+
+The preflight is enough to say:
+
+Do not create another audit yet.
+Fix 790, 791, and 792.
+Then rerun #789 as the final automated outreach go/no-go audit.
+
+After those land, Liberty may be ready for semi-auto or full-auto email outreach, depending on the final sequence inventory and template compliance audit.
