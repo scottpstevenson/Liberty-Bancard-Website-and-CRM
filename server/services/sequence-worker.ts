@@ -31,6 +31,48 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
         const steps = await storage.getSequenceSteps(sequence.id);
         const currentStep = enrollment.currentStep || 0;
 
+        // ── Gate (global-pause): Platform-level kill switch ────────────────────
+        // Checked FIRST — before contactability, step lookup, and GHL enrollment.
+        // Reads from DB on every call (getSystemSetting has no cache — confirmed).
+        // A pause toggle takes effect on the very next worker tick, for every
+        // enrollment, regardless of consent tier or sequence type.
+        {
+          const pausedRaw = await storage.getSystemSetting("outboundGlobalPaused");
+          const isPaused = pausedRaw === true || pausedRaw === "true";
+          if (isPaused) {
+            const pausedReasonRaw = await storage.getSystemSetting("outboundGlobalPausedReason");
+            const pauseReason = typeof pausedReasonRaw === "string" ? pausedReasonRaw : "Global outbound pause active";
+            // Dedup: skip audit write if already recorded for this enrollment+step
+            const enrollMeta = (enrollment.metadata as Record<string, unknown> | null) ?? {};
+            const alreadyPaused =
+              enrollMeta._globalPauseBlockStep === currentStep &&
+              enrollMeta._globalPauseBlockReason === pauseReason;
+            if (!alreadyPaused) {
+              await storage.updateSequenceEnrollment(enrollment.id, {
+                status: "paused",
+                metadata: { ...enrollMeta, _globalPauseBlockStep: currentStep, _globalPauseBlockReason: pauseReason },
+              });
+              await storage.createAuditLog({
+                action: "sequence_step_skipped_global_pause",
+                entityType: "contact",
+                entityId: enrollment.contactId ?? 0,
+                actorType: "system",
+                details: {
+                  enrollmentId: enrollment.id,
+                  sequenceId: sequence.id,
+                  sequenceName: sequence.name,
+                  currentStep,
+                  pauseReason,
+                },
+              });
+            } else {
+              await storage.updateSequenceEnrollment(enrollment.id, { status: "paused" });
+            }
+            processed++;
+            continue;
+          }
+        }
+
         if (currentStep >= steps.length) {
           await storage.updateSequenceEnrollment(enrollment.id, {
             status: "completed",
@@ -197,6 +239,65 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
           });
           processed++;
           continue;
+        }
+
+        // ── Gate (daily-cap): Cold outreach email daily send cap ───────────────
+        // Fast-path read: if counter is already at/above cap, defer immediately
+        // without attempting GHL enrollment or send. The actual atomic reservation
+        // (which prevents race-condition overshoot) happens below, inside the
+        // isGhlConfigured() block — only when a real send is about to occur.
+        // Both checks read the same DB row; the fast-path is purely an optimisation
+        // to skip all the downstream work when the cap is visibly exhausted.
+        if (step.actionType === "email" && isColdOutreachSequence(sequence)) {
+          const { db: capDb } = await import("../db");
+          const { outboundSendCounters } = await import("@shared/schema");
+          const { eq, and } = await import("drizzle-orm");
+
+          const capRaw = await storage.getSystemSetting("outboundDailyEmailCap");
+          const dailyCap = typeof capRaw === "number" ? capRaw : parseInt(String(capRaw ?? "200"), 10) || 200;
+
+          const todayStr = new Date().toISOString().slice(0, 10);
+          const [capRow] = await capDb
+            .select({ count: outboundSendCounters.count })
+            .from(outboundSendCounters)
+            .where(and(
+              eq(outboundSendCounters.date, todayStr),
+              eq(outboundSendCounters.channel, "email"),
+              eq(outboundSendCounters.scope, "cold_outreach"),
+            ));
+          const sendsToday = capRow?.count ?? 0;
+
+          if (sendsToday >= dailyCap) {
+            const enrollMeta = (enrollment.metadata as Record<string, unknown> | null) ?? {};
+            const alreadyDeferred =
+              enrollMeta._capDeferStep === step.stepOrder &&
+              enrollMeta._capDeferDate === todayStr;
+            if (!alreadyDeferred) {
+              await storage.updateSequenceEnrollment(enrollment.id, {
+                status: "paused",
+                metadata: { ...enrollMeta, _capDeferStep: step.stepOrder, _capDeferDate: todayStr },
+              });
+              await storage.createAuditLog({
+                action: "sequence_step_deferred_daily_cap",
+                entityType: "contact",
+                entityId: enrollment.contactId ?? 0,
+                actorType: "system",
+                details: {
+                  enrollmentId: enrollment.id,
+                  sequenceId: sequence.id,
+                  sequenceName: sequence.name,
+                  stepOrder: step.stepOrder,
+                  sendsToday,
+                  dailyCap,
+                  todayStr,
+                },
+              });
+            } else {
+              await storage.updateSequenceEnrollment(enrollment.id, { status: "paused" });
+            }
+            processed++;
+            continue;
+          }
         }
 
         let contact: any = null;
@@ -412,7 +513,70 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
             }
 
             const emailBody = interpolate(bodyToSend) + getEmailSignatureHtml("sales") + complianceFooter;
+
             if (isGhlConfigured() && enrollment.contactId) {
+              // ── Atomic cap reservation (cold outreach only) ───────────────────
+              // Reserve a send slot via a single conditional upsert.  The WHERE
+              // clause makes the increment a no-op when the cap is already reached,
+              // which prevents concurrent workers from overshooting the daily limit.
+              // Reservation happens here — inside isGhlConfigured() — so counters
+              // only tick when an actual GHL send is attempted.
+              let coldCapReserved = false;
+              if (isColdOutreachSequence(sequence)) {
+                try {
+                  const { db: rsvDb } = await import("../db");
+                  const { sql: rsvSql } = await import("drizzle-orm");
+                  const todayRsv = new Date().toISOString().slice(0, 10);
+                  const capRawRsv = await storage.getSystemSetting("outboundDailyEmailCap");
+                  const dailyCapRsv = typeof capRawRsv === "number" ? capRawRsv : parseInt(String(capRawRsv ?? "200"), 10) || 200;
+                  // Conditional upsert: only increment if count < cap (atomic guard against race overshoot)
+                  const rsvResult = await rsvDb.execute(rsvSql`
+                    INSERT INTO outbound_send_counters (date, channel, scope, count, updated_at)
+                    VALUES (${todayRsv}, 'email', 'cold_outreach', 1, now())
+                    ON CONFLICT (date, channel, scope) DO UPDATE
+                      SET count = outbound_send_counters.count + 1, updated_at = now()
+                      WHERE outbound_send_counters.count < ${dailyCapRsv}
+                    RETURNING count
+                  `);
+                  // If no row returned the WHERE guard blocked the update → cap is full
+                  if (!rsvResult.rows || rsvResult.rows.length === 0) {
+                    const enrollMeta2 = (enrollment.metadata as Record<string, unknown> | null) ?? {};
+                    const alreadyDeferred2 =
+                      enrollMeta2._capDeferStep === step.stepOrder &&
+                      enrollMeta2._capDeferDate === todayRsv;
+                    if (!alreadyDeferred2) {
+                      await storage.updateSequenceEnrollment(enrollment.id, {
+                        status: "paused",
+                        metadata: { ...enrollMeta2, _capDeferStep: step.stepOrder, _capDeferDate: todayRsv },
+                      });
+                      await storage.createAuditLog({
+                        action: "sequence_step_deferred_daily_cap",
+                        entityType: "contact",
+                        entityId: enrollment.contactId ?? 0,
+                        actorType: "system",
+                        details: {
+                          enrollmentId: enrollment.id,
+                          sequenceId: sequence.id,
+                          sequenceName: sequence.name,
+                          stepOrder: step.stepOrder,
+                          dailyCap: dailyCapRsv,
+                          todayStr: todayRsv,
+                          source: "atomic_reservation",
+                        },
+                      });
+                    } else {
+                      await storage.updateSequenceEnrollment(enrollment.id, { status: "paused" });
+                    }
+                    processed++;
+                    stepExecuted = false;
+                    break;
+                  }
+                  coldCapReserved = true;
+                } catch (reserveErr) {
+                  console.error(`[Sequence Worker] Cold cap reservation failed for enrollment ${enrollment.id}:`, reserveErr);
+                }
+              }
+
               try {
                 await sendGhlEmail({
                   contactId: enrollment.contactId,
@@ -422,6 +586,21 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
                 stepExecuted = true;
               } catch (emailErr) {
                 console.error(`Sequence email failed for enrollment ${enrollment.id}:`, emailErr);
+                // Decrement cap reservation if send failed
+                if (coldCapReserved) {
+                  try {
+                    const { db: decDb } = await import("../db");
+                    const { sql: decSql } = await import("drizzle-orm");
+                    const todayDec = new Date().toISOString().slice(0, 10);
+                    await decDb.execute(decSql`
+                      UPDATE outbound_send_counters
+                      SET count = GREATEST(0, count - 1), updated_at = now()
+                      WHERE date = ${todayDec} AND channel = 'email' AND scope = 'cold_outreach'
+                    `);
+                  } catch (decErr) {
+                    console.error(`[Sequence Worker] Cap decrement failed:`, decErr);
+                  }
+                }
               }
             }
             await storage.createEmailLog({

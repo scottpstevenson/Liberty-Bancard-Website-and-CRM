@@ -245,7 +245,7 @@ import { coerceDateFields } from "../utils/date-coerce";
 
   async getSystemSetting(key: string): Promise<any> {
     const [row] = await db.select().from(systemSettings).where(eq(systemSettings.key, key));
-    return row?.value || null;
+    return row?.value !== undefined ? row.value : null;
   }
 
 

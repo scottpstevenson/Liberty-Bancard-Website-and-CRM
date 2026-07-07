@@ -372,6 +372,13 @@
       "when": 1751896200000,
       "tag": "0047_contacts_opted_out_email",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1784000000000,
+      "tag": "0048_outbound_send_counters",
+      "breakpoints": true
     }
   ]
 }

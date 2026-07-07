@@ -4273,3 +4273,23 @@ export const insertContactAiCacheSchema = createInsertSchema(contactAiCache).omi
 
 export type ContactAiCache = typeof contactAiCache.$inferSelect;
 export type InsertContactAiCache = z.infer<typeof insertContactAiCacheSchema>;
+
+// ─── Outbound Send Counters (Task #792 — Global Kill Switch & Daily Caps) ─────
+export const outboundSendCounters = pgTable("outbound_send_counters", {
+  id: serial("id").primaryKey(),
+  date: date("date").notNull(),
+  channel: text("channel").notNull(),
+  scope: text("scope").notNull(),
+  count: integer("count").notNull().default(0),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  unique("outbound_send_counters_date_channel_scope_uidx").on(table.date, table.channel, table.scope),
+  index("outbound_send_counters_date_idx").on(table.date),
+]);
+
+export const insertOutboundSendCounterSchema = createInsertSchema(outboundSendCounters).omit({
+  id: true,
+});
+
+export type OutboundSendCounter = typeof outboundSendCounters.$inferSelect;
+export type InsertOutboundSendCounter = z.infer<typeof insertOutboundSendCounterSchema>;

@@ -5,7 +5,7 @@ import { isAdmin, isAuthenticated, requireRole } from "../replit_integrations/au
 import { storage } from "../storage";
 import { db } from "../db";
 import { sql, desc, and, gte, eq } from "drizzle-orm";
-import { emailLogs, callLogs, outboundMessages, auditLogs, followUpSequences, sequenceSteps, consentAuditLogs } from "@shared/schema";
+import { emailLogs, callLogs, outboundMessages, auditLogs, followUpSequences, sequenceSteps, consentAuditLogs, outboundSendCounters } from "@shared/schema";
 import { featureFlags } from "../services/feature-flags";
 import { runStageProgressionSweep } from "../services/stage-progression";
 import { getGhlCircuitState } from "../services/ghl-sync";
@@ -1372,6 +1372,77 @@ export function registerActivationRoutes(app: Express) {
         candidates,
         note: "This is a preview only. No SMS, call, ringless voicemail, email, or sequence step was sent or queued.",
       });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Task #792: Global Kill Switch & Daily Send Caps API ────────────────────
+  // GET /api/system/outbound-settings — admin/manager: returns outbound control state
+  // Returns booleans and counts only — no secrets, no env values.
+  app.get("/api/system/outbound-settings", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const pausedRaw = await storage.getSystemSetting("outboundGlobalPaused");
+      const pausedReasonRaw = await storage.getSystemSetting("outboundGlobalPausedReason");
+      const capRaw = await storage.getSystemSetting("outboundDailyEmailCap");
+
+      const outboundGlobalPaused = pausedRaw === true || pausedRaw === "true";
+      const outboundGlobalPausedReason = typeof pausedReasonRaw === "string" ? pausedReasonRaw : null;
+      const outboundDailyEmailCap = typeof capRaw === "number" ? capRaw : parseInt(String(capRaw ?? "200"), 10) || 200;
+
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const [capRow] = await db
+        .select({ count: outboundSendCounters.count })
+        .from(outboundSendCounters)
+        .where(and(
+          eq(outboundSendCounters.date, todayStr),
+          eq(outboundSendCounters.channel, "email"),
+          eq(outboundSendCounters.scope, "cold_outreach"),
+        ));
+      const coldEmailSendsToday = capRow?.count ?? 0;
+      const coldEmailRemainingToday = Math.max(0, outboundDailyEmailCap - coldEmailSendsToday);
+
+      res.json({
+        outboundGlobalPaused,
+        outboundGlobalPausedReason,
+        outboundDailyEmailCap,
+        coldEmailSendsToday,
+        coldEmailRemainingToday,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // PATCH /api/system/outbound-settings — admin only: toggle pause and/or set cap
+  app.patch("/api/system/outbound-settings", requireRole("admin"), async (req, res) => {
+    try {
+      const { outboundGlobalPaused, outboundGlobalPausedReason, outboundDailyEmailCap } = req.body ?? {};
+
+      if (typeof outboundGlobalPaused === "boolean") {
+        await storage.setSystemSetting("outboundGlobalPaused", outboundGlobalPaused);
+      }
+      if (typeof outboundGlobalPausedReason === "string" || outboundGlobalPausedReason === null) {
+        await storage.setSystemSetting("outboundGlobalPausedReason", outboundGlobalPausedReason ?? null);
+      }
+      if (typeof outboundDailyEmailCap === "number" && outboundDailyEmailCap > 0) {
+        await storage.setSystemSetting("outboundDailyEmailCap", outboundDailyEmailCap);
+      }
+
+      const actorEmail = (req.user as any)?.email ?? null;
+      await storage.createAuditLog({
+        action: "outbound_settings_updated",
+        entityType: "system",
+        entityId: 0,
+        actorType: "user",
+        actorId: (req.user as any)?.id ?? null,
+        details: {
+          actorEmail,
+          changes: { outboundGlobalPaused, outboundGlobalPausedReason, outboundDailyEmailCap },
+        },
+      });
+
+      res.json({ ok: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

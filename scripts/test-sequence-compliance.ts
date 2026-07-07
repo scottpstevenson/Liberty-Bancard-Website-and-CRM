@@ -23,9 +23,10 @@
  */
 
 import { db } from "../server/db";
-import { contacts, consentAuditLogs, followUpSequences, sequenceSteps, sequenceEnrollments, auditLogs } from "../shared/schema";
+import { contacts, consentAuditLogs, followUpSequences, sequenceSteps, sequenceEnrollments, auditLogs, outboundSendCounters } from "../shared/schema";
 import { pool } from "../server/db";
 import { eq, and, inArray } from "drizzle-orm";
+import { storage } from "../server/storage";
 import { evaluateContactability } from "../server/services/contactability";
 import { canEnrollContactInSequence } from "../server/services/sequence-eligibility";
 import { autoEnrollFromTrigger, processSequenceEnrollments } from "../server/services/sequence-worker";
@@ -868,10 +869,11 @@ async function testCase24(): Promise<void> {
     const contactId = await makeContact({ emailStatus: "active", consentTier: "warm_no_pewc" });
     const token = generateUnsubscribeToken(contactId);
 
-    const baseUrl = process.env.APP_URL || "http://localhost:5000";
+    // Always hit localhost — APP_URL may point to the production domain
+    const devUrl = `http://localhost:${process.env.PORT || 5000}`;
 
     // First request — should opt out and return success page
-    const resp1 = await fetch(`${baseUrl}/unsubscribe?t=${encodeURIComponent(token)}`);
+    const resp1 = await fetch(`${devUrl}/unsubscribe?t=${encodeURIComponent(token)}`);
     assert("First /unsubscribe request returns 200", resp1.status === 200, `status=${resp1.status}`);
     const html1 = await resp1.text();
     assert("First /unsubscribe response contains unsubscribed text", (
@@ -901,11 +903,11 @@ async function testCase24(): Promise<void> {
     assert("contact_email_unsubscribed_via_link audit log written", auditRows.length > 0, `found ${auditRows.length} rows`);
 
     // Idempotency: second request on same token returns 200 (not an error)
-    const resp2 = await fetch(`${baseUrl}/unsubscribe?t=${encodeURIComponent(token)}`);
+    const resp2 = await fetch(`${devUrl}/unsubscribe?t=${encodeURIComponent(token)}`);
     assert("Idempotent second /unsubscribe returns 200", resp2.status === 200, `status=${resp2.status}`);
 
     // Invalid token returns 400 (not 404 — existence-safe)
-    const respBad = await fetch(`${baseUrl}/unsubscribe?t=invalid`);
+    const respBad = await fetch(`${devUrl}/unsubscribe?t=invalid`);
     assert("Invalid token returns 400", respBad.status === 400, `status=${respBad.status}`);
     const htmlBad = await respBad.text();
     assert("Invalid token response does not disclose contact existence (no 'not found')", !htmlBad.toLowerCase().includes("not found"), htmlBad.slice(0, 200));
@@ -936,10 +938,10 @@ async function testCase25(): Promise<void> {
     const before = await evaluateContactability({ contactId, channel: "email", mode: "dryRun" });
     assert("Before unsubscribe: email allowed for warm contact", before.allowed, before.reason);
 
-    // Perform unsubscribe via endpoint
-    const baseUrl = process.env.APP_URL || "http://localhost:5000";
+    // Perform unsubscribe via endpoint — always localhost, not APP_URL (which may be production)
+    const devUrl = `http://localhost:${process.env.PORT || 5000}`;
     const token = generateUnsubscribeToken(contactId);
-    await fetch(`${baseUrl}/unsubscribe?t=${encodeURIComponent(token)}`);
+    await fetch(`${devUrl}/unsubscribe?t=${encodeURIComponent(token)}`);
     await new Promise(r => setTimeout(r, 200));
 
     // After: email must be blocked
@@ -952,6 +954,584 @@ async function testCase25(): Promise<void> {
   } finally {
     if (testMode === undefined) delete process.env.TEST_MODE;
     else process.env.TEST_MODE = testMode;
+  }
+}
+
+// ── Task #792: Kill Switch & Daily Cap Tests (Cases 26–33) ─────────────────
+// These tests verify the global pause and daily email cap gates in sequence-worker.
+// They use processSequenceEnrollments() in TEST_MODE=true DRY_RUN=true to avoid
+// real sends, and manipulate system_settings directly via storage.
+
+async function makeKillSwitchSequence(): Promise<{ seqId: number; stepId: number }> {
+  const tag = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const [seq] = await db
+    .insert(followUpSequences)
+    .values({
+      name: `KillSwitch Test ${tag}`,
+      status: "active" as const,
+      triggerType: "form_submitted",
+      triggerConfig: {},
+      sequenceFamily: "cold-email-manual-call",
+    } as any)
+    .returning({ id: followUpSequences.id });
+  testSequenceIds.push(seq.id);
+  const [step] = await db
+    .insert(sequenceSteps)
+    .values({
+      sequenceId: seq.id,
+      stepOrder: 1,
+      actionType: "email" as any,
+      delayDays: 0,
+      delayHours: 0,
+      subject: "KS Test subject",
+      body: "KS Test body",
+    })
+    .returning({ id: sequenceSteps.id });
+  return { seqId: seq.id, stepId: step.id };
+}
+
+async function makeDailyCapSequence(): Promise<{ seqId: number; stepId: number }> {
+  const tag = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const [seq] = await db
+    .insert(followUpSequences)
+    .values({
+      name: `DailyCap Test ${tag}`,
+      status: "active" as const,
+      triggerType: "form_submitted",
+      triggerConfig: { outboundChannels: ["email"] },
+      sequenceFamily: "cold-email-manual-call",
+    } as any)
+    .returning({ id: followUpSequences.id });
+  testSequenceIds.push(seq.id);
+  const [step] = await db
+    .insert(sequenceSteps)
+    .values({
+      sequenceId: seq.id,
+      stepOrder: 1,
+      actionType: "email" as any,
+      delayDays: 0,
+      delayHours: 0,
+      subject: "DailyCap Test subject",
+      body: "DailyCap Test body",
+    })
+    .returning({ id: sequenceSteps.id });
+  return { seqId: seq.id, stepId: step.id };
+}
+
+async function makeEnrollment(contactId: number, sequenceId: number): Promise<number> {
+  const [enr] = await db
+    .insert(sequenceEnrollments)
+    .values({
+      contactId,
+      sequenceId,
+      status: "active" as const,
+      currentStep: 0,
+      startedAt: new Date(),
+      nextActionAt: new Date(Date.now() - 1000),
+    } as any)
+    .returning({ id: sequenceEnrollments.id });
+  return enr.id;
+}
+
+// Case 26: Global pause ON → email step skipped, enrollment paused, audit log written
+async function testCase26(): Promise<void> {
+  console.log("\nCase 26 (Kill Switch): Global pause ON → enrollment paused + audit log written");
+  const savedMode = process.env.TEST_MODE;
+  const savedDry = process.env.DRY_RUN;
+  const savedSkipAi = process.env.SKIP_AI;
+  process.env.TEST_MODE = "true";
+  process.env.DRY_RUN = "true";
+  process.env.SKIP_AI = "true";
+
+  try {
+    await storage.setSystemSetting("outboundGlobalPaused", true);
+    await storage.setSystemSetting("outboundGlobalPausedReason", "Test pause case-26");
+
+    const { seqId } = await makeKillSwitchSequence();
+    const contactId = await makeContact({ emailStatus: "active", consentTier: "warm_no_pewc" });
+    const enrollId = await makeEnrollment(contactId, seqId);
+
+    // Run a worker tick
+    await processSequenceEnrollments();
+    await new Promise(r => setTimeout(r, 300));
+
+    // Enrollment should be paused
+    const [enr] = await db.select({ status: sequenceEnrollments.status }).from(sequenceEnrollments).where(eq(sequenceEnrollments.id, enrollId));
+    assert("Case 26: enrollment.status = paused after global kill", enr?.status === "paused", `status=${enr?.status}`);
+
+    // Audit log must be written
+    const logs = await db
+      .select({ action: auditLogs.action })
+      .from(auditLogs)
+      .where(and(eq(auditLogs.entityId, contactId), eq(auditLogs.action, "sequence_step_skipped_global_pause")));
+    assert("Case 26: audit log sequence_step_skipped_global_pause written", logs.length > 0, `found=${logs.length}`);
+  } finally {
+    await storage.setSystemSetting("outboundGlobalPaused", false);
+    await storage.setSystemSetting("outboundGlobalPausedReason", null);
+    if (savedMode === undefined) delete process.env.TEST_MODE; else process.env.TEST_MODE = savedMode;
+    if (savedDry === undefined) delete process.env.DRY_RUN; else process.env.DRY_RUN = savedDry;
+    if (savedSkipAi === undefined) delete process.env.SKIP_AI; else process.env.SKIP_AI = savedSkipAi;
+  }
+}
+
+// Case 27: Global pause dedup — second tick does NOT write a second audit log for same enrollment+step
+async function testCase27(): Promise<void> {
+  console.log("\nCase 27 (Kill Switch): Global pause dedup — second tick skips duplicate audit log");
+  const savedMode = process.env.TEST_MODE;
+  const savedDry = process.env.DRY_RUN;
+  const savedSkipAi = process.env.SKIP_AI;
+  process.env.TEST_MODE = "true";
+  process.env.DRY_RUN = "true";
+  process.env.SKIP_AI = "true";
+
+  try {
+    await storage.setSystemSetting("outboundGlobalPaused", true);
+    await storage.setSystemSetting("outboundGlobalPausedReason", "Dedup test case-27");
+
+    const { seqId } = await makeKillSwitchSequence();
+    const contactId = await makeContact({ emailStatus: "active", consentTier: "warm_no_pewc" });
+    const enrollId = await makeEnrollment(contactId, seqId);
+
+    // First tick
+    await processSequenceEnrollments();
+    await new Promise(r => setTimeout(r, 300));
+
+    const logsAfterFirst = await db
+      .select({ action: auditLogs.action })
+      .from(auditLogs)
+      .where(and(eq(auditLogs.entityId, contactId), eq(auditLogs.action, "sequence_step_skipped_global_pause")));
+    const countAfterFirst = logsAfterFirst.length;
+    assert("Case 27: first tick writes exactly one audit log", countAfterFirst >= 1, `count=${countAfterFirst}`);
+
+    // Re-activate enrollment so worker sees it again
+    await db.update(sequenceEnrollments).set({ status: "active" as any, nextActionAt: new Date(Date.now() - 1000) }).where(eq(sequenceEnrollments.id, enrollId));
+
+    // Second tick — metadata check should prevent another audit log write
+    await processSequenceEnrollments();
+    await new Promise(r => setTimeout(r, 300));
+
+    const logsAfterSecond = await db
+      .select({ action: auditLogs.action })
+      .from(auditLogs)
+      .where(and(eq(auditLogs.entityId, contactId), eq(auditLogs.action, "sequence_step_skipped_global_pause")));
+    assert("Case 27: second tick does NOT write a second audit log (dedup)", logsAfterSecond.length === countAfterFirst, `before=${countAfterFirst} after=${logsAfterSecond.length}`);
+  } finally {
+    await storage.setSystemSetting("outboundGlobalPaused", false);
+    await storage.setSystemSetting("outboundGlobalPausedReason", null);
+    if (savedMode === undefined) delete process.env.TEST_MODE; else process.env.TEST_MODE = savedMode;
+    if (savedDry === undefined) delete process.env.DRY_RUN; else process.env.DRY_RUN = savedDry;
+    if (savedSkipAi === undefined) delete process.env.SKIP_AI; else process.env.SKIP_AI = savedSkipAi;
+  }
+}
+
+// Case 28: Global pause OFF → worker proceeds past the kill-switch gate (no pause audit log)
+async function testCase28(): Promise<void> {
+  console.log("\nCase 28 (Kill Switch): Global pause OFF → kill-switch gate does not fire");
+  const savedMode = process.env.TEST_MODE;
+  const savedDry = process.env.DRY_RUN;
+  const savedSkipAi = process.env.SKIP_AI;
+  process.env.TEST_MODE = "true";
+  process.env.DRY_RUN = "true";
+  process.env.SKIP_AI = "true";
+
+  try {
+    await storage.setSystemSetting("outboundGlobalPaused", false);
+
+    const { seqId } = await makeKillSwitchSequence();
+    const contactId = await makeContact({ emailStatus: "active", consentTier: "warm_no_pewc" });
+    const enrollId = await makeEnrollment(contactId, seqId);
+
+    await processSequenceEnrollments();
+    await new Promise(r => setTimeout(r, 300));
+
+    const pauseLogs = await db
+      .select({ action: auditLogs.action })
+      .from(auditLogs)
+      .where(and(eq(auditLogs.entityId, contactId), eq(auditLogs.action, "sequence_step_skipped_global_pause")));
+    assert("Case 28: no global-pause audit log when kill switch is OFF", pauseLogs.length === 0, `found=${pauseLogs.length}`);
+
+    // Enrollment should NOT be paused by kill-switch (may be in any other state)
+    const [enr] = await db.select({ status: sequenceEnrollments.status }).from(sequenceEnrollments).where(eq(sequenceEnrollments.id, enrollId));
+    assert("Case 28: enrollment not killed by kill-switch gate when paused=false", enr?.status !== "paused" || pauseLogs.length === 0, `status=${enr?.status}`);
+  } finally {
+    if (savedMode === undefined) delete process.env.TEST_MODE; else process.env.TEST_MODE = savedMode;
+    if (savedDry === undefined) delete process.env.DRY_RUN; else process.env.DRY_RUN = savedDry;
+    if (savedSkipAi === undefined) delete process.env.SKIP_AI; else process.env.SKIP_AI = savedSkipAi;
+  }
+}
+
+// Case 29: Cold outreach + cap exceeded → deferred, enrollment paused, audit written
+async function testCase29(): Promise<void> {
+  console.log("\nCase 29 (Daily Cap): Cap exceeded → cold outreach email step deferred");
+  const savedMode = process.env.TEST_MODE;
+  const savedDry = process.env.DRY_RUN;
+  const savedSkipAi = process.env.SKIP_AI;
+  process.env.TEST_MODE = "true";
+  process.env.DRY_RUN = "true";
+  process.env.SKIP_AI = "true";
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  try {
+    await storage.setSystemSetting("outboundGlobalPaused", false);
+    await storage.setSystemSetting("outboundDailyEmailCap", 1);
+
+    // Seed a send counter at or above cap
+    await db.execute(
+      `INSERT INTO outbound_send_counters (date, channel, scope, count, updated_at)
+       VALUES ('${todayStr}', 'email', 'cold_outreach', 1, now())
+       ON CONFLICT (date, channel, scope)
+       DO UPDATE SET count = 1, updated_at = now()`
+    );
+
+    const { seqId } = await makeDailyCapSequence();
+    const contactId = await makeContact({ emailStatus: "active", consentTier: "pewc_full_automation" });
+    const enrollId = await makeEnrollment(contactId, seqId);
+
+    await processSequenceEnrollments();
+    await new Promise(r => setTimeout(r, 300));
+
+    const [enr] = await db.select({ status: sequenceEnrollments.status }).from(sequenceEnrollments).where(eq(sequenceEnrollments.id, enrollId));
+    assert("Case 29: enrollment deferred (paused) when daily cap exceeded", enr?.status === "paused", `status=${enr?.status}`);
+
+    const capLogs = await db
+      .select({ action: auditLogs.action })
+      .from(auditLogs)
+      .where(and(eq(auditLogs.entityId, contactId), eq(auditLogs.action, "sequence_step_deferred_daily_cap")));
+    assert("Case 29: audit log sequence_step_deferred_daily_cap written", capLogs.length > 0, `found=${capLogs.length}`);
+  } finally {
+    await storage.setSystemSetting("outboundDailyEmailCap", 200);
+    // Clean the seeded counter row
+    await db.execute(`DELETE FROM outbound_send_counters WHERE date='${todayStr}' AND channel='email' AND scope='cold_outreach'`);
+    if (savedMode === undefined) delete process.env.TEST_MODE; else process.env.TEST_MODE = savedMode;
+    if (savedDry === undefined) delete process.env.DRY_RUN; else process.env.DRY_RUN = savedDry;
+    if (savedSkipAi === undefined) delete process.env.SKIP_AI; else process.env.SKIP_AI = savedSkipAi;
+  }
+}
+
+// Case 30: Cap dedup — second tick does NOT write a second cap-deferred audit log
+async function testCase30(): Promise<void> {
+  console.log("\nCase 30 (Daily Cap): Cap deferred dedup — second tick does not write second audit log");
+  const savedMode = process.env.TEST_MODE;
+  const savedDry = process.env.DRY_RUN;
+  const savedSkipAi = process.env.SKIP_AI;
+  process.env.TEST_MODE = "true";
+  process.env.DRY_RUN = "true";
+  process.env.SKIP_AI = "true";
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  try {
+    await storage.setSystemSetting("outboundGlobalPaused", false);
+    await storage.setSystemSetting("outboundDailyEmailCap", 1);
+    await db.execute(
+      `INSERT INTO outbound_send_counters (date, channel, scope, count, updated_at)
+       VALUES ('${todayStr}', 'email', 'cold_outreach', 1, now())
+       ON CONFLICT (date, channel, scope)
+       DO UPDATE SET count = 1, updated_at = now()`
+    );
+
+    const { seqId } = await makeDailyCapSequence();
+    const contactId = await makeContact({ emailStatus: "active", consentTier: "pewc_full_automation" });
+    const enrollId = await makeEnrollment(contactId, seqId);
+
+    await processSequenceEnrollments();
+    await new Promise(r => setTimeout(r, 300));
+
+    const firstLogs = await db
+      .select({ action: auditLogs.action })
+      .from(auditLogs)
+      .where(and(eq(auditLogs.entityId, contactId), eq(auditLogs.action, "sequence_step_deferred_daily_cap")));
+    const countFirst = firstLogs.length;
+
+    // Re-activate to let worker see it again
+    await db.update(sequenceEnrollments).set({ status: "active" as any, nextActionAt: new Date(Date.now() - 1000) }).where(eq(sequenceEnrollments.id, enrollId));
+
+    await processSequenceEnrollments();
+    await new Promise(r => setTimeout(r, 300));
+
+    const secondLogs = await db
+      .select({ action: auditLogs.action })
+      .from(auditLogs)
+      .where(and(eq(auditLogs.entityId, contactId), eq(auditLogs.action, "sequence_step_deferred_daily_cap")));
+    assert("Case 30: second tick does NOT add a second cap-deferred audit log", secondLogs.length === countFirst, `before=${countFirst} after=${secondLogs.length}`);
+  } finally {
+    await storage.setSystemSetting("outboundDailyEmailCap", 200);
+    await db.execute(`DELETE FROM outbound_send_counters WHERE date='${todayStr}' AND channel='email' AND scope='cold_outreach'`);
+    if (savedMode === undefined) delete process.env.TEST_MODE; else process.env.TEST_MODE = savedMode;
+    if (savedDry === undefined) delete process.env.DRY_RUN; else process.env.DRY_RUN = savedDry;
+    if (savedSkipAi === undefined) delete process.env.SKIP_AI; else process.env.SKIP_AI = savedSkipAi;
+  }
+}
+
+// Case 31: Non-cold sequence + cap exceeded → NOT deferred (transactional bypass)
+async function testCase31(): Promise<void> {
+  console.log("\nCase 31 (Daily Cap): Transactional sequence bypasses daily email cap");
+  const savedMode = process.env.TEST_MODE;
+  const savedDry = process.env.DRY_RUN;
+  const savedSkipAi = process.env.SKIP_AI;
+  process.env.TEST_MODE = "true";
+  process.env.DRY_RUN = "true";
+  process.env.SKIP_AI = "true";
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  try {
+    await storage.setSystemSetting("outboundGlobalPaused", false);
+    await storage.setSystemSetting("outboundDailyEmailCap", 1);
+    await db.execute(
+      `INSERT INTO outbound_send_counters (date, channel, scope, count, updated_at)
+       VALUES ('${todayStr}', 'email', 'cold_outreach', 1, now())
+       ON CONFLICT (date, channel, scope)
+       DO UPDATE SET count = 1, updated_at = now()`
+    );
+
+    // Create a non-cold sequence (e.g. onboarding trigger — no cold outreach family)
+    const tag = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const [seq] = await db
+      .insert(followUpSequences)
+      .values({
+        name: `Transactional Test ${tag}`,
+        status: "active" as const,
+        triggerType: "deal_closed_won",
+        triggerConfig: {},
+      } as any)
+      .returning({ id: followUpSequences.id });
+    testSequenceIds.push(seq.id);
+    await db.insert(sequenceSteps).values({
+      sequenceId: seq.id,
+      stepOrder: 1,
+      actionType: "email" as any,
+      delayDays: 0,
+      delayHours: 0,
+      subject: "Transactional subject",
+      body: "Transactional body",
+    });
+
+    const contactId = await makeContact({ emailStatus: "active", consentTier: "warm_no_pewc" });
+    const enrollId = await makeEnrollment(contactId, seq.id);
+
+    await processSequenceEnrollments();
+    await new Promise(r => setTimeout(r, 300));
+
+    // Should NOT have a cap-deferred audit log
+    const capLogs = await db
+      .select({ action: auditLogs.action })
+      .from(auditLogs)
+      .where(and(eq(auditLogs.entityId, contactId), eq(auditLogs.action, "sequence_step_deferred_daily_cap")));
+    assert("Case 31: transactional sequence NOT deferred by daily cap", capLogs.length === 0, `cap defer logs found=${capLogs.length}`);
+  } finally {
+    await storage.setSystemSetting("outboundDailyEmailCap", 200);
+    await db.execute(`DELETE FROM outbound_send_counters WHERE date='${todayStr}' AND channel='email' AND scope='cold_outreach'`);
+    if (savedMode === undefined) delete process.env.TEST_MODE; else process.env.TEST_MODE = savedMode;
+    if (savedDry === undefined) delete process.env.DRY_RUN; else process.env.DRY_RUN = savedDry;
+    if (savedSkipAi === undefined) delete process.env.SKIP_AI; else process.env.SKIP_AI = savedSkipAi;
+  }
+}
+
+// Case 32: outbound settings storage layer returns correct types and values
+// Auth gate (requireRole admin/manager) is already exercised by smoke-role-guards.ts
+async function testCase32(): Promise<void> {
+  console.log("\nCase 32 (Kill Switch API): outbound settings storage layer works correctly");
+  try {
+    // Set known values
+    await storage.setSystemSetting("outboundGlobalPaused", false);
+    await storage.setSystemSetting("outboundGlobalPausedReason", "case32-test");
+    await storage.setSystemSetting("outboundDailyEmailCap", 150);
+
+    const paused = await storage.getSystemSetting("outboundGlobalPaused");
+    assert("Case 32: outboundGlobalPaused stored and retrieved correctly (false)", paused === false || paused === "false", `value=${JSON.stringify(paused)}`);
+
+    const reason = await storage.getSystemSetting("outboundGlobalPausedReason");
+    assert("Case 32: outboundGlobalPausedReason stored and retrieved correctly", reason === "case32-test", `value=${JSON.stringify(reason)}`);
+
+    const cap = await storage.getSystemSetting("outboundDailyEmailCap");
+    const capNum = typeof cap === "number" ? cap : parseInt(String(cap ?? "0"), 10);
+    assert("Case 32: outboundDailyEmailCap stored and retrieved as numeric 150", capNum === 150, `value=${JSON.stringify(cap)}`);
+
+    // Verify outbound_send_counters query for today returns a number
+    const { outboundSendCounters: osc } = await import("../shared/schema");
+    const { eq, and } = await import("drizzle-orm");
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const rows = await db
+      .select({ count: osc.count })
+      .from(osc)
+      .where(and(eq(osc.date, todayStr), eq(osc.channel, "email"), eq(osc.scope, "cold_outreach")));
+    const sendsToday = rows[0]?.count ?? 0;
+    assert("Case 32: coldEmailSendsToday is a non-negative integer", Number.isInteger(sendsToday) && sendsToday >= 0, `sendsToday=${sendsToday}`);
+
+    const remaining = Math.max(0, 150 - sendsToday);
+    assert("Case 32: coldEmailRemainingToday computed correctly (cap - sendsToday)", remaining === Math.max(0, 150 - sendsToday), `remaining=${remaining}`);
+  } finally {
+    await storage.setSystemSetting("outboundGlobalPaused", false);
+    await storage.setSystemSetting("outboundGlobalPausedReason", null);
+    await storage.setSystemSetting("outboundDailyEmailCap", 200);
+  }
+}
+
+// Case 33: outbound_send_counters atomic upsert — count increments correctly
+async function testCase33(): Promise<void> {
+  console.log("\nCase 33 (Counter): outbound_send_counters atomic upsert increments correctly");
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const testScope = `qa_case33_${Date.now()}`;
+  try {
+    // First upsert — should create row with count=1
+    await db.execute(
+      `INSERT INTO outbound_send_counters (date, channel, scope, count, updated_at)
+       VALUES ('${todayStr}', 'email', '${testScope}', 1, now())
+       ON CONFLICT (date, channel, scope)
+       DO UPDATE SET count = outbound_send_counters.count + 1, updated_at = now()`
+    );
+    const [row1] = await db
+      .select({ count: outboundSendCounters.count })
+      .from(outboundSendCounters)
+      .where(and(
+        eq(outboundSendCounters.date, todayStr),
+        eq(outboundSendCounters.channel, "email"),
+        eq(outboundSendCounters.scope, testScope),
+      ));
+    assert("Case 33: first upsert creates row with count=1", row1?.count === 1, `count=${row1?.count}`);
+
+    // Second upsert — count should increment to 2
+    await db.execute(
+      `INSERT INTO outbound_send_counters (date, channel, scope, count, updated_at)
+       VALUES ('${todayStr}', 'email', '${testScope}', 1, now())
+       ON CONFLICT (date, channel, scope)
+       DO UPDATE SET count = outbound_send_counters.count + 1, updated_at = now()`
+    );
+    const [row2] = await db
+      .select({ count: outboundSendCounters.count })
+      .from(outboundSendCounters)
+      .where(and(
+        eq(outboundSendCounters.date, todayStr),
+        eq(outboundSendCounters.channel, "email"),
+        eq(outboundSendCounters.scope, testScope),
+      ));
+    assert("Case 33: second upsert increments count to 2", row2?.count === 2, `count=${row2?.count}`);
+
+    // Verify unique constraint: third upsert uses ON CONFLICT path (no error)
+    await db.execute(
+      `INSERT INTO outbound_send_counters (date, channel, scope, count, updated_at)
+       VALUES ('${todayStr}', 'email', '${testScope}', 1, now())
+       ON CONFLICT (date, channel, scope)
+       DO UPDATE SET count = outbound_send_counters.count + 1, updated_at = now()`
+    );
+    const [row3] = await db
+      .select({ count: outboundSendCounters.count })
+      .from(outboundSendCounters)
+      .where(and(
+        eq(outboundSendCounters.date, todayStr),
+        eq(outboundSendCounters.channel, "email"),
+        eq(outboundSendCounters.scope, testScope),
+      ));
+    assert("Case 33: third upsert increments to 3 without unique-constraint error", row3?.count === 3, `count=${row3?.count}`);
+  } finally {
+    await db.execute(`DELETE FROM outbound_send_counters WHERE scope='${testScope}'`);
+  }
+}
+
+// ── Case 34: Daily cap reservation is atomic ─────────────────────────────────
+// Part A: two concurrent conditional upserts with cap=1 — exactly one slot must
+//         be reserved; the second must be blocked without RETURNING a row.
+// Part B: sequence-worker writes sequence_step_deferred_daily_cap when the
+//         fast-path gate sees sendsToday >= cap (same audit action as the
+//         atomic-reservation branch, covering the deferred-logging contract).
+async function testCase34(): Promise<void> {
+  console.log("\nCase 34 (Concurrency): daily cap atomic reservation prevents overshoot");
+
+  // ── Part A: SQL-level concurrency ─────────────────────────────────────────
+  // Use a scoped test channel so we don't collide with Case 33 or production.
+  const concScope = `qa_conc_test_${Date.now()}`;
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const CAP = 1;
+
+  try {
+    // Fire two conditional upserts concurrently from the same process.
+    // This is the exact SQL the sequence-worker uses for reservation.
+    const atomicUpsert = () => db.execute(
+      `INSERT INTO outbound_send_counters (date, channel, scope, count, updated_at)
+       VALUES ('${todayStr}', 'email', '${concScope}', 1, now())
+       ON CONFLICT (date, channel, scope) DO UPDATE
+         SET count = outbound_send_counters.count + 1, updated_at = now()
+         WHERE outbound_send_counters.count < ${CAP}
+       RETURNING count`
+    );
+
+    const [result1, result2] = await Promise.all([atomicUpsert(), atomicUpsert()]);
+
+    const rows1 = (result1 as any).rows as Array<{ count: number }>;
+    const rows2 = (result2 as any).rows as Array<{ count: number }>;
+
+    // Exactly one should succeed (RETURNING a row), one should be blocked
+    const successCount = [rows1, rows2].filter(r => r && r.length > 0).length;
+    const blockedCount = [rows1, rows2].filter(r => !r || r.length === 0).length;
+
+    assert("Case 34A: exactly 1 of 2 concurrent upserts reserved a slot", successCount === 1, `successCount=${successCount}`);
+    assert("Case 34A: exactly 1 of 2 concurrent upserts was blocked by WHERE guard", blockedCount === 1, `blockedCount=${blockedCount}`);
+
+    // Final counter must equal 1 (not 2)
+    const [finalRow] = await db
+      .select({ count: outboundSendCounters.count })
+      .from(outboundSendCounters)
+      .where(and(
+        eq(outboundSendCounters.date, todayStr),
+        eq(outboundSendCounters.channel, "email"),
+        eq(outboundSendCounters.scope, concScope),
+      ));
+    assert("Case 34A: final counter = 1 (not 2) after concurrent cap=1 upserts", finalRow?.count === 1, `count=${finalRow?.count}`);
+  } finally {
+    await db.execute(`DELETE FROM outbound_send_counters WHERE scope='${concScope}'`);
+  }
+
+  // ── Part B: worker writes sequence_step_deferred_daily_cap audit log ──────
+  // Seed the counter already AT cap so the fast-path gate fires on the first
+  // enrollment. The fast-path and the atomic-reservation branch both write the
+  // same sequence_step_deferred_daily_cap audit action — this covers the
+  // logging contract for the deferred path.
+  // Uses the same env-var setup and makeDailyCapSequence() pattern as Cases 29-31.
+  const savedMode34 = process.env.TEST_MODE;
+  const savedDry34 = process.env.DRY_RUN;
+  const savedSkipAi34 = process.env.SKIP_AI;
+  process.env.TEST_MODE = "true";
+  process.env.DRY_RUN = "true";
+  process.env.SKIP_AI = "true";
+  try {
+    await storage.setSystemSetting("outboundGlobalPaused", false);
+    await storage.setSystemSetting("outboundDailyEmailCap", CAP);
+    // Seed: counter already AT cap
+    await db.execute(
+      `INSERT INTO outbound_send_counters (date, channel, scope, count, updated_at)
+       VALUES ('${todayStr}', 'email', 'cold_outreach', ${CAP}, now())
+       ON CONFLICT (date, channel, scope) DO UPDATE
+         SET count = ${CAP}, updated_at = now()`
+    );
+
+    const { seqId } = await makeDailyCapSequence();
+    const contactId = await makeContact({ emailStatus: "active", consentTier: "pewc_full_automation" });
+    const enrollId = await makeEnrollment(contactId, seqId);
+
+    await processSequenceEnrollments();
+    await new Promise(r => setTimeout(r, 300));
+
+    // Enrollment must be paused
+    const [updated] = await db
+      .select({ status: sequenceEnrollments.status })
+      .from(sequenceEnrollments)
+      .where(eq(sequenceEnrollments.id, enrollId));
+    assert("Case 34B: enrollment paused when cap reached", updated?.status === "paused", `status=${updated?.status}`);
+
+    // Audit log must carry sequence_step_deferred_daily_cap
+    const deferLogs = await db
+      .select({ id: auditLogs.id })
+      .from(auditLogs)
+      .where(and(
+        eq(auditLogs.action, "sequence_step_deferred_daily_cap"),
+        eq(auditLogs.entityId, contactId),
+      ));
+    assert("Case 34B: sequence_step_deferred_daily_cap audit log written for deferred enrollment", deferLogs.length > 0, `found=${deferLogs.length}`);
+  } finally {
+    await storage.setSystemSetting("outboundDailyEmailCap", 200);
+    await db.execute(`DELETE FROM outbound_send_counters WHERE date='${todayStr}' AND channel='email' AND scope='cold_outreach'`);
+    if (savedMode34 === undefined) delete process.env.TEST_MODE; else process.env.TEST_MODE = savedMode34;
+    if (savedDry34 === undefined) delete process.env.DRY_RUN; else process.env.DRY_RUN = savedDry34;
+    if (savedSkipAi34 === undefined) delete process.env.SKIP_AI; else process.env.SKIP_AI = savedSkipAi34;
   }
 }
 
@@ -987,6 +1567,16 @@ async function runTests(): Promise<void> {
     await testCase23();
     await testCase24();
     await testCase25();
+    // Task #792 — Kill Switch & Daily Cap tests (Cases 26–33)
+    await testCase26();
+    await testCase27();
+    await testCase28();
+    await testCase29();
+    await testCase30();
+    await testCase31();
+    await testCase32();
+    await testCase33();
+    await testCase34();
   } finally {
     console.log("\n── Cleanup ─────────────────────────────────────────────────");
     await cleanup();

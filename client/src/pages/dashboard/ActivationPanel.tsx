@@ -8,10 +8,18 @@ import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "@/components/ui/dialog";
-import { Loader2, Play, Square, Pause, Shield, Activity, Server, Mail, AlertTriangle, CheckCircle2, XCircle, Zap, RefreshCw, Radio, ArrowRightLeft, Plus, Pencil, ListChecks, Circle, Phone, MessageSquare, Mic, Voicemail, Search, Lock, ShieldCheck, ChevronDown, ChevronRight, History, Download, FileText } from "lucide-react";
+import { Loader2, Play, Square, Pause, Shield, Activity, Server, Mail, AlertTriangle, CheckCircle2, XCircle, Zap, RefreshCw, Radio, ArrowRightLeft, Plus, Pencil, ListChecks, Circle, Phone, MessageSquare, Mic, Voicemail, Search, Lock, ShieldCheck, ChevronDown, ChevronRight, History, Download, FileText, BanIcon, Gauge } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
+
+interface OutboundSettings {
+  outboundGlobalPaused: boolean;
+  outboundGlobalPausedReason: string | null;
+  outboundDailyEmailCap: number;
+  coldEmailSendsToday: number;
+  coldEmailRemainingToday: number;
+}
 
 interface AppHealthData {
   ok: boolean;
@@ -820,6 +828,10 @@ export default function ActivationPanel() {
           <TabsTrigger value="compliance" data-testid="tab-compliance">
             <ShieldCheck className="w-3.5 h-3.5 mr-1" />
             Compliance
+          </TabsTrigger>
+          <TabsTrigger value="kill-switch" data-testid="tab-kill-switch">
+            <BanIcon className="w-3.5 h-3.5 mr-1" />
+            Kill Switch
           </TabsTrigger>
         </TabsList>
 
@@ -1684,7 +1696,232 @@ export default function ActivationPanel() {
           <BlockReasonSummaryCard />
           <ChannelApprovalGate />
         </TabsContent>
+
+        <TabsContent value="kill-switch" className="space-y-4">
+          <OutboundKillSwitchPanel />
+        </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+// ── Outbound Kill Switch & Daily Cap Panel (Task #792) ─────────────────────────
+function OutboundKillSwitchPanel() {
+  const { toast } = useToast();
+  const [reasonDraft, setReasonDraft] = useState<string>("");
+  const [capDraft, setCapDraft] = useState<string>("");
+  const [capEditing, setCapEditing] = useState(false);
+
+  const settingsQuery = useQuery<OutboundSettings>({
+    queryKey: ["/api/system/outbound-settings"],
+    refetchInterval: 30_000,
+  });
+
+  const data = settingsQuery.data;
+
+  useEffect(() => {
+    if (data && !capEditing) {
+      setCapDraft(String(data.outboundDailyEmailCap));
+    }
+    if (data && data.outboundGlobalPausedReason !== null && reasonDraft === "") {
+      setReasonDraft(data.outboundGlobalPausedReason ?? "");
+    }
+  }, [data]);
+
+  const patchMutation = useMutation({
+    mutationFn: (body: Partial<OutboundSettings & { outboundGlobalPausedReason: string | null }>) =>
+      apiRequest("PATCH", "/api/system/outbound-settings", body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/system/outbound-settings"] });
+      toast({ title: "Outbound settings saved", description: "Changes take effect on the next worker tick." });
+    },
+    onError: (err: any) => {
+      toast({ title: "Save failed", description: err?.message ?? "Unknown error", variant: "destructive" });
+    },
+  });
+
+  const togglePause = () => {
+    if (!data) return;
+    patchMutation.mutate({
+      outboundGlobalPaused: !data.outboundGlobalPaused,
+      outboundGlobalPausedReason: reasonDraft || null,
+    });
+  };
+
+  const saveCap = () => {
+    const val = parseInt(capDraft, 10);
+    if (!isNaN(val) && val > 0) {
+      patchMutation.mutate({ outboundDailyEmailCap: val });
+      setCapEditing(false);
+    }
+  };
+
+  const isPaused = data?.outboundGlobalPaused ?? false;
+  const sendsToday = data?.coldEmailSendsToday ?? 0;
+  const cap = data?.outboundDailyEmailCap ?? 200;
+  const remaining = data?.coldEmailRemainingToday ?? cap;
+  const usePct = cap > 0 ? Math.round((sendsToday / cap) * 100) : 0;
+
+  return (
+    <div className="space-y-4">
+      {/* Global Pause Banner */}
+      {isPaused && (
+        <div className="flex items-start gap-3 rounded-lg border border-red-300 bg-red-50 dark:bg-red-950/30 dark:border-red-700 p-4" data-testid="banner-global-paused">
+          <BanIcon className="w-5 h-5 text-red-600 dark:text-red-400 mt-0.5 shrink-0" />
+          <div>
+            <p className="font-semibold text-red-800 dark:text-red-300">Global Outbound Pause Is Active</p>
+            <p className="text-sm text-red-700 dark:text-red-400 mt-0.5">
+              All sequence email steps are blocked. The sequence worker will pause each enrollment until this is turned off.
+            </p>
+            {data?.outboundGlobalPausedReason && (
+              <p className="text-xs text-red-600 dark:text-red-400 mt-1 font-mono">Reason: {data.outboundGlobalPausedReason}</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Kill Switch Card */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <BanIcon className="w-4 h-4 text-red-500" />
+            Global Outbound Kill Switch
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {settingsQuery.isLoading ? (
+            <Loader2 className="w-5 h-5 animate-spin" />
+          ) : (
+            <>
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <div>
+                  <Label className="font-medium">Pause All Outbound Sends</Label>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Checked → the sequence worker halts every cold-outreach email step on the next tick. Uncheck to resume.
+                  </p>
+                </div>
+                <Switch
+                  checked={isPaused}
+                  onCheckedChange={togglePause}
+                  disabled={patchMutation.isPending}
+                  data-testid="switch-global-pause"
+                  aria-label="Toggle global outbound pause"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="pause-reason">Pause Reason <span className="text-muted-foreground text-xs">(optional, logged in audit trail)</span></Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="pause-reason"
+                    value={reasonDraft}
+                    onChange={e => setReasonDraft(e.target.value)}
+                    placeholder="e.g. Compliance review — hold until 2026-07-15"
+                    className="flex-1"
+                    data-testid="input-pause-reason"
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => patchMutation.mutate({ outboundGlobalPausedReason: reasonDraft || null })}
+                    disabled={patchMutation.isPending}
+                    data-testid="button-save-pause-reason"
+                  >
+                    Save
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Daily Email Cap Card */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Gauge className="w-4 h-4 text-blue-500" />
+            Daily Cold Email Cap
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {settingsQuery.isLoading ? (
+            <Loader2 className="w-5 h-5 animate-spin" />
+          ) : (
+            <>
+              {/* Send gauge */}
+              <div className="space-y-1.5">
+                <div className="flex justify-between text-sm">
+                  <span className="font-medium">{sendsToday.toLocaleString()} sent today</span>
+                  <span className="text-muted-foreground">{remaining.toLocaleString()} remaining / {cap.toLocaleString()} cap</span>
+                </div>
+                <div className="w-full h-2.5 rounded-full bg-muted overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${usePct >= 100 ? "bg-red-500" : usePct >= 80 ? "bg-amber-500" : "bg-green-500"}`}
+                    style={{ width: `${Math.min(usePct, 100)}%` }}
+                    data-testid="bar-daily-cap-progress"
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {usePct}% of daily cap used. Resets at midnight UTC.
+                </p>
+              </div>
+
+              {/* Cap editor */}
+              <div className="space-y-1.5">
+                <Label htmlFor="daily-cap">Daily Cap (emails / day)</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="daily-cap"
+                    type="number"
+                    min={1}
+                    max={2000}
+                    value={capDraft}
+                    onChange={e => { setCapDraft(e.target.value); setCapEditing(true); }}
+                    className="w-36"
+                    data-testid="input-daily-cap"
+                  />
+                  <Button
+                    size="sm"
+                    onClick={saveCap}
+                    disabled={patchMutation.isPending || !capEditing}
+                    data-testid="button-save-daily-cap"
+                  >
+                    {patchMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
+                    Apply Cap
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  When today's cold outreach email count reaches this number, new enrollments are deferred to tomorrow.
+                  Only cold-outreach sequence emails are counted — transactional emails (onboarding, merchant welcome) are not capped.
+                </p>
+              </div>
+
+              {/* Status summary */}
+              <div className="rounded-md border bg-muted/30 p-3 space-y-1 text-xs" data-testid="outbound-status-summary">
+                <div className="flex justify-between">
+                  <span>Kill switch</span>
+                  <Badge variant={isPaused ? "destructive" : "default"} data-testid="badge-kill-switch-status">
+                    {isPaused ? "PAUSED" : "Active"}
+                  </Badge>
+                </div>
+                <div className="flex justify-between">
+                  <span>Sends today (cold email)</span>
+                  <span className="font-mono" data-testid="text-sends-today">{sendsToday}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Daily cap</span>
+                  <span className="font-mono" data-testid="text-daily-cap">{cap}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Remaining today</span>
+                  <span className={`font-mono ${remaining === 0 ? "text-red-600" : ""}`} data-testid="text-remaining-today">{remaining}</span>
+                </div>
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
