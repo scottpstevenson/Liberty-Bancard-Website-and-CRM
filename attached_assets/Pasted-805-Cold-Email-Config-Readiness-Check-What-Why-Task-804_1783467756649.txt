@@ -1,0 +1,99 @@
+805 — Cold Email Config Readiness Check
+
+What & Why
+
+Task #804 fixed the missing contacts.opted_out_email column and restored the contactability/compliance test suite. Before any manual or semi-automated cold email outreach begins, verify that the required cold-email configuration is present and that the sequence compliance worker can pass with deterministic test isolation.
+
+This is a configuration/readiness task, not a new outreach feature build.
+
+Done Looks Like
+
+* compliance_mailing_address system setting is populated.
+* APP_URL is configured correctly for production unsubscribe links.
+* UNSUBSCRIBE_TOKEN_SECRET or SESSION_SECRET is configured.
+* Cold email footer generation has all required config.
+* No cold email send path is blocked by missing config.
+* test-sequence-compliance.ts passes deterministically, or the remaining failure is fixed by isolating the job lock in the test.
+* No real email, SMS, voice, ringless, GHL workflow, or real enrollment is triggered.
+
+Required Checks
+
+1. Verify cold email config
+
+Check:
+
+compliance_mailing_address
+APP_URL
+UNSUBSCRIBE_TOKEN_SECRET or SESSION_SECRET
+
+Expected:
+
+all present
+APP_URL is absolute production domain
+mailing address is real business mailing address
+token secret is not a test fallback
+
+2. Verify unsubscribe endpoint locally
+
+Use test/dry-run tokens only.
+
+Confirm:
+
+valid signed token → confirmation page
+invalid token → safe invalid/expired page
+no contact details exposed
+
+3. Stabilize sequence compliance test if needed
+
+The current test-sequence-compliance.ts has a known Case 27 race where the live BullMQ worker can acquire the job lock before the test call.
+
+Fix test isolation only.
+
+Allowed fixes:
+
+reset/force-release the job-lock DB row before Case 27
+use a test-only lock key
+pause/disable the background queue during the test run if existing test harness supports it
+
+Do not change sequence worker production logic just to satisfy the test.
+
+Kill Lines
+
+STOP if this task changes outreach logic.
+STOP if this task activates any sequence.
+STOP if this task changes ORCHESTRATOR_ENABLED, SMS_ENABLED, VOICE_AI_ENABLED, or RINGLESS_VM_ENABLED.
+STOP if this task sends real email/SMS/voice/ringless/GHL workflow.
+STOP if production unsubscribe tokens can use a hardcoded fallback secret.
+STOP if Case 27 is fixed by weakening production job locking.
+
+Validation
+
+Run:
+
+TEST_MODE=true SKIP_AI=true DRY_RUN=true npx tsx scripts/test-contactability.ts
+TEST_MODE=true SKIP_AI=true DRY_RUN=true npx tsx scripts/test-channel-audit.ts
+TEST_MODE=true SKIP_AI=true DRY_RUN=true npx tsx scripts/test-sdr-manual-enroll.ts
+TEST_MODE=true SKIP_AI=true DRY_RUN=true npx tsx scripts/test-sequence-compliance.ts
+npx tsx scripts/smoke-role-guards.ts
+
+Expected:
+
+test-contactability: pass
+test-channel-audit: pass
+test-sdr-manual-enroll: pass
+test-sequence-compliance: deterministic pass
+smoke-role-guards: 58/58
+
+Final Report Required
+
+Return:
+
+compliance_mailing_address present: yes/no
+APP_URL present and valid: yes/no
+UNSUBSCRIBE_TOKEN_SECRET or SESSION_SECRET present: yes/no
+Unsubscribe endpoint checked: yes/no
+Sequence compliance result:
+Case 27 race fixed: yes/no
+Validation commands run:
+Real outbound sent: yes/no
+Remaining blockers:
