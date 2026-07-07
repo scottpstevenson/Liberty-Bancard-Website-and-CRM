@@ -1092,7 +1092,10 @@ async function testCase27(): Promise<void> {
     const contactId = await makeContact({ emailStatus: "active", consentTier: "warm_no_pewc" });
     const enrollId = await makeEnrollment(contactId, seqId);
 
-    // First tick
+    // First tick — force-reset the job lock first so the live BullMQ background
+    // worker (running every 30s in the server process) cannot win the lock race.
+    // This is a test-isolation-only fix; production acquireJobLock is unchanged.
+    await pool.query("UPDATE background_jobs SET status = 'idle' WHERE job_name = $1", ["sequence-worker"]);
     await processSequenceEnrollments();
     await new Promise(r => setTimeout(r, 300));
 
@@ -1106,7 +1109,9 @@ async function testCase27(): Promise<void> {
     // Re-activate enrollment so worker sees it again
     await db.update(sequenceEnrollments).set({ status: "active" as any, nextActionAt: new Date(Date.now() - 1000) }).where(eq(sequenceEnrollments.id, enrollId));
 
-    // Second tick — metadata check should prevent another audit log write
+    // Second tick — metadata check should prevent another audit log write.
+    // Reset lock again to ensure determinism.
+    await pool.query("UPDATE background_jobs SET status = 'idle' WHERE job_name = $1", ["sequence-worker"]);
     await processSequenceEnrollments();
     await new Promise(r => setTimeout(r, 300));
 
