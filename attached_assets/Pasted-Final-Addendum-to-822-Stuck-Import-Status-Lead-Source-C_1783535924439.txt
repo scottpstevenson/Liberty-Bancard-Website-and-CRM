@@ -1,0 +1,216 @@
+Final Addendum to #822 — Stuck Import Status & Lead Source Collision
+
+Approved to build.
+
+Critical production-data guard
+
+Any production data mutation must run in two phases:
+
+1. DRY RUN / preview exact affected rows
+2. Apply only after counts match the expected target
+
+Do not run broad updates against contacts/import records without a preview query and exact row count.
+
+Required before mutation:
+
+backup/export affected rows
+preview update count
+apply update
+verify after count
+
+Lead-source backfill guard
+
+Backfill only the known corrupted Outscraper contacts.
+
+Required WHERE scope should include all of:
+
+tags contains google-maps-outscraper
+created_at within the known 2026-07-06 01:40:53–01:47:04 window, or import id/source marker if available
+lead_source != 'google_maps_outscraper'
+lead_source is one of the confirmed provenance garbage values or looks like URL/domain/provenance metadata
+
+Do not globally rewrite every contact with a weird lead_source.
+
+Required proof:
+
+SELECT lead_source, count(*)
+FROM contacts
+WHERE tags @> ARRAY['google-maps-outscraper']::text[]
+GROUP BY lead_source;
+
+Expected after backfill:
+
+google_maps_outscraper | 500
+
+Column mapping fix
+
+For known import formats, system source must win over file metadata.
+
+Required behavior:
+
+sourceFormat = google_maps_outscraper
+→ leadSource = 'google_maps_outscraper'
+→ ignore file column named source as leadSource
+
+The generic mapping:
+
+source → leadSource
+
+should only apply to true custom/user CSV imports, not known provider formats like Outscraper.
+
+Kill line:
+
+STOP if Outscraper's native `source` provenance column can still overwrite contacts.leadSource.
+
+Historical import id=1 accounting guard
+
+Do not fabricate reconciliation.
+
+For import id=1, use a truthful historical status such as:
+
+interrupted
+partial_completed
+legacy_interrupted
+
+The UI should clearly communicate:
+
+Total source rows: 1,319
+Contacts landed: 500
+Missing/not processed: ~819
+Detailed per-row breakdown unavailable for legacy interrupted import
+
+Do not label the ~819 as invalid, duplicate, or skipped unless actually proven.
+
+Preferred bucket language:
+
+Processed / Created: 500
+Unprocessed due to interrupted import: 819
+Invalid: unknown/unavailable
+Already Exists: unknown/unavailable
+
+Import durability guard
+
+The import loop must write progress after every batch.
+
+Each batch should update the import record with:
+
+processedRows
+createdRows
+alreadyExistsRows
+invalidRows
+skippedRows
+lastProgressAt
+status = processing
+lastBatchNumber / cursor if available
+
+Then final completion should set:
+
+status = completed
+completedAt
+final reconciled counts
+
+If the process crashes mid-import, the record must show partial progress instead of zeroes.
+
+Stale import recovery guard
+
+Add bounded stale detection.
+
+If an import is:
+
+status = processing
+lastProgressAt older than N minutes
+
+then either:
+
+auto-mark interrupted/failed with reason
+
+or expose an admin action:
+
+Mark interrupted
+Retry remainder
+
+Preferred: both stale labeling and admin action.
+
+Do not leave it permanently processing.
+
+Retry/re-import guard
+
+Retry must be idempotent.
+
+Allowed:
+
+re-run original file through existing dedupe/conflict logic
+only insert rows not already matched
+report already-existing rows honestly
+
+Not allowed:
+
+blindly insert duplicates
+change dedupe rules
+delete the 500 landed contacts to replay from scratch
+mark lost rows as recovered without actually importing them
+
+If attached_assets/ is not durable in production, require admin re-upload of the original file.
+
+UI guard
+
+Lead Imports UI must distinguish:
+
+completed
+processing with recent progress
+interrupted/stale
+failed
+legacy interrupted / detailed breakdown unavailable
+
+Do not show:
+
+Total Rows: 1,319
+New: 0
+Already Exists: 0
+Invalid: 0
+
+without an explicit legacy/interrupted explanation.
+
+Kill lines
+
+STOP if production data is updated without a dry-run count first.
+STOP if the 287-contact lead_source backfill uses an overbroad WHERE clause.
+STOP if historical counts are fabricated to force reconciliation.
+STOP if the importer can still leave processing imports stuck forever.
+STOP if a mid-import crash can still leave zero counters after inserted contacts exist.
+STOP if Outscraper source metadata can still override system leadSource.
+STOP if email mapping is changed — it was confirmed correct.
+STOP if dedupe/matching policy is changed.
+STOP if recovered rows are inserted without duplicate safeguards.
+
+Validation additions
+
+Add a targeted script if practical:
+
+scripts/test-import-reconciliation.ts
+
+It should prove:
+
+known provider source column does not overwrite leadSource
+batch progress is persisted after each batch
+interrupted import becomes stale/interrupted
+visible buckets reconcile
+legacy import displays explicit unavailable/interrupted state
+
+Final report additions
+
+Return:
+
+Production backfill dry-run count:
+Production backfill applied count:
+Post-backfill lead_source distribution:
+Import id=1 final status:
+Import id=1 displayed counts:
+Recovered missing rows: yes/no/count
+If not recovered, why:
+Stale detection timeout:
+Admin recovery actions added:
+Mid-import crash simulation result:
+New import reconciliation result:
+Files changed:
+Validation commands run:
