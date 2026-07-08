@@ -1431,8 +1431,12 @@ export async function runGhlFullSyncTick(): Promise<void> {
         if (result.success) {
           consecutiveGhlFailures = 0;
           dealsSynced++;
+        } else if (result.error === "No GHL contact linked" || result.error === "GHL not configured" || result.error === "Deal not found") {
+          // Data-dependency skip — not a GHL API failure; do not trip the circuit.
+          console.log(`[Queue:ghl-sync] Deal ${deal.id} skipped (${result.error}) — not counted as GHL failure`);
         } else {
           consecutiveGhlFailures++;
+          console.warn(`[Queue:ghl-sync] Deal ${deal.id} sync failed: ${result.error}`);
         }
         await new Promise(r => setTimeout(r, 300));
       } catch (e: any) {
