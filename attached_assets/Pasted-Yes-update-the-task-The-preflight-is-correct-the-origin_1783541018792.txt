@@ -1,0 +1,293 @@
+Yes — update the task. The preflight is correct: the original #829 is not build-ready until the endpoint location, line references, and “no batch insert” rule are fixed.
+
+Use this revised version:
+
+829 — Vertical Bulk Enrollment for Sequences
+
+What & Why
+
+The “Enroll Contact in Sequence” dialog currently only supports searching for one contact at a time. Reps need a safe way to enroll all eligible contacts in a canonical vertical, such as all Salon/Spa contacts into the SDR-10 sequence, without bypassing the existing enrollment gates.
+
+Bulk enrollment must use the same per-contact safety checks as single enrollment. It must not directly batch-insert enrollments.
+
+Confirmed Implementation Facts
+
+* Single enrollment route lives in server/routes/campaigns.ts:
+    * POST /api/sequence-enrollments
+* Existing single-enrollment gates:
+    * sequence must be status === "active"
+    * canEnrollContactInSequence(contactId, seq) must pass
+    * worker still enforces global pause, daily cap, bounce guard, and full contactability at execution time
+* Existing enroll dialog is in:
+    * client/src/pages/dashboard/Sequences.tsx, dialog around line 1158
+    * existing enrollMutation around lines 270–291
+* Canonical vertical source:
+    * server/services/sdr/lead-finder.ts
+    * normalizeDiscoveryVertical()
+* Bulk endpoint belongs in:
+    * server/routes/campaigns.ts
+* Do not add this to server/routes/sequences.ts.
+
+Done Looks Like
+
+* Enroll dialog has two modes:
+    * Single Contact
+    * By Vertical
+* By Vertical mode shows:
+    * canonical vertical dropdown
+    * matching contact count
+    * first 5 preview contacts
+    * eligibility/skipped breakdown
+    * explicit confirmation step
+* Bulk enrollment queues/enrolls only contacts that pass the same gates as single enrollment.
+* Paused/inactive sequences reject bulk enrollment before any DB write.
+* Running the same bulk action twice does not create duplicate enrollments.
+* Result toast/report shows:
+    * queued
+    * skipped already enrolled
+    * skipped not eligible/contactability/DNC/opt-out
+    * skipped missing contact info if applicable
+* No sequence is activated.
+* No email/SMS/voice/ringless/GHL send is triggered.
+* No sequence worker/contactability/GHL/compliance logic is changed.
+
+Required Backend Endpoints
+
+Add these in server/routes/campaigns.ts:
+
+GET /api/contacts/verticals
+POST /api/sequences/:id/enroll-vertical/preview
+POST /api/sequences/:id/enroll-vertical
+
+GET /api/contacts/verticals
+
+Returns canonical verticals and counts.
+
+Use contacts.vertical plus the canonical normalization from:
+
+server/services/sdr/lead-finder.ts
+normalizeDiscoveryVertical()
+
+Do not invent a new taxonomy.
+
+POST /api/sequences/:id/enroll-vertical/preview
+
+Accepts:
+
+{
+  vertical: string
+}
+
+Returns:
+
+{
+  totalMatching: number;
+  eligible: number;
+  alreadyEnrolled: number;
+  notEligible: number;
+  skippedBreakdown: Record<string, number>;
+  previewContacts: Array<{
+    id: number;
+    name?: string | null;
+    companyName?: string | null;
+    email?: string | null;
+    phone?: string | null;
+  }>;
+}
+
+Preview must not create enrollments.
+
+Preview must return only the first 5 preview contacts by default.
+
+POST /api/sequences/:id/enroll-vertical
+
+Accepts:
+
+{
+  vertical: string;
+  confirmed: true;
+}
+
+Requires explicit confirmation.
+
+For large eligible counts, require typed confirmation:
+
+ENROLL
+
+Recommended threshold: >= 100 eligible contacts.
+
+Critical Enrollment Rule
+
+Do not direct batch-insert enrollments.
+
+Bulk enrollment must either:
+
+call the same shared per-contact enrollment helper used by POST /api/sequence-enrollments
+
+or extract the single-route logic into a shared function and call it for each contact.
+
+Required per-contact gates:
+
+1. Load sequence.
+2. Reject if sequence.status !== "active".
+3. Check existing active/completed enrollment for same contact + sequence.
+4. Call canEnrollContactInSequence(contactId, seq).
+5. Only then create enrollment.
+
+Do not call storage.createSequenceEnrollment() until the above gates pass.
+
+Storage Additions
+
+Add storage methods where appropriate:
+
+getContactVerticalCounts()
+getContactsByVertical(vertical, limit?)
+
+Declare them in:
+
+server/storage.ts
+
+Implement in:
+
+server/storage/automation.ts
+
+or the correct contact storage module if one exists.
+
+Frontend Changes
+
+Update:
+
+client/src/pages/dashboard/Sequences.tsx
+
+Add a second tab to the existing enroll dialog:
+
+Single Contact
+By Vertical
+
+By Vertical tab includes:
+
+vertical dropdown
+matching count badge
+first 5 preview contacts
+eligibility/skipped breakdown
+confirmation step
+Queue Eligible Contacts button
+result toast
+
+Button copy should be:
+
+Queue Eligible Contacts
+
+not “Enroll Everyone,” because some contacts will be skipped.
+
+Add a bulkEnrollMutation alongside the existing enrollMutation.
+
+Role Guard
+
+Bulk enrollment must be stricter than current single enrollment.
+
+Required:
+
+admin / manager only
+
+Do not expose mass enrollment to agents unless explicitly approved.
+
+Audit Logging
+
+Add audit records:
+
+sequence_vertical_bulk_enroll_previewed
+sequence_vertical_bulk_enroll_requested
+sequence_vertical_bulk_enroll_completed
+
+Include:
+
+sequenceId
+vertical
+requestedBy
+eligible
+queued
+skipped
+skipped breakdown
+dryRun true/false
+
+Do not log unnecessary sensitive contact details.
+
+Out of Scope
+
+Do not change:
+
+sequence eligibility logic
+sequence worker
+contactability engine
+daily send cap
+global pause
+GHL logic
+SMS/voice/ringless flags
+compliance footer logic
+sequence activation policy
+vertical normalization source
+
+Kill Lines
+
+STOP if bulk enrollment calls storage.createSequenceEnrollment() without first running the same active-sequence and canEnrollContactInSequence gates used by single enrollment.
+STOP if paused/inactive sequences can receive bulk enrollments.
+STOP if opted-out, DNC, or ineligible contacts are enrolled.
+STOP if running the bulk endpoint twice creates duplicate enrollments.
+STOP if the preview endpoint returns more than 5 contact records by default.
+STOP if the bulk endpoint activates a sequence or changes sequence status.
+STOP if bulk enrollment sends email/SMS/voice/ringless/GHL messages immediately.
+STOP if role guard is weaker than requireRole("admin", "manager").
+STOP if a new vertical taxonomy is invented.
+STOP if skipped contacts are invisible in the result.
+STOP if server/routes/sequences.ts is modified for this enrollment feature.
+
+Validation
+
+Add:
+
+scripts/test-sequence-bulk-enroll.ts
+
+Test cases:
+
+1. dry-run creates no enrollments
+2. eligible contact in vertical is queued
+3. already enrolled contact is skipped
+4. opted-out/DNC contact is skipped
+5. paused sequence rejects before DB write
+6. second run creates no duplicates
+7. unknown vertical rejects safely
+8. preview returns counts + max 5 contacts
+9. admin/manager allowed, agent unauthorized
+
+Run:
+
+npx tsx scripts/test-sequence-bulk-enroll.ts
+npx tsx scripts/smoke-role-guards.ts
+npx tsc --noEmit --skipLibCheck
+
+If global TypeScript still has unrelated legacy errors, report them separately and confirm touched files are clean.
+
+Final Report Required
+
+Return:
+
+Endpoints added:
+Endpoint file:
+Vertical source of truth:
+Storage methods added:
+Bulk enrollment helper/path:
+Single-enrollment gates reused: yes/no
+Direct batch insert avoided: yes/no
+Role guard:
+Preview behavior:
+Confirmation behavior:
+Paused sequence behavior:
+Duplicate-run result:
+Skipped breakdown:
+Audit actions:
+Real outbound sent: yes/no
+Validation commands run:
+Files changed:
+
+Final verdict: update the task, then build. The preflight caught the exact things that would have violated the original guardrails.
