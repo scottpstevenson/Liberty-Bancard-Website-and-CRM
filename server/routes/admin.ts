@@ -5,7 +5,7 @@ import { storage } from "../storage";
 import { db } from "../db";
 import { auditChange } from "../services/audit-change";
 import { z } from "zod";
-import { insertAgentMerchantSchema, insertAgentQuotaSchema, insertAgentSchema, insertConsentAuditLogSchema, insertDataDeleteRequestSchema, insertHealthAlertSchema, insertResidualReportSchema, insertReviewRequestSchema, insertSendingIdentitySchema, ALLOWED_SENDING_DOMAINS, users, contacts, auditLogs } from "@shared/schema";
+import { insertAgentMerchantSchema, insertAgentQuotaSchema, insertAgentSchema, insertConsentAuditLogSchema, insertDataDeleteRequestSchema, insertHealthAlertSchema, insertResidualReportSchema, insertReviewRequestSchema, insertSendingIdentitySchema, ALLOWED_SENDING_DOMAINS, users, contacts, deals, auditLogs } from "@shared/schema";
 import { desc, eq, isNull, and, gte, or, like, count, not } from "drizzle-orm";
 import { parse } from "csv-parse/sync";
 import path from "path";
@@ -13,6 +13,7 @@ import { publicLeadRateLimit } from "../middleware/public-rate-limit";
 import { sendSmtpEmail, getSmtpStatus, isSmtpConfigured } from "../services/smtp-email";
 import { getWorkflowRegistryWithStatus } from "../services/ghl-workflows";
 import { summarizeChannelSafety } from "../services/contactability";
+import { classifyEligibility } from "../services/deal-eligibility";
 
 export function registerAdminRoutes(app: Express) {
   // === ADMIN: SESSION MANAGEMENT ===
@@ -1165,6 +1166,362 @@ export function registerAdminRoutes(app: Express) {
     try {
       const summary = await summarizeChannelSafety();
       res.json(summary);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Build the set of businessIds that already have at least one active deal — refresh each batch
+  async function getBusinessIdsWithDeals(): Promise<Set<number>> {
+    const rows = await db
+      .select({ businessId: contacts.businessId })
+      .from(deals)
+      .innerJoin(contacts, eq(deals.contactId, contacts.id))
+      .where(and(isNull(deals.archivedAt), not(isNull(contacts.businessId))));
+    const s = new Set<number>();
+    for (const r of rows) { if (r.businessId) s.add(r.businessId); }
+    return s;
+  }
+
+  // === DEAL BACKFILL: PREVIEW ===
+  // Cursor-paginated full eligibility scan — deterministic, no extrapolation.
+  // Optional `limit` in request body caps how many orphan contacts are scanned.
+  app.post("/api/admin/contacts/backfill-deals/preview", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const { source, vertical, minScore = 45, limit } = req.body || {};
+      // Enforce warm/hot-only semantic: floor at 45 so cold contacts are never previewed
+      const parsedScore = Math.max(45, Math.min(100, Number(minScore) || 45));
+      // Honor caller-supplied limit; undefined = scan all
+      const scanCap = limit ? Math.min(Math.max(Number(limit), 1), 100_000) : undefined;
+
+      // Accurate total count via COUNT(*) — always reflects the full population
+      const totalOrphanContacts = await storage.getOrphanContactCount({
+        source: source || undefined,
+        vertical: vertical || undefined,
+        minScore: parsedScore,
+      });
+
+      // Full cursor-based eligibility scan — no sampling, no extrapolation
+      const businessIdsWithDeals = await getBusinessIdsWithDeals();
+      const skippedBreakdown = { cold: 0, existingDeal: 0, missingIdentity: 0, duplicateBusiness: 0, placeholderEmailOnly: 0, suppressedOrDnc: 0, anonymous: 0 };
+      let wouldCreate = 0;
+      const sampleDisplay: Awaited<ReturnType<typeof storage.getOrphanContactCandidates>> = [];
+      let lastId: number | null = null;
+      let scanned = 0;
+      const previewBatch = 500;
+
+      while (true) {
+        const remaining = scanCap !== undefined ? scanCap - scanned : previewBatch;
+        if (remaining <= 0) break;
+        const batch = await storage.getOrphanContactCandidates({
+          source: source || undefined,
+          vertical: vertical || undefined,
+          minScore: parsedScore,
+          afterId: lastId ?? undefined,
+          limit: Math.min(previewBatch, remaining),
+        });
+        if (batch.length === 0) break;
+        for (const c of batch) {
+          const verdict = classifyEligibility(c, businessIdsWithDeals, parsedScore);
+          if (verdict === "eligible") {
+            wouldCreate++;
+            if (sampleDisplay.length < 5) sampleDisplay.push(c);
+            // Mirror apply behavior: once a contact from a business is deemed eligible,
+            // subsequent contacts sharing that businessId must be skipped (duplicate-business gate)
+            if (c.businessId) businessIdsWithDeals.add(c.businessId);
+          } else if (verdict === "cold") skippedBreakdown.cold++;
+          else if (verdict === "anonymous") skippedBreakdown.anonymous++;
+          else if (verdict === "placeholder_email") skippedBreakdown.placeholderEmailOnly++;
+          else if (verdict === "suppressed_dnc") skippedBreakdown.suppressedOrDnc++;
+          else if (verdict === "missing_identity") skippedBreakdown.missingIdentity++;
+          else if (verdict === "duplicate_business") skippedBreakdown.duplicateBusiness++;
+          lastId = c.id;
+          scanned++;
+        }
+      }
+
+      await storage.createAuditLog({
+        action: "contacts_deal_backfill_previewed",
+        entityType: "system",
+        details: { totalOrphanContacts, scanned, wouldCreateDeals: wouldCreate, skippedBreakdown, minScore: parsedScore, source, vertical },
+        userId: (req.user as any)?.id ?? null,
+      });
+
+      res.json({
+        totalOrphanContacts,
+        scanned,
+        wouldCreateDeals: wouldCreate,
+        skippedCold: skippedBreakdown.cold,
+        skippedExistingDeal: skippedBreakdown.existingDeal,
+        skippedMissingIdentity: skippedBreakdown.missingIdentity,
+        skippedDuplicateBusiness: skippedBreakdown.duplicateBusiness,
+        skippedPlaceholderEmailOnly: skippedBreakdown.placeholderEmailOnly,
+        skippedSuppressedOrDnc: skippedBreakdown.suppressedOrDnc,
+        skippedAnonymous: skippedBreakdown.anonymous,
+        sampleCandidates: sampleDisplay,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === DEAL BACKFILL: START (async, cursor-paginated, resumable) ===
+  // Uses afterId cursor so it never loads more than batchSize rows at a time —
+  // safe for populations of 153k+ contacts. Progress is written after every batch.
+  async function runBackfillAsync(opts: { minScore: number; batchSize: number; source?: string; vertical?: string; adminUserId: string | null; startedAt: string; initialTotal: number }) {
+    const { minScore, batchSize, source, vertical, adminUserId, startedAt, initialTotal } = opts;
+
+    let processed = 0;
+    let dealsCreated = 0;
+    let skipped = 0;
+    const skippedBreakdown = { cold: 0, existingDeal: 0, missingIdentity: 0, duplicateBusiness: 0, placeholderEmailOnly: 0, suppressedOrDnc: 0, anonymous: 0 };
+    let lastProcessedContactId: number | null = null;
+
+    // Restore cursor from prior run (resumable)
+    const savedProgress = await storage.getBackfillProgress() as any;
+    if (savedProgress?.lastProcessedContactId && savedProgress?.status === "running") {
+      processed = savedProgress.processed ?? 0;
+      dealsCreated = savedProgress.dealsCreated ?? 0;
+      skipped = savedProgress.skipped ?? 0;
+      lastProcessedContactId = savedProgress.lastProcessedContactId ?? null;
+      if (savedProgress.skippedBreakdown) Object.assign(skippedBreakdown, savedProgress.skippedBreakdown);
+    }
+
+    try {
+      // Cursor loop — fetches batchSize rows at a time, no global pre-fetch
+      while (true) {
+        // Check cancel before every batch
+        const currentProg = await storage.getBackfillProgress() as any;
+        if (currentProg?.cancelRequested) {
+          await storage.setBackfillProgress({
+            status: "cancelled",
+            processed, total: initialTotal, dealsCreated, skipped, skippedBreakdown,
+            lastProcessedContactId,
+            startedAt, updatedAt: new Date().toISOString(), completedAt: null,
+            cancelRequested: true, error: null,
+          });
+          await storage.createAuditLog({ action: "contacts_deal_backfill_cancelled", entityType: "system", userId: adminUserId, details: { processed, dealsCreated, skipped } });
+          return;
+        }
+
+        const batch = await storage.getOrphanContactCandidates({
+          source, vertical, minScore,
+          afterId: lastProcessedContactId ?? undefined,
+          limit: batchSize,
+        });
+
+        if (batch.length === 0) break; // cursor exhausted — done
+
+        // Refresh businessIds-with-deals once per batch to stay current
+        const businessIdsWithDeals = await getBusinessIdsWithDeals();
+
+        for (const c of batch) {
+          const verdict = classifyEligibility(c, businessIdsWithDeals, minScore);
+          if (verdict === "eligible") {
+            try {
+              await storage.createDeal({
+                contactId: c.id,
+                pipeline: "sales",
+                stage: "New Lead",
+                leadSource: c.leadSource || "backfill",
+                notes: `Auto-created by deal backfill. Contact: ${c.firstName} ${c.lastName}${c.companyName ? ` (${c.companyName})` : ""}. Score: ${c.leadScore}.`,
+              }, { actorType: "system", userId: adminUserId });
+              dealsCreated++;
+              businessIdsWithDeals.add(c.businessId!); // prevent duplicates within the same batch
+            } catch (err) {
+              console.error(`[DealBackfill] Deal creation failed for contact ${c.id}:`, err);
+              skipped++;
+              skippedBreakdown.existingDeal++;
+            }
+          } else {
+            skipped++;
+            if (verdict === "cold") skippedBreakdown.cold++;
+            else if (verdict === "anonymous") skippedBreakdown.anonymous++;
+            else if (verdict === "placeholder_email") skippedBreakdown.placeholderEmailOnly++;
+            else if (verdict === "suppressed_dnc") skippedBreakdown.suppressedOrDnc++;
+            else if (verdict === "missing_identity") skippedBreakdown.missingIdentity++;
+            else if (verdict === "duplicate_business") skippedBreakdown.duplicateBusiness++;
+          }
+          processed++;
+          lastProcessedContactId = c.id;
+        }
+
+        // Persist after every batch — re-read to preserve any cancel that arrived
+        // during this batch (never unconditionally reset cancelRequested to false)
+        const midProg = await storage.getBackfillProgress() as any;
+        await storage.setBackfillProgress({
+          status: "running",
+          processed, total: initialTotal, dealsCreated, skipped, skippedBreakdown,
+          lastProcessedContactId,
+          startedAt, updatedAt: new Date().toISOString(), completedAt: null,
+          cancelRequested: midProg?.cancelRequested ?? false, error: null,
+        });
+
+        await storage.createAuditLog({ action: "contacts_deal_backfill_batch_completed", entityType: "system", userId: adminUserId,
+          details: { lastContactId: lastProcessedContactId, processed, dealsCreated, skipped } });
+
+        await new Promise(r => setTimeout(r, 50)); // yield to event loop
+      }
+
+      await storage.setBackfillProgress({
+        status: "completed",
+        processed, total: initialTotal, dealsCreated, skipped, skippedBreakdown,
+        lastProcessedContactId,
+        startedAt, updatedAt: new Date().toISOString(), completedAt: new Date().toISOString(),
+        cancelRequested: false, error: null,
+      });
+      await storage.createAuditLog({ action: "contacts_deal_backfill_completed", entityType: "system", userId: adminUserId,
+        details: { processed, dealsCreated, skipped, skippedBreakdown } });
+    } catch (err: any) {
+      console.error("[DealBackfill] Fatal error:", err);
+      const prev = await storage.getBackfillProgress() as any;
+      await storage.setBackfillProgress({
+        ...(prev ?? {}),
+        status: "failed",
+        updatedAt: new Date().toISOString(),
+        error: err.message,
+      });
+      await storage.createAuditLog({ action: "contacts_deal_backfill_failed", entityType: "system", userId: opts.adminUserId, details: { error: err.message } });
+    }
+  }
+
+  app.post("/api/admin/contacts/backfill-deals", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      // Only accept the known safe fields; any caller-supplied count fields are intentionally ignored
+      // to prevent a caller from spoofing a low count and bypassing the confirmation safeguard.
+      const { confirmed, confirmationText, minScore = 45, batchSize = 200, source, vertical } = req.body || {};
+
+      if (!confirmed) return res.status(400).json({ message: "confirmed: true is required" });
+
+      // Enforce warm/hot-only semantic: floor at 45 so cold contacts never receive deals
+      const clampedMinScore = Math.max(45, Math.min(100, Number(minScore) || 45));
+
+      // Server-computed orphan count — conservative upper bound (actual eligible subset is smaller
+      // after identity/DNC/placeholder/duplicate-business gates). Never trust caller-supplied counts.
+      const orphanCount = await storage.getOrphanContactCount({
+        source: source || undefined,
+        vertical: vertical || undefined,
+        minScore: clampedMinScore,
+      });
+
+      // Confirmation safeguard: typed phrase required when the orphan population is >= 100.
+      // Using the server-side orphan count (not a client-provided value) prevents bypass.
+      if (orphanCount >= 100 && confirmationText !== "CREATE DEALS") {
+        return res.status(400).json({
+          message: `${orphanCount} orphan contacts found (eligible subset will be smaller). Send confirmationText: "CREATE DEALS" to proceed.`,
+          orphanCount,
+        });
+      }
+
+      // Check if already running — allow override if run is stale (stuck > 1 hour without progress)
+      const existing = await storage.getBackfillProgress() as any;
+      const isRunning = existing?.status === "running";
+      if (isRunning) {
+        const updatedMs = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
+        const stale = Date.now() - updatedMs > 60 * 60 * 1000; // 1 hour
+        if (!stale) {
+          return res.status(409).json({ message: "A backfill is already running. Check /status or cancel first." });
+        }
+        // Stale run — fall through and resume from persisted cursor
+      }
+
+      const adminUserId = (req.user as any)?.id ?? null;
+
+      if (isRunning) {
+        // Stale restart: preserve cursor — only reset the heartbeat timestamp so the run no
+        // longer appears stale. runBackfillAsync will read the saved cursor and resume.
+        await storage.setBackfillProgress({
+          ...existing,
+          status: "running",
+          cancelRequested: false,
+          updatedAt: new Date().toISOString(),
+          error: null,
+        });
+      } else {
+        // Fresh start: reset cursor and counters
+        const startedAt = new Date().toISOString();
+        await storage.setBackfillProgress({
+          status: "running",
+          processed: 0, total: orphanCount, dealsCreated: 0, skipped: 0,
+          skippedBreakdown: { cold: 0, existingDeal: 0, missingIdentity: 0, duplicateBusiness: 0, placeholderEmailOnly: 0, suppressedOrDnc: 0, anonymous: 0 },
+          lastProcessedContactId: null,
+          startedAt,
+          updatedAt: startedAt,
+          completedAt: null,
+          cancelRequested: false,
+          error: null,
+        });
+      }
+
+      const finalProgress = await storage.getBackfillProgress() as any;
+      const startedAt = finalProgress?.startedAt ?? new Date().toISOString();
+      const initialTotal = finalProgress?.total ?? orphanCount;
+
+      await storage.createAuditLog({ action: "contacts_deal_backfill_started", entityType: "system", userId: adminUserId,
+        details: { totalCandidates: initialTotal, minScore: clampedMinScore, batchSize, source, vertical, resumed: isRunning } });
+
+      // Fire and forget — cursor-paginated async runner, never loads full population
+      setImmediate(() => {
+        runBackfillAsync({
+          minScore: clampedMinScore,
+          batchSize: Math.min(Math.max(Number(batchSize) || 200, 100), 500),
+          source: source || undefined,
+          vertical: vertical || undefined,
+          adminUserId,
+          startedAt,
+          initialTotal,
+        }).catch(err => console.error("[DealBackfill] Async runner error:", err));
+      });
+
+      res.status(202).json({ message: isRunning ? "Backfill resumed" : "Backfill started", totalCandidates: initialTotal });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === DEAL BACKFILL: STATUS ===
+  app.get("/api/admin/contacts/backfill-deals/status", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const progress = await storage.getBackfillProgress();
+      res.json(progress ?? { status: "idle", processed: 0, total: 0, dealsCreated: 0, skipped: 0, skippedBreakdown: {}, lastProcessedContactId: null, startedAt: null, updatedAt: null, completedAt: null, error: null });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === DEAL BACKFILL: CANCEL ===
+  app.post("/api/admin/contacts/backfill-deals/cancel", requireRole("admin", "manager"), async (req, res) => {
+    try {
+      const existing = await storage.getBackfillProgress() as any;
+      if (!existing || existing.status !== "running") {
+        return res.status(400).json({ message: "No running backfill to cancel" });
+      }
+      await storage.setBackfillProgress({ ...existing, cancelRequested: true, updatedAt: new Date().toISOString() });
+      await storage.createAuditLog({ action: "contacts_deal_backfill_cancelled", entityType: "system", userId: (req.user as any)?.id ?? null,
+        details: { cancelledAt: new Date().toISOString() } });
+      res.json({ message: "Cancel requested. The running backfill will stop after its current batch." });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // === autoCreateDealsForWarmContacts system setting ===
+  app.get("/api/admin/settings/auto-create-deals-for-warm-contacts", requireRole("admin", "manager"), async (_req, res) => {
+    try {
+      const val = await storage.getSystemSetting("auto_create_deals_for_warm_contacts");
+      res.json({ autoCreateDealsForWarmContacts: val === true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/admin/settings/auto-create-deals-for-warm-contacts", requireRole("admin"), async (req, res) => {
+    try {
+      const { enabled } = req.body;
+      if (typeof enabled !== "boolean") return res.status(400).json({ message: "enabled must be a boolean" });
+      await storage.setSystemSetting("auto_create_deals_for_warm_contacts", enabled);
+      await storage.createAuditLog({ action: "setting_auto_create_deals_updated", entityType: "system", userId: (req.user as any)?.id ?? null, details: { autoCreateDealsForWarmContacts: enabled } });
+      res.json({ autoCreateDealsForWarmContacts: enabled });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

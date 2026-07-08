@@ -269,5 +269,66 @@ import { eq, desc, and, lt, isNull, ne, sql, asc, gte, lte, inArray, or, ilike, 
     return await db.select().from(deals).where(eq(deals.partnerOrgId, partnerOrgId)).orderBy(desc(deals.createdAt));
   }
 
+  async getOrphanContactCount(filters: { source?: string; vertical?: string; minScore?: number }): Promise<number> {
+    const minScore = filters.minScore ?? 45;
+    const conditions: any[] = [
+      gte(contacts.leadScore, minScore),
+      isNull(contacts.archivedAt),
+      sql`NOT EXISTS (SELECT 1 FROM deals WHERE deals.contact_id = ${contacts.id} AND deals.archived_at IS NULL)`,
+    ];
+    if (filters.source) conditions.push(eq(contacts.leadSource, filters.source));
+    if (filters.vertical) conditions.push(eq(contacts.vertical, filters.vertical));
+    const [row] = await db.select({ count: sql<number>`COUNT(*)::int` }).from(contacts).where(and(...conditions));
+    return row?.count ?? 0;
+  }
+
+  async getOrphanContactCandidates(filters: { source?: string; vertical?: string; minScore?: number; limit?: number; afterId?: number }) {
+    const minScore = filters.minScore ?? 45;
+    // No hard global cap — callers use afterId cursor pagination for large populations.
+    // Preview uses a configurable limit; backfill cursor fetches batchSize at a time.
+    const limit = filters.limit ?? 1000;
+
+    const conditions: any[] = [
+      gte(contacts.leadScore, minScore),
+      isNull(contacts.archivedAt),
+      sql`NOT EXISTS (SELECT 1 FROM deals WHERE deals.contact_id = ${contacts.id} AND deals.archived_at IS NULL)`,
+    ];
+
+    if (filters.source) conditions.push(eq(contacts.leadSource, filters.source));
+    if (filters.vertical) conditions.push(eq(contacts.vertical, filters.vertical));
+    if (filters.afterId) conditions.push(sql`${contacts.id} > ${filters.afterId}`);
+
+    return await db.select({
+      id: contacts.id,
+      firstName: contacts.firstName,
+      lastName: contacts.lastName,
+      email: contacts.email,
+      phone: contacts.phone,
+      companyName: contacts.companyName,
+      leadScore: contacts.leadScore,
+      vertical: contacts.vertical,
+      leadSource: contacts.leadSource,
+      doNotContact: contacts.doNotContact,
+      businessId: contacts.businessId,
+    }).from(contacts)
+      .where(and(...conditions))
+      .orderBy(asc(contacts.id))
+      .limit(limit);
+  }
+
+  async getBackfillProgress(): Promise<Record<string, unknown> | null> {
+    const [row] = await db.select().from(systemSettings).where(eq(systemSettings.key, "contacts_deal_backfill_progress"));
+    return (row?.value as Record<string, unknown>) ?? null;
+  }
+
+  async setBackfillProgress(progress: Record<string, unknown>): Promise<void> {
+    const existing = await db.select({ key: systemSettings.key }).from(systemSettings).where(eq(systemSettings.key, "contacts_deal_backfill_progress"));
+    if (existing.length > 0) {
+      await db.update(systemSettings).set({ value: progress, updatedAt: new Date() }).where(eq(systemSettings.key, "contacts_deal_backfill_progress"));
+    } else {
+      await db.insert(systemSettings).values({ key: "contacts_deal_backfill_progress", value: progress });
+    }
+  }
+
   }
   

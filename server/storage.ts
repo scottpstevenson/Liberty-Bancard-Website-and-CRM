@@ -690,6 +690,12 @@ export interface IStorage {
   getMerchantHealthScoresByTier(tier: string): Promise<import("@shared/schema").MerchantHealthScore[]>;
   getChurnRiskSummary(): Promise<{ tier: string; count: number }[]>;
 
+  // Deal Backfill
+  getOrphanContactCount(filters: { source?: string; vertical?: string; minScore?: number }): Promise<number>;
+  getOrphanContactCandidates(filters: { source?: string; vertical?: string; minScore?: number; limit?: number; afterId?: number }): Promise<Array<{ id: number; firstName: string; lastName: string; email: string; phone: string; companyName: string | null; leadScore: number | null; vertical: string | null; leadSource: string | null; doNotContact: boolean | null; businessId: number | null }>>;
+  getBackfillProgress(): Promise<Record<string, unknown> | null>;
+  setBackfillProgress(progress: Record<string, unknown>): Promise<void>;
+
   // Underwriting
   getUnderwritingRules(): Promise<UnderwritingRules>;
   updateUnderwritingRules(updates: Partial<InsertUnderwritingRules>): Promise<UnderwritingRules>;

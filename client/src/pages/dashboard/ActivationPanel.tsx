@@ -8,7 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "@/components/ui/dialog";
-import { Loader2, Play, Square, Pause, Shield, Activity, Server, Mail, AlertTriangle, CheckCircle2, XCircle, Zap, RefreshCw, Radio, ArrowRightLeft, Plus, Pencil, ListChecks, Circle, Phone, MessageSquare, Mic, Voicemail, Search, Lock, ShieldCheck, ChevronDown, ChevronRight, History, Download, FileText, BanIcon, Gauge } from "lucide-react";
+import { Loader2, Play, Square, Pause, Shield, Activity, Server, Mail, AlertTriangle, CheckCircle2, XCircle, Zap, RefreshCw, Radio, ArrowRightLeft, Plus, Pencil, ListChecks, Circle, Phone, MessageSquare, Mic, Voicemail, Search, Lock, ShieldCheck, ChevronDown, ChevronRight, History, Download, FileText, BanIcon, Gauge, Database, Users } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
@@ -825,6 +825,10 @@ export default function ActivationPanel() {
           <TabsTrigger value="orchestrator" data-testid="tab-orchestrator">Orchestrator</TabsTrigger>
           <TabsTrigger value="activity" data-testid="tab-activity">Activity</TabsTrigger>
           <TabsTrigger value="stuck" data-testid="tab-stuck">Stuck Leads</TabsTrigger>
+          <TabsTrigger value="deal-backfill" data-testid="tab-deal-backfill">
+            <Database className="w-3.5 h-3.5 mr-1" />
+            Deal Backfill
+          </TabsTrigger>
           <TabsTrigger value="compliance" data-testid="tab-compliance">
             <ShieldCheck className="w-3.5 h-3.5 mr-1" />
             Compliance
@@ -1690,6 +1694,10 @@ export default function ActivationPanel() {
             </CardContent>
           </Card>
         </TabsContent>
+        <TabsContent value="deal-backfill" className="space-y-4">
+          <DealBackfillPanel />
+        </TabsContent>
+
         <TabsContent value="compliance" className="space-y-4">
           <ComplianceChannelTab data={complianceQuery.data} isLoading={complianceQuery.isLoading} />
           <ChannelSafetyMatrix query={channelSafetyQuery} />
@@ -1701,6 +1709,358 @@ export default function ActivationPanel() {
           <OutboundKillSwitchPanel />
         </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+// ── Deal Backfill Panel ─────────────────────────────────────────────────────────
+interface BackfillPreviewResult {
+  totalOrphanContacts: number;
+  wouldCreateDeals: number;
+  skippedCold: number;
+  skippedExistingDeal: number;
+  skippedMissingIdentity: number;
+  skippedDuplicateBusiness: number;
+  skippedPlaceholderEmailOnly: number;
+  skippedSuppressedOrDnc: number;
+  skippedAnonymous: number;
+  sampleCandidates: Array<{ id: number; firstName: string; lastName: string; email: string; companyName: string | null; leadScore: number | null }>;
+}
+
+interface BackfillProgress {
+  status: "idle" | "running" | "completed" | "failed" | "cancelled";
+  processed: number;
+  total: number;
+  dealsCreated: number;
+  skipped: number;
+  skippedBreakdown: { cold: number; existingDeal: number; missingIdentity: number; duplicateBusiness: number; placeholderEmailOnly: number; suppressedOrDnc: number; anonymous: number };
+  lastProcessedContactId: number | null;
+  startedAt: string | null;
+  updatedAt: string | null;
+  completedAt: string | null;
+  cancelRequested: boolean;
+  error: string | null;
+}
+
+function DealBackfillPanel() {
+  const { toast } = useToast();
+  const [minScore, setMinScore] = useState("45");
+  const [source, setSource] = useState("");
+  const [vertical, setVertical] = useState("");
+  const [preview, setPreview] = useState<BackfillPreviewResult | null>(null);
+  const [confirmText, setConfirmText] = useState("");
+  const [isPreviewing, setIsPreviewing] = useState(false);
+
+  const statusQuery = useQuery<BackfillProgress>({
+    queryKey: ["/api/admin/contacts/backfill-deals/status"],
+    refetchInterval: (data) => {
+      const d = data?.state?.data as BackfillProgress | undefined;
+      return d?.status === "running" ? 3000 : 30000;
+    },
+  });
+
+  const autoCreateQuery = useQuery<{ autoCreateDealsForWarmContacts: boolean }>({
+    queryKey: ["/api/admin/settings/auto-create-deals-for-warm-contacts"],
+  });
+
+  const autoCreateMutation = useMutation({
+    mutationFn: (enabled: boolean) => apiRequest("PUT", "/api/admin/settings/auto-create-deals-for-warm-contacts", { enabled }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/settings/auto-create-deals-for-warm-contacts"] });
+      toast({ title: "Setting saved" });
+    },
+    onError: (err: any) => toast({ title: "Save failed", description: err?.message, variant: "destructive" }),
+  });
+
+  const startMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/admin/contacts/backfill-deals", {
+      confirmed: true,
+      confirmationText: confirmText,
+      minScore: Number(minScore),
+      batchSize: 200,
+      source: source || undefined,
+      vertical: vertical || undefined,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/contacts/backfill-deals/status"] });
+      toast({ title: "Backfill started", description: "Processing contacts in background batches." });
+      setPreview(null);
+      setConfirmText("");
+    },
+    onError: (err: any) => toast({ title: "Start failed", description: err?.message, variant: "destructive" }),
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/admin/contacts/backfill-deals/cancel", {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/contacts/backfill-deals/status"] });
+      toast({ title: "Cancel requested", description: "Backfill will stop after its current batch." });
+    },
+    onError: (err: any) => toast({ title: "Cancel failed", description: err?.message, variant: "destructive" }),
+  });
+
+  const handlePreview = async () => {
+    setIsPreviewing(true);
+    try {
+      const res = await apiRequest("POST", "/api/admin/contacts/backfill-deals/preview", {
+        minScore: Number(minScore),
+        source: source || undefined,
+        vertical: vertical || undefined,
+        limit: 5000,
+      });
+      const result = await res.json();
+      setPreview(result as BackfillPreviewResult);
+    } catch (err: any) {
+      toast({ title: "Preview failed", description: err?.message, variant: "destructive" });
+    } finally {
+      setIsPreviewing(false);
+    }
+  };
+
+  const progress = statusQuery.data;
+  const isRunning = progress?.status === "running";
+  const pct = progress && progress.total > 0 ? Math.round((progress.processed / progress.total) * 100) : 0;
+  const needsConfirmation = preview && preview.wouldCreateDeals >= 100;
+
+  return (
+    <div className="space-y-4">
+      {/* Future-Orphan Guard Toggle */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-sm">
+            <Shield className="w-4 h-4" />
+            Future Orphan Guard
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-xs text-muted-foreground">
+            When enabled, the SDR orchestrator will automatically create a CRM deal the moment a contact scores warm (≥45) or hot (≥70) and has no linked deal. When disabled, orphan candidates are logged to the audit trail but no deal is created.
+          </p>
+          {autoCreateQuery.isLoading ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <div className="flex items-center gap-3">
+              <Switch
+                data-testid="switch-auto-create-deals"
+                checked={autoCreateQuery.data?.autoCreateDealsForWarmContacts ?? false}
+                onCheckedChange={(v) => autoCreateMutation.mutate(v)}
+                disabled={autoCreateMutation.isPending}
+              />
+              <Label className="text-sm">
+                {autoCreateQuery.data?.autoCreateDealsForWarmContacts ? "Auto-create ON" : "Auto-create OFF (log only)"}
+              </Label>
+              {autoCreateMutation.isPending && <Loader2 className="w-3 h-3 animate-spin" />}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* One-time Backfill */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-sm">
+            <Database className="w-4 h-4" />
+            One-Time Deal Backfill
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Creates CRM deals for existing contacts that have a lead score ≥ 45 but no linked deal. No outreach or sequences are triggered.
+          </p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <Label className="text-xs mb-1">Min Lead Score</Label>
+              <Input
+                data-testid="input-backfill-min-score"
+                value={minScore}
+                onChange={(e) => setMinScore(e.target.value)}
+                type="number"
+                min="45"
+                max="100"
+                className="h-8 text-sm"
+              />
+            </div>
+            <div>
+              <Label className="text-xs mb-1">Source Filter (optional)</Label>
+              <Input
+                data-testid="input-backfill-source"
+                placeholder="e.g. sunbiz"
+                value={source}
+                onChange={(e) => setSource(e.target.value)}
+                className="h-8 text-sm"
+              />
+            </div>
+            <div>
+              <Label className="text-xs mb-1">Vertical Filter (optional)</Label>
+              <Input
+                data-testid="input-backfill-vertical"
+                placeholder="e.g. restaurant"
+                value={vertical}
+                onChange={(e) => setVertical(e.target.value)}
+                className="h-8 text-sm"
+              />
+            </div>
+          </div>
+
+          <Button
+            data-testid="button-backfill-preview"
+            variant="outline"
+            size="sm"
+            onClick={handlePreview}
+            disabled={isPreviewing || isRunning}
+            className="w-full"
+          >
+            {isPreviewing ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Search className="w-4 h-4 mr-2" />}
+            Preview Eligible Contacts
+          </Button>
+
+          {preview && (
+            <div className="border rounded-md p-3 space-y-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
+                <div className="text-center p-2 bg-muted/50 rounded">
+                  <div className="text-lg font-bold text-green-600" data-testid="text-preview-would-create">{preview.wouldCreateDeals.toLocaleString()}</div>
+                  <div className="text-xs text-muted-foreground">Would Create</div>
+                </div>
+                <div className="text-center p-2 bg-muted/50 rounded">
+                  <div className="text-lg font-bold">{preview.totalOrphanContacts.toLocaleString()}</div>
+                  <div className="text-xs text-muted-foreground">Orphan Contacts</div>
+                </div>
+                <div className="text-center p-2 bg-muted/50 rounded">
+                  <div className="text-lg font-bold text-amber-600">{preview.skippedCold.toLocaleString()}</div>
+                  <div className="text-xs text-muted-foreground">Too Cold</div>
+                </div>
+                <div className="text-center p-2 bg-muted/50 rounded">
+                  <div className="text-lg font-bold text-muted-foreground">{(preview.skippedAnonymous + preview.skippedMissingIdentity + preview.skippedPlaceholderEmailOnly + preview.skippedSuppressedOrDnc + preview.skippedDuplicateBusiness).toLocaleString()}</div>
+                  <div className="text-xs text-muted-foreground">Other Skips</div>
+                </div>
+              </div>
+
+              {preview.sampleCandidates.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium mb-1 text-muted-foreground">Sample candidates:</p>
+                  <div className="space-y-1">
+                    {preview.sampleCandidates.map((c) => (
+                      <div key={c.id} className="flex items-center gap-2 text-xs border rounded px-2 py-1" data-testid={`row-sample-contact-${c.id}`}>
+                        <Users className="w-3 h-3 text-muted-foreground shrink-0" />
+                        <span className="font-medium">{c.firstName} {c.lastName}</span>
+                        {c.companyName && <span className="text-muted-foreground">({c.companyName})</span>}
+                        <Badge variant="outline" className="ml-auto text-xs">Score: {c.leadScore}</Badge>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {needsConfirmation && (
+                <div className="space-y-2">
+                  <p className="text-xs text-amber-600 font-medium">
+                    {preview.wouldCreateDeals.toLocaleString()} deals will be created. Type <code className="bg-muted px-1 rounded">CREATE DEALS</code> to confirm:
+                  </p>
+                  <Input
+                    data-testid="input-backfill-confirm"
+                    value={confirmText}
+                    onChange={(e) => setConfirmText(e.target.value)}
+                    placeholder='Type "CREATE DEALS"'
+                    className="h-8 text-sm font-mono"
+                  />
+                </div>
+              )}
+
+              <Button
+                data-testid="button-backfill-start"
+                variant="default"
+                size="sm"
+                className="w-full"
+                onClick={() => startMutation.mutate()}
+                disabled={
+                  startMutation.isPending ||
+                  isRunning ||
+                  preview.wouldCreateDeals === 0 ||
+                  (needsConfirmation && confirmText !== "CREATE DEALS")
+                }
+              >
+                {startMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Play className="w-4 h-4 mr-2" />}
+                {isRunning ? "Already Running…" : `Create ${preview.wouldCreateDeals.toLocaleString()} Deals`}
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Live Status */}
+      {progress && progress.status !== "idle" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <Activity className="w-4 h-4" />
+              Backfill Status
+              {statusQuery.isFetching && <Loader2 className="w-3 h-3 animate-spin ml-1" />}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex items-center gap-2">
+              {progress.status === "running" && <Badge variant="default" className="bg-blue-600" data-testid="badge-backfill-running">Running</Badge>}
+              {progress.status === "completed" && <Badge variant="default" className="bg-green-600" data-testid="badge-backfill-completed">Completed</Badge>}
+              {progress.status === "failed" && <Badge variant="destructive" data-testid="badge-backfill-failed">Failed</Badge>}
+              {progress.status === "cancelled" && <Badge variant="outline" data-testid="badge-backfill-cancelled">Cancelled</Badge>}
+              {progress.status === "running" && (
+                <span className="text-xs text-muted-foreground">{pct}% — {progress.processed.toLocaleString()} / {progress.total.toLocaleString()}</span>
+              )}
+            </div>
+
+            {progress.status === "running" && progress.total > 0 && (
+              <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
+                <div className="h-full bg-blue-500 transition-all" style={{ width: `${pct}%` }} data-testid="bar-backfill-progress" />
+              </div>
+            )}
+
+            <div className="grid grid-cols-3 gap-2 text-sm">
+              <div className="text-center p-2 bg-muted/50 rounded">
+                <div className="font-bold text-green-600" data-testid="text-deals-created">{progress.dealsCreated.toLocaleString()}</div>
+                <div className="text-xs text-muted-foreground">Created</div>
+              </div>
+              <div className="text-center p-2 bg-muted/50 rounded">
+                <div className="font-bold">{progress.skipped.toLocaleString()}</div>
+                <div className="text-xs text-muted-foreground">Skipped</div>
+              </div>
+              <div className="text-center p-2 bg-muted/50 rounded">
+                <div className="font-bold">{progress.processed.toLocaleString()}</div>
+                <div className="text-xs text-muted-foreground">Processed</div>
+              </div>
+            </div>
+
+            {progress.error && (
+              <div className="flex items-start gap-2 text-xs text-red-600 bg-red-50 border border-red-200 rounded p-2" data-testid="text-backfill-error">
+                <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
+                <span>{progress.error}</span>
+              </div>
+            )}
+
+            {progress.startedAt && (
+              <p className="text-xs text-muted-foreground">
+                Started: {new Date(progress.startedAt).toLocaleString()}
+                {progress.completedAt && <> · Completed: {new Date(progress.completedAt).toLocaleString()}</>}
+                {progress.updatedAt && progress.status === "running" && <> · Last update: {new Date(progress.updatedAt).toLocaleString()}</>}
+              </p>
+            )}
+
+            {progress.status === "running" && (
+              <Button
+                data-testid="button-backfill-cancel"
+                variant="outline"
+                size="sm"
+                onClick={() => cancelMutation.mutate()}
+                disabled={cancelMutation.isPending || progress.cancelRequested}
+                className="w-full"
+              >
+                {cancelMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Square className="w-4 h-4 mr-2" />}
+                {progress.cancelRequested ? "Cancel Requested…" : "Cancel Backfill"}
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
