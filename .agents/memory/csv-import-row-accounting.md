@@ -41,3 +41,15 @@ placeholder never falsely matches. Reconciliation counters alone (see above)
 will surface this as `skippedRows` but won't fix the dropped data — check
 *why* rows are being DB-conflict-skipped, not just that they're accounted
 for.
+
+**Related trap — correct backend counters can still read as a failure in
+the UI:** even with every bucket persisted and reconciled server-side, a
+duplicate-only import (all rows land in `duplicatesSkipped`/`skippedRows`)
+will show "Records Imported: 0" on a summary card that only surfaces the
+`newRecords` bucket — that reads as "nothing happened" even though the
+import worked perfectly. Fix at the presentation layer, not by inventing a
+new backend bucket: aggregate stats endpoints must expose *all* buckets
+(not just new/duplicates), and the UI must derive an explicit outcome label
+(e.g. "processed successfully — no new contacts" vs. "failed") from the
+full set of buckets rather than defaulting to the "new records" count as a
+proxy for success.

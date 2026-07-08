@@ -14,7 +14,7 @@ import {
 import {
   Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Loader2,
   TrendingUp, Users, Database, BarChart3, Flame, Thermometer, Snowflake,
-  Calendar, ArrowRight, FileText,
+  Calendar, ArrowRight, FileText, RefreshCw, ListChecks,
 } from "lucide-react";
 import type { CsvImport } from "@shared/schema";
 
@@ -34,6 +34,38 @@ function getStatusBadge(status: string | null) {
     default:
       return <Badge variant="outline" data-testid="badge-status-unknown">{status || "unknown"}</Badge>;
   }
+}
+
+function getOutcomeSummary(imp: CsvImport): { label: string; className: string } {
+  if (imp.status === "failed") {
+    return { label: "Import failed — server/API error", className: "text-red-600 dark:text-red-400" };
+  }
+  if (imp.status === "processing") {
+    return { label: "Processing...", className: "text-blue-600 dark:text-blue-400" };
+  }
+  const total = imp.totalRows ?? 0;
+  if (total === 0) return { label: "--", className: "text-muted-foreground" };
+
+  const newRecords = imp.newRecords ?? 0;
+  const alreadyExists = (imp.duplicatesSkipped ?? 0) + (imp.skippedRows ?? 0);
+  const invalidOrErrored = (imp.invalidRows ?? 0) + (imp.errorsCount ?? 0);
+
+  if (newRecords === 0 && alreadyExists > 0 && invalidOrErrored === 0) {
+    return {
+      label: `Processed successfully — no new contacts, ${alreadyExists.toLocaleString()} already exist`,
+      className: "text-blue-600 dark:text-blue-400",
+    };
+  }
+  if (newRecords === 0 && invalidOrErrored === total) {
+    return { label: "Completed — all rows invalid", className: "text-amber-600 dark:text-amber-400" };
+  }
+  if (invalidOrErrored > 0) {
+    return {
+      label: `${newRecords.toLocaleString()} new, ${invalidOrErrored.toLocaleString()} invalid`,
+      className: "text-amber-600 dark:text-amber-400",
+    };
+  }
+  return { label: `${newRecords.toLocaleString()} new contacts added`, className: "text-green-600 dark:text-green-400" };
 }
 
 function VerticalBreakdownChart({ breakdown }: { breakdown: Record<string, number> | null }) {
@@ -102,8 +134,13 @@ export default function LeadImports() {
 
   const { data: importStats } = useQuery<{
     totalImports: number;
+    totalRowsProcessed: number;
     totalRecordsImported: number;
     totalDuplicatesSkipped: number;
+    totalSkippedRows: number;
+    totalAlreadyExists: number;
+    totalInvalidRows: number;
+    totalErrors: number;
     totalDealsCreated: number;
     totalHot: number;
     totalWarm: number;
@@ -136,10 +173,25 @@ export default function LeadImports() {
       queryClient.invalidateQueries({ queryKey: ["/api/deals"] });
       setSelectedFile(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
-      toast({
-        title: "Import Complete",
-        description: `${data.inserted?.toLocaleString()} new contacts imported. ${data.dealsCreated || 0} deals created. Format: ${data.sourceFormat?.replace(/_/g, " ")}`,
-      });
+
+      const inserted = data.inserted || 0;
+      const alreadyExists = (data.duplicatesSkipped || 0) + (data.skippedRows || 0);
+      const invalidOrErrored = (data.invalidRows || 0) + (data.errors || 0);
+
+      let title = "Import Complete";
+      let description = `${inserted.toLocaleString()} new contact(s) imported. ${data.dealsCreated || 0} deal(s) created. Format: ${data.sourceFormat?.replace(/_/g, " ")}`;
+
+      if (inserted === 0 && alreadyExists > 0) {
+        title = "Import Processed — No New Contacts";
+        description = `All ${alreadyExists.toLocaleString()} row(s) already exist in your CRM — no new contacts were added.`;
+        if (invalidOrErrored > 0) {
+          description += ` ${invalidOrErrored.toLocaleString()} row(s) were invalid or skipped.`;
+        }
+      } else if (invalidOrErrored > 0) {
+        description += ` ${invalidOrErrored.toLocaleString()} row(s) were invalid or skipped.`;
+      }
+
+      toast({ title, description });
     },
     onError: (err: Error) => {
       toast({ title: "Import Failed", description: err.message, variant: "destructive" });
@@ -196,7 +248,7 @@ export default function LeadImports() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <Card data-testid="card-stat-total-imports">
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
@@ -211,6 +263,20 @@ export default function LeadImports() {
           </CardContent>
         </Card>
 
+        <Card data-testid="card-stat-rows-processed">
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-slate-100 dark:bg-slate-900/30 rounded-lg">
+                <ListChecks className="h-5 w-5 text-slate-600 dark:text-slate-400" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Total Rows Processed</p>
+                <p className="text-2xl font-bold" data-testid="text-total-rows-processed">{(importStats?.totalRowsProcessed ?? 0).toLocaleString()}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         <Card data-testid="card-stat-records-imported">
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
@@ -218,8 +284,37 @@ export default function LeadImports() {
                 <Users className="h-5 w-5 text-green-600 dark:text-green-400" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Records Imported</p>
+                <p className="text-sm text-muted-foreground">New Contacts Added</p>
                 <p className="text-2xl font-bold" data-testid="text-total-records">{(importStats?.totalRecordsImported ?? 0).toLocaleString()}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card data-testid="card-stat-already-exists">
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+                <RefreshCw className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Already Exists</p>
+                <p className="text-2xl font-bold" data-testid="text-total-already-exists">{(importStats?.totalAlreadyExists ?? 0).toLocaleString()}</p>
+                <p className="text-xs text-muted-foreground">Duplicates + DB matches — not new, not a failure</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card data-testid="card-stat-invalid">
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-amber-100 dark:bg-amber-900/30 rounded-lg">
+                <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Invalid / Error Rows</p>
+                <p className="text-2xl font-bold" data-testid="text-total-invalid">{((importStats?.totalInvalidRows ?? 0) + (importStats?.totalErrors ?? 0)).toLocaleString()}</p>
               </div>
             </div>
           </CardContent>
@@ -238,21 +333,10 @@ export default function LeadImports() {
             </div>
           </CardContent>
         </Card>
-
-        <Card data-testid="card-stat-dupes-skipped">
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-amber-100 dark:bg-amber-900/30 rounded-lg">
-                <BarChart3 className="h-5 w-5 text-amber-600 dark:text-amber-400" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Duplicates Skipped</p>
-                <p className="text-2xl font-bold" data-testid="text-total-dupes">{(importStats?.totalDuplicatesSkipped ?? 0).toLocaleString()}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
       </div>
+      <p className="text-xs text-muted-foreground" data-testid="text-stats-reconciliation">
+        Total Rows Processed ({(importStats?.totalRowsProcessed ?? 0).toLocaleString()}) = New Contacts Added ({(importStats?.totalRecordsImported ?? 0).toLocaleString()}) + Already Exists ({(importStats?.totalAlreadyExists ?? 0).toLocaleString()}) + Invalid / Error Rows ({((importStats?.totalInvalidRows ?? 0) + (importStats?.totalErrors ?? 0)).toLocaleString()})
+      </p>
 
       <Card data-testid="card-upload-section">
         <CardHeader>
@@ -389,11 +473,13 @@ export default function LeadImports() {
                 <TableHead>Total Rows</TableHead>
                 <TableHead>New</TableHead>
                 <TableHead>Duplicates</TableHead>
+                <TableHead>Already Exists</TableHead>
                 <TableHead>Invalid</TableHead>
-                <TableHead>Skipped/Errors</TableHead>
+                <TableHead>Errors</TableHead>
                 <TableHead>Deals</TableHead>
                 <TableHead>Lead Breakdown</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>Result</TableHead>
                 <TableHead>Date</TableHead>
               </TableRow>
             </TableHeader>
@@ -409,14 +495,16 @@ export default function LeadImports() {
                     <TableCell><Skeleton className="h-4 w-16" /></TableCell>
                     <TableCell><Skeleton className="h-4 w-16" /></TableCell>
                     <TableCell><Skeleton className="h-4 w-16" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-16" /></TableCell>
                     <TableCell><Skeleton className="h-4 w-32" /></TableCell>
                     <TableCell><Skeleton className="h-5 w-20" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-32" /></TableCell>
                     <TableCell><Skeleton className="h-4 w-24" /></TableCell>
                   </TableRow>
                 ))
               ) : importsError ? (
                 <TableRow>
-                  <TableCell colSpan={11} className="p-0">
+                  <TableCell colSpan={13} className="p-0">
                     <DataState
                       query={{ isLoading: false, isError: true, error: importsErrorObj, refetch: refetchImports }}
                       errorTitle="Failed to load import history"
@@ -428,7 +516,7 @@ export default function LeadImports() {
                 </TableRow>
               ) : imports.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={11} className="text-center h-24 text-muted-foreground" data-testid="text-no-imports">
+                  <TableCell colSpan={13} className="text-center h-24 text-muted-foreground" data-testid="text-no-imports">
                     No imports yet. Upload a CSV or Excel file above to get started.
                   </TableCell>
                 </TableRow>
@@ -464,14 +552,19 @@ export default function LeadImports() {
                         {(imp.duplicatesSkipped ?? 0).toLocaleString()}
                       </span>
                     </TableCell>
+                    <TableCell data-testid={`text-already-exists-${imp.id}`}>
+                      <span className="text-blue-600 dark:text-blue-400">
+                        {(imp.skippedRows ?? 0).toLocaleString()}
+                      </span>
+                    </TableCell>
                     <TableCell data-testid={`text-invalid-${imp.id}`}>
                       <span className={(imp.invalidRows ?? 0) > 0 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}>
                         {(imp.invalidRows ?? 0).toLocaleString()}
                       </span>
                     </TableCell>
                     <TableCell data-testid={`text-errors-${imp.id}`}>
-                      <span className={((imp.skippedRows ?? 0) + (imp.errorsCount ?? 0)) > 0 ? "text-red-600 dark:text-red-400" : "text-muted-foreground"}>
-                        {((imp.skippedRows ?? 0) + (imp.errorsCount ?? 0)).toLocaleString()}
+                      <span className={(imp.errorsCount ?? 0) > 0 ? "text-red-600 dark:text-red-400" : "text-muted-foreground"}>
+                        {(imp.errorsCount ?? 0).toLocaleString()}
                       </span>
                     </TableCell>
                     <TableCell data-testid={`text-deals-${imp.id}`}>
@@ -502,6 +595,12 @@ export default function LeadImports() {
                       </div>
                     </TableCell>
                     <TableCell>{getStatusBadge(imp.status)}</TableCell>
+                    <TableCell className="max-w-[220px]" data-testid={`text-result-${imp.id}`}>
+                      {(() => {
+                        const outcome = getOutcomeSummary(imp);
+                        return <span className={`text-xs font-medium ${outcome.className}`}>{outcome.label}</span>;
+                      })()}
+                    </TableCell>
                     <TableCell className="text-sm text-muted-foreground" data-testid={`text-date-${imp.id}`}>
                       <div className="flex items-center gap-1">
                         <Calendar className="h-3 w-3" />
@@ -551,8 +650,8 @@ export default function LeadImports() {
                   <p className="font-medium text-amber-600 dark:text-amber-400" data-testid={`text-detail-invalid-${imp.id}`}>{(imp.invalidRows ?? 0).toLocaleString()}</p>
                 </div>
                 <div className="space-y-1">
-                  <p className="text-sm text-muted-foreground">Skipped (DB conflict)</p>
-                  <p className="font-medium text-red-600 dark:text-red-400" data-testid={`text-detail-skipped-${imp.id}`}>{(imp.skippedRows ?? 0).toLocaleString()}</p>
+                  <p className="text-sm text-muted-foreground">Already Exists (DB Match)</p>
+                  <p className="font-medium text-blue-600 dark:text-blue-400" data-testid={`text-detail-skipped-${imp.id}`}>{(imp.skippedRows ?? 0).toLocaleString()}</p>
                 </div>
                 <div className="space-y-1">
                   <p className="text-sm text-muted-foreground">Errors</p>
@@ -567,13 +666,26 @@ export default function LeadImports() {
                   <p className="text-xs text-destructive" data-testid={`text-reconciliation-mismatch-${imp.id}`}>
                     Warning: accounted rows ({reconciled}) do not match total rows ({imp.totalRows}).
                   </p>
-                ) : null;
+                ) : (
+                  <p className="text-xs text-muted-foreground" data-testid={`text-reconciliation-ok-${imp.id}`}>
+                    All {(imp.totalRows ?? 0).toLocaleString()} rows accounted for: {(imp.newRecords ?? 0).toLocaleString()} new + {(imp.duplicatesSkipped ?? 0).toLocaleString()} duplicates + {(imp.skippedRows ?? 0).toLocaleString()} already exist + {(imp.invalidRows ?? 0).toLocaleString()} invalid + {(imp.errorsCount ?? 0).toLocaleString()} errors.
+                  </p>
+                );
+              })()}
+
+              {(imp.totalRows ?? 0) > 0 && (() => {
+                const outcome = getOutcomeSummary(imp);
+                return (
+                  <p className={`text-sm font-medium ${outcome.className}`} data-testid={`text-detail-outcome-${imp.id}`}>
+                    {outcome.label}
+                  </p>
+                );
               })()}
 
               {(imp.totalRows ?? 0) > 0 && (
                 <div className="space-y-1">
                   <div className="flex justify-between text-sm">
-                    <span>Import Success Rate</span>
+                    <span>New Contact Rate (of total rows)</span>
                     <span>{Math.round(((imp.newRecords ?? 0) / (imp.totalRows ?? 1)) * 100)}%</span>
                   </div>
                   <Progress value={((imp.newRecords ?? 0) / (imp.totalRows ?? 1)) * 100} />

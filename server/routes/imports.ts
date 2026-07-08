@@ -1251,8 +1251,18 @@ Guidelines:
     try {
       const imports = await storage.getCsvImports();
       const totalImports = imports.length;
+      const totalRowsProcessed = imports.reduce((sum, i) => sum + (i.totalRows || 0), 0);
       const totalRecordsImported = imports.reduce((sum, i) => sum + (i.newRecords || 0), 0);
       const totalDuplicatesSkipped = imports.reduce((sum, i) => sum + (i.duplicatesSkipped || 0), 0);
+      // "Already Exists" is a DB-level conflict caught by onConflictDoNothing() —
+      // distinct from app-level pre-check duplicates, but both mean "this
+      // contact already exists". Surface both separately (for audit) AND
+      // combined (for the headline reconciliation story) so no row is ever
+      // invisible in the top-level stats.
+      const totalSkippedRows = imports.reduce((sum, i) => sum + (i.skippedRows || 0), 0);
+      const totalAlreadyExists = totalDuplicatesSkipped + totalSkippedRows;
+      const totalInvalidRows = imports.reduce((sum, i) => sum + (i.invalidRows || 0), 0);
+      const totalErrors = imports.reduce((sum, i) => sum + (i.errorsCount || 0), 0);
       const totalDealsCreated = imports.reduce((sum, i) => sum + (i.dealsCreated || 0), 0);
       const totalHot = imports.reduce((sum, i) => sum + (i.hotLeads || 0), 0);
       const totalWarm = imports.reduce((sum, i) => sum + (i.warmLeads || 0), 0);
@@ -1269,8 +1279,13 @@ Guidelines:
 
       res.json({
         totalImports,
+        totalRowsProcessed,
         totalRecordsImported,
         totalDuplicatesSkipped,
+        totalSkippedRows,
+        totalAlreadyExists,
+        totalInvalidRows,
+        totalErrors,
         totalDealsCreated,
         totalHot,
         totalWarm,
