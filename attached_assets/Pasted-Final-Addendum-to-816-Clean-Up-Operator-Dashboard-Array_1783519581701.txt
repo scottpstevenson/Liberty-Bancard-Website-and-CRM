@@ -1,0 +1,85 @@
+Final Addendum to #816 — Clean Up Operator Dashboard Array Guards
+
+Approved to build.
+
+Scope
+
+Only touch:
+
+client/src/pages/dashboard/OperatorDashboard.tsx
+
+This is a cleanup task, not a behavior change.
+
+Required pattern
+
+Replace guarded non-null assertions like:
+
+const recentSends = Array.isArray(data?.recentSends) ? data!.recentSends : [];
+
+with:
+
+const recentSends = Array.isArray(data?.recentSends) ? data.recentSends : [];
+
+or, if using a response object normalization pattern:
+
+const recentSends = Array.isArray(operatorData?.recentSends)
+  ? operatorData.recentSends
+  : [];
+
+Do not use:
+
+data!
+as any
+as SomeType[]
+
+unless there is no safer alternative.
+
+Conditional rendering guard
+
+If a list is rendered from a normalized local variable, the conditional should also use that normalized variable.
+
+Bad:
+
+{data?.recentSends?.length ? (
+  recentSends.map(...)
+) : (
+  <EmptyState />
+)}
+
+Good:
+
+{recentSends.length > 0 ? (
+  recentSends.map(...)
+) : (
+  <EmptyState />
+)}
+
+The same rule applies to .filter(), .slice(), counts, badges, and empty-state checks.
+
+Kill lines
+
+STOP if any remaining `data!` non-null assertion is used in OperatorDashboard array normalization.
+STOP if JSX list conditionals use raw query data while the map/filter uses a normalized local variable.
+STOP if this task changes API calls, query keys, dashboard layout, role guards, outreach logic, sequence logic, or worker behavior.
+STOP if invalid API response shapes can crash the Operator Dashboard again.
+
+Validation
+
+Run:
+
+grep -n "data!" client/src/pages/dashboard/OperatorDashboard.tsx
+grep -n "\.map(" client/src/pages/dashboard/OperatorDashboard.tsx
+grep -n "\.filter(" client/src/pages/dashboard/OperatorDashboard.tsx
+npx tsc --noEmit --skipLibCheck
+
+If global TypeScript still has unrelated legacy errors, report them separately and confirm this touched file is clean.
+
+Final report required
+
+Return:
+
+data! assertions removed:
+Raw query conditionals replaced:
+Remaining map/filter guards verified:
+Validation commands run:
+Files changed:
