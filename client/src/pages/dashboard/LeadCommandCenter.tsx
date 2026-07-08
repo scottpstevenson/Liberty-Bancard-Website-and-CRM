@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
+import { DataState } from "@/components/ui/data-state";
 import {
   Search, Upload, Sparkles, Loader2, ArrowRightLeft, UserPlus,
   Mail, Phone, Globe, CheckCircle2, Clock, XCircle, Brain,
@@ -328,13 +329,36 @@ export default function LeadCommandCenter() {
   const [pipelinePage, setPipelinePage] = useState(1);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
-  const { data: entities = [], isLoading: entitiesLoading } = useQuery<SunbizEntity[]>({ queryKey: ["/api/sunbiz/entities"] });
+  const {
+    data: entitiesRaw,
+    isLoading: entitiesLoading,
+    isError: entitiesError,
+    error: entitiesErrorObj,
+    refetch: refetchEntities,
+  } = useQuery<SunbizEntity[]>({ queryKey: ["/api/sunbiz/entities"] });
   const { data: stats } = useQuery<{ total: number; enriched: number; pending: number; withEmail: number; withPhone: number; withWebsite: number }>({ queryKey: ["/api/sunbiz/stats"] });
-  const { data: prospects = [], isLoading: prospectsLoading } = useQuery<Prospect[]>({ queryKey: ["/api/prospects"] });
-  const { data: sequences = [] } = useQuery<any[]>({ queryKey: ["/api/sequences"] });
-  const { data: workflows = [] } = useQuery<any[]>({ queryKey: ["/api/workflows"] });
+  const {
+    data: prospectsRaw,
+    isLoading: prospectsLoading,
+    isError: prospectsError,
+    error: prospectsErrorObj,
+    refetch: refetchProspects,
+  } = useQuery<Prospect[]>({ queryKey: ["/api/prospects"] });
+  const { data: sequencesRaw = [] } = useQuery<any[]>({ queryKey: ["/api/sequences"] });
+  const { data: workflowsRaw = [] } = useQuery<any[]>({ queryKey: ["/api/workflows"] });
+
+  const entities = Array.isArray(entitiesRaw) ? entitiesRaw : [];
+  const prospects = Array.isArray(prospectsRaw) ? prospectsRaw : [];
+  const sequences = Array.isArray(sequencesRaw) ? sequencesRaw : [];
+  const workflows = Array.isArray(workflowsRaw) ? workflowsRaw : [];
 
   const isLoading = entitiesLoading || prospectsLoading;
+  const isError = entitiesError || prospectsError;
+  const combinedError = entitiesErrorObj || prospectsErrorObj;
+  const refetchAll = () => {
+    refetchEntities();
+    refetchProspects();
+  };
 
   const allRows = useMemo(() => toUnifiedRows(entities, prospects), [entities, prospects]);
   const filteredQueue = useMemo(() => filterRows(allRows, searchTerm, filterScore, filterStatus, filterSource), [allRows, searchTerm, filterScore, filterStatus, filterSource]);
@@ -944,6 +968,18 @@ export default function LeadCommandCenter() {
             <div className="space-y-2 p-4">
               {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}
             </div>
+          ) : isError ? (
+            <Card>
+              <CardContent className="p-0">
+                <DataState
+                  query={{ isLoading: false, isError: true, error: combinedError, refetch: refetchAll }}
+                  errorTitle="Failed to load leads"
+                  testId="lead-queue"
+                >
+                  <></>
+                </DataState>
+              </CardContent>
+            </Card>
           ) : (
             <Card>
               <CardContent className="p-0">

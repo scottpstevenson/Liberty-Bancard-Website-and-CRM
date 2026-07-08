@@ -75,7 +75,8 @@ function SyncConflictsPanel() {
     },
   });
 
-  const pendingCount = (conflicts || []).filter(c => c.resolution === "pending").length;
+  const conflictList = Array.isArray(conflicts) ? conflicts : [];
+  const pendingCount = conflictList.filter(c => c.resolution === "pending").length;
 
   if (isLoading) {
     return (
@@ -125,7 +126,7 @@ function SyncConflictsPanel() {
         </div>
       </div>
 
-      {(!conflicts || conflicts.length === 0) && (
+      {conflictList.length === 0 && (
         <div className="flex flex-col items-center justify-center py-16 gap-2 text-muted-foreground" data-testid="no-conflicts-message">
           <CheckCircle2 className="w-10 h-10 text-green-500" />
           <p className="text-sm font-medium">No conflicts found</p>
@@ -134,7 +135,7 @@ function SyncConflictsPanel() {
       )}
 
       <div className="space-y-3">
-        {conflicts?.map((conflict) => (
+        {conflictList.map((conflict) => (
           <Card key={conflict.id} data-testid={`conflict-card-${conflict.id}`} className={conflict.resolution === "pending" ? "border-yellow-300 dark:border-yellow-700" : ""}>
             <CardContent className="p-4">
               <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
@@ -537,6 +538,8 @@ function SendMonitoringPanel() {
   }
 
   const agg = data?.aggregated;
+  const recentSends = Array.isArray(data?.recentSends) ? data!.recentSends! : [];
+  const identities = Array.isArray(data?.identities) ? data!.identities! : [];
 
   return (
     <div className="space-y-4">
@@ -624,7 +627,7 @@ function SendMonitoringPanel() {
                 </tr>
               </thead>
               <tbody>
-                {data!.recentSends!.map((s, idx) => {
+                {recentSends.map((s, idx) => {
                   const channelColor =
                     s.channel === "GHL-Direct" ? "text-green-600 dark:text-green-400" :
                     s.channel === "GHL-Workflow" ? "text-blue-600 dark:text-blue-400" :
@@ -650,7 +653,7 @@ function SendMonitoringPanel() {
       )}
 
       <div className="space-y-3">
-        {data?.identities.map((identity) => (
+        {identities.map((identity) => (
           <Card key={identity.id} data-testid={`send-identity-${identity.id}`}>
             <CardContent className="p-4">
               <div className="flex items-center justify-between mb-3">
@@ -766,7 +769,8 @@ function WebhookEventViewer() {
     );
   }
 
-  const eventTypes = [...new Set(events?.map(e => e.eventType) || [])];
+  const eventList = Array.isArray(events) ? events : [];
+  const eventTypes = [...new Set(eventList.map(e => e.eventType))];
 
   return (
     <div className="space-y-4">
@@ -791,10 +795,10 @@ function WebhookEventViewer() {
         </div>
       ) : (
         <div className="space-y-2">
-          {events?.length === 0 && (
+          {eventList.length === 0 && (
             <div className="text-center py-8 text-muted-foreground">No webhook events found</div>
           )}
-          {events?.map((event) => (
+          {eventList.map((event) => (
             <Card key={event.id} data-testid={`webhook-event-${event.id}`}>
               <CardContent className="p-3">
                 <div className="flex items-center justify-between mb-2">
@@ -868,21 +872,23 @@ function StuckLeadsPanel() {
     );
   }
 
+  const stuckLeadList = Array.isArray(stuckLeads) ? stuckLeads : [];
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold">Stuck Leads — Needs Attention</h3>
-        <Badge variant={(stuckLeads?.length || 0) > 0 ? "destructive" : "secondary"} data-testid="badge-stuck-count">
-          {stuckLeads?.length || 0} leads
+        <Badge variant={stuckLeadList.length > 0 ? "destructive" : "secondary"} data-testid="badge-stuck-count">
+          {stuckLeadList.length} leads
         </Badge>
       </div>
 
-      {stuckLeads?.length === 0 && (
+      {stuckLeadList.length === 0 && (
         <div className="text-center py-8 text-muted-foreground">No stuck leads — all systems running smoothly</div>
       )}
 
       <div className="space-y-2">
-        {stuckLeads?.map((lead, idx) => (
+        {stuckLeadList.map((lead, idx) => (
           <Card key={`${lead.merchantId}-${idx}`} data-testid={`stuck-lead-${lead.merchantId}`}>
             <CardContent className="p-3">
               <div className="flex items-center justify-between">
@@ -920,21 +926,34 @@ interface ActivationStatusData {
 }
 
 function ReadinessChecklistWidget() {
-  const { data, isLoading } = useQuery<ActivationStatusData>({
+  const { data, isLoading, isError, refetch } = useQuery<ActivationStatusData>({
     queryKey: ["/api/operator/activation-status"],
     refetchInterval: 30000,
   });
 
-  if (isLoading || !data) {
+  if (isLoading) {
     return <div className="p-6"><Loader2 className="w-5 h-5 animate-spin" /></div>;
   }
 
-  const slaTickAt = data.heartbeat.slaWorker?.at ? new Date(data.heartbeat.slaWorker.at).getTime() : 0;
-  const seqTickAt = data.heartbeat.sequenceRunner?.at ? new Date(data.heartbeat.sequenceRunner.at).getTime() : 0;
+  if (isError || !data) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 gap-3" data-testid="readiness-checklist-error">
+        <AlertTriangle className="w-8 h-8 text-red-500" />
+        <p className="text-sm text-muted-foreground">Failed to load readiness checklist</p>
+        <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="btn-retry-readiness-checklist">
+          <RefreshCw className="w-4 h-4 mr-1" /> Retry
+        </Button>
+      </div>
+    );
+  }
+
+  const checks = Array.isArray(data.checks) ? data.checks : [];
+  const slaTickAt = data.heartbeat?.slaWorker?.at ? new Date(data.heartbeat.slaWorker.at).getTime() : 0;
+  const seqTickAt = data.heartbeat?.sequenceRunner?.at ? new Date(data.heartbeat.sequenceRunner.at).getTime() : 0;
   const STALE_MS = 15 * 60 * 1000;
   const workersFresh = slaTickAt > 0 && (Date.now() - slaTickAt) < STALE_MS;
   const systemActive = data.ready && workersFresh;
-  const failed = data.checks.filter(c => !c.ok);
+  const failed = checks.filter(c => !c.ok);
   const reason = systemActive
     ? "All preconditions met — pipeline & outreach active"
     : failed.length > 0
@@ -956,7 +975,7 @@ function ReadinessChecklistWidget() {
                 System {systemActive ? "Active" : "Idle"}
               </span>
               <Badge variant={systemActive ? "default" : "secondary"} data-testid="badge-system-status">
-                {data.checks.filter(c => c.ok).length}/{data.checks.length} checks pass
+                {checks.filter(c => c.ok).length}/{checks.length} checks pass
               </Badge>
             </div>
             <div className="text-sm text-muted-foreground mt-1" data-testid="text-system-reason">{reason}</div>
@@ -987,7 +1006,7 @@ function ReadinessChecklistWidget() {
         <CardHeader className="pb-2"><CardTitle className="text-sm">Pre-Flight Readiness Checklist</CardTitle></CardHeader>
         <CardContent>
           <ol className="space-y-2">
-            {data.checks.map((check, idx) => (
+            {checks.map((check, idx) => (
               <li key={check.id} className="flex items-start gap-3 p-2 border rounded" data-testid={`operator-check-${check.id}`}>
                 <div className="flex items-center justify-center w-6 h-6 rounded-full border text-xs font-bold mt-0.5">{idx + 1}</div>
                 <div className="flex-1">
@@ -1021,27 +1040,42 @@ interface RecentSendsData {
 }
 
 function RecentSendsWidget() {
-  const { data, isLoading } = useQuery<RecentSendsData>({
+  const { data, isLoading, isError, refetch } = useQuery<RecentSendsData>({
     queryKey: ["/api/operator/recent-sends"],
     refetchInterval: 30000,
   });
 
-  if (isLoading || !data) {
+  if (isLoading) {
     return <div className="p-6"><Loader2 className="w-5 h-5 animate-spin" /></div>;
   }
+
+  if (isError || !data) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 gap-3" data-testid="recent-sends-error">
+        <AlertTriangle className="w-8 h-8 text-red-500" />
+        <p className="text-sm text-muted-foreground">Failed to load recent sends</p>
+        <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="btn-retry-recent-sends">
+          <RefreshCw className="w-4 h-4 mr-1" /> Retry
+        </Button>
+      </div>
+    );
+  }
+
+  const recent = Array.isArray(data.recent) ? data.recent : [];
+  const totals = data.totals || { email: 0, calls: 0, outbound: 0, all: 0 };
 
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <KpiCard label="Email (24h)" value={data.totals.email} icon={Mail} color="text-blue-600" />
-        <KpiCard label="Calls (24h)" value={data.totals.calls} icon={Phone} color="text-purple-600" />
-        <KpiCard label="Outbound (24h)" value={data.totals.outbound} icon={Send} color="text-green-600" />
-        <KpiCard label="All Sends (24h)" value={data.totals.all} icon={Activity} color="text-orange-600" />
+        <KpiCard label="Email (24h)" value={totals.email} icon={Mail} color="text-blue-600" />
+        <KpiCard label="Calls (24h)" value={totals.calls} icon={Phone} color="text-purple-600" />
+        <KpiCard label="Outbound (24h)" value={totals.outbound} icon={Send} color="text-green-600" />
+        <KpiCard label="All Sends (24h)" value={totals.all} icon={Activity} color="text-orange-600" />
       </div>
       <Card>
         <CardHeader className="pb-2"><CardTitle className="text-sm">Recent Email Sends (last 20)</CardTitle></CardHeader>
         <CardContent>
-          {data.recent.length === 0 ? (
+          {recent.length === 0 ? (
             <div className="text-center py-6 text-muted-foreground text-sm" data-testid="text-no-recent-sends">No outbound sends in last 24 hours</div>
           ) : (
             <div className="max-h-80 overflow-auto">
@@ -1055,7 +1089,7 @@ function RecentSendsWidget() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.recent.map(r => (
+                  {recent.map(r => (
                     <tr key={r.id} className="border-b" data-testid={`recent-send-${r.id}`}>
                       <td className="py-1 px-2 whitespace-nowrap">{r.sentAt ? new Date(r.sentAt).toLocaleTimeString() : "-"}</td>
                       <td className="py-1 px-2 truncate max-w-32">{r.to}</td>
@@ -1084,14 +1118,28 @@ interface SilentSequencesData {
 }
 
 function SilentSequencesWidget() {
-  const { data, isLoading } = useQuery<SilentSequencesData>({
+  const { data, isLoading, isError, refetch } = useQuery<SilentSequencesData>({
     queryKey: ["/api/operator/silent-sequences"],
     refetchInterval: 30000,
   });
 
-  if (isLoading || !data) {
+  if (isLoading) {
     return <div className="p-6"><Loader2 className="w-5 h-5 animate-spin" /></div>;
   }
+
+  if (isError || !data) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 gap-3" data-testid="silent-sequences-error">
+        <AlertTriangle className="w-8 h-8 text-red-500" />
+        <p className="text-sm text-muted-foreground">Failed to load silent sequences</p>
+        <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="btn-retry-silent-sequences">
+          <RefreshCw className="w-4 h-4 mr-1" /> Retry
+        </Button>
+      </div>
+    );
+  }
+
+  const items = Array.isArray(data.items) ? data.items : [];
 
   return (
     <div className="space-y-3">
@@ -1116,7 +1164,7 @@ function SilentSequencesWidget() {
       <Card>
         <CardHeader className="pb-2"><CardTitle className="text-sm">Silent Enrollments (no progress &gt;24h)</CardTitle></CardHeader>
         <CardContent>
-          {data.items.length === 0 ? (
+          {items.length === 0 ? (
             <div className="text-center py-6 text-muted-foreground text-sm" data-testid="text-no-silent">All enrollments are progressing</div>
           ) : (
             <div className="max-h-80 overflow-auto">
@@ -1132,7 +1180,7 @@ function SilentSequencesWidget() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.items.map(it => (
+                  {items.map(it => (
                     <tr key={it.id} className="border-b" data-testid={`silent-row-${it.id}`}>
                       <td className="py-1 px-2">{it.id}</td>
                       <td className="py-1 px-2">{it.contactId}</td>
@@ -1215,6 +1263,7 @@ function SubjectAuditPanel() {
   }
 
   const midCount = data?.midSequenceCount ?? 0;
+  const auditItems = Array.isArray(data?.items) ? data!.items! : [];
 
   return (
     <div className="space-y-4">
@@ -1263,7 +1312,7 @@ function SubjectAuditPanel() {
           <CardTitle className="text-sm">Mid-Sequence Active Enrollments</CardTitle>
         </CardHeader>
         <CardContent>
-          {!data?.items?.length ? (
+          {auditItems.length === 0 ? (
             <div className="text-center py-6 text-muted-foreground text-sm" data-testid="text-no-mid-sequence">
               No mid-sequence enrollments found
             </div>
@@ -1282,7 +1331,7 @@ function SubjectAuditPanel() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.items.map(item => (
+                  {auditItems.map(item => (
                     <tr key={item.id} className="border-b hover:bg-muted/30" data-testid={`subject-audit-row-${item.id}`}>
                       <td className="py-1 px-2">{item.id}</td>
                       <td className="py-1 px-2">{item.contactId}</td>
@@ -1450,7 +1499,7 @@ function JobHealthPanel() {
     );
   }
 
-  const jobs = data?.jobs ?? [];
+  const jobs = Array.isArray(data?.jobs) ? data!.jobs! : [];
   const criticalJobs = jobs.filter(j => j.consecutiveFailures >= 3);
 
   return (
@@ -1674,9 +1723,11 @@ function QueueMetricsPanel() {
     onError: (err: any) => toast({ title: "Failed to resume queue", description: err.message, variant: "destructive" }),
   });
 
-  const totalActive = metrics?.queues.reduce((s, q) => s + q.active, 0) ?? 0;
-  const totalWaiting = metrics?.queues.reduce((s, q) => s + q.waiting, 0) ?? 0;
-  const totalFailed = metrics?.queues.reduce((s, q) => s + q.failed, 0) ?? 0;
+  const queueList = Array.isArray(metrics?.queues) ? metrics!.queues! : [];
+  const dlqList = Array.isArray(dlqItems) ? dlqItems : [];
+  const totalActive = queueList.reduce((s, q) => s + q.active, 0);
+  const totalWaiting = queueList.reduce((s, q) => s + q.waiting, 0);
+  const totalFailed = queueList.reduce((s, q) => s + q.failed, 0);
 
   return (
     <div className="space-y-6">
@@ -1747,7 +1798,7 @@ function QueueMetricsPanel() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(metrics?.queues || []).map(q => (
+                  {queueList.map(q => (
                     <tr key={q.name} className={`border-b last:border-0 hover:bg-muted/20 cursor-pointer ${selectedQueue === q.name ? "bg-muted/40" : ""}`} onClick={() => setSelectedQueue(selectedQueue === q.name ? null : q.name)} data-testid={`row-queue-${q.name}`}>
                       <td className="py-2 px-4 font-mono text-xs font-medium">{q.name}</td>
                       <td className="py-2 px-3 text-right">
@@ -1821,8 +1872,8 @@ function QueueMetricsPanel() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <CardTitle className="text-sm">Dead-Letter Queue</CardTitle>
-              {(dlqItems?.length ?? 0) > 0 && (
-                <Badge variant="destructive" data-testid="badge-dlq-count">{dlqItems!.length}</Badge>
+              {dlqList.length > 0 && (
+                <Badge variant="destructive" data-testid="badge-dlq-count">{dlqList.length}</Badge>
               )}
             </div>
             <Button variant="ghost" size="sm" onClick={() => refetchDlq()} data-testid="btn-refresh-dlq">
@@ -1833,14 +1884,14 @@ function QueueMetricsPanel() {
         <CardContent>
           {dlqLoading ? (
             <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
-          ) : !dlqItems || dlqItems.length === 0 ? (
+          ) : dlqList.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 gap-2 text-muted-foreground" data-testid="no-dlq-message">
               <CheckCircle2 className="w-8 h-8 text-green-500" />
               <p className="text-sm">No dead-letter jobs — all queues healthy</p>
             </div>
           ) : (
             <div className="space-y-3">
-              {dlqItems.map(item => (
+              {dlqList.map(item => (
                 <Card key={item.id} className="border-red-200 dark:border-red-900" data-testid={`dlq-item-${item.id}`}>
                   <CardContent className="p-4">
                     <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
@@ -1851,7 +1902,7 @@ function QueueMetricsPanel() {
                           <span className="text-xs text-muted-foreground">{new Date(item.timestamp).toLocaleString()}</span>
                         </div>
                         <p className="text-sm font-medium text-red-700 dark:text-red-400">{item.failedReason}</p>
-                        {item.stacktrace[0] && (
+                        {Array.isArray(item.stacktrace) && item.stacktrace[0] && (
                           <p className="text-xs font-mono text-muted-foreground truncate max-w-lg">{item.stacktrace[0]}</p>
                         )}
                       </div>
@@ -1915,6 +1966,7 @@ function BounceFailurePanel() {
 
   const bounceRateColor = data.emailBounceRate > 5 ? "text-red-600" : data.emailBounceRate > 2 ? "text-yellow-600" : "text-green-600";
   const smsRateColor = data.smsFailureRate > 10 ? "text-red-600" : data.smsFailureRate > 5 ? "text-yellow-600" : "text-green-600";
+  const topFailureReasons = Array.isArray(data.topFailureReasons) ? data.topFailureReasons : [];
 
   return (
     <div className="space-y-4" data-testid="bounce-failure-panel">
@@ -1951,20 +2003,20 @@ function BounceFailurePanel() {
         </Card>
       </div>
 
-      {data.topFailureReasons.length > 0 && (
+      {topFailureReasons.length > 0 && (
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-medium">Top Failure Reasons (Last {data.windowDays} Days — failures only)</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-2" data-testid="failure-reasons-list">
-              {data.topFailureReasons.map((item, idx) => (
+              {topFailureReasons.map((item, idx) => (
                 <div key={idx} className="flex items-center gap-2" data-testid={`failure-reason-${idx}`}>
                   <div className="flex-1 text-sm capitalize">{item.reason.replace(/_/g, " ")}</div>
                   <div className="w-32 bg-muted rounded-full h-2 overflow-hidden">
                     <div
                       className="h-full bg-red-400 rounded-full"
-                      style={{ width: `${Math.min(100, (item.count / (data.topFailureReasons[0]?.count || 1)) * 100)}%` }}
+                      style={{ width: `${Math.min(100, (item.count / (topFailureReasons[0]?.count || 1)) * 100)}%` }}
                     />
                   </div>
                   <span className="text-xs font-medium text-muted-foreground w-8 text-right">{item.count}</span>
@@ -1975,7 +2027,7 @@ function BounceFailurePanel() {
         </Card>
       )}
 
-      {data.topFailureReasons.length === 0 && (
+      {topFailureReasons.length === 0 && (
         <Card>
           <CardContent className="py-10 text-center">
             <CheckCircle2 className="w-8 h-8 mx-auto text-green-500 mb-2" />
@@ -2060,6 +2112,8 @@ function CommHealthPanel() {
     </div>
   );
 
+  const warnings = Array.isArray(data.warnings) ? data.warnings : [];
+
   return (
     <div className="space-y-4" data-testid="panel-comm-health">
       <div className="flex items-center justify-between">
@@ -2080,9 +2134,9 @@ function CommHealthPanel() {
         </Button>
       </div>
 
-      {data.warnings.length > 0 && (
+      {warnings.length > 0 && (
         <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-700 p-3 space-y-1" data-testid="comm-health-warnings">
-          {data.warnings.map((w, i) => (
+          {warnings.map((w, i) => (
             <div key={i} className="flex items-start gap-2">
               <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
               <p className="text-xs text-amber-800 dark:text-amber-300">{w}</p>
@@ -2192,7 +2246,7 @@ function GhlConnectionPanel() {
     staleTime: 30_000,
   });
 
-  const failedOps = auditData?.logs || [];
+  const failedOps = Array.isArray(auditData?.logs) ? auditData!.logs : [];
 
   async function handleRetry(op: { id: number; entityId?: number | null; entityKey?: string }) {
     if (!op.entityId) {
@@ -2467,7 +2521,7 @@ function DeletedRecordsPanel() {
     );
   }
 
-  const records = data?.records ?? [];
+  const records = Array.isArray(data?.records) ? data!.records : [];
 
   return (
     <div className="space-y-4">
@@ -2970,25 +3024,34 @@ function CommandCenter({ onNavigate }: { onNavigate: (v: string) => void }) {
     retry: false,
   });
 
+  // Safe, array-guarded query data (never trust query data shape at runtime)
+  const dlqList = Array.isArray(dlq.data) ? dlq.data : [];
+  const queueList = Array.isArray(queue.data?.queues) ? queue.data!.queues : [];
+  const readinessChecks = Array.isArray(readiness.data?.checks) ? readiness.data!.checks : [];
+  const senderUtilization = Array.isArray(sdr.data?.senderUtilization) ? sdr.data!.senderUtilization : [];
+  const sentTodayByChannel = Array.isArray(sdr.data?.sentTodayByChannel) ? sdr.data!.sentTodayByChannel : [];
+  const funnelRows = Array.isArray(funnel.data?.funnel) ? funnel.data!.funnel : [];
+  const blockRows = Array.isArray(blocks.data?.rows) ? blocks.data!.rows : [];
+
   // Derived metrics
-  const dlqCount = dlq.data?.length ?? 0;
-  const totalFailed = (queue.data?.queues ?? []).reduce((s, q) => s + (q.failed || 0), 0);
-  const anyPaused = (queue.data?.queues ?? []).some((q) => q.paused);
-  const failedChecks = (readiness.data?.checks ?? []).filter((c) => !c.ok);
-  const stuckCheck = (readiness.data?.checks ?? []).find((c) => c.id === "no_stuck_leads");
+  const dlqCount = dlqList.length;
+  const totalFailed = queueList.reduce((s, q) => s + (q.failed || 0), 0);
+  const anyPaused = queueList.some((q) => q.paused);
+  const failedChecks = readinessChecks.filter((c) => !c.ok);
+  const stuckCheck = readinessChecks.find((c) => c.id === "no_stuck_leads");
   const circuitOpen = !!circuit.data?.circuitOpen;
-  const sendersOver = (sdr.data?.senderUtilization ?? []).filter(
+  const sendersOver = senderUtilization.filter(
     (s) => s.utilizationPct >= 95 || (s.status && s.status !== "active"),
   );
-  const sdrWarnings = sdr.data?.warnings ?? [];
-  const totalSentToday = (sdr.data?.sentTodayByChannel ?? []).reduce((s, c) => s + c.count, 0);
-  const totalBlocked = (blocks.data?.rows ?? [])
+  const sdrWarnings = Array.isArray(sdr.data?.warnings) ? sdr.data!.warnings : [];
+  const totalSentToday = sentTodayByChannel.reduce((s, c) => s + c.count, 0);
+  const totalBlocked = blockRows
     .filter((r) => r.blockReason)
     .reduce((s, r) => s + Number(r.cnt || 0), 0);
-  const topBlock = (blocks.data?.rows ?? [])
+  const topBlock = blockRows
     .filter((r) => r.blockReason)
     .sort((a, b) => Number(b.cnt) - Number(a.cnt))[0];
-  const funnelTop = funnel.data?.funnel?.[0];
+  const funnelTop = funnelRows[0];
   const funnelTopCount = funnelTop?.count ?? 0;
 
   // Status tiles
@@ -3083,7 +3146,7 @@ function CommandCenter({ onNavigate }: { onNavigate: (v: string) => void }) {
           title="Jobs & Queue"
           status={queueStatus}
           value={queue.isError ? "Error" : dlqCount > 0 ? `${dlqCount} dead` : "Healthy"}
-          detail={queue.isError ? "Failed to load queue metrics" : `${totalFailed} failed · ${(queue.data?.queues ?? []).length} queues${queue.data?.usingMock ? " · mock" : ""}`}
+          detail={queue.isError ? "Failed to load queue metrics" : `${totalFailed} failed · ${queueList.length} queues${queue.data?.usingMock ? " · mock" : ""}`}
           icon={Server}
           onClick={() => onNavigate("queue-metrics")}
           testId="tile-queue"
@@ -3186,11 +3249,11 @@ function CommandCenter({ onNavigate }: { onNavigate: (v: string) => void }) {
               <div className="text-sm text-muted-foreground flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>
             ) : sdr.isError ? (
               <div className="text-sm text-muted-foreground">Unavailable</div>
-            ) : (sdr.data?.sentTodayByChannel ?? []).length === 0 ? (
+            ) : sentTodayByChannel.length === 0 ? (
               <div className="text-sm text-muted-foreground">No sends recorded today</div>
             ) : (
               <div className="space-y-1">
-                {(sdr.data?.sentTodayByChannel ?? []).map((c) => (
+                {sentTodayByChannel.map((c) => (
                   <div key={c.channel} className="flex justify-between text-sm">
                     <span className="capitalize text-muted-foreground">{c.channel}</span>
                     <span className="font-medium">{c.count.toLocaleString()}</span>
@@ -3211,11 +3274,11 @@ function CommandCenter({ onNavigate }: { onNavigate: (v: string) => void }) {
               <div className="text-sm text-muted-foreground flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>
             ) : funnel.isError ? (
               <div className="text-sm text-muted-foreground">Unavailable</div>
-            ) : (funnel.data?.funnel ?? []).length === 0 ? (
+            ) : funnelRows.length === 0 ? (
               <div className="text-sm text-muted-foreground">No funnel data</div>
             ) : (
               <div className="space-y-1">
-                {(funnel.data?.funnel ?? []).slice(0, 5).map((row) => (
+                {funnelRows.slice(0, 5).map((row) => (
                   <div key={row.eventName} className="flex justify-between text-sm">
                     <span className="text-muted-foreground truncate mr-2">{row.stage}</span>
                     <span className="font-medium">{row.count.toLocaleString()}</span>
@@ -3236,11 +3299,11 @@ function CommandCenter({ onNavigate }: { onNavigate: (v: string) => void }) {
               <div className="text-sm text-muted-foreground flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>
             ) : queue.isError ? (
               <div className="text-sm text-muted-foreground">Unavailable</div>
-            ) : (queue.data?.queues ?? []).length === 0 ? (
+            ) : queueList.length === 0 ? (
               <div className="text-sm text-muted-foreground">No queues reporting</div>
             ) : (
               <div className="space-y-1">
-                {(queue.data?.queues ?? []).slice(0, 5).map((q) => (
+                {queueList.slice(0, 5).map((q) => (
                   <div key={q.name} className="flex justify-between text-sm">
                     <span className="text-muted-foreground truncate mr-2">{q.name}</span>
                     <span className={cn("font-medium", q.failed > 0 ? "text-red-600" : "")}>
@@ -4495,7 +4558,7 @@ function AiCostPanel() {
   });
 
   const summary = data?.summary;
-  const dailyRollup = data?.dailyRollup || [];
+  const dailyRollup = Array.isArray(data?.dailyRollup) ? data!.dailyRollup : [];
 
   const chartData = dailyRollup.map(d => ({
     date: d.date.slice(5),
@@ -4677,7 +4740,7 @@ function AiActivityPanel() {
   });
 
   const totals = data?.totals;
-  const logs = data?.logs || [];
+  const logs = Array.isArray(data?.logs) ? data!.logs : [];
 
   return (
     <div className="space-y-4 mt-4">
@@ -5079,8 +5142,10 @@ function ConversionPanel() {
   });
 
   const funnelColors = ["#3b82f6", "#8b5cf6", "#10b981", "#f59e0b", "#ef4444", "#06b6d4"];
-  const topUtm = (utmData?.rows ?? []).sort((a, b) => Number(b.cnt) - Number(a.cnt)).slice(0, 10);
-  const recentEvents = eventsData?.events ?? [];
+  const funnelRows = Array.isArray(funnelData?.funnel) ? funnelData!.funnel : [];
+  const utmRows = Array.isArray(utmData?.rows) ? utmData!.rows : [];
+  const topUtm = utmRows.slice().sort((a, b) => Number(b.cnt) - Number(a.cnt)).slice(0, 10);
+  const recentEvents = Array.isArray(eventsData?.events) ? eventsData!.events : [];
 
   function relT(s: string) {
     const diff = Date.now() - new Date(s).getTime();
@@ -5116,8 +5181,8 @@ function ConversionPanel() {
             <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Loading funnel…</div>
           ) : (
             <div className="space-y-3">
-              {(funnelData?.funnel ?? []).map((row, i) => {
-                const topCount = funnelData?.funnel?.[0]?.count ?? 1;
+              {funnelRows.map((row, i) => {
+                const topCount = funnelRows[0]?.count ?? 1;
                 const pct = topCount > 0 ? Math.round((row.count / topCount) * 100) : 0;
                 return (
                   <div key={row.eventName} data-testid={`funnel-row-${row.eventName}`}>
@@ -5129,7 +5194,7 @@ function ConversionPanel() {
                   </div>
                 );
               })}
-              {(funnelData?.funnel?.length ?? 0) === 0 && (
+              {funnelRows.length === 0 && (
                 <p className="text-sm text-muted-foreground">No conversion events recorded yet.</p>
               )}
             </div>
@@ -5257,7 +5322,9 @@ export function LifecycleCommandCenter() {
     );
   }
 
-  if (!data || data.stages.length === 0) {
+  const lifecycleStages = Array.isArray(data?.stages) ? data!.stages : [];
+
+  if (!data || lifecycleStages.length === 0) {
     return (
       <Card data-testid="lifecycle-empty">
         <CardContent className="p-8 text-center text-muted-foreground">
@@ -5277,7 +5344,7 @@ export function LifecycleCommandCenter() {
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-        {data.stages.map(stage => (
+        {lifecycleStages.map(stage => (
           <Card key={stage.stage} data-testid={`lifecycle-card-${stage.stage}`}>
             <CardContent className="p-4">
               <div className="flex items-center gap-2 mb-1">
@@ -5356,7 +5423,11 @@ export function SdrCommandCenter() {
     );
   }
 
-  const totalSentToday = data.sentTodayByChannel.reduce((sum, c) => sum + c.count, 0);
+  const sdrSentTodayByChannel = Array.isArray(data.sentTodayByChannel) ? data.sentTodayByChannel : [];
+  const sdrActiveSequencesByFamily = Array.isArray(data.activeSequencesByFamily) ? data.activeSequencesByFamily : [];
+  const sdrSenderUtilization = Array.isArray(data.senderUtilization) ? data.senderUtilization : [];
+  const sdrWarnings = Array.isArray(data.warnings) ? data.warnings : [];
+  const totalSentToday = sdrSentTodayByChannel.reduce((sum, c) => sum + c.count, 0);
 
   return (
     <div className="space-y-4" data-testid="sdr-command-center">
@@ -5378,7 +5449,7 @@ export function SdrCommandCenter() {
             <CardTitle className="text-sm">Sequences by Family</CardTitle>
           </CardHeader>
           <CardContent>
-            {data.activeSequencesByFamily.length === 0 ? (
+            {sdrActiveSequencesByFamily.length === 0 ? (
               <p className="text-sm text-muted-foreground">No active sequences</p>
             ) : (
               <div className="overflow-x-auto">
@@ -5390,7 +5461,7 @@ export function SdrCommandCenter() {
                     </tr>
                   </thead>
                   <tbody>
-                    {data.activeSequencesByFamily.map(f => (
+                    {sdrActiveSequencesByFamily.map(f => (
                       <tr key={f.family} className="border-b last:border-0" data-testid={`sdr-family-${f.family}`}>
                         <td className="py-1.5">{f.family}</td>
                         <td className="py-1.5 text-right"><Badge variant="secondary">{f.count}</Badge></td>
@@ -5408,7 +5479,7 @@ export function SdrCommandCenter() {
             <CardTitle className="text-sm">Sent Today by Channel</CardTitle>
           </CardHeader>
           <CardContent>
-            {data.sentTodayByChannel.length === 0 ? (
+            {sdrSentTodayByChannel.length === 0 ? (
               <p className="text-sm text-muted-foreground">No sends recorded today</p>
             ) : (
               <div className="overflow-x-auto">
@@ -5420,7 +5491,7 @@ export function SdrCommandCenter() {
                     </tr>
                   </thead>
                   <tbody>
-                    {data.sentTodayByChannel.map(c => (
+                    {sdrSentTodayByChannel.map(c => (
                       <tr key={c.channel} className="border-b last:border-0" data-testid={`sdr-channel-${c.channel}`}>
                         <td className="py-1.5 capitalize">{c.channel}</td>
                         <td className="py-1.5 text-right font-medium">{c.count.toLocaleString()}</td>
@@ -5439,7 +5510,7 @@ export function SdrCommandCenter() {
           <CardTitle className="text-sm">Sender Utilization</CardTitle>
         </CardHeader>
         <CardContent>
-          {data.senderUtilization.length === 0 ? (
+          {sdrSenderUtilization.length === 0 ? (
             <p className="text-sm text-muted-foreground">No sending identities configured</p>
           ) : (
             <div className="overflow-x-auto">
@@ -5454,7 +5525,7 @@ export function SdrCommandCenter() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.senderUtilization.map((s, idx) => (
+                  {sdrSenderUtilization.map((s, idx) => (
                     <tr key={idx} className="border-b last:border-0" data-testid={`sdr-sender-${idx}`}>
                       <td className="py-1.5">{s.senderName}</td>
                       <td className="py-1.5 text-right">{s.sentToday}</td>
@@ -5482,9 +5553,9 @@ export function SdrCommandCenter() {
         <KpiCard label="Opt-Out Rate (30d)" value={data.optOutRate !== null ? data.optOutRate : "N/A"} icon={AlertTriangle} color="text-orange-600" suffix={data.optOutRate !== null ? "%" : ""} />
       </div>
 
-      {data.warnings.length > 0 && (
+      {sdrWarnings.length > 0 && (
         <div className="space-y-1" data-testid="sdr-warnings">
-          {data.warnings.map((w, i) => (
+          {sdrWarnings.map((w, i) => (
             <div key={i} className="flex items-start gap-2 p-2 bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-800 rounded text-xs text-yellow-800 dark:text-yellow-300">
               <AlertTriangle className="w-3 h-3 text-yellow-600 shrink-0 mt-0.5" />
               <span>{w}</span>

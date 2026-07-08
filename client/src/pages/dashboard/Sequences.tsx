@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
+import { DataState } from "@/components/ui/data-state";
 import {
   Plus, Trash2, Loader2, Play, Pause, Mail, MessageSquare, Phone,
   CheckSquare, Clock, ChevronDown, ChevronUp, Users, Zap, Send, ArrowDown,
@@ -101,18 +102,26 @@ export default function Sequences() {
 
   const isEditMode = editingSeq !== null;
 
-  const { data: sequences, isLoading } = useQuery<any[]>({
+  const {
+    data: sequencesRaw,
+    isLoading,
+    isError: sequencesError,
+    error: sequencesErrorObj,
+    refetch: refetchSequences,
+  } = useQuery<any[]>({
     queryKey: ["/api/sequences"],
   });
+  const sequences = Array.isArray(sequencesRaw) ? sequencesRaw : [];
 
-  const { data: allEnrollments } = useQuery<any[]>({
+  const { data: allEnrollmentsRaw } = useQuery<any[]>({
     queryKey: ["/api/sequence-enrollments"],
   });
+  const allEnrollments = Array.isArray(allEnrollmentsRaw) ? allEnrollmentsRaw : [];
 
   const { data: contactsRes } = useQuery<{ data: any[]; total: number }>({
     queryKey: ["/api/contacts"],
   });
-  const contacts = contactsRes?.data;
+  const contacts = Array.isArray(contactsRes?.data) ? contactsRes.data : [];
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -324,6 +333,24 @@ export default function Sequences() {
           {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-24" />)}
         </div>
         <Skeleton className="h-48" />
+      </div>
+    );
+  }
+
+  if (sequencesError) {
+    return (
+      <div className="space-y-6" data-testid="sequences-page">
+        <div>
+          <h2 className="text-xl font-bold" data-testid="text-page-heading">Drip Sequences</h2>
+          <p className="text-sm text-muted-foreground">Build multi-step follow-up sequences and drip marketing campaigns</p>
+        </div>
+        <DataState
+          query={{ isLoading: false, isError: true, error: sequencesErrorObj, refetch: refetchSequences }}
+          errorTitle="Failed to load drip sequences"
+          testId="sequences"
+        >
+          <></>
+        </DataState>
       </div>
     );
   }

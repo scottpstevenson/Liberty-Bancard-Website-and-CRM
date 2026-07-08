@@ -512,25 +512,29 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         <div className="flex flex-col flex-1 overflow-hidden">
           <header className="h-14 bg-background border-b flex items-center justify-between gap-2 sm:gap-4 px-3 sm:px-6 sticky top-0 z-50">
             <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-              <SidebarTrigger data-testid="button-sidebar-toggle" />
+              <SidebarTrigger data-testid="button-sidebar-toggle" className="shrink-0" />
               <h1 className="font-display font-semibold text-base sm:text-lg truncate" data-testid="text-page-title">
                 {currentLabel}
               </h1>
             </div>
-            <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-              <UniversalSearch />
-              <Link href="/dashboard/notifications" className="relative inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring hover:bg-accent hover:text-accent-foreground h-9 w-9" aria-label={`Notifications (${notificationsUnreadCount} unread)`} data-testid="button-topbar-notifications">
-                <Bell className="w-4 h-4" />
-                {notificationsUnreadCount > 0 && (
-                  <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-medium text-destructive-foreground" data-testid="badge-topbar-notifications">
-                    {notificationsUnreadCount > 99 ? "99+" : notificationsUnreadCount}
-                  </span>
-                )}
-              </Link>
-              <ThemeToggle />
-              <Button size="icon" variant="ghost" onClick={() => setEmailOpen(true)} aria-label="Compose email" data-testid="button-compose-email">
-                <Mail className="w-4 h-4" />
-              </Button>
+            <div className="flex items-center gap-1 sm:gap-2 min-w-0">
+              <div className="min-w-0">
+                <UniversalSearch />
+              </div>
+              <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+                <Link href="/dashboard/notifications" className="relative inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring hover:bg-accent hover:text-accent-foreground h-9 w-9" aria-label={`Notifications (${notificationsUnreadCount} unread)`} data-testid="button-topbar-notifications">
+                  <Bell className="w-4 h-4" />
+                  {notificationsUnreadCount > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-medium text-destructive-foreground" data-testid="badge-topbar-notifications">
+                      {notificationsUnreadCount > 99 ? "99+" : notificationsUnreadCount}
+                    </span>
+                  )}
+                </Link>
+                <ThemeToggle />
+                <Button size="icon" variant="ghost" onClick={() => setEmailOpen(true)} aria-label="Compose email" data-testid="button-compose-email">
+                  <Mail className="w-4 h-4" />
+                </Button>
+              </div>
             </div>
           </header>
           <EmailComposer open={emailOpen} onClose={() => setEmailOpen(false)} />

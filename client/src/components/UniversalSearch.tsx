@@ -221,9 +221,9 @@ export default function UniversalSearch() {
   const shortcutHint = isMac ? "⌘K" : "Ctrl+K";
 
   return (
-    <div ref={containerRef} className="relative max-w-sm" onKeyDown={handleKeyDown}>
-      <div className="relative flex items-center gap-1">
-        <div className="relative flex-1">
+    <div ref={containerRef} className="relative min-w-0 max-w-[42vw] sm:max-w-sm" onKeyDown={handleKeyDown}>
+      <div className="relative flex items-center gap-1 min-w-0">
+        <div className="relative flex-1 min-w-0">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
           <Input
             ref={inputRef}
@@ -231,7 +231,7 @@ export default function UniversalSearch() {
             placeholder={`Search... ${shortcutHint}`}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            className="pl-8 pr-14"
+            className="pl-8 pr-14 min-w-0"
             aria-label="Search contacts, deals, tickets"
             aria-autocomplete="list"
             aria-controls={isOpen && !showAdvanced ? listboxId : undefined}

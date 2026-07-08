@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
+import { DataState } from "@/components/ui/data-state";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -88,9 +89,16 @@ export default function LeadImports() {
   const [expandedImport, setExpandedImport] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const { data: imports = [], isLoading: importsLoading } = useQuery<CsvImport[]>({
+  const {
+    data: importsRaw,
+    isLoading: importsLoading,
+    isError: importsError,
+    error: importsErrorObj,
+    refetch: refetchImports,
+  } = useQuery<CsvImport[]>({
     queryKey: ["/api/csv-imports"],
   });
+  const imports = Array.isArray(importsRaw) ? importsRaw : [];
 
   const { data: importStats } = useQuery<{
     totalImports: number;
@@ -406,6 +414,18 @@ export default function LeadImports() {
                     <TableCell><Skeleton className="h-4 w-24" /></TableCell>
                   </TableRow>
                 ))
+              ) : importsError ? (
+                <TableRow>
+                  <TableCell colSpan={11} className="p-0">
+                    <DataState
+                      query={{ isLoading: false, isError: true, error: importsErrorObj, refetch: refetchImports }}
+                      errorTitle="Failed to load import history"
+                      testId="lead-imports"
+                    >
+                      <></>
+                    </DataState>
+                  </TableCell>
+                </TableRow>
               ) : imports.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={11} className="text-center h-24 text-muted-foreground" data-testid="text-no-imports">
