@@ -1,0 +1,252 @@
+Required Rewrite for #828 — Sequence & Campaign Editor
+
+Verdict
+
+Do not build #828 as one task.
+
+Split into:
+
+828A — Shared Email Preview + Safe Body Editor
+828B — Campaign Step Editing Persistence
+828C — SDR/Campaign Template Content Backfill
+
+⸻
+
+828A — Shared Email Preview + Safe Body Editor
+
+What & Why
+
+Sequences and Campaigns currently expose stored HTML as raw tag soup. Add a safe write/preview editing experience and a shared preview modal without changing send logic, sequence activation, enrollment, compliance, or GHL sync.
+
+Done Looks Like
+
+* Sequence email/SMS body fields no longer default to unreadable raw HTML-only display.
+* Body editor has either:
+    * Write / Preview tabs, or
+    * a minimal rich-text editor if already available in the project.
+* Every step card has a Preview button.
+* Preview renders sanitized HTML with sample merge-tag values.
+* Preview clearly reflects the real send composition path.
+* No real sends occur.
+
+Critical Preview Accuracy Rule
+
+Do not show branding, logos, CTAs, or footers in preview unless they are actually part of what the recipient will receive.
+
+Allowed:
+
+Render stored body HTML
+Render sample signature/footer preview clearly labeled as preview-only
+Render compliance footer stub without real unsubscribe token
+
+Not allowed:
+
+Preview shows Liberty logo/header while actual email does not
+Preview generates real unsubscribe links client-side
+Preview lets users remove the send-time compliance footer
+Preview bakes CAN-SPAM footer into editable body content
+
+Security Guard
+
+Do not render unsanitized HTML directly.
+
+If using dangerouslySetInnerHTML, sanitize first with an existing sanitizer if available. If no sanitizer exists, use a constrained renderer or sandboxed preview approach.
+
+Kill line:
+
+STOP if untrusted/stored HTML can execute scripts in the dashboard preview.
+
+Merge Tag Preview
+
+Use sample values:
+
+{{firstName}} → Alex
+{{companyName}} → Your Business
+{{businessName}} → Your Business
+{{bookingLink}} → https://calendly.com/liberty-bancard/intro
+
+Escape sample values before insertion.
+
+Do Not Change
+
+sequence send logic
+GHL send logic
+unsubscribe/footer injection
+contactability
+daily cap
+global kill switch
+sequence activation policy
+GHL workflow sync
+
+⸻
+
+828B — Campaign Step Editing Persistence
+
+What & Why
+
+Campaign steps are currently effectively read-only. Add edit support for campaign step subject/body/delay using the same safe editor/preview pattern from 828A.
+
+Done Looks Like
+
+* Campaign step cards have Edit and Preview actions.
+* Edit opens inline form or modal.
+* Subject, body, and delay can be edited.
+* Save persists.
+* Reload confirms persistence.
+* No campaign send is triggered.
+* No GHL workflow is created or modified.
+
+API Guard
+
+Before building UI, verify the campaign step update endpoint exists.
+
+If it does not exist, add a minimal role-guarded update endpoint only for:
+
+subject
+body
+delay
+
+Do not add send, activate, enroll, or sync behavior.
+
+Role Guard
+
+Only roles already allowed to manage campaigns/sequences can edit.
+
+Kill line:
+
+STOP if agents gain new campaign/template editing permissions unintentionally.
+
+⸻
+
+828C — SDR/Campaign Template Content Backfill
+
+What & Why
+
+Backfill incomplete SDR vertical and campaign email templates with complete Liberty Bancard copy.
+
+Required Inventory First
+
+Before writing content, produce:
+
+SDR vertical sequences found:
+Steps per sequence:
+Empty/missing subject/body count:
+Campaign templates found:
+Campaign steps missing content:
+Active sequences affected:
+
+Backfill Safety
+
+Use a dry-run script first.
+
+Required behavior:
+
+export current templates before update
+show exact sequences/steps to be changed
+only update empty/incomplete known templates unless explicitly approved
+preserve existing user-edited copy
+do not activate sequences
+do not enroll contacts
+do not send emails
+
+Copy Rules
+
+Allowed value props:
+
+free savings analysis
+statement review
+transparent pricing
+no long-term contracts, only if true
+next-day funding, only if true for the merchant/program
+support for payment processing review
+
+Not allowed:
+
+guaranteed savings
+guaranteed approval
+unsupported chargeback claims
+unsupported processor claims
+fake average ticket/fee numbers
+medical/legal/compliance claims
+pressure tactics
+misleading subject lines
+
+Each email should include:
+
+vertical-specific pain point
+{{firstName}} or equivalent personalization
+{{companyName}} / {{businessName}}
+one clear CTA
+professional Liberty tone
+proper HTML formatting
+
+Branding Rule
+
+Choose one source of truth for the Liberty logo/header:
+
+Option A: stored template body includes logo/header
+Option B: actual send-time wrapper includes logo/header
+
+Do not do both.
+
+Do not make preview show a logo if the real sent email does not include it.
+
+Compliance Rule
+
+Do not place unsubscribe links or physical address directly into editable template bodies.
+
+Cold email compliance remains injected at send time by the #791 footer path.
+
+Kill line:
+
+STOP if users can remove CAN-SPAM unsubscribe/address compliance by editing template body content.
+
+⸻
+
+Global Kill Lines
+
+STOP if this task changes sequence activation, enrollment, contactability, GHL sync, daily caps, global pause, or unsubscribe logic.
+STOP if a preview shows a materially different email than what the recipient receives.
+STOP if raw stored HTML can execute JS in the dashboard.
+STOP if campaign edits trigger real sends.
+STOP if template backfill overwrites user-edited content without a dry-run diff.
+STOP if active sequences are modified without explicit warning/reporting.
+STOP if unsupported savings, approval, or fee claims are added.
+
+Validation
+
+Run:
+
+npx tsx scripts/smoke-role-guards.ts
+
+If global TypeScript still has unrelated legacy errors, report them and confirm touched files are clean.
+
+Manual checks:
+
+Sequence step body write/preview works
+Sequence preview opens and renders correctly
+Campaign step preview opens and renders correctly
+Campaign step edit saves and reloads
+Merge tags render sample values in preview
+Raw HTML is not the default rep-facing experience
+No real outbound sent
+No sequence activated
+No GHL workflow changed
+
+Final Report Required
+
+Return:
+
+828A implemented: yes/no
+828B implemented: yes/no
+828C implemented: yes/no
+Preview renderer location:
+HTML sanitization approach:
+Campaign edit endpoint used/added:
+Template dry-run count:
+Templates updated:
+Active sequences affected:
+Real outbound sent: yes/no
+Sequence/GHL/contactability logic changed: yes/no
+Validation commands run:
+Files changed:
