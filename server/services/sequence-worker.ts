@@ -5,6 +5,8 @@ import { createPreferenceAwareNotification } from "./digest-service";
 import { enrollContactInGhlWorkflow, tagContactForInboxOrganization } from "./ghl-workflow-enrollment";
 import { addNote as ghlAddNote, addTag as ghlAddTag, triggerWorkflow as ghlTriggerWorkflow, isSdrGhlConfigured } from "./sdr/ghl-client";
 import { getWorkflowEnvValue } from "./ghl-workflows";
+import { sendSmtpEmail, isSmtpConfigured } from "./smtp-email";
+import { generateUnsubscribeToken } from "./unsubscribe-token";
 import type { VoiceBotMode } from "./sdr/voice-orchestrator";
 import type { AbTestConfig, AbTestResults } from "@shared/schema";
 
@@ -514,7 +516,15 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
 
             const emailBody = interpolate(bodyToSend) + getEmailSignatureHtml("sales") + complianceFooter;
 
-            if (isGhlConfigured() && enrollment.contactId) {
+            // Cold outreach (bulk) sends prefer SMTP over the GHL Conversations API
+            // when SMTP is configured: GHL's /conversations/messages endpoint has no
+            // way to inject a List-Unsubscribe header, which real bulk senders need
+            // (Gmail/Yahoo require it, and it's best practice for CAN-SPAM bulk mail).
+            // Non-cold (transactional/relationship) sequences keep using GHL as before.
+            const useSmtpForThisStep =
+              isColdOutreachSequence(sequence) && isSmtpConfigured() && !!contact?.email;
+
+            if ((useSmtpForThisStep || isGhlConfigured()) && enrollment.contactId) {
               // ── Atomic cap reservation (cold outreach only) ───────────────────
               // Reserve a send slot via a single conditional upsert.  The WHERE
               // clause makes the increment a no-op when the cap is already reached,
@@ -578,11 +588,29 @@ export async function processSequenceEnrollments(): Promise<{ processed: number;
               }
 
               try {
-                await sendGhlEmail({
-                  contactId: enrollment.contactId,
-                  subject: interpolate(subjectToSend),
-                  body: emailBody,
-                });
+                if (useSmtpForThisStep && contact?.email) {
+                  const appUrlForToken = process.env.APP_URL;
+                  const token = generateUnsubscribeToken(enrollment.contactId);
+                  const unsubscribeUrl = appUrlForToken
+                    ? `${appUrlForToken}/unsubscribe?t=${encodeURIComponent(token)}`
+                    : undefined;
+                  const result = await sendSmtpEmail({
+                    to: contact.email,
+                    subject: interpolate(subjectToSend),
+                    html: emailBody,
+                    unsubscribeUrl,
+                    unsubscribeMailto: process.env.SMTP_FROM || process.env.SMTP_USER,
+                  });
+                  if (!result.success) {
+                    throw new Error(result.error || "SMTP send failed");
+                  }
+                } else {
+                  await sendGhlEmail({
+                    contactId: enrollment.contactId,
+                    subject: interpolate(subjectToSend),
+                    body: emailBody,
+                  });
+                }
                 stepExecuted = true;
               } catch (emailErr) {
                 console.error(`Sequence email failed for enrollment ${enrollment.id}:`, emailErr);

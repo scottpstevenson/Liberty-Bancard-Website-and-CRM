@@ -57,6 +57,14 @@ export async function sendSmtpEmail(params: {
   subject: string;
   html: string;
   from?: string;
+  /**
+   * Fully-qualified mailto: and/or https:// unsubscribe URLs for the
+   * List-Unsubscribe header (RFC 2369). Providing an https URL also enables
+   * one-click unsubscribe (RFC 8058) via List-Unsubscribe-Post, which Gmail
+   * and Yahoo require for bulk senders as of 2024.
+   */
+  unsubscribeMailto?: string;
+  unsubscribeUrl?: string;
 }): Promise<{ success: boolean; messageId?: string; error?: string }> {
   const transport = getTransporter();
   if (!transport) {
@@ -65,12 +73,25 @@ export async function sendSmtpEmail(params: {
 
   const fromAddress = params.from || process.env.SMTP_FROM || process.env.SMTP_USER || "support@libertybancard.com";
 
+  const listUnsubscribeParts: string[] = [];
+  if (params.unsubscribeMailto) listUnsubscribeParts.push(`<mailto:${params.unsubscribeMailto}>`);
+  if (params.unsubscribeUrl) listUnsubscribeParts.push(`<${params.unsubscribeUrl}>`);
+
+  const headers: Record<string, string> = {};
+  if (listUnsubscribeParts.length > 0) {
+    headers["List-Unsubscribe"] = listUnsubscribeParts.join(", ");
+  }
+  if (params.unsubscribeUrl) {
+    headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click";
+  }
+
   try {
     const info = await transport.sendMail({
       from: fromAddress,
       to: params.to,
       subject: params.subject,
       html: params.html,
+      ...(Object.keys(headers).length > 0 ? { headers } : {}),
     });
 
     console.log(`[SMTP] Email sent to ${params.to} — messageId: ${info.messageId}`);

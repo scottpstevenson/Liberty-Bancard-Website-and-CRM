@@ -2,7 +2,8 @@ import { storage } from "../storage";
 import type { Prospect, Campaign } from "@shared/schema";
 import OpenAI from "openai";
 import { sendGhlEmail, isGhlConfigured } from "./ghl";
-import { getEmailSignatureHtml } from "./email-signatures";
+import { getEmailSignatureHtml, getComplianceFooterHtml } from "./email-signatures";
+import { sendSmtpEmail, isSmtpConfigured } from "./smtp-email";
 import { logAiCall } from "./ai-audit-logger";
 
 function getOpenAI() {
@@ -160,7 +161,7 @@ export async function queueCampaignMessages(campaignId: number, maxToQueue?: num
 }
 
 export async function processSendQueue(maxToSend?: number): Promise<{ sent: number; failed: number }> {
-  if (!isGhlConfigured()) {
+  if (!isGhlConfigured() && !isSmtpConfigured()) {
     return { sent: 0, failed: 0 };
   }
 
@@ -218,10 +219,78 @@ export async function processSendQueue(maxToSend?: number): Promise<{ sent: numb
         body = personalized.body;
       }
 
-      const signature = getEmailSignatureHtml("sales", storedSig);
-      const bodyWithSig = body + signature;
+      // ── CAN-SPAM compliance footer + unsubscribe link ─────────────────────
+      // Campaign sends are bulk marketing email; every one needs a mailing
+      // address and a working unsubscribe link. We can only generate a valid
+      // unsubscribe token for prospects linked to a contact record, so
+      // prospects without a contactId are skipped rather than sent
+      // without a way to opt out.
+      if (!prospect.contactId) {
+        await storage.updateOutboundMessage(msg.id, { status: "skipped", error: "No linked contact (unsubscribe link unavailable)" });
+        await storage.createAuditLog({
+          actorType: "system",
+          action: "campaign_send_blocked_no_contact_link",
+          entityType: "prospect",
+          entityId: prospect.id,
+          details: { messageId: msg.id, reason: "prospect has no contactId; cannot generate unsubscribe link" },
+        });
+        continue;
+      }
 
-      await sendGhlEmail({ contactId: prospect.contactId || 0, subject, body: bodyWithSig });
+      const appUrl = process.env.APP_URL;
+      const mailingAddress = await storage.getSystemSetting("compliance_mailing_address") as string | null | undefined;
+      const testMode = process.env.TEST_MODE === "true";
+      let blockReason: string | null = null;
+      if (!mailingAddress) {
+        blockReason = "campaign_send_blocked_no_mailing_address";
+      } else if (!appUrl) {
+        blockReason = "campaign_send_blocked_no_unsubscribe_base_url";
+      } else {
+        try {
+          const { getUnsubscribeTokenSecret } = await import("./unsubscribe-token");
+          getUnsubscribeTokenSecret();
+        } catch {
+          if (!testMode) blockReason = "campaign_send_blocked_no_unsubscribe_secret";
+        }
+      }
+
+      if (blockReason) {
+        await storage.updateOutboundMessage(msg.id, { status: "failed", error: blockReason });
+        await storage.createAuditLog({
+          actorType: "system",
+          action: blockReason,
+          entityType: "prospect",
+          entityId: prospect.id,
+          details: { messageId: msg.id, reason: blockReason },
+        });
+        failed++;
+        continue;
+      }
+
+      const complianceFooter = getComplianceFooterHtml(prospect.contactId, mailingAddress!, appUrl!);
+      const signature = getEmailSignatureHtml("sales", storedSig);
+      const bodyWithSig = body + signature + complianceFooter;
+
+      // Prefer SMTP for bulk campaign sends when configured: GHL's
+      // /conversations/messages endpoint cannot inject a List-Unsubscribe
+      // header, which Gmail/Yahoo require for bulk senders.
+      if (isSmtpConfigured()) {
+        const { generateUnsubscribeToken } = await import("./unsubscribe-token");
+        const token = generateUnsubscribeToken(prospect.contactId);
+        const unsubscribeUrl = `${appUrl}/unsubscribe?t=${encodeURIComponent(token)}`;
+        const result = await sendSmtpEmail({
+          to: prospect.email!,
+          subject,
+          html: bodyWithSig,
+          unsubscribeUrl,
+          unsubscribeMailto: process.env.SMTP_FROM || process.env.SMTP_USER,
+        });
+        if (!result.success) {
+          throw new Error(result.error || "SMTP send failed");
+        }
+      } else {
+        await sendGhlEmail({ contactId: prospect.contactId, subject, body: bodyWithSig });
+      }
 
       await storage.updateOutboundMessage(msg.id, {
         status: "sent",
