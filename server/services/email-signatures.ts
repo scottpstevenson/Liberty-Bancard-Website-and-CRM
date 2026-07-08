@@ -122,7 +122,7 @@ export function getEmailSignaturePlainText(
   const quizUrl = buildLink(QUIZ_PATH, sig.refCode);
   const shopUrl = buildLink(SHOP_PATH, sig.refCode);
 
-  let text = `\n\nLiberty Bancard — https://libertybancard.com\n--\n${sig.name}\n${sig.title} | Liberty Bancard\n${sig.phone} | ${sig.email}`;
+  let text = `Liberty Bancard — https://libertybancard.com\n\n--\n${sig.name}\n${sig.title} | Liberty Bancard\n${sig.phone} | ${sig.email}`;
   if (sig.calendlyLink) text += `\nSchedule a Review: ${sig.calendlyLink}`;
   text += `\n\nGet Your Free Savings Analysis: ${quizUrl}`;
   text += `\nBrowse Terminals & Equipment: ${shopUrl}`;
