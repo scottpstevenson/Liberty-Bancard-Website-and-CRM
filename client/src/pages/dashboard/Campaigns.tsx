@@ -35,8 +35,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Send, Plus, Play, Pause, Trash2, Mail, Clock } from "lucide-react";
+import { Send, Plus, Play, Pause, Trash2, Mail, Clock, Pencil, Eye } from "lucide-react";
 import DashboardErrorState from "@/components/DashboardErrorState";
+import EmailPreviewModal, { EmailPreviewContent } from "@/components/EmailPreviewModal";
 import type { Campaign, CampaignStep, ProspectList } from "@shared/schema";
 
 const campaignFormSchema = z.object({
@@ -78,6 +79,12 @@ function getStatusBadgeClass(status: string | null | undefined) {
 function CampaignDetail({ campaign }: { campaign: Campaign }) {
   const { toast } = useToast();
   const [showStepForm, setShowStepForm] = useState(false);
+  const [editingStep, setEditingStep] = useState<CampaignStep | null>(null);
+  const [editSubject, setEditSubject] = useState("");
+  const [editBodyTemplate, setEditBodyTemplate] = useState("");
+  const [editDelayDays, setEditDelayDays] = useState(0);
+  const [editBodyTab, setEditBodyTab] = useState<"write" | "preview">("write");
+  const [previewStep, setPreviewStep] = useState<CampaignStep | null>(null);
 
   const { data: steps, isLoading: stepsLoading } = useQuery<CampaignStep[]>({
     queryKey: ["/api/campaigns", campaign.id, "steps"],
@@ -125,6 +132,20 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
     },
     onError: (err: Error) => {
       toast({ title: "Failed to delete step", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const updateStepMutation = useMutation({
+    mutationFn: async ({ stepId, subject, bodyTemplate, delayDays }: { stepId: number; subject: string; bodyTemplate: string; delayDays: number }) => {
+      await apiRequest("PUT", `/api/campaign-steps/${stepId}`, { subject, bodyTemplate, delayDays });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaign.id, "steps"] });
+      toast({ title: "Step updated", description: "Campaign step has been saved." });
+      setEditingStep(null);
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to update step", description: err.message, variant: "destructive" });
     },
   });
 
@@ -204,8 +225,8 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
         ) : steps && steps.length > 0 ? (
           <div className="space-y-2">
             {steps.map((step) => (
+              <div key={step.id}>
               <div
-                key={step.id}
                 className="flex flex-wrap items-center gap-3 p-3 rounded-md border bg-muted/30"
                 data-testid={`step-item-${step.id}`}
               >
@@ -226,17 +247,135 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
                 {step.subject ? (
                   <span className="text-sm text-muted-foreground truncate max-w-[200px]">{step.subject}</span>
                 ) : null}
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="ml-auto"
-                  aria-label="Delete step"
-                  onClick={() => deleteStepMutation.mutate(step.id)}
-                  disabled={deleteStepMutation.isPending}
-                  data-testid={`button-delete-step-${step.id}`}
-                >
-                  <Trash2 className="w-4 h-4" />
-                </Button>
+                <div className="ml-auto flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Preview step"
+                    onClick={() => setPreviewStep(step)}
+                    data-testid={`button-preview-step-${step.id}`}
+                  >
+                    <Eye className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Edit step"
+                    onClick={() => {
+                      if (editingStep?.id === step.id) {
+                        setEditingStep(null);
+                      } else {
+                        setEditingStep(step);
+                        setEditSubject(step.subject ?? "");
+                        setEditBodyTemplate(step.bodyTemplate ?? "");
+                        setEditDelayDays(step.delayDays ?? 0);
+                        setEditBodyTab("write");
+                      }
+                    }}
+                    data-testid={`button-edit-step-${step.id}`}
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Delete step"
+                    onClick={() => deleteStepMutation.mutate(step.id)}
+                    disabled={deleteStepMutation.isPending}
+                    data-testid={`button-delete-step-${step.id}`}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+              {editingStep?.id === step.id && (
+                <div className="mt-2 p-3 rounded-md border bg-background space-y-3">
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide" htmlFor={`edit-subject-${step.id}`}>
+                      Subject
+                    </label>
+                    <Input
+                      id={`edit-subject-${step.id}`}
+                      value={editSubject}
+                      onChange={(e) => setEditSubject(e.target.value)}
+                      data-testid={`input-edit-subject-${step.id}`}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                        Body Template
+                      </label>
+                      <div className="flex rounded border overflow-hidden text-xs">
+                        <button
+                          type="button"
+                          onClick={() => setEditBodyTab("write")}
+                          className={`px-3 py-1 ${editBodyTab === "write" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted"}`}
+                          data-testid={`button-body-tab-write-${step.id}`}
+                        >
+                          Write
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditBodyTab("preview")}
+                          className={`px-3 py-1 ${editBodyTab === "preview" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted"}`}
+                          data-testid={`button-body-tab-preview-${step.id}`}
+                        >
+                          Preview
+                        </button>
+                      </div>
+                    </div>
+                    {editBodyTab === "write" ? (
+                      <Textarea
+                        id={`edit-body-${step.id}`}
+                        value={editBodyTemplate}
+                        onChange={(e) => setEditBodyTemplate(e.target.value)}
+                        rows={5}
+                        data-testid={`textarea-edit-body-${step.id}`}
+                      />
+                    ) : (
+                      <div className="rounded border bg-background p-2 min-h-[120px]" data-testid={`preview-body-content-${step.id}`}>
+                        <EmailPreviewContent
+                          subject={editSubject}
+                          body={editBodyTemplate}
+                          showComplianceNotice={false}
+                        />
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide" htmlFor={`edit-delay-${step.id}`}>
+                      Delay (days)
+                    </label>
+                    <Input
+                      id={`edit-delay-${step.id}`}
+                      type="number"
+                      min={0}
+                      value={editDelayDays}
+                      onChange={(e) => setEditDelayDays(Number(e.target.value))}
+                      data-testid={`input-edit-delay-${step.id}`}
+                    />
+                  </div>
+                  <div className="flex gap-2 justify-end">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setEditingStep(null)}
+                      data-testid={`button-cancel-edit-step-${step.id}`}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={updateStepMutation.isPending}
+                      onClick={() => updateStepMutation.mutate({ stepId: step.id, subject: editSubject, bodyTemplate: editBodyTemplate, delayDays: editDelayDays })}
+                      data-testid={`button-save-edit-step-${step.id}`}
+                    >
+                      {updateStepMutation.isPending ? "Saving..." : "Save"}
+                    </Button>
+                  </div>
+                </div>
+              )}
               </div>
             ))}
           </div>
@@ -375,6 +514,13 @@ function CampaignDetail({ campaign }: { campaign: Campaign }) {
           </Card>
         )}
       </div>
+
+      <EmailPreviewModal
+        open={!!previewStep}
+        onOpenChange={(o) => { if (!o) setPreviewStep(null); }}
+        subject={previewStep?.subject ?? ""}
+        body={previewStep?.bodyTemplate ?? ""}
+      />
     </div>
   );
 }

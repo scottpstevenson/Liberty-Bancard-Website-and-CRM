@@ -96,9 +96,17 @@ export function registerCampaignsRoutes(app: Express) {
     }
   });
 
+  const updateCampaignStepSchema = z.object({
+    subject: z.string().trim().max(500).optional(),
+    bodyTemplate: z.string().max(50000).optional(),
+    delayDays: z.coerce.number().int().min(0).optional(),
+  });
+
   app.put("/api/campaign-steps/:id", isAuthenticated, async (req, res) => {
     try {
-      const updated = await storage.updateCampaignStep(Number(req.params.id), req.body);
+      const parsed = updateCampaignStepSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: parsed.error.errors[0].message });
+      const updated = await storage.updateCampaignStep(Number(req.params.id), parsed.data);
       if (!updated) return res.status(404).json({ message: "Step not found" });
       res.json(updated);
     } catch (err: any) {
