@@ -18,8 +18,9 @@ import {
   Plus, Trash2, Loader2, Play, Pause, Mail, MessageSquare, Phone,
   CheckSquare, Clock, ChevronDown, ChevronUp, Users, Zap, Send, ArrowDown,
   Target, BarChart3, FlaskConical, Pencil, AlertTriangle, Tag, ShieldCheck,
-  Radio, Filter, Link2, Link2Off, HelpCircle,
+  Radio, Filter, Link2, Link2Off, HelpCircle, Eye,
 } from "lucide-react";
+import EmailPreviewModal, { EmailPreviewContent } from "@/components/EmailPreviewModal";
 
 interface ABTestConfig {
   splitRatio: number;
@@ -149,6 +150,7 @@ export default function Sequences() {
   const [enrollDealId, setEnrollDealId] = useState("");
   const [activatingSeq, setActivatingSeq] = useState<any | null>(null);
   const [activateChecks, setActivateChecks] = useState<boolean[]>([false, false, false]);
+  const [bodyPreviewTab, setBodyPreviewTab] = useState<Record<number, "write" | "preview">>({});
 
   useEffect(() => {
     if (activatingSeq !== null) {
@@ -916,13 +918,44 @@ export default function Sequences() {
                               />
                             </div>
                             {step.actionType === "email" && (
-                              <Textarea
-                                placeholder="Email body... Use {{firstName}}, {{companyName}} for personalization"
-                                value={step.body || ""}
-                                onChange={e => updateStep(index, { body: e.target.value })}
-                                className="min-h-[80px]"
-                                data-testid={`input-step-body-${index}`}
-                              />
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => setBodyPreviewTab(prev => ({ ...prev, [index]: "write" }))}
+                                    className={`text-xs px-2 py-0.5 rounded border transition-colors ${(bodyPreviewTab[index] ?? "write") === "write" ? "bg-primary text-primary-foreground border-primary" : "bg-muted text-muted-foreground border-transparent hover:border-border"}`}
+                                    data-testid={`tab-write-${index}`}
+                                  >
+                                    Write
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setBodyPreviewTab(prev => ({ ...prev, [index]: "preview" }))}
+                                    className={`text-xs px-2 py-0.5 rounded border transition-colors flex items-center gap-1 ${(bodyPreviewTab[index] ?? "write") === "preview" ? "bg-primary text-primary-foreground border-primary" : "bg-muted text-muted-foreground border-transparent hover:border-border"}`}
+                                    data-testid={`tab-preview-${index}`}
+                                  >
+                                    <Eye className="w-3 h-3" /> Preview
+                                  </button>
+                                </div>
+                                {(bodyPreviewTab[index] ?? "write") === "write" ? (
+                                  <Textarea
+                                    placeholder="Email body... Use {{firstName}}, {{companyName}} for personalization"
+                                    value={step.body || ""}
+                                    onChange={e => updateStep(index, { body: e.target.value })}
+                                    className="min-h-[80px]"
+                                    data-testid={`input-step-body-${index}`}
+                                  />
+                                ) : (
+                                  <div className="rounded border p-2 bg-muted/20 min-h-[80px]">
+                                    <EmailPreviewContent
+                                      subject={step.subject}
+                                      body={step.body || ""}
+                                      contentType="html"
+                                      showComplianceNotice={false}
+                                    />
+                                  </div>
+                                )}
+                              </div>
                             )}
                           </div>
                         )}
@@ -930,13 +963,43 @@ export default function Sequences() {
                         {step.actionType === "sms" && (
                           <div className="space-y-2">
                             <Label className="text-xs text-muted-foreground block">Variant A (Primary)</Label>
-                            <Textarea
-                              placeholder="SMS message... Use {{firstName}} for personalization"
-                              value={step.body || ""}
-                              onChange={e => updateStep(index, { body: e.target.value })}
-                              className="min-h-[60px]"
-                              data-testid={`input-step-sms-${index}`}
-                            />
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => setBodyPreviewTab(prev => ({ ...prev, [index]: "write" }))}
+                                  className={`text-xs px-2 py-0.5 rounded border transition-colors ${(bodyPreviewTab[index] ?? "write") === "write" ? "bg-primary text-primary-foreground border-primary" : "bg-muted text-muted-foreground border-transparent hover:border-border"}`}
+                                  data-testid={`tab-write-${index}`}
+                                >
+                                  Write
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setBodyPreviewTab(prev => ({ ...prev, [index]: "preview" }))}
+                                  className={`text-xs px-2 py-0.5 rounded border transition-colors flex items-center gap-1 ${(bodyPreviewTab[index] ?? "write") === "preview" ? "bg-primary text-primary-foreground border-primary" : "bg-muted text-muted-foreground border-transparent hover:border-border"}`}
+                                  data-testid={`tab-preview-${index}`}
+                                >
+                                  <Eye className="w-3 h-3" /> Preview
+                                </button>
+                              </div>
+                              {(bodyPreviewTab[index] ?? "write") === "write" ? (
+                                <Textarea
+                                  placeholder="SMS message... Use {{firstName}} for personalization"
+                                  value={step.body || ""}
+                                  onChange={e => updateStep(index, { body: e.target.value })}
+                                  className="min-h-[60px]"
+                                  data-testid={`input-step-sms-${index}`}
+                                />
+                              ) : (
+                                <div className="rounded border p-2 bg-muted/20 min-h-[60px]">
+                                  <EmailPreviewContent
+                                    body={step.body || ""}
+                                    contentType="text"
+                                    showComplianceNotice={false}
+                                  />
+                                </div>
+                              )}
+                            </div>
                           </div>
                         )}
 
@@ -1310,10 +1373,22 @@ function SequenceStepsView({ sequenceId, enrollments }: { sequenceId: number; en
 
   const contactMap = new Map((contacts || []).map((c: any) => [c.id, c]));
 
+  const [previewStep, setPreviewStep] = useState<any | null>(null);
+
   if (isLoading) return <Skeleton className="h-20 mt-4" />;
 
   return (
     <div className="mt-4 space-y-4">
+      {previewStep && (
+        <EmailPreviewModal
+          open={!!previewStep}
+          onOpenChange={(open) => { if (!open) setPreviewStep(null); }}
+          subject={previewStep.subject || ""}
+          body={previewStep.body || ""}
+          contentType={previewStep.actionType === "sms" ? "text" : "html"}
+        />
+      )}
+
       <div>
         <h4 className="text-sm font-semibold mb-2">Steps Timeline</h4>
         {(!steps || steps.length === 0) ? (
@@ -1324,10 +1399,11 @@ function SequenceStepsView({ sequenceId, enrollments }: { sequenceId: number; en
               const StepIcon = stepIcon(step.actionType);
               const hasABTest = !!(step.abTestConfig && (step.variantBSubject || step.variantBBody));
               const abResults = step.abTestResults as any;
+              const canPreview = true;
               return (
                 <div key={step.id} className="space-y-1" data-testid={`view-step-${step.id}`}>
                   <div className="flex items-center gap-3 py-1.5">
-                    <div className="flex items-center gap-2 min-w-0">
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
                       <Badge variant="outline" className="text-xs shrink-0">{i + 1}</Badge>
                       <StepIcon className="w-4 h-4 shrink-0 text-muted-foreground" />
                       <span className="text-sm font-medium">{stepLabel(step.actionType)}</span>
@@ -1352,6 +1428,18 @@ function SequenceStepsView({ sequenceId, enrollments }: { sequenceId: number; en
                       <Badge variant="default" className="text-xs shrink-0 bg-green-600">
                         Winner: {abResults.winnerSelected}
                       </Badge>
+                    )}
+                    {canPreview && (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        aria-label="Preview step content"
+                        onClick={() => setPreviewStep(step)}
+                        className="h-6 w-6 shrink-0"
+                        data-testid={`button-preview-step-${step.id}`}
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                      </Button>
                     )}
                   </div>
                   {hasABTest && abResults && (
